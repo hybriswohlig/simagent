@@ -251,6 +251,15 @@ fn check_scans(root: &Path) -> Result {
             }
         }
     }
+    for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
+        let is_hash_module = file.file_name().is_some_and(|name| name == "hash.rs");
+        if !is_hash_module && scan::mentions_identifier(&read(&file)?, "xxhash_rust") {
+            problems.push(format!(
+                "{}: xxhash_rust outside sim-core/src/hash.rs (ADR-0003 S5)",
+                relative(root, &file)
+            ));
+        }
+    }
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);

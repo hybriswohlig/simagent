@@ -17,7 +17,7 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 3] = ["sim-core", "sim-math", "libm"];
+pub const CORE_ALLOWED: [&str; 4] = ["sim-core", "sim-math", "libm", "xxhash-rust"];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
 pub const TOOL_ALLOWED: [&str; 7] = [
@@ -53,12 +53,15 @@ pub const DEV_ALLOWED: [&str; 15] = [
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
-pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 0] = [];
+pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 1] = [("xxhash-rust", &["xxh3"])];
 
 /// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
-/// depend on it directly, the exact version requirement, and the features it may enable.
-/// Default features must be off.
-pub const PINNED: [(&str, &str, &str, &[&str]); 1] = [("libm", "sim-math", "=0.2.16", &[])];
+/// depend on it directly, the exact version requirement, and exactly the features it
+/// enables. Default features must be off.
+pub const PINNED: [(&str, &str, &str, &[&str]); 2] = [
+    ("libm", "sim-math", "=0.2.16", &[]),
+    ("xxhash-rust", "sim-core", "=0.8.19", &["xxh3"]),
+];
 
 /// Crates that must not declare Cargo features of their own (ADR-0000).
 pub const NO_OWN_FEATURES: [&str; 2] = ["sim-math", "sim-core"];
@@ -241,12 +244,14 @@ fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
                     "{dependent} must use {package} with default-features = false (ADR-0003)"
                 ));
             }
-            for feature in &spec.features {
-                if !features.contains(feature) {
-                    violations.push(format!(
-                        "{dependent} enables feature {feature} of {package} (ADR-0003)"
-                    ));
-                }
+            let mut declared = spec.features.clone();
+            declared.sort_unstable();
+            let mut expected = features.to_vec();
+            expected.sort_unstable();
+            if declared != expected {
+                violations.push(format!(
+                    "{dependent} enables features {declared:?} of {package}; it must enable exactly {expected:?} (ADR-0003)"
+                ));
             }
         }
     }
@@ -414,6 +419,7 @@ mod tests {
             };
             for name in MEMBERS.into_iter().chain([
                 "libm",
+                "xxhash-rust",
                 "serde_json",
                 "serde_core",
                 "itoa",
@@ -425,6 +431,9 @@ mod tests {
             fixture
                 .dep("sim-math", "libm", None)
                 .spec("sim-math", "libm", "=0.2.16", false, &[])
+                .dep("sim-core", "xxhash-rust", None)
+                .spec("sim-core", "xxhash-rust", "=0.8.19", false, &["xxh3"])
+                .resolved("xxhash-rust", &["xxh3"])
                 .dep("sim-core", "sim-math", None)
                 .dep("sim-cli", "sim-core", None)
                 .dep("xtask", "serde_json", None)
@@ -685,6 +694,49 @@ mod tests {
             &["arch"],
         );
         assert_reports(fixture, "arch");
+    }
+
+    fn without_spec(fixture: Fixture, package: &str) -> Fixture {
+        let mut fixture = fixture;
+        fixture.specs.retain(|(_, to, ..)| to != package);
+        fixture
+    }
+
+    #[test]
+    fn xxhash_rust_may_only_be_a_dependency_of_sim_core() {
+        let fixture = Fixture::workspace()
+            .dep("sim-cli", "xxhash-rust", None)
+            .spec("sim-cli", "xxhash-rust", "=0.8.19", false, &["xxh3"]);
+        assert_reports(
+            fixture,
+            "xxhash-rust may only be a direct dependency of sim-core",
+        );
+    }
+
+    #[test]
+    fn xxhash_rust_enables_exactly_xxh3() {
+        let missing = without_spec(Fixture::workspace(), "xxhash-rust").spec(
+            "sim-core",
+            "xxhash-rust",
+            "=0.8.19",
+            false,
+            &[],
+        );
+        assert_reports(missing, "must enable exactly");
+        let extra = without_spec(Fixture::workspace(), "xxhash-rust").spec(
+            "sim-core",
+            "xxhash-rust",
+            "=0.8.19",
+            false,
+            &["xxh3", "xxh64"],
+        );
+        assert_reports(extra, "must enable exactly");
+    }
+
+    #[test]
+    fn resolved_xxhash_features_beyond_xxh3_are_reported() {
+        let fixture = Fixture::workspace().resolved("xxhash-rust", &["xxh3", "std"]);
+        assert_reports(fixture, "feature std of xxhash-rust");
     }
 
     #[test]
