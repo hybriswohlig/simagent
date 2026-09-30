@@ -195,8 +195,13 @@ fn attribute_at(text: &str) -> &str {
 }
 
 /// True if `ident` occurs as an identifier in the code (strings and comments ignored).
-pub fn mentions_identifier(_source: &str, _ident: &str) -> bool {
-    false
+pub fn mentions_identifier(source: &str, ident: &str) -> bool {
+    let code = mask_non_code(source);
+    code.match_indices(ident).any(|(start, _)| {
+        let before = code[..start].chars().next_back();
+        let after = code[start + ident.len()..].chars().next();
+        !before.is_some_and(is_identifier_char) && !after.is_some_and(is_identifier_char)
+    })
 }
 
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.

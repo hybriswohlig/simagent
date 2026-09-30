@@ -17,7 +17,7 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 3] = ["sim-core", "sim-math", "libm"];
+pub const CORE_ALLOWED: [&str; 4] = ["sim-core", "sim-math", "libm", "xxhash-rust"];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
 pub const TOOL_ALLOWED: [&str; 7] = [
@@ -53,7 +53,7 @@ pub const DEV_ALLOWED: [&str; 15] = [
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
-pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 0] = [];
+pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 1] = [("xxhash-rust", &["xxh3"])];
 
 /// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
 /// depend on it directly, the exact version requirement, and exactly the features it
@@ -244,12 +244,14 @@ fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
                     "{dependent} must use {package} with default-features = false (ADR-0003)"
                 ));
             }
-            for feature in &spec.features {
-                if !features.contains(feature) {
-                    violations.push(format!(
-                        "{dependent} enables feature {feature} of {package} (ADR-0003)"
-                    ));
-                }
+            let mut declared = spec.features.clone();
+            declared.sort_unstable();
+            let mut expected = features.to_vec();
+            expected.sort_unstable();
+            if declared != expected {
+                violations.push(format!(
+                    "{dependent} enables features {declared:?} of {package}; it must enable exactly {expected:?} (ADR-0003)"
+                ));
             }
         }
     }

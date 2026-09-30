@@ -20,8 +20,15 @@ pub enum DataIdError {
 }
 
 impl DataId {
-    pub fn new(_text: &str) -> Result<DataId, DataIdError> {
-        Ok(DataId(String::new()))
+    pub fn new(text: &str) -> Result<DataId, DataIdError> {
+        if text.len() > MAX_DATA_ID_LEN {
+            return Err(DataIdError::TooLong);
+        }
+        let (namespace, name) = text.split_once(':').ok_or(DataIdError::NoNamespace)?;
+        if !is_part(namespace) || !is_part(name) {
+            return Err(DataIdError::BadPart);
+        }
+        Ok(DataId(String::from(text)))
     }
 
     pub fn as_str(&self) -> &str {
@@ -29,10 +36,17 @@ impl DataId {
     }
 }
 
+/// `[a-z][a-z0-9_]*`
+fn is_part(part: &str) -> bool {
+    let mut bytes = part.bytes();
+    bytes.next().is_some_and(|first| first.is_ascii_lowercase())
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// The 64-bit key of a data ID: `stable_hash64` over its UTF-8 bytes (ADR-0004). The
 /// only hash for data IDs; ADR-0001 uses it for random keys.
-pub fn str_key(_id: &DataId) -> u64 {
-    0
+pub fn str_key(id: &DataId) -> u64 {
+    crate::hash::stable_hash64(id.0.as_bytes())
 }
 
 #[cfg(test)]
