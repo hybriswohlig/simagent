@@ -238,8 +238,8 @@ impl<P: Payload, M: Clone> Scheduler<P, M> {
         self.queue.len()
     }
 
-    pub fn pending_key(&self, _handle: EventHandle) -> Option<EventKey> {
-        None
+    pub fn pending_key(&self, handle: EventHandle) -> Option<EventKey> {
+        self.index.get(&handle.0).copied()
     }
 
     pub fn pending_handle_time(&self, handle: EventHandle) -> Option<SimTime> {
@@ -250,37 +250,170 @@ impl<P: Payload, M: Clone> Scheduler<P, M> {
         &self.stats
     }
 
-    /// Runs every event up to and including `limit` in key order.
+    /// Runs every event up to and including `limit` in key order; the only function
+    /// that moves the clock. Afterwards `closed_through = limit`, unless `stop` (checked
+    /// after each second with events, never inside a second) ends the run early.
+    #[track_caller]
     pub fn advance_until<H: Handler<P, M>>(
         &mut self,
-        _h: &mut H,
-        _out: &mut H::Out,
-        _limit: SimTime,
-        _stop: &mut dyn FnMut(&H) -> bool,
+        h: &mut H,
+        out: &mut H::Out,
+        limit: SimTime,
+        stop: &mut dyn FnMut(&H) -> bool,
     ) -> AdvanceOutcome {
+        if limit < self.closed_through {
+            panic!("invariant scheduler.clock_backwards");
+        }
+        while let Some(second) = self.next_time().filter(|&time| time <= limit) {
+            // Entering the second: everything before it is closed.
+            self.closed_through = second - SimDuration::from_secs(1);
+            while let Some(fired) = self.pop_next(second) {
+                self.stats.count(fired.key.class, fired.key.kind);
+                if fired.key.phase == 0 {
+                    self.stats.domain_calls += 1;
+                    self.stats.contexts += 1;
+                    let current = Some(fired.key);
+                    let mut ctx = Ctx {
+                        sched: self,
+                        now: second,
+                        current,
+                    };
+                    h.on_domain(fired, &mut ctx);
+                } else {
+                    self.stats.observer_calls += 1;
+                    h.on_observer(&fired, self, out);
+                }
+            }
+            self.closed_through = second;
+            if stop(h) {
+                return AdvanceOutcome::Stopped { second };
+            }
+        }
+        self.closed_through = limit;
         AdvanceOutcome::ReachedLimit
+    }
+
+    fn next_time(&self) -> Option<SimTime> {
+        self.queue.first_key_value().map(|(key, _)| key.time)
+    }
+
+    /// Takes the next event of `second`. A periodic series gets its next occurrence
+    /// (same insertion number, same companion data) before its handler runs.
+    fn pop_next(&mut self, second: SimTime) -> Option<Fired<P, M>> {
+        if self.next_time()? != second {
+            return None;
+        }
+        let (key, entry) = self.queue.pop_first()?;
+        self.index.remove(&key.seq);
+        if let Some(period) = entry.period {
+            let next = EventKey {
+                time: key.time + period,
+                micro: 0,
+                ..key
+            };
+            self.queue.insert(next, entry.clone());
+            self.index.insert(key.seq, next);
+        }
+        Some(Fired {
+            key,
+            handle: EventHandle(key.seq),
+            payload: entry.payload,
+            meta: entry.meta,
+        })
     }
 
     /// Context for applying an input: no triggering event, `now` is the first open
     /// second. In sim-core only `World::submit` calls this (ADR-0004).
     pub fn input_ctx(&mut self) -> Ctx<'_, P, M> {
+        self.stats.contexts += 1;
         Ctx {
-            now: self.closed_through,
+            now: self.closed_through + SimDuration::from_secs(1),
             current: None,
             sched: self,
         }
     }
 
+    /// The queue as plain data in key order. Taken between two calls of
+    /// `advance_until`, every pending event has micro step 0.
     pub fn snapshot(&self) -> SchedulerSnapshot<P, M> {
+        let entries = self
+            .queue
+            .iter()
+            .map(|(key, entry)| SnapshotEntry {
+                time: key.time,
+                micro: key.micro,
+                seq: key.seq,
+                payload: entry.payload.clone(),
+                period: entry.period,
+                meta: entry.meta.clone(),
+            })
+            .collect();
         SchedulerSnapshot {
             closed_through: self.closed_through,
             next_seq: self.next_seq,
-            entries: Vec::new(),
+            entries,
         }
     }
 
-    pub fn restore(_snapshot: SchedulerSnapshot<P, M>) -> Result<Self, LoadError> {
-        Ok(Self::new())
+    /// Rebuilds a scheduler from a snapshot; keys are recomputed from the payloads.
+    pub fn restore(snapshot: SchedulerSnapshot<P, M>) -> Result<Self, LoadError> {
+        let mut sched = Scheduler {
+            closed_through: snapshot.closed_through,
+            next_seq: snapshot.next_seq,
+            queue: BTreeMap::new(),
+            index: BTreeMap::new(),
+            stats: RunStats::default(),
+        };
+        let mut previous: Option<EventKey> = None;
+        for entry in snapshot.entries {
+            if entry.micro != 0 {
+                return Err(LoadError::MicroNotZero);
+            }
+            if entry.time <= snapshot.closed_through {
+                return Err(LoadError::NotInFuture);
+            }
+            if entry.seq >= snapshot.next_seq {
+                return Err(LoadError::SeqNotBelowNext);
+            }
+            if entry
+                .period
+                .is_some_and(|period| period < SimDuration::from_secs(1))
+            {
+                return Err(LoadError::PeriodTooShort);
+            }
+            let class = entry.payload.class();
+            let key = EventKey {
+                time: entry.time,
+                phase: class.phase(),
+                micro: 0,
+                class,
+                subject: entry.payload.subject(),
+                kind: entry.payload.kind(),
+                seq: entry.seq,
+            };
+            if previous.is_some_and(|previous| previous >= key) {
+                return Err(LoadError::NotAscending);
+            }
+            if sched.index.insert(entry.seq, key).is_some() {
+                return Err(LoadError::DuplicateSeq);
+            }
+            sched.queue.insert(
+                key,
+                Entry {
+                    payload: entry.payload,
+                    period: entry.period,
+                    meta: entry.meta,
+                },
+            );
+            previous = Some(key);
+        }
+        Ok(sched)
+    }
+}
+
+impl RunStats {
+    fn count(&mut self, class: EventClass, kind: EventKind) {
+        *self.events.entry((class.0, kind.0)).or_insert(0) += 1;
     }
 }
 
@@ -302,26 +435,107 @@ impl<P: Payload, M: Clone> Ctx<'_, P, M> {
         self.current
     }
 
-    pub fn schedule(&mut self, _at: SimTime, _payload: P, _meta: M) -> EventHandle {
-        let _ = &self.sched;
-        EventHandle(0)
+    /// Plans an event. In a handler of second t: before t, or at t in an earlier
+    /// phase, is `scheduler.schedule_in_past`; at t in the same phase it runs in the next
+    /// micro step. In the input context nothing may be planned before `now`.
+    #[track_caller]
+    pub fn schedule(&mut self, at: SimTime, payload: P, meta: M) -> EventHandle {
+        self.insert(at, payload, None, meta)
     }
 
+    /// Plans a periodic series (a tick). One handle stands for the whole series.
+    #[track_caller]
     pub fn schedule_periodic(
         &mut self,
-        _first: SimTime,
-        _period: SimDuration,
-        _payload: P,
-        _meta: M,
+        first: SimTime,
+        period: SimDuration,
+        payload: P,
+        meta: M,
     ) -> EventHandle {
-        EventHandle(0)
+        if period < SimDuration::from_secs(1) {
+            panic!("invariant scheduler.period_too_short");
+        }
+        self.insert(first, payload, Some(period), meta)
     }
 
-    pub fn cancel(&mut self, _handle: EventHandle) -> bool {
-        false
+    /// Removes a pending event (or the pending occurrence of a series, which ends it).
+    /// `false` if it has already run or was cancelled.
+    pub fn cancel(&mut self, handle: EventHandle) -> bool {
+        match self.sched.index.remove(&handle.0) {
+            Some(key) => {
+                self.sched.queue.remove(&key);
+                true
+            }
+            None => false,
+        }
     }
 
-    pub fn reschedule(&mut self, handle: EventHandle, _at: SimTime, _meta: M) -> EventHandle {
-        handle
+    /// Cancels a pending event and plans it anew at `at` with the same payload and
+    /// period under a new handle.
+    #[track_caller]
+    pub fn reschedule(&mut self, handle: EventHandle, at: SimTime, meta: M) -> EventHandle {
+        let Some(key) = self.sched.index.remove(&handle.0) else {
+            panic!("invariant scheduler.reschedule_not_pending");
+        };
+        let Some(entry) = self.sched.queue.remove(&key) else {
+            panic!("invariant scheduler.index_consistent");
+        };
+        self.insert(at, entry.payload, entry.period, meta)
+    }
+
+    #[track_caller]
+    fn insert(
+        &mut self,
+        at: SimTime,
+        payload: P,
+        period: Option<SimDuration>,
+        meta: M,
+    ) -> EventHandle {
+        let class = payload.class();
+        let micro = self.micro_step_for(at, class.phase());
+        let seq = self.sched.next_seq;
+        self.sched.next_seq += 1;
+        let key = EventKey {
+            time: at,
+            phase: class.phase(),
+            micro,
+            class,
+            subject: payload.subject(),
+            kind: payload.kind(),
+            seq,
+        };
+        self.sched.queue.insert(
+            key,
+            Entry {
+                payload,
+                period,
+                meta,
+            },
+        );
+        self.sched.index.insert(seq, key);
+        EventHandle(seq)
+    }
+
+    #[track_caller]
+    fn micro_step_for(&self, at: SimTime, phase: u8) -> u16 {
+        let Some(trigger) = self.current else {
+            if at < self.now {
+                panic!("invariant input_schedules_past");
+            }
+            return 0;
+        };
+        match (at.cmp(&trigger.time), phase.cmp(&trigger.phase)) {
+            (Ordering::Less, _) | (Ordering::Equal, Ordering::Less) => {
+                panic!("invariant scheduler.schedule_in_past")
+            }
+            (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => 0,
+            (Ordering::Equal, Ordering::Equal) => {
+                let micro = trigger.micro + 1;
+                if micro > MAX_MICRO_STEP {
+                    panic!("invariant scheduler.cascade_limit (trigger {trigger:?})");
+                }
+                micro
+            }
+        }
     }
 }
