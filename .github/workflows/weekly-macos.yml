@@ -1,0 +1,25 @@
+# Weekly gate on macOS arm64 (ADR-0000, ADR-0003): the third supported target. Not a
+# required check; daily work on the Mac is covered by the pre-push hook.
+name: weekly-macos
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate (macos-15)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustc --version
+      - name: Gate
+        run: cargo xtask ci

@@ -9,25 +9,42 @@ pub const STAND_MD_MAX_LINES: usize = 50;
 /// Compiler flags that may change floating point results (ADR-0003, AT4).
 pub const FORBIDDEN_FLAGS: [&str; 3] = ["target-cpu", "target-feature", "llvm-args"];
 
+/// Path fragments of folders synced by iCloud Drive.
+const ICLOUD_MARKERS: [&str; 3] = [
+    "/Library/Mobile Documents/",
+    "/iCloud Drive/",
+    "com~apple~CloudDocs",
+];
+
 /// True if the path lies in a folder synced by iCloud Drive (ADR-0000: iCloud once
 /// emptied source files and created duplicates in CapLab).
-pub fn is_icloud_path(_path: &str) -> bool {
-    false
+pub fn is_icloud_path(path: &str) -> bool {
+    ICLOUD_MARKERS.iter().any(|marker| path.contains(marker))
 }
 
-/// The forbidden flags that occur in `text` (environment value or config file).
-pub fn forbidden_flags_in(_text: &str) -> Vec<&'static str> {
-    Vec::new()
+/// The forbidden flags that occur in `text` (environment value or config file), in the
+/// order of `FORBIDDEN_FLAGS`.
+pub fn forbidden_flags_in(text: &str) -> Vec<&'static str> {
+    FORBIDDEN_FLAGS
+        .into_iter()
+        .filter(|flag| text.contains(flag))
+        .collect()
 }
 
 /// Root file names that are markdown but not on the allow list.
-pub fn unexpected_root_markdown(_names: &[&str]) -> Vec<String> {
-    Vec::new()
+pub fn unexpected_root_markdown(names: &[&str]) -> Vec<String> {
+    names
+        .iter()
+        .filter(|name| name.to_ascii_lowercase().ends_with(".md"))
+        .filter(|name| !ROOT_MARKDOWN_ALLOWED.contains(name))
+        .map(|name| (*name).to_string())
+        .collect()
 }
 
 /// Error message if `text` has more than `max` lines.
-pub fn line_limit_violation(_name: &str, _text: &str, _max: usize) -> Option<String> {
-    None
+pub fn line_limit_violation(name: &str, text: &str, max: usize) -> Option<String> {
+    let lines = text.lines().count();
+    (lines > max).then(|| format!("{name} has {lines} lines, the limit is {max} (ADR-0000)"))
 }
 
 #[cfg(test)]
@@ -50,7 +67,9 @@ mod tests {
             vec!["target-cpu"]
         );
         assert_eq!(
-            forbidden_flags_in("rustflags = [\"-C\", \"target-feature=+fma\", \"-C\", \"llvm-args=-x\"]"),
+            forbidden_flags_in(
+                "rustflags = [\"-C\", \"target-feature=+fma\", \"-C\", \"llvm-args=-x\"]"
+            ),
             vec!["target-feature", "llvm-args"]
         );
         assert!(forbidden_flags_in("-D warnings").is_empty());
