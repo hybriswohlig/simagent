@@ -14,16 +14,65 @@ pub use scheduler::{
     SnapshotEntry,
 };
 
+use core::fmt;
 use core::ops::{Add, Mul, Sub};
+
+use serde::{Deserialize, Serialize};
 
 /// A point in simulation time: whole seconds since scenario start. Founders are born
 /// before the start, so negative values are normal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "i64", into = "i64")]
 pub struct SimTime(i64);
 
 /// A span of simulation time in whole seconds; negative for differences.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "i64", into = "i64")]
 pub struct SimDuration(i64);
+
+/// A number of seconds outside +-`MAX_ABS_SECS` where a time was expected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeOutOfRange;
+
+impl fmt::Display for TimeOutOfRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("time.out_of_range")
+    }
+}
+
+impl TryFrom<i64> for SimTime {
+    type Error = TimeOutOfRange;
+    fn try_from(secs: i64) -> Result<SimTime, TimeOutOfRange> {
+        if in_range(secs) {
+            Ok(SimTime(secs))
+        } else {
+            Err(TimeOutOfRange)
+        }
+    }
+}
+
+impl From<SimTime> for i64 {
+    fn from(t: SimTime) -> i64 {
+        t.0
+    }
+}
+
+impl TryFrom<i64> for SimDuration {
+    type Error = TimeOutOfRange;
+    fn try_from(secs: i64) -> Result<SimDuration, TimeOutOfRange> {
+        if in_range(secs) {
+            Ok(SimDuration(secs))
+        } else {
+            Err(TimeOutOfRange)
+        }
+    }
+}
+
+impl From<SimDuration> for i64 {
+    fn from(d: SimDuration) -> i64 {
+        d.0
+    }
+}
 
 pub const MINUTE: SimDuration = SimDuration(60);
 pub const HOUR: SimDuration = SimDuration(60 * MINUTE.0);

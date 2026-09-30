@@ -15,4 +15,8 @@ extern crate std;
 
 pub mod data_id;
 pub mod hash;
+pub mod hex_u64;
+pub mod ids;
+pub mod input;
+pub mod log;
 pub mod time;
