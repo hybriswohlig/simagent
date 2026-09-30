@@ -3,6 +3,7 @@
 //! guard and belongs in its own commit with a five-line report (ADR-0000).
 
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Exact list of workspace members. A new crate needs an ADR and an entry here.
 pub const MEMBERS: [&str; 4] = ["sim-math", "sim-core", "sim-cli", "xtask"];
@@ -54,8 +55,241 @@ pub const NEVER: [&str; 9] = [
 
 /// All violations of the architecture rules in `metadata` (output of
 /// `cargo metadata --format-version 1`).
-pub fn check(_metadata: &Value) -> Vec<String> {
-    Vec::new()
+pub fn check(metadata: &Value) -> Vec<String> {
+    let graph = match Graph::parse(metadata) {
+        Ok(graph) => graph,
+        Err(message) => return vec![format!("cargo metadata: {message}")],
+    };
+    let mut violations = Vec::new();
+    check_members(&graph, &mut violations);
+    let mut normal_union = BTreeSet::new();
+    for &member in &graph.members {
+        let name = graph.name(member);
+        check_member_edges(&graph, member, &mut violations);
+        let closure = graph.closure(&[member]);
+        for &package in &closure {
+            check_closure_package(name, graph.name(package), &mut violations);
+        }
+        normal_union.extend(closure);
+    }
+    for &member in &graph.members {
+        check_dev_graph(&graph, member, &normal_union, &mut violations);
+    }
+    if let Some(core) = graph.member_named("sim-core") {
+        let mut core_closure = graph.closure(&[core]);
+        core_closure.insert(core);
+        for package in core_closure {
+            check_core_features(
+                graph.name(package),
+                graph.resolved(package),
+                &mut violations,
+            );
+        }
+    }
+    for (id, declared) in &graph.declared {
+        let name = graph.name(id);
+        if NO_OWN_FEATURES.contains(&name) && !declared.is_empty() {
+            violations.push(format!(
+                "{name} declares own features ({}); the core has none (ADR-0000)",
+                declared.join(", ")
+            ));
+        }
+    }
+    violations
+}
+
+fn check_members(graph: &Graph, violations: &mut Vec<String>) {
+    let actual: BTreeSet<&str> = graph.members.iter().map(|id| graph.name(id)).collect();
+    for name in &actual {
+        if !MEMBERS.contains(name) {
+            violations.push(format!(
+                "unknown workspace member {name}: a new crate needs an ADR and an entry in xtask/src/arch.rs"
+            ));
+        }
+    }
+    for name in MEMBERS {
+        if !actual.contains(name) {
+            violations.push(format!("workspace member {name} is missing"));
+        }
+    }
+}
+
+fn check_member_edges(graph: &Graph, member: &str, violations: &mut Vec<String>) {
+    let name = graph.name(member);
+    let allowed: &[&str] = EDGES
+        .iter()
+        .find(|(from, _)| *from == name)
+        .map_or(&[], |(_, to)| *to);
+    for &(dep, normal) in graph.edges(member) {
+        let dep_name = graph.name(dep);
+        if normal && graph.members.contains(&dep) && !allowed.contains(&dep_name) {
+            violations.push(format!("edge {name} -> {dep_name} is not allowed (EDGES)"));
+        }
+    }
+}
+
+fn check_closure_package(member: &str, package: &str, violations: &mut Vec<String>) {
+    if NEVER.contains(&package) {
+        violations.push(format!(
+            "{package} is in the closure of {member} (never list)"
+        ));
+    }
+    let core_member = member == "sim-core" || member == "sim-math";
+    if core_member && !CORE_ALLOWED.contains(&package) {
+        violations.push(format!(
+            "{package} is in the closure of {member} but not on the core positive list"
+        ));
+    } else if !core_member && !CORE_ALLOWED.contains(&package) && !TOOL_ALLOWED.contains(&package) {
+        violations.push(format!(
+            "{package} is in the closure of {member} but not on the positive list"
+        ));
+    }
+}
+
+fn check_dev_graph(
+    graph: &Graph,
+    member: &str,
+    normal_union: &BTreeSet<&str>,
+    violations: &mut Vec<String>,
+) {
+    let dev_roots: Vec<&str> = graph
+        .edges(member)
+        .iter()
+        .filter(|(_, normal)| !normal)
+        .map(|(dep, _)| *dep)
+        .collect();
+    let mut dev_graph = graph.closure(&dev_roots);
+    dev_graph.extend(dev_roots);
+    for package in dev_graph {
+        let package_name = graph.name(package);
+        let known = normal_union.contains(package) || graph.members.contains(&package);
+        if !known && !DEV_ALLOWED.contains(&package_name) {
+            violations.push(format!(
+                "{package_name} is a dev dependency of {} but not on the dev list",
+                graph.name(member)
+            ));
+        }
+    }
+}
+
+fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<String>) {
+    let allowed: &[&str] = CORE_FEATURES_ALLOWED
+        .iter()
+        .find(|(name, _)| *name == package)
+        .map_or(&[], |(_, features)| *features);
+    for feature in resolved {
+        if !allowed.contains(feature) {
+            violations.push(format!(
+                "feature {feature} of {package} is resolved in the core closure"
+            ));
+        }
+    }
+}
+
+/// The parts of `cargo metadata` the rules need, keyed by package id.
+struct Graph<'a> {
+    names: BTreeMap<&'a str, &'a str>,
+    declared: BTreeMap<&'a str, Vec<&'a str>>,
+    /// Dependency edges; `true` for normal or build, `false` for dev only.
+    edges: BTreeMap<&'a str, Vec<(&'a str, bool)>>,
+    resolved: BTreeMap<&'a str, Vec<&'a str>>,
+    members: Vec<&'a str>,
+}
+
+impl<'a> Graph<'a> {
+    fn parse(metadata: &'a Value) -> Result<Self, String> {
+        let mut graph = Graph {
+            names: BTreeMap::new(),
+            declared: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            resolved: BTreeMap::new(),
+            members: Vec::new(),
+        };
+        for package in array(metadata, "packages")? {
+            let id = string(package, "id")?;
+            graph.names.insert(id, string(package, "name")?);
+            let declared = package
+                .get("features")
+                .and_then(Value::as_object)
+                .map(|features| features.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            graph.declared.insert(id, declared);
+        }
+        for member in array(metadata, "workspace_members")? {
+            graph
+                .members
+                .push(member.as_str().ok_or("workspace member is not a string")?);
+        }
+        let resolve = metadata.get("resolve").ok_or("no resolve graph")?;
+        for node in array(resolve, "nodes")? {
+            let id = string(node, "id")?;
+            let mut edges = Vec::new();
+            for dep in array(node, "deps")? {
+                let kinds = array(dep, "dep_kinds")?;
+                let normal = kinds
+                    .iter()
+                    .any(|kind| kind.get("kind").and_then(Value::as_str) != Some("dev"));
+                edges.push((string(dep, "pkg")?, normal));
+            }
+            graph.edges.insert(id, edges);
+            let resolved = array(node, "features")?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            graph.resolved.insert(id, resolved);
+        }
+        Ok(graph)
+    }
+
+    fn name(&self, id: &str) -> &'a str {
+        self.names.get(id).copied().unwrap_or("<unknown package>")
+    }
+
+    fn member_named(&self, name: &str) -> Option<&'a str> {
+        self.members
+            .iter()
+            .copied()
+            .find(|id| self.name(id) == name)
+    }
+
+    fn edges(&self, id: &str) -> &[(&'a str, bool)] {
+        self.edges.get(id).map_or(&[], Vec::as_slice)
+    }
+
+    fn resolved(&self, id: &str) -> &[&'a str] {
+        self.resolved.get(id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Packages reachable from `roots` over normal and build edges, without the roots.
+    fn closure(&self, roots: &[&'a str]) -> BTreeSet<&'a str> {
+        let mut seen = BTreeSet::new();
+        let mut stack: Vec<&'a str> = roots.to_vec();
+        while let Some(id) = stack.pop() {
+            for &(dep, normal) in self.edges(id) {
+                if normal && seen.insert(dep) {
+                    stack.push(dep);
+                }
+            }
+        }
+        for root in roots {
+            seen.remove(root);
+        }
+        seen
+    }
+}
+
+fn array<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("field {key} is missing or not an array"))
+}
+
+fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("field {key} is missing or not a string"))
 }
 
 #[cfg(test)]
