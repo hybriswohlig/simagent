@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+# Explicit list: a new crate needs an edit here (protected, ADR-0000).
+members = [
+    "crates/sim-math",
+    "crates/sim-core",
+    "crates/sim-cli",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+publish = false
+
+# Central lint levels (ADR-0000, ADR-0002, ADR-0003, ADR-0004). Every crate inherits
+# them with `[lints] workspace = true`. `forbid` so that a local `#[allow]` cannot
+# switch a guard off.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+private_interfaces = "forbid"
+
+[workspace.lints.clippy]
+disallowed_types = "forbid"
+disallowed_methods = "forbid"
+as_conversions = "forbid"
+
+# Debug and release must never differ in overflow behaviour (ADR-0000, B21).
+[profile.release]
+overflow-checks = true

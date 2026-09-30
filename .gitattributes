@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Files whose bytes feed hashes, goldens or codegen always use LF (ADR-0000).
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+tests/golden/** text eol=lf
+data/** text eol=lf
+contracts/** text eol=lf

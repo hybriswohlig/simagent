@@ -1,0 +1,8 @@
+# Pinned toolchain (ADR-0000). A toolchain update is its own commit and must leave
+# every golden file unchanged.
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+# Target without std: proves that sim-core and sim-math do not use std (ADR-0000).
+targets = ["wasm32v1-none"]

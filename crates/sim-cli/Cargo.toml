@@ -1,0 +1,18 @@
+[package]
+name = "sim-cli"
+description = "Command line runner for SimAgent: scenarios, export, time measurement (never gameplay)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "simagent"
+path = "src/main.rs"
+
+[dependencies]
+sim-core = { path = "../sim-core" }
+
+[lints]
+workspace = true
