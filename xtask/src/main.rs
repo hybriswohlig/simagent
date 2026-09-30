@@ -1,7 +1,9 @@
 //! Project automation (ADR-0000). `cargo xtask ci` is the gate: the CI, the pre-push
 //! hook and every agent run exactly this command.
 
+mod arch;
 mod checks;
+mod scan;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
