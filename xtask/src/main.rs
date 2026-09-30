@@ -1,7 +1,9 @@
 //! Project automation (ADR-0000). `cargo xtask ci` is the gate: the CI, the pre-push
 //! hook and every agent run exactly this command.
 
+mod arch;
 mod checks;
+mod scan;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -9,6 +11,13 @@ use std::process::{Command, ExitCode};
 /// Target without std: building the core for it proves the core does not use std.
 const NO_STD_TARGET: &str = "wasm32v1-none";
 const NO_STD_CRATES: [&str; 2] = ["sim-math", "sim-core"];
+/// Targets with a determinism promise (ADR-0003) plus the no-std barrier target.
+const SUPPORTED_TARGETS: [&str; 4] = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    NO_STD_TARGET,
+];
 /// Environment variables through which compiler flags reach rustc.
 const FLAG_VARIABLES: [&str; 3] = [
     "RUSTFLAGS",
@@ -50,6 +59,8 @@ fn gate(require_clean_tree: bool) -> Result {
     }
     step("compiler flags", || check_compiler_flags(&root))?;
     step("document limits", || check_document_limits(&root))?;
+    step("architecture", || check_architecture(&root))?;
+    step("scans", || check_scans(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
         cargo(
@@ -182,9 +193,136 @@ fn check_document_limits(root: &Path) -> Result {
     }
 }
 
+/// Checks the dependency graph once per supported target. Without `--filter-platform`
+/// cargo metadata lists the superset over all platforms, including dependencies behind
+/// never-true cfgs such as serde_core's `cfg(any())` coupling to serde_derive.
+fn check_architecture(root: &Path) -> Result {
+    let mut violations = std::collections::BTreeSet::new();
+    for target in SUPPORTED_TARGETS {
+        let output = Command::new(cargo_program())
+            .args(["metadata", "--format-version", "1", "--locked"])
+            .args(["--filter-platform", target])
+            .current_dir(root)
+            .output()
+            .map_err(|error| format!("cannot run cargo metadata: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "cargo metadata failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("cannot parse cargo metadata: {error}"))?;
+        for violation in arch::check(&metadata) {
+            violations.insert(format!("[{target}] {violation}"));
+        }
+    }
+    let violations: Vec<String> = violations.into_iter().collect();
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", violations.join("\n  ")))
+    }
+}
+
+fn check_scans(root: &Path) -> Result {
+    let mut problems = Vec::new();
+    for krate in NO_STD_CRATES {
+        for file in rust_files(&member_dir(root, krate).join("src"))? {
+            for line in scan::extern_std_outside_test(&read(&file)?) {
+                problems.push(format!(
+                    "{}:{line}: extern crate std outside #[cfg(test)]",
+                    relative(root, &file)
+                ));
+            }
+        }
+    }
+    let mut reference: Option<(&str, String)> = None;
+    for member in arch::MEMBERS {
+        let dir = member_dir(root, member);
+        for file in rust_files(&dir)? {
+            for attribute in scan::guarded_allows(&read(&file)?) {
+                problems.push(format!(
+                    "{}: {attribute} (the lint stays forbid)",
+                    relative(root, &file)
+                ));
+            }
+        }
+        if !scan::inherits_workspace_lints(&read(&dir.join("Cargo.toml"))?) {
+            problems.push(format!(
+                "{member}: Cargo.toml does not inherit the workspace lints"
+            ));
+        }
+        match (
+            scan::common_block(&read(&dir.join("clippy.toml"))?),
+            &reference,
+        ) {
+            (None, _) => problems.push(format!("{member}: clippy.toml has no common block")),
+            (Some(block), None) => reference = Some((member, block)),
+            (Some(block), Some((first, common))) if block != *common => problems.push(format!(
+                "{member}: common block of clippy.toml differs from {first}"
+            )),
+            (Some(_), Some(_)) => {}
+        }
+    }
+    for lint in scan::lints_not_forbidden(&read(&root.join("Cargo.toml"))?) {
+        problems.push(format!("{lint} is not forbid in [workspace.lints]"));
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", problems.join("\n  ")))
+    }
+}
+
+fn member_dir(root: &Path, member: &str) -> PathBuf {
+    if member == "xtask" {
+        root.join("xtask")
+    } else {
+        root.join("crates").join(member)
+    }
+}
+
+/// All `.rs` files below `dir`, sorted, without `target` directories.
+fn rust_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|error| format!("cannot list {}: {error}", current.display()))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|error| format!("cannot read {}: {error}", current.display()))?
+                .path();
+            if path.is_dir() && path.file_name().is_some_and(|name| name != "target") {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn read(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+fn relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn cargo_program() -> String {
+    std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
+}
+
 fn cargo(root: &Path, args: &[&str]) -> Result {
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
+    let status = Command::new(cargo_program())
         .args(args)
         .current_dir(root)
         .status()

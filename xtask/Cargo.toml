@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Parses `cargo metadata` for the architecture test (ADR-0000).
+serde_json = "1"
 
 [lints]
 workspace = true
