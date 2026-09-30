@@ -641,6 +641,89 @@ mod tests {
         assert_eq!(check(&metadata, Some(&built)), Vec::<String>::new());
     }
 
+    /// Every package of the workspace fixture, as `cargo tree` would list them.
+    fn built_workspace() -> BTreeSet<String> {
+        let names = [
+            "libm",
+            "xxhash-rust",
+            "serde_json",
+            "serde_core",
+            "itoa",
+            "memchr",
+            "zmij",
+        ];
+        MEMBERS.into_iter().chain(names).map(String::from).collect()
+    }
+
+    fn assert_build_set_reports(fixture: Fixture, built: &BTreeSet<String>, needle: &str) {
+        let found = check(&fixture.build(), Some(built));
+        assert!(
+            found.iter().any(|v| v.contains(needle)),
+            "expected a violation mentioning {needle:?}, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn the_workspace_with_its_build_set_is_clean() {
+        let found = check(&Fixture::workspace().build(), Some(&built_workspace()));
+        assert_eq!(found, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_empty_build_set_is_a_violation() {
+        assert_build_set_reports(
+            Fixture::workspace(),
+            &BTreeSet::new(),
+            "sim-core is in cargo metadata but cargo tree does not build it",
+        );
+    }
+
+    #[test]
+    fn a_package_missing_from_the_build_set_must_be_on_the_not_built_list() {
+        let fixture = Fixture::workspace()
+            .package("left-pad", &[])
+            .dep("sim-core", "left-pad", None);
+        assert_build_set_reports(
+            fixture,
+            &built_workspace(),
+            "left-pad is in cargo metadata but cargo tree does not build it",
+        );
+    }
+
+    #[test]
+    fn a_never_package_cannot_hide_behind_the_build_set() {
+        let fixture = Fixture::workspace()
+            .package("rand", &[])
+            .dep("sim-core", "rand", None);
+        assert_build_set_reports(fixture, &built_workspace(), "rand is in cargo metadata");
+    }
+
+    #[test]
+    fn a_not_built_entry_that_is_built_is_stale() {
+        let fixture =
+            Fixture::workspace()
+                .package("embedded-io", &[])
+                .dep("sim-core", "embedded-io", None);
+        let mut built = built_workspace();
+        built.insert("embedded-io".to_string());
+        assert_build_set_reports(
+            fixture,
+            &built,
+            "embedded-io is on the not-built list but cargo tree builds it",
+        );
+    }
+
+    #[test]
+    fn the_build_set_must_come_from_the_same_graph() {
+        let mut built = built_workspace();
+        built.insert("warning:".to_string());
+        assert_build_set_reports(
+            Fixture::workspace(),
+            &built,
+            "cargo tree builds warning:, which cargo metadata does not list",
+        );
+    }
+
     fn assert_reports(fixture: Fixture, needle: &str) {
         let found = violations(fixture);
         assert!(

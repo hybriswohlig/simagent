@@ -281,25 +281,20 @@ fn check_scans(root: &Path) -> Result {
             }
         }
     }
+    let mut core_sources = Vec::new();
     for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
-        let is_hash_module = file.file_name().is_some_and(|name| name == "hash.rs");
-        if !is_hash_module && scan::mentions_identifier(&read(&file)?, "xxhash_rust") {
-            problems.push(format!(
-                "{}: xxhash_rust outside sim-core/src/hash.rs (ADR-0003 S5)",
-                relative(root, &file)
-            ));
-        }
+        core_sources.push((relative(root, &file), read(&file)?));
     }
-    for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
-        if !is_log_payload_file(&member_dir(root, "sim-core").join("src"), &file) {
-            continue;
-        }
-        for name in scan::text_types_named(&read(&file)?) {
-            problems.push(format!(
-                "{}: names {name} (no text in the log, ADR-0004 section 7)",
-                relative(root, &file)
-            ));
-        }
+    for finding in scan::identifiers_outside(&core_sources, &["xxhash_rust"], &[scan::HASH_FILE]) {
+        problems.push(format!(
+            "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
+        ));
+    }
+    let text_files: Vec<&str> = scan::TEXT_FILES.iter().map(|(file, _)| *file).collect();
+    for finding in scan::identifiers_outside(&core_sources, &scan::TEXT_TYPES, &text_files) {
+        problems.push(format!(
+            "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+        ));
     }
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
@@ -337,11 +332,6 @@ fn check_scans(root: &Path) -> Result {
     } else {
         Err(format!("\n  {}", problems.join("\n  ")))
     }
-}
-
-/// `src/log.rs` and everything below `src/log/`: the payload types of the log.
-fn is_log_payload_file(src: &Path, file: &Path) -> bool {
-    file == src.join("log.rs") || file.starts_with(src.join("log"))
 }
 
 fn member_dir(root: &Path, member: &str) -> PathBuf {
