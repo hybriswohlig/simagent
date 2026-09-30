@@ -30,8 +30,26 @@ pub const TOOL_ALLOWED: [&str; 7] = [
     "zmij",
 ];
 
-/// Packages allowed only in the test graph (reached through dev-dependencies).
-pub const DEV_ALLOWED: [&str; 0] = [];
+/// Packages allowed only in the test graph (reached through dev-dependencies): proptest
+/// with default features off and only `std` (step 2c). rand and getrandom are banned in
+/// the normal graph but allowed here: every proptest runs with a fixed seed (ADR-0001).
+pub const DEV_ALLOWED: [&str; 15] = [
+    "proptest",
+    "rand",
+    "rand_core",
+    "rand_chacha",
+    "rand_xorshift",
+    "getrandom",
+    "libc",
+    "cfg-if",
+    "ppv-lite86",
+    "zerocopy",
+    "num-traits",
+    "autocfg",
+    "bitflags",
+    "regex-syntax",
+    "unarray",
+];
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
@@ -192,8 +210,14 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
     }
 }
 
+/// Checks the manifests of the workspace members only: third-party crates may declare
+/// libm themselves (num-traits does, optionally); what they change in the build shows
+/// up in the resolved features of the core closure.
 fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
     for (id, specs) in &graph.specs {
+        if !graph.members.contains(id) {
+            continue;
+        }
         let dependent = graph.name(id);
         for spec in specs {
             let Some((package, owner, requirement, features)) =
@@ -607,11 +631,16 @@ mod tests {
 
     #[test]
     fn dev_dependencies_need_their_own_list() {
-        let fixture =
-            Fixture::workspace()
-                .package("proptest", &[])
-                .dep("sim-core", "proptest", Some("dev"));
-        assert_reports(fixture, "proptest");
+        // proptest is on the dev list since step 2c; criterion is not.
+        let fixture = Fixture::workspace().package("criterion", &[]).dep(
+            "sim-core",
+            "criterion",
+            Some("dev"),
+        );
+        assert_reports(
+            fixture,
+            "criterion is a dev dependency of sim-core but not on the dev list",
+        );
     }
 
     fn without_libm_spec(fixture: Fixture) -> Fixture {
@@ -656,6 +685,19 @@ mod tests {
             &["arch"],
         );
         assert_reports(fixture, "arch");
+    }
+
+    #[test]
+    fn third_party_libm_declarations_are_left_to_the_feature_check() {
+        let fixture = Fixture::workspace().package("num-traits", &[]).spec(
+            "num-traits",
+            "libm",
+            "^0.2.0",
+            true,
+            &[],
+        );
+        let found = violations(fixture);
+        assert!(found.iter().all(|v| !v.contains("num-traits")), "{found:?}");
     }
 
     #[test]

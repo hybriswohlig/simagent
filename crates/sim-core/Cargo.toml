@@ -10,5 +10,9 @@ publish.workspace = true
 [dependencies]
 sim-math = { path = "../sim-math" }
 
+[dev-dependencies]
+# Model-based and property tests with a fixed seed (ADR-0001, ADR-0002). Test graph only.
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true
