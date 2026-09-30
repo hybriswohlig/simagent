@@ -110,6 +110,23 @@ mod tests {
         let _ = SimDuration::from_years_ceil(-NEVER_YEARS);
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 20_000,
+            rng_seed: proptest::test_runner::RngSeed::Fixed(0x5c4e_d02b),
+            failure_persistence: None,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        /// ADR-0002: for |d| below `NEVER_YEARS` the round trip gives `d` or `d + 1 s`.
+        #[test]
+        fn year_conversion_round_trip_property(s in -(99_999 * 31_449_600_i64)..=(99_999 * 31_449_600_i64)) {
+            let d = secs(s);
+            let back = SimDuration::from_years_ceil(d.as_years()).expect("below never");
+            proptest::prop_assert!(back == d || back == d + secs(1), "round trip of {} s gave {} s", s, back.as_secs());
+        }
+    }
+
     /// For |d| below `NEVER_YEARS` the round trip gives `d` or `d + 1 s`, never less.
     #[test]
     fn the_round_trip_never_goes_back() {
