@@ -211,8 +211,10 @@ pub const TEXT_TYPES: [&str; 3] = ["String", "str", "Cow"];
 
 /// The entries of `TEXT_TYPES` that occur as identifiers in the code.
 pub fn text_types_named(source: &str) -> Vec<&'static str> {
-    let _ = (source, TEXT_TYPES);
-    Vec::new()
+    TEXT_TYPES
+        .into_iter()
+        .filter(|name| mentions_identifier(source, name))
+        .collect()
 }
 
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.
