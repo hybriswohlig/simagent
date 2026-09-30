@@ -68,6 +68,9 @@ impl Causes {
 impl TryFrom<Vec<Cause>> for Causes {
     type Error = EmptyCauses;
     fn try_from(causes: Vec<Cause>) -> Result<Causes, EmptyCauses> {
+        if causes.is_empty() {
+            return Err(EmptyCauses);
+        }
         Ok(Causes(causes))
     }
 }

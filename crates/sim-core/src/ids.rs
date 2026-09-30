@@ -21,8 +21,10 @@ impl fmt::Display for IdOutOfRange {
 }
 
 fn checked(value: u64) -> Result<NonZeroU64, IdOutOfRange> {
-    let _ = MAX_JS_SAFE;
-    NonZeroU64::new(value.max(1)).ok_or(IdOutOfRange)
+    if value > MAX_JS_SAFE {
+        return Err(IdOutOfRange);
+    }
+    NonZeroU64::new(value).ok_or(IdOutOfRange)
 }
 
 macro_rules! entity_id {
@@ -99,9 +101,11 @@ impl Counter {
 
     #[track_caller]
     pub(crate) fn allocate(&mut self) -> NonZeroU64 {
-        let value = self.next;
+        let Ok(value) = checked(self.next) else {
+            panic!("invariant counter_exceeds_js_safe: next {}", self.next);
+        };
         self.next += 1;
-        NonZeroU64::new(value).unwrap_or(NonZeroU64::MIN)
+        value
     }
 
     pub(crate) fn allocate_sim(&mut self) -> SimId {

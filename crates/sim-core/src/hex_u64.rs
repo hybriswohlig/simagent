@@ -28,5 +28,9 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D:
 
 /// Exactly 16 lowercase hex digits.
 pub fn parse(text: &str) -> Option<u64> {
+    let lower_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    if text.len() != 16 || !text.bytes().all(lower_hex) {
+        return None;
+    }
     u64::from_str_radix(text, 16).ok()
 }
