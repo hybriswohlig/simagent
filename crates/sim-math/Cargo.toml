@@ -1,0 +1,13 @@
+[package]
+name = "sim-math"
+description = "Deterministic nonlinear math for SimAgent; the only crate allowed to call libm (ADR-0003)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

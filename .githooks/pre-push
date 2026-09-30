@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs the gate before every push (ADR-0000); covers macOS arm64 between the weekly
+# CI runs. Enable once per clone:
+#   git config core.hooksPath .githooks
+# The gate requires a clean working tree, so commit or stash first.
+exec cargo xtask ci

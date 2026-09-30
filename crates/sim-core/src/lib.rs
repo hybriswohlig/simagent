@@ -1,0 +1,14 @@
+//! SimAgent simulation core.
+//!
+//! The core owns all gameplay and the clock. It has no std, no wall clock, no threads,
+//! no files and no engine types; the CI builds it for `wasm32v1-none` to prove that
+//! (ADR-0000). Time only advances through the scheduler (ADR-0002), randomness only
+//! through addressed draws (ADR-0001), nonlinear math only through `sim_math`
+//! (ADR-0003). The modules arrive in the order of HANDOFF §9.
+
+#![no_std]
+
+extern crate alloc;
+
+#[cfg(test)]
+extern crate std;
