@@ -37,6 +37,11 @@ pub const DEV_ALLOWED: [&str; 0] = [];
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
 pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 0] = [];
 
+/// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
+/// depend on it directly, the exact version requirement, and the features it may enable.
+/// Default features must be off.
+pub const PINNED: [(&str, &str, &str, &[&str]); 1] = [("libm", "sim-math", "=0.2.16", &[])];
+
 /// Crates that must not declare Cargo features of their own (ADR-0000).
 pub const NO_OWN_FEATURES: [&str; 2] = ["sim-math", "sim-core"];
 
@@ -86,6 +91,7 @@ pub fn check(metadata: &Value) -> Vec<String> {
             );
         }
     }
+    check_pinned(&graph, &mut violations);
     for (id, declared) in &graph.declared {
         let name = graph.name(id);
         if NO_OWN_FEATURES.contains(&name) && !declared.is_empty() {
@@ -186,6 +192,16 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
     }
 }
 
+fn check_pinned(_graph: &Graph, _violations: &mut Vec<String>) {}
+
+/// A dependency as declared in a package manifest.
+struct Spec<'a> {
+    name: &'a str,
+    requirement: &'a str,
+    default_features: bool,
+    features: Vec<&'a str>,
+}
+
 /// The parts of `cargo metadata` the rules need, keyed by package id.
 struct Graph<'a> {
     names: BTreeMap<&'a str, &'a str>,
@@ -193,6 +209,8 @@ struct Graph<'a> {
     /// Dependency edges; `true` for normal or build, `false` for dev only.
     edges: BTreeMap<&'a str, Vec<(&'a str, bool)>>,
     resolved: BTreeMap<&'a str, Vec<&'a str>>,
+    /// Declared dependencies per package (only needed for `PINNED`).
+    specs: BTreeMap<&'a str, Vec<Spec<'a>>>,
     members: Vec<&'a str>,
 }
 
@@ -203,6 +221,7 @@ impl<'a> Graph<'a> {
             declared: BTreeMap::new(),
             edges: BTreeMap::new(),
             resolved: BTreeMap::new(),
+            specs: BTreeMap::new(),
             members: Vec::new(),
         };
         for package in array(metadata, "packages")? {
@@ -214,6 +233,23 @@ impl<'a> Graph<'a> {
                 .map(|features| features.keys().map(String::as_str).collect())
                 .unwrap_or_default();
             graph.declared.insert(id, declared);
+            let mut specs = Vec::new();
+            let declared_deps = package.get("dependencies").and_then(Value::as_array);
+            for dep in declared_deps.into_iter().flatten() {
+                specs.push(Spec {
+                    name: string(dep, "name")?,
+                    requirement: string(dep, "req")?,
+                    default_features: dep
+                        .get("uses_default_features")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true),
+                    features: array(dep, "features")?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect(),
+                });
+            }
+            graph.specs.insert(id, specs);
         }
         for member in array(metadata, "workspace_members")? {
             graph
@@ -303,6 +339,8 @@ mod tests {
         packages: Vec<(String, Vec<String>)>,
         deps: Vec<(String, String, Option<&'static str>)>,
         features: Vec<(String, Vec<String>)>,
+        /// Declared dependencies: (from, to, requirement, default features, features).
+        specs: Vec<(String, String, String, bool, Vec<String>)>,
         members: Option<Vec<String>>,
     }
 
@@ -313,16 +351,22 @@ mod tests {
                 packages: Vec::new(),
                 deps: Vec::new(),
                 features: Vec::new(),
+                specs: Vec::new(),
                 members: None,
             };
-            for name in
-                MEMBERS
-                    .into_iter()
-                    .chain(["serde_json", "serde_core", "itoa", "memchr", "zmij"])
-            {
+            for name in MEMBERS.into_iter().chain([
+                "libm",
+                "serde_json",
+                "serde_core",
+                "itoa",
+                "memchr",
+                "zmij",
+            ]) {
                 fixture = fixture.package(name, &[]);
             }
             fixture
+                .dep("sim-math", "libm", None)
+                .spec("sim-math", "libm", "=0.2.16", false, &[])
                 .dep("sim-core", "sim-math", None)
                 .dep("sim-cli", "sim-core", None)
                 .dep("xtask", "serde_json", None)
@@ -335,6 +379,25 @@ mod tests {
         fn package(mut self, name: &str, own_features: &[&str]) -> Self {
             let features = own_features.iter().map(|f| (*f).to_string()).collect();
             self.packages.push((name.to_string(), features));
+            self
+        }
+
+        fn spec(
+            mut self,
+            from: &str,
+            to: &str,
+            requirement: &str,
+            default_features: bool,
+            features: &[&str],
+        ) -> Self {
+            let features = features.iter().map(|f| (*f).to_string()).collect();
+            self.specs.push((
+                from.to_string(),
+                to.to_string(),
+                requirement.to_string(),
+                default_features,
+                features,
+            ));
             self
         }
 
@@ -362,7 +425,26 @@ mod tests {
                 .map(|(name, own)| {
                     let own: serde_json::Map<String, Value> =
                         own.iter().map(|f| (f.clone(), json!([]))).collect();
-                    json!({ "name": name, "id": id(name), "features": own })
+                    let dependencies: Vec<Value> = self
+                        .specs
+                        .iter()
+                        .filter(|(from, ..)| from == name)
+                        .map(|(_, to, requirement, default_features, features)| {
+                            json!({
+                                "name": to,
+                                "req": requirement,
+                                "uses_default_features": default_features,
+                                "features": features,
+                                "kind": null
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "name": name,
+                        "id": id(name),
+                        "features": own,
+                        "dependencies": dependencies
+                    })
                 })
                 .collect();
             let nodes: Vec<Value> = self
@@ -491,6 +573,56 @@ mod tests {
                 .package("proptest", &[])
                 .dep("sim-core", "proptest", Some("dev"));
         assert_reports(fixture, "proptest");
+    }
+
+    fn without_libm_spec(fixture: Fixture) -> Fixture {
+        let mut fixture = fixture;
+        fixture.specs.retain(|(_, to, ..)| to != "libm");
+        fixture
+    }
+
+    #[test]
+    fn libm_may_only_be_a_dependency_of_sim_math() {
+        let fixture = Fixture::workspace().dep("sim-core", "libm", None).spec(
+            "sim-core",
+            "libm",
+            "=0.2.16",
+            false,
+            &[],
+        );
+        assert_reports(fixture, "libm may only be a direct dependency of sim-math");
+    }
+
+    #[test]
+    fn libm_is_pinned_exactly() {
+        let fixture =
+            without_libm_spec(Fixture::workspace()).spec("sim-math", "libm", "0.2", false, &[]);
+        assert_reports(fixture, "=0.2.16");
+    }
+
+    #[test]
+    fn libm_default_features_are_off() {
+        let fixture =
+            without_libm_spec(Fixture::workspace()).spec("sim-math", "libm", "=0.2.16", true, &[]);
+        assert_reports(fixture, "default-features");
+    }
+
+    #[test]
+    fn libm_enables_no_features() {
+        let fixture = without_libm_spec(Fixture::workspace()).spec(
+            "sim-math",
+            "libm",
+            "=0.2.16",
+            false,
+            &["arch"],
+        );
+        assert_reports(fixture, "arch");
+    }
+
+    #[test]
+    fn resolved_libm_features_are_reported() {
+        let fixture = Fixture::workspace().resolved("libm", &["arch"]);
+        assert_reports(fixture, "feature arch of libm");
     }
 
     #[test]
