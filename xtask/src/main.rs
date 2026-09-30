@@ -77,6 +77,19 @@ fn gate(require_clean_tree: bool) -> Result {
             ],
         )
     })?;
+    step("canaries", || {
+        let problems = canary::run(
+            &root,
+            NO_STD_TARGET,
+            |m| member_dir(&root, m),
+            &cargo_program(),
+        )?;
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("\n  {}", problems.join("\n  ")))
+        }
+    })?;
     step("test (debug)", || {
         cargo(&root, &["test", "--workspace", "--locked"])
     })?;
