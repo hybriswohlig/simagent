@@ -3,7 +3,17 @@
 //! Everything counts from 0; names of days and months are player texts and live
 //! outside the core (B16).
 
-use super::SimTime;
+use super::{DAY, MONTH, SimTime, WEEK, YEAR};
+
+const DAYS_PER_MONTH: i64 = 28;
+const DAYS_PER_WEEK: i64 = 7;
+const DAYS_PER_SEASON: i64 = 91;
+
+/// A calendar unit that is small by construction (at most 86 399).
+#[track_caller]
+fn unit<T: TryFrom<i64>>(value: i64) -> T {
+    T::try_from(value).unwrap_or_else(|_| panic!("invariant calendar.unit_range"))
+}
 
 /// A point in time broken down into calendar units. `year` is negative before the
 /// scenario start.
@@ -20,37 +30,44 @@ pub struct CalendarDate {
 }
 
 /// Breaks `t` down into calendar units.
-pub fn calendar(_t: SimTime) -> CalendarDate {
+pub fn calendar(t: SimTime) -> CalendarDate {
+    let secs = t.as_secs();
+    let day_of_year = secs.rem_euclid(YEAR.as_secs()).div_euclid(DAY.as_secs());
     CalendarDate {
-        year: 0,
-        day_of_year: 0,
-        month: 0,
-        day_of_month: 0,
-        week: 0,
-        weekday: 0,
-        season: 0,
-        second_of_day: 0,
+        year: secs.div_euclid(YEAR.as_secs()),
+        day_of_year: unit(day_of_year),
+        month: unit(day_of_year.div_euclid(DAYS_PER_MONTH)),
+        day_of_month: unit(day_of_year.rem_euclid(DAYS_PER_MONTH)),
+        week: unit(day_of_year.div_euclid(DAYS_PER_WEEK)),
+        weekday: unit(day_of_year.rem_euclid(DAYS_PER_WEEK)),
+        season: unit(day_of_year.div_euclid(DAYS_PER_SEASON)),
+        second_of_day: unit(secs.rem_euclid(DAY.as_secs())),
     }
 }
 
 /// The first second of `year`. Panics with `time.out_of_range` outside the range.
-pub fn year_start(_year: i64) -> SimTime {
-    SimTime::START
+#[track_caller]
+pub fn year_start(year: i64) -> SimTime {
+    let secs = YEAR
+        .as_secs()
+        .checked_mul(year)
+        .unwrap_or_else(|| panic!("invariant time.out_of_range"));
+    SimTime::from_secs(secs)
 }
 
 /// Days since scenario start (absolute index for random draws, ADR-0001).
-pub fn day_index(_t: SimTime) -> i64 {
-    0
+pub fn day_index(t: SimTime) -> i64 {
+    t.as_secs().div_euclid(DAY.as_secs())
 }
 
 /// Weeks since scenario start (absolute index).
-pub fn week_index(_t: SimTime) -> i64 {
-    0
+pub fn week_index(t: SimTime) -> i64 {
+    t.as_secs().div_euclid(WEEK.as_secs())
 }
 
 /// 28-day months since scenario start (absolute index, e.g. the partner market round).
-pub fn month_index(_t: SimTime) -> i64 {
-    0
+pub fn month_index(t: SimTime) -> i64 {
+    t.as_secs().div_euclid(MONTH.as_secs())
 }
 
 #[cfg(test)]

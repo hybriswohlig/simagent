@@ -15,16 +15,31 @@ pub const NEVER_YEARS: f64 = 100_000.0;
 impl SimDuration {
     /// The duration in years (exact seconds divided by the year length).
     pub fn as_years(self) -> f64 {
-        let _ = YEAR_SECONDS;
-        0.0
+        // Always exact: the time range (2^45 s) lies far below 2^53.
+        let secs = sim_math::i64_to_f64_exact(self.as_secs())
+            .unwrap_or_else(|| panic!("invariant time.out_of_range"));
+        secs / YEAR_SECONDS
     }
 
     /// Whole seconds for `years`, always rounded up, so a computed point in time never
     /// lies before the value computed in `f64`. `None` means "never" (at least
     /// `NEVER_YEARS`). NaN or infinity is the invariant break `time.non_finite`, at most
     /// `-NEVER_YEARS` is `time.out_of_range`.
-    pub fn from_years_ceil(_years: f64) -> Option<SimDuration> {
-        None
+    #[track_caller]
+    pub fn from_years_ceil(years: f64) -> Option<SimDuration> {
+        if !years.is_finite() {
+            panic!("invariant time.non_finite");
+        }
+        if years >= NEVER_YEARS {
+            return None;
+        }
+        if years <= -NEVER_YEARS {
+            panic!("invariant time.out_of_range");
+        }
+        // |years| < NEVER_YEARS, so the product is finite and integral after ceil.
+        let secs = sim_math::to_i64_exact(sim_math::ceil(years * YEAR_SECONDS))
+            .unwrap_or_else(|| panic!("invariant time.out_of_range"));
+        Some(SimDuration::from_secs(secs))
     }
 }
 
