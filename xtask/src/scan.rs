@@ -232,8 +232,28 @@ pub fn identifiers_outside(
     idents: &[&str],
     allowed: &[&str],
 ) -> Vec<String> {
-    let _ = (files, idents, allowed, mentions_identifier);
-    Vec::new()
+    if files.is_empty() {
+        return vec!["no file scanned".to_string()];
+    }
+    let mut findings = Vec::new();
+    for path in allowed {
+        if !files.iter().any(|(file, _)| file == path) {
+            findings.push(format!(
+                "{path}: allowed file is not among the scanned files"
+            ));
+        }
+    }
+    for (path, source) in files {
+        if allowed.contains(&path.as_str()) {
+            continue;
+        }
+        for ident in idents {
+            if mentions_identifier(source, ident) {
+                findings.push(format!("{path}: names {ident}"));
+            }
+        }
+    }
+    findings
 }
 
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.
