@@ -1,0 +1,10 @@
+# Event codes (ADR-0002). Never renumber; new classes and subjects take free codes.
+# Changes only in a bless: commit with a five-line report (ADR-0000).
+class birth 200
+class general 500
+class death 900
+class observer 1000
+subject world 0
+subject sim 1
+subject partnership 2
+subject household 3

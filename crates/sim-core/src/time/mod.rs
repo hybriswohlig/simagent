@@ -4,9 +4,15 @@
 
 mod calendar;
 mod clock;
+mod scheduler;
 
 pub use calendar::{CalendarDate, calendar, day_index, month_index, week_index, year_start};
 pub use clock::NEVER_YEARS;
+pub use scheduler::{
+    AdvanceOutcome, Ctx, EventClass, EventHandle, EventKey, EventKind, EventSubject, Fired,
+    Handler, LoadError, MAX_MICRO_STEP, Payload, RunStats, Scheduler, SchedulerSnapshot,
+    SnapshotEntry,
+};
 
 use core::ops::{Add, Mul, Sub};
 
