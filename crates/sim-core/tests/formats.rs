@@ -1,6 +1,10 @@
 //! Formats of IDs, log entries and inputs (ADR-0004): JSON is the human-readable form
 //! and the command schema, postcard the canonical binary form. Both round trip, both
 //! reject what the types forbid, and no JSON number leaves the JavaScript-safe range.
+//!
+//! The tests named `formats_roundtrip_*` together are acceptance test 9 of ADR-0004.
+//! The postcard pins come from `tools/postcard_reference.py`, which is written from the
+//! postcard wire format specification and not from a run of this code.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -11,8 +15,25 @@ use sim_core::input::{Founder, Input, InputRejected, InputStamp, RejectCode, Sta
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 
+/// `EventId` is opaque (ADR-0004 section 6): outside the core it only comes from serde.
 fn event(n: u64) -> EventId {
-    EventId::try_from(n).expect("valid event id")
+    serde_json::from_value(Value::from(n)).expect("valid event id")
+}
+
+fn input_seq(n: u64) -> InputSeq {
+    InputSeq::try_from(n).expect("valid input seq")
+}
+
+fn data_id(text: &str) -> DataId {
+    DataId::new(text).expect("valid data id")
+}
+
+fn hex(text: &str) -> Vec<u8> {
+    assert!(text.len().is_multiple_of(2), "{text}");
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex digits"))
+        .collect()
 }
 
 fn sim(n: u64) -> SimId {
@@ -32,7 +53,7 @@ fn sample_entry() -> LogEntry {
             Code::new("core:gompertz_hazard").expect("valid"),
         ))
         .with(Cause::Event(event(5)))
-        .with(Cause::Input(InputSeq::try_from(1).expect("valid"))),
+        .with(Cause::Input(input_seq(1))),
         payload: LogPayload::Birthday { age_years: 1 },
     }
 }
@@ -40,7 +61,7 @@ fn sample_entry() -> LogEntry {
 fn sample_input() -> Input {
     Input::Start(Start {
         world_seed: 0xff,
-        founder_tag: u64::MAX,
+        founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
         }],
@@ -55,15 +76,35 @@ fn from_json<T: DeserializeOwned>(text: &str) -> Result<T, serde_json::Error> {
     serde_json::from_str(text)
 }
 
+/// Encodes and decodes with postcard. The value must survive: its JSON form (which
+/// shows every field) is the same before and after, and so are the bytes.
 fn postcard_round_trip<T: Serialize + DeserializeOwned>(value: &T) -> Vec<u8> {
     let bytes = postcard::to_allocvec(value).expect("encodes");
     let back: T = postcard::from_bytes(&bytes).expect("decodes");
+    assert_eq!(json(&back), json(value));
     assert_eq!(postcard::to_allocvec(&back).expect("encodes"), bytes);
     bytes
 }
 
 const ENTRY_JSON: &str = r#"{"id":7,"t":86400,"subjects":[{"sim":42}],"causes":[{"plan":{"by":3,"planned_at":0}},{"rule":"core:gompertz_hazard"},{"event":5},{"input":1}],"payload":{"core:birthday":{"age_years":1}}}"#;
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"ffffffffffffffff","founders":[{"born":-946080000}]}}"#;
+const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
+
+// tools/postcard_reference.py
+const ENTRY_POSTCARD: &str =
+    "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const STAMP_POSTCARD: &str = "0a01";
+const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
+const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
+
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000}]}}"#;
+
+fn sample_stamp() -> InputStamp {
+    InputStamp {
+        t: SimTime::from_secs(5),
+        seq: input_seq(1),
+    }
+}
 
 #[test]
 fn log_entry_json_form_is_pinned() {
@@ -82,14 +123,37 @@ fn input_json_form_is_pinned() {
 }
 
 #[test]
+fn input_stamp_form_is_pinned() {
+    assert_eq!(json(&sample_stamp()), STAMP_JSON);
+    assert_eq!(
+        from_json::<InputStamp>(STAMP_JSON).expect("parses"),
+        sample_stamp()
+    );
+}
+
+#[test]
+fn postcard_forms_are_pinned() {
+    assert_eq!(postcard_round_trip(&sample_entry()), hex(ENTRY_POSTCARD));
+    assert_eq!(postcard_round_trip(&sample_input()), hex(INPUT_POSTCARD));
+    assert_eq!(postcard_round_trip(&sample_stamp()), hex(STAMP_POSTCARD));
+    assert_eq!(postcard_round_trip(&sim(MAX_JS_SAFE)), hex(MAX_ID_POSTCARD));
+    // Binary keeps the plain u64: a full-range seed is a 10-byte varint, not text.
+    let full_seed = Input::Start(Start {
+        world_seed: u64::MAX,
+        founder_tag: data_id("a:b"),
+        founders: Vec::new(),
+    });
+    let mut expected = vec![0];
+    expected.extend(hex(MAX_U64_POSTCARD));
+    expected.extend([3, b'a', b':', b'b', 0]);
+    assert_eq!(postcard_round_trip(&full_seed), expected);
+}
+
+#[test]
 fn postcard_round_trips() {
-    postcard_round_trip(&sample_entry());
-    let bytes = postcard_round_trip(&sample_input());
-    // Binary keeps the plain u64: the full-range tag is a 10-byte varint, not text.
-    assert!(bytes.len() < 32, "{bytes:?}");
     postcard_round_trip(&InputStamp {
         t: SimTime::from_secs(-5),
-        seq: InputSeq::try_from(MAX_JS_SAFE).expect("valid"),
+        seq: input_seq(MAX_JS_SAFE),
     });
     postcard_round_trip(&InputRejected {
         code: RejectCode::AlreadyStarted,
@@ -99,7 +163,7 @@ fn postcard_round_trips() {
 }
 
 #[test]
-fn ids_outside_one_to_js_safe_are_rejected() {
+fn formats_roundtrip_rejects_ids_outside_one_to_js_safe() {
     for text in ["0", "9007199254740992", "18446744073709551615"] {
         assert!(from_json::<SimId>(text).is_err(), "SimId {text}");
         assert!(from_json::<EventId>(text).is_err(), "EventId {text}");
@@ -120,11 +184,18 @@ fn ids_outside_one_to_js_safe_are_rejected() {
             postcard::from_bytes::<EventId>(&bytes).is_err(),
             "postcard {value}"
         );
+        assert!(
+            postcard::from_bytes::<InputSeq>(&bytes).is_err(),
+            "postcard {value}"
+        );
     }
+    let bytes = postcard::to_allocvec(&MAX_JS_SAFE).expect("encodes");
+    assert!(postcard::from_bytes::<EventId>(&bytes).is_ok());
+    assert!(postcard::from_bytes::<InputSeq>(&bytes).is_ok());
 }
 
 #[test]
-fn hex_u64_needs_exactly_sixteen_lowercase_digits() {
+fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
         from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| {
             let Input::Start(start) = input;
@@ -144,12 +215,15 @@ fn hex_u64_needs_exactly_sixteen_lowercase_digits() {
     ] {
         assert!(with_seed(bad).is_err(), "{bad:?}");
     }
+    // A JSON number is not the hex form either.
+    let number = INPUT_JSON.replace(r#""00000000000000ff""#, "255");
+    assert!(from_json::<Input>(&number).is_err(), "{number}");
     assert_eq!(sim_core::hex_u64::parse("ffffffffffffffff"), Some(u64::MAX));
     assert_eq!(sim_core::hex_u64::parse("fffffffffffffff"), None);
 }
 
 #[test]
-fn causes_are_never_empty() {
+fn formats_roundtrip_rejects_empty_causes() {
     let empty = ENTRY_JSON.replace(
         r#"[{"plan":{"by":3,"planned_at":0}},{"rule":"core:gompertz_hazard"},{"event":5},{"input":1}]"#,
         "[]",
@@ -161,7 +235,7 @@ fn causes_are_never_empty() {
 }
 
 #[test]
-fn unknown_fields_and_variants_are_rejected() {
+fn formats_roundtrip_rejects_unknown_fields_and_variants() {
     let cases = [
         INPUT_JSON.replace(r#""founders""#, r#""extra":1,"founders""#),
         INPUT_JSON.replace(r#"{"born""#, r#"{"sex":1,"born""#),
@@ -203,9 +277,21 @@ fn times_and_codes_are_checked_when_read() {
     }
 }
 
+/// ADR-0001: `founder_tag` is a data ID of the scenario, not a number.
+#[test]
+fn the_founder_tag_is_a_data_id() {
+    let with_tag = |tag: &str| from_json::<Input>(&INPUT_JSON.replace("test:fork_no_density", tag));
+    assert!(with_tag("test:fork_no_density").is_ok());
+    for bad in ["0123456789abcdef", "Test:x", "fork_no_density", ""] {
+        assert!(with_tag(bad).is_err(), "{bad:?}");
+    }
+    let number = INPUT_JSON.replace(r#""test:fork_no_density""#, "7");
+    assert!(from_json::<Input>(&number).is_err(), "{number}");
+}
+
 /// ADR-0004 section 3: every u64 that can exceed 2^53 - 1 is a hex string in JSON.
 #[test]
-fn no_json_number_leaves_the_js_safe_range() {
+fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
     fn check(value: &Value, path: &str) {
         match value {
             Value::Number(n) => {
@@ -234,16 +320,19 @@ fn no_json_number_leaves_the_js_safe_range() {
             by: event(MAX_JS_SAFE),
             planned_at: SimTime::from_secs(MAX_ABS_SECS),
         }))
-        .with(Cause::Input(
-            InputSeq::try_from(MAX_JS_SAFE).expect("valid"),
-        )),
+        .with(Cause::Input(input_seq(MAX_JS_SAFE)))
+        .with(Cause::Event(event(MAX_JS_SAFE))),
         payload: LogPayload::Birthday {
             age_years: u32::MAX,
         },
     };
+    let extreme_stamp = InputStamp {
+        t: SimTime::from_secs(MAX_ABS_SECS),
+        seq: input_seq(MAX_JS_SAFE),
+    };
     let extreme_input = Input::Start(Start {
         world_seed: u64::MAX,
-        founder_tag: u64::MAX,
+        founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
         }],
@@ -252,10 +341,14 @@ fn no_json_number_leaves_the_js_safe_range() {
         &serde_json::to_value(&extreme_entry).expect("json"),
         "entry",
     );
-    check(
-        &serde_json::to_value(&extreme_input).expect("json"),
-        "input",
+    let input = serde_json::to_value(&extreme_input).expect("json");
+    check(&input, "input");
+    assert_eq!(
+        input["start"]["world_seed"],
+        Value::from("ffffffffffffffff"),
+        "the full-range seed is written as hex"
     );
+    check(&serde_json::to_value(extreme_stamp).expect("json"), "stamp");
 }
 
 fn all_payloads() -> Vec<LogPayload> {
@@ -284,7 +377,7 @@ fn all_causes() -> Vec<Cause> {
             by: event(1),
             planned_at: SimTime::from_secs(0),
         }),
-        Cause::Input(InputSeq::try_from(1).expect("valid")),
+        Cause::Input(input_seq(1)),
         Cause::Rule(Code::new("core:x").expect("valid")),
     ];
     for cause in &causes {
@@ -297,7 +390,7 @@ fn all_causes() -> Vec<Cause> {
 
 /// ADR-0004 test 9: every variant survives JSON and postcard.
 #[test]
-fn every_variant_round_trips() {
+fn formats_roundtrip_every_variant() {
     for payload in all_payloads() {
         let text = json(&payload);
         assert_eq!(from_json::<LogPayload>(&text).ok(), Some(payload.clone()));
@@ -309,6 +402,8 @@ fn every_variant_round_trips() {
         postcard_round_trip(&cause);
     }
     let Input::Start(_) = sample_input();
+    let text = json(&sample_input());
+    assert_eq!(from_json::<Input>(&text).ok(), Some(sample_input()));
     postcard_round_trip(&sample_input());
 }
 
@@ -326,7 +421,7 @@ fn with_unknown_inner_field(value: &Value) -> String {
 
 /// ADR-0004 test 9: one unknown field per variant and per struct is rejected.
 #[test]
-fn an_unknown_field_is_rejected_everywhere() {
+fn formats_roundtrip_rejects_an_unknown_field_everywhere() {
     for payload in all_payloads() {
         let text = with_unknown_inner_field(&serde_json::to_value(&payload).expect("json"));
         assert!(from_json::<LogPayload>(&text).is_err(), "{text}");

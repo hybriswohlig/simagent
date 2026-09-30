@@ -65,7 +65,39 @@ entity_id!(
 );
 
 /// ID of a log entry. Opaque: handlers only pass it on as a cause or `by`; there is no
-/// comparison and no access to the number (ADR-0004 section 6).
+/// comparison and no access to the number (ADR-0004 section 6). Outside the core an
+/// `EventId` only comes from a serialized log:
+///
+/// ```
+/// use sim_core::ids::EventId;
+/// let id: EventId = serde_json::from_str("7").unwrap();
+/// let _copy = id;
+/// ```
+///
+/// Reading the number, making an ID from a number and comparing do not compile:
+///
+/// ```compile_fail
+/// use sim_core::ids::EventId;
+/// let id: EventId = serde_json::from_str("7").unwrap();
+/// let _ = u64::from(id);
+/// ```
+///
+/// ```compile_fail
+/// use sim_core::ids::EventId;
+/// let _ = EventId::try_from(7u64);
+/// ```
+///
+/// ```compile_fail
+/// use sim_core::ids::EventId;
+/// let id: EventId = serde_json::from_str("7").unwrap();
+/// let _ = id == id;
+/// ```
+///
+/// ```compile_fail
+/// use sim_core::ids::EventId;
+/// let id: EventId = serde_json::from_str("7").unwrap();
+/// let _ = id < id;
+/// ```
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(try_from = "u64", into = "u64")]
 pub struct EventId(NonZeroU64);
@@ -142,19 +174,21 @@ mod tests {
         assert_eq!(counter.allocate_sim().get(), 2);
         assert_eq!(counter.peek(), 3);
         let mut events = Counter::new();
-        assert_eq!(u64::from(events.allocate_event()), 1);
+        assert_eq!(events.allocate_event().0.get(), 1);
         let mut inputs = Counter::new();
         assert_eq!(inputs.allocate_input().get(), 1);
         assert_eq!(inputs.allocate_input().get(), 2);
     }
 
-    /// ADR-0004 test 10.
+    /// ADR-0004 test 10: the last ID is 2^53 - 1, the next allocation breaks with
+    /// `counter_exceeds_js_safe`.
     #[test]
+    #[should_panic(expected = "invariant counter_exceeds_js_safe")]
     fn counter_js_safe_limit() {
         let mut counter = Counter::starting_at(MAX_JS_SAFE);
         assert_eq!(counter.allocate_sim().get(), MAX_JS_SAFE);
-        let result = std::panic::catch_unwind(move || counter.allocate_sim());
-        assert!(result.is_err(), "the next allocation must break");
+        assert_eq!(counter.peek(), MAX_JS_SAFE + 1);
+        let _ = counter.allocate_sim();
     }
 
     #[test]
