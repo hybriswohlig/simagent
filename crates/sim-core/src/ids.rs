@@ -5,7 +5,7 @@
 use core::fmt;
 use core::num::NonZeroU64;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
 /// Largest value a counter hands out: 2^53 - 1 (ADR-0004 section 3).
 pub const MAX_JS_SAFE: u64 = (1 << 53) - 1;
@@ -98,26 +98,28 @@ entity_id!(
 /// let id: EventId = serde_json::from_str("7").unwrap();
 /// let _ = id < id;
 /// ```
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(try_from = "u64", into = "u64")]
+#[derive(Clone, Copy, Debug)]
 pub struct EventId(NonZeroU64);
 
-impl TryFrom<u64> for EventId {
-    type Error = IdOutOfRange;
-    fn try_from(value: u64) -> Result<Self, IdOutOfRange> {
-        checked(value).map(EventId)
+// Written by hand: the `try_from` and `into` attributes of serde would need public
+// conversions from and to u64, and those would open the number.
+impl Serialize for EventId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(self.0.get())
     }
 }
 
-impl From<EventId> for u64 {
-    fn from(id: EventId) -> u64 {
-        id.0.get()
+impl<'de> Deserialize<'de> for EventId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = u64::deserialize(deserializer)?;
+        checked(value).map(EventId).map_err(D::Error::custom)
     }
 }
 
 /// A counter of one kind: first value 1, strictly increasing, never reset. Going
-/// beyond 2^53 - 1 is the invariant break `counter_exceeds_js_safe`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// beyond 2^53 - 1 is the invariant break `counter_exceeds_js_safe`. It gets its serde
+/// form together with the save format, with a range check when read.
+#[derive(Clone, Debug)]
 pub(crate) struct Counter {
     next: u64,
 }

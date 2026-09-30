@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
+use crate::data_id::DataId;
 use crate::ids::InputSeq;
 use crate::time::SimTime;
 
@@ -17,13 +18,15 @@ pub enum Input {
     Start(Start),
 }
 
+/// Further parts of the scenario (mod list, world parameters, shocks, stop condition;
+/// ADR-0004 section 4) arrive as fields with their first reader.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
     #[serde(with = "crate::hex_u64")]
     pub world_seed: u64,
-    #[serde(with = "crate::hex_u64")]
-    pub founder_tag: u64,
+    /// Data ID of the scenario; founder keys use its `str_key` (ADR-0001).
+    pub founder_tag: DataId,
     pub founders: Vec<Founder>,
 }
 
