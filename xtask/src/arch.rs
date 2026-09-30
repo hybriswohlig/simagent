@@ -17,7 +17,7 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 2] = ["sim-core", "sim-math"];
+pub const CORE_ALLOWED: [&str; 3] = ["sim-core", "sim-math", "libm"];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
 pub const TOOL_ALLOWED: [&str; 7] = [
@@ -192,7 +192,41 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
     }
 }
 
-fn check_pinned(_graph: &Graph, _violations: &mut Vec<String>) {}
+fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
+    for (id, specs) in &graph.specs {
+        let dependent = graph.name(id);
+        for spec in specs {
+            let Some((package, owner, requirement, features)) =
+                PINNED.iter().find(|(package, ..)| *package == spec.name)
+            else {
+                continue;
+            };
+            if dependent != *owner {
+                violations.push(format!(
+                    "{package} may only be a direct dependency of {owner}, not of {dependent} (ADR-0003)"
+                ));
+            }
+            if spec.requirement != *requirement {
+                violations.push(format!(
+                    "{dependent} requires {package} as {:?}; it must be {requirement:?} (ADR-0003)",
+                    spec.requirement
+                ));
+            }
+            if spec.default_features {
+                violations.push(format!(
+                    "{dependent} must use {package} with default-features = false (ADR-0003)"
+                ));
+            }
+            for feature in &spec.features {
+                if !features.contains(feature) {
+                    violations.push(format!(
+                        "{dependent} enables feature {feature} of {package} (ADR-0003)"
+                    ));
+                }
+            }
+        }
+    }
+}
 
 /// A dependency as declared in a package manifest.
 struct Spec<'a> {
@@ -512,10 +546,15 @@ mod tests {
 
     #[test]
     fn the_core_closure_follows_the_positive_list() {
-        let fixture = Fixture::workspace()
-            .package("libm", &[])
-            .dep("sim-math", "libm", None);
-        assert_reports(fixture, "libm");
+        // libm is on the core list since step 2a; num-traits is not.
+        let fixture =
+            Fixture::workspace()
+                .package("num-traits", &[])
+                .dep("sim-math", "num-traits", None);
+        assert_reports(
+            fixture,
+            "num-traits is in the closure of sim-math but not on the core positive list",
+        );
     }
 
     #[test]
