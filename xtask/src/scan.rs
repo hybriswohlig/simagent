@@ -453,6 +453,10 @@ mod tests {
             identifiers_outside(&[], &TEXT_TYPES, &[]),
             vec!["no file scanned".to_string()]
         );
+        assert_eq!(
+            identifiers_outside(&files(&[("src/log.rs", "pub struct P;")]), &[], &[]),
+            vec!["no identifier to look for".to_string()]
+        );
         let found = identifiers_outside(
             &files(&[("src/log.rs", "pub struct P;")]),
             &TEXT_TYPES,
