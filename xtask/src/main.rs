@@ -2,6 +2,7 @@
 //! hook and every agent run exactly this command.
 
 mod arch;
+mod canary;
 mod checks;
 mod scan;
 
