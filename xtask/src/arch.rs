@@ -121,20 +121,30 @@ pub const NEVER: [&str; 9] = [
     "winit",
 ];
 
+/// Packages that `cargo metadata` resolves but cargo never builds, with the reason.
+/// cargo metadata lists an optional dependency as soon as a weak feature
+/// (`dep?/feature`) names it. Only these packages may be missing from the build set;
+/// every other difference between metadata and `cargo tree` is a violation.
+pub const NOT_BUILT: [(&str, &str); 1] = [(
+    "embedded-io",
+    "optional dependency of postcard, named only by the weak feature `embedded-io-04?/alloc`",
+)];
+
 /// All violations of the architecture rules in `metadata` (output of
 /// `cargo metadata --format-version 1`). `built` is the set of package names that
-/// `cargo tree` actually builds for the target: cargo metadata also lists optional
-/// dependencies behind weak features (`dep?/feature`, e.g. embedded-io under postcard)
-/// that are never built. `None` checks the metadata as it is.
+/// `cargo tree` actually builds for the target; it must equal the resolve graph except
+/// for the packages on `NOT_BUILT`, which then drop out of every closure. `None`
+/// checks the metadata as it is.
 pub fn check(metadata: &Value, built: Option<&BTreeSet<String>>) -> Vec<String> {
     let mut graph = match Graph::parse(metadata) {
         Ok(graph) => graph,
         Err(message) => return vec![format!("cargo metadata: {message}")],
     };
-    if let Some(built) = built {
-        graph.retain_built(built);
-    }
     let mut violations = Vec::new();
+    if let Some(built) = built {
+        check_build_set(&graph, built, &mut violations);
+        graph.drop_not_built(built);
+    }
     check_members(&graph, &mut violations);
     let mut normal_union = BTreeSet::new();
     for &member in &graph.members {
@@ -305,6 +315,32 @@ fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
     }
 }
 
+/// The build set and the resolve graph must name the same packages, except for the
+/// packages on `NOT_BUILT`. A build set that is empty, cut short or parsed from an
+/// unexpected output therefore never passes.
+fn check_build_set(graph: &Graph, built: &BTreeSet<String>, violations: &mut Vec<String>) {
+    let resolved: BTreeSet<&str> = graph.edges.keys().map(|id| graph.name(id)).collect();
+    for &name in &resolved {
+        let listed = NOT_BUILT.iter().any(|(package, _)| *package == name);
+        match (built.contains(name), listed) {
+            (false, false) => violations.push(format!(
+                "{name} is in cargo metadata but cargo tree does not build it, and it is not on the not-built list"
+            )),
+            (true, true) => violations.push(format!(
+                "{name} is on the not-built list but cargo tree builds it"
+            )),
+            (true, false) | (false, true) => {}
+        }
+    }
+    for name in built {
+        if !resolved.contains(name.as_str()) {
+            violations.push(format!(
+                "cargo tree builds {name}, which cargo metadata does not list"
+            ));
+        }
+    }
+}
+
 /// A dependency as declared in a package manifest.
 struct Spec<'a> {
     name: &'a str,
@@ -388,13 +424,14 @@ impl<'a> Graph<'a> {
         Ok(graph)
     }
 
-    /// Drops edges to packages that are not built, so they drop out of every closure.
-    fn retain_built(&mut self, built: &BTreeSet<String>) {
+    /// Drops the edges to packages on `NOT_BUILT` that are indeed not built, so they
+    /// drop out of every closure.
+    fn drop_not_built(&mut self, built: &BTreeSet<String>) {
         let names = &self.names;
-        let members = &self.members;
         for edges in self.edges.values_mut() {
             edges.retain(|(dep, _)| {
-                members.contains(dep) || names.get(dep).is_some_and(|name| built.contains(*name))
+                let name = names.get(dep).copied().unwrap_or("<unknown package>");
+                built.contains(name) || !NOT_BUILT.iter().any(|(package, _)| *package == name)
             });
         }
     }
