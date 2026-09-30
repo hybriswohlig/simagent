@@ -194,6 +194,11 @@ fn attribute_at(text: &str) -> &str {
     text
 }
 
+/// True if `ident` occurs as an identifier in the code (strings and comments ignored).
+pub fn mentions_identifier(_source: &str, _ident: &str) -> bool {
+    false
+}
+
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.
 pub fn common_block(clippy_toml: &str) -> Option<String> {
     let mut lines = clippy_toml.lines();
@@ -301,6 +306,23 @@ mod tests {
     fn extern_std_in_a_string_is_ignored() {
         let source = "let s = \"\nextern crate std;\n\";\n";
         assert!(extern_std_outside_test(source).is_empty());
+    }
+
+    #[test]
+    fn identifiers_are_found_only_in_code() {
+        assert!(mentions_identifier("use xxhash_rust::xxh3;", "xxhash_rust"));
+        assert!(mentions_identifier(
+            "let h = xxhash_rust::xxh3::xxh3_64(b);",
+            "xxhash_rust"
+        ));
+        assert!(!mentions_identifier(
+            "// xxhash_rust in a comment\nlet s = \"xxhash_rust\";",
+            "xxhash_rust"
+        ));
+        assert!(!mentions_identifier(
+            "use my_xxhash_rust_wrapper;",
+            "xxhash_rust"
+        ));
     }
 
     #[test]

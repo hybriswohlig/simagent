@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 sim-math = { path = "../sim-math" }
+# Stable hash for state, log and data (ADR-0003 AT2): only xxh3, only via src/hash.rs.
+xxhash-rust = { version = "=0.8.19", default-features = false, features = ["xxh3"] }
 
 [dev-dependencies]
 # Model-based and property tests with a fixed seed (ADR-0001, ADR-0002). Test graph only.

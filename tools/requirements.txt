@@ -1,0 +1,4 @@
+# Pinned reference tools (ADR-0001, ADR-0003). Install into a throwaway venv:
+#   python3 -m venv .venv && .venv/bin/pip install -r tools/requirements.txt
+# xxhash 4.0.1 wraps the C reference implementation libxxhash 0.8.3.
+xxhash==4.0.1

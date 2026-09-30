@@ -13,4 +13,6 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod data_id;
+pub mod hash;
 pub mod time;
