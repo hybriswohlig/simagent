@@ -258,6 +258,108 @@ fn no_json_number_leaves_the_js_safe_range() {
     );
 }
 
+fn all_payloads() -> Vec<LogPayload> {
+    let payloads = vec![
+        LogPayload::Started { founders: 3 },
+        LogPayload::FounderAdded {
+            born: SimTime::from_secs(-86_400),
+        },
+        LogPayload::Birthday { age_years: 30 },
+    ];
+    // A new variant fails to compile here until it is added to the list above.
+    for payload in &payloads {
+        match payload {
+            LogPayload::Started { .. }
+            | LogPayload::FounderAdded { .. }
+            | LogPayload::Birthday { .. } => {}
+        }
+    }
+    payloads
+}
+
+fn all_causes() -> Vec<Cause> {
+    let causes = vec![
+        Cause::Event(event(1)),
+        Cause::Plan(PlanRef {
+            by: event(1),
+            planned_at: SimTime::from_secs(0),
+        }),
+        Cause::Input(InputSeq::try_from(1).expect("valid")),
+        Cause::Rule(Code::new("core:x").expect("valid")),
+    ];
+    for cause in &causes {
+        match cause {
+            Cause::Event(_) | Cause::Plan(_) | Cause::Input(_) | Cause::Rule(_) => {}
+        }
+    }
+    causes
+}
+
+/// ADR-0004 test 9: every variant survives JSON and postcard.
+#[test]
+fn every_variant_round_trips() {
+    for payload in all_payloads() {
+        let text = json(&payload);
+        assert_eq!(from_json::<LogPayload>(&text).ok(), Some(payload.clone()));
+        postcard_round_trip(&payload);
+    }
+    for cause in all_causes() {
+        let text = json(&cause);
+        assert_eq!(json(&from_json::<Cause>(&text).expect("parses")), text);
+        postcard_round_trip(&cause);
+    }
+    let Input::Start(_) = sample_input();
+    postcard_round_trip(&sample_input());
+}
+
+/// `{"variant":{...}}` with one more field in the inner object.
+fn with_unknown_inner_field(value: &Value) -> String {
+    let mut value = value.clone();
+    let inner = value
+        .as_object_mut()
+        .and_then(|outer| outer.values_mut().next())
+        .and_then(Value::as_object_mut)
+        .expect("a struct variant");
+    inner.insert("unknown".to_owned(), Value::from(0));
+    value.to_string()
+}
+
+/// ADR-0004 test 9: one unknown field per variant and per struct is rejected.
+#[test]
+fn an_unknown_field_is_rejected_everywhere() {
+    for payload in all_payloads() {
+        let text = with_unknown_inner_field(&serde_json::to_value(&payload).expect("json"));
+        assert!(from_json::<LogPayload>(&text).is_err(), "{text}");
+    }
+    let plan = serde_json::to_value(&all_causes()[1]).expect("json");
+    let text = with_unknown_inner_field(&plan);
+    assert!(from_json::<Cause>(&text).is_err(), "{text}");
+    let text = with_unknown_inner_field(&serde_json::to_value(sample_input()).expect("json"));
+    assert!(from_json::<Input>(&text).is_err(), "{text}");
+    // Each struct: accepted as is, rejected with one more field.
+    let fields = r#","unknown":0}"#;
+    let stamp = r#"{"t":0,"seq":1}"#;
+    let rejected = r#"{"code":"already_started"}"#;
+    let plan = r#"{"by":1,"planned_at":0}"#;
+    let founder = r#"{"born":0}"#;
+    let extend = |text: &str| text.replace('}', fields);
+    assert!(from_json::<InputStamp>(stamp).is_ok());
+    assert!(from_json::<InputStamp>(&extend(stamp)).is_err());
+    assert!(from_json::<InputRejected>(rejected).is_ok());
+    assert!(from_json::<InputRejected>(&extend(rejected)).is_err());
+    assert!(from_json::<PlanRef>(plan).is_ok());
+    assert!(from_json::<PlanRef>(&extend(plan)).is_err());
+    assert!(from_json::<Founder>(founder).is_ok());
+    assert!(from_json::<Founder>(&extend(founder)).is_err());
+    for text in [r#"{"event":5,"input":1}"#, r#"{"sim":1,"sim":2}"#] {
+        assert!(
+            from_json::<Cause>(text).is_err() && from_json::<Subject>(text).is_err(),
+            "{text}"
+        );
+    }
+    assert!(from_json::<RejectCode>(r#""not_started""#).is_err());
+}
+
 /// The first postcard byte of a variant is its index (all indices stay below 128).
 fn postcard_index<T: Serialize>(value: &T) -> u8 {
     postcard::to_allocvec(value).expect("encodes")[0]
@@ -277,35 +379,8 @@ fn line<T: Serialize>(kind: &str, value: &T) -> String {
 
 #[test]
 fn log_codes_are_stable() {
-    let payloads = [
-        LogPayload::Started { founders: 0 },
-        LogPayload::FounderAdded {
-            born: SimTime::from_secs(0),
-        },
-        LogPayload::Birthday { age_years: 0 },
-    ];
-    // A new variant fails to compile here until it is added to the list above.
-    for payload in &payloads {
-        match payload {
-            LogPayload::Started { .. }
-            | LogPayload::FounderAdded { .. }
-            | LogPayload::Birthday { .. } => {}
-        }
-    }
-    let causes = [
-        Cause::Event(event(1)),
-        Cause::Plan(PlanRef {
-            by: event(1),
-            planned_at: SimTime::from_secs(0),
-        }),
-        Cause::Input(InputSeq::try_from(1).expect("valid")),
-        Cause::Rule(Code::new("core:x").expect("valid")),
-    ];
-    for cause in &causes {
-        match cause {
-            Cause::Event(_) | Cause::Plan(_) | Cause::Input(_) | Cause::Rule(_) => {}
-        }
-    }
+    let payloads = all_payloads();
+    let causes = all_causes();
     let Subject::Sim(_) = Subject::Sim(sim(1));
     let Input::Start(_) = sample_input();
     let RejectCode::AlreadyStarted = RejectCode::AlreadyStarted;

@@ -290,6 +290,17 @@ fn check_scans(root: &Path) -> Result {
             ));
         }
     }
+    for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
+        if !is_log_payload_file(&member_dir(root, "sim-core").join("src"), &file) {
+            continue;
+        }
+        for name in scan::text_types_named(&read(&file)?) {
+            problems.push(format!(
+                "{}: names {name} (no text in the log, ADR-0004 section 7)",
+                relative(root, &file)
+            ));
+        }
+    }
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);
@@ -326,6 +337,11 @@ fn check_scans(root: &Path) -> Result {
     } else {
         Err(format!("\n  {}", problems.join("\n  ")))
     }
+}
+
+/// `src/log.rs` and everything below `src/log/`: the payload types of the log.
+fn is_log_payload_file(src: &Path, file: &Path) -> bool {
+    file == src.join("log.rs") || file.starts_with(src.join("log"))
 }
 
 fn member_dir(root: &Path, member: &str) -> PathBuf {

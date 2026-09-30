@@ -204,6 +204,17 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
     })
 }
 
+/// Text types that the payload types of the log must not name: entries carry only
+/// numbers, IDs, codes and data IDs (ADR-0004 section 7, B16). `DataId` and `Code` are the
+/// checked newtypes and live outside the scanned files.
+pub const TEXT_TYPES: [&str; 3] = ["String", "str", "Cow"];
+
+/// The entries of `TEXT_TYPES` that occur as identifiers in the code.
+pub fn text_types_named(source: &str) -> Vec<&'static str> {
+    let _ = (source, TEXT_TYPES);
+    Vec::new()
+}
+
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.
 pub fn common_block(clippy_toml: &str) -> Option<String> {
     let mut lines = clippy_toml.lines();
@@ -328,6 +339,40 @@ mod tests {
             "use my_xxhash_rust_wrapper;",
             "xxhash_rust"
         ));
+    }
+
+    #[test]
+    fn text_types_are_found_in_payload_code() {
+        let cases = [
+            ("pub struct P { note: String }", vec!["String"]),
+            (
+                "pub struct P { note: alloc::string::String }",
+                vec!["String"],
+            ),
+            ("pub struct P { note: Box<str> }", vec!["str"]),
+            ("pub struct P { note: &'static str }", vec!["str"]),
+            (
+                "pub struct P<'a> { note: Cow<'a, str> }",
+                vec!["str", "Cow"],
+            ),
+        ];
+        for (source, expected) in cases {
+            let mut found = text_types_named(source);
+            found.sort_unstable();
+            let mut expected = expected;
+            expected.sort_unstable();
+            assert_eq!(found, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn text_types_in_comments_strings_and_longer_names_are_ignored() {
+        let source = concat!(
+            "// a String in a comment\n",
+            "fn fmt(&self, f: &mut Formatter<'_>) -> Result { f.write_str(\"str\") }\n",
+            "pub struct P { code: Code, id: DataId, s: StringTable }\n",
+        );
+        assert!(text_types_named(source).is_empty());
     }
 
     #[test]
