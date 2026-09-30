@@ -82,6 +82,8 @@ mod tests {
             "core:hei-ght",
             "core: height",
             "core:höhe",
+            "core:heiGht",
+            "cOre:height",
         ] {
             assert_eq!(DataId::new(text), Err(DataIdError::BadPart), "{text}");
         }
