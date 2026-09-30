@@ -17,7 +17,27 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 4] = ["sim-core", "sim-math", "libm", "xxhash-rust"];
+pub const CORE_ALLOWED: [&str; 15] = [
+    "sim-core",
+    "sim-math",
+    "libm",
+    "xxhash-rust",
+    // serde for log entries, inputs and saves (ADR-0004); the derive macro and its
+    // compile-time dependencies run on the host, not in the core.
+    "serde",
+    "serde_core",
+    "serde_derive",
+    "proc-macro2",
+    "quote",
+    "syn",
+    "unicode-ident",
+    // postcard for the canonical encoding (ADR-0003 AT3); cobs is a fixed dependency of
+    // postcard (COBS framing, unused by to_allocvec) and brings thiserror.
+    "postcard",
+    "cobs",
+    "thiserror",
+    "thiserror-impl",
+];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
 pub const TOOL_ALLOWED: [&str; 7] = [
@@ -53,14 +73,36 @@ pub const DEV_ALLOWED: [&str; 15] = [
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
-pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 1] = [("xxhash-rust", &["xxh3"])];
+pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 8] = [
+    ("xxhash-rust", &["xxh3"]),
+    ("postcard", &["alloc"]),
+    ("serde", &["alloc", "derive", "serde_derive"]),
+    // std arrives through feature unification with serde_json (xtask, test graph); it
+    // only adds impls for std types. The wasm32v1-none build proves the core without it.
+    ("serde_core", &["alloc", "result", "std"]),
+    ("serde_derive", &["default"]),
+    ("proc-macro2", &["default", "proc-macro"]),
+    ("quote", &["default", "proc-macro"]),
+    (
+        "syn",
+        &[
+            "clone-impls",
+            "default",
+            "derive",
+            "parsing",
+            "printing",
+            "proc-macro",
+        ],
+    ),
+];
 
 /// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
 /// depend on it directly, the exact version requirement, and exactly the features it
 /// enables. Default features must be off.
-pub const PINNED: [(&str, &str, &str, &[&str]); 2] = [
+pub const PINNED: [(&str, &str, &str, &[&str]); 3] = [
     ("libm", "sim-math", "=0.2.16", &[]),
     ("xxhash-rust", "sim-core", "=0.8.19", &["xxh3"]),
+    ("postcard", "sim-core", "=1.1.3", &["alloc"]),
 ];
 
 /// Crates that must not declare Cargo features of their own (ADR-0000).
@@ -80,12 +122,18 @@ pub const NEVER: [&str; 9] = [
 ];
 
 /// All violations of the architecture rules in `metadata` (output of
-/// `cargo metadata --format-version 1`).
-pub fn check(metadata: &Value) -> Vec<String> {
-    let graph = match Graph::parse(metadata) {
+/// `cargo metadata --format-version 1`). `built` is the set of package names that
+/// `cargo tree` actually builds for the target: cargo metadata also lists optional
+/// dependencies behind weak features (`dep?/feature`, e.g. embedded-io under postcard)
+/// that are never built. `None` checks the metadata as it is.
+pub fn check(metadata: &Value, built: Option<&BTreeSet<String>>) -> Vec<String> {
+    let mut graph = match Graph::parse(metadata) {
         Ok(graph) => graph,
         Err(message) => return vec![format!("cargo metadata: {message}")],
     };
+    if let Some(built) = built {
+        graph.retain_built(built);
+    }
     let mut violations = Vec::new();
     check_members(&graph, &mut violations);
     let mut normal_union = BTreeSet::new();
@@ -340,6 +388,17 @@ impl<'a> Graph<'a> {
         Ok(graph)
     }
 
+    /// Drops edges to packages that are not built, so they drop out of every closure.
+    fn retain_built(&mut self, built: &BTreeSet<String>) {
+        let names = &self.names;
+        let members = &self.members;
+        for edges in self.edges.values_mut() {
+            edges.retain(|(dep, _)| {
+                members.contains(dep) || names.get(dep).is_some_and(|name| built.contains(*name))
+            });
+        }
+    }
+
     fn name(&self, id: &str) -> &'a str {
         self.names.get(id).copied().unwrap_or("<unknown package>")
     }
@@ -552,7 +611,34 @@ mod tests {
     }
 
     fn violations(fixture: Fixture) -> Vec<String> {
-        check(&fixture.build())
+        check(&fixture.build(), None)
+    }
+
+    #[test]
+    fn packages_that_are_never_built_are_ignored() {
+        let fixture = Fixture::workspace()
+            .package("embedded-io", &[])
+            .dep("sim-core", "embedded-io", None)
+            .resolved("embedded-io", &["alloc"]);
+        let metadata = fixture.build();
+        assert!(
+            !check(&metadata, None).is_empty(),
+            "without the build set the phantom is a violation"
+        );
+        let mut built: BTreeSet<String> = MEMBERS.iter().map(|m| m.to_string()).collect();
+        built.extend(
+            [
+                "libm",
+                "xxhash-rust",
+                "serde_json",
+                "serde_core",
+                "itoa",
+                "memchr",
+                "zmij",
+            ]
+            .map(String::from),
+        );
+        assert_eq!(check(&metadata, Some(&built)), Vec::<String>::new());
     }
 
     fn assert_reports(fixture: Fixture, needle: &str) {
