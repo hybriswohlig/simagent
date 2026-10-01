@@ -228,6 +228,22 @@ fn rejected_input_keeps_the_state_hash() {
     let before = fresh.state_hash();
     fresh.submit(start(9, &[0])).expect_err("founder not born");
     assert_eq!(fresh.state_hash(), before);
+    // The EventId counter is not in the hash: a rejected input must not use an ID
+    // either. Start wrote entries 1 and 2, so the first birthday is entry 3.
+    assert_eq!(world.take_log().len(), 2);
+    world.advance_until(&mut YearOut::default(), t(Y - 1), &mut |_| false);
+    let log = world.take_log();
+    assert_eq!(log.len(), 1);
+    assert_eq!(serde_json::to_string(&log[0].id).expect("json"), "3");
+    // And a rejected first input leaves the counters at their start.
+    fresh.submit(start(9, &[-1])).expect("accepted");
+    assert_eq!(fresh.canonical_bytes(), started(9, &[-1]).canonical_bytes());
+    let ids: Vec<String> = fresh
+        .take_log()
+        .iter()
+        .map(|entry| serde_json::to_string(&entry.id).expect("json"))
+        .collect();
+    assert_eq!(ids, ["1", "2"]);
 }
 
 /// The log is no state: taking it does not change the hash.
