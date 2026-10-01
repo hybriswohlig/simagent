@@ -4,10 +4,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sim_core::canonical::YearHash;
 use sim_core::input::{Input, InputRecord};
 use sim_core::log::{LogEntry, LogHasher};
-use sim_core::time::SimTime;
+use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 use sim_core::world::{World, YearOut};
 
@@ -27,8 +26,39 @@ pub struct Session {
     dir: PathBuf,
     /// Census rows already in `census.csv`.
     census_written: usize,
-    /// Year hashes of the original run, for a replay with a manifest.
-    expected: Option<Vec<YearHash>>,
+    /// Year hashes already compared with the manifest.
+    years_compared: usize,
+    /// The manifest of the original run, for a replay that compares with it.
+    expected: Option<Manifest>,
+}
+
+/// A limit a run can reach: not before the clock, and not in the last year of the time
+/// range. There the core could not plan the next year end or the next birthday; it
+/// would break `time.out_of_range` (ADR-0002).
+pub fn check_limit(closed: SimTime, limit: SimTime) -> Result<(), CliError> {
+    if limit < closed {
+        let detail = format!(
+            "the run stands at {}, until is {}",
+            closed.as_secs(),
+            limit.as_secs()
+        );
+        return Err(CliError::new("until_in_the_past", detail));
+    }
+    let horizon = MAX_ABS_SECS - YEAR.as_secs();
+    if limit.as_secs() > horizon {
+        let detail = format!(
+            "until {} is later than {horizon}, one year before the end of the time range",
+            limit.as_secs()
+        );
+        return Err(CliError::new("until_beyond_horizon", detail));
+    }
+    Ok(())
+}
+
+/// The last second of the year that begins or continues right after `closed`.
+fn end_of_the_open_year(closed: SimTime) -> SimTime {
+    let second = SimDuration::from_secs(1);
+    year_start(calendar(closed + second).year + 1) - second
 }
 
 pub fn header() -> LogHeader {
@@ -60,7 +90,7 @@ impl Session {
         dir: &Path,
         first_t: SimTime,
         first: Input,
-        expected: Option<Vec<YearHash>>,
+        expected: Option<Manifest>,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<Session, CliError> {
         let occupied = fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some());
@@ -84,6 +114,7 @@ impl Session {
             hasher: LogHasher::new(),
             dir: dir.to_path_buf(),
             census_written: 0,
+            years_compared: 0,
             expected,
         };
         let mut log = files::json(&header()) + "\n";
@@ -101,9 +132,24 @@ impl Session {
     /// over the whole log, so the entries written so far are read back (ADR-0004
     /// section 8).
     pub fn resume(dir: &Path) -> Result<Session, CliError> {
+        let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
         let bytes = files::read(&dir.join(files::SAVE))?;
         let (world, year_hashes) = World::load(&bytes, EMPTY_DATA_HASH)
             .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+        // A run that was interrupted while it wrote has lines in its files that the
+        // save does not know. The manifest of the last orderly end tells them apart.
+        let manifest: Manifest =
+            files::parse_strict(files::read_text(&dir.join(files::MANIFEST))?.trim_end())
+                .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
+        let describes_the_save = manifest.closed_through == world.closed_through()
+            && manifest.year_hashes == year_hashes
+            && manifest.core_version == CORE_VERSION
+            && manifest.data_hash == EMPTY_DATA_HASH;
+        if !describes_the_save {
+            return Err(inconsistent(
+                "manifest.json does not describe the save".to_owned(),
+            ));
+        }
         let mut hasher = LogHasher::new();
         let events = files::read_text(&dir.join(files::EVENTS))?;
         for (line, number) in events.lines().zip(1..) {
@@ -115,6 +161,21 @@ impl Session {
             })?;
             hasher.update(core::slice::from_ref(&entry));
         }
+        if hasher.digest() != manifest.log_hash {
+            return Err(inconsistent(
+                "events.ndjson does not match the log hash of the manifest".to_owned(),
+            ));
+        }
+        let rows = files::read_text(&dir.join(files::CENSUS))?
+            .lines()
+            .count()
+            .saturating_sub(1);
+        if rows != year_hashes.len() {
+            return Err(inconsistent(format!(
+                "census.csv has {rows} rows, the save has {} completed years",
+                year_hashes.len()
+            )));
+        }
         Ok(Session {
             world,
             out: YearOut {
@@ -124,6 +185,7 @@ impl Session {
             hasher,
             dir: dir.to_path_buf(),
             census_written: 0,
+            years_compared: 0,
             expected: None,
         })
     }
@@ -181,12 +243,21 @@ impl Session {
         self.check_stamp(t, seq)
     }
 
-    /// Runs to `limit`, which is not before the clock, and writes what the run produced.
+    /// Runs to `limit` and writes what the run produced. A replay with a manifest goes
+    /// year by year and ends at the first year whose hash differs (ADR-0003 1.4).
     pub fn advance(&mut self, limit: SimTime) -> Result<(), CliError> {
-        self.world
-            .advance_until(&mut self.out, limit, &mut |_| false);
-        self.drain()?;
-        self.compare_with_the_manifest()
+        check_limit(self.world.closed_through(), limit)?;
+        while self.world.closed_through() < limit {
+            let step = match &self.expected {
+                Some(_) => limit.min(end_of_the_open_year(self.world.closed_through())),
+                None => limit,
+            };
+            self.world
+                .advance_until(&mut self.out, step, &mut |_| false);
+            self.drain()?;
+            self.compare_with_the_manifest()?;
+        }
+        Ok(())
     }
 
     /// Hands the new log entries and census rows to the files.
@@ -203,12 +274,14 @@ impl Session {
         files::append(&self.path(files::CENSUS), &rows)
     }
 
-    /// ADR-0003 1.4: a replay ends at the first year whose hash differs.
-    fn compare_with_the_manifest(&self) -> Result<(), CliError> {
+    /// Compares the year hashes that are new since the last call with the manifest.
+    fn compare_with_the_manifest(&mut self) -> Result<(), CliError> {
         let Some(expected) = &self.expected else {
             return Ok(());
         };
-        for (got, want) in self.out.year_hashes.iter().zip(expected) {
+        let produced = &self.out.year_hashes[self.years_compared..];
+        let wanted = expected.year_hashes.iter().skip(self.years_compared);
+        for (got, want) in produced.iter().zip(wanted) {
             if got != want {
                 return Err(CliError::new(
                     "replay_diverged",
@@ -219,22 +292,23 @@ impl Session {
                 ));
             }
         }
+        self.years_compared = self.out.year_hashes.len();
         Ok(())
     }
 
     /// The orderly end: the end line, the manifest, the save, the scenario.
     pub fn finish(self, scenario: &Scenario) -> Result<(), CliError> {
-        if let Some(expected) = &self.expected
-            && expected.len() != self.out.year_hashes.len()
-        {
-            return Err(CliError::new(
-                "replay_diverged",
-                format!(
-                    "the replay has {} year hashes, the manifest {}",
-                    self.out.year_hashes.len(),
-                    expected.len()
-                ),
-            ));
+        if let Some(expected) = &self.expected {
+            let (got, want) = (self.out.year_hashes.len(), expected.year_hashes.len());
+            if got != want {
+                let detail = format!("the replay has {got} year hashes, the manifest {want}");
+                return Err(CliError::new("replay_diverged", detail));
+            }
+            let (got, want) = (self.hasher.digest(), expected.log_hash);
+            if got != want {
+                let detail = format!("the log hash is {got:016x}, the manifest says {want:016x}");
+                return Err(CliError::new("replay_diverged", detail));
+            }
         }
         let end = LogEnd {
             end: self.world.closed_through(),
