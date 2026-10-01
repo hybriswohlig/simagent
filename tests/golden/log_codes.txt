@@ -1,4 +1,5 @@
-# Stable codes of the log and input formats (ADR-0004 sections 4 and 7).
+# Stable codes of the log and input formats (ADR-0004 sections 4 and 7) and of saving
+# and loading (ADR-0006).
 # Form: <type> <postcard variant index> <JSON name>. Never renumber or rename;
 # new variants only at the end. Changing a line is a save format break.
 payload 0 core:started
@@ -14,3 +15,13 @@ reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
 reject 3 too_many_founders
+save 0 log_not_taken
+save 1 year_hashes_mismatch
+load 0 bad_magic
+load 1 foreign_format_version
+load 2 foreign_core_version
+load 3 foreign_data_hash
+load 4 foreign_projection_version
+load 5 malformed
+load 6 invalid_queue
+load 7 inconsistent
