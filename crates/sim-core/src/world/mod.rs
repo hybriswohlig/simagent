@@ -363,6 +363,28 @@ mod tests {
         assert_eq!(world.state.living(), 1);
     }
 
+    /// ADR-0003 5.2: the archive is in the projection. No rule archives yet, so the
+    /// state is built by hand; the bytes follow the postcard format: a map of one entry,
+    /// key 2, then born -9 (zigzag 17) and left -2 (zigzag 3).
+    #[test]
+    fn the_archive_is_part_of_the_projection() {
+        let mut world = World::new();
+        world.submit(start(&[-5])).expect("accepted");
+        let before = world.canonical_bytes();
+        assert_eq!(before.last(), Some(&0), "an empty archive");
+        world.state.domain.archive.insert(
+            SimId::try_from(2).expect("valid"),
+            state::ArchivedSim {
+                born: SimTime::from_secs(-9),
+                left: SimTime::from_secs(-2),
+            },
+        );
+        let mut expected = before.clone();
+        expected.pop();
+        expected.extend([1, 2, 17, 3]);
+        assert_eq!(world.canonical_bytes(), expected);
+    }
+
     /// ADR-0004 test 6: EventIds are log metadata. A run whose EventId counter starts at
     /// 1 000 001 has the same state hashes and another log hash.
     #[test]
