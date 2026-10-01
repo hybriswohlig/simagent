@@ -22,8 +22,11 @@ pub enum TraceFilter {
 
 impl TraceFilter {
     pub fn includes(&self, sim: SimId) -> bool {
-        let _ = sim;
-        false
+        match self {
+            TraceFilter::Off => false,
+            TraceFilter::All => true,
+            TraceFilter::Sims(sims) => sims.contains(&sim),
+        }
     }
 }
 
@@ -64,7 +67,13 @@ impl TraceBuffer {
 
     /// Records what `make` returns if `sim` is traced; otherwise `make` never runs.
     pub(crate) fn record(&mut self, t: SimTime, sim: SimId, make: impl FnOnce() -> TracePayload) {
-        let _ = (t, sim, make, &mut self.entries);
+        if self.filter.includes(sim) {
+            self.entries.push(TraceEntry {
+                t,
+                sim,
+                payload: make(),
+            });
+        }
     }
 }
 
