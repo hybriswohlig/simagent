@@ -11,3 +11,5 @@ cause 3 rule
 subject 0 sim
 input 0 start
 reject 0 already_started
+reject 1 clock_not_at_start
+reject 2 founder_not_born_before_start

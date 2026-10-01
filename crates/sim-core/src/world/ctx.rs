@@ -1,0 +1,121 @@
+//! The handler context (ADR-0004 section 7): the only way domain code writes log
+//! entries, schedules events and gets new IDs. It wraps the scheduler's `Ctx`.
+
+use alloc::vec;
+use alloc::vec::Vec;
+
+use super::event::EventPayload;
+use crate::ids::{Counter, EventId, SimId};
+use crate::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
+use crate::time::{Ctx, EventHandle, SimDuration, SimTime};
+
+/// One counter per entity kind (ADR-0004 section 1). Only `SimCtx` allocates.
+pub(super) struct IdCounters {
+    sim: Counter,
+}
+
+impl IdCounters {
+    pub(super) const fn new() -> IdCounters {
+        IdCounters {
+            sim: Counter::new(),
+        }
+    }
+
+    /// Number of SimIds handed out so far.
+    pub(super) fn sims_allocated(&self) -> u64 {
+        self.sim.peek() - 1
+    }
+}
+
+/// The domain log buffer and its EventId counter: pure output. There is no read
+/// access, only `take` (ADR-0004 section 6).
+pub(super) struct LogBuffer {
+    next_event: Counter,
+    entries: Vec<LogEntry>,
+}
+
+impl LogBuffer {
+    pub(super) const fn new() -> LogBuffer {
+        LogBuffer {
+            next_event: Counter::new(),
+            entries: Vec::new(),
+        }
+    }
+
+    pub(super) fn take(&mut self) -> Vec<LogEntry> {
+        core::mem::take(&mut self.entries)
+    }
+}
+
+/// What a domain handler or an applied input may do. `cancel` and `reschedule`
+/// (ADR-0004 section 7) arrive with their first user, the death rule.
+pub(crate) struct SimCtx<'a, 'q> {
+    ctx: &'a mut Ctx<'q, EventPayload, PlanRef>,
+    ids: &'a mut IdCounters,
+    log: &'a mut LogBuffer,
+    trigger: Cause,
+}
+
+impl<'a, 'q> SimCtx<'a, 'q> {
+    pub(super) fn new(
+        ctx: &'a mut Ctx<'q, EventPayload, PlanRef>,
+        ids: &'a mut IdCounters,
+        log: &'a mut LogBuffer,
+        trigger: Cause,
+    ) -> SimCtx<'a, 'q> {
+        SimCtx {
+            ctx,
+            ids,
+            log,
+            trigger,
+        }
+    }
+
+    /// Why this handler runs: the plan of the running event or the applied input.
+    pub(crate) fn trigger(&self) -> Cause {
+        self.trigger.clone()
+    }
+
+    /// Writes one log entry with `t = now`.
+    pub(crate) fn emit(
+        &mut self,
+        payload: LogPayload,
+        subjects: Vec<Subject>,
+        causes: Causes,
+    ) -> EventId {
+        let id = self.log.next_event.allocate_event();
+        self.log.entries.push(LogEntry {
+            id,
+            t: self.ctx.now(),
+            subjects,
+            causes,
+            payload,
+        });
+        id
+    }
+
+    /// A new sim: allocates its ID and writes its creation entry, so every allocation
+    /// has exactly one creation entry (ADR-0004 section 1).
+    #[track_caller]
+    pub(crate) fn create_sim(&mut self, payload: LogPayload, causes: Causes) -> (SimId, EventId) {
+        let id = self.ids.sim.allocate_sim();
+        let entry = self.emit(payload, vec![Subject::Sim(id)], causes);
+        (id, entry)
+    }
+
+    /// Plans a periodic series; `by` is the entry that sets it up.
+    #[track_caller]
+    pub(crate) fn schedule_periodic(
+        &mut self,
+        first: SimTime,
+        period: SimDuration,
+        payload: EventPayload,
+        by: EventId,
+    ) -> EventHandle {
+        let meta = PlanRef {
+            by,
+            planned_at: self.ctx.now(),
+        };
+        self.ctx.schedule_periodic(first, period, payload, meta)
+    }
+}
