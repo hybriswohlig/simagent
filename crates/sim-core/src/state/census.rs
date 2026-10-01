@@ -59,21 +59,23 @@ mod tests {
     use super::*;
     use crate::ids::SimId;
     use crate::state::{ArchivedSim, Sim};
-    use crate::time::{DAY, YEAR, year_start};
+    use crate::time::{DAY, year_start};
 
     fn sim(n: u64) -> SimId {
         SimId::try_from(n).expect("valid")
     }
 
-    /// Hand-built state, by hand for year 3 (YEAR = 31 449 600 s, DAY = 86 400 s):
-    /// - sim 1 is born on day 10 of year 3 and lives: YEAR - 10 days = 30 585 600.
+    /// Hand-built state, by hand for year 3 (a year has 364 days):
+    /// - sim 1 is born on day 10 of year 3 and lives: a year less 10 days.
     /// - sim 2 was born 10 years before the start and left on day 100 of year 3: it is
-    ///   archived and lived 100 days = 8 640 000 (the second of leaving is not lived).
+    ///   archived and lived 100 days (the second of leaving is not lived).
     /// - sim 3 was born one second before the start and lives: the whole year.
     /// - sim 4 left in the last second of year 2: nothing in year 3.
     #[test]
     fn the_census_counts_partial_years_and_the_archive() {
         let day = DAY.as_secs();
+        let year_secs = u64::try_from(364 * day).expect("positive");
+        let day_secs = u64::try_from(day).expect("positive");
         let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
         let mut domain = DomainState::new();
         domain.sims.insert(
@@ -103,7 +105,7 @@ mod tests {
             CensusRow {
                 year: 3,
                 living: 2,
-                lived_secs: 30_585_600 + 8_640_000 + 31_449_600,
+                lived_secs: (year_secs - 10 * day_secs) + 100 * day_secs + year_secs,
             }
         );
         assert_eq!(
@@ -111,7 +113,7 @@ mod tests {
             CensusRow {
                 year: 4,
                 living: 2,
-                lived_secs: 2 * 31_449_600,
+                lived_secs: 2 * year_secs,
             }
         );
         // Year 2: sims 2, 3 and 4 (until its last second); sim 1 is not born yet.
@@ -120,10 +122,9 @@ mod tests {
             CensusRow {
                 year: 2,
                 living: 2,
-                lived_secs: 31_449_600 + 31_449_600 + (31_449_600 - 1),
+                lived_secs: year_secs + year_secs + (year_secs - 1),
             }
         );
-        assert_eq!(YEAR.as_secs(), 31_449_600);
     }
 
     /// A negative year: the row carries the year of `t`, not year 0.

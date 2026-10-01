@@ -226,6 +226,39 @@ pub const TEXT_FILES: [(&str, &str); 2] = [
 /// The only file of `sim-core/src` that may name the hash crate (ADR-0003 S5).
 pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
 
+/// The files of the time module, the only place that may build a scheduler context.
+pub const TIME_DIR: &str = "crates/sim-core/src/time/";
+
+/// The only file outside `TIME_DIR` that calls `input_ctx(`: `World::submit` lives here.
+pub const SUBMIT_FILE: &str = "crates/sim-core/src/world/mod.rs";
+
+/// The only file of `sim-core/src` that may spell the seconds of a year as a number.
+pub const YEAR_LITERAL_FILE: &str = "crates/sim-core/src/time/clock.rs";
+
+/// How often `call` occurs in the code (strings and comments ignored). `call` is text
+/// such as `.pop_next(`; a match must not continue an identifier on its left.
+pub fn count_calls(source: &str, call: &str) -> usize {
+    let _ = (source, call);
+    0
+}
+
+/// True if the code spells the seconds of a year, `31449600`, as a number: with or
+/// without underscores, with a type suffix or as a float.
+pub fn names_year_literal(source: &str) -> bool {
+    let _ = source;
+    false
+}
+
+/// The time rules of the core over all files of `sim-core/src` (ADR-0002, "Eine
+/// Zeitfunktion, keine zweite Schleife" and "Nur zwei Umrechnungen"): exactly one call
+/// of `.pop_next(`, exactly one call of `input_ctx(` outside the time module and that in
+/// `SUBMIT_FILE`, the year literal only in `YEAR_LITERAL_FILE`.
+pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let _ = (core_sources, TIME_DIR, SUBMIT_FILE, YEAR_LITERAL_FILE);
+    let _ = (count_calls, names_year_literal);
+    Vec::new()
+}
+
 /// The identifier rules of the core over all files of `sim-core/src` (path relative to
 /// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
 /// types only in `TEXT_FILES` (ADR-0004 section 7).
@@ -510,6 +543,145 @@ mod tests {
         assert_eq!(
             identifiers_outside(&sources, &["xxhash_rust"], &["src/hash.rs"]),
             vec!["src/world.rs: names xxhash_rust".to_string()]
+        );
+    }
+
+    #[test]
+    fn calls_are_counted_in_code_only() {
+        let source = concat!(
+            "fn pop_next(&mut self) {}\n",
+            "fn run(&mut self) { while let Some(e) = self.pop_next(now) {} }\n",
+            "// self.pop_next(now) in a comment\n",
+            "let s = \".pop_next(\";\n",
+        );
+        assert_eq!(count_calls(source, ".pop_next("), 1);
+        assert_eq!(
+            count_calls("a.pop_next(1); b.pop_next(2);", ".pop_next("),
+            2
+        );
+        assert_eq!(count_calls("fn input_ctx(&mut self) {}", "input_ctx("), 1);
+        assert_eq!(count_calls("let c = s.input_ctx();", "input_ctx("), 1);
+        assert_eq!(count_calls("let c = s.my_input_ctx();", "input_ctx("), 0);
+        assert_eq!(count_calls("", "input_ctx("), 0);
+    }
+
+    #[test]
+    fn the_year_literal_is_found_in_every_spelling() {
+        for source in [
+            "const Y: i64 = 31449600;",
+            "const Y: i64 = 31_449_600;",
+            "const Y: f64 = 31_449_600.0;",
+            "let y = 31_449_600_i64;",
+            "let y = 31449600i64;",
+            "let y = -(99_999 * 31_449_600_i64);",
+            "let y = 3_1449_600;",
+        ] {
+            assert!(names_year_literal(source), "{source}");
+        }
+        for source in [
+            "let end = 31_449_599;",
+            "let ten = 314_496_000;",
+            "let x = 131_449_600;",
+            "let x = 0.31449600;",
+            "// 31_449_600 in a comment",
+            "let s = \"31449600\";",
+            "let x = a31449600;",
+            "",
+        ] {
+            assert!(!names_year_literal(source), "{source}");
+        }
+    }
+
+    /// A core as the time rules expect it, plus `extra`.
+    fn timed_core(extra: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut all = vec![
+            (
+                "crates/sim-core/src/time/scheduler.rs",
+                "fn pop_next(&mut self) {}\nfn run(&mut self) { self.pop_next(now); }\npub fn input_ctx(&mut self) {}\n",
+            ),
+            (YEAR_LITERAL_FILE, "const YEAR_SECONDS: f64 = 31_449_600.0;"),
+            (
+                SUBMIT_FILE,
+                "fn submit(&mut self) { let c = self.sched.input_ctx(); }",
+            ),
+        ];
+        all.extend_from_slice(extra);
+        files(&all)
+    }
+
+    #[test]
+    fn a_clean_core_has_no_time_findings() {
+        assert_eq!(core_time_findings(&timed_core(&[])), Vec::<String>::new());
+    }
+
+    /// Canary for the gate wiring: each time rule fires with the message the gate prints.
+    #[test]
+    fn the_time_rules_fire_on_a_broken_core() {
+        let second_loop = timed_core(&[(
+            "crates/sim-core/src/world/tick.rs",
+            "fn tick(s: &mut S) { while let Some(e) = s.pop_next(now) {} }",
+        )]);
+        assert_eq!(
+            core_time_findings(&second_loop),
+            vec![
+                ".pop_next( is called 2 times in sim-core/src, exactly one call is allowed (ADR-0002): crates/sim-core/src/time/scheduler.rs, crates/sim-core/src/world/tick.rs"
+                    .to_string()
+            ]
+        );
+        let second_entry = timed_core(&[(
+            "crates/sim-core/src/state/cheat.rs",
+            "fn cheat(s: &mut S) { let c = s.input_ctx(); }",
+        )]);
+        assert_eq!(
+            core_time_findings(&second_entry),
+            vec![
+                "input_ctx( is called 2 times outside the time module, exactly one call in crates/sim-core/src/world/mod.rs is allowed (ADR-0002): crates/sim-core/src/state/cheat.rs, crates/sim-core/src/world/mod.rs"
+                    .to_string()
+            ]
+        );
+        let literal = timed_core(&[(
+            "crates/sim-core/src/state/census.rs",
+            "fn years(secs: i64) -> i64 { secs / 31_449_600 }",
+        )]);
+        assert_eq!(
+            core_time_findings(&literal),
+            vec![
+                "crates/sim-core/src/state/census.rs: spells the seconds of a year as a number, only crates/sim-core/src/time/clock.rs may (ADR-0002)"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_calls_are_time_findings_too() {
+        // No call at all: the scan would otherwise pass on a renamed function.
+        let found = core_time_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod time;")]));
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(
+            found[0].starts_with(".pop_next( is called 0 times"),
+            "{found:?}"
+        );
+        assert!(
+            found[1].starts_with("input_ctx( is called 0 times"),
+            "{found:?}"
+        );
+        // The one call outside the time module must be in the submit file.
+        let elsewhere = files(&[
+            (
+                "crates/sim-core/src/time/scheduler.rs",
+                "fn run(&mut self) { self.pop_next(now); }",
+            ),
+            (
+                "crates/sim-core/src/state/start.rs",
+                "fn f(s: &mut S) { s.input_ctx(); }",
+            ),
+        ]);
+        let found = core_time_findings(&elsewhere);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].starts_with("input_ctx( is called 1 times outside the time module")
+                && found[0].ends_with(": crates/sim-core/src/state/start.rs"),
+            "{found:?}"
         );
     }
 
