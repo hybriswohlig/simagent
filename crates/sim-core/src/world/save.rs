@@ -319,14 +319,16 @@ fn sims_consistent(loaded: &LoadedState, now: i64) -> bool {
 fn queue_consistent(loaded: &LoadedState, closed: i64) -> bool {
     let now = closed + 1;
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
-    let mut year_ends = 0_u32;
+    let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
             EventPayload::YearEnd => {
-                year_ends += 1;
-                entry.period == Some(YEAR) && due == next_year_end
+                // A second series is rejected at once; a count could overflow.
+                let first = !year_end_seen;
+                year_end_seen = true;
+                first && entry.period == Some(YEAR) && due == next_year_end
             }
             EventPayload::Birthday { sim } => {
                 entry.period.is_none()
@@ -345,5 +347,5 @@ fn queue_consistent(loaded: &LoadedState, closed: i64) -> bool {
             return false;
         }
     }
-    year_ends == 1 && birthdays.len() == loaded.sims.len()
+    year_end_seen && birthdays.len() == loaded.sims.len()
 }

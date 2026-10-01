@@ -71,8 +71,20 @@ fn load(bytes: &[u8]) -> Result<(World, Vec<YearHash>), LoadError> {
     World::load(bytes, EMPTY_DATA_HASH)
 }
 
+/// `None` if the bytes load, and then they must also be what the loaded world saves:
+/// nothing is dropped or changed on the way in (ADR-0006 section 6).
 fn load_error(bytes: &[u8]) -> Option<LoadError> {
-    load(bytes).err()
+    match load(bytes) {
+        Ok((world, years)) => {
+            assert_eq!(
+                world.save(&years).expect("saves"),
+                bytes,
+                "save(load(b)) == b"
+            );
+            None
+        }
+        Err(error) => Some(error),
+    }
 }
 
 // ---------------------------------------------------------------------------------
