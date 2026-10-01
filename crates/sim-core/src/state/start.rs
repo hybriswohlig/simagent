@@ -90,8 +90,14 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
 
 /// The first anniversary of `born` at or after `now` (`born <= now`).
 fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
+    SimTime::from_secs(next_anniversary_secs(born, now))
+}
+
+/// The second of the first anniversary of `born` at or after `now` (`born <= now`). In
+/// plain seconds: the span can be longer than the longest `SimDuration`, and the result
+/// may lie beyond the time range (the loader compares it, it does not build a time).
+pub(crate) fn next_anniversary_secs(born: SimTime, now: SimTime) -> i64 {
     let full = whole_years(born, now);
-    // Plain seconds: `age` years can be longer than the longest `SimDuration`.
     let after = |years: u32| born.as_secs() + i64::from(years) * YEAR.as_secs();
     let on_the_day = after(full) == now.as_secs();
     let age = if on_the_day && full >= 1 {
@@ -99,7 +105,7 @@ fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
     } else {
         full + 1
     };
-    SimTime::from_secs(after(age))
+    after(age)
 }
 
 #[cfg(test)]

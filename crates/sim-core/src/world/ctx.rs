@@ -21,6 +21,11 @@ impl IdCounters {
         }
     }
 
+    /// The counters of a loaded world.
+    pub(super) fn restore(sim: Counter) -> IdCounters {
+        IdCounters { sim }
+    }
+
     /// The SimId the next sim gets.
     pub(super) fn next_sim(&self) -> u64 {
         self.sim.peek()
@@ -49,6 +54,24 @@ impl LogBuffer {
 
     pub(super) fn take(&mut self) -> Vec<LogEntry> {
         core::mem::take(&mut self.entries)
+    }
+
+    /// The empty buffer of a loaded world; its first entry gets the saved next ID.
+    pub(super) fn restore(next_event: Counter) -> LogBuffer {
+        LogBuffer {
+            next_event,
+            entries: Vec::new(),
+        }
+    }
+
+    /// True if nothing waits to be taken. A save needs that (ADR-0004 section 6).
+    pub(super) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The EventId the next entry gets.
+    pub(super) fn next_event(&self) -> u64 {
+        self.next_event.peek()
     }
 
     /// A buffer whose first entry gets the ID `first` (ADR-0004 test 6).

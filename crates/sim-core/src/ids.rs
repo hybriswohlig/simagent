@@ -109,6 +109,13 @@ impl Serialize for EventId {
     }
 }
 
+impl EventId {
+    /// True if this ID was handed out by a counter whose next value is `next`.
+    pub(crate) fn is_below(self, next: u64) -> bool {
+        self.0.get() < next
+    }
+}
+
 impl<'de> Deserialize<'de> for EventId {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = u64::deserialize(deserializer)?;
@@ -153,6 +160,14 @@ impl Counter {
     /// The value the next allocation will return.
     pub(crate) fn peek(&self) -> u64 {
         self.next
+    }
+
+    /// A counter as it was saved: `next` in 1 ..= 2^53. At 2^53 the counter is
+    /// exhausted, the next allocation breaks (ADR-0006 section 5).
+    pub(crate) fn from_next(next: u64) -> Option<Counter> {
+        (1..=MAX_JS_SAFE + 1)
+            .contains(&next)
+            .then_some(Counter { next })
     }
 
     #[cfg(test)]

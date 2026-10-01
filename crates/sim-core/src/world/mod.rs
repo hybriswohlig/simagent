@@ -20,6 +20,7 @@ use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
+use crate::version::EMPTY_DATA_HASH;
 use ctx::{IdCounters, LogBuffer};
 
 /// The input log: the only replay source (ADR-0004 section 6). It lives outside the
@@ -41,6 +42,8 @@ pub struct World {
     sched: Scheduler<EventPayload, PlanRef>,
     state: WorldState,
     inputs: InputLog,
+    /// The data hash of the loaded definitions (ADR-0004); part of a save's header.
+    data_hash: u64,
 }
 
 /// The handler side of the scheduler: the domain state plus the counters and the log
@@ -70,6 +73,7 @@ impl World {
                 next_seq: Counter::new(),
                 records: Vec::new(),
             },
+            data_hash: EMPTY_DATA_HASH,
         }
     }
 

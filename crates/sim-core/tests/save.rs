@@ -484,7 +484,9 @@ fn load_rejects_malformed_bytes() {
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
-    let payload_at = header + 5 + 4 + 2;
+    // Behind the header: version, seed (3 bytes), clock, sim counter, queue length, then
+    // the first entry with its time (4 bytes), micro step and insertion number.
+    let payload_at = header + 7 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -736,8 +738,13 @@ fn load_rejects_inconsistent_saves() {
         (
             "a start the input check rejects",
             File::tiny().with(|f| {
+                // A founder born at the start; everything else fits such a founder.
                 f.sims = vec![(1, 0)];
-                f.queue[0].0 = Y;
+                f.queue = vec![
+                    (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+                    (Y, 0, 2, birthday(1), None),
+                ];
+                f.plan_refs = vec![(1, 0), (2, 0)];
                 start_with_founders(f, vec![0]);
             }),
         ),
