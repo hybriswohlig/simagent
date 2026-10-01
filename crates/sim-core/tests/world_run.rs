@@ -310,6 +310,29 @@ fn yearly_balance_log_matches_state() {
     assert_eq!(log.len(), 34);
 }
 
+/// An accepted input never breaks an invariant later (ADR-0004 section 4): the oldest
+/// founder the time range allows, born 1 000 000 years before the start, has birthdays
+/// like everyone else. The span from birth to now then exceeds the range of a duration.
+#[test]
+fn the_oldest_possible_founder_has_birthdays() {
+    let born = -1_000_000 * Y;
+    let mut world = started(&[born]);
+    world.take_log();
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(2 * Y), &mut |_| false);
+    let ages: Vec<u32> = world
+        .take_log()
+        .iter()
+        .map(|entry| match entry.payload {
+            LogPayload::Birthday { age_years } => age_years,
+            _ => panic!("only birthdays expected"),
+        })
+        .collect();
+    assert_eq!(ages, [1_000_000, 1_000_001, 1_000_002]);
+    assert_eq!(out.census.len(), 2);
+    assert_eq!(out.census[1].lived_secs, 31_449_600);
+}
+
 /// A `Start` after the clock moved is rejected; it could not plan the first year end.
 #[test]
 fn start_after_advancing_is_rejected() {
