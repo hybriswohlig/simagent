@@ -2,6 +2,7 @@
 //! `origin/main` (ADR-0003 6.4 and 6.5). They are pure functions over two views of the
 //! repository; `main.rs` fills the views from git and from the working tree.
 
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// What the rules look at, at one commit.
@@ -22,29 +23,139 @@ pub const LOCKED_PACKAGES: [&str; 3] = ["postcard", "xxhash-rust", "serde_json"]
 
 /// `CORE_VERSION` as written in `version.rs`.
 pub fn parse_core_version(source: &str) -> Option<u32> {
-    let _ = source;
-    None
+    source.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("pub const CORE_VERSION: u32 = ")?
+            .strip_suffix(';')?
+            .parse()
+            .ok()
+    })
 }
 
-/// The versions of `LOCKED_PACKAGES` in the text of a `Cargo.lock`.
+/// The versions of `LOCKED_PACKAGES` in the text of a `Cargo.lock`. A package that is
+/// locked in two versions gets both, so that a change of either shows.
 pub fn locked_versions(cargo_lock: &str) -> BTreeMap<String, String> {
-    let _ = cargo_lock;
-    BTreeMap::new()
+    let quoted = |line: &str, key: &str| {
+        line.strip_prefix(key)?
+            .strip_prefix(" = \"")?
+            .strip_suffix('"')
+            .map(str::to_string)
+    };
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    let mut current: Option<String> = None;
+    for line in cargo_lock.lines() {
+        if let Some(name) = quoted(line, "name") {
+            current = LOCKED_PACKAGES.contains(&name.as_str()).then_some(name);
+        } else if let (Some(version), Some(name)) = (quoted(line, "version"), current.take()) {
+            versions
+                .entry(name)
+                .and_modify(|known| *known = format!("{known}, {version}"))
+                .or_insert(version);
+        }
+    }
+    versions
+}
+
+/// Year hashes by year and the log hash of a scenario golden, if `bytes` is one.
+fn scenario_hashes(bytes: &[u8]) -> Option<(BTreeMap<i64, String>, String)> {
+    let golden: Value = serde_json::from_slice(bytes).ok()?;
+    let log_hash = golden.get("log_hash")?.as_str()?.to_string();
+    let mut years = BTreeMap::new();
+    for entry in golden.get("year_hashes")?.as_array()? {
+        years.insert(
+            entry.get("year")?.as_i64()?,
+            entry.get("hash")?.as_str()?.to_string(),
+        );
+    }
+    Some((years, log_hash))
+}
+
+/// True if an existing result of the golden `path` differs between `base` and `head`.
+fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
+    if base == head {
+        return false;
+    }
+    if path.ends_with(".json") {
+        // A scenario golden: later years may be added, existing hashes must stay.
+        if let (Some((base_years, base_log)), Some((head_years, head_log))) =
+            (scenario_hashes(base), scenario_hashes(head))
+        {
+            return base_log != head_log
+                || base_years
+                    .iter()
+                    .any(|(year, hash)| head_years.get(year) != Some(hash));
+        }
+    }
+    if path.ends_with(".csv") || path.ends_with(".txt") {
+        // Known answers and code lists: lines may be added, existing lines must stay.
+        let (base, head) = (String::from_utf8_lossy(base), String::from_utf8_lossy(head));
+        return base
+            .lines()
+            .any(|line| !head.lines().any(|kept| kept == line));
+    }
+    true
 }
 
 /// The goldens of `base` whose existing results differ in `head`: a year hash or the
 /// log hash of a scenario golden, the bytes of a golden save, an existing line of a
 /// known-answer file. New files, new years and new lines are no change.
 pub fn changed_results(base: &Results, head: &Results) -> Vec<String> {
-    let _ = (base, head);
-    Vec::new()
+    base.goldens
+        .iter()
+        .filter(|(path, before)| match head.goldens.get(*path) {
+            Some(after) => result_changed(path, before, after),
+            None => true,
+        })
+        .map(|(path, _)| path.clone())
+        .collect()
 }
 
 /// ADR-0003 6.4 and 6.5: the violations of `head` against `base`.
 pub fn violations(base: &Results, head: &Results) -> Vec<String> {
-    let _ = (changed_results(base, head), LOCKED_PACKAGES);
-    let _ = (base.core_version, &head.toolchain, &head.locked);
-    Vec::new()
+    let mut found = Vec::new();
+    let changed = changed_results(base, head);
+    match (base.core_version, head.core_version) {
+        // The first commit with a core version has nothing to compare with.
+        (None, _) => {}
+        (Some(before), None) => found.push(format!(
+            "CORE_VERSION is gone, the base has {before} (ADR-0003 6.4)"
+        )),
+        (Some(before), Some(now)) => {
+            let next = before.saturating_add(1);
+            if changed.is_empty() {
+                if now != before && now != next {
+                    found.push(format!(
+                        "CORE_VERSION is {now}; without a golden change it must be the base {before} or {next} (ADR-0003 6.4)"
+                    ));
+                }
+            } else if now != next {
+                for path in &changed {
+                    found.push(format!(
+                        "{path} changed, so CORE_VERSION must be {next} (base {before} + 1), it is {now} (ADR-0003 6.4)"
+                    ));
+                }
+            }
+        }
+    }
+    // 6.5: an update decides nothing about results.
+    let results_touched = base.goldens != head.goldens || base.core_version != head.core_version;
+    if results_touched {
+        const RULE: &str =
+            "the same pull request must not change goldens or CORE_VERSION (ADR-0003 6.5)";
+        if !base.toolchain.is_empty() && base.toolchain != head.toolchain {
+            found.push(format!("rust-toolchain.toml changed; {RULE}"));
+        }
+        for package in LOCKED_PACKAGES {
+            if let (Some(before), Some(now)) = (base.locked.get(package), head.locked.get(package))
+                && before != now
+            {
+                found.push(format!(
+                    "{package} changed from {before} to {now} in Cargo.lock; {RULE}"
+                ));
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]
