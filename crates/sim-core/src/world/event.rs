@@ -33,3 +33,19 @@ impl Payload for EventPayload {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-0002: the year end runs in the observer phase, after every domain event of
+    /// its second, and belongs to the world.
+    #[test]
+    fn year_end_is_a_world_observer() {
+        let payload = EventPayload::YearEnd;
+        assert_eq!(payload.class(), EventClass::OBSERVER);
+        assert_eq!(payload.class().phase(), 1);
+        assert_eq!(payload.subject(), EventSubject::WORLD);
+        assert_eq!(payload.kind(), EventKind(1));
+    }
+}
