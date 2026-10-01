@@ -6,6 +6,7 @@ use super::{DomainState, whole_years};
 use crate::ids::SimId;
 use crate::log::{Causes, LogPayload, Subject};
 use crate::time::YEAR;
+use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
 
 /// Writes the entry and plans the next birthday with this entry as its `by`. The age
@@ -20,5 +21,7 @@ pub(crate) fn on_birthday(domain: &DomainState, sim: SimId, ctx: &mut SimCtx<'_,
         vec![Subject::Sim(sim)],
         Causes::new(ctx.trigger()),
     );
-    ctx.schedule(ctx.now() + YEAR, EventPayload::Birthday { sim }, entry);
+    let next = ctx.now() + YEAR;
+    ctx.schedule(next, EventPayload::Birthday { sim }, entry);
+    ctx.trace(sim, || TracePayload::BirthdayPlanned { next });
 }

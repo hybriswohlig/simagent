@@ -7,6 +7,7 @@ use super::{DomainState, Sim, years_between};
 use crate::input::{InputRejected, RejectCode, Start};
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
+use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
 
 pub(crate) fn check_start(
@@ -80,11 +81,9 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
             Causes::new(ctx.trigger()),
         );
         domain.sims.insert(id, Sim { born });
-        ctx.schedule(
-            first_birthday(born, ctx.now()),
-            EventPayload::Birthday { sim: id },
-            added,
-        );
+        let next = first_birthday(born, ctx.now());
+        ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
+        ctx.trace(id, || TracePayload::BirthdayPlanned { next });
     }
 }
 

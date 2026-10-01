@@ -14,6 +14,7 @@ use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
+use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
 
 /// `EventId` is opaque (ADR-0004 section 6): outside the core it only comes from serde.
@@ -142,6 +143,26 @@ fn sample_record() -> InputRecord {
         seq: input_seq(1),
         input: sample_input(),
     }
+}
+
+/// ADR-0004 section 6: a trace entry has no EventId; time, sim and payload.
+#[test]
+fn trace_entry_form_is_pinned() {
+    let entry = TraceEntry {
+        t: SimTime::from_secs(5),
+        sim: sim(2),
+        payload: TracePayload::BirthdayPlanned {
+            next: SimTime::from_secs(-1),
+        },
+    };
+    let text = r#"{"t":5,"sim":2,"payload":{"core:birthday_planned":{"next":-1}}}"#;
+    assert_eq!(json(&entry), text);
+    assert_eq!(from_json::<TraceEntry>(text).ok(), Some(entry.clone()));
+    // time 5 (zigzag 10), sim 2, variant 0, next -1 (zigzag 1)
+    assert_eq!(postcard_round_trip(&entry), [10, 2, 0, 1]);
+    let unknown = text.replace(r#""sim":2"#, r#""sim":2,"x":0"#);
+    assert!(from_json::<TraceEntry>(&unknown).is_err());
+    assert!(from_json::<TraceEntry>(&text.replace(r#""sim":2"#, r#""sim":0"#)).is_err());
 }
 
 /// ADR-0004 section 4: one line of `input.ndjson` per accepted input.
@@ -590,6 +611,16 @@ fn log_codes_are_stable() {
     }
     actual.extend(saves.iter().map(|s| line("save", s)));
     actual.extend(loads.iter().map(|l| line("load", l)));
+    // ADR-0004 section 6: the kinds of trace entries.
+    let traces = [TracePayload::BirthdayPlanned {
+        next: SimTime::from_secs(0),
+    }];
+    for trace in &traces {
+        match trace {
+            TracePayload::BirthdayPlanned { .. } => {}
+        }
+    }
+    actual.extend(traces.iter().map(|t| line("trace", t)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

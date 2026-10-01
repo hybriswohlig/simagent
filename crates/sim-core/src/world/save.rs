@@ -15,6 +15,7 @@ use crate::input::{Input, InputRecord};
 use crate::log::PlanRef;
 use crate::state::{self, DomainState};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
+use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
 
 /// Rises with every change of the layout of a save (ADR-0006 section 2).
@@ -199,6 +200,7 @@ impl World {
                 },
                 ids: IdCounters::restore(counter(loaded.next_sim_id)?),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
+                trace: TraceBuffer::default(),
             },
             inputs: InputLog {
                 next_seq: counter(next_input)?,
