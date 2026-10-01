@@ -71,11 +71,6 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         }
     }
 
-    /// The first open second.
-    pub(crate) fn now(&self) -> SimTime {
-        self.ctx.now()
-    }
-
     /// Why this handler runs: the plan of the running event or the applied input.
     pub(crate) fn trigger(&self) -> Cause {
         self.trigger.clone()
