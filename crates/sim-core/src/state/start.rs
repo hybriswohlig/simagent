@@ -64,13 +64,15 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
 /// The first anniversary of `born` at or after `now` (`born <= now`).
 fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
     let full = whole_years(born, now);
-    let on_the_day = born + YEAR * i64::from(full) == now;
+    // Plain seconds: `age` years can be longer than the longest `SimDuration`.
+    let after = |years: u32| born.as_secs() + i64::from(years) * YEAR.as_secs();
+    let on_the_day = after(full) == now.as_secs();
     let age = if on_the_day && full >= 1 {
         full
     } else {
         full + 1
     };
-    born + YEAR * i64::from(age)
+    SimTime::from_secs(after(age))
 }
 
 #[cfg(test)]
