@@ -397,6 +397,13 @@ fn replay_rejects_a_changed_input_log() {
         replay(&with_lines(&[lines[1], &second_start])),
         "error: replay_input_rejected: input 2 at t -1 was rejected: already_started"
     );
+    // A replay follows the log: it runs to the stamp of a record before it applies it.
+    // `Start` after the clock moved is rejected (ADR-0004 section 4).
+    assert_eq!(
+        replay(&pristine.replacen(r#""t":-1"#, r#""t":5"#, 1)),
+        "error: replay_input_rejected: input 1 at t 5 was rejected: clock_not_at_start"
+    );
+    assert!(!dir.join("attempt3").exists(), "nothing was written");
     // The record as a list of values instead of an object with field names.
     let positional = r#"[-1,1,{"start":["00000000000000ff","test:tiny",[[-1]]]}]"#;
     assert_eq!(
