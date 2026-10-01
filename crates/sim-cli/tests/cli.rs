@@ -373,8 +373,9 @@ fn replay_compares_the_number_of_years() {
     let original = run_scenario(&dir, TEN_YEARS, "original");
     let manifest_path = original.join("manifest.json");
     let manifest: Value = serde_json::from_str(&text(&manifest_path)).expect("json");
-    let last = serde_json::to_string(&manifest["year_hashes"][9]).expect("json");
-    replace_in(&manifest_path, &format!(",{last}"), "");
+    let hash = manifest["year_hashes"][9]["hash"].as_str().expect("hex");
+    let last = format!(r#",{{"year":9,"hash":"{hash}"}}"#);
+    replace_in(&manifest_path, &last, "");
     let log = original.join("input.ndjson");
     assert_eq!(
         error_of(&[
