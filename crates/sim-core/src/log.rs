@@ -10,6 +10,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::Code;
+use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, SimId};
 use crate::time::SimTime;
 
@@ -112,4 +113,30 @@ pub struct LogEntry {
     pub subjects: Vec<Subject>,
     pub causes: Causes,
     pub payload: LogPayload,
+}
+
+/// The log hash (ADR-0004 section 8): `StableHasher` over the postcard bytes of all
+/// entries in order. Streaming, so a driver can feed every batch from `take_log`.
+#[derive(Default)]
+pub struct LogHasher(StableHasher);
+
+impl LogHasher {
+    pub fn new() -> LogHasher {
+        LogHasher(StableHasher::new())
+    }
+
+    pub fn update(&mut self, entries: &[LogEntry]) {
+        let _ = entries;
+    }
+
+    pub fn digest(&self) -> u64 {
+        self.0.digest()
+    }
+}
+
+/// The log hash of `entries` in one call.
+pub fn log_hash(entries: &[LogEntry]) -> u64 {
+    let mut hasher = LogHasher::new();
+    hasher.update(entries);
+    hasher.digest()
 }

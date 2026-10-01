@@ -45,6 +45,15 @@ impl LogBuffer {
     pub(super) fn take(&mut self) -> Vec<LogEntry> {
         core::mem::take(&mut self.entries)
     }
+
+    /// A buffer whose first entry gets the ID `first` (ADR-0004 test 6).
+    #[cfg(test)]
+    pub(super) fn starting_at(first: u64) -> LogBuffer {
+        LogBuffer {
+            next_event: Counter::starting_at(first),
+            entries: Vec::new(),
+        }
+    }
 }
 
 /// What a domain handler or an applied input may do. `cancel` and `reschedule`

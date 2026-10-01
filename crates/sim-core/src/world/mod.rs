@@ -8,10 +8,11 @@ mod event;
 pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
 
-pub use crate::state::census::{CensusRow, YearOut};
+pub use crate::state::census::CensusRow;
 
 use alloc::vec::Vec;
 
+use crate::canonical::{self, YearHash};
 use crate::ids::{Counter, InputSeq, SimId};
 use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
@@ -24,6 +25,14 @@ use ctx::{IdCounters, LogBuffer};
 struct InputLog {
     next_seq: Counter,
     records: Vec<InputRecord>,
+}
+
+/// What the observer `YearEnd` writes per year: output, not state (ADR-0002). Neither
+/// hashed nor saved; a save gets the year hashes handed along (ADR-0003 5.3).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct YearOut {
+    pub census: Vec<CensusRow>,
+    pub year_hashes: Vec<YearHash>,
 }
 
 pub struct World {
@@ -90,6 +99,16 @@ impl World {
         stop: &mut dyn FnMut(&WorldState) -> bool,
     ) -> AdvanceOutcome {
         self.sched.advance_until(&mut self.state, out, limit, stop)
+    }
+
+    /// The state hash between two calls (ADR-0003 5.4).
+    pub fn state_hash(&self) -> u64 {
+        canonical::state_hash(&self.state, &self.sched)
+    }
+
+    /// The bytes the state hash is taken over, for diffing two runs.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        canonical::canonical_bytes(&self.state, &self.sched)
     }
 
     /// Hands the buffered domain log over; the core never reads it (ADR-0004 section 6).
@@ -330,6 +349,40 @@ mod tests {
         assert_eq!(world.state.born(gone), Some(SimTime::from_secs(-9)));
         assert_eq!(world.state.archive_len(), 1);
         assert_eq!(world.state.living(), 1);
+    }
+
+    /// ADR-0004 test 6: EventIds are log metadata. A run whose EventId counter starts at
+    /// 1 000 001 has the same state hashes and another log hash.
+    #[test]
+    fn event_id_shift_keeps_state_hash() {
+        let run = |first_event: u64| {
+            let mut world = World::new();
+            world.state.log = LogBuffer::starting_at(first_event);
+            world.submit(start(&[-5, -1])).expect("accepted");
+            let mut out = YearOut::default();
+            let limit = SimTime::from_secs(2 * YEAR.as_secs());
+            world.advance_until(&mut out, limit, &mut |_| false);
+            let log = world.take_log();
+            let first_id = serde_json::to_string(&log[0].id).expect("json");
+            (
+                out.year_hashes,
+                world.state_hash(),
+                crate::log::log_hash(&log),
+                first_id,
+                log.len(),
+            )
+        };
+        let (years, state, log, first_id, entries) = run(1);
+        let (shifted_years, shifted_state, shifted_log, shifted_first_id, shifted_entries) =
+            run(1_000_001);
+        assert_eq!(first_id, "1");
+        assert_eq!(shifted_first_id, "1000001");
+        assert_eq!(entries, 3 + 4, "start entries and four birthdays");
+        assert_eq!(shifted_entries, entries);
+        assert_eq!(years.len(), 2);
+        assert_eq!(shifted_years, years);
+        assert_eq!(shifted_state, state);
+        assert_ne!(shifted_log, log);
     }
 
     /// ADR-0004 section 4: a rejected input takes no sequence number.

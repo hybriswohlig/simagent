@@ -1,8 +1,6 @@
 //! The yearly census (ADR-0004 section 8): values from the state, never from the log
 //! and never from earlier rows.
 
-use alloc::vec::Vec;
-
 use super::DomainState;
 use crate::time::{SimTime, calendar, year_start};
 
@@ -14,12 +12,6 @@ pub struct CensusRow {
     pub living: u64,
     /// Seconds lived in this year by all sims, archive included.
     pub lived_secs: u64,
-}
-
-/// What the observer `YearEnd` writes: output, not state (ADR-0002).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct YearOut {
-    pub census: Vec<CensusRow>,
 }
 
 /// The row of the year that contains `t`; the observer runs in its last second.
