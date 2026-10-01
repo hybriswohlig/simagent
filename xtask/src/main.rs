@@ -4,6 +4,7 @@
 mod arch;
 mod canary;
 mod checks;
+mod results;
 mod scan;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +61,7 @@ fn gate(require_clean_tree: bool) -> Result {
     }
     step("compiler flags", || check_compiler_flags(&root))?;
     step("document limits", || check_document_limits(&root))?;
+    step("result changes", || check_result_changes(&root))?;
     step("architecture", || check_architecture(&root))?;
     step("scans", || check_scans(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
@@ -144,6 +146,99 @@ fn check_clean_tree(root: &Path) -> Result {
             "uncommitted changes (commit them or use `cargo xtask check`):\n{changes}"
         ))
     }
+}
+
+/// ADR-0003 6.4 and 6.5: compares the working tree with its merge base with
+/// `origin/main`. On main itself the base is the head, and the rules hold trivially.
+fn check_result_changes(root: &Path) -> Result {
+    let base = git_text(root, &["merge-base", "HEAD", "origin/main"]).map_err(|error| {
+        format!(
+            "cannot find the merge base with origin/main ({error}); the rules on result changes need the history (ADR-0003 6.4)"
+        )
+    })?;
+    let base = base.trim();
+    let at_base = |path: &str| git_bytes(root, &["show", &format!("{base}:{path}")]).ok();
+    let text = |bytes: Option<Vec<u8>>| {
+        bytes
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default()
+    };
+    let mut before = results::Results {
+        core_version: results::parse_core_version(&text(at_base(CORE_VERSION_FILE))),
+        toolchain: text(at_base("rust-toolchain.toml")),
+        locked: results::locked_versions(&text(at_base("Cargo.lock"))),
+        ..results::Results::default()
+    };
+    let listed = git_text(root, &["ls-tree", "-r", "--name-only", base, GOLDEN_DIR])?;
+    for path in listed.lines() {
+        if let Some(bytes) = at_base(path) {
+            before.goldens.insert(path.to_string(), bytes);
+        }
+    }
+    let read_or_empty = |path: &str| std::fs::read_to_string(root.join(path)).unwrap_or_default();
+    let mut after = results::Results {
+        core_version: results::parse_core_version(&read_or_empty(CORE_VERSION_FILE)),
+        toolchain: read_or_empty("rust-toolchain.toml"),
+        locked: results::locked_versions(&read_or_empty("Cargo.lock")),
+        ..results::Results::default()
+    };
+    for file in all_files(&root.join(GOLDEN_DIR))? {
+        let bytes = std::fs::read(&file)
+            .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+        after.goldens.insert(relative(root, &file), bytes);
+    }
+    let found = results::violations(&before, &after);
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", found.join("\n  ")))
+    }
+}
+
+const CORE_VERSION_FILE: &str = "crates/sim-core/src/version.rs";
+const GOLDEN_DIR: &str = "tests/golden";
+
+fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot run git: {error}"))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn git_text(root: &Path, args: &[&str]) -> Result<String> {
+    git_bytes(root, args).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Every file below `dir`, in a fixed order.
+fn all_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|error| format!("cannot list {}: {error}", current.display()))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|error| format!("cannot list {}: {error}", current.display()))?
+                .path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 fn check_compiler_flags(root: &Path) -> Result {
