@@ -42,7 +42,9 @@ fn start_rejection(
     if closed_through != SimTime::START - SimDuration::from_secs(1) {
         return Some(RejectCode::ClockNotAtStart);
     }
-    let _ = (founders, founder_count);
+    if founder_count(founders).is_none() {
+        return Some(RejectCode::TooManyFounders);
+    }
     if founder_not_born {
         return Some(RejectCode::FounderNotBornBeforeStart);
     }
@@ -51,16 +53,15 @@ fn start_rejection(
 
 /// The number of founders as it stands in `core:started`.
 fn founder_count(founders: usize) -> Option<u32> {
-    let _ = founders;
-    Some(0)
+    u32::try_from(founders).ok()
 }
 
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
 /// 7). Then one creation entry per founder, in list order.
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
-    let founders = u32::try_from(start.founders.len())
-        .unwrap_or_else(|_| panic!("invariant start.founder_count_range"));
+    let founders = founder_count(start.founders.len())
+        .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
     let started = ctx.emit(
         LogPayload::Started { founders },
         Vec::new(),

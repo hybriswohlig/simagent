@@ -235,25 +235,26 @@ pub const SUBMIT_FILE: &str = "crates/sim-core/src/world/mod.rs";
 /// The only file of `sim-core/src` that may spell the seconds of a year as a number.
 pub const YEAR_LITERAL_FILE: &str = "crates/sim-core/src/time/clock.rs";
 
-/// How often `call` occurs in the code (strings and comments ignored). `call` is text
-/// such as `.pop_next(`; a match must not continue an identifier on its left.
-pub fn count_calls(source: &str, call: &str) -> usize {
-    let code = mask_non_code(source);
-    code.match_indices(call)
-        .filter(|(start, _)| {
-            let before = code[..*start].chars().next_back();
-            let starts_identifier = call.chars().next().is_some_and(is_identifier_char);
-            !(starts_identifier && before.is_some_and(is_identifier_char))
-        })
-        .count()
-}
-
 /// How often `ident` is used in the code: every occurrence as an identifier that is not
 /// its definition `fn ident`. A method call, a path such as `Self::ident(..)`, a function
 /// reference and a call with a comment or a line break before the parenthesis all count.
 pub fn count_uses(source: &str, ident: &str) -> usize {
-    let _ = (source, ident);
-    0
+    let code = mask_non_code(source);
+    code.match_indices(ident)
+        .filter(|(start, _)| {
+            let before = &code[..*start];
+            let after = code[start + ident.len()..].chars().next();
+            let is_word = !before.chars().next_back().is_some_and(is_identifier_char)
+                && !after.is_some_and(is_identifier_char);
+            // The definition: the keyword `fn`, then only white space.
+            let head = before.trim_end();
+            let defined = head.len() < before.len()
+                && head
+                    .strip_suffix("fn")
+                    .is_some_and(|rest| !rest.chars().next_back().is_some_and(is_identifier_char));
+            is_word && !defined
+        })
+        .count()
 }
 
 /// True if the code spells the seconds of a year, `31449600`, as a number: with or
@@ -285,20 +286,19 @@ pub fn names_year_literal(source: &str) -> bool {
 }
 
 /// The time rules of the core over all files of `sim-core/src` (ADR-0002, "Eine
-/// Zeitfunktion, keine zweite Schleife" and "Nur zwei Umrechnungen"): exactly one call
-/// of `.pop_next(`, exactly one call of `input_ctx(` outside the time module and that in
+/// Zeitfunktion, keine zweite Schleife" and "Nur zwei Umrechnungen"): exactly one use
+/// of `pop_next`, exactly one use of `input_ctx` outside the time module and that in
 /// `SUBMIT_FILE`, the year literal only in `YEAR_LITERAL_FILE`.
 pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
-    let _ = count_uses;
     let mut findings = Vec::new();
-    let files_calling = |call: &str, outside: Option<&str>| -> (usize, Vec<&str>) {
+    let files_using = |ident: &str, outside: Option<&str>| -> (usize, Vec<&str>) {
         let mut total = 0;
         let mut files = Vec::new();
         for (path, source) in core_sources {
             if outside.is_some_and(|dir| path.starts_with(dir)) {
                 continue;
             }
-            let count = count_calls(source, call);
+            let count = count_uses(source, ident);
             if count > 0 {
                 total += count;
                 files.push(path.as_str());
@@ -307,17 +307,17 @@ pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
         files.sort_unstable();
         (total, files)
     };
-    let (pops, pop_files) = files_calling(".pop_next(", None);
+    let (pops, pop_files) = files_using("pop_next", None);
     if pops != 1 {
         findings.push(format!(
-            ".pop_next( is called {pops} times in sim-core/src, exactly one call is allowed (ADR-0002): {}",
+            "pop_next is used {pops} times in sim-core/src, exactly one use is allowed (ADR-0002): {}",
             pop_files.join(", ")
         ));
     }
-    let (inputs, input_files) = files_calling("input_ctx(", Some(TIME_DIR));
+    let (inputs, input_files) = files_using("input_ctx", Some(TIME_DIR));
     if inputs != 1 || input_files != [SUBMIT_FILE] {
         findings.push(format!(
-            "input_ctx( is called {inputs} times outside the time module, exactly one call in {SUBMIT_FILE} is allowed (ADR-0002): {}",
+            "input_ctx is used {inputs} times outside the time module, exactly one use in {SUBMIT_FILE} is allowed (ADR-0002): {}",
             input_files.join(", ")
         ));
     }
@@ -647,25 +647,6 @@ mod tests {
         }
         assert_eq!(count_uses("let c = s.input_ctx();", "input_ctx"), 1);
         assert_eq!(count_uses("pub fn input_ctx(&mut self) {}", "input_ctx"), 0);
-    }
-
-    #[test]
-    fn calls_are_counted_in_code_only() {
-        let source = concat!(
-            "fn pop_next(&mut self) {}\n",
-            "fn run(&mut self) { while let Some(e) = self.pop_next(now) {} }\n",
-            "// self.pop_next(now) in a comment\n",
-            "let s = \".pop_next(\";\n",
-        );
-        assert_eq!(count_calls(source, ".pop_next("), 1);
-        assert_eq!(
-            count_calls("a.pop_next(1); b.pop_next(2);", ".pop_next("),
-            2
-        );
-        assert_eq!(count_calls("fn input_ctx(&mut self) {}", "input_ctx("), 1);
-        assert_eq!(count_calls("let c = s.input_ctx();", "input_ctx("), 1);
-        assert_eq!(count_calls("let c = s.my_input_ctx();", "input_ctx("), 0);
-        assert_eq!(count_calls("", "input_ctx("), 0);
     }
 
     #[test]
