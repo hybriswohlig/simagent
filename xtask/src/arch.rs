@@ -40,7 +40,7 @@ pub const CORE_ALLOWED: [&str; 15] = [
 ];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
-pub const TOOL_ALLOWED: [&str; 7] = [
+pub const TOOL_ALLOWED: [&str; 11] = [
     "sim-cli",
     "xtask",
     "serde_json",
@@ -48,6 +48,12 @@ pub const TOOL_ALLOWED: [&str; 7] = [
     "itoa",
     "memchr",
     "zmij",
+    // clap for the arguments of sim-cli, builder API only, features `std` only
+    // (ADR-0000). clap_builder, clap_lex and anstyle are its fixed dependencies.
+    "clap",
+    "clap_builder",
+    "clap_lex",
+    "anstyle",
 ];
 
 /// Packages allowed only in the test graph (reached through dev-dependencies): proptest

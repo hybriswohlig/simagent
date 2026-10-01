@@ -13,6 +13,19 @@ path = "src/main.rs"
 
 [dependencies]
 sim-core = { path = "../sim-core" }
+# Arguments through the builder API: clap's derive macros set their own lint levels and
+# collide with the workspace `forbid` lints (ADR-0000).
+clap = { version = "4", default-features = false, features = ["std"] }
+# JSON of scenarios, the input log, events and the manifest (ADR-0004). float_roundtrip
+# keeps every finite f64 bit for bit (ADR-0003 AT5).
+# Without default features: std on serde would reach the core through feature
+# unification (the architecture test allows the core only derive and alloc).
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+# Property test of the JSON float round trip, fixed seed (ADR-0003).
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true
