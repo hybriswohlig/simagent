@@ -94,6 +94,8 @@ mod tests {
             (10, 10 + 3 * year, 10 + 3 * year),
             (10, 11 + 3 * year, 10 + 4 * year),
             (0, 0, year),
+            // The longest span of the time range: 2 000 000 years less 5 seconds.
+            (-1_000_000 * year, 1_000_000 * year - 5, 1_000_000 * year),
         ];
         for (born, now, expected) in cases {
             assert_eq!(
