@@ -436,6 +436,20 @@ fn until_outside_the_run_is_rejected() {
         "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
     );
     assert!(!out.exists(), "nothing was written");
+    // Also when this call would stop earlier: the run could never be resumed to its end.
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(&out),
+            "--until",
+            "5"
+        ]),
+        "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert!(!out.exists(), "nothing was written");
     // A resumed run has the same limits and stays untouched when refused.
     let done = run_scenario(&dir, TINY_SCENARIO, "done");
     let before = text(&done.join("input.ndjson"));
