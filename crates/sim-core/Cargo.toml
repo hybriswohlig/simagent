@@ -20,7 +20,7 @@ xxhash-rust = { version = "=0.8.19", default-features = false, features = ["xxh3
 # Model-based and property tests with a fixed seed (ADR-0001, ADR-0002). Test graph only.
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 # JSON round trips of the command schema and the log (ADR-0004 test 9).
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

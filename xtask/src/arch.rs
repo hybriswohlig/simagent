@@ -277,8 +277,28 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
 /// declares it and in what cargo resolves. That it stays out of the core is the job
 /// of the core positive list.
 fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
-    let _ = graph;
-    violations.truncate(violations.len());
+    const PACKAGE: &str = "serde_json";
+    const FEATURE: &str = "float_roundtrip";
+    for &member in &graph.members {
+        let declares_without = graph.specs.get(member).is_some_and(|specs| {
+            specs
+                .iter()
+                .any(|spec| spec.name == PACKAGE && !spec.features.contains(&FEATURE))
+        });
+        if declares_without {
+            violations.push(format!(
+                "{} declares {PACKAGE} without the feature {FEATURE} (ADR-0003 AT5)",
+                graph.name(member)
+            ));
+        }
+    }
+    for id in graph.edges.keys() {
+        if graph.name(id) == PACKAGE && !graph.resolved(id).contains(&FEATURE) {
+            violations.push(format!(
+                "{PACKAGE} resolves without the feature {FEATURE} (ADR-0003 AT5)"
+            ));
+        }
+    }
 }
 
 /// Checks the manifests of the workspace members only: third-party crates may declare
