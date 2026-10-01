@@ -1,0 +1,13 @@
+{
+  "format_version": 1,
+  "start": {
+    "world_seed": "0000000000000001",
+    "founder_tag": "test:dummy",
+    "founders": [
+      { "born": -943488000 },
+      { "born": -794880000 },
+      { "born": -1 }
+    ]
+  },
+  "until": 314495999
+}
