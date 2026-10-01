@@ -321,8 +321,11 @@ pub fn parse_tree_line(line: &str) -> Option<(String, String)> {
     let mut tokens = line.split_whitespace();
     let name = tokens.next()?;
     let version = tokens.next()?.strip_prefix('v')?;
+    let is_name = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     let starts_with_digit = version.starts_with(|c: char| c.is_ascii_digit());
-    (starts_with_digit && !name.ends_with(':')).then(|| (name.to_string(), version.to_string()))
+    (is_name && starts_with_digit).then(|| (name.to_string(), version.to_string()))
 }
 
 /// The build set and the resolve graph must name the same packages in the same
