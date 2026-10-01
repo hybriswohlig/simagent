@@ -152,6 +152,14 @@ impl WorldState {
         }
     }
 
+    pub(crate) fn domain(&self) -> &DomainState {
+        &self.domain
+    }
+
+    pub(crate) fn next_sim_id(&self) -> u64 {
+        self.ids.next_sim()
+    }
+
     /// `None` until `Start` was applied.
     pub fn world_seed(&self) -> Option<u64> {
         self.domain.world_seed
@@ -198,13 +206,17 @@ impl Handler<EventPayload, PlanRef> for WorldState {
     fn on_observer(
         &self,
         ev: &Fired<EventPayload, PlanRef>,
-        _sched: &Scheduler<EventPayload, PlanRef>,
+        sched: &Scheduler<EventPayload, PlanRef>,
         out: &mut YearOut,
     ) {
         match ev.payload {
             EventPayload::YearEnd => {
-                out.census
-                    .push(state::census::census_row(&self.domain, ev.key.time));
+                let row = state::census::census_row(&self.domain, ev.key.time);
+                out.year_hashes.push(YearHash {
+                    year: row.year,
+                    hash: canonical::state_hash(self, sched),
+                });
+                out.census.push(row);
             }
             EventPayload::Birthday { .. } => panic!("invariant world.domain_in_observer_phase"),
         }

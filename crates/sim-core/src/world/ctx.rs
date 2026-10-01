@@ -21,6 +21,11 @@ impl IdCounters {
         }
     }
 
+    /// The SimId the next sim gets.
+    pub(super) fn next_sim(&self) -> u64 {
+        self.sim.peek()
+    }
+
     /// Number of SimIds handed out so far.
     pub(super) fn sims_allocated(&self) -> u64 {
         self.sim.peek() - 1

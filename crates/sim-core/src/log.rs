@@ -126,7 +126,11 @@ impl LogHasher {
     }
 
     pub fn update(&mut self, entries: &[LogEntry]) {
-        let _ = entries;
+        for entry in entries {
+            let bytes =
+                postcard::to_allocvec(entry).unwrap_or_else(|_| panic!("invariant log.encode"));
+            self.0.update(&bytes);
+        }
     }
 
     pub fn digest(&self) -> u64 {
