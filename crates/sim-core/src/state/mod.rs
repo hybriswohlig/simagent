@@ -8,7 +8,7 @@ pub(crate) mod start;
 use alloc::collections::BTreeMap;
 
 use crate::ids::SimId;
-use crate::time::{SimDuration, SimTime};
+use crate::time::{SimDuration, SimTime, YEAR};
 
 pub(crate) struct Sim {
     pub(crate) born: SimTime,
@@ -42,14 +42,13 @@ impl DomainState {
 /// Whole years in a span that is not negative.
 #[track_caller]
 pub(crate) fn whole_years(elapsed: SimDuration) -> u32 {
-    let _ = elapsed;
-    0
+    let years = elapsed.as_secs().div_euclid(YEAR.as_secs());
+    u32::try_from(years).unwrap_or_else(|_| panic!("invariant age.out_of_range"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::time::YEAR;
 
     #[test]
     fn whole_years_rounds_down() {

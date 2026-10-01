@@ -3,8 +3,8 @@
 
 use alloc::vec::Vec;
 
-use super::{ArchivedSim, DomainState};
-use crate::time::SimTime;
+use super::DomainState;
+use crate::time::{SimTime, calendar, year_start};
 
 /// One row of `census.csv`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,11 +24,33 @@ pub struct YearOut {
 
 /// The row of the year that contains `t`; the observer runs in its last second.
 pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
-    let _ = (domain, t, |a: &ArchivedSim| (a.born, a.left));
+    let year = calendar(t).year;
+    let (from, to) = (year_start(year), year_start(year + 1));
+    // Seconds of `[born, left)` inside the year; the second of leaving is not lived.
+    let overlap = |born: SimTime, left: SimTime| -> u64 {
+        let (start, end) = (born.max(from), left.min(to));
+        if end <= start {
+            return 0;
+        }
+        u64::try_from((end - start).as_secs())
+            .unwrap_or_else(|_| panic!("invariant census.negative_span"))
+    };
+    let living = domain.sims.values().map(|sim| overlap(sim.born, to));
+    let archived = domain
+        .archive
+        .values()
+        .map(|sim| overlap(sim.born, sim.left));
+    let mut lived_secs: u64 = 0;
+    for span in living.chain(archived) {
+        lived_secs = lived_secs
+            .checked_add(span)
+            .unwrap_or_else(|| panic!("invariant census.lived_secs_overflow"));
+    }
     CensusRow {
-        year: 0,
-        living: 0,
-        lived_secs: 0,
+        year,
+        living: u64::try_from(domain.sims.len())
+            .unwrap_or_else(|_| panic!("invariant census.count_range")),
+        lived_secs,
     }
 }
 
@@ -36,7 +58,7 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
 mod tests {
     use super::*;
     use crate::ids::SimId;
-    use crate::state::Sim;
+    use crate::state::{ArchivedSim, Sim};
     use crate::time::{DAY, YEAR, year_start};
 
     fn sim(n: u64) -> SimId {
