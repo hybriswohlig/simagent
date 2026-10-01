@@ -1,6 +1,6 @@
 //! The event payload of the world (ADR-0002): plain data in the scheduler queue.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ids::SimId;
 use crate::time::{EventClass, EventKind, EventSubject, Payload};
@@ -10,7 +10,7 @@ use crate::time::{EventClass, EventKind, EventSubject, Payload};
 ///
 /// postcard encodes the variant index: it is part of the state hash, pinned by the
 /// reference bytes in `tests/projection.rs`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventPayload {
     /// Periodic observer in the last second of every year (ADR-0002).
     YearEnd,

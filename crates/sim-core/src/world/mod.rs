@@ -4,9 +4,11 @@
 
 mod ctx;
 mod event;
+mod save;
 
 pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
+pub use save::{FORMAT_VERSION, LoadError, SaveError};
 
 pub use crate::state::census::CensusRow;
 
@@ -18,6 +20,7 @@ use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
+use crate::version::EMPTY_DATA_HASH;
 use ctx::{IdCounters, LogBuffer};
 
 /// The input log: the only replay source (ADR-0004 section 6). It lives outside the
@@ -39,6 +42,8 @@ pub struct World {
     sched: Scheduler<EventPayload, PlanRef>,
     state: WorldState,
     inputs: InputLog,
+    /// The data hash of the loaded definitions (ADR-0004); part of a save's header.
+    data_hash: u64,
 }
 
 /// The handler side of the scheduler: the domain state plus the counters and the log
@@ -68,6 +73,7 @@ impl World {
                 next_seq: Counter::new(),
                 records: Vec::new(),
             },
+            data_hash: EMPTY_DATA_HASH,
         }
     }
 
@@ -383,6 +389,23 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3]);
         assert_eq!(world.canonical_bytes(), expected);
+    }
+
+    /// ADR-0006 section 2: the counter of the inputs is not saved; it follows from the
+    /// input log. No input can follow `Start` yet, so only this test sees it.
+    #[test]
+    fn a_loaded_world_numbers_the_next_input() {
+        let unstarted = World::new().save(&[]).expect("saves");
+        let (loaded, _) = World::load(&unstarted, EMPTY_DATA_HASH).expect("loads");
+        assert_eq!(loaded.inputs.next_seq.peek(), 1);
+        let mut world = World::new();
+        world.submit(start(&[-5])).expect("accepted");
+        world.take_log();
+        let bytes = world.save(&[]).expect("saves");
+        let (loaded, _) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        assert_eq!(loaded.inputs.next_seq.peek(), 2);
+        assert_eq!(loaded.state.log.next_event(), 3);
+        assert_eq!(loaded.state.ids.next_sim(), 2);
     }
 
     /// ADR-0004 test 6: EventIds are log metadata. A run whose EventId counter starts at

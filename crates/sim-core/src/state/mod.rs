@@ -7,19 +7,19 @@ pub(crate) mod start;
 
 use alloc::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ids::SimId;
 use crate::time::{SimTime, YEAR};
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Sim {
     pub(crate) born: SimTime,
 }
 
 /// Who left the active population stays resolvable by ID (ADR-0004 section 1). The
 /// reason and the genome arrive with the rules that write them.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct ArchivedSim {
     pub(crate) born: SimTime,
     pub(crate) left: SimTime,
@@ -47,8 +47,14 @@ impl DomainState {
 /// between two valid times can be twice as long as the longest `SimDuration`.
 #[track_caller]
 pub(crate) fn whole_years(born: SimTime, now: SimTime) -> u32 {
-    let years = (now.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
-    u32::try_from(years).unwrap_or_else(|_| panic!("invariant age.out_of_range"))
+    years_between(born.as_secs(), now.as_secs())
+        .unwrap_or_else(|| panic!("invariant age.out_of_range"))
+}
+
+/// Whole years between two seconds, `None` if `now_secs` is before `born_secs`. For
+/// checking a save: neither value needs to be a valid time, and nothing panics.
+pub(crate) fn years_between(born_secs: i64, now_secs: i64) -> Option<u32> {
+    u32::try_from((now_secs - born_secs).div_euclid(YEAR.as_secs())).ok()
 }
 
 #[cfg(test)]
@@ -78,6 +84,15 @@ mod tests {
         let limit = crate::time::MAX_ABS_SECS;
         let (first, last) = (SimTime::from_secs(-limit), SimTime::from_secs(limit));
         assert_eq!(whole_years(first, last), 2_000_000);
+    }
+
+    #[test]
+    fn years_between_has_no_answer_before_the_birth() {
+        let year = YEAR.as_secs();
+        assert_eq!(years_between(5, 4), None);
+        assert_eq!(years_between(5, 5), Some(0));
+        assert_eq!(years_between(-year, 0), Some(1));
+        assert_eq!(years_between(0, -year), None);
     }
 
     #[test]

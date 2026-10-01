@@ -27,13 +27,28 @@ pub const PROJECTION_VERSION: u32 = 1;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
-#[derive(Serialize)]
-struct QueueEntry {
-    time: SimTime,
-    micro: u16,
-    seq: u64,
-    payload: EventPayload,
-    period: Option<SimDuration>,
+#[derive(Serialize, Deserialize)]
+pub(crate) struct QueueEntry {
+    pub(crate) time: SimTime,
+    pub(crate) micro: u16,
+    pub(crate) seq: u64,
+    pub(crate) payload: EventPayload,
+    pub(crate) period: Option<SimDuration>,
+}
+
+/// The projection as a save holds it: the same fields in the same order as
+/// `CanonicalState`, owned, so a load can read them (ADR-0006). The two encode to the
+/// same bytes; `tests/save.rs` holds them together.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct LoadedState {
+    pub(crate) projection_version: u32,
+    pub(crate) world_seed: Option<u64>,
+    pub(crate) closed_through: SimTime,
+    pub(crate) next_sim_id: u64,
+    pub(crate) queue: Vec<QueueEntry>,
+    pub(crate) next_event_seq: u64,
+    pub(crate) sims: BTreeMap<SimId, Sim>,
+    pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
 }
 
 /// The canonical view of the state, in the field order of ADR-0003 5.2. Maps serialize
@@ -54,9 +69,10 @@ pub struct CanonicalState<'a> {
 ///
 /// Not included, and this list is complete (ADR-0003 5.3): the index of the queue, the
 /// companion data of pending events (plan references), the EventId counter, the log
-/// buffer, `RunStats`, the input log with its sequence counter, the core version, the
-/// data hash and the commit. A new state field goes in unless it is on this list or
-/// can be rebuilt from the projection.
+/// buffer and the trace buffer, caches, indices, maps from ID to slot, capacities,
+/// `RunStats`, the input log with its sequence counter and inputs not applied yet, the
+/// trace switch, the core version, the data hash and the commit. A new state field goes
+/// in unless it is on this list or can be rebuilt from the projection.
 pub fn canonical_projection<'a>(
     state: &'a WorldState,
     sched: &Scheduler<EventPayload, PlanRef>,

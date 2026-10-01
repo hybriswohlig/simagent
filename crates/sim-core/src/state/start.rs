@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, whole_years};
+use super::{DomainState, Sim, years_between};
 use crate::input::{InputRejected, RejectCode, Start};
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
@@ -90,16 +90,25 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
 
 /// The first anniversary of `born` at or after `now` (`born <= now`).
 fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
-    let full = whole_years(born, now);
-    // Plain seconds: `age` years can be longer than the longest `SimDuration`.
+    let secs = next_anniversary_secs(born, now.as_secs())
+        .unwrap_or_else(|| panic!("invariant age.out_of_range"));
+    SimTime::from_secs(secs)
+}
+
+/// The second of the first anniversary of `born` at or after `now_secs`, `None` if
+/// `born` lies after it. In plain seconds: the span can be longer than the longest
+/// `SimDuration`, and neither `now_secs` nor the result need lie in the time range (the
+/// loader compares seconds, it builds no time and must not panic).
+pub(crate) fn next_anniversary_secs(born: SimTime, now_secs: i64) -> Option<i64> {
+    let full = years_between(born.as_secs(), now_secs)?;
     let after = |years: u32| born.as_secs() + i64::from(years) * YEAR.as_secs();
-    let on_the_day = after(full) == now.as_secs();
+    let on_the_day = after(full) == now_secs;
     let age = if on_the_day && full >= 1 {
         full
     } else {
         full + 1
     };
-    SimTime::from_secs(after(age))
+    Some(after(age))
 }
 
 #[cfg(test)]
@@ -173,6 +182,23 @@ mod tests {
                 "started {started}, closed {closed_through:?}, {founders} founders, unborn {not_born}"
             );
         }
+    }
+
+    #[test]
+    fn no_anniversary_before_the_birth() {
+        assert_eq!(next_anniversary_secs(SimTime::from_secs(5), 4), None);
+        let year = YEAR.as_secs();
+        assert_eq!(
+            next_anniversary_secs(SimTime::from_secs(5), 5),
+            Some(5 + year)
+        );
+        // The second after the end of the time range is no valid time and still a
+        // valid `now` here.
+        let end = crate::time::MAX_ABS_SECS;
+        assert_eq!(
+            next_anniversary_secs(SimTime::from_secs(end), end + 1),
+            Some(end + year)
+        );
     }
 
     /// By hand: the smallest `born + n * YEAR` with `n >= 1` that is not before `now`.
