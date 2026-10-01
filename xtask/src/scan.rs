@@ -238,14 +238,41 @@ pub const YEAR_LITERAL_FILE: &str = "crates/sim-core/src/time/clock.rs";
 /// How often `call` occurs in the code (strings and comments ignored). `call` is text
 /// such as `.pop_next(`; a match must not continue an identifier on its left.
 pub fn count_calls(source: &str, call: &str) -> usize {
-    let _ = (source, call);
-    0
+    let code = mask_non_code(source);
+    code.match_indices(call)
+        .filter(|(start, _)| {
+            let before = code[..*start].chars().next_back();
+            let starts_identifier = call.chars().next().is_some_and(is_identifier_char);
+            !(starts_identifier && before.is_some_and(is_identifier_char))
+        })
+        .count()
 }
 
 /// True if the code spells the seconds of a year, `31449600`, as a number: with or
 /// without underscores, with a type suffix or as a float.
 pub fn names_year_literal(source: &str) -> bool {
-    let _ = source;
+    const YEAR_DIGITS: &str = "31449600";
+    let code = mask_non_code(source);
+    let mut previous: Option<char> = None;
+    let mut token = String::new();
+    // A number token: digits and underscores that follow neither an identifier
+    // character nor a decimal point.
+    for c in code.chars().chain(core::iter::once(' ')) {
+        let in_token = !token.is_empty();
+        if c.is_ascii_digit() || (in_token && c == '_') {
+            let starts = !in_token && !previous.is_some_and(|p| is_identifier_char(p) || p == '.');
+            if in_token || starts {
+                token.push(c);
+            }
+        } else {
+            let digits: String = token.chars().filter(|d| *d != '_').collect();
+            if digits == YEAR_DIGITS {
+                return true;
+            }
+            token.clear();
+        }
+        previous = Some(c);
+    }
     false
 }
 
@@ -254,9 +281,45 @@ pub fn names_year_literal(source: &str) -> bool {
 /// of `.pop_next(`, exactly one call of `input_ctx(` outside the time module and that in
 /// `SUBMIT_FILE`, the year literal only in `YEAR_LITERAL_FILE`.
 pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
-    let _ = (core_sources, TIME_DIR, SUBMIT_FILE, YEAR_LITERAL_FILE);
-    let _ = (count_calls, names_year_literal);
-    Vec::new()
+    let mut findings = Vec::new();
+    let files_calling = |call: &str, outside: Option<&str>| -> (usize, Vec<&str>) {
+        let mut total = 0;
+        let mut files = Vec::new();
+        for (path, source) in core_sources {
+            if outside.is_some_and(|dir| path.starts_with(dir)) {
+                continue;
+            }
+            let count = count_calls(source, call);
+            if count > 0 {
+                total += count;
+                files.push(path.as_str());
+            }
+        }
+        files.sort_unstable();
+        (total, files)
+    };
+    let (pops, pop_files) = files_calling(".pop_next(", None);
+    if pops != 1 {
+        findings.push(format!(
+            ".pop_next( is called {pops} times in sim-core/src, exactly one call is allowed (ADR-0002): {}",
+            pop_files.join(", ")
+        ));
+    }
+    let (inputs, input_files) = files_calling("input_ctx(", Some(TIME_DIR));
+    if inputs != 1 || input_files != [SUBMIT_FILE] {
+        findings.push(format!(
+            "input_ctx( is called {inputs} times outside the time module, exactly one call in {SUBMIT_FILE} is allowed (ADR-0002): {}",
+            input_files.join(", ")
+        ));
+    }
+    for (path, source) in core_sources {
+        if path != YEAR_LITERAL_FILE && names_year_literal(source) {
+            findings.push(format!(
+                "{path}: spells the seconds of a year as a number, only {YEAR_LITERAL_FILE} may (ADR-0002)"
+            ));
+        }
+    }
+    findings
 }
 
 /// The identifier rules of the core over all files of `sim-core/src` (path relative to
