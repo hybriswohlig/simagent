@@ -135,15 +135,16 @@ pub const NOT_BUILT: [(&str, &str); 1] = [(
 /// `cargo tree` actually builds for the target; it must equal the resolve graph except
 /// for the packages on `NOT_BUILT`, which then drop out of every closure. `None`
 /// checks the metadata as it is.
-pub fn check(metadata: &Value, built: Option<&BTreeSet<String>>) -> Vec<String> {
+pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Vec<String> {
     let mut graph = match Graph::parse(metadata) {
         Ok(graph) => graph,
         Err(message) => return vec![format!("cargo metadata: {message}")],
     };
     let mut violations = Vec::new();
     if let Some(built) = built {
-        check_build_set(&graph, built, &mut violations);
-        graph.drop_not_built(built);
+        let built: BTreeSet<String> = built.iter().map(|(name, _)| name.clone()).collect();
+        check_build_set(&graph, &built, &mut violations);
+        graph.drop_not_built(&built);
     }
     check_members(&graph, &mut violations);
     let mut normal_union = BTreeSet::new();
@@ -315,6 +316,13 @@ fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
     }
 }
 
+/// Name and version from a line of `cargo tree --prefix none --format {p}`:
+/// `name vX.Y.Z`, optionally followed by a path or `(*)`.
+pub fn parse_tree_line(line: &str) -> Option<(String, String)> {
+    let _ = line;
+    None
+}
+
 /// The build set and the resolve graph must name the same packages, except for the
 /// packages on `NOT_BUILT`. A build set that is empty, cut short or parsed from an
 /// unexpected output therefore never passes.
@@ -352,6 +360,7 @@ struct Spec<'a> {
 /// The parts of `cargo metadata` the rules need, keyed by package id.
 struct Graph<'a> {
     names: BTreeMap<&'a str, &'a str>,
+    versions: BTreeMap<&'a str, &'a str>,
     declared: BTreeMap<&'a str, Vec<&'a str>>,
     /// Dependency edges; `true` for normal or build, `false` for dev only.
     edges: BTreeMap<&'a str, Vec<(&'a str, bool)>>,
@@ -365,6 +374,7 @@ impl<'a> Graph<'a> {
     fn parse(metadata: &'a Value) -> Result<Self, String> {
         let mut graph = Graph {
             names: BTreeMap::new(),
+            versions: BTreeMap::new(),
             declared: BTreeMap::new(),
             edges: BTreeMap::new(),
             resolved: BTreeMap::new(),
@@ -374,6 +384,7 @@ impl<'a> Graph<'a> {
         for package in array(metadata, "packages")? {
             let id = string(package, "id")?;
             graph.names.insert(id, string(package, "name")?);
+            graph.versions.insert(id, string(package, "version")?);
             let declared = package
                 .get("features")
                 .and_then(Value::as_object)
@@ -581,7 +592,17 @@ mod tests {
         }
 
         fn build(&self) -> Value {
-            let id = |name: &str| format!("id+{name}#0.1.0");
+            // A key is `name` (version 0.1.0) or `name@version`.
+            let split = |key: &str| -> (String, String) {
+                match key.split_once('@') {
+                    Some((name, version)) => (name.to_string(), version.to_string()),
+                    None => (key.to_string(), "0.1.0".to_string()),
+                }
+            };
+            let id = |key: &str| {
+                let (name, version) = split(key);
+                format!("id+{name}#{version}")
+            };
             let packages: Vec<Value> = self
                 .packages
                 .iter()
@@ -602,8 +623,10 @@ mod tests {
                             })
                         })
                         .collect();
+                    let (plain, version) = split(name);
                     json!({
-                        "name": name,
+                        "name": plain,
+                        "version": version,
                         "id": id(name),
                         "features": own,
                         "dependencies": dependencies
@@ -620,7 +643,7 @@ mod tests {
                         .filter(|(from, _, _)| from == name)
                         .map(|(_, to, kind)| {
                             json!({
-                                "name": to.replace('-', "_"),
+                                "name": split(to).0.replace('-', "_"),
                                 "pkg": id(to),
                                 "dep_kinds": [{ "kind": kind, "target": null }]
                             })
@@ -662,24 +685,12 @@ mod tests {
             !check(&metadata, None).is_empty(),
             "without the build set the phantom is a violation"
         );
-        let mut built: BTreeSet<String> = MEMBERS.iter().map(|m| m.to_string()).collect();
-        built.extend(
-            [
-                "libm",
-                "xxhash-rust",
-                "serde_json",
-                "serde_core",
-                "itoa",
-                "memchr",
-                "zmij",
-            ]
-            .map(String::from),
-        );
+        let built = built_workspace();
         assert_eq!(check(&metadata, Some(&built)), Vec::<String>::new());
     }
 
     /// Every package of the workspace fixture, as `cargo tree` would list them.
-    fn built_workspace() -> BTreeSet<String> {
+    fn built_workspace() -> BTreeSet<(String, String)> {
         let names = [
             "libm",
             "xxhash-rust",
@@ -689,10 +700,20 @@ mod tests {
             "memchr",
             "zmij",
         ];
-        MEMBERS.into_iter().chain(names).map(String::from).collect()
+        MEMBERS.into_iter().chain(names).map(built).collect()
     }
 
-    fn assert_build_set_reports(fixture: Fixture, built: &BTreeSet<String>, needle: &str) {
+    /// A package of the fixture as `cargo tree` lists it: `name` or `name@version`.
+    fn built(key: &str) -> (String, String) {
+        let (name, version) = key.split_once('@').unwrap_or((key, "0.1.0"));
+        (name.to_string(), version.to_string())
+    }
+
+    fn assert_build_set_reports(
+        fixture: Fixture,
+        built: &BTreeSet<(String, String)>,
+        needle: &str,
+    ) {
         let found = check(&fixture.build(), Some(built));
         assert!(
             found.iter().any(|v| v.contains(needle)),
@@ -711,7 +732,7 @@ mod tests {
         assert_build_set_reports(
             Fixture::workspace(),
             &BTreeSet::new(),
-            "sim-core is in cargo metadata but cargo tree does not build it",
+            "sim-core 0.1.0 is in cargo metadata but cargo tree does not build it",
         );
     }
 
@@ -723,7 +744,7 @@ mod tests {
         assert_build_set_reports(
             fixture,
             &built_workspace(),
-            "left-pad is in cargo metadata but cargo tree does not build it",
+            "left-pad 0.1.0 is in cargo metadata but cargo tree does not build it",
         );
     }
 
@@ -732,7 +753,11 @@ mod tests {
         let fixture = Fixture::workspace()
             .package("rand", &[])
             .dep("sim-core", "rand", None);
-        assert_build_set_reports(fixture, &built_workspace(), "rand is in cargo metadata");
+        assert_build_set_reports(
+            fixture,
+            &built_workspace(),
+            "rand 0.1.0 is in cargo metadata",
+        );
     }
 
     #[test]
@@ -741,24 +766,118 @@ mod tests {
             Fixture::workspace()
                 .package("embedded-io", &[])
                 .dep("sim-core", "embedded-io", None);
-        let mut built = built_workspace();
-        built.insert("embedded-io".to_string());
+        let mut built_set = built_workspace();
+        built_set.insert(built("embedded-io"));
         assert_build_set_reports(
             fixture,
-            &built,
-            "embedded-io is on the not-built list but cargo tree builds it",
+            &built_set,
+            "embedded-io 0.1.0 is on the not-built list but cargo tree builds it",
         );
     }
 
     #[test]
     fn the_build_set_must_come_from_the_same_graph() {
-        let mut built = built_workspace();
-        built.insert("warning:".to_string());
+        let mut built_set = built_workspace();
+        built_set.insert(built("left-pad@1.0.0"));
         assert_build_set_reports(
             Fixture::workspace(),
-            &built,
-            "cargo tree builds warning:, which cargo metadata does not list",
+            &built_set,
+            "cargo tree builds left-pad 1.0.0, which cargo metadata does not list",
         );
+    }
+
+    /// The comparison is by name and version: an allowed name does not cover a second
+    /// version that cargo resolves but does not build.
+    #[test]
+    fn an_unbuilt_second_version_must_be_on_the_not_built_list() {
+        let fixture = Fixture::workspace().package("xxhash-rust@9.9.9", &[]).dep(
+            "serde_json",
+            "xxhash-rust@9.9.9",
+            None,
+        );
+        assert_build_set_reports(
+            fixture,
+            &built_workspace(),
+            "xxhash-rust 9.9.9 is in cargo metadata but cargo tree does not build it",
+        );
+    }
+
+    /// A second version that is built would pass every list by its name alone.
+    #[test]
+    fn two_built_versions_of_one_package_are_a_violation() {
+        let fixture = Fixture::workspace().package("xxhash-rust@9.9.9", &[]).dep(
+            "serde_json",
+            "xxhash-rust@9.9.9",
+            None,
+        );
+        let mut built_set = built_workspace();
+        built_set.insert(built("xxhash-rust@9.9.9"));
+        assert_build_set_reports(
+            fixture,
+            &built_set,
+            "xxhash-rust is built in two versions (0.1.0, 9.9.9)",
+        );
+    }
+
+    /// Both versions of a not-built package drop out, as embedded-io under postcard.
+    #[test]
+    fn two_unbuilt_versions_on_the_not_built_list_are_fine() {
+        let fixture = Fixture::workspace()
+            .package("embedded-io@0.4.0", &[])
+            .package("embedded-io@0.6.1", &[])
+            .dep("sim-core", "embedded-io@0.4.0", None)
+            .dep("sim-core", "embedded-io@0.6.1", None);
+        let found = check(&fixture.build(), Some(&built_workspace()));
+        assert_eq!(found, Vec::<String>::new());
+    }
+
+    /// A built package and its unbuilt second version on the not-built list: only the
+    /// unbuilt one leaves the closures.
+    #[test]
+    fn a_built_version_stays_in_the_closure_next_to_an_unbuilt_one() {
+        let fixture = Fixture::workspace()
+            .package("embedded-io@0.4.0", &[])
+            .package("embedded-io@0.6.1", &[])
+            .dep("sim-core", "embedded-io@0.4.0", None)
+            .dep("sim-core", "embedded-io@0.6.1", None);
+        let mut built_set = built_workspace();
+        built_set.insert(built("embedded-io@0.6.1"));
+        let found = check(&fixture.build(), Some(&built_set));
+        assert!(
+            found.iter().any(|v| v
+                .contains("embedded-io 0.6.1 is on the not-built list but cargo tree builds it")),
+            "{found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|v| v.contains("embedded-io is in the closure of sim-core")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn cargo_tree_lines_give_name_and_version() {
+        let pair = |name: &str, version: &str| Some((name.to_string(), version.to_string()));
+        assert_eq!(parse_tree_line("syn v3.0.6"), pair("syn", "3.0.6"));
+        assert_eq!(parse_tree_line("syn v3.0.6 (*)"), pair("syn", "3.0.6"));
+        assert_eq!(
+            parse_tree_line("serde_derive v1.0.229 (proc-macro)"),
+            pair("serde_derive", "1.0.229")
+        );
+        assert_eq!(
+            parse_tree_line("sim-core v0.1.0 (/home/x/simagent/crates/sim-core)"),
+            pair("sim-core", "0.1.0")
+        );
+        for bad in [
+            "",
+            "syn",
+            "syn 3.0.6",
+            "warning: something happened",
+            "v1.0.0",
+        ] {
+            assert_eq!(parse_tree_line(bad), None, "{bad:?}");
+        }
     }
 
     fn assert_reports(fixture: Fixture, needle: &str) {

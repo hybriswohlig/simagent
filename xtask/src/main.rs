@@ -242,7 +242,10 @@ fn check_architecture(root: &Path) -> Result {
 
 /// Names of the packages cargo actually builds for `target` (normal, build and dev
 /// edges of every workspace member), from the real feature resolver of `cargo tree`.
-fn built_packages(root: &Path, target: &str) -> Result<std::collections::BTreeSet<String>> {
+fn built_packages(
+    root: &Path,
+    target: &str,
+) -> Result<std::collections::BTreeSet<(String, String)>> {
     let output = Command::new(cargo_program())
         .args(["tree", "--workspace", "--locked", "--prefix", "none"])
         .args([
@@ -262,11 +265,17 @@ fn built_packages(root: &Path, target: &str) -> Result<std::collections::BTreeSe
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.split_whitespace().next())
-        .map(str::to_string)
-        .collect())
+    let mut built = std::collections::BTreeSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        built.insert(
+            arch::parse_tree_line(line)
+                .ok_or_else(|| format!("cannot parse the cargo tree line {line:?}"))?,
+        );
+    }
+    Ok(built)
 }
 
 fn check_scans(root: &Path) -> Result {
