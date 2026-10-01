@@ -129,6 +129,36 @@ EMPTY_PROJECTION = (
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
 
+# The log of "tiny" up to the end of year 0 (ADR-0004 section 7). An entry is
+# (id, t, subjects, causes, payload). Subject::Sim = 0. Cause: Event = 0, Plan = 1
+# { by, planned_at }, Input = 2, Rule = 3. Payload: core:started = 0 { founders },
+# core:founder_added = 1 { born }, core:birthday = 2 { age_years }.
+def entry(event_id: int, time: int, subjects: list, causes: list, payload: bytes) -> bytes:
+    return varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload
+
+
+SIM_1 = variant(0, varint(1))
+BY_INPUT_1 = variant(2, varint(1))
+TINY_LOG = [
+    entry(1, 0, [], [BY_INPUT_1], variant(0, varint(1))),
+    entry(2, 0, [SIM_1], [BY_INPUT_1], variant(1, signed(-1))),
+    entry(3, YEAR - 1, [SIM_1], [variant(1, varint(2), signed(0))], variant(2, varint(1))),
+]
+
+# The save at the end of year 0: the birthday of that second planned the next one
+# (entry 3 at YEAR - 1), the year end series keeps the plan of `core:started`; the next
+# EventId is 4; one year hash.
+TINY_YEAR_0_HASH = xxhash.xxh3_64_intdigest(TINY_YEAR_0, seed=0)
+TINY_SAVE_AFTER_YEAR_0 = (
+    header(EMPTY_DATA_HASH)
+    + TINY_AFTER_YEAR_0
+    + seq([plan_ref(3, YEAR - 1), plan_ref(1, 0)])
+    + varint(4)
+    + TINY_INPUT_LOG
+    + seq([signed(0) + varint(TINY_YEAR_0_HASH)])
+)
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -145,6 +175,8 @@ if __name__ == "__main__":
     print(f"header {header(EMPTY_DATA_HASH).hex()}")
     print(f"tiny_save_after_start {TINY_SAVE_AFTER_START.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
+    print(f"tiny_log_hash {digest(b''.join(TINY_LOG))}")
+    print(f"tiny_save_after_year_0 {TINY_SAVE_AFTER_YEAR_0.hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

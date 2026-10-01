@@ -40,7 +40,7 @@ pub const CORE_ALLOWED: [&str; 15] = [
 ];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
-pub const TOOL_ALLOWED: [&str; 7] = [
+pub const TOOL_ALLOWED: [&str; 11] = [
     "sim-cli",
     "xtask",
     "serde_json",
@@ -48,6 +48,12 @@ pub const TOOL_ALLOWED: [&str; 7] = [
     "itoa",
     "memchr",
     "zmij",
+    // clap for the arguments of sim-cli, builder API only, features `std` only
+    // (ADR-0000). clap_builder, clap_lex and anstyle are its fixed dependencies.
+    "clap",
+    "clap_builder",
+    "clap_lex",
+    "anstyle",
 ];
 
 /// Packages allowed only in the test graph (reached through dev-dependencies): proptest
@@ -171,6 +177,7 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
     }
     check_pinned(&graph, &mut violations);
+    check_serde_json(&graph, &mut violations);
     for (id, declared) in &graph.declared {
         let name = graph.name(id);
         if NO_OWN_FEATURES.contains(&name) && !declared.is_empty() {
@@ -266,6 +273,38 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
         if !allowed.contains(feature) {
             violations.push(format!(
                 "feature {feature} of {package} is resolved in the core closure"
+            ));
+        }
+    }
+}
+
+/// AT5 (ADR-0003 5.7): `serde_json` only with the feature `float_roundtrip`, so that
+/// every finite f64 survives writing and reading bit for bit. The rule that carries is
+/// the first: a member can only call serde_json if it declares it, and then its own
+/// declaration puts the feature into every build of that member. The resolved feature
+/// list is a second look only: cargo metadata gives one list per package, the union
+/// over all kinds of dependencies. That serde_json stays out of the core is the job of
+/// the core positive list.
+fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
+    const PACKAGE: &str = "serde_json";
+    const FEATURE: &str = "float_roundtrip";
+    for &member in &graph.members {
+        let declares_without = graph.specs.get(member).is_some_and(|specs| {
+            specs
+                .iter()
+                .any(|spec| spec.name == PACKAGE && !spec.features.contains(&FEATURE))
+        });
+        if declares_without {
+            violations.push(format!(
+                "{} declares {PACKAGE} without the feature {FEATURE} (ADR-0003 AT5)",
+                graph.name(member)
+            ));
+        }
+    }
+    for id in graph.edges.keys() {
+        if graph.name(id) == PACKAGE && !graph.resolved(id).contains(&FEATURE) {
+            violations.push(format!(
+                "{PACKAGE} resolves without the feature {FEATURE} (ADR-0003 AT5)"
             ));
         }
     }
@@ -585,6 +624,8 @@ mod tests {
                 .dep("sim-core", "sim-math", None)
                 .dep("sim-cli", "sim-core", None)
                 .dep("xtask", "serde_json", None)
+                .spec("xtask", "serde_json", "1", true, &["float_roundtrip"])
+                .resolved("serde_json", &["default", "float_roundtrip", "std"])
                 .dep("serde_json", "serde_core", None)
                 .dep("serde_json", "itoa", None)
                 .dep("serde_json", "memchr", None)
@@ -936,6 +977,38 @@ mod tests {
         ] {
             assert_eq!(parse_tree_line(bad), None, "{bad:?}");
         }
+    }
+
+    /// AT5: a member that declares serde_json enables float_roundtrip.
+    #[test]
+    fn serde_json_needs_float_roundtrip_where_declared() {
+        let fixture = Fixture::workspace()
+            .dep("sim-cli", "serde_json", None)
+            .spec("sim-cli", "serde_json", "1", true, &[]);
+        assert_reports(
+            fixture,
+            "sim-cli declares serde_json without the feature float_roundtrip (ADR-0003 AT5)",
+        );
+        // A dev dependency counts as well.
+        let fixture = Fixture::workspace()
+            .dep("sim-core", "serde_json", Some("dev"))
+            .spec("sim-core", "serde_json", "1", true, &["std"]);
+        assert_reports(
+            fixture,
+            "sim-core declares serde_json without the feature float_roundtrip (ADR-0003 AT5)",
+        );
+    }
+
+    /// AT5: what cargo resolves has the feature, whoever asked for it.
+    #[test]
+    fn serde_json_must_resolve_with_float_roundtrip() {
+        let mut fixture = Fixture::workspace();
+        fixture.features.retain(|(name, _)| name != "serde_json");
+        let fixture = fixture.resolved("serde_json", &["default", "std"]);
+        assert_reports(
+            fixture,
+            "serde_json resolves without the feature float_roundtrip (ADR-0003 AT5)",
+        );
     }
 
     fn assert_reports(fixture: Fixture, needle: &str) {
