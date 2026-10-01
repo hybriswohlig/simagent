@@ -17,6 +17,8 @@ pub const FORMAT_VERSION: u32 = 1;
 pub enum SaveError {
     /// The log buffer still holds entries; take them first (ADR-0004 section 6).
     LogNotTaken,
+    /// Not exactly the year hashes of the completed years (ADR-0006 section 3).
+    YearHashesMismatch,
 }
 
 /// Why bytes are not a save of this core (ADR-0006 section 4), in checking order.
@@ -27,8 +29,8 @@ pub enum LoadError {
     ForeignFormatVersion,
     ForeignCoreVersion,
     ForeignDataHash,
-    Malformed,
     ForeignProjectionVersion,
+    Malformed,
     InvalidQueue,
     Inconsistent,
 }

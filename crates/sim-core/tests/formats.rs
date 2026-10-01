@@ -14,6 +14,7 @@ use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
+use sim_core::world::{LoadError, SaveError};
 
 /// `EventId` is opaque (ADR-0004 section 6): outside the core it only comes from serde.
 fn event(n: u64) -> EventId {
@@ -558,6 +559,37 @@ fn log_codes_are_stable() {
     actual.push_str(&line("subject", &Subject::Sim(sim(1))));
     actual.push_str(&line("input", &sample_input()));
     actual.extend(rejects.iter().map(|r| line("reject", r)));
+    // ADR-0006 test 8: the codes of saving and loading.
+    let saves = [SaveError::LogNotTaken, SaveError::YearHashesMismatch];
+    for code in &saves {
+        match code {
+            SaveError::LogNotTaken | SaveError::YearHashesMismatch => {}
+        }
+    }
+    let loads = [
+        LoadError::BadMagic,
+        LoadError::ForeignFormatVersion,
+        LoadError::ForeignCoreVersion,
+        LoadError::ForeignDataHash,
+        LoadError::ForeignProjectionVersion,
+        LoadError::Malformed,
+        LoadError::InvalidQueue,
+        LoadError::Inconsistent,
+    ];
+    for code in &loads {
+        match code {
+            LoadError::BadMagic
+            | LoadError::ForeignFormatVersion
+            | LoadError::ForeignCoreVersion
+            | LoadError::ForeignDataHash
+            | LoadError::ForeignProjectionVersion
+            | LoadError::Malformed
+            | LoadError::InvalidQueue
+            | LoadError::Inconsistent => {}
+        }
+    }
+    actual.extend(saves.iter().map(|s| line("save", s)));
+    actual.extend(loads.iter().map(|l| line("load", l)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
