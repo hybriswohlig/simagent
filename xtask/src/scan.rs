@@ -248,6 +248,14 @@ pub fn count_calls(source: &str, call: &str) -> usize {
         .count()
 }
 
+/// How often `ident` is used in the code: every occurrence as an identifier that is not
+/// its definition `fn ident`. A method call, a path such as `Self::ident(..)`, a function
+/// reference and a call with a comment or a line break before the parenthesis all count.
+pub fn count_uses(source: &str, ident: &str) -> usize {
+    let _ = (source, ident);
+    0
+}
+
 /// True if the code spells the seconds of a year, `31449600`, as a number: with or
 /// without underscores, with a type suffix or as a float.
 pub fn names_year_literal(source: &str) -> bool {
@@ -281,6 +289,7 @@ pub fn names_year_literal(source: &str) -> bool {
 /// of `.pop_next(`, exactly one call of `input_ctx(` outside the time module and that in
 /// `SUBMIT_FILE`, the year literal only in `YEAR_LITERAL_FILE`.
 pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let _ = count_uses;
     let mut findings = Vec::new();
     let files_calling = |call: &str, outside: Option<&str>| -> (usize, Vec<&str>) {
         let mut total = 0;
@@ -610,6 +619,37 @@ mod tests {
     }
 
     #[test]
+    fn uses_are_counted_in_every_form() {
+        let cases = [
+            (
+                concat!(
+                    "fn pop_next(&mut self) {}\n",
+                    "fn run(&mut self) { while let Some(e) = self.pop_next(now) {} }\n",
+                    "// self.pop_next(now) in a comment\n",
+                    "let s = \".pop_next(\";\n",
+                ),
+                1,
+            ),
+            ("a.pop_next(1); b.pop_next(2);", 2),
+            ("Self::pop_next(self, second)", 1),
+            ("let f = Scheduler::pop_next;", 1),
+            ("self.pop_next /* why */ (now)", 1),
+            ("self.pop_next\n    (now)", 1),
+            ("fn pop_next(&mut self) {}", 0),
+            ("fn  pop_next (&mut self) {}", 0),
+            ("fn\npop_next() {}", 0),
+            ("self.my_pop_next(now); self.pop_next_event(now);", 0),
+            ("defn pop_next", 1),
+            ("", 0),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(count_uses(source, "pop_next"), expected, "{source}");
+        }
+        assert_eq!(count_uses("let c = s.input_ctx();", "input_ctx"), 1);
+        assert_eq!(count_uses("pub fn input_ctx(&mut self) {}", "input_ctx"), 0);
+    }
+
+    #[test]
     fn calls_are_counted_in_code_only() {
         let source = concat!(
             "fn pop_next(&mut self) {}\n",
@@ -687,7 +727,18 @@ mod tests {
         assert_eq!(
             core_time_findings(&second_loop),
             vec![
-                ".pop_next( is called 2 times in sim-core/src, exactly one call is allowed (ADR-0002): crates/sim-core/src/time/scheduler.rs, crates/sim-core/src/world/tick.rs"
+                "pop_next is used 2 times in sim-core/src, exactly one use is allowed (ADR-0002): crates/sim-core/src/time/scheduler.rs, crates/sim-core/src/world/tick.rs"
+                    .to_string()
+            ]
+        );
+        let path_call = timed_core(&[(
+            "crates/sim-core/src/time/extra.rs",
+            "fn drain(s: &mut S) { while Self::pop_next(s, now).is_some() {} }",
+        )]);
+        assert_eq!(
+            core_time_findings(&path_call),
+            vec![
+                "pop_next is used 2 times in sim-core/src, exactly one use is allowed (ADR-0002): crates/sim-core/src/time/extra.rs, crates/sim-core/src/time/scheduler.rs"
                     .to_string()
             ]
         );
@@ -698,7 +749,7 @@ mod tests {
         assert_eq!(
             core_time_findings(&second_entry),
             vec![
-                "input_ctx( is called 2 times outside the time module, exactly one call in crates/sim-core/src/world/mod.rs is allowed (ADR-0002): crates/sim-core/src/state/cheat.rs, crates/sim-core/src/world/mod.rs"
+                "input_ctx is used 2 times outside the time module, exactly one use in crates/sim-core/src/world/mod.rs is allowed (ADR-0002): crates/sim-core/src/state/cheat.rs, crates/sim-core/src/world/mod.rs"
                     .to_string()
             ]
         );
@@ -721,11 +772,11 @@ mod tests {
         let found = core_time_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod time;")]));
         assert_eq!(found.len(), 2, "{found:?}");
         assert!(
-            found[0].starts_with(".pop_next( is called 0 times"),
+            found[0].starts_with("pop_next is used 0 times"),
             "{found:?}"
         );
         assert!(
-            found[1].starts_with("input_ctx( is called 0 times"),
+            found[1].starts_with("input_ctx is used 0 times"),
             "{found:?}"
         );
         // The one call outside the time module must be in the submit file.
@@ -742,7 +793,7 @@ mod tests {
         let found = core_time_findings(&elsewhere);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
-            found[0].starts_with("input_ctx( is called 1 times outside the time module")
+            found[0].starts_with("input_ctx is used 1 times outside the time module")
                 && found[0].ends_with(": crates/sim-core/src/state/start.rs"),
             "{found:?}"
         );

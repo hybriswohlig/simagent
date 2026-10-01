@@ -14,19 +14,45 @@ pub(crate) fn check_start(
     closed_through: SimTime,
     start: &Start,
 ) -> Result<(), InputRejected> {
-    let reject = |code| Err(InputRejected { code });
-    if domain.world_seed.is_some() {
-        return reject(RejectCode::AlreadyStarted);
+    let rejection = start_rejection(
+        domain.world_seed.is_some(),
+        closed_through,
+        start.founders.len(),
+        start.founders.iter().any(|f| f.born >= SimTime::START),
+    );
+    match rejection {
+        Some(code) => Err(InputRejected { code }),
+        None => Ok(()),
+    }
+}
+
+/// Why a `Start` with these facts is rejected, if at all. A function of plain facts,
+/// so the founder limit is testable without building a list of that size.
+fn start_rejection(
+    started: bool,
+    closed_through: SimTime,
+    founders: usize,
+    founder_not_born: bool,
+) -> Option<RejectCode> {
+    if started {
+        return Some(RejectCode::AlreadyStarted);
     }
     // The year end series begins in year 0; after the clock moved it could lie in the
     // past, and an input must never break an invariant.
     if closed_through != SimTime::START - SimDuration::from_secs(1) {
-        return reject(RejectCode::ClockNotAtStart);
+        return Some(RejectCode::ClockNotAtStart);
     }
-    if start.founders.iter().any(|f| f.born >= SimTime::START) {
-        return reject(RejectCode::FounderNotBornBeforeStart);
+    let _ = (founders, founder_count);
+    if founder_not_born {
+        return Some(RejectCode::FounderNotBornBeforeStart);
     }
-    Ok(())
+    None
+}
+
+/// The number of founders as it stands in `core:started`.
+fn founder_count(founders: usize) -> Option<u32> {
+    let _ = founders;
+    Some(0)
 }
 
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
@@ -79,6 +105,74 @@ fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
 mod tests {
     use super::*;
     use crate::time::DAY;
+
+    #[test]
+    fn founder_count_known_answers() {
+        let limit = usize::try_from(u32::MAX).expect("64-bit test host");
+        assert_eq!(founder_count(0), Some(0));
+        assert_eq!(founder_count(3), Some(3));
+        assert_eq!(founder_count(limit), Some(u32::MAX));
+        assert_eq!(founder_count(limit + 1), None);
+        assert_eq!(founder_count(usize::MAX), None);
+    }
+
+    /// Every rejection of `Start` and their order: the state of the world first, then
+    /// the input itself.
+    #[test]
+    fn start_rejections_and_their_order() {
+        let at_start = SimTime::from_secs(-1);
+        let moved = SimTime::START;
+        let limit = usize::try_from(u32::MAX).expect("64-bit test host");
+        let cases = [
+            (false, at_start, 3, false, None),
+            (false, at_start, 0, false, None),
+            (false, at_start, limit, false, None),
+            (true, at_start, 3, false, Some(RejectCode::AlreadyStarted)),
+            (false, moved, 3, false, Some(RejectCode::ClockNotAtStart)),
+            (
+                false,
+                at_start,
+                limit + 1,
+                false,
+                Some(RejectCode::TooManyFounders),
+            ),
+            (
+                false,
+                at_start,
+                3,
+                true,
+                Some(RejectCode::FounderNotBornBeforeStart),
+            ),
+            (
+                true,
+                moved,
+                limit + 1,
+                true,
+                Some(RejectCode::AlreadyStarted),
+            ),
+            (
+                false,
+                moved,
+                limit + 1,
+                true,
+                Some(RejectCode::ClockNotAtStart),
+            ),
+            (
+                false,
+                at_start,
+                limit + 1,
+                true,
+                Some(RejectCode::TooManyFounders),
+            ),
+        ];
+        for (started, closed_through, founders, not_born, expected) in cases {
+            assert_eq!(
+                start_rejection(started, closed_through, founders, not_born),
+                expected,
+                "started {started}, closed {closed_through:?}, {founders} founders, unborn {not_born}"
+            );
+        }
+    }
 
     /// By hand: the smallest `born + n * YEAR` with `n >= 1` that is not before `now`.
     #[test]
