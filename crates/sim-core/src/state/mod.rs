@@ -8,7 +8,7 @@ pub(crate) mod start;
 use alloc::collections::BTreeMap;
 
 use crate::ids::SimId;
-use crate::time::{SimDuration, SimTime, YEAR};
+use crate::time::{SimTime, YEAR};
 
 pub(crate) struct Sim {
     pub(crate) born: SimTime,
@@ -39,10 +39,11 @@ impl DomainState {
     }
 }
 
-/// Whole years in a span that is not negative.
+/// Whole years from `born` to `now` (`born <= now`). Works on plain seconds: the span
+/// between two valid times can be twice as long as the longest `SimDuration`.
 #[track_caller]
-pub(crate) fn whole_years(elapsed: SimDuration) -> u32 {
-    let years = elapsed.as_secs().div_euclid(YEAR.as_secs());
+pub(crate) fn whole_years(born: SimTime, now: SimTime) -> u32 {
+    let years = (now.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
     u32::try_from(years).unwrap_or_else(|_| panic!("invariant age.out_of_range"))
 }
 
@@ -53,6 +54,7 @@ mod tests {
     #[test]
     fn whole_years_rounds_down() {
         let year = YEAR.as_secs();
+        let born = SimTime::from_secs(-7);
         for (secs, years) in [
             (0, 0),
             (year - 1, 0),
@@ -61,13 +63,22 @@ mod tests {
             (30 * year, 30),
             (31 * year - 1, 30),
         ] {
-            assert_eq!(whole_years(SimDuration::from_secs(secs)), years, "{secs}");
+            let now = SimTime::from_secs(-7 + secs);
+            assert_eq!(whole_years(born, now), years, "{secs}");
         }
+    }
+
+    /// The longest span the time range allows: 2 000 000 years.
+    #[test]
+    fn whole_years_spans_the_whole_time_range() {
+        let limit = crate::time::MAX_ABS_SECS;
+        let (first, last) = (SimTime::from_secs(-limit), SimTime::from_secs(limit));
+        assert_eq!(whole_years(first, last), 2_000_000);
     }
 
     #[test]
     #[should_panic(expected = "invariant age.out_of_range")]
     fn a_negative_span_has_no_age() {
-        whole_years(SimDuration::from_secs(-1));
+        whole_years(SimTime::from_secs(0), SimTime::from_secs(-1));
     }
 }
