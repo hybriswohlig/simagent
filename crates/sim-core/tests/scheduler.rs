@@ -428,11 +428,61 @@ fn an_input_cannot_plan_before_the_first_second() {
 
 #[test]
 #[should_panic(expected = "invariant input_schedules_past")]
-fn an_input_cannot_plan_a_closed_second() {
+fn input_schedules_past_panics() {
     let mut sched: Scheduler<Ev, ()> = Scheduler::new();
     let (mut world, mut census) = (World::default(), Census::new());
     run_until(&mut sched, &mut world, &mut census, 40);
     input(&mut sched, 40, Ev::General { id: 1 });
+}
+
+/// ADR-0002 `no_second_time_loop`, part 1: a world with 1 000 and with 2 000 subjects
+/// whose domain events are not due runs exactly the 10 year ends of 10 years, with no
+/// domain handler call and no context, in every decomposition and at both sizes. Work
+/// that grows with the number of subjects or with the number of calls would show here.
+#[test]
+fn no_second_time_loop() {
+    let end = year_start(10).as_secs() - 1;
+    for subjects in [1_000_u64, 2_000] {
+        for width in [end + 1, YEAR.as_secs(), 7_919] {
+            let mut sched = Scheduler::new();
+            for id in 1..=subjects {
+                let at = end + i64::try_from(id).expect("small");
+                input(&mut sched, at, Ev::General { id });
+            }
+            sched
+                .input_ctx()
+                .schedule_periodic(year_start(1) - secs(1), YEAR, Ev::Census, ());
+            let after_setup = sched.stats().contexts;
+            assert_eq!(after_setup, subjects + 1);
+            let (mut world, mut census) = (World::default(), Census::new());
+            while sched.closed_through().as_secs() < end {
+                let limit = (sched.closed_through().as_secs() + width).min(end);
+                run_until(&mut sched, &mut world, &mut census, limit);
+            }
+            let case = format!("{subjects} subjects, width {width}");
+            let stats = sched.stats();
+            assert_eq!(
+                stats.events_of(EventClass::OBSERVER, EventKind(6)),
+                10,
+                "{case}"
+            );
+            assert_eq!(
+                stats.events_of(EventClass::GENERAL, EventKind(3)),
+                0,
+                "{case}"
+            );
+            assert_eq!(stats.observer_calls, 10, "{case}");
+            assert_eq!(stats.domain_calls, 0, "{case}");
+            assert_eq!(stats.contexts, after_setup, "{case}");
+            assert_eq!(census.len(), 10, "{case}");
+            assert!(world.fired.is_empty(), "{case}");
+            assert_eq!(
+                u64::try_from(sched.pending_len()).expect("small"),
+                subjects + 1,
+                "{case}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -13,3 +13,4 @@ input 0 start
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
+reject 3 too_many_founders

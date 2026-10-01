@@ -64,6 +64,8 @@ pub enum RejectCode {
     ClockNotAtStart,
     /// A founder whose birth is not before the start (ADR-0002: negative birth times).
     FounderNotBornBeforeStart,
+    /// More founders than the count in `core:started` can hold (2^32 - 1).
+    TooManyFounders,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
