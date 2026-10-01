@@ -21,6 +21,11 @@ impl IdCounters {
         }
     }
 
+    /// The SimId the next sim gets.
+    pub(super) fn next_sim(&self) -> u64 {
+        self.sim.peek()
+    }
+
     /// Number of SimIds handed out so far.
     pub(super) fn sims_allocated(&self) -> u64 {
         self.sim.peek() - 1
@@ -44,6 +49,15 @@ impl LogBuffer {
 
     pub(super) fn take(&mut self) -> Vec<LogEntry> {
         core::mem::take(&mut self.entries)
+    }
+
+    /// A buffer whose first entry gets the ID `first` (ADR-0004 test 6).
+    #[cfg(test)]
+    pub(super) fn starting_at(first: u64) -> LogBuffer {
+        LogBuffer {
+            next_event: Counter::starting_at(first),
+            entries: Vec::new(),
+        }
     }
 }
 

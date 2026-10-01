@@ -13,6 +13,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod canonical;
 pub mod data_id;
 pub mod hash;
 pub mod hex_u64;

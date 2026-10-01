@@ -7,15 +7,19 @@ pub(crate) mod start;
 
 use alloc::collections::BTreeMap;
 
+use serde::Serialize;
+
 use crate::ids::SimId;
 use crate::time::{SimTime, YEAR};
 
+#[derive(Serialize)]
 pub(crate) struct Sim {
     pub(crate) born: SimTime,
 }
 
 /// Who left the active population stays resolvable by ID (ADR-0004 section 1). The
 /// reason and the genome arrive with the rules that write them.
+#[derive(Serialize)]
 pub(crate) struct ArchivedSim {
     pub(crate) born: SimTime,
     pub(crate) left: SimTime,
