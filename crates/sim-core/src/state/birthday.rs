@@ -14,7 +14,7 @@ pub(crate) fn on_birthday(domain: &DomainState, sim: SimId, ctx: &mut SimCtx<'_,
     let Some(person) = domain.sims.get(&sim) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
-    let age_years = whole_years(ctx.now() - person.born);
+    let age_years = whole_years(person.born, ctx.now());
     let entry = ctx.emit(
         LogPayload::Birthday { age_years },
         vec![Subject::Sim(sim)],
