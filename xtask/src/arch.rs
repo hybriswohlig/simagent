@@ -824,6 +824,19 @@ mod tests {
         );
     }
 
+    /// A built version that the graph does not have, of a package the graph knows.
+    #[test]
+    fn a_built_version_must_be_in_the_graph() {
+        let mut built_set = built_workspace();
+        built_set.remove(&built("xxhash-rust"));
+        built_set.insert(built("xxhash-rust@9.9.9"));
+        assert_build_set_reports(
+            Fixture::workspace(),
+            &built_set,
+            "cargo tree builds xxhash-rust 9.9.9, which cargo metadata does not list",
+        );
+    }
+
     /// The comparison is by name and version: an allowed name does not cover a second
     /// version that cargo resolves but does not build.
     #[test]
@@ -911,7 +924,11 @@ mod tests {
             "",
             "syn",
             "syn 3.0.6",
+            "syn vendored",
+            "syn v",
             "warning: something happened",
+            "warning: v1.0.0 is yanked",
+            "some/path v1.0.0",
             "v1.0.0",
         ] {
             assert_eq!(parse_tree_line(bad), None, "{bad:?}");
