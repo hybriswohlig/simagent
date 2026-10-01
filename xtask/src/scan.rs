@@ -207,7 +207,9 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
 /// Text types that the core must not name: log entries carry only numbers, IDs, codes
 /// and data IDs (ADR-0004 section 7, B16). Scanning every file of `sim-core/src` also
 /// covers a payload field whose type (newtype or alias) is defined outside `log.rs`.
-pub const TEXT_TYPES: [&str; 3] = ["String", "str", "Cow"];
+/// `char` is text in JSON. The scan errs on the safe side: the module path `core::str`
+/// is reported as well; a file that needs it joins `TEXT_FILES` with a reason.
+pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
 /// The only files of `sim-core/src` that may name a text type, with the reason.
 pub const TEXT_FILES: [(&str, &str); 2] = [

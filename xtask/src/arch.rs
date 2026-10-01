@@ -142,9 +142,8 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
     };
     let mut violations = Vec::new();
     if let Some(built) = built {
-        let built: BTreeSet<String> = built.iter().map(|(name, _)| name.clone()).collect();
-        check_build_set(&graph, &built, &mut violations);
-        graph.drop_not_built(&built);
+        check_build_set(&graph, built, &mut violations);
+        graph.drop_not_built(built);
     }
     check_members(&graph, &mut violations);
     let mut normal_union = BTreeSet::new();
@@ -319,31 +318,53 @@ fn check_pinned(graph: &Graph, violations: &mut Vec<String>) {
 /// Name and version from a line of `cargo tree --prefix none --format {p}`:
 /// `name vX.Y.Z`, optionally followed by a path or `(*)`.
 pub fn parse_tree_line(line: &str) -> Option<(String, String)> {
-    let _ = line;
-    None
+    let mut tokens = line.split_whitespace();
+    let name = tokens.next()?;
+    let version = tokens.next()?.strip_prefix('v')?;
+    let starts_with_digit = version.starts_with(|c: char| c.is_ascii_digit());
+    (starts_with_digit && !name.ends_with(':')).then(|| (name.to_string(), version.to_string()))
 }
 
-/// The build set and the resolve graph must name the same packages, except for the
-/// packages on `NOT_BUILT`. A build set that is empty, cut short or parsed from an
-/// unexpected output therefore never passes.
-fn check_build_set(graph: &Graph, built: &BTreeSet<String>, violations: &mut Vec<String>) {
-    let resolved: BTreeSet<&str> = graph.edges.keys().map(|id| graph.name(id)).collect();
-    for &name in &resolved {
+/// The build set and the resolve graph must name the same packages in the same
+/// versions, except for the packages on `NOT_BUILT`. A build set that is empty, cut
+/// short or parsed from an unexpected output therefore never passes. Every list of this
+/// file goes by package name, so no name may be built in two versions.
+fn check_build_set(
+    graph: &Graph,
+    built: &BTreeSet<(String, String)>,
+    violations: &mut Vec<String>,
+) {
+    let resolved: BTreeSet<(&str, &str)> = graph
+        .edges
+        .keys()
+        .map(|id| (graph.name(id), graph.version(id)))
+        .collect();
+    for &(name, version) in &resolved {
         let listed = NOT_BUILT.iter().any(|(package, _)| *package == name);
-        match (built.contains(name), listed) {
+        match (graph.is_built(name, version, built), listed) {
             (false, false) => violations.push(format!(
-                "{name} is in cargo metadata but cargo tree does not build it, and it is not on the not-built list"
+                "{name} {version} is in cargo metadata but cargo tree does not build it, and it is not on the not-built list"
             )),
             (true, true) => violations.push(format!(
-                "{name} is on the not-built list but cargo tree builds it"
+                "{name} {version} is on the not-built list but cargo tree builds it"
             )),
             (true, false) | (false, true) => {}
         }
     }
-    for name in built {
-        if !resolved.contains(name.as_str()) {
+    let mut versions_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (name, version) in built {
+        if !resolved.contains(&(name.as_str(), version.as_str())) {
             violations.push(format!(
-                "cargo tree builds {name}, which cargo metadata does not list"
+                "cargo tree builds {name} {version}, which cargo metadata does not list"
+            ));
+        }
+        versions_of.entry(name).or_default().push(version);
+    }
+    for (name, versions) in versions_of {
+        if versions.len() > 1 {
+            violations.push(format!(
+                "{name} is built in two versions ({}); the lists go by package name",
+                versions.join(", ")
             ));
         }
     }
@@ -437,14 +458,31 @@ impl<'a> Graph<'a> {
 
     /// Drops the edges to packages on `NOT_BUILT` that are indeed not built, so they
     /// drop out of every closure.
-    fn drop_not_built(&mut self, built: &BTreeSet<String>) {
-        let names = &self.names;
-        for edges in self.edges.values_mut() {
-            edges.retain(|(dep, _)| {
-                let name = names.get(dep).copied().unwrap_or("<unknown package>");
-                built.contains(name) || !NOT_BUILT.iter().any(|(package, _)| *package == name)
-            });
+    fn drop_not_built(&mut self, built: &BTreeSet<(String, String)>) {
+        let mut dropped = BTreeSet::new();
+        for &id in self.edges.keys() {
+            let name = self.name(id);
+            let listed = NOT_BUILT.iter().any(|(package, _)| *package == name);
+            if listed && !self.is_built(name, self.version(id), built) {
+                dropped.insert(id);
+            }
         }
+        for edges in self.edges.values_mut() {
+            edges.retain(|(dep, _)| !dropped.contains(dep));
+        }
+    }
+
+    fn is_built(&self, name: &str, version: &str, built: &BTreeSet<(String, String)>) -> bool {
+        built
+            .iter()
+            .any(|(built_name, built_version)| built_name == name && built_version == version)
+    }
+
+    fn version(&self, id: &str) -> &'a str {
+        self.versions
+            .get(id)
+            .copied()
+            .unwrap_or("<unknown version>")
     }
 
     fn name(&self, id: &str) -> &'a str {
