@@ -311,6 +311,27 @@ mod tests {
         world.advance_until(&mut out, SimTime::from_secs(5), &mut |_| false);
     }
 
+    /// ADR-0004 section 1 and test 5: an archived sim stays resolvable by its ID. No
+    /// rule archives yet, so the state is built by hand.
+    #[test]
+    fn an_archived_sim_stays_resolvable() {
+        let mut world = World::new();
+        world.submit(start(&[-5])).expect("accepted");
+        let gone = SimId::try_from(2).expect("valid");
+        assert_eq!(world.state.born(gone), None);
+        assert_eq!(world.state.archive_len(), 0);
+        world.state.domain.archive.insert(
+            gone,
+            state::ArchivedSim {
+                born: SimTime::from_secs(-9),
+                left: SimTime::from_secs(-2),
+            },
+        );
+        assert_eq!(world.state.born(gone), Some(SimTime::from_secs(-9)));
+        assert_eq!(world.state.archive_len(), 1);
+        assert_eq!(world.state.living(), 1);
+    }
+
     /// ADR-0004 section 4: a rejected input takes no sequence number.
     #[test]
     fn a_rejected_input_keeps_the_sequence_number() {
