@@ -204,6 +204,83 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
     })
 }
 
+/// Text types that the core must not name: log entries carry only numbers, IDs, codes
+/// and data IDs (ADR-0004 section 7, B16). Scanning every file of `sim-core/src` also
+/// covers a payload field whose type (newtype or alias) is defined outside `log.rs`.
+/// `char` is text in JSON. The scan errs on the safe side: the module path `core::str`
+/// is reported as well; a file that needs it joins `TEXT_FILES` with a reason.
+pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
+
+/// The only files of `sim-core/src` that may name a text type, with the reason.
+pub const TEXT_FILES: [(&str, &str); 2] = [
+    (
+        "crates/sim-core/src/data_id.rs",
+        "DataId and Code, the checked newtypes",
+    ),
+    (
+        "crates/sim-core/src/hex_u64.rs",
+        "hex form of u64 in human-readable formats",
+    ),
+];
+
+/// The only file of `sim-core/src` that may name the hash crate (ADR-0003 S5).
+pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
+
+/// The identifier rules of the core over all files of `sim-core/src` (path relative to
+/// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
+/// types only in `TEXT_FILES` (ADR-0004 section 7).
+pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let mut findings = Vec::new();
+    for finding in identifiers_outside(core_sources, &["xxhash_rust"], &[HASH_FILE]) {
+        findings.push(format!(
+            "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
+        ));
+    }
+    let text_files: Vec<&str> = TEXT_FILES.iter().map(|(file, _)| *file).collect();
+    for finding in identifiers_outside(core_sources, &TEXT_TYPES, &text_files) {
+        findings.push(format!(
+            "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+        ));
+    }
+    findings
+}
+
+/// One message per file (path, source) that names one of `idents` as an identifier
+/// without being in `allowed`. A scan that cannot be trusted is reported too: no file
+/// at all, nothing to look for, or an allowed path that is not among the files (renamed
+/// or moved).
+pub fn identifiers_outside(
+    files: &[(String, String)],
+    idents: &[&str],
+    allowed: &[&str],
+) -> Vec<String> {
+    if files.is_empty() {
+        return vec!["no file scanned".to_string()];
+    }
+    if idents.is_empty() {
+        return vec!["no identifier to look for".to_string()];
+    }
+    let mut findings = Vec::new();
+    for path in allowed {
+        if !files.iter().any(|(file, _)| file == path) {
+            findings.push(format!(
+                "{path}: allowed file is not among the scanned files"
+            ));
+        }
+    }
+    for (path, source) in files {
+        if allowed.contains(&path.as_str()) {
+            continue;
+        }
+        for ident in idents {
+            if mentions_identifier(source, ident) {
+                findings.push(format!("{path}: names {ident}"));
+            }
+        }
+    }
+    findings
+}
+
 /// The text between `# BEGIN COMMON` and `# END COMMON` of a clippy.toml.
 pub fn common_block(clippy_toml: &str) -> Option<String> {
     let mut lines = clippy_toml.lines();
@@ -328,6 +405,183 @@ mod tests {
             "use my_xxhash_rust_wrapper;",
             "xxhash_rust"
         ));
+    }
+
+    fn files(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter()
+            .map(|(path, source)| ((*path).to_string(), (*source).to_string()))
+            .collect()
+    }
+
+    const ALLOWED: &str = "src/data_id.rs";
+
+    fn text_findings(list: &[(&str, &str)]) -> Vec<String> {
+        let mut all = vec![(ALLOWED, "pub struct DataId(String);")];
+        all.extend_from_slice(list);
+        identifiers_outside(&files(&all), &TEXT_TYPES, &[ALLOWED])
+    }
+
+    #[test]
+    fn text_types_are_reported_outside_the_allowed_files() {
+        let cases: [(&str, &[&str]); 7] = [
+            ("pub struct P { initial: char }", &["char"]),
+            ("pub struct P { letters: Vec<char> }", &["char"]),
+            ("pub struct P { note: String }", &["String"]),
+            ("pub struct P { note: alloc::string::String }", &["String"]),
+            ("pub struct P { note: Box<str> }", &["str"]),
+            ("pub struct P { note: &'static str }", &["str"]),
+            ("pub struct P<'a> { note: Cow<'a, str> }", &["str", "Cow"]),
+        ];
+        for (source, names) in cases {
+            let expected: Vec<String> = names
+                .iter()
+                .map(|name| format!("src/log.rs: names {name}"))
+                .collect();
+            assert_eq!(
+                text_findings(&[("src/log.rs", source)]),
+                expected,
+                "{source}"
+            );
+        }
+        assert_eq!(text_findings(&[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_newtype_or_alias_in_another_file_is_reported() {
+        let found = text_findings(&[
+            (
+                "src/log.rs",
+                "pub enum P { Renamed { name: Name, note: Text } }",
+            ),
+            (
+                "src/names.rs",
+                "pub struct Name(pub alloc::string::String);\npub type Text = alloc::string::String;",
+            ),
+        ]);
+        assert_eq!(found, vec!["src/names.rs: names String".to_string()]);
+    }
+
+    #[test]
+    fn text_types_in_comments_strings_and_longer_names_are_ignored() {
+        let source = concat!(
+            "// a String in a comment\n",
+            "fn fmt(&self, f: &mut Formatter<'_>) -> Result { f.write_str(\"str\") }\n",
+            "pub struct P { code: Code, id: DataId, s: StringTable }\n",
+            "fn f(text: &[u8]) -> usize { text.iter().filter(|b| b.is_ascii()).count() }\n",
+            "fn g(s: Chars) -> usize { s.chars().count() }\n",
+        );
+        assert_eq!(
+            text_findings(&[("src/log.rs", source)]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_scan_that_sees_nothing_is_reported() {
+        assert_eq!(
+            identifiers_outside(&[], &TEXT_TYPES, &[]),
+            vec!["no file scanned".to_string()]
+        );
+        assert_eq!(
+            identifiers_outside(&files(&[("src/log.rs", "pub struct P;")]), &[], &[]),
+            vec!["no identifier to look for".to_string()]
+        );
+        let found = identifiers_outside(
+            &files(&[("src/log.rs", "pub struct P;")]),
+            &TEXT_TYPES,
+            &[ALLOWED],
+        );
+        assert_eq!(
+            found,
+            vec!["src/data_id.rs: allowed file is not among the scanned files".to_string()]
+        );
+    }
+
+    #[test]
+    fn one_identifier_stays_in_one_file() {
+        let sources = files(&[
+            ("src/hash.rs", "use xxhash_rust::xxh3::xxh3_64;"),
+            (
+                "src/world.rs",
+                "fn h(b: &[u8]) -> u64 { xxhash_rust::xxh3::xxh3_64(b) }",
+            ),
+            ("src/log.rs", "// xxhash_rust in a comment"),
+        ]);
+        assert_eq!(
+            identifiers_outside(&sources, &["xxhash_rust"], &["src/hash.rs"]),
+            vec!["src/world.rs: names xxhash_rust".to_string()]
+        );
+    }
+
+    /// A core as the gate sees it: the allowed files plus `extra`.
+    fn core(extra: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut all = vec![
+            (HASH_FILE, "use xxhash_rust::xxh3::xxh3_64;"),
+            (
+                "crates/sim-core/src/data_id.rs",
+                "pub struct DataId(String);",
+            ),
+            (
+                "crates/sim-core/src/hex_u64.rs",
+                "pub fn parse(text: &str) {}",
+            ),
+            ("crates/sim-core/src/lib.rs", "pub mod log;"),
+        ];
+        all.extend_from_slice(extra);
+        files(&all)
+    }
+
+    #[test]
+    fn a_clean_core_has_no_identifier_findings() {
+        assert_eq!(core_identifier_findings(&core(&[])), Vec::<String>::new());
+    }
+
+    /// Canary for the gate wiring: each rule fires on a core that breaks it, with the
+    /// message the gate prints.
+    #[test]
+    fn the_core_rules_fire_on_a_broken_core() {
+        let text = core(&[(
+            "crates/sim-core/src/log.rs",
+            "pub enum LogPayload { Renamed { note: String } }",
+        )]);
+        assert_eq!(
+            core_identifier_findings(&text),
+            vec![
+                "crates/sim-core/src/log.rs: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                    .to_string()
+            ]
+        );
+        let hash = core(&[(
+            "crates/sim-core/src/world.rs",
+            "fn h(b: &[u8]) -> u64 { xxhash_rust::xxh3::xxh3_64(b) }",
+        )]);
+        assert_eq!(
+            core_identifier_findings(&hash),
+            vec![
+                "crates/sim-core/src/world.rs: names xxhash_rust (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_core_without_its_allowed_files_is_a_finding() {
+        let found =
+            core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
+        assert_eq!(found.len(), 3, "{found:?}");
+        for path in [
+            HASH_FILE,
+            "crates/sim-core/src/data_id.rs",
+            "crates/sim-core/src/hex_u64.rs",
+        ] {
+            assert!(
+                found.iter().any(|f| f.starts_with(&format!(
+                    "{path}: allowed file is not among the scanned files"
+                ))),
+                "{path}: {found:?}"
+            );
+        }
+        assert_eq!(core_identifier_findings(&[]).len(), 2, "one per rule");
     }
 
     #[test]

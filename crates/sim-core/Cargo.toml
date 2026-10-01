@@ -9,12 +9,18 @@ publish.workspace = true
 
 [dependencies]
 sim-math = { path = "../sim-math" }
+# Serialization of log entries, inputs and saves; no std (ADR-0003, ADR-0004).
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+# Canonical byte encoding for hashes and saves (ADR-0003 AT3).
+postcard = { version = "=1.1.3", default-features = false, features = ["alloc"] }
 # Stable hash for state, log and data (ADR-0003 AT2): only xxh3, only via src/hash.rs.
 xxhash-rust = { version = "=0.8.19", default-features = false, features = ["xxh3"] }
 
 [dev-dependencies]
 # Model-based and property tests with a fixed seed (ADR-0001, ADR-0002). Test graph only.
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+# JSON round trips of the command schema and the log (ADR-0004 test 9).
+serde_json = "1"
 
 [lints]
 workspace = true

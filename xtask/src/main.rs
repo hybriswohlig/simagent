@@ -227,7 +227,8 @@ fn check_architecture(root: &Path) -> Result {
         }
         let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
             .map_err(|error| format!("cannot parse cargo metadata: {error}"))?;
-        for violation in arch::check(&metadata) {
+        let built = built_packages(root, target)?;
+        for violation in arch::check(&metadata, Some(&built)) {
             violations.insert(format!("[{target}] {violation}"));
         }
     }
@@ -237,6 +238,44 @@ fn check_architecture(root: &Path) -> Result {
     } else {
         Err(format!("\n  {}", violations.join("\n  ")))
     }
+}
+
+/// Names of the packages cargo actually builds for `target` (normal, build and dev
+/// edges of every workspace member), from the real feature resolver of `cargo tree`.
+fn built_packages(
+    root: &Path,
+    target: &str,
+) -> Result<std::collections::BTreeSet<(String, String)>> {
+    let output = Command::new(cargo_program())
+        .args(["tree", "--workspace", "--locked", "--prefix", "none"])
+        .args([
+            "--edges",
+            "normal,build,dev",
+            "--format",
+            "{p}",
+            "--target",
+            target,
+        ])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot run cargo tree: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo tree failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let mut built = std::collections::BTreeSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        built.insert(
+            arch::parse_tree_line(line)
+                .ok_or_else(|| format!("cannot parse the cargo tree line {line:?}"))?,
+        );
+    }
+    Ok(built)
 }
 
 fn check_scans(root: &Path) -> Result {
@@ -251,15 +290,11 @@ fn check_scans(root: &Path) -> Result {
             }
         }
     }
+    let mut core_sources = Vec::new();
     for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
-        let is_hash_module = file.file_name().is_some_and(|name| name == "hash.rs");
-        if !is_hash_module && scan::mentions_identifier(&read(&file)?, "xxhash_rust") {
-            problems.push(format!(
-                "{}: xxhash_rust outside sim-core/src/hash.rs (ADR-0003 S5)",
-                relative(root, &file)
-            ));
-        }
+        core_sources.push((relative(root, &file), read(&file)?));
     }
+    problems.extend(scan::core_identifier_findings(&core_sources));
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);

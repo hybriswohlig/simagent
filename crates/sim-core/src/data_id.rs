@@ -3,12 +3,16 @@
 //! `str_key`, never the load position.
 
 use alloc::string::String;
+use core::fmt;
+
+use serde::{Deserialize, Serialize};
 
 /// Longest data ID in bytes, colon included.
 pub const MAX_DATA_ID_LEN: usize = 64;
 
 /// A checked data ID such as `core:height`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct DataId(String);
 
 /// Why a string is not a data ID.
@@ -17,6 +21,44 @@ pub enum DataIdError {
     TooLong,
     NoNamespace,
     BadPart,
+}
+
+impl fmt::Display for DataIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            DataIdError::TooLong => "data_id.too_long",
+            DataIdError::NoNamespace => "data_id.no_namespace",
+            DataIdError::BadPart => "data_id.bad_part",
+        })
+    }
+}
+
+impl TryFrom<String> for DataId {
+    type Error = DataIdError;
+    fn try_from(text: String) -> Result<DataId, DataIdError> {
+        DataId::new(&text)
+    }
+}
+
+impl From<DataId> for String {
+    fn from(id: DataId) -> String {
+        id.0
+    }
+}
+
+/// A stable rule or kind code in the format of a data ID, e.g. `core:gompertz_hazard`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Code(DataId);
+
+impl Code {
+    pub fn new(text: &str) -> Result<Code, DataIdError> {
+        DataId::new(text).map(Code)
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 impl DataId {
