@@ -228,14 +228,19 @@ pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
 /// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
 /// types only in `TEXT_FILES` (ADR-0004 section 7).
 pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
-    let _ = (
-        core_sources,
-        identifiers_outside,
-        TEXT_TYPES,
-        TEXT_FILES,
-        HASH_FILE,
-    );
-    Vec::new()
+    let mut findings = Vec::new();
+    for finding in identifiers_outside(core_sources, &["xxhash_rust"], &[HASH_FILE]) {
+        findings.push(format!(
+            "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
+        ));
+    }
+    let text_files: Vec<&str> = TEXT_FILES.iter().map(|(file, _)| *file).collect();
+    for finding in identifiers_outside(core_sources, &TEXT_TYPES, &text_files) {
+        findings.push(format!(
+            "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+        ));
+    }
+    findings
 }
 
 /// One message per file (path, source) that names one of `idents` as an identifier
