@@ -226,7 +226,8 @@ pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
 
 /// One message per file (path, source) that names one of `idents` as an identifier
 /// without being in `allowed`. A scan that cannot be trusted is reported too: no file
-/// at all, or an allowed path that is not among the files (renamed or moved).
+/// at all, nothing to look for, or an allowed path that is not among the files (renamed
+/// or moved).
 pub fn identifiers_outside(
     files: &[(String, String)],
     idents: &[&str],
@@ -234,6 +235,9 @@ pub fn identifiers_outside(
 ) -> Vec<String> {
     if files.is_empty() {
         return vec!["no file scanned".to_string()];
+    }
+    if idents.is_empty() {
+        return vec!["no identifier to look for".to_string()];
     }
     let mut findings = Vec::new();
     for path in allowed {
