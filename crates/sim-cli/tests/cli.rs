@@ -365,6 +365,57 @@ fn replay_reports_first_divergent_year() {
     );
 }
 
+/// A manifest with another number of years than the replay produces is a divergence
+/// too: the run it describes ended elsewhere.
+#[test]
+fn replay_compares_the_number_of_years() {
+    let dir = scratch("years");
+    let original = run_scenario(&dir, TEN_YEARS, "original");
+    let manifest_path = original.join("manifest.json");
+    let manifest: Value = serde_json::from_str(&text(&manifest_path)).expect("json");
+    let last = serde_json::to_string(&manifest["year_hashes"][9]).expect("json");
+    replace_in(&manifest_path, &format!(",{last}"), "");
+    let log = original.join("input.ndjson");
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--replay",
+            arg(&log),
+            "--manifest",
+            arg(&manifest_path),
+            "--out",
+            arg(&dir.join("out")),
+        ]),
+        "error: replay_diverged: the replay has 10 year hashes, the manifest 9"
+    );
+}
+
+/// A session that advances in several calls writes every census row once. A replay
+/// with more than one input does that; until a second input exists, only this test
+/// drives a session that way.
+#[test]
+fn a_session_writes_each_census_row_once() {
+    use sim_cli::files::Scenario;
+    use sim_cli::session::Session;
+    let dir = scratch("session");
+    let scenario: Scenario = serde_json::from_str(TINY_SCENARIO).expect("parses");
+    let rejected = |code: String| panic!("rejected: {code}");
+    let first = Input::Start(scenario.start.clone());
+    let mut session =
+        Session::start(&dir, SimTime::from_secs(-1), first, None, rejected).expect("starts");
+    for limit in [5, Y - 1, Y, 2 * Y - 1, 3 * Y - 1] {
+        session
+            .advance(SimTime::from_secs(limit))
+            .expect("advances");
+    }
+    session.finish(&scenario).expect("finishes");
+    assert_eq!(
+        text(&dir.join("census.csv")),
+        "year,living,lived_secs\n0,1,31449600\n1,1,31449600\n2,1,31449600\n"
+    );
+    assert_eq!(text(&dir.join("events.ndjson")).lines().count(), 5);
+}
+
 /// ADR-0004 section 4: a replay ends with an error if a stamp differs or an input is
 /// rejected.
 #[test]
@@ -426,6 +477,10 @@ fn replay_rejects_a_changed_input_log() {
     );
     assert_eq!(
         replay(""),
+        "error: input_log_invalid: line 1 is not the header of an input log"
+    );
+    assert_eq!(
+        replay(&pristine.replacen(r#""format_version":1"#, r#""format_version":2"#, 1)),
         "error: input_log_invalid: line 1 is not the header of an input log"
     );
     assert_eq!(

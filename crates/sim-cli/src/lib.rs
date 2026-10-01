@@ -180,6 +180,9 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
     let Some(first) = records.next() else {
         return Err(invalid("the input log has no input".to_owned()));
     };
+    // When a second input exists, this pattern no longer compiles. Then a test must
+    // replay a log with two accepted inputs: the stamp check of `replay_input` cannot
+    // fail before that, because every input after `Start` is rejected.
     let Input::Start(start) = &first.input;
     let scenario = Scenario {
         format_version: files::FORMAT_VERSION,
