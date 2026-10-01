@@ -17,6 +17,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the gate compares results with the merge base with
+          # origin/main (ADR-0003 6.4 and 6.5).
+          fetch-depth: 0
       - name: Install the toolchain from rust-toolchain.toml
         run: |
           rustup toolchain install
