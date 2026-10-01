@@ -415,7 +415,9 @@ fn load_rejects_foreign_data_hash() {
     );
     let other = File::tiny().with(|f| f.data_hash = 7);
     assert_eq!(load_error(&other), Some(LoadError::ForeignDataHash));
-    assert!(World::load(&other, 7).is_ok());
+    // A world loaded with other data keeps that data hash when it is saved again.
+    let (loaded, years) = World::load(&other, 7).expect("loads with its data hash");
+    assert_eq!(loaded.save(&years).expect("saves"), other);
 }
 
 /// The checks run in the order of the table: the first mismatch names the error.
@@ -667,7 +669,31 @@ fn load_rejects_inconsistent_saves() {
             "event counter beyond 2^53",
             File::tiny().with(|f| f.next_event_id = limit + 2),
         ),
+        // The clock never stands before the second before the start.
+        (
+            "an unstarted world with the clock before the start",
+            never_started().with(|f| f.closed_through = -2),
+        ),
+        (
+            "a started world with the clock before the start",
+            File::tiny().with(|f| {
+                f.closed_through = -2;
+                f.input_log[0].0 = -2;
+            }),
+        ),
         // Never started: the world is empty.
+        (
+            "unstarted with a sim, the counter untouched",
+            never_started().with(|f| f.sims = vec![(1, -1)]),
+        ),
+        (
+            "unstarted with an archive, the counter untouched",
+            never_started().with(|f| f.archive = vec![(1, (-9, -2))]),
+        ),
+        (
+            "unstarted with an input",
+            never_started().with(|f| f.input_log = File::tiny().input_log),
+        ),
         (
             "unstarted with a sim",
             never_started().with(|f| {
@@ -768,6 +794,15 @@ fn load_rejects_inconsistent_saves() {
         (
             "a sim counter ahead of the founders",
             File::tiny().with(|f| f.next_sim_id = 3),
+        ),
+        (
+            "a living sim beyond the counter, with its birthday",
+            File::tiny().with(|f| {
+                f.sims.push((5, -1));
+                f.queue.insert(1, (Y - 1, 0, 3, birthday(5), None));
+                f.plan_refs.insert(1, (2, 0));
+                f.next_event_seq = 4;
+            }),
         ),
         (
             "an archived id not below the counter",
