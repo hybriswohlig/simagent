@@ -4,9 +4,11 @@
 
 mod ctx;
 mod event;
+mod save;
 
 pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
+pub use save::{FORMAT_VERSION, LoadError, SaveError};
 
 pub use crate::state::census::CensusRow;
 

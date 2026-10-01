@@ -17,7 +17,7 @@ Usage: .venv/bin/python tools/state_reference.py
 
 import xxhash
 
-from postcard_reference import SAMPLE_ENTRY, seq, signed, variant, varint
+from postcard_reference import SAMPLE_ENTRY, seq, signed, string, variant, varint
 
 YEAR = 364 * 86_400
 
@@ -88,6 +88,47 @@ TINY_AFTER_YEAR_0 = projection(
 )
 
 
+# Save file of ADR-0006: header, projection, exceptions.
+EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
+
+
+def header(data_hash: int) -> bytes:
+    return b"SIMAGENT" + varint(1) + varint(1) + varint(data_hash)
+
+
+def plan_ref(by: int, planned_at: int) -> bytes:
+    return varint(by) + signed(planned_at)
+
+
+# The input log of "tiny": Start at stamp t = -1, seq 1, with world_seed 0xff, the
+# founder tag `test:tiny` and one founder born at -1.
+TINY_INPUT_LOG = seq(
+    [
+        signed(-1)
+        + varint(1)
+        + variant(0, varint(0xFF), string("test:tiny"), seq([signed(-1)]))
+    ]
+)
+
+# Right after Start (the log taken): plan references in queue order (the birthday was
+# planned by the founder's entry 2, the year end series by `core:started`, entry 1), the
+# next EventId is 3, no year hashes yet.
+TINY_SAVE_AFTER_START = (
+    header(EMPTY_DATA_HASH)
+    + TINY_AFTER_START
+    + seq([plan_ref(2, 0), plan_ref(1, 0)])
+    + varint(3)
+    + TINY_INPUT_LOG
+    + seq([])
+)
+
+# A world that never started: nothing but the clock and the counters.
+EMPTY_PROJECTION = (
+    varint(1) + NONE + signed(-1) + varint(1) + seq([]) + varint(1) + seq([]) + seq([])
+)
+EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -100,6 +141,10 @@ if __name__ == "__main__":
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
+    print(f"empty_data_hash {EMPTY_DATA_HASH:016x}")
+    print(f"header {header(EMPTY_DATA_HASH).hex()}")
+    print(f"tiny_save_after_start {TINY_SAVE_AFTER_START.hex()}")
+    print(f"empty_save {EMPTY_SAVE.hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

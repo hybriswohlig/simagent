@@ -22,4 +22,5 @@ pub mod input;
 pub mod log;
 mod state;
 pub mod time;
+pub mod version;
 pub mod world;
