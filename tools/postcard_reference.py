@@ -53,6 +53,9 @@ SAMPLE_INPUT = variant(
 # InputStamp { t: SimTime, seq: InputSeq }
 SAMPLE_STAMP = signed(5) + varint(1)
 
+# InputRecord { t: SimTime, seq: InputSeq, input: Input }
+SAMPLE_RECORD = signed(-1) + varint(1) + SAMPLE_INPUT
+
 # LogEntry { id, t, subjects, causes, payload }; Subject::Sim = 0;
 # Cause: Event = 0, Plan = 1 { by, planned_at }, Input = 2, Rule = 3; LogPayload::Birthday = 2
 SAMPLE_ENTRY = (
@@ -78,6 +81,7 @@ if __name__ == "__main__":
     for name, data in [
         ("sample_input", SAMPLE_INPUT),
         ("sample_stamp", SAMPLE_STAMP),
+        ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),

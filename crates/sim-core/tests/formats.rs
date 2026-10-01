@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
-use sim_core::input::{Founder, Input, InputRejected, InputStamp, RejectCode, Start};
+use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 
@@ -94,6 +94,7 @@ const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
 const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
 const STAMP_POSTCARD: &str = "0a01";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
@@ -129,6 +130,27 @@ fn input_stamp_form_is_pinned() {
         from_json::<InputStamp>(STAMP_JSON).expect("parses"),
         sample_stamp()
     );
+}
+
+fn sample_record() -> InputRecord {
+    InputRecord {
+        t: SimTime::from_secs(-1),
+        seq: input_seq(1),
+        input: sample_input(),
+    }
+}
+
+/// ADR-0004 section 4: one line of `input.ndjson` per accepted input.
+#[test]
+fn input_record_form_is_pinned() {
+    let text = format!(r#"{{"t":-1,"seq":1,"input":{INPUT_JSON}}}"#);
+    assert_eq!(json(&sample_record()), text);
+    assert_eq!(from_json::<InputRecord>(&text).ok(), Some(sample_record()));
+    assert_eq!(postcard_round_trip(&sample_record()), hex(RECORD_POSTCARD));
+    let unknown = text.replace(r#""seq":1,"#, r#""seq":1,"unknown":0,"#);
+    assert!(from_json::<InputRecord>(&unknown).is_err(), "{unknown}");
+    let zero_seq = text.replace(r#""seq":1,"#, r#""seq":0,"#);
+    assert!(from_json::<InputRecord>(&zero_seq).is_err(), "{zero_seq}");
 }
 
 #[test]
@@ -370,6 +392,22 @@ fn all_payloads() -> Vec<LogPayload> {
     payloads
 }
 
+fn all_reject_codes() -> Vec<RejectCode> {
+    let codes = vec![
+        RejectCode::AlreadyStarted,
+        RejectCode::ClockNotAtStart,
+        RejectCode::FounderNotBornBeforeStart,
+    ];
+    for code in &codes {
+        match code {
+            RejectCode::AlreadyStarted
+            | RejectCode::ClockNotAtStart
+            | RejectCode::FounderNotBornBeforeStart => {}
+        }
+    }
+    codes
+}
+
 fn all_causes() -> Vec<Cause> {
     let causes = vec![
         Cause::Event(event(1)),
@@ -405,6 +443,12 @@ fn formats_roundtrip_every_variant() {
     let text = json(&sample_input());
     assert_eq!(from_json::<Input>(&text).ok(), Some(sample_input()));
     postcard_round_trip(&sample_input());
+    for code in all_reject_codes() {
+        let rejected = InputRejected { code };
+        let text = json(&rejected);
+        assert_eq!(from_json::<InputRejected>(&text).ok(), Some(rejected));
+        postcard_round_trip(&rejected);
+    }
 }
 
 /// `{"variant":{...}}` with one more field in the inner object.
@@ -478,14 +522,14 @@ fn log_codes_are_stable() {
     let causes = all_causes();
     let Subject::Sim(_) = Subject::Sim(sim(1));
     let Input::Start(_) = sample_input();
-    let RejectCode::AlreadyStarted = RejectCode::AlreadyStarted;
+    let rejects = all_reject_codes();
 
     let mut actual = String::new();
     actual.extend(payloads.iter().map(|p| line("payload", p)));
     actual.extend(causes.iter().map(|c| line("cause", c)));
     actual.push_str(&line("subject", &Subject::Sim(sim(1))));
     actual.push_str(&line("input", &sample_input()));
-    actual.push_str(&line("reject", &RejectCode::AlreadyStarted));
+    actual.extend(rejects.iter().map(|r| line("reject", r)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

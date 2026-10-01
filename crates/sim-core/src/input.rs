@@ -36,6 +36,15 @@ pub struct Founder {
     pub born: SimTime,
 }
 
+/// One line of the input log: an accepted input with its stamp (ADR-0004 section 4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputRecord {
+    pub t: SimTime,
+    pub seq: InputSeq,
+    pub input: Input,
+}
+
 /// Where an accepted input sits: `t` is the last closed second, `seq` its position in
 /// the input log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,7 +58,12 @@ pub struct InputStamp {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RejectCode {
+    /// `Start` on a world that has started.
     AlreadyStarted,
+    /// `Start` after the clock moved; the world must start at its first second.
+    ClockNotAtStart,
+    /// A founder whose birth is not before the start (ADR-0002: negative birth times).
+    FounderNotBornBeforeStart,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

@@ -124,10 +124,6 @@ pub(crate) struct Counter {
     next: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the World uses the counters from step 2d-3 on")
-)]
 impl Counter {
     pub(crate) const fn new() -> Counter {
         Counter { next: 1 }
