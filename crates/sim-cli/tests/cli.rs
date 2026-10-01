@@ -373,9 +373,12 @@ fn replay_rejects_a_changed_input_log() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let pristine = text(&log);
-    let out = dir.join("out");
+    // A failed replay may leave what it wrote; each attempt gets its own directory.
+    let attempts = std::cell::Cell::new(0);
     let replay = |changed: &str| {
         fs::write(&log, changed).expect("writes");
+        attempts.set(attempts.get() + 1);
+        let out = dir.join(format!("attempt{}", attempts.get()));
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)])
     };
     let lines: Vec<&str> = pristine.lines().collect();
@@ -424,6 +427,7 @@ fn replay_rejects_a_changed_input_log() {
     );
     // The pristine log still replays.
     fs::write(&log, &pristine).expect("writes");
+    let out = dir.join("out");
     must(&["run", "--replay", arg(&log), "--out", arg(&out)]);
     assert_same_run(&original, &out);
 }
