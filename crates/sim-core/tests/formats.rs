@@ -423,12 +423,14 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::AlreadyStarted,
         RejectCode::ClockNotAtStart,
         RejectCode::FounderNotBornBeforeStart,
+        RejectCode::TooManyFounders,
     ];
     for code in &codes {
         match code {
             RejectCode::AlreadyStarted
             | RejectCode::ClockNotAtStart
-            | RejectCode::FounderNotBornBeforeStart => {}
+            | RejectCode::FounderNotBornBeforeStart
+            | RejectCode::TooManyFounders => {}
         }
     }
     codes
