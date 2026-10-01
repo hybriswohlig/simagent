@@ -25,3 +25,4 @@ load 4 foreign_projection_version
 load 5 malformed
 load 6 invalid_queue
 load 7 inconsistent
+trace 0 core:birthday_planned
