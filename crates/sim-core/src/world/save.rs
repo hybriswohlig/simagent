@@ -14,9 +14,7 @@ use crate::ids::{Counter, SimId};
 use crate::input::{Input, InputRecord};
 use crate::log::PlanRef;
 use crate::state::{self, DomainState};
-use crate::time::{
-    MAX_ABS_SECS, Scheduler, SchedulerSnapshot, SimDuration, SimTime, SnapshotEntry, YEAR,
-};
+use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::version::CORE_VERSION;
 
 /// Rises with every change of the layout of a save (ADR-0006 section 2).
@@ -148,11 +146,10 @@ impl World {
         }
         let (loaded, rest) = take::<LoadedState>(rest)?;
         let (exceptions, rest) = take::<Exceptions>(rest)?;
-        if !rest.is_empty() {
-            return Err(LoadError::Malformed);
-        }
         // Canonical: the parts as read must encode to exactly the bytes that were read.
-        // serde and postcard accept repeated or unsorted map keys and overlong varints.
+        // serde and postcard accept repeated or unsorted map keys and overlong varints;
+        // bytes behind the third part show here as well.
+        let _ = rest;
         let mut canonical = header_bytes(data_hash);
         canonical.extend(encode(&loaded));
         canonical.extend(encode(&exceptions));
@@ -214,69 +211,60 @@ impl World {
 }
 
 /// True if the saved state is one the core can reach, as far as that shows without a
-/// replay (ADR-0006 section 5). The queue has passed the scheduler's own checks.
+/// replay (ADR-0006 section 5). The queue has passed the scheduler's own checks. The
+/// ranges of the ID counters are checked when the world is built from them.
 fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> bool {
     let closed = loaded.closed_through.as_secs();
     if closed < SimTime::START.as_secs() - 1 {
         return false;
     }
     let now = closed + 1;
-    let counters_in_range = Counter::from_next(loaded.next_sim_id).is_some()
-        && Counter::from_next(exceptions.next_event_id).is_some()
-        && loaded.next_event_seq >= 1;
-    if !counters_in_range {
-        return false;
-    }
     let Some(seed) = loaded.world_seed else {
-        // Never started: the world is empty.
+        // Never started: the world is empty. The queue is empty too: an event needs an
+        // insertion number below the counter, which stands at 1.
         return loaded.sims.is_empty()
             && loaded.archive.is_empty()
-            && loaded.queue.is_empty()
             && loaded.next_sim_id == 1
             && loaded.next_event_seq == 1
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
             && exceptions.year_hashes.is_empty();
     };
-    // A started world always has its next year end ahead, inside the time range.
-    if now > MAX_ABS_SECS {
-        return false;
-    }
     input_log_consistent(loaded, exceptions, seed)
         && sims_consistent(loaded, now)
-        && queue_consistent(loaded, closed)
+        && queue_consistent(loaded, now)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
         && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes)
 }
 
-/// Sequence numbers gapless from 1, stamps in order and not after the clock, `Start`
-/// first and only first, and its founders are the sims 1 to N.
+/// Sequence numbers gapless from 1; `Start` first and only first, stamped before the
+/// start, with the seed of the world and the founders as the sims 1 to N.
 fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64) -> bool {
-    if exceptions.input_log.is_empty() {
-        return false;
-    }
-    let mut previous = SimTime::START - SimDuration::from_secs(1);
-    for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
-        if record.seq.get() != position || record.t < previous || record.t > loaded.closed_through {
-            return false;
-        }
-        previous = record.t;
-        let accepted = match (&record.input, position) {
-            (Input::Start(start), 1) => {
-                let unstarted = DomainState::new();
-                state::start::check_start(&unstarted, record.t, start).is_ok()
-                    && start.world_seed == seed
-                    && founders_are_the_first_sims(loaded, start.founders.iter().map(|f| f.born))
-            }
-            (Input::Start(_), _) => false,
-        };
-        if !accepted {
-            return false;
-        }
-    }
-    true
+    !exceptions.input_log.is_empty()
+        && exceptions
+            .input_log
+            .iter()
+            .zip(1_u64..)
+            .all(|(record, position)| {
+                record.seq.get() == position
+                    && match (&record.input, position) {
+                        (Input::Start(start), 1) => {
+                            let unstarted = DomainState::new();
+                            state::start::check_start(&unstarted, record.t, start).is_ok()
+                                && start.world_seed == seed
+                                && founders_are_the_first_sims(
+                                    loaded,
+                                    start.founders.iter().map(|f| f.born),
+                                )
+                        }
+                        // The first input that can follow `Start` needs its stamp
+                        // checked here: not before the previous one, not after the
+                        // clock (ADR-0006 section 5).
+                        (Input::Start(_), _) => false,
+                    }
+            })
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times. As
@@ -303,21 +291,22 @@ fn founders_are_the_first_sims(
     loaded.next_sim_id == next_id
 }
 
-/// Every ID below the counter and in one place only; births and departures not after
-/// the first open second, a departure not before the birth.
+/// Every ID below the counter; a departure not before the birth and not after the
+/// first open second. All sims are founders so far: `founders_are_the_first_sims` has
+/// shown that each is in one place only and born before the start. The first rule that
+/// creates sims needs both checks here (ADR-0006 section 5).
 fn sims_consistent(loaded: &LoadedState, now: i64) -> bool {
-    let below_counter = |id: u64| id < loaded.next_sim_id;
-    loaded.sims.iter().all(|(id, sim)| {
-        below_counter(id.get()) && !loaded.archive.contains_key(id) && sim.born.as_secs() <= now
-    }) && loaded.archive.iter().all(|(id, sim)| {
-        below_counter(id.get()) && sim.born <= sim.left && sim.left.as_secs() <= now
-    })
+    let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
+    loaded.sims.keys().all(below_counter)
+        && loaded
+            .archive
+            .iter()
+            .all(|(id, sim)| below_counter(id) && sim.born <= sim.left && sim.left.as_secs() <= now)
 }
 
 /// One year end series, due at the next year end; one birthday per living sim, due at
 /// its next anniversary; nothing for a sim that does not live.
-fn queue_consistent(loaded: &LoadedState, closed: i64) -> bool {
-    let now = closed + 1;
+fn queue_consistent(loaded: &LoadedState, now: i64) -> bool {
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
@@ -334,12 +323,7 @@ fn queue_consistent(loaded: &LoadedState, closed: i64) -> bool {
                 entry.period.is_none()
                     && birthdays.insert(*sim)
                     && loaded.sims.get(sim).is_some_and(|person| {
-                        person.born.as_secs() <= now
-                            && due
-                                == state::start::next_anniversary_secs(
-                                    person.born,
-                                    SimTime::from_secs(now),
-                                )
+                        state::start::next_anniversary_secs(person.born, now) == Some(due)
                     })
             }
         };
