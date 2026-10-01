@@ -71,6 +71,11 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         }
     }
 
+    /// The first open second.
+    pub(crate) fn now(&self) -> SimTime {
+        self.ctx.now()
+    }
+
     /// Why this handler runs: the plan of the running event or the applied input.
     pub(crate) fn trigger(&self) -> Cause {
         self.trigger.clone()
@@ -103,6 +108,18 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         (id, entry)
     }
 
+    /// Plans one event; `by` is the entry that gives the reason.
+    #[track_caller]
+    pub(crate) fn schedule(
+        &mut self,
+        at: SimTime,
+        payload: EventPayload,
+        by: EventId,
+    ) -> EventHandle {
+        let meta = self.plan_ref(by);
+        self.ctx.schedule(at, payload, meta)
+    }
+
     /// Plans a periodic series; `by` is the entry that sets it up.
     #[track_caller]
     pub(crate) fn schedule_periodic(
@@ -112,10 +129,14 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         payload: EventPayload,
         by: EventId,
     ) -> EventHandle {
-        let meta = PlanRef {
+        let meta = self.plan_ref(by);
+        self.ctx.schedule_periodic(first, period, payload, meta)
+    }
+
+    fn plan_ref(&self, by: EventId) -> PlanRef {
+        PlanRef {
             by,
             planned_at: self.ctx.now(),
-        };
-        self.ctx.schedule_periodic(first, period, payload, meta)
+        }
     }
 }

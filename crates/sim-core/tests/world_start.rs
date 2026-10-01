@@ -108,7 +108,11 @@ fn start_records_seed_and_founders() {
         );
     }
     assert_eq!(state.born(sim(4)), None);
-    assert_eq!(world.pending_events(), 1, "the year end series");
+    assert_eq!(
+        world.pending_events(),
+        4,
+        "the year end series and three first birthdays"
+    );
     assert_eq!(world.stats().contexts, 1, "one applied input");
     assert_eq!(world.closed_through(), SimTime::from_secs(-1));
 }

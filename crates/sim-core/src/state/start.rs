@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim};
+use super::{DomainState, Sim, whole_years};
 use crate::input::{InputRejected, RejectCode, Start};
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
@@ -48,10 +48,63 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
     );
     for founder in &start.founders {
         let born = founder.born;
-        let (id, _) = ctx.create_sim(
+        let (id, added) = ctx.create_sim(
             LogPayload::FounderAdded { born },
             Causes::new(ctx.trigger()),
         );
         domain.sims.insert(id, Sim { born });
+        ctx.schedule(
+            first_birthday(born, ctx.now()),
+            EventPayload::Birthday { sim: id },
+            added,
+        );
+    }
+}
+
+/// The first anniversary of `born` at or after `now` (`born <= now`).
+fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
+    let full = whole_years(born, now);
+    // Plain seconds: `age` years can be longer than the longest `SimDuration`.
+    let after = |years: u32| born.as_secs() + i64::from(years) * YEAR.as_secs();
+    let on_the_day = after(full) == now.as_secs();
+    let age = if on_the_day && full >= 1 {
+        full
+    } else {
+        full + 1
+    };
+    SimTime::from_secs(after(age))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::time::DAY;
+
+    /// By hand: the smallest `born + n * YEAR` with `n >= 1` that is not before `now`.
+    #[test]
+    fn first_birthday_known_answers() {
+        let year = YEAR.as_secs();
+        let cases = [
+            // (born, now, first birthday)
+            (-30 * year, 0, 0),
+            (-year, 0, 0),
+            (-year - 1, 0, year - 1),
+            (-year + 1, 0, 1),
+            (-1, 0, year - 1),
+            (-25 * year - 100 * DAY.as_secs(), 0, 22_809_600),
+            (10, 11, 10 + year),
+            (10, 10 + 3 * year, 10 + 3 * year),
+            (10, 11 + 3 * year, 10 + 4 * year),
+            (0, 0, year),
+            // The longest span of the time range: 2 000 000 years less 5 seconds.
+            (-1_000_000 * year, 1_000_000 * year - 5, 1_000_000 * year),
+        ];
+        for (born, now, expected) in cases {
+            assert_eq!(
+                first_birthday(SimTime::from_secs(born), SimTime::from_secs(now)),
+                SimTime::from_secs(expected),
+                "born {born}, now {now}"
+            );
+        }
     }
 }

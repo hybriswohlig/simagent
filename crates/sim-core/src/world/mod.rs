@@ -1,5 +1,6 @@
-//! The world (ADR-0004): private state and one way in. `submit` applies an input at an
-//! event boundary and records it in the input log. Nothing else changes state.
+//! The world (ADR-0004): private state and two entry points. `submit` applies an input
+//! at an event boundary and records it in the input log, `advance_until` runs events
+//! (ADR-0002). Nothing else changes state.
 
 mod ctx;
 mod event;
@@ -7,13 +8,15 @@ mod event;
 pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
 
+pub use crate::state::census::{CensusRow, YearOut};
+
 use alloc::vec::Vec;
 
 use crate::ids::{Counter, InputSeq, SimId};
 use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
 use crate::state::{self, DomainState};
-use crate::time::{Ctx, RunStats, Scheduler, SimTime};
+use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
 use ctx::{IdCounters, LogBuffer};
 
 /// The input log: the only replay source (ADR-0004 section 6). It lives outside the
@@ -76,6 +79,19 @@ impl World {
         Ok(InputStamp { t, seq })
     }
 
+    /// Runs every event up to and including `limit`. Delegates to the scheduler, the
+    /// only function that moves the clock (ADR-0002); `stop` is asked after each second
+    /// with events.
+    #[track_caller]
+    pub fn advance_until(
+        &mut self,
+        out: &mut YearOut,
+        limit: SimTime,
+        stop: &mut dyn FnMut(&WorldState) -> bool,
+    ) -> AdvanceOutcome {
+        self.sched.advance_until(&mut self.state, out, limit, stop)
+    }
+
     /// Hands the buffered domain log over; the core never reads it (ADR-0004 section 6).
     pub fn take_log(&mut self) -> Vec<LogEntry> {
         self.state.log.take()
@@ -131,9 +147,48 @@ impl WorldState {
         self.ids.sims_allocated()
     }
 
-    /// Birth time of a living sim.
+    pub fn archive_len(&self) -> u64 {
+        u64::try_from(self.domain.archive.len())
+            .unwrap_or_else(|_| panic!("invariant world.count_range"))
+    }
+
+    /// Birth time of a sim, living or archived; `None` for an ID never handed out.
     pub fn born(&self, id: SimId) -> Option<SimTime> {
-        self.domain.sims.get(&id).map(|sim| sim.born)
+        let living = self.domain.sims.get(&id).map(|sim| sim.born);
+        living.or_else(|| self.domain.archive.get(&id).map(|sim| sim.born))
+    }
+}
+
+impl Handler<EventPayload, PlanRef> for WorldState {
+    type Out = YearOut;
+
+    fn on_domain(
+        &mut self,
+        ev: Fired<EventPayload, PlanRef>,
+        ctx: &mut Ctx<'_, EventPayload, PlanRef>,
+    ) {
+        let mut ctx = SimCtx::new(ctx, &mut self.ids, &mut self.log, Cause::Plan(ev.meta));
+        match ev.payload {
+            EventPayload::Birthday { sim } => {
+                state::birthday::on_birthday(&self.domain, sim, &mut ctx);
+            }
+            EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
+        }
+    }
+
+    fn on_observer(
+        &self,
+        ev: &Fired<EventPayload, PlanRef>,
+        _sched: &Scheduler<EventPayload, PlanRef>,
+        out: &mut YearOut,
+    ) {
+        match ev.payload {
+            EventPayload::YearEnd => {
+                out.census
+                    .push(state::census::census_row(&self.domain, ev.key.time));
+            }
+            EventPayload::Birthday { .. } => panic!("invariant world.domain_in_observer_phase"),
+        }
     }
 }
 
@@ -157,23 +212,49 @@ mod tests {
     }
 
     /// ADR-0002: the year end series starts at `year_start(1) - 1 s` with period YEAR,
-    /// planned by `Start` with `core:started` (entry 1) as its `by`.
+    /// planned by `Start` with `core:started` (entry 1) as its `by`. Each founder's first
+    /// birthday is a single event with the founder's creation entry as its `by`.
     #[test]
-    fn start_plans_the_year_end_series() {
+    fn start_plans_the_year_end_series_and_first_birthdays() {
         let mut world = World::new();
         world.submit(start(&[-5, -1])).expect("accepted");
         let snapshot = world.sched.snapshot();
-        assert_eq!(snapshot.next_seq, 2);
-        assert_eq!(snapshot.entries.len(), 1);
-        let entry = &snapshot.entries[0];
-        assert_eq!(entry.time, SimTime::from_secs(31_449_599));
-        assert_eq!(entry.seq, 1);
-        assert_eq!(entry.payload, EventPayload::YearEnd);
-        assert_eq!(entry.period, Some(YEAR));
-        assert_eq!(
-            serde_json::to_string(&entry.meta).expect("json"),
-            r#"{"by":1,"planned_at":0}"#
-        );
+        assert_eq!(snapshot.next_seq, 4);
+        let sim = |n: u64| SimId::try_from(n).expect("valid");
+        let seen: Vec<_> = snapshot
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.time.as_secs(),
+                    entry.seq,
+                    entry.payload.clone(),
+                    entry.period,
+                    serde_json::to_string(&entry.meta).expect("json"),
+                )
+            })
+            .collect();
+        // Queue order: sim 1 turns one at -5 + YEAR; sim 2 shares the last second of
+        // year 0 with the year end and runs first (domain phase before observers).
+        let plan = |by: u64| std::format!(r#"{{"by":{by},"planned_at":0}}"#);
+        let expected = [
+            (
+                31_449_595,
+                2,
+                EventPayload::Birthday { sim: sim(1) },
+                None,
+                plan(2),
+            ),
+            (
+                31_449_599,
+                3,
+                EventPayload::Birthday { sim: sim(2) },
+                None,
+                plan(3),
+            ),
+            (31_449_599, 1, EventPayload::YearEnd, Some(YEAR), plan(1)),
+        ];
+        assert_eq!(seen, expected);
     }
 
     /// A world whose clock already moved cannot start: the year end series could lie
@@ -197,6 +278,58 @@ mod tests {
         assert_eq!(world.stats().contexts, 0);
         assert_eq!(world.state.world_seed(), None);
         assert!(world.take_log().is_empty());
+    }
+
+    /// ADR-0004 section 1: looking up an unknown ID in the core is an invariant break.
+    #[test]
+    #[should_panic(expected = "invariant unknown_entity_id")]
+    fn a_birthday_for_an_unknown_sim_breaks() {
+        let by = serde_json::from_str("1").expect("valid event id");
+        let queue = Scheduler::restore(SchedulerSnapshot {
+            closed_through: SimTime::from_secs(-1),
+            next_seq: 2,
+            entries: alloc::vec![crate::time::SnapshotEntry {
+                time: SimTime::from_secs(5),
+                micro: 0,
+                seq: 1,
+                payload: EventPayload::Birthday {
+                    sim: SimId::try_from(9).expect("valid"),
+                },
+                period: None,
+                meta: PlanRef {
+                    by,
+                    planned_at: SimTime::START,
+                },
+            }],
+        })
+        .expect("valid snapshot");
+        let mut world = World {
+            sched: queue,
+            ..World::new()
+        };
+        let mut out = YearOut::default();
+        world.advance_until(&mut out, SimTime::from_secs(5), &mut |_| false);
+    }
+
+    /// ADR-0004 section 1 and test 5: an archived sim stays resolvable by its ID. No
+    /// rule archives yet, so the state is built by hand.
+    #[test]
+    fn an_archived_sim_stays_resolvable() {
+        let mut world = World::new();
+        world.submit(start(&[-5])).expect("accepted");
+        let gone = SimId::try_from(2).expect("valid");
+        assert_eq!(world.state.born(gone), None);
+        assert_eq!(world.state.archive_len(), 0);
+        world.state.domain.archive.insert(
+            gone,
+            state::ArchivedSim {
+                born: SimTime::from_secs(-9),
+                left: SimTime::from_secs(-2),
+            },
+        );
+        assert_eq!(world.state.born(gone), Some(SimTime::from_secs(-9)));
+        assert_eq!(world.state.archive_len(), 1);
+        assert_eq!(world.state.living(), 1);
     }
 
     /// ADR-0004 section 4: a rejected input takes no sequence number.
