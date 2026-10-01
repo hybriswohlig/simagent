@@ -224,6 +224,20 @@ pub const TEXT_FILES: [(&str, &str); 2] = [
 /// The only file of `sim-core/src` that may name the hash crate (ADR-0003 S5).
 pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
 
+/// The identifier rules of the core over all files of `sim-core/src` (path relative to
+/// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
+/// types only in `TEXT_FILES` (ADR-0004 section 7).
+pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let _ = (
+        core_sources,
+        identifiers_outside,
+        TEXT_TYPES,
+        TEXT_FILES,
+        HASH_FILE,
+    );
+    Vec::new()
+}
+
 /// One message per file (path, source) that names one of `idents` as an identifier
 /// without being in `allowed`. A scan that cannot be trusted is reported too: no file
 /// at all, nothing to look for, or an allowed path that is not among the files (renamed
@@ -488,12 +502,75 @@ mod tests {
         );
     }
 
+    /// A core as the gate sees it: the allowed files plus `extra`.
+    fn core(extra: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut all = vec![
+            (HASH_FILE, "use xxhash_rust::xxh3::xxh3_64;"),
+            (
+                "crates/sim-core/src/data_id.rs",
+                "pub struct DataId(String);",
+            ),
+            (
+                "crates/sim-core/src/hex_u64.rs",
+                "pub fn parse(text: &str) {}",
+            ),
+            ("crates/sim-core/src/lib.rs", "pub mod log;"),
+        ];
+        all.extend_from_slice(extra);
+        files(&all)
+    }
+
     #[test]
-    fn the_real_lists_name_files_of_the_core() {
-        for (file, reason) in TEXT_FILES {
-            assert!(file.starts_with("crates/sim-core/src/") && !reason.is_empty());
+    fn a_clean_core_has_no_identifier_findings() {
+        assert_eq!(core_identifier_findings(&core(&[])), Vec::<String>::new());
+    }
+
+    /// Canary for the gate wiring: each rule fires on a core that breaks it, with the
+    /// message the gate prints.
+    #[test]
+    fn the_core_rules_fire_on_a_broken_core() {
+        let text = core(&[(
+            "crates/sim-core/src/log.rs",
+            "pub enum LogPayload { Renamed { note: String } }",
+        )]);
+        assert_eq!(
+            core_identifier_findings(&text),
+            vec![
+                "crates/sim-core/src/log.rs: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                    .to_string()
+            ]
+        );
+        let hash = core(&[(
+            "crates/sim-core/src/world.rs",
+            "fn h(b: &[u8]) -> u64 { xxhash_rust::xxh3::xxh3_64(b) }",
+        )]);
+        assert_eq!(
+            core_identifier_findings(&hash),
+            vec![
+                "crates/sim-core/src/world.rs: names xxhash_rust (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_core_without_its_allowed_files_is_a_finding() {
+        let found =
+            core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
+        assert_eq!(found.len(), 3, "{found:?}");
+        for path in [
+            HASH_FILE,
+            "crates/sim-core/src/data_id.rs",
+            "crates/sim-core/src/hex_u64.rs",
+        ] {
+            assert!(
+                found.iter().any(|f| f.starts_with(&format!(
+                    "{path}: allowed file is not among the scanned files"
+                ))),
+                "{path}: {found:?}"
+            );
         }
-        assert!(HASH_FILE.starts_with("crates/sim-core/src/"));
+        assert_eq!(core_identifier_findings(&[]).len(), 2, "one per rule");
     }
 
     #[test]

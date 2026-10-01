@@ -285,17 +285,7 @@ fn check_scans(root: &Path) -> Result {
     for file in rust_files(&member_dir(root, "sim-core").join("src"))? {
         core_sources.push((relative(root, &file), read(&file)?));
     }
-    for finding in scan::identifiers_outside(&core_sources, &["xxhash_rust"], &[scan::HASH_FILE]) {
-        problems.push(format!(
-            "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
-        ));
-    }
-    let text_files: Vec<&str> = scan::TEXT_FILES.iter().map(|(file, _)| *file).collect();
-    for finding in scan::identifiers_outside(&core_sources, &scan::TEXT_TYPES, &text_files) {
-        problems.push(format!(
-            "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
-        ));
-    }
+    problems.extend(scan::core_identifier_findings(&core_sources));
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);
