@@ -207,7 +207,9 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
 /// Text types that the core must not name: log entries carry only numbers, IDs, codes
 /// and data IDs (ADR-0004 section 7, B16). Scanning every file of `sim-core/src` also
 /// covers a payload field whose type (newtype or alias) is defined outside `log.rs`.
-pub const TEXT_TYPES: [&str; 3] = ["String", "str", "Cow"];
+/// `char` is text in JSON. The scan errs on the safe side: the module path `core::str`
+/// is reported as well; a file that needs it joins `TEXT_FILES` with a reason.
+pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
 /// The only files of `sim-core/src` that may name a text type, with the reason.
 pub const TEXT_FILES: [(&str, &str); 2] = [
@@ -421,7 +423,9 @@ mod tests {
 
     #[test]
     fn text_types_are_reported_outside_the_allowed_files() {
-        let cases: [(&str, &[&str]); 5] = [
+        let cases: [(&str, &[&str]); 7] = [
+            ("pub struct P { initial: char }", &["char"]),
+            ("pub struct P { letters: Vec<char> }", &["char"]),
             ("pub struct P { note: String }", &["String"]),
             ("pub struct P { note: alloc::string::String }", &["String"]),
             ("pub struct P { note: Box<str> }", &["str"]),
@@ -463,6 +467,8 @@ mod tests {
             "// a String in a comment\n",
             "fn fmt(&self, f: &mut Formatter<'_>) -> Result { f.write_str(\"str\") }\n",
             "pub struct P { code: Code, id: DataId, s: StringTable }\n",
+            "fn f(text: &[u8]) -> usize { text.iter().filter(|b| b.is_ascii()).count() }\n",
+            "fn g(s: Chars) -> usize { s.chars().count() }\n",
         );
         assert_eq!(
             text_findings(&[("src/log.rs", source)]),

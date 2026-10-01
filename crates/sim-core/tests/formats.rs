@@ -95,6 +95,9 @@ const ENTRY_POSTCARD: &str =
 const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
 const STAMP_POSTCARD: &str = "0a01";
 const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
+const REJECTED_POSTCARD: &str = "00";
+const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
@@ -173,15 +176,23 @@ fn postcard_forms_are_pinned() {
 
 #[test]
 fn postcard_round_trips() {
-    postcard_round_trip(&InputStamp {
+    let stamp = InputStamp {
         t: SimTime::from_secs(-5),
         seq: input_seq(MAX_JS_SAFE),
-    });
-    postcard_round_trip(&InputRejected {
+    };
+    assert_eq!(postcard_round_trip(&stamp), hex(NEGATIVE_STAMP_POSTCARD));
+    let rejected = InputRejected {
         code: RejectCode::AlreadyStarted,
-    });
-    postcard_round_trip(&DataId::new("core:height").expect("valid"));
-    postcard_round_trip(&SimDuration::from_secs(-MAX_ABS_SECS));
+    };
+    assert_eq!(postcard_round_trip(&rejected), hex(REJECTED_POSTCARD));
+    assert_eq!(
+        postcard_round_trip(&SimDuration::from_secs(-MAX_ABS_SECS)),
+        hex(MIN_DURATION_POSTCARD)
+    );
+    let id = data_id("core:height");
+    let mut expected = vec![11];
+    expected.extend(b"core:height");
+    assert_eq!(postcard_round_trip(&id), expected);
 }
 
 #[test]
@@ -212,8 +223,23 @@ fn formats_roundtrip_rejects_ids_outside_one_to_js_safe() {
         );
     }
     let bytes = postcard::to_allocvec(&MAX_JS_SAFE).expect("encodes");
-    assert!(postcard::from_bytes::<EventId>(&bytes).is_ok());
-    assert!(postcard::from_bytes::<InputSeq>(&bytes).is_ok());
+    let largest: EventId = postcard::from_bytes(&bytes).expect("the largest id");
+    assert_eq!(json(&largest), "9007199254740991");
+    assert_eq!(
+        postcard::from_bytes::<InputSeq>(&bytes).ok(),
+        Some(input_seq(MAX_JS_SAFE))
+    );
+    assert_eq!(
+        json(&from_json::<EventId>("9007199254740991").expect("the largest id")),
+        "9007199254740991"
+    );
+    // An ID is a JSON integer: no string, float, negative number, null or array.
+    for text in [r#""7""#, "7.0", "7.5", "-1", "null", "[7]", "true"] {
+        assert!(from_json::<EventId>(text).is_err(), "EventId {text}");
+        assert!(from_json::<SimId>(text).is_err(), "SimId {text}");
+        assert!(from_json::<InputSeq>(text).is_err(), "InputSeq {text}");
+    }
+    assert_eq!(json(&from_json::<EventId>("7").expect("valid")), "7");
 }
 
 #[test]

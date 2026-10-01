@@ -73,6 +73,15 @@ SAMPLE_ENTRY = (
     + variant(2, varint(1))
 )
 
+# InputStamp with a negative time and the largest sequence number.
+NEGATIVE_STAMP = signed(-5) + varint((1 << 53) - 1)
+
+# InputRejected { code: RejectCode::AlreadyStarted (variant 0) }
+REJECTED = variant(0)
+
+# SimDuration at its lower bound, -1 000 000 years of 364 days.
+MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
+
 # The largest ID and the full-range seed, to pin the varint widths.
 MAX_ID = varint((1 << 53) - 1)
 MAX_U64 = varint((1 << 64) - 1)
@@ -83,6 +92,9 @@ if __name__ == "__main__":
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),
+        ("negative_stamp", NEGATIVE_STAMP),
+        ("rejected", REJECTED),
+        ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),
     ]:
