@@ -279,9 +279,12 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
 }
 
 /// AT5 (ADR-0003 5.7): `serde_json` only with the feature `float_roundtrip`, so that
-/// every finite f64 survives writing and reading bit for bit. Checked where a member
-/// declares it and in what cargo resolves. That it stays out of the core is the job
-/// of the core positive list.
+/// every finite f64 survives writing and reading bit for bit. The rule that carries is
+/// the first: a member can only call serde_json if it declares it, and then its own
+/// declaration puts the feature into every build of that member. The resolved feature
+/// list is a second look only: cargo metadata gives one list per package, the union
+/// over all kinds of dependencies. That serde_json stays out of the core is the job of
+/// the core positive list.
 fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
     const PACKAGE: &str = "serde_json";
     const FEATURE: &str = "float_roundtrip";

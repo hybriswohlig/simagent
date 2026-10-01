@@ -94,6 +94,9 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
     let before_start = SimTime::START.as_secs() - 1;
     let stamp =
         SimTime::try_from(before_start).unwrap_or_else(|_| panic!("invariant cli.start_stamp"));
+    // Both limits are checked before anything is written.
+    session::check_limit(stamp, scenario.until)?;
+    session::check_limit(stamp, until.unwrap_or(scenario.until))?;
     let first = Input::Start(scenario.start.clone());
     let rejected = |code: String| CliError::new("input_rejected", code);
     let mut session = Session::start(out, stamp, first, None, rejected)?;
@@ -103,17 +106,11 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
 
 fn resume(dir: &Path, until: Option<SimTime>) -> Result<(), CliError> {
     let scenario: Scenario = files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
+        .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
     let mut session = Session::resume(dir)?;
     let limit = until.unwrap_or(scenario.until);
-    if limit < session.closed_through() {
-        let detail = format!(
-            "the run stands at {}, until is {}",
-            session.closed_through().as_secs(),
-            limit.as_secs()
-        );
-        return Err(CliError::new("until_in_the_past", detail));
-    }
+    session::check_limit(session.closed_through(), limit)?;
     // Nothing has been written up to here: a refused resume leaves the run as it was.
     session.reopen_input_log()?;
     session.advance(limit)?;
@@ -170,9 +167,9 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
     }
     let expected = match manifest {
         Some(path) => {
-            let manifest: Manifest = files::parse_strict(&files::read_text(path)?)
+            let manifest: Manifest = files::parse_strict(files::read_text(path)?.trim_end())
                 .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
-            Some(manifest.year_hashes)
+            Some(manifest)
         }
         None => None,
     };
@@ -189,6 +186,7 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
         start: start.clone(),
         until: end.end,
     };
+    session::check_limit(first.t, end.end)?;
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
     let mut session = Session::start(out, t, first.input.clone(), expected, rejected)?;
