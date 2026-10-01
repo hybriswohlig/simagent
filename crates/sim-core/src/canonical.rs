@@ -69,9 +69,10 @@ pub struct CanonicalState<'a> {
 ///
 /// Not included, and this list is complete (ADR-0003 5.3): the index of the queue, the
 /// companion data of pending events (plan references), the EventId counter, the log
-/// buffer, `RunStats`, the input log with its sequence counter, the core version, the
-/// data hash and the commit. A new state field goes in unless it is on this list or
-/// can be rebuilt from the projection.
+/// buffer and the trace buffer, caches, indices, maps from ID to slot, capacities,
+/// `RunStats`, the input log with its sequence counter and inputs not applied yet, the
+/// trace switch, the core version, the data hash and the commit. A new state field goes
+/// in unless it is on this list or can be rebuilt from the projection.
 pub fn canonical_projection<'a>(
     state: &'a WorldState,
     sched: &Scheduler<EventPayload, PlanRef>,
