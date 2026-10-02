@@ -4,9 +4,21 @@
     "world_seed": "0000000000000001",
     "founder_tag": "test:dummy",
     "founders": [
-      { "born": -943488000 },
-      { "born": -794880000 },
-      { "born": -1 }
+      {
+        "born": -943488000,
+        "sex": "female",
+        "genotype": { "maternal": "wild", "paternal": "dummy" }
+      },
+      {
+        "born": -794880000,
+        "sex": "male",
+        "genotype": { "maternal": "dummy", "paternal": "wild" }
+      },
+      {
+        "born": -1,
+        "sex": "male",
+        "genotype": { "maternal": "dummy", "paternal": "dummy" }
+      }
     ]
   },
   "until": 314495999
