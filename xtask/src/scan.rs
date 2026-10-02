@@ -1158,6 +1158,17 @@ mod tests {
             )],
         );
         assert_eq!(generator_findings(&moved), vec![count(2, select)]);
+        // A glob import hides the type name: one use or none is a finding as well.
+        let glob = RNG_MOD.replace("use rand_chacha::ChaCha8Rng;", "use rand_chacha::*;");
+        assert_eq!(
+            generator_findings(&workspace(&glob, &[])),
+            vec![count(1, GENERATOR_FILE)]
+        );
+        let other = glob.replace("ChaCha8Rng::from_seed", "ChaCha20Rng::from_seed");
+        assert_eq!(
+            generator_findings(&workspace(&other, &[])),
+            vec![count(0, "no file")]
+        );
         // `include!` would hide code from every scan of the module.
         let included = workspace(RNG_MOD, &[(select, "include!(\"generator.in\");")]);
         assert_eq!(
@@ -1199,7 +1210,7 @@ mod tests {
             RNG_MOD,
             &[(
                 "crates/sim-core/src/rng/select.rs",
-                "// PurposeTag(7)\nfn pick(tag: PurposeTag) -> PurposeTag { let _ = \"PurposeTag(7)\"; tag }",
+                "// PurposeTag(7)\nstruct OtherPurposeTag(u64);\nfn pick(tag: PurposeTag) -> PurposeTag { let _ = (\"PurposeTag(7)\", OtherPurposeTag(7)); tag }",
             )],
         ));
         assert_eq!(tag_findings(&named, TAGS_GOLDEN), Vec::<String>::new());
@@ -1250,7 +1261,7 @@ mod tests {
         assert_eq!(
             tag_findings(&core_of(workspace(&in_mod, &[])), TAGS_GOLDEN),
             vec![format!(
-                "{GENERATOR_FILE}: PurposeTag( occurs 3 times, exactly 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
+                "{GENERATOR_FILE}: PurposeTag( occurs 3 times, at most 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
             )]
         );
     }
