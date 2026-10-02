@@ -945,15 +945,19 @@ mod tests {
         });
         assert_eq!(command.get_envs().count(), LOCAL_GIT_ENV.len());
         // The list is the one of the git that runs here: a variable it does not know
-        // would stay in the environment.
+        // would stay in the environment. Configuration given for one command (`git -c
+        // safe.directory=... push`) names no repository and stays.
+        let config = ["GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"];
         let listed = git_text(&root, &["rev-parse", "--local-env-vars"]).expect("git");
         for name in listed.lines() {
-            assert!(
+            assert_ne!(
                 LOCAL_GIT_ENV.contains(&name),
-                "{name} is not in LOCAL_GIT_ENV"
+                config.contains(&name),
+                "{name} is neither removed nor known as configuration"
             );
         }
         assert!(listed.lines().any(|name| name == "GIT_DIR"));
+        assert_eq!(LOCAL_GIT_ENV.len(), 12);
     }
 
     /// Runs git in the throwaway repository `repo`, named by its own `.git`, without the
