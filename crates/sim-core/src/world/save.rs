@@ -1,7 +1,7 @@
 //! Saving and loading (ADR-0006): header, the canonical projection, the saved
 //! exceptions. The bytes are uncompressed and fully deterministic.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use serde::de::DeserializeOwned;
@@ -14,7 +14,7 @@ use crate::ids::{Counter, SimId};
 use crate::input::{Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
-use crate::state::{self, DomainState};
+use crate::state::{self, ArchivedSim, DomainState, Sim};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
@@ -193,11 +193,7 @@ impl World {
             .ok_or(LoadError::Inconsistent)?;
         // Every sim is a founder with the key of its index (`consistent`), so the keys
         // differ exactly where the uninterrupted run had them differ.
-        let mut lineage = LineageIndex::new();
-        let living = loaded.sims.values().map(|sim| sim.lineage_key);
-        for key in living.chain(loaded.archive.values().map(|sim| sim.lineage_key)) {
-            lineage.insert(key);
-        }
+        let lineage = lineage_index(&loaded.sims, &loaded.archive);
         let world = World {
             sched,
             state: WorldState {
@@ -219,6 +215,20 @@ impl World {
         };
         Ok((world, exceptions.year_hashes))
     }
+}
+
+/// The lineage keys of a saved state: those of the living and of the archive (ADR-0001
+/// section 4). The index is not saved, loading builds it again.
+pub(super) fn lineage_index(
+    sims: &BTreeMap<SimId, Sim>,
+    archive: &BTreeMap<SimId, ArchivedSim>,
+) -> LineageIndex {
+    let mut index = LineageIndex::new();
+    let living = sims.values().map(|sim| sim.lineage_key);
+    for key in living.chain(archive.values().map(|sim| sim.lineage_key)) {
+        index.insert(key);
+    }
+    index
 }
 
 /// True if the saved state is one the core can reach, as far as that shows without a

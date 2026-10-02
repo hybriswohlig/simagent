@@ -404,6 +404,62 @@ mod tests {
         world.advance_until(&mut out, SimTime::from_secs(5), &mut |_| false);
     }
 
+    fn key(index: u64) -> LineageKey {
+        LineageKey::founder(&tag(), index)
+    }
+
+    /// ADR-0001 section 4: the world knows the lineage key of every founder, by the
+    /// place in the list of `Start`.
+    #[test]
+    fn start_records_the_lineage_keys_of_the_founders() {
+        let mut world = World::new();
+        assert!(!world.state.domain.lineage.contains(key(0)));
+        world.submit(start(&[-5, -4, -3])).expect("accepted");
+        for index in 0..3 {
+            assert!(world.state.domain.lineage.contains(key(index)), "{index}");
+        }
+        assert!(!world.state.domain.lineage.contains(key(3)));
+    }
+
+    /// The index is not saved: a loaded world has built it again.
+    #[test]
+    fn a_loaded_world_knows_its_lineage_keys() {
+        let mut world = World::new();
+        world.submit(start(&[-5, -4])).expect("accepted");
+        world.take_log();
+        let bytes = world.save(&[]).expect("saves");
+        let (loaded, _) = World::load(&bytes, world.data_hash).expect("loads");
+        for index in 0..2 {
+            assert!(loaded.state.domain.lineage.contains(key(index)), "{index}");
+        }
+        assert!(!loaded.state.domain.lineage.contains(key(2)));
+    }
+
+    /// It covers the archive as well as the living. No rule archives yet, so the state
+    /// is built by hand.
+    #[test]
+    fn the_lineage_index_of_a_save_covers_the_living_and_the_archive() {
+        let id = |n: u64| SimId::try_from(n).expect("valid");
+        let mut sims = alloc::collections::BTreeMap::new();
+        sims.insert(
+            id(1),
+            state::Sim {
+                born: SimTime::from_secs(-5),
+                lineage_key: key(0),
+                sex: Sex::Female,
+                genotype: MIXED,
+            },
+        );
+        let mut archive = alloc::collections::BTreeMap::new();
+        archive.insert(id(2), archived());
+        let index = save::lineage_index(&sims, &archive);
+        assert!(index.contains(key(0)), "the living");
+        assert!(index.contains(key(1)), "the archive");
+        assert!(!index.contains(key(2)));
+        let nobody = save::lineage_index(&alloc::collections::BTreeMap::new(), &archive);
+        assert!(!nobody.contains(key(0)) && nobody.contains(key(1)));
+    }
+
     /// ADR-0004 section 1 and test 5: an archived sim stays resolvable by its ID. No
     /// rule archives yet, so the state is built by hand.
     #[test]
