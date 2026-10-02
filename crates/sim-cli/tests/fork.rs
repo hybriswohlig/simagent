@@ -740,6 +740,34 @@ fn fork_point_hash_equals_parent() {
     }
     assert_eq!(hashes(&manifest(&replayed)), ours_hashes);
     assert_eq!(manifest(&replayed)["log_hash"], ours["log_hash"]);
+
+    // The stamp of the second input is compared as that of the first: a log that names
+    // another sequence number or another second for the override does not replay.
+    let replay_of = |name: &str, from: &str, to: &str| {
+        let log = dir.join(format!("{name}.ndjson"));
+        assert!(inputs.contains(from), "{from}");
+        fs::write(&log, inputs.replacen(from, to, 1)).expect("writes");
+        simagent(&["run", "--replay", arg(&log), "--out", arg(&dir.join(name))])
+    };
+    let record = format!(r#"{{"t":{fork_stamp},"seq":2,"#);
+    assert_eq!(
+        replay_of(
+            "other_seq",
+            &record,
+            &format!(r#"{{"t":{fork_stamp},"seq":3,"#)
+        ),
+        Err(format!(
+            "error: replay_stamp_mismatch: the log has t {fork_stamp} seq 3, the replay stamped t {fork_stamp} seq 2"
+        ))
+    );
+    // A record stamped before the clock of the replay is applied where the clock stands.
+    assert_eq!(
+        replay_of("other_second", &record, r#"{"t":-2,"seq":2,"#),
+        Err(
+            "error: replay_stamp_mismatch: the log has t -2 seq 2, the replay stamped t -1 seq 2"
+                .to_owned()
+        )
+    );
 }
 
 /// ADR-0001 section 6: an empty override block gives no input, so the fork is the parent.
