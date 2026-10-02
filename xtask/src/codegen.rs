@@ -108,8 +108,8 @@ pub fn generate(body_json: &str, source_hash: u64) -> Result<String, Vec<String>
     ));
     line("");
     line("/// A parameter of the body contract, in the order of the contract file. The variants");
-    line("/// have no stable numbers.");
-    line("#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]");
+    line("/// have no stable numbers and no order: both would be positional.");
+    line("#[derive(Clone, Copy, Debug, PartialEq, Eq)]");
     line("pub enum BodyParamKey {");
     for parameter in &parameters {
         line(&format!("    /// {}", text(parameter, "description")));
@@ -405,7 +405,7 @@ mod tests {
         for part in [
             "pub const CONTRACT_VERSION: &str = \"0.3.1\";\n",
             "pub const SOURCE_HASH: u64 = 0x0123456789abcdef;\n",
-            "pub enum BodyParamKey {\n    /// Age of the shape.\n    BodyFormAge,\n    /// Muscle mass.\n    MuscleZ,\n    /// Axis 01 of the face.\n    FaceAxis01,\n    /// Curl: 0 is straight.\n    HairCurl,\n}\n",
+            "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum BodyParamKey {\n    /// Age of the shape.\n    BodyFormAge,\n    /// Muscle mass.\n    MuscleZ,\n    /// Axis 01 of the face.\n    FaceAxis01,\n    /// Curl: 0 is straight.\n    HairCurl,\n}\n",
             "    pub const ALL: [BodyParamKey; 4] = [\n        BodyParamKey::BodyFormAge,\n        BodyParamKey::MuscleZ,\n        BodyParamKey::FaceAxis01,\n        BodyParamKey::HairCurl,\n    ];\n",
             "            BodyParamKey::FaceAxis01 => \"face_axis_01\",\n",
             "            BodyParamKey::BodyFormAge => BodyParamSpec { min: 0.0, max: 130.0, default: 25.0 },\n",
