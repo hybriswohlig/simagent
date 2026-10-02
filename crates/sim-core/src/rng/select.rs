@@ -166,6 +166,21 @@ mod tests {
             prop_assert!(after.windows(2).all(|pair| order(&pair[0]) < order(&pair[1])));
             prop_assert!(before.iter().all(|key| keys.contains(key)));
 
+            // The choice itself, by another way than sorting: a candidate is chosen
+            // exactly if fewer than k candidates order before it.
+            let chosen_by_count = |pool: &[LineageKey]| -> BTreeSet<LineageKey> {
+                pool.iter()
+                    .copied()
+                    .filter(|key| pool.iter().filter(|other| order(other) < order(key)).count() < k)
+                    .collect()
+            };
+            let before_by_count = chosen_by_count(&keys);
+            prop_assert_eq!(before.iter().copied().collect::<BTreeSet<_>>(), before_by_count);
+            let mut pool = keys.clone();
+            pool.push(extra);
+            let after_by_count = chosen_by_count(&pool);
+            prop_assert_eq!(after.iter().copied().collect::<BTreeSet<_>>(), after_by_count);
+
             let before_set: BTreeSet<LineageKey> = before.iter().copied().collect();
             let after_set: BTreeSet<LineageKey> = after.iter().copied().collect();
             if after_set.contains(&extra) {
@@ -173,7 +188,9 @@ mod tests {
                 if before.len() < k {
                     prop_assert!(displaced.is_empty(), "fewer than k: only added");
                 } else {
-                    prop_assert_eq!(displaced, [before.last().expect("k > 0")]);
+                    let largest = before.last().expect("k > 0");
+                    prop_assert_eq!(displaced, [largest]);
+                    prop_assert!(order(&extra) < order(largest), "its rank is among the k smallest");
                 }
                 let mut without: Vec<LineageKey> = after.clone();
                 without.retain(|key| *key != extra);
