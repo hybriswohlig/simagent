@@ -35,6 +35,27 @@ pub const UNRECORDED: &str = "unrecorded";
 
 const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 
+/// Every known-answer file with its header line. Readers skip that line, so a file
+/// without it would lose its first row unnoticed.
+pub const HEADERS: [(&str, &str); 15] = [
+    ("ceil", HEADER),
+    ("exp", HEADER),
+    ("ln", HEADER),
+    ("cos", HEADER),
+    ("sqrt", HEADER),
+    ("to_i64_exact", "input_bits,expected,class"),
+    ("i64_to_f64_exact", "input,expected_bits,class"),
+    ("xxh3_64", "input_hex,xxh3_64"),
+    // The distributions (ADR-0001 section 3); several inputs are joined by `;`.
+    ("unit", HEADER),
+    ("unit_open0", HEADER),
+    ("exponential", HEADER),
+    ("normal", HEADER),
+    ("uniform_below", "w,n,expected,class"),
+    ("bernoulli", "w,p_bits,expected,class"),
+    ("poisson", "w,lambda_bits,expected,class"),
+];
+
 /// The place of an f64 on a monotone integer scale: negative values mirrored, both
 /// zeros at 0, so neighbouring values are 1 apart, also across zero.
 pub fn ordinal(bits: u64) -> i128 {
@@ -86,17 +107,27 @@ fn unary_rows(csv: &str) -> Option<Vec<(usize, Vec<&str>)>> {
 /// The findings of one KAT file `<name>.csv` as the gate sees it. A file in another
 /// form has no reference column and so no class P row: it must not name the class.
 pub fn violations(name: &str, csv: &str) -> Vec<String> {
+    let Some((_, header)) = HEADERS.iter().find(|(file, _)| *file == name) else {
+        return vec![format!(
+            "{name}.csv: no header is fixed for this file in xtask/src/kat.rs"
+        )];
+    };
+    let first = csv
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.is_empty());
+    if first != Some(*header) {
+        return vec![format!(
+            "{name}.csv: the first line after the comments must be the header {header}"
+        )];
+    }
     let bound = CLASS_P
         .iter()
         .find(|(function, _)| *function == name)
         .map(|(_, bound)| *bound);
     let Some(rows) = unary_rows(csv) else {
+        // Another form has no reference column and so no class P row. A class P function
+        // cannot come here: its header in `HEADERS` is the unary one.
         let mut findings = Vec::new();
-        if bound.is_some() {
-            findings.push(format!(
-                "{name}.csv: a class P file needs the header {HEADER}"
-            ));
-        }
         for (index, line) in csv.lines().enumerate() {
             if !line.starts_with('#') && line.split(',').any(|field| field == "P") {
                 findings.push(format!(
@@ -142,7 +173,8 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                     ));
                     continue;
                 };
-                let difference = (f64::from_bits(recorded) - f64::from_bits(correct)).abs();
+                let (value, target) = (f64::from_bits(recorded), f64::from_bits(correct));
+                let difference = (value - target).abs();
                 match bound {
                     Bound::Ulp(most) => {
                         let distance = ulp_distance(recorded, correct);
@@ -153,8 +185,10 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::Relative => {
-                        // A difference of NaN (two infinities) is not within the bound.
-                        let within = difference <= TWO_POW_MINUS_48 * f64::from_bits(correct).abs();
+                        // The draws have finite results only. With an infinite reference
+                        // the bound would be infinite too and hold for any value.
+                        let within =
+                            target.is_finite() && difference <= TWO_POW_MINUS_48 * target.abs();
                         if !within {
                             findings.push(format!(
                                 "{name}.csv:{line}: {expected} is further than 2^-48 relative from the reference {reference}"
@@ -162,6 +196,7 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::AbsoluteStandardNormal => {
+                        // An infinite or NaN difference is not within the bound.
                         let within = difference <= TWO_POW_MINUS_45;
                         if !inputs.ends_with(STANDARD_NORMAL) {
                             findings.push(format!(
@@ -384,14 +419,22 @@ mod tests {
                     .to_string()
             ]
         );
-        assert_eq!(
-            violations("exponential", &row("7ff0000000000000", "7ff0000000000000")),
-            vec![
-                "exponential.csv:3: 7ff0000000000000 is further than 2^-48 relative from the reference 7ff0000000000000"
-                    .to_string()
-            ],
-            "infinity is no known answer of a draw"
-        );
+        // Infinity is no known answer of a draw, on either side: `inf <= 2^-48 * inf`
+        // would hold.
+        for (recorded, reference) in [
+            ("7ff0000000000000", "7ff0000000000000"),
+            ("3ff0000000000000", "7ff0000000000000"),
+            ("fff0000000000000", "7ff0000000000000"),
+            ("7ff0000000000000", "3ff0000000000000"),
+        ] {
+            assert_eq!(
+                violations("exponential", &row(recorded, reference)),
+                vec![format!(
+                    "exponential.csv:3: {recorded} is further than 2^-48 relative from the reference {reference}"
+                )],
+                "{recorded} against {reference}"
+            );
+        }
     }
 
     /// ADR-0001 section 3: `normal` with mean 0 and sd 1 may differ by 2^-45 absolute;
@@ -432,6 +475,19 @@ mod tests {
                     .to_string()
             ]
         );
+        for (recorded, reference) in [
+            ("7ff0000000000000", "7ff0000000000000"),
+            ("0000000000000000", "7ff0000000000000"),
+            ("fff0000000000000", "0000000000000000"),
+        ] {
+            assert_eq!(
+                violations("normal", &row(STANDARD, recorded, reference)),
+                vec![format!(
+                    "normal.csv:3: {recorded} is further than 2^-45 absolute from the reference {reference}"
+                )],
+                "{recorded} against {reference}"
+            );
+        }
         let scaled = "0000000000000000;0000000000000000;3ff0000000000000;4008000000000000";
         assert_eq!(
             violations("normal", &row(scaled, "3ff0000000000000", "3ff0000000000000")),
@@ -460,21 +516,61 @@ mod tests {
         let exact = "3ff0000000000000,3ff0000000000000,E,3ff0000000000000";
         assert_eq!(violations("sqrt", &file(&[exact])), Vec::<String>::new());
         // Another form has no reference column: fine without class P, a finding with.
-        let other = "# comment\ninput,expected,class\n1,none,E\n";
+        let other = "# comment\ninput_bits,expected,class\n3ff0000000000000,1,E\n";
         assert_eq!(violations("to_i64_exact", other), Vec::<String>::new());
-        let hidden = "# comment\ninput,expected,class\n1,none,P\n";
+        let hidden = "# comment\ninput_bits,expected,class\n3ff0000000000000,1,P\n";
         assert_eq!(
             violations("to_i64_exact", hidden),
             vec!["to_i64_exact.csv:3: a class P row needs a reference column".to_string()]
         );
         assert_eq!(
-            violations("exp", other),
-            vec![format!("exp.csv: a class P file needs the header {HEADER}")]
-        );
-        assert_eq!(
             violations("xxh3_64", "# c\ninput_hex,xxh3_64\n,2d06\n"),
             Vec::<String>::new()
         );
+    }
+
+    /// Review finding: a file whose header line is gone loses its first row unnoticed,
+    /// because every reader skips one line. Each file has its fixed header.
+    #[test]
+    fn each_file_starts_with_its_header() {
+        let exact = "3ff0000000000000,3ff0000000000000,E,3ff0000000000000";
+        let headless = format!("# comment\n{exact}\n{exact}\n");
+        assert_eq!(
+            violations("sqrt", &headless),
+            vec![format!(
+                "sqrt.csv: the first line after the comments must be the header {HEADER}"
+            )]
+        );
+        assert_eq!(
+            violations("exp", "# comment\ninput_bits,expected,class\n"),
+            vec![format!(
+                "exp.csv: the first line after the comments must be the header {HEADER}"
+            )]
+        );
+        assert_eq!(
+            violations("to_i64_exact", &file(&[exact])),
+            vec![
+                "to_i64_exact.csv: the first line after the comments must be the header input_bits,expected,class"
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            violations("sqrt", "# only a comment\n"),
+            vec![format!(
+                "sqrt.csv: the first line after the comments must be the header {HEADER}"
+            )]
+        );
+        // A file the table does not know has no header to check against.
+        assert_eq!(
+            violations("tan", &file(&[exact])),
+            vec!["tan.csv: no header is fixed for this file in xtask/src/kat.rs".to_string()]
+        );
+        for (name, _) in CLASS_P {
+            assert!(
+                HEADERS.contains(&(name, HEADER)),
+                "{name}: a class P file has the form with a reference column"
+            );
+        }
     }
 
     #[test]
