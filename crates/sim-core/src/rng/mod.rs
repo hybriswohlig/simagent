@@ -2,7 +2,10 @@
 //! and a key. Neither the world nor a save nor the scheduler holds generator state; a
 //! new draw somewhere never shifts another one.
 
+mod tag;
 pub mod tags;
+
+pub use tag::PurposeTag;
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
@@ -16,16 +19,6 @@ impl WorldSeed {
         WorldSeed(seed)
     }
 
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-/// What a draw is for. The values live in `tags`, are never renumbered and never 0.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PurposeTag(u64);
-
-impl PurposeTag {
     pub const fn get(self) -> u64 {
         self.0
     }
@@ -72,21 +65,25 @@ pub(crate) fn absorb(domain: u64, lane: u64, words: &[u64]) -> u64 {
     words.iter().fold(start, |h, word| mix64(h ^ word))
 }
 
-/// The ChaCha key of a draw: four lanes of `absorb(DRAW, lane, [seed, tag, subject,
-/// occasion, detail])`, little-endian, 32 bytes.
+/// The ChaCha key of the address `[seed, tag, subject, occasion, detail]`: four lanes of
+/// `absorb(DRAW, lane, address)`, little-endian, 32 bytes.
+fn address_key(address: [u64; 5]) -> [u8; 32] {
+    let mut bytes = [0; 32];
+    for (lane, chunk) in (0_u64..).zip(bytes.chunks_exact_mut(8)) {
+        chunk.copy_from_slice(&absorb(DRAW, lane, &address).to_le_bytes());
+    }
+    bytes
+}
+
+/// The ChaCha key of a draw.
 pub(crate) fn chacha_key(seed: WorldSeed, key: DrawKey) -> [u8; 32] {
-    let words = [
+    address_key([
         seed.get(),
         key.tag.get(),
         key.subject.get(),
         key.occasion,
         key.detail,
-    ];
-    let mut bytes = [0; 32];
-    for (lane, chunk) in (0_u64..).zip(bytes.chunks_exact_mut(8)) {
-        chunk.copy_from_slice(&absorb(DRAW, lane, &words).to_le_bytes());
-    }
-    bytes
+    ])
 }
 
 /// The first `N` words of the ChaCha8 key stream of `key`: stream 0, counter 0, so word
@@ -149,14 +146,17 @@ mod tests {
     use proptest::prelude::*;
     use proptest::test_runner::RngSeed;
 
-    fn key(tag: u64, subject: u64, occasion: u64, detail: u64) -> DrawKey {
-        DrawKey {
-            tag: PurposeTag(tag),
-            subject: SubjectKey(subject),
-            occasion,
-            detail,
-        }
+    /// The pinned tag with this value. A tag exists only through the pinned list, so a
+    /// test cannot make one up either.
+    fn pinned(value: u64) -> Option<PurposeTag> {
+        tags::ALL
+            .iter()
+            .map(|(tag, _)| *tag)
+            .find(|tag| tag.get() == value)
     }
+
+    /// A known answer: seed, `[tag, subject, occasion, detail]`, ChaCha key, words.
+    type Case = (u64, [u64; 4], &'static [u8; 64], [u64; 8]);
 
     /// 64 lowercase hex digits as 32 bytes.
     fn unhex(digits: &[u8; 64]) -> [u8; 32] {
@@ -228,10 +228,10 @@ mod tests {
         let base = str_key(&DataId::new("test:base").expect("valid"));
         assert_eq!(base, 0x8b10_65ec_5b12_5f0b);
         assert_eq!(SubjectKey::WORLD, SubjectKey(0), "ADR-0001 section 1");
-        let cases: [(u64, DrawKey, &[u8; 64], [u64; 8]); 6] = [
+        let cases: [Case; 6] = [
             (
                 0,
-                key(1, 0, 0, 0),
+                [1, 0, 0, 0],
                 b"9d993f1db982e868666f7147c2937fee885f05dd66d375225bd754184c7f587c",
                 [
                     0x7729_5f8d_fed2_f427,
@@ -246,7 +246,7 @@ mod tests {
             ),
             (
                 1,
-                key(1, 0, 0, 0),
+                [1, 0, 0, 0],
                 b"10269ee609d4431fbd78e5b0cf9ca0fed1624e843fe009df445193885ab3ce62",
                 [
                     0x97fb_9d9a_6737_d38a,
@@ -261,7 +261,7 @@ mod tests {
             ),
             (
                 0,
-                key(2, 0, 0, 0),
+                [2, 0, 0, 0],
                 b"fc3b46af4ea46640d605f0f1772b073516e171e309d7c6f50f5397d6d9481dd8",
                 [
                     0x75a5_a2f3_f8ae_86c1,
@@ -276,7 +276,7 @@ mod tests {
             ),
             (
                 0x0123_4567_89ab_cdef,
-                key(3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9),
+                [3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9],
                 b"3e6462278e219359501a21b05c6b5333fc4ba6335031d664d972137331d1e4ed",
                 [
                     0x421b_c5a5_8249_0b42,
@@ -291,7 +291,7 @@ mod tests {
             ),
             (
                 u64::MAX,
-                key(0xffff_ffff, u64::MAX, u64::MAX, u64::MAX),
+                [0xffff_ffff, u64::MAX, u64::MAX, u64::MAX],
                 b"7eba6c984ad75faa6be45a3f2c04b9c80f5ce23b8308d8cb8389db973e3eca47",
                 [
                     0xdf52_bd7f_b7aa_1ca1,
@@ -306,7 +306,7 @@ mod tests {
             ),
             (
                 0x5eed,
-                key(4, 0, base, 0),
+                [4, 0, base, 0],
                 b"928df35109f9a4f5d20fa14f05eda3f04bb2a414a9238e43c147be49e704f952",
                 [
                     0x5c6e_4534_67bf_d0f8,
@@ -320,12 +320,29 @@ mod tests {
                 ],
             ),
         ];
-        for (seed, draw, chacha, words) in cases {
+        let mut typed = 0;
+        for (seed, [tag, subject, occasion, detail], chacha, words) in cases {
+            let key = address_key([seed, tag, subject, occasion, detail]);
+            assert_eq!(key, unhex(chacha), "seed {seed:x}, tag {tag:x}");
+            assert_eq!(key_words::<8>(key), words, "seed {seed:x}, tag {tag:x}");
+            // The same through the typed path, where the tag is a pinned one.
+            let Some(tag) = pinned(tag) else { continue };
+            let draw = DrawKey {
+                tag,
+                subject: SubjectKey(subject),
+                occasion,
+                detail,
+            };
             let seed = WorldSeed::new(seed);
             assert_eq!(chacha_key(seed, draw), unhex(chacha), "{draw:?}");
             assert_eq!(Draws::new(seed).words::<8>(draw), words, "{draw:?}");
             assert_eq!(Draws::new(seed).words::<2>(draw), words[..2], "{draw:?}");
+            typed += 1;
         }
+        assert_eq!(
+            typed, 5,
+            "every case with a pinned tag also runs through DrawKey"
+        );
     }
 
     /// ADR-0001 `words_smoke`: 2^18 draw keys with a fixed tag, the world as subject and
@@ -337,7 +354,12 @@ mod tests {
         let draws = Draws::new(WorldSeed::new(0x5eed));
         let mut set = [0_u64; 64];
         for occasion in 0..N {
-            let [word] = draws.words::<1>(key(1, 0, occasion, 0));
+            let [word] = draws.words::<1>(DrawKey {
+                tag: tags::MEIOSIS_START_STRAND,
+                subject: SubjectKey::WORLD,
+                occasion,
+                detail: 0,
+            });
             for (bit, count) in set.iter_mut().enumerate() {
                 *count += (word >> bit) & 1;
             }
@@ -364,34 +386,37 @@ mod tests {
         #[test]
         fn draws_are_pure(
             seed in any::<u64>(),
-            fields in any::<[u64; 4]>(),
-            others in prop::collection::vec(any::<[u64; 4]>(), 0..8),
+            tag in 0..tags::ALL.len(),
+            fields in any::<[u64; 3]>(),
+            others in prop::collection::vec((0..tags::ALL.len(), any::<[u64; 3]>()), 0..8),
+            address in any::<[u64; 5]>(),
             change in 0_usize..5,
             delta in 1_u64..=u64::MAX,
         ) {
             let draws = Draws::new(WorldSeed::new(seed));
-            let make = |f: [u64; 4]| key(f[0], f[1], f[2], f[3]);
-            let first = draws.words::<8>(make(fields));
-            for other in &others {
-                let _ = draws.words::<8>(make(*other));
+            let make = |tag: usize, f: [u64; 3]| DrawKey {
+                tag: tags::ALL[tag].0,
+                subject: SubjectKey(f[0]),
+                occasion: f[1],
+                detail: f[2],
+            };
+            let first = draws.words::<8>(make(tag, fields));
+            for (other_tag, other) in &others {
+                let _ = draws.words::<8>(make(*other_tag, *other));
             }
-            prop_assert_eq!(draws.words::<8>(make(fields)), first);
-            for other in others.iter().rev() {
-                let _ = draws.words::<3>(make(*other));
+            prop_assert_eq!(draws.words::<8>(make(tag, fields)), first);
+            for (other_tag, other) in others.iter().rev() {
+                let _ = draws.words::<3>(make(*other_tag, *other));
             }
-            prop_assert_eq!(Draws::new(WorldSeed::new(seed)).words::<8>(make(fields)), first);
-
-            let mut changed_seed = seed;
-            let mut changed = fields;
-            if change == 4 {
-                changed_seed = seed.wrapping_add(delta);
-            } else {
-                changed[change] = fields[change].wrapping_add(delta);
-            }
-            prop_assert_ne!(
-                chacha_key(WorldSeed::new(changed_seed), make(changed)),
-                chacha_key(WorldSeed::new(seed), make(fields))
+            prop_assert_eq!(
+                Draws::new(WorldSeed::new(seed)).words::<8>(make(tag, fields)),
+                first
             );
+
+            // Any of seed, tag, subject, occasion and detail, over the whole u64 range.
+            let mut changed = address;
+            changed[change] = address[change].wrapping_add(delta);
+            prop_assert_ne!(address_key(changed), address_key(address));
         }
     }
 }
