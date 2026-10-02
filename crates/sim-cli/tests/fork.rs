@@ -403,6 +403,29 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     fs::remove_file(&manifest_path).expect("removes");
     let message = fork(&parent, "5", &out).expect_err("no manifest");
     assert!(message.starts_with("error: io: "), "{message}");
+    // A log without an input, and one whose start is not stamped before the fork point.
+    fs::write(&manifest_path, &whole).expect("writes");
+    let pristine_log = text(&log);
+    let log_lines: Vec<&str> = pristine_log.lines().collect();
+    fs::write(&log, [log_lines[0], log_lines[2]].join("\n") + "\n").expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: input_log_invalid: the input log has no input".to_owned())
+    );
+    let late_start = log_lines[1].replacen(r#""t":-1"#, &format!(r#""t":{}"#, 5 * Y - 1), 1);
+    fs::write(
+        &log,
+        [log_lines[0], &late_start, log_lines[2]].join("\n") + "\n",
+    )
+    .expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err(
+            "error: input_log_invalid: the input log has no input before the fork point".to_owned()
+        )
+    );
+    fs::write(&log, &pristine_log).expect("writes");
+    fs::remove_file(&manifest_path).expect("removes");
     // A run that was not ended in order has no end line.
     let lines = text(&log);
     let without_end: Vec<&str> = lines.lines().take(2).collect();

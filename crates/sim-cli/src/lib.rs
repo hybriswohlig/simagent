@@ -263,11 +263,38 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
     let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
+    let no_input = || CliError::new("input_log_invalid", "the input log has no input");
+    let Input::Start(start) = &records.first().ok_or_else(no_input)?.input;
+    if *start != scenario.start {
+        return Err(CliError::new(
+            "run_dir_inconsistent",
+            "the resolved scenario of the parent does not start as its input log",
+        ));
+    }
+    // The fork names its parent by this manifest, so the manifest must describe the run
+    // it lies in.
     if manifest.closed_through != end.end {
         let detail = format!(
             "the manifest of the parent ends at {}, its input log at {}",
             manifest.closed_through.as_secs(),
             end.end.as_secs()
+        );
+        return Err(CliError::new("manifest_invalid", detail));
+    }
+    let describes_the_run = manifest.core_version == CORE_VERSION
+        && manifest.data_hash == EMPTY_DATA_HASH
+        && manifest.world_seed == scenario.start.world_seed;
+    if !describes_the_run {
+        return Err(CliError::new(
+            "manifest_invalid",
+            "the manifest of the parent names another core version, data hash or world seed than its run",
+        ));
+    }
+    let log_hash = session::log_hash_of_events(parent)?;
+    if manifest.log_hash != log_hash {
+        let detail = format!(
+            "the manifest of the parent has log hash {:016x}, its events.ndjson gives {log_hash:016x}",
+            manifest.log_hash
         );
         return Err(CliError::new("manifest_invalid", detail));
     }
@@ -280,9 +307,9 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
     if from_year < 1 {
         return Err(out_of_range("a fork starts at year 1 or later".to_owned()));
     }
-    // Year X may start one second after the end of the parent at the latest.
-    let second = SimDuration::from_secs(1);
-    let last_year = calendar(end.end + second).year;
+    // Year X starts at the end of the parent at the latest: `T_X` is a second the
+    // parent has run.
+    let last_year = calendar(end.end).year;
     let years = u32::try_from(from_year)
         .ok()
         .filter(|_| from_year <= last_year);
@@ -299,24 +326,18 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
         );
         return Err(CliError::new("manifest_invalid", detail));
     }
-    let fork_stamp = year_start(from_year) - second;
+    let fork_stamp = year_start(from_year) - SimDuration::from_secs(1);
     let (kept, dropped): (Vec<InputRecord>, Vec<InputRecord>) = records
         .into_iter()
         .partition(|record| record.t < fork_stamp);
     let mut kept = kept.into_iter();
-    let Some(first) = kept.next() else {
-        return Err(CliError::new(
+    // A start is stamped before t0 and so before every fork point.
+    let first = kept.next().ok_or_else(|| {
+        CliError::new(
             "input_log_invalid",
             "the input log has no input before the fork point",
-        ));
-    };
-    let Input::Start(start) = &first.input;
-    if *start != scenario.start {
-        return Err(CliError::new(
-            "run_dir_inconsistent",
-            "the resolved scenario of the parent does not start as its input log",
-        ));
-    }
+        )
+    })?;
     session::check_limit(first.t, end.end)?;
     let info = ForkInfo {
         parent_log_hash: manifest.log_hash,

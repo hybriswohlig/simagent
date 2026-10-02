@@ -41,6 +41,29 @@ pub struct Session {
     /// Year hashes already compared with the manifest.
     years_compared: usize,
     compare: Compare,
+    /// The block `fork` of the manifest, if this run is a fork: also after a resume.
+    fork: Option<ForkInfo>,
+}
+
+/// The hash of the log in `events.ndjson` of a run directory (ADR-0004 section 8).
+pub fn log_hash_of_events(dir: &Path) -> Result<u64, CliError> {
+    let mut hasher = LogHasher::new();
+    read_events_into(dir, &mut hasher)?;
+    Ok(hasher.digest())
+}
+
+fn read_events_into(dir: &Path, hasher: &mut LogHasher) -> Result<(), CliError> {
+    let events = files::read_text(&dir.join(files::EVENTS))?;
+    for (line, number) in events.lines().zip(1..) {
+        let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
+            CliError::new(
+                "events_invalid",
+                format!("line {number} is not a log entry"),
+            )
+        })?;
+        hasher.update(core::slice::from_ref(&entry));
+    }
+    Ok(())
 }
 
 /// A limit a run can reach: not before the clock, and not in the last year of the time
@@ -119,6 +142,10 @@ impl Session {
             .submit(first)
             .map_err(|error| rejected(files::code(&error.code)))?;
         fs::create_dir_all(dir).map_err(|error| CliError::io(dir, &error))?;
+        let fork = match &compare {
+            Compare::Fork { info, .. } => Some(info.clone()),
+            Compare::Nothing | Compare::Replay(_) => None,
+        };
         let mut session = Session {
             world,
             out: YearOut::default(),
@@ -127,6 +154,7 @@ impl Session {
             census_written: 0,
             years_compared: 0,
             compare,
+            fork,
         };
         let mut log = files::json(&header()) + "\n";
         for record in session.world.input_log() {
@@ -162,16 +190,7 @@ impl Session {
             ));
         }
         let mut hasher = LogHasher::new();
-        let events = files::read_text(&dir.join(files::EVENTS))?;
-        for (line, number) in events.lines().zip(1..) {
-            let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
-                CliError::new(
-                    "events_invalid",
-                    format!("line {number} is not a log entry"),
-                )
-            })?;
-            hasher.update(core::slice::from_ref(&entry));
-        }
+        read_events_into(dir, &mut hasher)?;
         if hasher.digest() != manifest.log_hash {
             return Err(inconsistent(
                 "events.ndjson does not match the log hash of the manifest".to_owned(),
@@ -198,6 +217,7 @@ impl Session {
             census_written: 0,
             years_compared: 0,
             compare: Compare::Nothing,
+            fork: manifest.fork,
         })
     }
 
@@ -355,10 +375,7 @@ impl Session {
             closed_through: self.world.closed_through(),
             year_hashes: self.out.year_hashes.clone(),
             log_hash: self.hasher.digest(),
-            fork: match &self.compare {
-                Compare::Fork { info, .. } => Some(info.clone()),
-                Compare::Nothing | Compare::Replay(_) => None,
-            },
+            fork: self.fork.clone(),
         };
         let manifest = files::json(&manifest) + "\n";
         files::write(&self.path(files::MANIFEST), manifest.as_bytes())?;
