@@ -614,6 +614,15 @@ mod tests {
                 "{broken}"
             );
         }
+        // A version twice: the parser would keep the last entry without a word.
+        assert_eq!(
+            hash_findings(
+                "{\"0.1.0\": \"00000000000000aa\", \"0.1.0\": \"00000000000000bb\"}",
+                "0.1.0",
+                0xbb
+            ),
+            vec!["body.hashes.json: the key 0.1.0 occurs twice in one object".to_string()]
+        );
         // Every entry maps a version to 16 lower-case hex digits, not only the entry of
         // the current version.
         for (entry, file) in [
