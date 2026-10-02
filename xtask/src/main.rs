@@ -5,6 +5,7 @@ mod arch;
 mod budget;
 mod canary;
 mod checks;
+mod contract;
 mod kat;
 mod release_run;
 mod results;
@@ -204,6 +205,7 @@ fn gate(require_clean_tree: bool) -> Result {
     step("document limits", || check_document_limits(&root))?;
     step("result changes", || check_result_changes(&root))?;
     step("architecture", || check_architecture(&root))?;
+    step("contract check", || check_contract(&root))?;
     step("scans", || check_scans(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
@@ -291,6 +293,23 @@ fn check_gate_run(root: &Path) -> Result {
     let entry_times = budget::entry_times(&read(&out.join("events.ndjson"))?)?;
     let census = budget::census_rows(&read(&out.join("census.csv"))?)?;
     found.extend(budget::violations(&entry_times, &census));
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", found.join("\n  ")))
+    }
+}
+
+/// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
+/// values. Checked here: its schema with the rules of the units and of the melanin table,
+/// and its changelog.
+fn check_contract(root: &Path) -> Result {
+    let body = read(&root.join("contracts/body.json"))?;
+    let mut found = contract::schema_findings(&body);
+    found.extend(contract::changelog_findings(
+        &body,
+        &read(&root.join("contracts/body.changelog.md"))?,
+    ));
     if found.is_empty() {
         Ok(())
     } else {
