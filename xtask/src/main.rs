@@ -483,9 +483,8 @@ fn check_location(root: &Path) -> Result {
 }
 
 fn check_clean_tree(root: &Path) -> Result {
-    let output = Command::new("git")
+    let output = git_command(root)
         .args(["status", "--porcelain", "--untracked-files=all"])
-        .current_dir(root)
         .output()
         .map_err(|error| format!("cannot run git: {error}"))?;
     if !output.status.success() {
@@ -551,10 +550,38 @@ fn check_result_changes(root: &Path) -> Result {
 const CORE_VERSION_FILE: &str = "crates/sim-core/src/version.rs";
 const GOLDEN_DIR: &str = "tests/golden";
 
+/// The variables by which git finds a repository apart from the directory it runs in
+/// (`git rev-parse --local-env-vars`). Inside a hook git exports some of them for the
+/// repository of the hook.
+const LOCAL_GIT_ENV: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+/// git for the repository that `dir` lies in, whatever the environment names.
+fn git_command(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(dir);
+    let _ = LOCAL_GIT_ENV;
+    command
+}
+
 fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
+    let output = git_command(root)
         .args(args)
-        .current_dir(root)
         .output()
         .map_err(|error| format!("cannot run git: {error}"))?;
     if output.status.success() {
@@ -894,6 +921,37 @@ mod tests {
             body: Some(read(&root.join(BODY_FILE)).expect("contract")),
             hashes: Some(read(&root.join(BODY_HASHES_FILE)).expect("hashes")),
         }
+    }
+
+    /// The pre-push hook runs these tests with `GIT_DIR` of the pushing repository in the
+    /// environment. A git command that inherits it works on that repository instead of
+    /// the one in its directory (it happened: `git init` of a test set `core.bare` there).
+    #[test]
+    fn git_finds_the_repository_by_the_directory_alone() {
+        let root = workspace_root().expect("the workspace root");
+        let command = git_command(&root);
+        assert_eq!(command.get_current_dir(), Some(root.as_path()));
+        let removed: Vec<String> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(removed, {
+            let mut sorted = LOCAL_GIT_ENV.map(str::to_string).to_vec();
+            sorted.sort();
+            sorted
+        });
+        assert_eq!(command.get_envs().count(), LOCAL_GIT_ENV.len());
+        // The list is the one of the git that runs here: a variable it does not know
+        // would stay in the environment.
+        let listed = git_text(&root, &["rev-parse", "--local-env-vars"]).expect("git");
+        for name in listed.lines() {
+            assert!(
+                LOCAL_GIT_ENV.contains(&name),
+                "{name} is not in LOCAL_GIT_ENV"
+            );
+        }
+        assert!(listed.lines().any(|name| name == "GIT_DIR"));
     }
 
     /// Runs git in `dir` without the hooks and the identity of the machine.
