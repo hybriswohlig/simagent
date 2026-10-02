@@ -8,6 +8,11 @@
 
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
+pub mod dist;
+
 /// Width of the fraction field of an `f64`.
 const FRACTION_BITS: u32 = 52;
 /// Exponent bias of an `f64` plus the fraction width: a normal value is

@@ -177,18 +177,19 @@ fn kat_record() -> Result {
 fn kat_verify_reference() -> Result {
     let root = workspace_root()?;
     let python = std::env::var("KAT_PYTHON").unwrap_or_else(|_| "python3".to_string());
-    let status = Command::new(&python)
-        .args(["-B", "tools/kat_reference.py", "--check"])
-        .current_dir(&root)
-        .status()
-        .map_err(|error| format!("cannot run {python}: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "tools/kat_reference.py --check failed ({status}), see its output above"
-        ))
+    for tool in ["tools/kat_reference.py", "tools/rng_reference.py"] {
+        let status = Command::new(&python)
+            .args(["-B", tool, "--check"])
+            .current_dir(&root)
+            .status()
+            .map_err(|error| format!("cannot run {python}: {error}"))?;
+        if !status.success() {
+            return Err(format!(
+                "{tool} --check failed ({status}), see its output above"
+            ));
+        }
     }
+    Ok(())
 }
 
 fn gate(require_clean_tree: bool) -> Result {
