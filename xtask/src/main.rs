@@ -5,6 +5,7 @@ mod arch;
 mod budget;
 mod canary;
 mod checks;
+mod kat;
 mod scan;
 
 use std::path::{Path, PathBuf};
@@ -34,9 +35,13 @@ fn main() -> ExitCode {
     let result = match command.as_deref() {
         Some("ci") => gate(true),
         Some("check") => gate(false),
+        Some("kat-record") => return report("kat-record", kat_record()),
+        Some("kat-verify-reference") => {
+            return report("kat-verify-reference", kat_verify_reference());
+        }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci     the gate; requires a clean working tree (CI, pre-push)\n  check  the same gate on a dirty working tree (local iteration)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py"
             );
             return ExitCode::from(2);
         }
@@ -51,6 +56,140 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn report(command: &str, result: Result) -> ExitCode {
+    match result {
+        Ok(()) => {
+            println!("xtask: {command} done");
+            ExitCode::SUCCESS
+        }
+        Err(message) => {
+            eprintln!("xtask: {command} failed: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Directory of the known-answer files (ADR-0003 section 3), relative to the root.
+const KAT_DIR: &str = "tests/golden/kat";
+
+/// The known-answer files as (function name, path, text), sorted by name.
+fn kat_files(root: &Path) -> Result<Vec<(String, PathBuf, String)>> {
+    let dir = root.join(KAT_DIR);
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|error| format!("cannot read {}: {error}", dir.display()))?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("cannot read {}: {error}", dir.display()))?
+            .path();
+        if path.extension().is_some_and(|extension| extension == "csv") {
+            let name = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .ok_or_else(|| format!("{}: not a UTF-8 name", path.display()))?
+                .to_string();
+            let text = read(&path)?;
+            files.push((name, path, text));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// ADR-0003 section 3.3 in the gate: every class P row is recorded and within its bound.
+fn check_kat_files(root: &Path) -> Result<Vec<String>> {
+    let files = kat_files(root)?;
+    let mut problems = Vec::new();
+    for (function, _) in kat::CLASS_P {
+        if !files.iter().any(|(name, _, _)| name == function) {
+            problems.push(format!("{KAT_DIR}/{function}.csv is missing"));
+        }
+    }
+    for (name, _, text) in &files {
+        for finding in kat::violations(name, text) {
+            problems.push(format!("{KAT_DIR}/{finding}"));
+        }
+    }
+    Ok(problems)
+}
+
+/// `cargo xtask kat-record`: evaluates the class P rows with the pinned libm (through
+/// the example `kat_eval` of sim-math) and writes the bits. Nothing is written if any
+/// row of any file breaks its bound: that is a finding, not a tolerance question.
+fn kat_record() -> Result {
+    let root = workspace_root()?;
+    let mut recorded = Vec::new();
+    let mut problems = Vec::new();
+    for (name, path, text) in kat_files(&root)? {
+        let inputs = kat::class_p_inputs(&text);
+        if inputs.is_empty() {
+            continue;
+        }
+        let mut args = vec![
+            "run",
+            "--quiet",
+            "--locked",
+            "--package",
+            "sim-math",
+            "--example",
+            "kat_eval",
+            "--",
+            name.as_str(),
+        ];
+        args.extend(inputs.iter().map(String::as_str));
+        let output = Command::new(cargo_program())
+            .args(&args)
+            .current_dir(&root)
+            .output()
+            .map_err(|error| format!("cannot run cargo: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "kat_eval {name} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        let actual: Vec<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect();
+        match kat::record(&name, &text, &actual) {
+            Ok(new_text) => recorded.push((path, new_text)),
+            Err(findings) => problems.extend(findings),
+        }
+    }
+    if !problems.is_empty() {
+        return Err(format!("nothing written\n  {}", problems.join("\n  ")));
+    }
+    for (path, text) in recorded {
+        std::fs::write(&path, text)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        println!("recorded {}", relative(&root, &path));
+    }
+    Ok(())
+}
+
+/// `cargo xtask kat-verify-reference`: recomputes the reference columns with the
+/// Python tools (interpreter from `KAT_PYTHON`, default `python3`; needs
+/// `tools/requirements.txt`) and compares them with the files. Not part of the gate:
+/// the CI needs no Python.
+fn kat_verify_reference() -> Result {
+    let root = workspace_root()?;
+    let python = std::env::var("KAT_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    for tool in ["tools/kat_reference.py", "tools/rng_reference.py"] {
+        let status = Command::new(&python)
+            .args(["-B", tool, "--check"])
+            .current_dir(&root)
+            .status()
+            .map_err(|error| format!("cannot run {python}: {error}"))?;
+        if !status.success() {
+            return Err(format!(
+                "{tool} --check failed ({status}), see its output above"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn gate(require_clean_tree: bool) -> Result {
@@ -348,6 +487,7 @@ fn check_scans(root: &Path) -> Result {
         }
     }
     problems.extend(scan::generator_findings(&workspace_sources));
+    problems.extend(check_kat_files(root)?);
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);

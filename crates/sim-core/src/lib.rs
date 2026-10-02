@@ -19,6 +19,7 @@ pub mod hash;
 pub mod hex_u64;
 pub mod ids;
 pub mod input;
+pub mod lineage;
 pub mod log;
 pub mod rng;
 mod state;

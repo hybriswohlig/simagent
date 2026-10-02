@@ -2,6 +2,7 @@
 //! and a key. Neither the world nor a save nor the scheduler holds generator state; a
 //! new draw somewhere never shifts another one.
 
+mod select;
 mod tag;
 pub mod tags;
 
@@ -9,6 +10,9 @@ pub use tag::PurposeTag;
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
+use sim_math::dist;
+
+use crate::lineage::{GenomeKey, LineageKey};
 
 /// The seed of a world (scenario field `world_seed`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,7 +29,7 @@ impl WorldSeed {
 }
 
 /// Whose draw it is. Only from a lineage key or `WORLD`, never from a counter ID or a
-/// slot (ADR-0001 section 1). The constructor from a lineage key arrives with it.
+/// slot (ADR-0001 section 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubjectKey(u64);
 
@@ -35,6 +39,18 @@ impl SubjectKey {
 
     pub const fn get(self) -> u64 {
         self.0
+    }
+}
+
+impl From<LineageKey> for SubjectKey {
+    fn from(key: LineageKey) -> SubjectKey {
+        SubjectKey(key.get())
+    }
+}
+
+impl From<GenomeKey> for SubjectKey {
+    fn from(key: GenomeKey) -> SubjectKey {
+        SubjectKey(key.get())
     }
 }
 
@@ -51,6 +67,10 @@ pub struct DrawKey {
 
 /// Domains of `absorb`: eight ASCII bytes as a little-endian number.
 pub(crate) const DRAW: u64 = u64::from_le_bytes(*b"sa.draw1");
+pub(crate) const RANK: u64 = u64::from_le_bytes(*b"sa.rank1");
+pub(crate) const CHILD: u64 = u64::from_le_bytes(*b"sa.chld1");
+pub(crate) const FOUNDER: u64 = u64::from_le_bytes(*b"sa.fndr1");
+pub(crate) const IMMIGRANT: u64 = u64::from_le_bytes(*b"sa.immi1");
 
 /// The SplitMix64 finaliser. `wrapping_mul`: overflow checks are on in release too.
 pub(crate) const fn mix64(z: u64) -> u64 {
@@ -137,6 +157,36 @@ impl Draws {
     pub fn words<const N: usize>(&self, key: DrawKey) -> [u64; N] {
         key_words(chacha_key(self.seed, key))
     }
+
+    /// Uniform on `0..n`, `n >= 1` (one word).
+    pub fn uniform_below(&self, key: DrawKey, n: u64) -> u64 {
+        let [w] = self.words(key);
+        dist::uniform_below(w, n)
+    }
+
+    /// True with probability `p` in [0, 1] (one word).
+    pub fn bernoulli(&self, key: DrawKey, p: f64) -> bool {
+        let [w] = self.words(key);
+        dist::bernoulli(w, p)
+    }
+
+    /// Exponential with `rate > 0` (one word).
+    pub fn exponential(&self, key: DrawKey, rate: f64) -> f64 {
+        let [w] = self.words(key);
+        dist::exponential(w, rate)
+    }
+
+    /// Normal with `mean` and `sd >= 0` (two words).
+    pub fn normal(&self, key: DrawKey, mean: f64, sd: f64) -> f64 {
+        let [w0, w1] = self.words(key);
+        dist::normal(w0, w1, mean, sd)
+    }
+
+    /// Poisson with `lambda` in [0, 30] (one word).
+    pub fn poisson(&self, key: DrawKey, lambda: f64) -> u32 {
+        let [w] = self.words(key);
+        dist::poisson(w, lambda)
+    }
 }
 
 #[cfg(test)]
@@ -209,14 +259,32 @@ mod tests {
     /// Values from tools/rng_reference.py.
     #[test]
     fn absorb_known_answers() {
-        let founder = u64::from_le_bytes(*b"sa.fndr1");
-        let rank = u64::from_le_bytes(*b"sa.rank1");
         let tag = str_key(&DataId::new("test:fork_no_density").expect("valid"));
-        assert_eq!(absorb(founder, 0, &[tag, 0]), 0xcfd3_d455_1fb3_63c2);
-        assert_eq!(absorb(rank, 0, &[7, 5, 11, 13, 17]), 0x7030_8ebc_37d8_4ef5);
+        assert_eq!(absorb(FOUNDER, 0, &[tag, 0]), 0xcfd3_d455_1fb3_63c2);
+        assert_eq!(absorb(RANK, 0, &[7, 5, 11, 13, 17]), 0x7030_8ebc_37d8_4ef5);
         assert_eq!(
             DRAW, 0x3177_6172_642e_6173,
             "the bytes of sa.draw1, little-endian"
+        );
+        // The domains differ in their bytes 3 to 6: `draw`, `rank`, `chld`, `fndr`, `immi`.
+        assert_eq!(RANK, 0x316b_6e61_722e_6173);
+        assert_eq!(CHILD, 0x3164_6c68_632e_6173);
+        assert_eq!(FOUNDER, 0x3172_646e_662e_6173);
+        assert_eq!(IMMIGRANT, 0x3169_6d6d_692e_6173);
+    }
+
+    /// ADR-0001 section 1: a subject is a lineage key (for meiosis the genome key) or
+    /// the world.
+    #[test]
+    fn subjects_come_from_lineage_keys() {
+        let tag = DataId::new("test:fork_no_density").expect("valid");
+        let founder = LineageKey::founder(&tag, 0);
+        assert_eq!(SubjectKey::from(founder).get(), founder.get());
+        assert_eq!(SubjectKey::from(founder).get(), 0xcfd3_d455_1fb3_63c2);
+        let other = LineageKey::founder(&tag, 1);
+        assert_eq!(
+            SubjectKey::from(GenomeKey::of_zygote(other)).get(),
+            0x1e0b_b476_2d39_fa10
         );
     }
 
@@ -343,6 +411,59 @@ mod tests {
             typed, 5,
             "every case with a pinned tag also runs through DrawKey"
         );
+    }
+
+    /// ADR-0001 sections 1 and 3: a draw is its distribution applied to the first words
+    /// of the key. The exact values are from tools/rng_reference.py (lines `chain`).
+    /// exponential and normal are compared with the functions of sim-math on the words;
+    /// their known answers are there.
+    #[test]
+    fn draws_apply_the_distributions_to_the_first_words() {
+        let base = str_key(&DataId::new("test:base").expect("valid"));
+        // seed, [tag, subject, occasion, detail], uniform_below 7 and 2^40 + 3,
+        // bernoulli 0.3 and 0.6, poisson 5
+        let cases = [
+            (0, [1, 0, 0, 0], 3, 511_795_236_352, false, true, 5),
+            (1, [1, 0, 0, 0], 4, 652_761_471_592, false, true, 5),
+            (0, [2, 0, 0, 0], 3, 505_290_093_562, false, true, 5),
+            (
+                0x0123_4567_89ab_cdef,
+                [3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9],
+                1,
+                283_933_779_331,
+                true,
+                true,
+                3,
+            ),
+            (0x5eed, [4, 0, base, 0], 2, 396_987_020_392, false, true, 4),
+        ];
+        for (seed, [tag, subject, occasion, detail], seven, large, rare, likely, count) in cases {
+            let draws = Draws::new(WorldSeed::new(seed));
+            let key = DrawKey {
+                tag: pinned(tag).expect("a pinned tag"),
+                subject: SubjectKey(subject),
+                occasion,
+                detail,
+            };
+            assert_eq!(draws.uniform_below(key, 7), seven, "{key:?}");
+            assert_eq!(draws.uniform_below(key, (1 << 40) + 3), large, "{key:?}");
+            assert_eq!(draws.bernoulli(key, 0.3), rare, "{key:?}");
+            assert_eq!(draws.bernoulli(key, 0.6), likely, "{key:?}");
+            assert_eq!(draws.poisson(key, 5.0), count, "{key:?}");
+            let [w0, w1] = draws.words::<2>(key);
+            assert_eq!(
+                draws.exponential(key, 2.0).to_bits(),
+                dist::exponential(w0, 2.0).to_bits(),
+                "{key:?}"
+            );
+            assert_eq!(
+                draws.normal(key, 1.0, 3.0).to_bits(),
+                dist::normal(w0, w1, 1.0, 3.0).to_bits(),
+                "{key:?}"
+            );
+            assert!(draws.exponential(key, 2.0) > 0.0, "{key:?}");
+            assert_ne!(draws.normal(key, 1.0, 3.0), 1.0, "{key:?}");
+        }
     }
 
     /// ADR-0001 `words_smoke`: 2^18 draw keys with a fixed tag, the world as subject and
