@@ -7,6 +7,7 @@ mod canary;
 mod checks;
 mod codegen;
 mod contract;
+mod contract_base;
 mod kat;
 mod release_run;
 mod results;
@@ -41,11 +42,16 @@ fn main() -> ExitCode {
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
-        Some("codegen") => return report("codegen", codegen()),
+        Some("codegen") => {
+            return report(
+                "codegen",
+                workspace_root().and_then(|root| codegen(&root, &contract_base(&root)?)),
+            );
+        }
         Some("contract-check") => {
             return report(
                 "contract-check",
-                workspace_root().and_then(|root| check_contract(&root)),
+                workspace_root().and_then(|root| check_contract(&root, &contract_base(&root)?)),
             );
         }
         Some("kat-verify-reference") => {
@@ -214,7 +220,9 @@ fn gate(require_clean_tree: bool) -> Result {
     step("document limits", || check_document_limits(&root))?;
     step("result changes", || check_result_changes(&root))?;
     step("architecture", || check_architecture(&root))?;
-    step("contract check", || check_contract(&root))?;
+    step("contract check", || {
+        check_contract(&root, &contract_base(&root)?)
+    })?;
     step("scans", || check_scans(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
@@ -344,13 +352,20 @@ fn generated_types(root: &Path, body: &str) -> Result<String> {
     codegen::format(&root.join("target").join("codegen"), edition, &source)
 }
 
+/// The contract files at the merge base with `origin/main` (ADR-0005 section 7, check 3);
+/// a file that the base does not have is `None`.
+fn contract_base(root: &Path) -> Result<contract_base::Base> {
+    let _ = root;
+    Ok(contract_base::Base::default())
+}
+
 /// `cargo xtask codegen` (ADR-0005 section 2): writes the generated types of the body
 /// contract into `sim-core` and the hash of the contract file, under its version, into
-/// `contracts/body.hashes.json`. A contract with findings changes nothing.
-fn codegen() -> Result {
-    let root = workspace_root()?;
+/// `contracts/body.hashes.json`. A contract with findings changes nothing, and neither
+/// does a contract that would get another hash under a version of the merge base.
+fn codegen(root: &Path, base: &contract_base::Base) -> Result {
     let body = read(&root.join(BODY_FILE))?;
-    let types = generated_types(&root, &body)?;
+    let types = generated_types(root, &body)?;
     let version = contract::version(&body).ok_or("body.json has no contract_version")?;
     let hashes_path = root.join(BODY_HASHES_FILE);
     let hashes = if hashes_path.exists() {
@@ -360,6 +375,13 @@ fn codegen() -> Result {
     };
     let hash = sim_core::hash::stable_hash64(body.as_bytes());
     let hashes = codegen::with_hash(&hashes, &version, hash)?;
+    let rewritten = contract_base::hash_findings(base.hashes.as_deref(), &hashes);
+    if !rewritten.is_empty() {
+        return Err(format!(
+            "{}\n  nothing written: raise contract_version in {BODY_FILE} first",
+            listed(rewritten)
+        ));
+    }
     let types_path = root.join(codegen::GENERATED_FILE);
     for (path, text) in [(&hashes_path, &hashes), (&types_path, &types)] {
         if let Some(dir) = path.parent() {
@@ -368,28 +390,34 @@ fn codegen() -> Result {
         }
         std::fs::write(path, text)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-        println!("wrote {}", relative(&root, path));
+        println!("wrote {}", relative(root, path));
     }
     Ok(())
 }
 
 /// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
 /// values. Checked here: its schema with the rules of the units and of the melanin table
-/// (check 1), its hash and its changelog (check 2), and that the generated types in
-/// `sim-core` are the ones of this file (check 4).
-fn check_contract(root: &Path) -> Result {
+/// (check 1), its hash and its changelog (check 2), the step from the contract of the
+/// merge base (check 3), and that the generated types in `sim-core` are the ones of this
+/// file (check 4).
+fn check_contract(root: &Path, base: &contract_base::Base) -> Result {
     let body = read(&root.join(BODY_FILE))?;
     let mut found = contract::schema_findings(&body);
+    let valid = found.is_empty();
     found.extend(contract::changelog_findings(
         &body,
         &read(&root.join(BODY_CHANGELOG_FILE))?,
     ));
+    let hashes = read(&root.join(BODY_HASHES_FILE))?;
     if let Some(version) = contract::version(&body) {
         found.extend(codegen::hash_findings(
-            &read(&root.join(BODY_HASHES_FILE))?,
+            &hashes,
             &version,
             sim_core::hash::stable_hash64(body.as_bytes()),
         ));
+    }
+    if valid {
+        found.extend(contract_base::base_findings(base, &body, &hashes));
     }
     if found.is_empty() {
         let fresh = generated_types(root, &body)?;
@@ -826,11 +854,201 @@ mod tests {
         copy
     }
 
+    /// A merge base with the contract files as the working tree has them.
+    fn unchanged_base() -> contract_base::Base {
+        let root = workspace_root().expect("the workspace root");
+        contract_base::Base {
+            body: Some(read(&root.join(BODY_FILE)).expect("contract")),
+            hashes: Some(read(&root.join(BODY_HASHES_FILE)).expect("hashes")),
+        }
+    }
+
+    /// Runs git in `dir` without the hooks and the identity of the machine.
+    fn git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.invalid",
+            ])
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git runs");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// A git repository below `target/` whose only commit holds `files` of the copy of
+    /// the contract files, with `origin/main` at that commit.
+    fn contract_repo(name: &str, files: &[&str]) -> PathBuf {
+        let repo = contract_copy(name, "", str::to_string);
+        let _ = std::fs::remove_dir_all(repo.join(".git"));
+        git(&repo, &["init", "-q"]);
+        for file in files {
+            git(&repo, &["add", "--", file]);
+        }
+        git(&repo, &["commit", "-q", "-m", "base"]);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        repo
+    }
+
+    /// Replaces the text of `file` in `repo` by `change` of it.
+    fn rewrite(repo: &Path, file: &str, change: impl Fn(&str) -> String) {
+        let path = repo.join(file);
+        let text = read(&path).expect(file);
+        std::fs::write(&path, change(&text)).expect(file);
+    }
+
+    /// The base of the contract check is the commit of `origin/main`, not the working
+    /// tree; a file that this commit does not have is none.
+    #[test]
+    fn the_contract_base_is_the_merge_base_with_origin_main() {
+        let repo = contract_repo("base", &[BODY_FILE, BODY_HASHES_FILE]);
+        let committed = unchanged_base();
+        rewrite(&repo, BODY_FILE, |text| format!("{text}\n"));
+        rewrite(&repo, BODY_HASHES_FILE, |_| "{}\n".to_string());
+        let base = contract_base(&repo).expect("a base");
+        assert_eq!(base.body, committed.body);
+        assert_eq!(base.hashes, committed.hashes);
+
+        let repo = contract_repo("base-without-contract", &["Cargo.toml"]);
+        let base = contract_base(&repo).expect("a base");
+        assert_eq!((base.body, base.hashes), (None, None));
+
+        let repo = contract_repo("base-without-hashes", &[BODY_FILE]);
+        let base = contract_base(&repo).expect("a base");
+        assert_eq!((base.body, base.hashes), (committed.body, None));
+
+        // Without origin/main there is no base, and the step says so.
+        git(&repo, &["update-ref", "-d", "refs/remotes/origin/main"]);
+        let refused = contract_base(&repo).err().expect("no base");
+        assert!(
+            refused.starts_with("cannot find the merge base with origin/main ("),
+            "{refused}"
+        );
+    }
+
+    /// ADR-0005 section 7, check 3, the whole step: a changed contract needs the next
+    /// version, and `cargo xtask codegen` never rewrites a hash entry of the base.
+    #[test]
+    fn a_changed_contract_goes_through_codegen_and_the_step() {
+        let files = [
+            BODY_FILE,
+            BODY_CHANGELOG_FILE,
+            BODY_HASHES_FILE,
+            codegen::GENERATED_FILE,
+            "Cargo.toml",
+        ];
+        let repo = contract_repo("change", &files);
+        let base = contract_base(&repo).expect("a base");
+        let snapshot = |repo: &Path| files.map(|file| read(&repo.join(file)).expect(file));
+        let committed = snapshot(&repo);
+
+        // Unchanged: the step passes and codegen writes the same bytes.
+        assert_eq!(check_contract(&repo, &base), Ok(()));
+        assert_eq!(codegen(&repo, &base), Ok(()));
+        assert_eq!(snapshot(&repo), committed);
+
+        // A changed description under the old version: codegen writes nothing.
+        let describe =
+            |text: &str| text.replacen("\"description\": \"", "\"description\": \"The ", 1);
+        rewrite(&repo, BODY_FILE, describe);
+        let changed = read(&repo.join(BODY_FILE)).expect("contract");
+        assert_ne!(changed, committed[0]);
+        let refused = codegen(&repo, &base).expect_err("a hash of the base");
+        assert!(
+            refused.contains("of the merge base was changed or removed")
+                && refused.ends_with(
+                    "nothing written: raise contract_version in contracts/body.json first"
+                ),
+            "{refused}"
+        );
+        assert_eq!(snapshot(&repo)[1..], committed[1..]);
+        // Written by hand, the hash and the types pass checks 2 and 4, not check 3.
+        let hash = sim_core::hash::stable_hash64(changed.as_bytes());
+        let version = contract::version(&changed).expect("a version");
+        rewrite(&repo, BODY_HASHES_FILE, |_| {
+            format!("{{\"{version}\": \"{hash:016x}\"}}\n")
+        });
+        let types = generated_types(&repo, &changed).expect("types");
+        rewrite(&repo, codegen::GENERATED_FILE, |_| types.clone());
+        let refused = check_contract(&repo, &base).expect_err("check 3");
+        assert_eq!(
+            refused,
+            format!(
+                "\n  contract_version {version} after {version} of the merge base: a correction needs {}\n  body.hashes.json: the entry {version} of the merge base was changed or removed: a changed contract needs a new version",
+                next_versions(&version).join(" or ")
+            )
+        );
+
+        // With the next version, its changelog section and codegen, the step passes.
+        let next = next_versions(&version)[0].clone();
+        rewrite(&repo, BODY_HASHES_FILE, |_| committed[2].clone());
+        rewrite(&repo, codegen::GENERATED_FILE, |_| committed[3].clone());
+        rewrite(&repo, BODY_FILE, |text| {
+            text.replacen(
+                &format!("\"contract_version\": \"{version}\""),
+                &format!("\"contract_version\": \"{next}\""),
+                1,
+            )
+        });
+        rewrite(&repo, BODY_CHANGELOG_FILE, |text| {
+            format!(
+                "{text}\n## {next}\n\n- Neu: nichts\n- Geändert: eine Beschreibung\n- Stillgelegt: nichts\n"
+            )
+        });
+        assert_eq!(codegen(&repo, &base), Ok(()));
+        assert_eq!(check_contract(&repo, &base), Ok(()));
+        let written = snapshot(&repo);
+        assert_ne!(written[2], committed[2]);
+        assert_ne!(written[3], committed[3]);
+        assert!(
+            written[2].contains(&format!("\"{next}\": ")),
+            "{}",
+            written[2]
+        );
+    }
+
+    /// The versions one step after `version` (ADR-0005 section 6): PATCH + 1, then the
+    /// breaking step, MINOR + 1 below 1.0.0.
+    fn next_versions(version: &str) -> Vec<String> {
+        let numbers: Vec<u64> = version
+            .split('.')
+            .map(|part| part.parse().expect("a number"))
+            .collect();
+        let [major, minor, patch] = numbers[..] else {
+            panic!("three numbers");
+        };
+        if major == 0 {
+            vec![
+                format!("0.{minor}.{}", patch + 1),
+                format!("0.{}.0", minor + 1),
+            ]
+        } else {
+            vec![
+                format!("{major}.{minor}.{}", patch + 1),
+                format!("{major}.{}.0", minor + 1),
+                format!("{}.0.0", major + 1),
+            ]
+        }
+    }
+
     /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
     #[test]
     fn the_contract_step_passes_on_the_files_of_the_repo() {
         let copy = contract_copy("clean", "", str::to_string);
-        assert_eq!(check_contract(&copy), Ok(()));
+        assert_eq!(check_contract(&copy, &unchanged_base()), Ok(()));
     }
 
     /// The step runs every check of ADR-0005 section 7 that exists so far: each broken
@@ -886,7 +1104,7 @@ mod tests {
         ];
         for (name, file, change, expected) in cases {
             let copy = contract_copy(name, file, change);
-            let refused = check_contract(&copy).expect_err(name);
+            let refused = check_contract(&copy, &unchanged_base()).expect_err(name);
             assert!(refused.contains(expected), "{name}: {refused}");
         }
     }

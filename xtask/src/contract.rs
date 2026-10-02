@@ -516,7 +516,7 @@ pub fn melanin_chart(body_json: &str) -> Result<String, Vec<String>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -524,7 +524,7 @@ mod tests {
     const REPO_CHANGELOG: &str = include_str!("../../contracts/body.changelog.md");
 
     /// A small valid contract: one parameter per unit.
-    fn fixture() -> Value {
+    pub(crate) fn fixture() -> Value {
         let grid = json!({
             "eumelanin": [0, 0.5, 1],
             "pheomelanin": [0, 1],
