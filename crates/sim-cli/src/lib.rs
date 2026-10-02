@@ -253,10 +253,10 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
 
 /// ADR-0001 section 6: a fork is a new run from t0 with the resolved scenario and the
 /// seed of the parent. The inputs of the parent with a stamp before `T_X - 1 s` are
-/// taken over; the run goes to `T_X - 1 s`, where the year hashes 0 to X - 1 must equal
-/// those in the manifest of the parent, and then on to the end of the parent. An
-/// override would be submitted at `T_X - 1 s`; it arrives with the first world
-/// parameter. Without it and without dropped inputs the fork is exactly the parent.
+/// taken over; the year hashes 0 to X - 1 must equal those in the manifest of the
+/// parent, and the run goes on to the end of the parent. An override is submitted at
+/// `T_X - 1 s`; it arrives with the first world parameter. Without it and without
+/// dropped inputs the fork is exactly the parent.
 fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
     let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN)?;
     let manifest = read_manifest(&parent.join(files::MANIFEST))?;
@@ -292,6 +292,13 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
             end.end.as_secs()
         )));
     };
+    let hashes = manifest.year_hashes.len();
+    if u64::try_from(hashes).is_ok_and(|hashes| hashes < u64::from(years)) {
+        let detail = format!(
+            "the manifest of the parent has {hashes} year hashes, the fork point needs {years}"
+        );
+        return Err(CliError::new("manifest_invalid", detail));
+    }
     let fork_stamp = year_start(from_year) - second;
     let (kept, dropped): (Vec<InputRecord>, Vec<InputRecord>) = records
         .into_iter()
@@ -331,7 +338,8 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
         }
         session.replay_input(record)?;
     }
-    session.advance(fork_stamp)?;
+    // The session compares year by year up to the fork point. An override will split
+    // the run there: advance to `fork_stamp`, submit it, go on.
     session.advance(end.end)?;
     session.finish(&scenario)
 }
