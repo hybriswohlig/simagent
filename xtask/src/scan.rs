@@ -341,8 +341,7 @@ pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
 
 /// The identifier rules of the core over all files of `sim-core/src` (path relative to
 /// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
-/// types only in `TEXT_FILES` (ADR-0004 section 7), the generator crate only under
-/// `RNG_DIR` (ADR-0001 section 2).
+/// types only in `TEXT_FILES` (ADR-0004 section 7).
 pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
     let mut findings = Vec::new();
     for finding in identifiers_outside(core_sources, &["xxhash_rust"], &[HASH_FILE]) {
@@ -356,14 +355,21 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
             "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
         ));
     }
-    findings.extend(generator_findings(core_sources));
     findings
 }
 
-/// One message per file outside `RNG_DIR` that names the generator crate. A scan that
-/// cannot be trusted is reported too: no file under `RNG_DIR` (the module moved or was
-/// renamed, or nothing was scanned at all).
-fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
+/// The only file that names the generator type, and how often: its import and the one
+/// generator that `key_words` builds and drops.
+pub const GENERATOR_FILE: &str = "crates/sim-core/src/rng/mod.rs";
+
+/// The file of the purpose tags and the golden that pins them (ADR-0001 section 5).
+pub const TAGS_FILE: &str = "crates/sim-core/src/rng/tags.rs";
+
+/// The generator rules over the Rust files of all workspace members (ADR-0001 section
+/// 2). A scan that cannot be trusted is reported too: no file under `RNG_DIR` (the
+/// module moved or was renamed, or nothing was scanned at all).
+pub fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let _ = GENERATOR_FILE;
     let mut findings = Vec::new();
     if !core_sources
         .iter()
@@ -381,6 +387,13 @@ fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
         }
     }
     findings
+}
+
+/// The tag rules over all files of `sim-core/src` (ADR-0001 section 5); `golden` is the
+/// text of `tests/golden/rng_tags.txt`.
+pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<String> {
+    let _ = (core_sources, golden, TAGS_FILE);
+    Vec::new()
 }
 
 /// One message per file (path, source) that names one of `idents` as an identifier
@@ -882,32 +895,18 @@ mod tests {
                     .to_string()
             ]
         );
-        // ADR-0001 canary: an import of the generator crate outside the random module.
-        let generator = core(&[
-            (
-                "crates/sim-core/src/world/mod.rs",
-                "use rand_chacha::ChaCha8Rng;\npub struct World { generator: ChaCha8Rng }",
-            ),
-            (
-                "crates/sim-core/src/rng/select.rs",
-                "// rand_chacha in a comment\nuse rand_chacha::rand_core::Rng;",
-            ),
-            (
-                "crates/sim-core/src/rng_helper.rs",
-                "fn g() { let _ = rand_chacha::ChaCha8Rng::from_seed([0; 32]); }",
-            ),
-            (
-                "crates/sim-core/src/world/ctx.rs",
-                "// draws come from rng, never from rand_chacha\nfn f() { let _ = \"rand_chacha\"; }",
-            ),
-        ]);
+        // Of the text types the tag file may name only `str`.
+        let mut owned = core(&[]);
+        for (path, source) in &mut owned {
+            if path == "crates/sim-core/src/rng/tags.rs" {
+                source.push_str("\npub type Label = alloc::string::String;");
+            }
+        }
         assert_eq!(
-            core_identifier_findings(&generator),
+            core_identifier_findings(&owned),
             vec![
-                "crates/sim-core/src/world/mod.rs: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
-                    .to_string(),
-                "crates/sim-core/src/rng_helper.rs: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
-                    .to_string(),
+                "crates/sim-core/src/rng/tags.rs: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                    .to_string()
             ]
         );
     }
@@ -916,7 +915,7 @@ mod tests {
     fn a_core_without_its_allowed_files_is_a_finding() {
         let found =
             core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
-        assert_eq!(found.len(), 5, "{found:?}");
+        assert_eq!(found.len(), 4, "{found:?}");
         for path in [
             HASH_FILE,
             "crates/sim-core/src/data_id.rs",
@@ -930,14 +929,242 @@ mod tests {
                 "{path}: {found:?}"
             );
         }
-        // A random module that moved or was renamed leaves the rule blind.
-        assert!(
-            found.contains(&format!(
-                "{RNG_DIR}: no file of the allowed directory is among the scanned files"
-            )),
-            "{found:?}"
+        assert_eq!(core_identifier_findings(&[]).len(), 2, "one per rule");
+    }
+
+    const RNG_MOD: &str = "use rand_chacha::ChaCha8Rng;\nuse rand_chacha::rand_core::{Rng, SeedableRng};\npub struct PurposeTag(u64);\nfn key_words(key: [u8; 32]) -> u64 {\n    ChaCha8Rng::from_seed(key).next_u64()\n}\n#[cfg(test)]\nmod tests {\n    fn key(tag: u64) -> PurposeTag {\n        PurposeTag(tag)\n    }\n}\n";
+    const TAGS: &str = "pub const A: PurposeTag = PurposeTag(1);\npub const B: PurposeTag = PurposeTag(2);\npub const ALL: &[(PurposeTag, &str)] = &[(A, \"A\"), (B, \"B\")];\n";
+    const TAGS_GOLDEN: &str = "# comment\ntag 1 A\ntag 2 B\nretired 9\n";
+
+    /// The workspace as the generator and tag rules see it: the random module with
+    /// `rng_mod` as its `mod.rs`, plus `extra`.
+    fn workspace(rng_mod: &str, extra: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut all = vec![
+            (GENERATOR_FILE, rng_mod),
+            (TAGS_FILE, TAGS),
+            ("crates/sim-core/src/lib.rs", "pub mod rng;"),
+            ("crates/sim-cli/src/main.rs", "fn main() {}"),
+        ];
+        all.extend_from_slice(extra);
+        files(&all)
+    }
+
+    const ONLY_RNG: &str = "(only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)";
+
+    #[test]
+    fn a_clean_workspace_has_no_generator_findings() {
+        assert_eq!(
+            generator_findings(&workspace(RNG_MOD, &[])),
+            Vec::<String>::new()
         );
-        assert_eq!(core_identifier_findings(&[]).len(), 3, "one per rule");
+    }
+
+    /// ADR-0001 canary: an import of the generator crate outside the random module, in
+    /// any Rust file of the workspace.
+    #[test]
+    fn the_generator_crate_outside_the_random_module_is_a_finding() {
+        let outside = workspace(
+            RNG_MOD,
+            &[
+                (
+                    "crates/sim-core/src/world/mod.rs",
+                    "use rand_chacha::ChaCha8Rng;\npub struct World { generator: ChaCha8Rng }",
+                ),
+                (
+                    "crates/sim-core/src/rng_helper.rs",
+                    "fn g() { let _ = rand_chacha::ChaCha8Rng::from_seed([0; 32]); }",
+                ),
+                (
+                    "crates/sim-core/src/world/ctx.rs",
+                    "// draws come from rng, never from rand_chacha\nfn f() { let _ = \"rand_chacha\"; }",
+                ),
+                (
+                    "crates/sim-core/tests/draws.rs",
+                    "use rand_chacha::ChaCha8Rng;",
+                ),
+                (
+                    "crates/sim-cli/src/session.rs",
+                    "use rand_chacha::rand_core::Rng;",
+                ),
+            ],
+        );
+        assert_eq!(
+            generator_findings(&outside),
+            vec![
+                format!("crates/sim-core/src/world/mod.rs: names rand_chacha {ONLY_RNG}"),
+                format!("crates/sim-core/src/rng_helper.rs: names rand_chacha {ONLY_RNG}"),
+                format!("crates/sim-core/tests/draws.rs: names rand_chacha {ONLY_RNG}"),
+                format!("crates/sim-cli/src/session.rs: names rand_chacha {ONLY_RNG}"),
+            ]
+        );
+    }
+
+    /// Review finding: a re-export or an alias inside the random module would hand a
+    /// generator to every other module without that module naming the crate.
+    #[test]
+    fn the_random_module_does_not_hand_out_the_generator() {
+        let count = |n: usize, files: &str| {
+            format!(
+                "ChaCha8Rng is named {n} times under {RNG_DIR}, exactly 2 uses in {GENERATOR_FILE} are allowed: the import and the one generator of key_words (ADR-0001 section 2): {files}"
+            )
+        };
+        let select = "crates/sim-core/src/rng/select.rs";
+        let reexport = workspace(
+            RNG_MOD,
+            &[(select, "pub use rand_chacha::ChaCha8Rng as Generator;")],
+        );
+        assert_eq!(
+            generator_findings(&reexport),
+            vec![
+                format!("{select}:1: re-exports the generator crate (ADR-0001 section 2)"),
+                count(3, &format!("{GENERATOR_FILE}, {select}")),
+            ]
+        );
+        let scoped = workspace(
+            RNG_MOD,
+            &[(
+                select,
+                "fn f() {}\n    pub(crate) use rand_chacha::rand_core::Rng;",
+            )],
+        );
+        assert_eq!(
+            generator_findings(&scoped),
+            vec![format!(
+                "{select}:2: re-exports the generator crate (ADR-0001 section 2)"
+            )]
+        );
+        let alias = workspace(
+            RNG_MOD,
+            &[(select, "pub type Generator = super::ChaCha8Rng;")],
+        );
+        assert_eq!(
+            generator_findings(&alias),
+            vec![count(3, &format!("{GENERATOR_FILE}, {select}"))]
+        );
+        let field = format!("{RNG_MOD}pub struct Stream {{ generator: ChaCha8Rng }}\n");
+        assert_eq!(
+            generator_findings(&workspace(&field, &[])),
+            vec![count(3, GENERATOR_FILE)]
+        );
+        // Two uses, but not where they belong.
+        let moved = workspace(
+            "pub struct PurposeTag(u64);",
+            &[(
+                select,
+                "use rand_chacha::ChaCha8Rng;\nfn g(key: [u8; 32]) { let _ = ChaCha8Rng::from_seed(key); }",
+            )],
+        );
+        assert_eq!(generator_findings(&moved), vec![count(2, select)]);
+        // `include!` would hide code from every scan of the module.
+        let included = workspace(RNG_MOD, &[(select, "include!(\"generator.in\");")]);
+        assert_eq!(
+            generator_findings(&included),
+            vec![format!(
+                "{select}: include! hides code of the random module from the scans (ADR-0001)"
+            )]
+        );
+        let text = workspace(
+            RNG_MOD,
+            &[(select, "const T: &[u8] = include_bytes!(\"t.bin\");")],
+        );
+        assert_eq!(generator_findings(&text), Vec::<String>::new());
+    }
+
+    /// A random module that moved or was renamed leaves the rules blind.
+    #[test]
+    fn a_workspace_without_the_random_module_is_a_finding() {
+        let missing =
+            format!("{RNG_DIR}: no file of the allowed directory is among the scanned files");
+        let found = generator_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
+        assert!(found.contains(&missing), "{found:?}");
+        assert!(generator_findings(&[]).contains(&missing));
+    }
+
+    fn core_of(workspace: Vec<(String, String)>) -> Vec<(String, String)> {
+        workspace
+            .into_iter()
+            .filter(|(path, _)| path.starts_with("crates/sim-core/src/"))
+            .collect()
+    }
+
+    #[test]
+    fn a_clean_core_has_no_tag_findings() {
+        let core = core_of(workspace(RNG_MOD, &[]));
+        assert_eq!(tag_findings(&core, TAGS_GOLDEN), Vec::<String>::new());
+        // The type in a signature, a comment or a string is no construction.
+        let named = core_of(workspace(
+            RNG_MOD,
+            &[(
+                "crates/sim-core/src/rng/select.rs",
+                "// PurposeTag(7)\nfn pick(tag: PurposeTag) -> PurposeTag { let _ = \"PurposeTag(7)\"; tag }",
+            )],
+        ));
+        assert_eq!(tag_findings(&named, TAGS_GOLDEN), Vec::<String>::new());
+    }
+
+    /// Review finding: a tag constant in any spelling that is not in the pinned list.
+    #[test]
+    fn a_tag_outside_the_pinned_list_is_a_finding() {
+        let with_tags = |tags: &str| {
+            let mut core = core_of(workspace(RNG_MOD, &[]));
+            for (path, source) in &mut core {
+                if path == TAGS_FILE {
+                    *source = tags.to_string();
+                }
+            }
+            core
+        };
+        let count = |n: usize| {
+            format!(
+                "{TAGS_FILE}: builds {n} tags, tests/golden/rng_tags.txt pins 2 (ADR-0001 section 5)"
+            )
+        };
+        for extra in [
+            "pub const C: PurposeTag = PurposeTag(3);",
+            "pub(crate) const C: PurposeTag = { PurposeTag(3) };",
+            "mod hidden {\n    pub const C: super::PurposeTag = super::PurposeTag (\n        3,\n    );\n}",
+            "pub fn extra() -> PurposeTag { PurposeTag(3) }",
+        ] {
+            let core = with_tags(&format!("{TAGS}{extra}\n"));
+            assert_eq!(tag_findings(&core, TAGS_GOLDEN), vec![count(3)], "{extra}");
+        }
+        // A tag that left the file but not the golden.
+        let fewer = with_tags("pub const A: PurposeTag = PurposeTag(1);\n");
+        assert_eq!(tag_findings(&fewer, TAGS_GOLDEN), vec![count(1)]);
+
+        let select = "crates/sim-core/src/rng/select.rs";
+        let elsewhere = core_of(workspace(
+            RNG_MOD,
+            &[(select, "pub const C: PurposeTag = PurposeTag(3);")],
+        ));
+        assert_eq!(
+            tag_findings(&elsewhere, TAGS_GOLDEN),
+            vec![format!(
+                "{select}: builds a PurposeTag; tags are the constants of {TAGS_FILE} (ADR-0001 section 5)"
+            )]
+        );
+        let in_mod = format!("{RNG_MOD}pub const C: PurposeTag = PurposeTag(3);\n");
+        assert_eq!(
+            tag_findings(&core_of(workspace(&in_mod, &[])), TAGS_GOLDEN),
+            vec![format!(
+                "{GENERATOR_FILE}: PurposeTag( occurs 3 times, exactly 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_core_without_the_tag_files_is_a_finding() {
+        let found = tag_findings(
+            &files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]),
+            "",
+        );
+        assert_eq!(
+            found,
+            vec![
+                format!("{TAGS_FILE}: file of the tag rules is not among the scanned files"),
+                format!("{GENERATOR_FILE}: file of the tag rules is not among the scanned files"),
+            ]
+        );
     }
 
     #[test]
