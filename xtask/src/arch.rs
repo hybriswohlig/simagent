@@ -192,6 +192,7 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
     }
     check_pinned(&graph, &mut violations);
+    check_no_rename(&graph, &mut violations);
     check_serde_json(&graph, &mut violations);
     for (id, declared) in &graph.declared {
         let name = graph.name(id);
@@ -325,6 +326,22 @@ fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
     }
 }
 
+/// The scans and the positive lists find crates by their name. A member that renames a
+/// dependency would name it in the code as something else.
+fn check_no_rename(graph: &Graph, violations: &mut Vec<String>) {
+    for &member in &graph.members {
+        for spec in graph.specs.get(member).into_iter().flatten() {
+            if let Some(alias) = spec.rename {
+                violations.push(format!(
+                    "{} renames its dependency {} to {alias}; the scans find crates by name (ADR-0000)",
+                    graph.name(member),
+                    spec.name
+                ));
+            }
+        }
+    }
+}
+
 /// Checks the manifests of the workspace members only: third-party crates may declare
 /// libm themselves (num-traits does, optionally); what they change in the build shows
 /// up in the resolved features of the core closure.
@@ -441,6 +458,8 @@ fn check_one_version(graph: &Graph, normal_union: &BTreeSet<&str>, violations: &
 /// A dependency as declared in a package manifest.
 struct Spec<'a> {
     name: &'a str,
+    /// The name in the code if the manifest renames the dependency.
+    rename: Option<&'a str>,
     requirement: &'a str,
     default_features: bool,
     features: Vec<&'a str>,
@@ -485,6 +504,7 @@ impl<'a> Graph<'a> {
             for dep in declared_deps.into_iter().flatten() {
                 specs.push(Spec {
                     name: string(dep, "name")?,
+                    rename: dep.get("rename").and_then(Value::as_str),
                     requirement: string(dep, "req")?,
                     default_features: dep
                         .get("uses_default_features")
@@ -617,6 +637,8 @@ mod tests {
         features: Vec<(String, Vec<String>)>,
         /// Declared dependencies: (from, to, requirement, default features, features).
         specs: Vec<(String, String, String, bool, Vec<String>)>,
+        /// Renamed dependencies: (from, to, name in the code).
+        renames: Vec<(String, String, String)>,
         members: Option<Vec<String>>,
     }
 
@@ -628,6 +650,7 @@ mod tests {
                 deps: Vec::new(),
                 features: Vec::new(),
                 specs: Vec::new(),
+                renames: Vec::new(),
                 members: None,
             };
             for name in MEMBERS.into_iter().chain([
@@ -683,6 +706,12 @@ mod tests {
             self
         }
 
+        fn renamed(mut self, from: &str, to: &str, alias: &str) -> Self {
+            self.renames
+                .push((from.to_string(), to.to_string(), alias.to_string()));
+            self
+        }
+
         fn dep(mut self, from: &str, to: &str, kind: Option<&'static str>) -> Self {
             self.deps.push((from.to_string(), to.to_string(), kind));
             self
@@ -721,12 +750,18 @@ mod tests {
                         .specs
                         .iter()
                         .filter(|(from, ..)| from == name)
-                        .map(|(_, to, requirement, default_features, features)| {
+                        .map(|(from, to, requirement, default_features, features)| {
+                            let rename = self
+                                .renames
+                                .iter()
+                                .find(|(f, t, _)| f == from && t == to)
+                                .map(|(_, _, alias)| alias.clone());
                             json!({
                                 "name": to,
                                 "req": requirement,
                                 "uses_default_features": default_features,
                                 "features": features,
+                                "rename": rename,
                                 "kind": null
                             })
                         })
@@ -1057,6 +1092,31 @@ mod tests {
             with("sim-math", "=0.10.0", false, &[]),
             "rand_chacha may only be a direct dependency of sim-core, not of sim-math (ADR-0003)",
         );
+    }
+
+    /// Review finding: the scans look for crates by name; a renamed dependency of a
+    /// member would be invisible to them.
+    #[test]
+    fn a_renamed_dependency_of_a_member_is_reported() {
+        let plain = || {
+            Fixture::workspace()
+                .package("rand_chacha", &[])
+                .dep("sim-core", "rand_chacha", None)
+                .spec("sim-core", "rand_chacha", "=0.10.0", false, &[])
+        };
+        assert_eq!(violations(plain()), Vec::<String>::new());
+        assert_eq!(
+            violations(plain().renamed("sim-core", "rand_chacha", "chacha")),
+            vec![
+                "sim-core renames its dependency rand_chacha to chacha; the scans find crates by name (ADR-0000)"
+                    .to_string()
+            ]
+        );
+        // What a third-party crate renames is its own business.
+        let foreign = Fixture::workspace()
+            .spec("serde_json", "itoa", "1", true, &[])
+            .renamed("serde_json", "itoa", "fmt");
+        assert_eq!(violations(foreign), Vec::<String>::new());
     }
 
     /// AT5: a member that declares serde_json enables float_roundtrip.
