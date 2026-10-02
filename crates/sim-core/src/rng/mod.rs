@@ -44,15 +44,13 @@ impl SubjectKey {
 
 impl From<LineageKey> for SubjectKey {
     fn from(key: LineageKey) -> SubjectKey {
-        let _ = key;
-        SubjectKey::WORLD
+        SubjectKey(key.get())
     }
 }
 
 impl From<GenomeKey> for SubjectKey {
     fn from(key: GenomeKey) -> SubjectKey {
-        let _ = key;
-        SubjectKey::WORLD
+        SubjectKey(key.get())
     }
 }
 

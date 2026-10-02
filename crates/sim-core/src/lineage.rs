@@ -17,8 +17,7 @@ impl LineageKey {
     /// A founder: `index` is the position from 0 in the founder list of the resolved
     /// scenario, which is never reordered.
     pub fn founder(founder_tag: &DataId, index: u64) -> LineageKey {
-        let _ = (str_key(founder_tag), index, absorb(FOUNDER, 0, &[]));
-        LineageKey(0)
+        LineageKey(absorb(FOUNDER, 0, &[str_key(founder_tag), index]))
     }
 
     /// A child of its biological parents. `conception_number` counts all conceptions of
@@ -30,15 +29,21 @@ impl LineageKey {
         conception_number: u64,
         multiple_index: u64,
     ) -> LineageKey {
-        let _ = (mother, father, conception_number, multiple_index, CHILD);
-        LineageKey(0)
+        LineageKey(absorb(
+            CHILD,
+            0,
+            &[mother.0, father.0, conception_number, multiple_index],
+        ))
     }
 
     /// An immigrant (provisional until the ADR on immigration): the year of arrival and
     /// the number within that year, from 0.
     pub fn immigrant(founder_tag: &DataId, arrival_year: u64, number_in_year: u64) -> LineageKey {
-        let _ = (founder_tag, arrival_year, number_in_year, IMMIGRANT);
-        LineageKey(0)
+        LineageKey(absorb(
+            IMMIGRANT,
+            0,
+            &[str_key(founder_tag), arrival_year, number_in_year],
+        ))
     }
 
     pub const fn get(self) -> u64 {
@@ -75,7 +80,9 @@ impl LineageIndex {
     /// Adds the key of a new founder, immigrant or conception. A key that is already
     /// there breaks the invariant `lineage_key_unique`.
     pub fn insert(&mut self, key: LineageKey) {
-        self.keys.insert(key);
+        if !self.keys.insert(key) {
+            panic!("invariant lineage_key_unique: {:016x}", key.get());
+        }
     }
 
     pub fn contains(&self, key: LineageKey) -> bool {

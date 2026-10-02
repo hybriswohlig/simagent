@@ -15,8 +15,17 @@ fn rank(
     occasion: u64,
     candidate: LineageKey,
 ) -> u64 {
-    let _ = (seed, tag, seeker, occasion, candidate, absorb(RANK, 0, &[]));
-    0
+    absorb(
+        RANK,
+        0,
+        &[
+            seed.get(),
+            tag.get(),
+            seeker.get(),
+            occasion,
+            candidate.get(),
+        ],
+    )
 }
 
 impl Draws {
@@ -32,8 +41,13 @@ impl Draws {
         candidates: impl IntoIterator<Item = LineageKey>,
         k: usize,
     ) -> Vec<LineageKey> {
-        let _ = rank(self.seed, tag, seeker, occasion, seeker);
-        candidates.into_iter().take(k).collect()
+        let mut ranked: Vec<(u64, LineageKey)> = candidates
+            .into_iter()
+            .map(|candidate| (rank(self.seed, tag, seeker, occasion, candidate), candidate))
+            .collect();
+        ranked.sort_unstable();
+        ranked.truncate(k);
+        ranked.into_iter().map(|(_, candidate)| candidate).collect()
     }
 }
 
