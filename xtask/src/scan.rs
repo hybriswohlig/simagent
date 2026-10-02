@@ -1188,6 +1188,14 @@ mod tests {
                 "use rand_chacha::rand_core::{Rng, SeedableRng};"
             )]
         );
+        // A comment or a string inside the module names nothing.
+        let quiet = format!(
+            "{RNG_MOD}// rand_chacha keeps no state here\nconst NOTE: &[u8] = b\"\";\nfn note() {{ let _ = \"rand_chacha\"; }}\n"
+        );
+        assert_eq!(
+            generator_findings(&workspace(&quiet, &[])),
+            Vec::<String>::new()
+        );
         // An attribute makes it another statement: the rule errs on the safe side.
         let attribute = RNG_MOD.replace(
             "use rand_chacha::ChaCha8Rng;",
@@ -1303,28 +1311,102 @@ mod tests {
         assert_eq!(tag_findings(&named, TAGS_GOLDEN), Vec::<String>::new());
     }
 
-    /// Review finding, both rounds: a pinned tag exists only through `from_pinned_list`
-    /// (the compiler sees to that: the field is private to `tag.rs`), so every tag beside
-    /// the list is one more use of that name, whatever the spelling.
+    /// Review finding, three rounds: a pinned tag exists only through `from_pinned_list`
+    /// (the compiler sees to that: the field is private to `tag.rs`), and that name
+    /// stands only in constants of one fixed form whose names and values are the tag
+    /// lines of the golden. A tag beside the list, in any spelling, breaks one of the two.
     #[test]
     fn a_tag_outside_the_pinned_list_is_a_finding() {
-        let count = |n: usize| {
+        let unpinned = |line: &str| {
             format!(
-                "{TAGS_FILE}: names from_pinned_list {n} times, tests/golden/rng_tags.txt pins 2 tags (ADR-0001 section 5)"
+                "{TAGS_FILE}: {line} is not pinned in tests/golden/rng_tags.txt (ADR-0001 section 5)"
             )
         };
-        for extra in [
-            "pub const C: PurposeTag = PurposeTag::from_pinned_list(3);",
-            "pub(crate) const C: PurposeTag = {\n    PurposeTag::from_pinned_list (\n        3,\n    )\n};",
-            "use super::PurposeTag as T;\npub const C: T = T::from_pinned_list(3);",
-            "const BUILD: fn(u64) -> PurposeTag = PurposeTag::from_pinned_list;",
-        ] {
-            let core = core_with_tags(&format!("{TAGS}{extra}\n"));
-            assert_eq!(tag_findings(&core, TAGS_GOLDEN), vec![count(3)], "{extra}");
-        }
-        // A tag that left the file but not the golden.
+        let other_form = |line: usize, statement: &str| {
+            format!(
+                "{TAGS_FILE}:{line}: from_pinned_list outside a constant of the form pub const NAME: PurposeTag = PurposeTag::from_pinned_list(N); (ADR-0001 section 5): {statement}"
+            )
+        };
+        let extra = core_with_tags(&format!(
+            "{TAGS}pub const C: PurposeTag = PurposeTag::from_pinned_list(3);\n"
+        ));
+        assert_eq!(tag_findings(&extra, TAGS_GOLDEN), vec![unpinned("tag 3 C")]);
+        // Other spellings of one more tag.
+        let braces = core_with_tags(&format!(
+            "{TAGS}pub(crate) const C: PurposeTag = {{\n    PurposeTag::from_pinned_list(3)\n}};\n"
+        ));
+        assert_eq!(
+            tag_findings(&braces, TAGS_GOLDEN),
+            vec![other_form(5, "PurposeTag::from_pinned_list(3) };")]
+        );
+        let alias = core_with_tags(&format!(
+            "{TAGS}use super::PurposeTag as T;\npub const C: T = T::from_pinned_list(3);\n"
+        ));
+        assert_eq!(
+            tag_findings(&alias, TAGS_GOLDEN),
+            vec![other_form(5, "pub const C: T = T::from_pinned_list(3);")]
+        );
+        let pointer = core_with_tags(&format!(
+            "{TAGS}const BUILD: fn(u64) -> PurposeTag = PurposeTag::from_pinned_list;\n"
+        ));
+        assert_eq!(
+            tag_findings(&pointer, TAGS_GOLDEN),
+            vec![other_form(
+                4,
+                "const BUILD: fn(u64) -> PurposeTag = PurposeTag::from_pinned_list;"
+            )]
+        );
+        // A wrapper keeps the number of uses but can build any tag.
+        let wrapper = core_with_tags(
+            "pub const fn make(value: u64) -> PurposeTag {\n    PurposeTag::from_pinned_list(value)\n}\npub const A: PurposeTag = make(1);\npub const B: PurposeTag = PurposeTag::from_pinned_list(2);\n",
+        );
+        assert_eq!(
+            tag_findings(&wrapper, TAGS_GOLDEN),
+            vec![
+                other_form(2, "PurposeTag::from_pinned_list(value) }"),
+                format!(
+                    "tests/golden/rng_tags.txt: tag 1 A has no constant in {TAGS_FILE} (ADR-0001 section 5)"
+                ),
+            ]
+        );
+        // A value that is not a plain number.
+        let computed = core_with_tags(&format!(
+            "{TAGS}pub const C: PurposeTag = PurposeTag::from_pinned_list(1 + 2);\n"
+        ));
+        assert_eq!(
+            tag_findings(&computed, TAGS_GOLDEN),
+            vec![other_form(
+                4,
+                "pub const C: PurposeTag = PurposeTag::from_pinned_list(1 + 2);"
+            )]
+        );
+        // A renumbered or renamed constant, and one that left the file but not the golden.
+        let renumbered =
+            core_with_tags(&TAGS.replace("from_pinned_list(2)", "from_pinned_list(7)"));
+        assert_eq!(
+            tag_findings(&renumbered, TAGS_GOLDEN),
+            vec![
+                unpinned("tag 7 B"),
+                format!(
+                    "tests/golden/rng_tags.txt: tag 2 B has no constant in {TAGS_FILE} (ADR-0001 section 5)"
+                ),
+            ]
+        );
         let fewer = core_with_tags("pub const A: PurposeTag = PurposeTag::from_pinned_list(1);\n");
-        assert_eq!(tag_findings(&fewer, TAGS_GOLDEN), vec![count(1)]);
+        assert_eq!(
+            tag_findings(&fewer, TAGS_GOLDEN),
+            vec![format!(
+                "tests/golden/rng_tags.txt: tag 2 B has no constant in {TAGS_FILE} (ADR-0001 section 5)"
+            )]
+        );
+        // The same tag twice.
+        let twice = core_with_tags(&format!(
+            "{TAGS}pub const B2: PurposeTag = PurposeTag::from_pinned_list(2);\n"
+        ));
+        assert_eq!(
+            tag_findings(&twice, TAGS_GOLDEN),
+            vec![unpinned("tag 2 B2")]
+        );
 
         let elsewhere = |path: &str| {
             format!(
@@ -1345,7 +1427,7 @@ mod tests {
             tag_findings(&core_of(workspace(&in_mod, &[])), TAGS_GOLDEN),
             vec![elsewhere(GENERATOR_FILE)]
         );
-        // The file of the type defines the function once and does not call it.
+        // The file of the type defines the function once and does not use it.
         let mut in_type = core_of(workspace(RNG_MOD, &[]));
         for (path, source) in &mut in_type {
             if path == TAG_TYPE_FILE {
