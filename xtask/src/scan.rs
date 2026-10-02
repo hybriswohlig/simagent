@@ -345,7 +345,6 @@ pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
 /// `RNG_DIR` (ADR-0001 section 2).
 pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
     let mut findings = Vec::new();
-    let _ = RNG_DIR;
     for finding in identifiers_outside(core_sources, &["xxhash_rust"], &[HASH_FILE]) {
         findings.push(format!(
             "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
@@ -356,6 +355,33 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
         findings.push(format!(
             "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
         ));
+    }
+    findings.extend(generator_findings(core_sources));
+    findings
+}
+
+/// One message per file outside `RNG_DIR` that names the generator crate. A scan that
+/// cannot be trusted is reported too: no file at all, or no file under `RNG_DIR`
+/// (the module moved or was renamed).
+fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    if core_sources.is_empty() {
+        return vec!["no file scanned (generator crate, ADR-0001 section 2)".to_string()];
+    }
+    let mut findings = Vec::new();
+    if !core_sources
+        .iter()
+        .any(|(path, _)| path.starts_with(RNG_DIR))
+    {
+        findings.push(format!(
+            "{RNG_DIR}: no file of the allowed directory is among the scanned files"
+        ));
+    }
+    for (path, source) in core_sources {
+        if !path.starts_with(RNG_DIR) && mentions_identifier(source, "rand_chacha") {
+            findings.push(format!(
+                "{path}: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
+            ));
+        }
     }
     findings
 }

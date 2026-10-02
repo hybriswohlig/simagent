@@ -61,20 +61,32 @@ pub(crate) const DRAW: u64 = u64::from_le_bytes(*b"sa.draw1");
 
 /// The SplitMix64 finaliser. `wrapping_mul`: overflow checks are on in release too.
 pub(crate) const fn mix64(z: u64) -> u64 {
-    z
+    let z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    let z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
 }
 
 /// Mixes `words` into one value, per domain and lane.
 pub(crate) fn absorb(domain: u64, lane: u64, words: &[u64]) -> u64 {
-    let _ = (domain, lane, words, mix64(0));
-    0
+    let start = mix64(domain ^ lane.wrapping_add(1).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    words.iter().fold(start, |h, word| mix64(h ^ word))
 }
 
 /// The ChaCha key of a draw: four lanes of `absorb(DRAW, lane, [seed, tag, subject,
 /// occasion, detail])`, little-endian, 32 bytes.
 pub(crate) fn chacha_key(seed: WorldSeed, key: DrawKey) -> [u8; 32] {
-    let _ = (seed, key, absorb(DRAW, 0, &[]));
-    [0; 32]
+    let words = [
+        seed.get(),
+        key.tag.get(),
+        key.subject.get(),
+        key.occasion,
+        key.detail,
+    ];
+    let mut bytes = [0; 32];
+    for (lane, chunk) in (0_u64..).zip(bytes.chunks_exact_mut(8)) {
+        chunk.copy_from_slice(&absorb(DRAW, lane, &words).to_le_bytes());
+    }
+    bytes
 }
 
 /// The first `N` words of the ChaCha8 key stream of `key`: stream 0, counter 0, so word
@@ -87,8 +99,7 @@ fn key_words<const N: usize>(key: [u8; 32]) -> [u64; N] {
         );
     }
     let mut generator = ChaCha8Rng::from_seed(key);
-    let _ = generator.next_u64();
-    [0; N]
+    core::array::from_fn(|_| generator.next_u64())
 }
 
 /// The draws of one world. All methods take `&self`: there is no state to advance.
@@ -147,11 +158,14 @@ mod tests {
         }
     }
 
-    fn hex(bytes: &[u8]) -> std::string::String {
-        bytes
-            .iter()
-            .map(|byte| std::format!("{byte:02x}"))
-            .collect()
+    /// 64 lowercase hex digits as 32 bytes.
+    fn unhex(digits: &[u8; 64]) -> [u8; 32] {
+        let nibble = |digit: u8| match digit {
+            b'0'..=b'9' => digit - b'0',
+            b'a'..=b'f' => digit - b'a' + 10,
+            other => panic!("not a lowercase hex digit: {other}"),
+        };
+        core::array::from_fn(|k| (nibble(digits[2 * k]) << 4) | nibble(digits[2 * k + 1]))
     }
 
     /// ADR-0001: the zero key gives the first block of test vector TC1 (256-bit key, 8
@@ -213,11 +227,11 @@ mod tests {
     fn draw_key_known_answers() {
         let base = str_key(&DataId::new("test:base").expect("valid"));
         assert_eq!(base, 0x8b10_65ec_5b12_5f0b);
-        let cases: [(u64, DrawKey, &str, [u64; 8]); 6] = [
+        let cases: [(u64, DrawKey, &[u8; 64], [u64; 8]); 6] = [
             (
                 0,
                 key(1, 0, 0, 0),
-                "9d993f1db982e868666f7147c2937fee885f05dd66d375225bd754184c7f587c",
+                b"9d993f1db982e868666f7147c2937fee885f05dd66d375225bd754184c7f587c",
                 [
                     0x7729_5f8d_fed2_f427,
                     0xc9dc_21ed_1c5d_0056,
@@ -232,7 +246,7 @@ mod tests {
             (
                 1,
                 key(1, 0, 0, 0),
-                "10269ee609d4431fbd78e5b0cf9ca0fed1624e843fe009df445193885ab3ce62",
+                b"10269ee609d4431fbd78e5b0cf9ca0fed1624e843fe009df445193885ab3ce62",
                 [
                     0x97fb_9d9a_6737_d38a,
                     0x6d3e_4d87_a534_8032,
@@ -247,7 +261,7 @@ mod tests {
             (
                 0,
                 key(2, 0, 0, 0),
-                "fc3b46af4ea46640d605f0f1772b073516e171e309d7c6f50f5397d6d9481dd8",
+                b"fc3b46af4ea46640d605f0f1772b073516e171e309d7c6f50f5397d6d9481dd8",
                 [
                     0x75a5_a2f3_f8ae_86c1,
                     0x2fb7_2810_fb7b_d626,
@@ -262,7 +276,7 @@ mod tests {
             (
                 0x0123_4567_89ab_cdef,
                 key(3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9),
-                "3e6462278e219359501a21b05c6b5333fc4ba6335031d664d972137331d1e4ed",
+                b"3e6462278e219359501a21b05c6b5333fc4ba6335031d664d972137331d1e4ed",
                 [
                     0x421b_c5a5_8249_0b42,
                     0x1eb3_f317_e709_0652,
@@ -277,7 +291,7 @@ mod tests {
             (
                 u64::MAX,
                 key(0xffff_ffff, u64::MAX, u64::MAX, u64::MAX),
-                "7eba6c984ad75faa6be45a3f2c04b9c80f5ce23b8308d8cb8389db973e3eca47",
+                b"7eba6c984ad75faa6be45a3f2c04b9c80f5ce23b8308d8cb8389db973e3eca47",
                 [
                     0xdf52_bd7f_b7aa_1ca1,
                     0x7040_9af7_b8cf_4bc8,
@@ -292,7 +306,7 @@ mod tests {
             (
                 0x5eed,
                 key(4, 0, base, 0),
-                "928df35109f9a4f5d20fa14f05eda3f04bb2a414a9238e43c147be49e704f952",
+                b"928df35109f9a4f5d20fa14f05eda3f04bb2a414a9238e43c147be49e704f952",
                 [
                     0x5c6e_4534_67bf_d0f8,
                     0xe826_84dd_c43b_90d7,
@@ -307,7 +321,7 @@ mod tests {
         ];
         for (seed, draw, chacha, words) in cases {
             let seed = WorldSeed::new(seed);
-            assert_eq!(hex(&chacha_key(seed, draw)), chacha, "{draw:?}");
+            assert_eq!(chacha_key(seed, draw), unhex(chacha), "{draw:?}");
             assert_eq!(Draws::new(seed).words::<8>(draw), words, "{draw:?}");
             assert_eq!(Draws::new(seed).words::<2>(draw), words[..2], "{draw:?}");
         }
