@@ -299,6 +299,11 @@ fn hash_entries(hashes_json: &str) -> Result<Map<String, Value>, String> {
     let Ok(Value::Object(entries)) = serde_json::from_str::<Value>(hashes_json) else {
         return Err("body.hashes.json is not a JSON object".to_string());
     };
+    if let Some(key) = contract::duplicate_keys(hashes_json).first() {
+        return Err(format!(
+            "body.hashes.json: the key {key} occurs twice in one object"
+        ));
+    }
     for (version, hash) in &entries {
         let lower_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
         let valid = contract::is_version(version)
