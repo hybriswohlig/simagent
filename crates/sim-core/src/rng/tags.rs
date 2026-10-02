@@ -6,23 +6,23 @@ use super::PurposeTag;
 
 /// Start strand of a meiosis. subject: genome key of the child; occasion: parent side
 /// (0 mother, 1 father); detail: section of the genome map.
-pub const MEIOSIS_START_STRAND: PurposeTag = PurposeTag(1);
+pub const MEIOSIS_START_STRAND: PurposeTag = PurposeTag::from_pinned_list(1);
 
 /// Which sex chromosome the father passes on. subject: genome key of the child;
 /// occasion: 1 (father); detail: 0.
-pub const SEX_CHROMOSOME: PurposeTag = PurposeTag(2);
+pub const SEX_CHROMOSOME: PurposeTag = PurposeTag::from_pinned_list(2);
 
 /// Whether a couple conceives this month. subject: lineage key of the mother;
 /// occasion: absolute month index; detail: lineage key of the father.
-pub const CONCEPTION_ATTEMPT: PurposeTag = PurposeTag(3);
+pub const CONCEPTION_ATTEMPT: PurposeTag = PurposeTag::from_pinned_list(3);
 
 /// The budget of a cause of death. subject: lineage key; occasion: `str_key` of the
 /// cause; detail: 0.
-pub const DEATH_BUDGET: PurposeTag = PurposeTag(4);
+pub const DEATH_BUDGET: PurposeTag = PurposeTag::from_pinned_list(4);
 
 /// Rank of a candidate in a pairing round. subject: lineage key of the seeker;
 /// occasion: absolute index of the 28-day round; detail: the candidate.
-pub const PAIRING_RANK: PurposeTag = PurposeTag(5);
+pub const PAIRING_RANK: PurposeTag = PurposeTag::from_pinned_list(5);
 
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[

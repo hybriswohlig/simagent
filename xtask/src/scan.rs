@@ -383,6 +383,14 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
 /// generator that `key_words` builds and drops.
 pub const GENERATOR_FILE: &str = "crates/sim-core/src/rng/mod.rs";
 
+/// The only statements of the random module that name the generator crate, with single
+/// spaces. Everything else (a re-export, an alias of the crate, a path in an expression)
+/// is a finding, whatever its spelling.
+pub const GENERATOR_IMPORTS: [&str; 2] = [
+    "use rand_chacha::ChaCha8Rng;",
+    "use rand_chacha::rand_core::{Rng, SeedableRng};",
+];
+
 /// The file of the purpose tags and the golden that pins them (ADR-0001 section 5).
 pub const TAGS_FILE: &str = "crates/sim-core/src/rng/tags.rs";
 
@@ -411,20 +419,18 @@ pub fn generator_findings(workspace_sources: &[(String, String)]) -> Vec<String>
             ));
         }
     }
-    // Inside, the crate and the generator type stay private: no re-export, no alias,
-    // no field, no second generator.
+    // Inside, the crate is named in its two imports only and the type exactly twice: no
+    // re-export, no alias, no field, no second generator.
     let mut uses = 0;
     let mut using_files = Vec::new();
     for (path, source) in workspace_sources {
         if !path.starts_with(RNG_DIR) {
             continue;
         }
-        let code = mask_non_code(source);
-        for (index, line) in code.lines().enumerate() {
-            if line.trim_start().starts_with("pub") && mentions_identifier(line, "rand_chacha") {
+        for (line, statement) in statements_naming(source, "rand_chacha") {
+            if path != GENERATOR_FILE || !GENERATOR_IMPORTS.contains(&statement.as_str()) {
                 findings.push(format!(
-                    "{path}:{}: re-exports the generator crate (ADR-0001 section 2)",
-                    index + 1
+                    "{path}:{line}: names rand_chacha outside the two imports of {GENERATOR_FILE} (ADR-0001 section 2): {statement}"
                 ));
             }
         }
@@ -452,27 +458,39 @@ pub fn generator_findings(workspace_sources: &[(String, String)]) -> Vec<String>
     findings
 }
 
-/// How often the code builds a value of the tuple struct `name`: the identifier followed
-/// by an opening parenthesis, white space in between allowed. The definition
-/// `struct name(..)` counts as well.
-fn count_constructions(source: &str, name: &str) -> usize {
+/// The statements of the code that name `ident`: the line of the name, counted from
+/// one, and the text of the statement with single spaces. A statement runs from the end
+/// of the previous statement or block (`;`, `{` or `}`) to the next `;`.
+fn statements_naming(source: &str, ident: &str) -> Vec<(usize, String)> {
     let code = mask_non_code(source);
-    code.match_indices(name)
-        .filter(|(start, _)| {
-            let before = code[..*start].chars().next_back();
-            let after = &code[start + name.len()..];
-            !before.is_some_and(is_identifier_char) && after.trim_start().starts_with('(')
-        })
-        .count()
+    let mut found = Vec::new();
+    for (start, _) in code.match_indices(ident) {
+        let before = &code[..start];
+        let after = &code[start + ident.len()..];
+        if before.chars().next_back().is_some_and(is_identifier_char)
+            || after.chars().next().is_some_and(is_identifier_char)
+        {
+            continue;
+        }
+        let from = before.rfind([';', '{', '}']).map_or(0, |index| index + 1);
+        let to = after
+            .find(';')
+            .map_or(code.len(), |index| start + ident.len() + index + 1);
+        let statement: Vec<&str> = code[from..to].split_whitespace().collect();
+        let line = before.matches('\n').count() + 1;
+        found.push((line, statement.join(" ")));
+    }
+    found
 }
 
 /// The tag rules over all files of `sim-core/src` (ADR-0001 section 5); `golden` is the
-/// text of `tests/golden/rng_tags.txt`.
+/// text of `tests/golden/rng_tags.txt`. The compiler does the first half: the field of
+/// the tag type is private to `TAG_TYPE_FILE`, so the rest of the core gets a pinned tag
+/// only from the function `from_pinned_list`. The gate counts the uses of that name.
 pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<String> {
-    const TYPE: &str = "PurposeTag";
-    let _ = TAG_TYPE_FILE;
+    const BUILD: &str = "from_pinned_list";
     let mut findings = Vec::new();
-    for file in [TAGS_FILE, GENERATOR_FILE] {
+    for file in [TAGS_FILE, TAG_TYPE_FILE] {
         if !core_sources.iter().any(|(path, _)| path == file) {
             findings.push(format!(
                 "{file}: file of the tag rules is not among the scanned files"
@@ -484,24 +502,19 @@ pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<Stri
         .filter(|line| line.starts_with("tag "))
         .count();
     for (path, source) in core_sources {
-        let built = count_constructions(source, TYPE);
+        // Every use of the name outside its definition: a call, a path, a reference.
+        let uses = count_uses(source, BUILD);
         if path == TAGS_FILE {
-            // Every tag in any spelling is one construction, and `ALL` equals the golden
-            // (test `tags_unique_and_pinned`): a tag beside the list breaks the count.
-            if built != pinned {
+            // One use per tag, and `ALL` equals the golden (test `tags_unique_and_pinned`):
+            // a tag beside the list breaks the count.
+            if uses != pinned {
                 findings.push(format!(
-                    "{path}: builds {built} tags, tests/golden/rng_tags.txt pins {pinned} (ADR-0001 section 5)"
+                    "{path}: names {BUILD} {uses} times, tests/golden/rng_tags.txt pins {pinned} tags (ADR-0001 section 5)"
                 ));
             }
-        } else if path == GENERATOR_FILE {
-            if built > 2 {
-                findings.push(format!(
-                    "{path}: {TYPE}( occurs {built} times, at most 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
-                ));
-            }
-        } else if built > 0 {
+        } else if uses > 0 {
             findings.push(format!(
-                "{path}: builds a {TYPE}; tags are the constants of {TAGS_FILE} (ADR-0001 section 5)"
+                "{path}: names {BUILD}; only {TAGS_FILE} builds pinned tags (ADR-0001 section 5)"
             ));
         }
     }
