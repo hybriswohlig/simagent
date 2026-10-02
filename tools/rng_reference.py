@@ -310,6 +310,16 @@ if __name__ == "__main__":
         print("  words", " ".join(f"{word:016x}" for word in words(key)))
     print("absorb_founder", f"{absorb(FOUNDER, 0, [str_key('test:fork_no_density'), 0]):016x}")
     print("absorb_rank", f"{absorb(RANK, 0, [7, 5, 11, 13, 17]):016x}")
+    # The methods of Draws: the distribution applied to the first words of the key.
+    for seed, tag, subject, occasion, detail in DRAW_KEYS:
+        w = words(chacha_key(seed, tag, subject, occasion, detail))
+        print(
+            f"chain tag={tag:x} uniform_below(7)={uniform_below(w[0], 7)}"
+            f" uniform_below(2^40+3)={uniform_below(w[0], 2**40 + 3)}"
+            f" bernoulli(0.3)={int(bernoulli(w[0], 0.3))} bernoulli(0.6)={int(bernoulli(w[0], 0.6))}"
+            f" poisson(5)={poisson_reference(w[0], 5.0)}"
+            f" unit={unit(w[0])!r}"
+        )
     write_distributions()
     if kat_reference.MISMATCHES:
         sys.exit(f"{len(kat_reference.MISMATCHES)} file(s) differ from the reference")

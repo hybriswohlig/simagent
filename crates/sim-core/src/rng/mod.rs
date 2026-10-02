@@ -9,6 +9,7 @@ pub use tag::PurposeTag;
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
+use sim_math::dist;
 
 /// The seed of a world (scenario field `world_seed`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,6 +137,36 @@ impl Draws {
     /// ```
     pub fn words<const N: usize>(&self, key: DrawKey) -> [u64; N] {
         key_words(chacha_key(self.seed, key))
+    }
+
+    /// Uniform on `0..n`, `n >= 1` (one word).
+    pub fn uniform_below(&self, key: DrawKey, n: u64) -> u64 {
+        let _ = (key, n, dist::unit(0));
+        0
+    }
+
+    /// True with probability `p` in [0, 1] (one word).
+    pub fn bernoulli(&self, key: DrawKey, p: f64) -> bool {
+        let _ = (key, p);
+        false
+    }
+
+    /// Exponential with `rate > 0` (one word).
+    pub fn exponential(&self, key: DrawKey, rate: f64) -> f64 {
+        let _ = (key, rate);
+        0.0
+    }
+
+    /// Normal with `mean` and `sd >= 0` (two words).
+    pub fn normal(&self, key: DrawKey, mean: f64, sd: f64) -> f64 {
+        let _ = (key, mean, sd);
+        0.0
+    }
+
+    /// Poisson with `lambda` in [0, 30] (one word).
+    pub fn poisson(&self, key: DrawKey, lambda: f64) -> u32 {
+        let _ = (key, lambda);
+        0
     }
 }
 
@@ -343,6 +374,59 @@ mod tests {
             typed, 5,
             "every case with a pinned tag also runs through DrawKey"
         );
+    }
+
+    /// ADR-0001 sections 1 and 3: a draw is its distribution applied to the first words
+    /// of the key. The exact values are from tools/rng_reference.py (lines `chain`).
+    /// exponential and normal are compared with the functions of sim-math on the words;
+    /// their known answers are there.
+    #[test]
+    fn draws_apply_the_distributions_to_the_first_words() {
+        let base = str_key(&DataId::new("test:base").expect("valid"));
+        // seed, [tag, subject, occasion, detail], uniform_below 7 and 2^40 + 3,
+        // bernoulli 0.3 and 0.6, poisson 5
+        let cases = [
+            (0, [1, 0, 0, 0], 3, 511_795_236_352, false, true, 5),
+            (1, [1, 0, 0, 0], 4, 652_761_471_592, false, true, 5),
+            (0, [2, 0, 0, 0], 3, 505_290_093_562, false, true, 5),
+            (
+                0x0123_4567_89ab_cdef,
+                [3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9],
+                1,
+                283_933_779_331,
+                true,
+                true,
+                3,
+            ),
+            (0x5eed, [4, 0, base, 0], 2, 396_987_020_392, false, true, 4),
+        ];
+        for (seed, [tag, subject, occasion, detail], seven, large, rare, likely, count) in cases {
+            let draws = Draws::new(WorldSeed::new(seed));
+            let key = DrawKey {
+                tag: pinned(tag).expect("a pinned tag"),
+                subject: SubjectKey(subject),
+                occasion,
+                detail,
+            };
+            assert_eq!(draws.uniform_below(key, 7), seven, "{key:?}");
+            assert_eq!(draws.uniform_below(key, (1 << 40) + 3), large, "{key:?}");
+            assert_eq!(draws.bernoulli(key, 0.3), rare, "{key:?}");
+            assert_eq!(draws.bernoulli(key, 0.6), likely, "{key:?}");
+            assert_eq!(draws.poisson(key, 5.0), count, "{key:?}");
+            let [w0, w1] = draws.words::<2>(key);
+            assert_eq!(
+                draws.exponential(key, 2.0).to_bits(),
+                dist::exponential(w0, 2.0).to_bits(),
+                "{key:?}"
+            );
+            assert_eq!(
+                draws.normal(key, 1.0, 3.0).to_bits(),
+                dist::normal(w0, w1, 1.0, 3.0).to_bits(),
+                "{key:?}"
+            );
+            assert!(draws.exponential(key, 2.0) > 0.0, "{key:?}");
+            assert_ne!(draws.normal(key, 1.0, 3.0), 1.0, "{key:?}");
+        }
     }
 
     /// ADR-0001 `words_smoke`: 2^18 draw keys with a fixed tag, the world as subject and
