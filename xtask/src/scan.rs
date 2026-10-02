@@ -212,7 +212,7 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
 pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
 /// The only files of `sim-core/src` that may name a text type, with the reason.
-pub const TEXT_FILES: [(&str, &str); 2] = [
+pub const TEXT_FILES: [(&str, &str); 3] = [
     (
         "crates/sim-core/src/data_id.rs",
         "DataId and Code, the checked newtypes",
@@ -220,6 +220,10 @@ pub const TEXT_FILES: [(&str, &str); 2] = [
     (
         "crates/sim-core/src/hex_u64.rs",
         "hex form of u64 in human-readable formats",
+    ),
+    (
+        "crates/sim-core/src/rng/tags.rs",
+        "names of the purpose tags for the pinned list (ADR-0001 section 5)",
     ),
 ];
 
