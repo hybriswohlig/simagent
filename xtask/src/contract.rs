@@ -220,9 +220,14 @@ fn grid_findings(name: &str, table: &Value, findings: &mut Vec<String>) {
     }
     let rows = axis(table, "eumelanin", &what, findings);
     let columns = axis(table, "pheomelanin", &what, findings);
-    let srgb: Vec<&Vec<Value>> = table["srgb"]
+    // An entry that is no row stays in the count, as a row without colours.
+    let srgb: Vec<&[Value]> = table["srgb"]
         .as_array()
-        .map(|rows| rows.iter().filter_map(Value::as_array).collect())
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row.as_array().map_or(&[][..], Vec::as_slice))
+                .collect()
+        })
         .unwrap_or_default();
     if srgb.len() != rows || srgb.iter().any(|row| row.len() != columns) {
         findings.push(format!(
@@ -324,7 +329,44 @@ fn melanin_findings(tables: &Value, findings: &mut Vec<String>) {
 /// Keys that occur twice in one object of a JSON text. The parser keeps the last value
 /// without a word, while a reader of the file may see the first.
 fn duplicate_keys(json: &str) -> Vec<String> {
-    json.lines().skip(usize::MAX).map(str::to_string).collect()
+    let mut found = Vec::new();
+    // The keys seen so far per open object; `None` stands for an open array.
+    let mut open: Vec<Option<Vec<String>>> = Vec::new();
+    let mut rest = json;
+    while let Some(first) = rest.chars().next() {
+        let mut length = first.len_utf8();
+        match first {
+            '{' => open.push(Some(Vec::new())),
+            '[' => open.push(None),
+            '}' | ']' => {
+                open.pop();
+            }
+            '"' => {
+                // The string ends at the first quote that no backslash escapes.
+                let mut escaped = false;
+                let end = rest[1..].char_indices().find(|(_, c)| {
+                    let closes = *c == '"' && !escaped;
+                    escaped = *c == '\\' && !escaped;
+                    closes
+                });
+                length = end.map_or(rest.len(), |(index, _)| index + 2);
+                let is_key = rest[length..].trim_start().starts_with(':');
+                if is_key
+                    && let Some(Some(keys)) = open.last_mut()
+                    && let Ok(key) = serde_json::from_str::<String>(&rest[..length])
+                {
+                    if keys.contains(&key) {
+                        found.push(key);
+                    } else {
+                        keys.push(key);
+                    }
+                }
+            }
+            _ => {}
+        }
+        rest = &rest[length..];
+    }
+    found
 }
 
 /// ADR-0005 section 7, check 1: the findings of the schema of `contracts/body.json`.
