@@ -226,6 +226,10 @@ pub const TEXT_FILES: [(&str, &str); 2] = [
 /// The only file of `sim-core/src` that may name the hash crate (ADR-0003 S5).
 pub const HASH_FILE: &str = "crates/sim-core/src/hash.rs";
 
+/// The files of the random module, the only place that may name the generator crate
+/// (ADR-0001 section 2): no generator, and so no generator state, anywhere else.
+pub const RNG_DIR: &str = "crates/sim-core/src/rng/";
+
 /// The files of the time module, the only place that may build a scheduler context.
 pub const TIME_DIR: &str = "crates/sim-core/src/time/";
 
@@ -333,9 +337,11 @@ pub fn core_time_findings(core_sources: &[(String, String)]) -> Vec<String> {
 
 /// The identifier rules of the core over all files of `sim-core/src` (path relative to
 /// the workspace root, source): the hash crate only in `HASH_FILE` (ADR-0003 S5), text
-/// types only in `TEXT_FILES` (ADR-0004 section 7).
+/// types only in `TEXT_FILES` (ADR-0004 section 7), the generator crate only under
+/// `RNG_DIR` (ADR-0001 section 2).
 pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String> {
     let mut findings = Vec::new();
+    let _ = RNG_DIR;
     for finding in identifiers_outside(core_sources, &["xxhash_rust"], &[HASH_FILE]) {
         findings.push(format!(
             "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
@@ -793,6 +799,10 @@ mod tests {
                 "pub fn parse(text: &str) {}",
             ),
             ("crates/sim-core/src/lib.rs", "pub mod log;"),
+            (
+                "crates/sim-core/src/rng/mod.rs",
+                "use rand_chacha::ChaCha8Rng;",
+            ),
         ];
         all.extend_from_slice(extra);
         files(&all)
@@ -829,13 +839,37 @@ mod tests {
                     .to_string()
             ]
         );
+        // ADR-0001 canary: an import of the generator crate outside the random module.
+        let generator = core(&[
+            (
+                "crates/sim-core/src/world/mod.rs",
+                "use rand_chacha::ChaCha8Rng;\npub struct World { generator: ChaCha8Rng }",
+            ),
+            (
+                "crates/sim-core/src/rng/tags.rs",
+                "// rand_chacha in a comment\nuse rand_chacha::rand_core::Rng;",
+            ),
+            (
+                "crates/sim-core/src/rng_helper.rs",
+                "fn g() { let _ = rand_chacha::ChaCha8Rng::from_seed([0; 32]); }",
+            ),
+        ]);
+        assert_eq!(
+            core_identifier_findings(&generator),
+            vec![
+                "crates/sim-core/src/world/mod.rs: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
+                    .to_string(),
+                "crates/sim-core/src/rng_helper.rs: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
+                    .to_string(),
+            ]
+        );
     }
 
     #[test]
     fn a_core_without_its_allowed_files_is_a_finding() {
         let found =
             core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
-        assert_eq!(found.len(), 3, "{found:?}");
+        assert_eq!(found.len(), 4, "{found:?}");
         for path in [
             HASH_FILE,
             "crates/sim-core/src/data_id.rs",
@@ -848,7 +882,14 @@ mod tests {
                 "{path}: {found:?}"
             );
         }
-        assert_eq!(core_identifier_findings(&[]).len(), 2, "one per rule");
+        // A random module that moved or was renamed leaves the rule blind.
+        assert!(
+            found.contains(&format!(
+                "{RNG_DIR}: no file of the allowed directory is among the scanned files"
+            )),
+            "{found:?}"
+        );
+        assert_eq!(core_identifier_findings(&[]).len(), 3, "one per rule");
     }
 
     #[test]
