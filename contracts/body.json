@@ -1,0 +1,431 @@
+{
+  "format_version": 1,
+  "contract_version": "0.1.0",
+  "retired_keys": [],
+  "parameters": [
+    {
+      "key": "body_form_age",
+      "group": "age",
+      "unit": "years",
+      "range": [0, 130],
+      "default": 25,
+      "stability": "stable",
+      "description": "Body maturity as the age of the reference shape: head to body ratio, limbs, childlike roundness."
+    },
+    {
+      "key": "face_form_age",
+      "group": "age",
+      "unit": "years",
+      "range": [0, 130],
+      "default": 25,
+      "stability": "stable",
+      "description": "Face maturity as the age of the reference shape: jaw, nose, midface (matures until about 20)."
+    },
+    {
+      "key": "height_cm",
+      "group": "skeleton",
+      "unit": "cm",
+      "range": [40, 230],
+      "default": 170,
+      "stability": "stable",
+      "description": "Standing height, including the loss of height in old age."
+    },
+    {
+      "key": "leg_ratio_z",
+      "group": "skeleton",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Leg length relative to trunk length."
+    },
+    {
+      "key": "head_size_z",
+      "group": "skeleton",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Head size."
+    },
+    {
+      "key": "body_fat_z",
+      "group": "build",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Fat mass from genes, nutrition and lifestyle."
+    },
+    {
+      "key": "fat_distribution_z",
+      "group": "build",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Fat distribution: negative is peripheral (hips, thighs), positive is central (belly)."
+    },
+    {
+      "key": "muscle_z",
+      "group": "build",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Muscle mass."
+    },
+    {
+      "key": "shoulder_width_z",
+      "group": "shape",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Shoulder width."
+    },
+    {
+      "key": "chest_depth_z",
+      "group": "shape",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Depth of the rib cage."
+    },
+    {
+      "key": "hip_width_z",
+      "group": "shape",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "stable",
+      "description": "Pelvis width."
+    },
+    {
+      "key": "face_axis_01",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 01 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_02",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 02 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_03",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 03 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_04",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 04 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_05",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 05 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_06",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 06 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_07",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 07 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_08",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 08 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_09",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 09 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_10",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 10 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_11",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 11 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "face_axis_12",
+      "group": "face",
+      "unit": "z",
+      "range": [-4, 4],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Abstract axis 12 of the face space; its meaning is defined only in the render mapping."
+    },
+    {
+      "key": "skin_eumelanin",
+      "group": "pigment",
+      "unit": "melanin",
+      "range": [0, 1],
+      "default": 0.3,
+      "stability": "stable",
+      "description": "Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV."
+    },
+    {
+      "key": "skin_pheomelanin",
+      "group": "pigment",
+      "unit": "melanin",
+      "range": [0, 1],
+      "default": 0.2,
+      "stability": "stable",
+      "description": "Skin pheomelanin, red to yellow."
+    },
+    {
+      "key": "hair_eumelanin",
+      "group": "pigment",
+      "unit": "melanin",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "stable",
+      "description": "Hair eumelanin, including darkening with age, without greying."
+    },
+    {
+      "key": "hair_pheomelanin",
+      "group": "pigment",
+      "unit": "melanin",
+      "range": [0, 1],
+      "default": 0.2,
+      "stability": "stable",
+      "description": "Hair pheomelanin, red to yellow."
+    },
+    {
+      "key": "iris_melanin",
+      "group": "pigment",
+      "unit": "melanin",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "stable",
+      "description": "Iris melanin from blue over green and hazel to dark brown, including darkening."
+    },
+    {
+      "key": "hair_curl",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.2,
+      "stability": "stable",
+      "description": "Hair curl: 0 is straight, 1 is very curly."
+    },
+    {
+      "key": "hair_density",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 1,
+      "stability": "stable",
+      "description": "Scalp hair density; falls with diffuse thinning."
+    },
+    {
+      "key": "balding_stage",
+      "group": "hair",
+      "unit": "stage",
+      "range": [0, 7],
+      "default": 0,
+      "stability": "stable",
+      "description": "Balding stage: receding temples and crown; 7 is bald except for the rim of hair."
+    },
+    {
+      "key": "hair_grey_fraction",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Share of grey hair (scalp, brows, beard)."
+    },
+    {
+      "key": "eyebrow_density",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "stable",
+      "description": "Eyebrow density."
+    },
+    {
+      "key": "beard_density",
+      "group": "beard",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Beard density; grows over years."
+    },
+    {
+      "key": "beard_coverage",
+      "group": "beard",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Beard coverage: 0 is upper lip and chin, 1 includes cheeks and neck."
+    },
+    {
+      "key": "body_hair",
+      "group": "beard",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Body hair."
+    },
+    {
+      "key": "freckle_density",
+      "group": "freckles",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Freckles."
+    },
+    {
+      "key": "face_wrinkles",
+      "group": "ageing",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Wrinkles in the face."
+    },
+    {
+      "key": "skin_laxity",
+      "group": "ageing",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Sagging of cheeks, eyelids and neck."
+    },
+    {
+      "key": "age_spots",
+      "group": "ageing",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "stable",
+      "description": "Age spots."
+    },
+    {
+      "key": "posture_stoop",
+      "group": "ageing",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0,
+      "stability": "provisional",
+      "description": "Stooped resting posture (animation only from phase 7 on)."
+    },
+    {
+      "key": "androgenic_development",
+      "group": "puberty",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "provisional",
+      "description": "Weight of the androgenic branch of the reference shape: shoulder girdle, muscle relief, jaw, brow ridge, larynx."
+    },
+    {
+      "key": "estrogenic_development",
+      "group": "puberty",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "provisional",
+      "description": "Weight of the estrogenic branch: pelvis, hip and thigh fat, softer features."
+    },
+    {
+      "key": "breast_development",
+      "group": "puberty",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.25,
+      "stability": "provisional",
+      "description": "Breast development."
+    }
+  ],
+  "melanin_to_srgb": {
+    "skin": {
+      "eumelanin": [0, 0.25, 0.5, 0.75, 1],
+      "pheomelanin": [0, 0.25, 0.5, 0.75, 1],
+      "srgb": [
+        ["#f7e6dc", "#f6e2d3", "#f5decb", "#f5d9c1", "#f4d5b7"],
+        ["#b09588", "#af9282", "#af8f7c", "#ae8c76", "#ad8970"],
+        ["#7c5e52", "#7c5c4e", "#7b5b4a", "#7b5947", "#7a5742"],
+        ["#563a2f", "#56392d", "#56382a", "#553628", "#553525"],
+        ["#3b2219", "#3b2118", "#3b2016", "#3a2014", "#3a1f13"]
+      ]
+    },
+    "hair": {
+      "eumelanin": [0, 0.25, 0.5, 0.75, 1],
+      "pheomelanin": [0, 0.25, 0.5, 0.75, 1],
+      "srgb": [
+        ["#e9dfc6", "#e6cfb1", "#e3bd97", "#dfa977", "#dc9043"],
+        ["#8c8171", "#8a7764", "#886c55", "#866041", "#845123"],
+        ["#52483e", "#504236", "#4f3b2d", "#4e3421", "#4d2b0f"],
+        ["#2d261f", "#2d221b", "#2c1e15", "#2b1a0e", "#2a1405"],
+        ["#17110d", "#170f0a", "#160d07", "#160a04", "#150701"]
+      ]
+    },
+    "iris": {
+      "melanin": [0, 0.25, 0.5, 0.75, 1],
+      "srgb": ["#8fb3d9", "#7c9f8c", "#9a7a3c", "#6b4423", "#2e1a0e"]
+    }
+  }
+}
