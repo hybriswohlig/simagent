@@ -106,13 +106,15 @@ mod tests {
     const EXPONENTIAL: &str = include_str!("../../../tests/golden/kat/exponential.csv");
     const NORMAL: &str = include_str!("../../../tests/golden/kat/normal.csv");
 
-    /// Data rows of a KAT file (without the comment line and the header).
-    fn rows(csv: &str) -> Vec<Vec<&str>> {
-        csv.lines()
-            .filter(|line| !line.starts_with('#') && !line.is_empty())
-            .skip(1)
-            .map(|line| line.split(',').collect())
-            .collect()
+    const UNARY: &str = "input_bits,expected_bits,class,reference_bits";
+
+    /// Data rows of a KAT file: after the comment lines comes the header, then the rows.
+    fn rows<'a>(csv: &'a str, header: &str) -> Vec<Vec<&'a str>> {
+        let mut lines = csv
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty());
+        assert_eq!(lines.next(), Some(header), "the header line");
+        lines.map(|line| line.split(',').collect()).collect()
     }
 
     fn word(hex: &str) -> u64 {
@@ -139,7 +141,7 @@ mod tests {
 
     #[test]
     fn unit_kat() {
-        let rows = rows(UNIT);
+        let rows = rows(UNIT, UNARY);
         assert_eq!(rows.len(), 10);
         for row in rows {
             assert_bits("unit", row[0], row[1], unit(word(row[0])));
@@ -148,7 +150,7 @@ mod tests {
 
     #[test]
     fn unit_open0_kat() {
-        let rows = rows(UNIT_OPEN0);
+        let rows = rows(UNIT_OPEN0, UNARY);
         assert_eq!(rows.len(), 10);
         for row in rows {
             assert_bits("unit_open0", row[0], row[1], unit_open0(word(row[0])));
@@ -157,7 +159,7 @@ mod tests {
 
     #[test]
     fn uniform_below_kat() {
-        let rows = rows(UNIFORM_BELOW);
+        let rows = rows(UNIFORM_BELOW, "w,n,expected,class");
         assert_eq!(rows.len(), 40);
         for row in rows {
             let (w, n) = (word(row[0]), word(row[1]));
@@ -171,7 +173,7 @@ mod tests {
 
     #[test]
     fn bernoulli_kat() {
-        let rows = rows(BERNOULLI);
+        let rows = rows(BERNOULLI, "w,p_bits,expected,class");
         assert_eq!(rows.len(), 50);
         for row in rows {
             let (w, p) = (word(row[0]), float(row[1]));
@@ -181,7 +183,7 @@ mod tests {
 
     #[test]
     fn poisson_kat() {
-        let rows = rows(POISSON);
+        let rows = rows(POISSON, "w,lambda_bits,expected,class");
         assert_eq!(rows.len(), 32);
         for row in rows {
             let (w, lambda) = (word(row[0]), float(row[1]));
@@ -192,7 +194,7 @@ mod tests {
 
     #[test]
     fn exponential_kat() {
-        let rows = rows(EXPONENTIAL);
+        let rows = rows(EXPONENTIAL, UNARY);
         assert_eq!(rows.len(), 40);
         for row in rows {
             let inputs: Vec<&str> = row[0].split(';').collect();
@@ -203,7 +205,7 @@ mod tests {
 
     #[test]
     fn normal_kat() {
-        let rows = rows(NORMAL);
+        let rows = rows(NORMAL, UNARY);
         assert_eq!(rows.len(), 21);
         for row in rows {
             let inputs: Vec<&str> = row[0].split(';').collect();

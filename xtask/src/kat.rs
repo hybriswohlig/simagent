@@ -37,7 +37,7 @@ const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 
 /// Every known-answer file with its header line. Readers skip that line, so a file
 /// without it would lose its first row unnoticed.
-pub const HEADERS: [(&str, &str); 8] = [
+pub const HEADERS: [(&str, &str); 15] = [
     ("ceil", HEADER),
     ("exp", HEADER),
     ("ln", HEADER),
@@ -46,6 +46,14 @@ pub const HEADERS: [(&str, &str); 8] = [
     ("to_i64_exact", "input_bits,expected,class"),
     ("i64_to_f64_exact", "input,expected_bits,class"),
     ("xxh3_64", "input_hex,xxh3_64"),
+    // The distributions (ADR-0001 section 3); several inputs are joined by `;`.
+    ("unit", HEADER),
+    ("unit_open0", HEADER),
+    ("exponential", HEADER),
+    ("normal", HEADER),
+    ("uniform_below", "w,n,expected,class"),
+    ("bernoulli", "w,p_bits,expected,class"),
+    ("poisson", "w,lambda_bits,expected,class"),
 ];
 
 /// The place of an f64 on a monotone integer scale: negative values mirrored, both
