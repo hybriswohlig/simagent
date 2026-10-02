@@ -173,7 +173,11 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                     ));
                     continue;
                 };
-                let difference = (f64::from_bits(recorded) - f64::from_bits(correct)).abs();
+                let (value, target) = (f64::from_bits(recorded), f64::from_bits(correct));
+                // The composite functions have finite results only; with an infinite
+                // reference the relative bound would be infinite too.
+                let finite = value.is_finite() && target.is_finite();
+                let difference = (value - target).abs();
                 match bound {
                     Bound::Ulp(most) => {
                         let distance = ulp_distance(recorded, correct);
@@ -184,8 +188,7 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::Relative => {
-                        // A difference of NaN (two infinities) is not within the bound.
-                        let within = difference <= TWO_POW_MINUS_48 * f64::from_bits(correct).abs();
+                        let within = finite && difference <= TWO_POW_MINUS_48 * target.abs();
                         if !within {
                             findings.push(format!(
                                 "{name}.csv:{line}: {expected} is further than 2^-48 relative from the reference {reference}"
@@ -193,7 +196,7 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::AbsoluteStandardNormal => {
-                        let within = difference <= TWO_POW_MINUS_45;
+                        let within = finite && difference <= TWO_POW_MINUS_45;
                         if !inputs.ends_with(STANDARD_NORMAL) {
                             findings.push(format!(
                                 "{name}.csv:{line}: a class P row of normal needs mean 0 and sd 1, other parameters have no bound"
