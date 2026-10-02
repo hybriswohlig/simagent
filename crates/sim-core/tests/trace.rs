@@ -12,6 +12,7 @@ use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Founder, Input, Start};
 use sim_core::log::log_hash;
+use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
 use sim_core::trace::{TraceEntry, TraceFilter};
 use sim_core::version::EMPTY_DATA_HASH;
@@ -31,6 +32,9 @@ fn new_world(filter: TraceFilter) -> World {
         .submit(Input::Start(Start {
             world_seed: 1,
             founder_tag: DataId::new("test:trace").expect("valid"),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+            },
             founders: [-943_488_000, -794_880_000, -1]
                 .into_iter()
                 .map(|secs| Founder {

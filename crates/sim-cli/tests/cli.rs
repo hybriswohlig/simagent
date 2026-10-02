@@ -19,7 +19,7 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
@@ -27,6 +27,7 @@ const TEN_YEARS: &str = r#"{
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
+    "world_params": {"hereditary_diseases": false},
     "founders": [
       {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
       {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
@@ -131,9 +132,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":2,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":3,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -158,7 +159,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":2,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"27b8622f0102e6fd"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":3,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"7cf79b938a467246"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -169,7 +170,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540102c2a9cec6d380a0832d0201ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e000001000203fe87ff1d01000401010100ff0109746573743a74696e7901010000010100fdcd8b88f0c598dc27"
+        "53494d4147454e540103c2a9cec6d380a0832d0301ff010100fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e000001000203fe87ff1d01000401010100ff0109746573743a74696e790001010000010100c6e499d2b8f2e6fb7c"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -218,41 +219,63 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}]}}"#;
-    let commands = vec![(serde_json::from_str::<Input>(start).expect("parses"), start)];
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false},"founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}]}}"#;
+    let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
+    let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
+    let commands = vec![(parse(start), start), (parse(block), block)];
     for (input, _) in &commands {
         match input {
-            Input::Start(_) => {}
+            Input::Start(_) | Input::ForkOverride(_) => {}
         }
     }
     commands
 }
 
 /// ADR-0004 test 2: the same inputs directly through `submit` and as JSON through the
-/// command schema of the CLI give the same hashes.
+/// command schema of the CLI give the same hashes. The start goes in as a scenario, the
+/// override block as the override of a fork at year 5.
 #[test]
 fn command_schema_matches_direct_call() {
     let end = SimTime::from_secs(10 * Y - 1);
+    let fork_stamp = SimTime::from_secs(5 * Y - 1);
+    let commands = commands();
+    let [(start, start_line), (block, block_line)] = &commands[..] else {
+        panic!("a start and an override block");
+    };
     let mut world = World::new();
     let mut hasher = LogHasher::new();
     let mut out = YearOut::default();
-    for (input, _) in commands() {
-        world.submit(input).expect("accepted");
-        hasher.update(&world.take_log());
-    }
+    world.submit(start.clone()).expect("accepted");
+    world.advance_until(&mut out, fork_stamp, &mut |_| false);
+    hasher.update(&world.take_log());
+    world.submit(block.clone()).expect("accepted");
     world.advance_until(&mut out, end, &mut |_| false);
     hasher.update(&world.take_log());
 
     let dir = scratch("command_schema");
-    let lines: Vec<&str> = commands().iter().map(|(_, line)| *line).collect();
-    let start: Value = serde_json::from_str(lines[0]).expect("json");
+    let start_json: Value = serde_json::from_str(start_line).expect("json");
     let scenario = serde_json::json!({
         "format_version": 1,
-        "start": start["start"],
+        "start": start_json["start"],
         "until": end.as_secs(),
     });
     let run = run_scenario(&dir, &scenario.to_string(), "run");
-    let manifest: Value = serde_json::from_str(&text(&run.join("manifest.json"))).expect("json");
+    let block_json: Value = serde_json::from_str(block_line).expect("json");
+    let override_file = dir.join("override.json");
+    let changes = block_json["fork_override"]["changes"].to_string();
+    fs::write(&override_file, changes).expect("writes");
+    let fork = dir.join("fork");
+    must(&[
+        "fork",
+        arg(&run),
+        "--from-year",
+        "5",
+        "--override",
+        arg(&override_file),
+        "--out",
+        arg(&fork),
+    ]);
+    let manifest: Value = serde_json::from_str(&text(&fork.join("manifest.json"))).expect("json");
     assert_eq!(
         manifest["year_hashes"],
         serde_json::to_value(&out.year_hashes).expect("json")
@@ -262,8 +285,21 @@ fn command_schema_matches_direct_call() {
         Value::from(format!("{:016x}", hasher.digest()))
     );
     assert_eq!(
-        fs::read(run.join("state.save")).expect("reads"),
+        fs::read(fork.join("state.save")).expect("reads"),
         world.save(&out.year_hashes).expect("saves")
+    );
+    // The input log of the fork holds both inputs as the command schema writes them.
+    let log = text(&fork.join("input.ndjson"));
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(
+        lines[1..3],
+        [
+            format!(r#"{{"t":-1,"seq":1,"input":{start_line}}}"#),
+            format!(
+                r#"{{"t":{},"seq":2,"input":{block_line}}}"#,
+                fork_stamp.as_secs()
+            ),
+        ]
     );
 }
 
@@ -320,12 +356,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":2"#, r#""core_version":3"#);
+    replace_in(&log, r#""core_version":3"#, r#""core_version":4"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 3, this is 2"
+        "error: replay_foreign_core_version: the input log is of core version 4, this is 3"
     );
-    replace_in(&log, r#""core_version":3"#, r#""core_version":2"#);
+    replace_in(&log, r#""core_version":4"#, r#""core_version":3"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -656,6 +692,13 @@ fn replay_rejects_a_changed_input_log() {
         "error: replay_input_rejected: input 1 at t 5 was rejected: clock_not_at_start"
     );
     assert!(!dir.join("attempt3").exists(), "nothing was written");
+    // A log that does not begin with a start, and a start that is not the first input.
+    let block = r#"{"t":-1,"seq":1,"input":{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}}"#;
+    assert_eq!(
+        replay(&with_lines(&[block, lines[1]])),
+        "error: input_log_invalid: the first input is not a start"
+    );
+    assert!(!dir.join("attempt4").exists(), "nothing was written");
     // The record as a list of values instead of an object with field names.
     let positional = r#"[-1,1,{"start":["00000000000000ff","test:tiny",[[-1]]]}]"#;
     assert_eq!(
@@ -782,8 +825,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 2, "the core version in the header of the save");
-    bytes[9] = 3;
+    assert_eq!(bytes[9], 3, "the core version in the header of the save");
+    bytes[9] = 4;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

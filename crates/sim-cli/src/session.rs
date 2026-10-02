@@ -24,10 +24,17 @@ pub enum Compare {
     Nothing,
     /// A replay: every year and at the end the log hash of the original (ADR-0003 1.4).
     Replay(Manifest),
-    /// A fork: the years before the fork point with the parent (ADR-0001 section 6).
+    /// A fork: the years and the events before the fork point with the parent (ADR-0001
+    /// section 6).
     Fork {
         parent: Manifest,
         info: ForkInfo,
+        /// The start of year X: entries before it are those of the parent.
+        fork_point: SimTime,
+        /// The log hash over the entries of the parent before the fork point.
+        events_before: u64,
+        /// The fork overrides nothing and drops no input: it is its parent throughout.
+        is_its_parent: bool,
     },
 }
 
@@ -35,6 +42,8 @@ pub struct Session {
     world: World,
     out: YearOut,
     hasher: LogHasher,
+    /// Over the entries before the fork point of a fork.
+    before_fork: LogHasher,
     dir: PathBuf,
     /// Census rows already in `census.csv`.
     census_written: usize,
@@ -48,11 +57,22 @@ pub struct Session {
 /// The hash of the log in `events.ndjson` of a run directory (ADR-0004 section 8).
 pub fn log_hash_of_events(dir: &Path) -> Result<u64, CliError> {
     let mut hasher = LogHasher::new();
-    read_events_into(dir, &mut hasher)?;
+    read_events_into(dir, &mut hasher, None)?;
     Ok(hasher.digest())
 }
 
-fn read_events_into(dir: &Path, hasher: &mut LogHasher) -> Result<(), CliError> {
+/// The same hash over the entries with a time before `before` only.
+pub fn log_hash_of_events_before(dir: &Path, before: SimTime) -> Result<u64, CliError> {
+    let mut hasher = LogHasher::new();
+    read_events_into(dir, &mut hasher, Some(before))?;
+    Ok(hasher.digest())
+}
+
+fn read_events_into(
+    dir: &Path,
+    hasher: &mut LogHasher,
+    before: Option<SimTime>,
+) -> Result<(), CliError> {
     let events = files::read_text(&dir.join(files::EVENTS))?;
     for (line, number) in events.lines().zip(1..) {
         let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
@@ -61,7 +81,9 @@ fn read_events_into(dir: &Path, hasher: &mut LogHasher) -> Result<(), CliError> 
                 format!("line {number} is not a log entry"),
             )
         })?;
-        hasher.update(core::slice::from_ref(&entry));
+        if before.is_none_or(|before| entry.t < before) {
+            hasher.update(core::slice::from_ref(&entry));
+        }
     }
     Ok(())
 }
@@ -150,6 +172,7 @@ impl Session {
             world,
             out: YearOut::default(),
             hasher: LogHasher::new(),
+            before_fork: LogHasher::new(),
             dir: dir.to_path_buf(),
             census_written: 0,
             years_compared: 0,
@@ -190,7 +213,7 @@ impl Session {
             ));
         }
         let mut hasher = LogHasher::new();
-        read_events_into(dir, &mut hasher)?;
+        read_events_into(dir, &mut hasher, None)?;
         if hasher.digest() != manifest.log_hash {
             return Err(inconsistent(
                 "events.ndjson does not match the log hash of the manifest".to_owned(),
@@ -213,6 +236,7 @@ impl Session {
                 year_hashes,
             },
             hasher,
+            before_fork: LogHasher::new(),
             dir: dir.to_path_buf(),
             census_written: 0,
             years_compared: 0,
@@ -274,6 +298,21 @@ impl Session {
         self.check_stamp(t, seq)
     }
 
+    /// Applies an input of this run's own (the override of a fork) and records it.
+    pub fn submit(
+        &mut self,
+        input: Input,
+        rejected: impl FnOnce(String) -> CliError,
+    ) -> Result<(), CliError> {
+        self.world
+            .submit(input)
+            .map_err(|error| rejected(files::code(&error.code)))?;
+        if let Some(applied) = self.world.input_log().last() {
+            files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
+        }
+        self.drain()
+    }
+
     /// Runs to `limit` and writes what the run produced. A replay with a manifest goes
     /// year by year and ends at the first year whose hash differs (ADR-0003 1.4); so
     /// does a fork up to its fork point.
@@ -298,6 +337,11 @@ impl Session {
     fn drain(&mut self) -> Result<(), CliError> {
         let log = self.world.take_log();
         self.hasher.update(&log);
+        if let Compare::Fork { fork_point, .. } = &self.compare {
+            for entry in log.iter().filter(|entry| entry.t < *fork_point) {
+                self.before_fork.update(core::slice::from_ref(entry));
+            }
+        }
         let lines: String = log.iter().map(|entry| files::json(entry) + "\n").collect();
         files::append(&self.path(files::EVENTS), &lines)?;
         let rows: String = self.out.census[self.census_written..]
@@ -362,13 +406,25 @@ impl Session {
                 return Err(CliError::new("replay_diverged", detail));
             }
         }
-        // As long as the world accepts no input after the start and there is no
-        // override, every fork is its parent, so its whole log must be the parent's. That
-        // ties the hash by which the fork names its parent to the history the fork has
-        // run. `fork_run` in lib.rs says where this changes.
-        if let Compare::Fork { parent, .. } = &self.compare {
-            let (got, want) = (self.hasher.digest(), parent.log_hash);
+        // The fork names its parent by the hash of the parent's log. What ties that hash
+        // to the history the fork has run: up to the fork point both logs are the same,
+        // and a fork that overrides nothing and drops no input is its parent throughout.
+        if let Compare::Fork {
+            parent,
+            events_before,
+            is_its_parent,
+            ..
+        } = &self.compare
+        {
+            let (got, want) = (self.before_fork.digest(), *events_before);
             if got != want {
+                let detail = format!(
+                    "the events before the fork point have log hash {got:016x}, those of the parent {want:016x}"
+                );
+                return Err(CliError::new("fork_parent_inconsistent", detail));
+            }
+            let (got, want) = (self.hasher.digest(), parent.log_hash);
+            if *is_its_parent && got != want {
                 let detail = format!(
                     "a fork without override is its parent: its log hash is {got:016x}, the manifest of the parent says {want:016x}"
                 );

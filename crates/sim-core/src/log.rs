@@ -13,6 +13,7 @@ use crate::data_id::Code;
 use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, SimId};
 use crate::lineage::LineageKey;
+use crate::params::ParamChange;
 use crate::time::SimTime;
 
 /// Companion data of every planned event: the entry that planned it and when.
@@ -107,6 +108,9 @@ pub enum LogPayload {
     /// Dummy event of step 2: a yearly birthday.
     #[serde(rename = "core:birthday")]
     Birthday { age_years: u32 },
+    /// An override block changed a world parameter (ADR-0001 section 6).
+    #[serde(rename = "core:param_changed")]
+    ParamChanged { change: ParamChange },
 }
 
 /// One entry of the domain log.

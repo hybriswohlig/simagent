@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Value, json};
+use sim_core::log::{LogEntry, log_hash};
 
 const Y: i64 = 31_449_600;
 
@@ -17,6 +18,7 @@ const TEN_YEARS: &str = r#"{
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
+    "world_params": {"hereditary_diseases": false},
     "founders": [
       {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
       {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
@@ -69,6 +71,7 @@ fn simagent(args: &[&str]) -> Result<(), String> {
 
 /// The ten-year run in `dir/parent`.
 fn parent(dir: &Path) -> PathBuf {
+    fs::create_dir_all(dir).expect("creates the directory");
     let file = dir.join("scenario.json");
     fs::write(&file, TEN_YEARS).expect("writes the scenario");
     let out = dir.join("parent");
@@ -88,6 +91,62 @@ fn fork(parent: &Path, from_year: &str, out: &Path) -> Result<(), String> {
         "--out",
         arg(out),
     ])
+}
+
+/// The override block "hereditary diseases on" as a file in `dir`.
+fn override_file(dir: &Path, block: &str) -> PathBuf {
+    let file = dir.join("override.json");
+    fs::write(&file, block).expect("writes the override");
+    file
+}
+
+const SWITCH_ON: &str = r#"[{"core:hereditary_diseases":true}]"#;
+
+fn fork_with(parent: &Path, from_year: &str, block: &Path, out: &Path) -> Result<(), String> {
+    simagent(&[
+        "fork",
+        arg(parent),
+        "--from-year",
+        from_year,
+        "--override",
+        arg(block),
+        "--out",
+        arg(out),
+    ])
+}
+
+fn hashes(manifest: &Value) -> Vec<String> {
+    (0..manifest["year_hashes"].as_array().expect("array").len())
+        .map(|year| year_hash(manifest, year))
+        .collect()
+}
+
+/// Changes the age in the birthday entry of sim 1 in `year` of the run in `dir` and
+/// writes the log hash of the changed events into its manifest: a run directory that
+/// is consistent in itself and is not the run of its input log.
+fn tamper_with_the_birthday_of(dir: &Path, year: i64) {
+    let events = dir.join("events.ndjson");
+    let at = format!(r#""t":{},"subjects":[{{"sim":1}}]"#, year * Y);
+    let lines: Vec<String> = text(&events)
+        .lines()
+        .map(|line| {
+            if line.contains(&at) {
+                assert!(line.contains(r#""age_years":"#), "{line}");
+                line.replace(r#""age_years":"#, r#""age_years":1"#)
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    let before = manifest(dir)["log_hash"].as_str().expect("hex").to_owned();
+    let entries: Vec<LogEntry> = lines
+        .iter()
+        .map(|line| serde_json::from_str(line).expect("an entry"))
+        .collect();
+    let after = format!("{:016x}", log_hash(&entries));
+    assert_ne!(before, after, "an entry of year {year} changed");
+    fs::write(&events, lines.join("\n") + "\n").expect("writes");
+    replace_in(&dir.join("manifest.json"), &before, &after);
 }
 
 fn manifest(run: &Path) -> Value {
@@ -283,15 +342,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":2"#, r#""core_version":3"#);
+    replace_in(&log, r#""core_version":3"#, r#""core_version":4"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 3, this is 2"
+            "error: fork_foreign_core_version: the parent run is of core version 4, this is 3"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":3"#, r#""core_version":2"#);
+    replace_in(&log, r#""core_version":4"#, r#""core_version":3"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -320,6 +379,18 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     .expect("copies");
     assert_eq!(fork(&parent, "5", &dir.join("restored_again")), Ok(()));
 
+    // The input log of the parent begins with its start.
+    let log_text = text(&log);
+    let mut lines: Vec<&str> = log_text.lines().collect();
+    let block = r#"{"t":-1,"seq":1,"input":{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}}"#;
+    lines.insert(1, block);
+    fs::write(&log, lines.join("\n") + "\n").expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: input_log_invalid: the first input is not a start".to_owned())
+    );
+    fs::write(&log, &log_text).expect("writes");
+
     // The manifest must belong to the input log and have a hash for every year before
     // the fork point.
     let manifest_path = parent.join("manifest.json");
@@ -344,7 +415,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":2"#, r#""core_version":3"#),
+        (r#""core_version":3"#, r#""core_version":4"#),
         (
             r#""data_hash":"2d06800538d394c2""#,
             r#""data_hash":"2d06800538d394c3""#,
@@ -562,14 +633,315 @@ fn a_fork_has_the_log_of_its_parent() {
     fs::copy(other.join("events.ndjson"), parent.join("events.ndjson")).expect("copies");
     replace_in(&parent.join("manifest.json"), &own_hash, &other_hash);
     let out = dir.join("out");
-    assert_eq!(
-        fork(&parent, "5", &out),
-        Err(format!(
-            "error: fork_parent_inconsistent: a fork without override is its parent: its log hash is {own_hash}, the manifest of the parent says {other_hash}"
-        ))
+    // The other run differs from its first entries on: the events before the fork point
+    // are not those of the fork.
+    let refused = fork(&parent, "5", &out).expect_err("another run");
+    assert!(
+        refused.starts_with(
+            "error: fork_parent_inconsistent: the events before the fork point have log hash "
+        ),
+        "{refused}"
     );
     assert!(
         !out.join("manifest.json").exists(),
         "no manifest names a wrong parent"
     );
+}
+
+/// ADR-0001 `fork_point_hash_equals_parent` through the CLI: with the override "hereditary
+/// diseases on" at year 5 the year hashes 0 to 4 are those of the parent and those from
+/// year 5 on are not. The override is an input of the fork, stamped `T_5 - 1 s`; its entry
+/// stands at T_5 before every event of that second.
+#[test]
+fn fork_point_hash_equals_parent() {
+    let dir = scratch("override");
+    let parent = parent(&dir);
+    let block = override_file(&dir, SWITCH_ON);
+    let out = dir.join("fork");
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+    let (ours, theirs) = (manifest(&out), manifest(&parent));
+    let (ours_hashes, theirs_hashes) = (hashes(&ours), hashes(&theirs));
+    assert_eq!(ours_hashes.len(), 10);
+    assert_eq!(ours_hashes[..5], theirs_hashes[..5]);
+    for year in 5..10 {
+        assert_ne!(ours_hashes[year], theirs_hashes[year], "year {year}");
+    }
+    assert_ne!(ours["log_hash"], theirs["log_hash"]);
+    assert_eq!(
+        ours["fork"],
+        json!({
+            "parent_log_hash": theirs["log_hash"],
+            "from_year": 5,
+            "dropped_inputs": 0
+        })
+    );
+
+    let fork_stamp = 5 * Y - 1;
+    let inputs = text(&out.join("input.ndjson"));
+    let input_lines: Vec<&str> = inputs.lines().collect();
+    assert_eq!(input_lines.len(), 4, "header, start, override, end");
+    assert_eq!(
+        input_lines[2],
+        format!(
+            r#"{{"t":{fork_stamp},"seq":2,"input":{{"fork_override":{{"changes":[{{"core:hereditary_diseases":true}}]}}}}}}"#
+        )
+    );
+    let (ours_events, theirs_events) = (
+        text(&out.join("events.ndjson")),
+        text(&parent.join("events.ndjson")),
+    );
+    let ours_lines: Vec<&str> = ours_events.lines().collect();
+    let theirs_lines: Vec<&str> = theirs_events.lines().collect();
+    assert_eq!(ours_lines.len(), theirs_lines.len() + 1);
+    // Four entries of the start and three birthdays in each of the years 0 to 4.
+    assert_eq!(ours_lines[..19], theirs_lines[..19]);
+    assert_eq!(
+        ours_lines[19],
+        format!(
+            r#"{{"id":20,"t":{},"subjects":[],"causes":[{{"input":2}}],"payload":{{"core:param_changed":{{"change":{{"core:hereditary_diseases":true}}}}}}}}"#,
+            5 * Y
+        )
+    );
+    // The birthday of sim 1 in that second follows with the next EventId.
+    assert!(
+        ours_lines[20].starts_with(&format!(
+            r#"{{"id":21,"t":{},"subjects":[{{"sim":1}}]"#,
+            5 * Y
+        )),
+        "{}",
+        ours_lines[20]
+    );
+    // The census reads only times: it is that of the parent.
+    assert_eq!(
+        text(&out.join("census.csv")),
+        text(&parent.join("census.csv"))
+    );
+
+    // The fork replays from its own input log, with its own manifest.
+    let replayed = dir.join("replayed");
+    assert_eq!(
+        simagent(&[
+            "run",
+            "--replay",
+            arg(&out.join("input.ndjson")),
+            "--manifest",
+            arg(&out.join("manifest.json")),
+            "--out",
+            arg(&replayed),
+        ]),
+        Ok(())
+    );
+    for file in ["events.ndjson", "census.csv", "state.save", "input.ndjson"] {
+        assert!(
+            fs::read(out.join(file)).expect("reads")
+                == fs::read(replayed.join(file)).expect("reads"),
+            "{file} differs in the replay of the fork"
+        );
+    }
+    assert_eq!(hashes(&manifest(&replayed)), ours_hashes);
+    assert_eq!(manifest(&replayed)["log_hash"], ours["log_hash"]);
+
+    // The stamp of the second input is compared as that of the first: a log that names
+    // another sequence number or another second for the override does not replay.
+    let replay_of = |name: &str, from: &str, to: &str| {
+        let log = dir.join(format!("{name}.ndjson"));
+        assert!(inputs.contains(from), "{from}");
+        fs::write(&log, inputs.replacen(from, to, 1)).expect("writes");
+        simagent(&["run", "--replay", arg(&log), "--out", arg(&dir.join(name))])
+    };
+    let record = format!(r#"{{"t":{fork_stamp},"seq":2,"#);
+    assert_eq!(
+        replay_of(
+            "other_seq",
+            &record,
+            &format!(r#"{{"t":{fork_stamp},"seq":3,"#)
+        ),
+        Err(format!(
+            "error: replay_stamp_mismatch: the log has t {fork_stamp} seq 3, the replay stamped t {fork_stamp} seq 2"
+        ))
+    );
+    // A record stamped before the clock of the replay is applied where the clock stands.
+    assert_eq!(
+        replay_of("other_second", &record, r#"{"t":-2,"seq":2,"#),
+        Err(
+            "error: replay_stamp_mismatch: the log has t -2 seq 2, the replay stamped t -1 seq 2"
+                .to_owned()
+        )
+    );
+}
+
+/// ADR-0001 section 6: an empty override block gives no input, so the fork is the parent.
+#[test]
+fn an_empty_override_is_no_override() {
+    let dir = scratch("empty_override");
+    let parent = parent(&dir);
+    let block = override_file(&dir, "[]");
+    let out = dir.join("fork");
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+    for file in FILES {
+        assert!(
+            fs::read(parent.join(file)).expect("reads") == fs::read(out.join(file)).expect("reads"),
+            "{file} differs in the fork with an empty override"
+        );
+    }
+    assert_eq!(manifest(&out)["log_hash"], manifest(&parent)["log_hash"]);
+}
+
+/// The override file is a list of world parameters with their new values and nothing
+/// else; what the core rejects ends the fork with the code of the core.
+#[test]
+fn a_bad_override_ends_the_fork() {
+    let dir = scratch("bad_override");
+    let parent = parent(&dir);
+    let out = dir.join("fork");
+    let invalid = "error: override_invalid: not a list of world parameters with their new values";
+    for block in [
+        "",
+        "{}",
+        r#"{"core:hereditary_diseases":true}"#,
+        r#"[{"core:unknown":true}]"#,
+        r#"[{"core:hereditary_diseases":1}]"#,
+        r#"[{"core:hereditary_diseases":true,"core:hereditary_diseases":false}]"#,
+        r#"{"changes":[{"core:hereditary_diseases":true}]}"#,
+    ] {
+        let file = override_file(&dir, block);
+        assert_eq!(
+            fork_with(&parent, "5", &file, &out),
+            Err(invalid.to_owned()),
+            "{block}"
+        );
+        assert!(!out.exists(), "a refused override writes nothing: {block}");
+    }
+    let missing = dir.join("no_such_file.json");
+    let refused = fork_with(&parent, "5", &missing, &out).expect_err("no file");
+    assert!(refused.starts_with("error: io: "), "{refused}");
+    assert!(!out.exists());
+    // A parameter twice: the rule of the core, asked before anything is written.
+    let twice = override_file(
+        &dir,
+        r#"[{"core:hereditary_diseases":true},{"core:hereditary_diseases":false}]"#,
+    );
+    assert_eq!(
+        fork_with(&parent, "5", &twice, &out),
+        Err("error: override_rejected: override_param_twice".to_owned())
+    );
+    assert!(!out.exists(), "a rejected override writes nothing");
+    // With the block corrected the same output directory serves.
+    let block = override_file(&dir, SWITCH_ON);
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+}
+
+/// A fork can be forked again. From a later year its override is taken over and the
+/// new fork is its parent; from an earlier year the override is dropped (it would act
+/// from the new fork point on), the manifest counts it, and the run is the original.
+#[test]
+fn a_fork_of_a_fork_keeps_or_drops_the_override() {
+    let dir = scratch("fork_of_fork");
+    let original = parent(&dir);
+    let block = override_file(&dir, SWITCH_ON);
+    let first = dir.join("first");
+    assert_eq!(fork_with(&original, "5", &block, &first), Ok(()));
+
+    let later = dir.join("later");
+    assert_eq!(fork(&first, "7", &later), Ok(()));
+    for file in FILES {
+        assert!(
+            fs::read(first.join(file)).expect("reads")
+                == fs::read(later.join(file)).expect("reads"),
+            "{file} differs in the fork from year 7"
+        );
+    }
+    assert_eq!(manifest(&later)["fork"]["dropped_inputs"], json!(0));
+    assert_eq!(
+        manifest(&later)["fork"]["parent_log_hash"],
+        manifest(&first)["log_hash"]
+    );
+
+    // The override is stamped T_5 - 1 s: a fork from year 5 or earlier drops it.
+    for from_year in ["5", "3"] {
+        let earlier = dir.join(format!("earlier{from_year}"));
+        assert_eq!(fork(&first, from_year, &earlier), Ok(()));
+        let block = &manifest(&earlier)["fork"];
+        assert_eq!(block["dropped_inputs"], json!(1), "from year {from_year}");
+        assert_eq!(block["parent_log_hash"], manifest(&first)["log_hash"]);
+        assert_eq!(hashes(&manifest(&earlier)), hashes(&manifest(&original)));
+        assert_eq!(
+            manifest(&earlier)["log_hash"],
+            manifest(&original)["log_hash"]
+        );
+        assert_eq!(
+            text(&earlier.join("events.ndjson")),
+            text(&original.join("events.ndjson"))
+        );
+    }
+    // From year 6 the override is kept: stamped before T_6 - 1 s.
+    let kept = dir.join("kept");
+    assert_eq!(fork(&first, "6", &kept), Ok(()));
+    assert_eq!(manifest(&kept)["fork"]["dropped_inputs"], json!(0));
+    assert_eq!(hashes(&manifest(&kept)), hashes(&manifest(&first)));
+}
+
+/// What ties the hash by which a fork names its parent to the run of the fork: the
+/// events before the fork point are those of the parent, also when the fork overrides;
+/// and a fork that overrides nothing and drops nothing has the whole log of its parent.
+#[test]
+fn the_events_before_the_fork_point_are_those_of_the_parent() {
+    let dir = scratch("events_before");
+    let block = override_file(&dir, SWITCH_ON);
+
+    // A parent whose events differ from its run in year 2, before the fork point.
+    let early = parent(&dir.join("early_dir"));
+    tamper_with_the_birthday_of(&early, 2);
+    for (name, with_override) in [("early_plain", false), ("early_override", true)] {
+        let out = dir.join(name);
+        let result = if with_override {
+            fork_with(&early, "5", &block, &out)
+        } else {
+            fork(&early, "5", &out)
+        };
+        let refused = result.expect_err("the events of year 2 are not the parent's");
+        assert!(
+            refused.starts_with(
+                "error: fork_parent_inconsistent: the events before the fork point have log hash "
+            ),
+            "{refused}"
+        );
+        assert!(!out.join("manifest.json").exists(), "{name}");
+    }
+
+    // A parent whose events differ in year 7, after the fork point: a fork without
+    // override is its parent and is refused, a fork with override may differ from there.
+    let late = parent(&dir.join("late_dir"));
+    let run_hash = manifest(&late)["log_hash"]
+        .as_str()
+        .expect("hex")
+        .to_owned();
+    tamper_with_the_birthday_of(&late, 7);
+    let tampered_hash = manifest(&late)["log_hash"]
+        .as_str()
+        .expect("hex")
+        .to_owned();
+    assert_eq!(
+        fork(&late, "5", &dir.join("late_plain")),
+        Err(format!(
+            "error: fork_parent_inconsistent: a fork without override is its parent: its log hash is {run_hash}, the manifest of the parent says {tampered_hash}"
+        ))
+    );
+    assert!(!dir.join("late_plain").join("manifest.json").exists());
+    let out = dir.join("late_override");
+    assert_eq!(fork_with(&late, "5", &block, &out), Ok(()));
+    assert_eq!(
+        manifest(&out)["fork"]["parent_log_hash"],
+        json!(tampered_hash)
+    );
+    // The fork point itself counts as after: an entry at T_5 may differ.
+    let at = parent(&dir.join("at_dir"));
+    tamper_with_the_birthday_of(&at, 5);
+    assert_eq!(
+        fork_with(&at, "5", &block, &dir.join("at_override")),
+        Ok(())
+    );
+    let before = parent(&dir.join("before_dir"));
+    tamper_with_the_birthday_of(&before, 4);
+    assert!(fork_with(&before, "5", &block, &dir.join("before_override")).is_err());
 }

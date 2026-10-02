@@ -10,7 +10,8 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
-use sim_core::input::{Input, InputRecord};
+use sim_core::input::{ForkOverride, Input, InputRecord};
+use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 
@@ -55,6 +56,11 @@ fn command() -> Command {
                 .allow_negative_numbers(true)
                 .required(true),
         )
+        .arg(
+            Arg::new("override")
+                .long("override")
+                .value_name("OVERRIDE_JSON"),
+        )
         .arg(Arg::new("out").long("out").value_name("DIR").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
@@ -74,7 +80,13 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
             let from_year: i64 = year
                 .parse()
                 .map_err(|_| CliError::new("usage", format!("--from-year {year} is not a year")))?;
-            return fork_run(Path::new(text("parent")), from_year, Path::new(text("out")));
+            let override_file = fork.get_one::<String>("override").map(Path::new);
+            return fork_run(
+                Path::new(text("parent")),
+                from_year,
+                override_file,
+                Path::new(text("out")),
+            );
         }
         _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
@@ -227,10 +239,9 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
     let Some(first) = records.next() else {
         return Err(invalid("the input log has no input".to_owned()));
     };
-    // When a second input exists, this pattern no longer compiles. Then a test must
-    // replay a log with two accepted inputs: the stamp check of `replay_input` cannot
-    // fail before that, because every input after `Start` is rejected.
-    let Input::Start(start) = &first.input;
+    let Input::Start(start) = &first.input else {
+        return Err(invalid("the first input is not a start".to_owned()));
+    };
     let scenario = Scenario {
         format_version: files::FORMAT_VERSION,
         start: start.clone(),
@@ -254,22 +265,44 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
 /// ADR-0001 section 6: a fork is a new run from t0 with the resolved scenario and the
 /// seed of the parent. The inputs of the parent with a stamp before `T_X - 1 s` are
 /// taken over; the year hashes 0 to X - 1 must equal those in the manifest of the
-/// parent, and the run goes on to the end of the parent. An override is submitted at
-/// `T_X - 1 s`; it arrives with the first world parameter. Without it and without
-/// dropped inputs the fork is exactly the parent.
-fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
+/// parent, and so must the events before the fork point; the run goes on to the end of
+/// the parent. An override is submitted at `T_X - 1 s`. Without it and without dropped
+/// inputs the fork is exactly the parent.
+fn fork_run(
+    parent: &Path,
+    from_year: i64,
+    override_file: Option<&Path>,
+    out: &Path,
+) -> Result<(), CliError> {
+    // The override block: a list of world parameters with their new values. An empty
+    // list is no override and gives no input.
+    let changes: Vec<ParamChange> = match override_file {
+        Some(file) => files::parse_strict(files::read_text(file)?.trim_end()).ok_or_else(|| {
+            CliError::new(
+                "override_invalid",
+                "not a list of world parameters with their new values",
+            )
+        })?,
+        None => Vec::new(),
+    };
+    // What the core would reject at the fork point is refused before anything is written.
+    let block = ForkOverride { changes };
+    if let Some(code) = block.rejection().filter(|_| !block.changes.is_empty()) {
+        return Err(CliError::new("override_rejected", files::code(&code)));
+    }
+    let changes = block.changes;
     let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN)?;
     let manifest = read_manifest(&parent.join(files::MANIFEST))?;
     let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
-    let no_input = || CliError::new("input_log_invalid", "the input log has no input");
-    // When a second input exists, this pattern no longer compiles. Then a fork can
-    // differ from its parent after the fork point (an override, or a dropped input the
-    // parent had applied), and `Session::finish` may compare the whole log only for a
-    // fork that drops nothing and overrides nothing; for the others the events of the
-    // parent before the fork point must be compared instead.
-    let Input::Start(start) = &records.first().ok_or_else(no_input)?.input;
+    let invalid = |detail: &str| CliError::new("input_log_invalid", detail);
+    let first = records
+        .first()
+        .ok_or_else(|| invalid("the input log has no input"))?;
+    let Input::Start(start) = &first.input else {
+        return Err(invalid("the first input is not a start"));
+    };
     if *start != scenario.start {
         return Err(CliError::new(
             "run_dir_inconsistent",
@@ -350,9 +383,15 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
         dropped_inputs: u64::try_from(dropped.len())
             .unwrap_or_else(|_| panic!("invariant cli.count_range")),
     };
+    // From the fork point on a fork may differ from its parent: by its override, or by
+    // an input of the parent that it drops.
+    let fork_point = year_start(from_year);
     let compare = Compare::Fork {
         parent: manifest,
         info,
+        fork_point,
+        events_before: session::log_hash_of_events_before(parent, fork_point)?,
+        is_its_parent: changes.is_empty() && dropped.is_empty(),
     };
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
@@ -364,8 +403,13 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
         }
         session.replay_input(record)?;
     }
-    // The session compares year by year up to the fork point. An override will split
-    // the run there: advance to `fork_stamp`, submit it, go on.
+    // The session compares year by year up to the fork point. The override is stamped
+    // `T_X - 1 s`: it acts before the first event of year X.
+    if !changes.is_empty() {
+        session.advance(fork_stamp)?;
+        let rejected = |code: String| CliError::new("override_rejected", code);
+        session.submit(Input::ForkOverride(ForkOverride { changes }), rejected)?;
+    }
     session.advance(end.end)?;
     session.finish(&scenario)
 }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::DataId;
 use crate::genome::{Genotype, Sex};
 use crate::ids::InputSeq;
+use crate::params::{ParamChange, WorldParams};
 use crate::time::SimTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,10 +18,13 @@ use crate::time::SimTime;
 pub enum Input {
     /// The resolved scenario; only as the first input.
     Start(Start),
+    /// The override block of a fork (ADR-0001 section 6). `simagent fork` submits it
+    /// stamped `T_X - 1 s`, so it acts before the first event of year X.
+    ForkOverride(ForkOverride),
 }
 
-/// Further parts of the scenario (mod list, world parameters, shocks, stop condition;
-/// ADR-0004 section 4) arrive as fields with their first reader.
+/// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
+/// arrive as fields with their first reader.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
@@ -28,7 +32,34 @@ pub struct Start {
     pub world_seed: u64,
     /// Data ID of the scenario; founder keys use its `str_key` (ADR-0001).
     pub founder_tag: DataId,
+    pub world_params: WorldParams,
     pub founders: Vec<Founder>,
+}
+
+/// World parameters with their new values, applied in list order. A block is never
+/// empty and names no parameter twice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForkOverride {
+    pub changes: Vec<ParamChange>,
+}
+
+impl ForkOverride {
+    /// Why this block is rejected whatever the state of the world, if at all: it has no
+    /// change, or it names a parameter twice.
+    pub fn rejection(&self) -> Option<RejectCode> {
+        // An empty block would take a place in the input log and make a fork without
+        // override differ from its parent.
+        if self.changes.is_empty() {
+            return Some(RejectCode::EmptyOverride);
+        }
+        let twice = self.changes.iter().enumerate().any(|(index, change)| {
+            self.changes[..index]
+                .iter()
+                .any(|earlier| earlier.same_param(*change))
+        });
+        twice.then_some(RejectCode::OverrideParamTwice)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +101,12 @@ pub enum RejectCode {
     FounderNotBornBeforeStart,
     /// More founders than the count in `core:started` can hold (2^32 - 1).
     TooManyFounders,
+    /// An input other than `Start` on a world that has not started.
+    NotStarted,
+    /// An override block without a change.
+    EmptyOverride,
+    /// An override block that names a world parameter twice.
+    OverrideParamTwice,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

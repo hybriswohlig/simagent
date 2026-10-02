@@ -3,6 +3,7 @@
 
 pub(crate) mod birthday;
 pub(crate) mod census;
+pub(crate) mod params;
 pub(crate) mod start;
 
 use alloc::collections::BTreeMap;
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::genome::{Genotype, Sex};
 use crate::ids::SimId;
 use crate::lineage::{LineageIndex, LineageKey};
+use crate::params::WorldParams;
 use crate::time::{SimTime, YEAR};
 
 #[derive(Serialize, Deserialize)]
@@ -37,6 +39,8 @@ pub(crate) struct ArchivedSim {
 pub(crate) struct DomainState {
     /// `None` until `Start` was applied.
     pub(crate) world_seed: Option<u64>,
+    /// The parameters of `Start` after every override; `None` until `Start`.
+    pub(crate) world_params: Option<WorldParams>,
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
@@ -49,6 +53,7 @@ impl DomainState {
     pub(crate) const fn new() -> DomainState {
         DomainState {
             world_seed: None,
+            world_params: None,
             sims: BTreeMap::new(),
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),
