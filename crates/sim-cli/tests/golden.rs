@@ -160,8 +160,9 @@ fn golden_run_matches_in_two_processes() {
     }
 }
 
-/// Every event payload and every log payload, by name. A new variant fails to compile
-/// in the match until it has a line here.
+/// Every event payload by name. The names and codes must be the `kind` lines of
+/// `tests/golden/event_codes.txt` (see `the_coverage_lists_match_the_code_registries`),
+/// so a kind that is registered there cannot be missing here.
 fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
     let sim = sim_core::ids::SimId::try_from(1).expect("valid");
     let all = [
@@ -210,6 +211,69 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
     assert_eq!(uncovered(run.world.stats(), &run.log), Vec::<String>::new());
+}
+
+/// The two fields behind `prefix` in the lines of a code registry in `tests/golden/`.
+fn registered(registry: &str, prefix: &str) -> Vec<(String, String)> {
+    registry
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split(' ');
+            if parts.next() != Some(prefix) {
+                return None;
+            }
+            Some((parts.next()?.to_owned(), parts.next()?.to_owned()))
+        })
+        .collect()
+}
+
+/// The lists the coverage check requires are exactly the registries of codes, which
+/// their own golden tests pin to the enums: every registered event kind and every
+/// registered log kind must occur in a golden scenario.
+#[test]
+fn the_coverage_lists_match_the_code_registries() {
+    // `kind <name> <code>`
+    let event_codes = include_str!("../../../tests/golden/event_codes.txt");
+    let kinds: Vec<(String, String)> = event_kinds()
+        .into_iter()
+        .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
+        .collect();
+    assert_eq!(kinds, registered(event_codes, "kind"));
+    assert_eq!(kinds.len(), 2);
+    // `payload <index> <name>`
+    let log_codes = include_str!("../../../tests/golden/log_codes.txt");
+    let logs: Vec<String> = registered(log_codes, "payload")
+        .into_iter()
+        .map(|(_, name)| name)
+        .collect();
+    assert_eq!(logs, LOG_KINDS);
+    assert_eq!(logs.len(), 3);
+}
+
+/// Each required kind is really required: a run that lacks exactly one of them is
+/// reported with exactly that one.
+#[test]
+fn every_required_kind_is_checked() {
+    let run = whole_run();
+    for missing in LOG_KINDS {
+        let without: Vec<LogEntry> = run
+            .log
+            .iter()
+            .filter(|entry| log_kind(&entry.payload) != missing)
+            .cloned()
+            .collect();
+        assert_eq!(
+            uncovered(run.world.stats(), &without),
+            [format!("log {missing}")]
+        );
+    }
+    // A world that never ran: no event fired, every event kind is reported.
+    let idle = World::new();
+    let events: Vec<String> = event_kinds()
+        .into_iter()
+        .map(|(name, _, _)| format!("event {name}"))
+        .collect();
+    assert_eq!(uncovered(idle.stats(), &run.log), events);
 }
 
 /// The canary of the coverage check (ADR-0003 K10): a scenario without founders misses
