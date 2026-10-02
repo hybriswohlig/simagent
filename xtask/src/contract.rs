@@ -412,8 +412,44 @@ pub fn changelog_findings(body_json: &str, changelog: &str) -> Vec<String> {
 /// an HTML page for a look by eye, at the support points (readers interpolate between
 /// them). `Err` with the findings if the contract does not pass its check.
 pub fn melanin_chart(body_json: &str) -> Result<String, Vec<String>> {
-    let _ = body_json;
-    Ok(String::new())
+    let findings = schema_findings(body_json);
+    if !findings.is_empty() {
+        return Err(findings);
+    }
+    let body: Value = serde_json::from_str(body_json).map_err(|error| vec![error.to_string()])?;
+    let tables = &body["melanin_to_srgb"];
+    let cell = |colour: &Value, title: String| {
+        let colour = colour.as_str().unwrap_or_default();
+        format!("<td style=\"background:{colour}\" title=\"{title}\">{colour}</td>")
+    };
+    let list = |values: &Value| values.as_array().cloned().unwrap_or_default();
+    let mut html = String::from(
+        "<!doctype html>\n<meta charset=\"utf-8\">\n<title>Melanin to sRGB</title>\n<style>td { width: 6em; height: 3em; font: 12px monospace; text-align: center; }</style>\n",
+    );
+    html.push_str(&format!(
+        "<h1>Melanin to sRGB, contract {}</h1>\n<p>Rows: eumelanin. Columns: pheomelanin. Support points only.</p>\n",
+        body["contract_version"].as_str().unwrap_or_default()
+    ));
+    for name in ["skin", "hair"] {
+        let table = &tables[name];
+        html.push_str(&format!("<h2>{name}</h2>\n<table>\n"));
+        for (eumelanin, row) in list(&table["eumelanin"]).iter().zip(list(&table["srgb"])) {
+            html.push_str("<tr>");
+            for (pheomelanin, colour) in list(&table["pheomelanin"]).iter().zip(list(&row)) {
+                let title = format!("eumelanin {eumelanin}, pheomelanin {pheomelanin}");
+                html.push_str(&cell(&colour, title));
+            }
+            html.push_str("</tr>\n");
+        }
+        html.push_str("</table>\n");
+    }
+    let iris = &tables["iris"];
+    html.push_str("<h2>iris</h2>\n<table>\n<tr>");
+    for (melanin, colour) in list(&iris["melanin"]).iter().zip(list(&iris["srgb"])) {
+        html.push_str(&cell(&colour, format!("melanin {melanin}")));
+    }
+    html.push_str("</tr>\n</table>\n");
+    Ok(html)
 }
 
 #[cfg(test)]
