@@ -897,6 +897,30 @@ mod tests {
         );
     }
 
+    /// The test graph may hold another version of a core package: proptest brings its
+    /// own rand_chacha next to the one the core pins. The dev list names it, and the two
+    /// versions never meet in a normal build.
+    #[test]
+    fn a_second_version_only_in_the_test_graph_is_fine() {
+        let fixture = Fixture::workspace()
+            .package("proptest", &[])
+            .package("rand_chacha@0.9.0", &[])
+            .dep("sim-core", "proptest", Some("dev"))
+            .dep("proptest", "rand_chacha@0.9.0", None)
+            .package("libm@9.9.9", &[])
+            .dep("proptest", "libm@9.9.9", None);
+        let mut built_set = built_workspace();
+        built_set.extend([built("proptest"), built("rand_chacha@0.9.0")]);
+        // rand_chacha is on the dev list: fine. libm is not: its second version, which
+        // exists only in the test graph, is reported by the dev list, not as a duplicate.
+        built_set.insert(built("libm@9.9.9"));
+        let found = check(&fixture.build(), Some(&built_set));
+        assert_eq!(
+            found,
+            vec!["libm is a dev dependency of sim-core but not on the dev list".to_string()]
+        );
+    }
+
     /// A second version that is built would pass every list by its name alone.
     #[test]
     fn two_built_versions_of_one_package_are_a_violation() {
