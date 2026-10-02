@@ -544,7 +544,8 @@ mod tests {
         let fresh = generate(&fixture().to_string(), 7).expect("valid");
         assert_eq!(stale_finding(&fresh, &fresh), None);
         let mut changed = fixture();
-        changed["parameters"][3]["default"] = json!(0.5);
+        // The same length, another content.
+        changed["parameters"][3]["default"] = json!(0.75);
         let stale = generate(&changed.to_string(), 7).expect("valid");
         assert_eq!(
             stale_finding(&fresh, &stale),
