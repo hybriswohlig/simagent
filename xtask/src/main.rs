@@ -185,7 +185,9 @@ fn kat_verify_reference() -> Result {
     if status.success() {
         Ok(())
     } else {
-        Err("the reference columns differ from tools/kat_reference.py".to_string())
+        Err(format!(
+            "tools/kat_reference.py --check failed ({status}), see its output above"
+        ))
     }
 }
 
