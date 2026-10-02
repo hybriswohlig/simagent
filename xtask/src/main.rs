@@ -355,8 +355,23 @@ fn generated_types(root: &Path, body: &str) -> Result<String> {
 /// The contract files at the merge base with `origin/main` (ADR-0005 section 7, check 3);
 /// a file that the base does not have is `None`.
 fn contract_base(root: &Path) -> Result<contract_base::Base> {
-    let _ = root;
-    Ok(contract_base::Base::default())
+    let base = git_text(root, &["merge-base", "HEAD", "origin/main"]).map_err(|error| {
+        format!(
+            "cannot find the merge base with origin/main ({error}); the contract check compares with it (ADR-0005 section 7)"
+        )
+    })?;
+    let base = base.trim();
+    let at_base = |path: &str| -> Result<Option<String>> {
+        let listed = git_text(root, &["ls-tree", "--name-only", base, "--", path])?;
+        if listed.trim().is_empty() {
+            return Ok(None);
+        }
+        git_text(root, &["show", &format!("{base}:{path}")]).map(Some)
+    };
+    Ok(contract_base::Base {
+        body: at_base(BODY_FILE)?,
+        hashes: at_base(BODY_HASHES_FILE)?,
+    })
 }
 
 /// `cargo xtask codegen` (ADR-0005 section 2): writes the generated types of the body

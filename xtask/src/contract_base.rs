@@ -19,31 +19,232 @@ pub enum Class {
     Breaking,
 }
 
+impl Class {
+    const ALL: [Class; 3] = [Class::Correction, Class::Extension, Class::Breaking];
+
+    fn name(self) -> &'static str {
+        match self {
+            Class::Correction => "a correction",
+            Class::Extension => "an extending change",
+            Class::Breaking => "a breaking change",
+        }
+    }
+}
+
+/// `value` with every number as f64: `25` and `25.0` are the same number, the way of
+/// writing it is formatting.
+fn numeric(value: &Value) -> Value {
+    match value {
+        Value::Number(number) => number.as_f64().map_or(Value::Null, Value::from),
+        Value::Array(values) => values.iter().map(numeric).collect(),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(name, value)| (name.clone(), numeric(value)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// The active parameters with their keys.
+fn parameters(body: &Value) -> Vec<(&str, &Value)> {
+    body["parameters"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|parameter| Some((parameter["key"].as_str()?, parameter)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn retired(body: &Value) -> Vec<&str> {
+    body["retired_keys"]
+        .as_array()
+        .map(|keys| keys.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default()
+}
+
+/// The melanin tables without their colours: which tables there are and their support
+/// points. The schema check ties the size of the colour lists to the support points.
+fn table_layout(body: &Value) -> Value {
+    let mut tables = numeric(&body["melanin_to_srgb"]);
+    if let Some(tables) = tables.as_object_mut() {
+        for table in tables.values_mut() {
+            if let Some(table) = table.as_object_mut() {
+                table.remove("srgb");
+            }
+        }
+    }
+    tables
+}
+
 /// The class of the change from `base` to `head`, from the comparison of the fields
 /// (ADR-0005 section 6). A field that keeps its text and gets a new meaning, and a new
 /// parameter whose default does not fit every age and sex, are breaking as well; only a
 /// review sees that.
 pub fn change_class(base: &Value, head: &Value) -> Class {
-    let _ = (base, head);
-    [Class::Correction, Class::Extension, Class::Breaking][0]
+    let mut class = Class::Correction;
+    let after = parameters(head);
+    let before = parameters(base);
+    for (key, old) in &before {
+        let Some((_, new)) = after.iter().find(|(other, _)| other == key) else {
+            // Retired or renamed.
+            class = Class::Breaking;
+            continue;
+        };
+        let differs = |field: &str| numeric(&old[field]) != numeric(&new[field]);
+        if differs("unit")
+            || differs("range")
+            || (old["stability"] == "stable" && differs("stability"))
+        {
+            class = Class::Breaking;
+        }
+        if differs("group") || differs("default") || differs("stability") {
+            class = class.max(Class::Extension);
+        }
+    }
+    let new_key = |(key, _): &(&str, &Value)| !before.iter().any(|(other, _)| other == key);
+    if after.iter().any(new_key) {
+        class = class.max(Class::Extension);
+    }
+    if base["format_version"] != head["format_version"] || table_layout(base) != table_layout(head)
+    {
+        class = Class::Breaking;
+    }
+    if numeric(&base["melanin_to_srgb"]) != numeric(&head["melanin_to_srgb"]) {
+        class = class.max(Class::Extension);
+    }
+    class
+}
+
+/// MAJOR, MINOR and PATCH of a version.
+fn numbers(version: &str) -> Option<[u64; 3]> {
+    let mut parts = version.split('.').map(|part| part.parse::<u64>().ok());
+    let numbers = [parts.next()??, parts.next()??, parts.next()??];
+    parts.next().is_none().then_some(numbers)
+}
+
+/// The version one step of `class` after `base` (ADR-0005 section 6). Below 1.0.0 a
+/// breaking change raises MINOR and every other change PATCH; from 1.0.0 on the classes
+/// raise MAJOR, MINOR and PATCH. The places to the right of the raised one become 0.
+fn step(base: [u64; 3], class: Class) -> Option<[u64; 3]> {
+    let [major, minor, patch] = base;
+    Some(match (major, class) {
+        (0, Class::Breaking) => [0, minor.checked_add(1)?, 0],
+        (0, _) => [0, minor, patch.checked_add(1)?],
+        (_, Class::Breaking) => [major.checked_add(1)?, 0, 0],
+        (_, Class::Extension) => [major, minor.checked_add(1)?, 0],
+        (_, Class::Correction) => [major, minor, patch.checked_add(1)?],
+    })
+}
+
+/// Every key of the base stays active or retired, `retired_keys` only grows, and no
+/// retired key becomes a parameter again.
+fn key_findings(base: &Value, head: &Value, findings: &mut Vec<String>) {
+    let active: Vec<&str> = parameters(head).iter().map(|(key, _)| *key).collect();
+    let retired_now = retired(head);
+    for (key, _) in parameters(base) {
+        if !active.contains(&key) && !retired_now.contains(&key) {
+            findings.push(format!(
+                "parameter {key} of the merge base is gone: a key that leaves the contract goes to retired_keys"
+            ));
+        }
+    }
+    for key in retired(base) {
+        if active.contains(&key) {
+            findings.push(format!(
+                "retired key {key} is a parameter again: keys are never used again"
+            ));
+        } else if !retired_now.contains(&key) {
+            findings.push(format!(
+                "retired key {key} of the merge base is gone: retired_keys only grows"
+            ));
+        }
+    }
+}
+
+/// A changed contract carries the version exactly one step after the base: the step of
+/// the class of its change, or of a higher class (a new meaning is breaking, and only the
+/// author and the review know).
+fn version_findings(base: &Value, head: &Value, findings: &mut Vec<String>) {
+    let before = base["contract_version"].as_str().unwrap_or_default();
+    let now = head["contract_version"].as_str().unwrap_or_default();
+    let (Some(from), Some(to)) = (numbers(before), numbers(now)) else {
+        findings.push(format!(
+            "cannot compare contract_version {now} with {before} of the merge base"
+        ));
+        return;
+    };
+    let class = change_class(base, head);
+    let mut allowed: Vec<[u64; 3]> = Class::ALL
+        .into_iter()
+        .filter(|other| *other >= class)
+        .filter_map(|other| step(from, other))
+        .collect();
+    allowed.dedup();
+    if !allowed.contains(&to) {
+        let names: Vec<String> = allowed
+            .iter()
+            .map(|[major, minor, patch]| format!("{major}.{minor}.{patch}"))
+            .collect();
+        findings.push(format!(
+            "contract_version {now} after {before} of the merge base: {} needs {}",
+            class.name(),
+            names.join(" or ")
+        ));
+    }
 }
 
 /// The entries of the hash file of the merge base are still there and unchanged
 /// (ADR-0005 section 7, checks 2 and 3).
 pub fn hash_findings(base_hashes: Option<&str>, hashes_json: &str) -> Vec<String> {
-    let _ = (base_hashes, hashes_json);
-    Vec::new()
+    let entries = |text: &str| {
+        serde_json::from_str::<Value>(text)
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default()
+    };
+    let now = entries(hashes_json);
+    entries(base_hashes.unwrap_or("{}"))
+        .iter()
+        .filter(|(version, hash)| now.get(*version) != Some(*hash))
+        .map(|(version, _)| {
+            format!(
+                "body.hashes.json: the entry {version} of the merge base was changed or removed: a changed contract needs a new version"
+            )
+        })
+        .collect()
 }
 
 /// ADR-0005 section 7, check 3: the contract against the merge base. Expects a contract
 /// that passes the schema check.
 pub fn base_findings(base: &Base, body_json: &str, hashes_json: &str) -> Vec<String> {
-    let _ = (
-        &base.body,
-        change_class(&Value::Null, &Value::Null),
-        body_json,
-    );
-    hash_findings(base.hashes.as_deref(), hashes_json)
+    let mut findings = Vec::new();
+    let head: Value = serde_json::from_str(body_json).unwrap_or_default();
+    match &base.body {
+        None => {
+            let version = head["contract_version"].as_str().unwrap_or_default();
+            if version != "0.1.0" {
+                findings.push(format!(
+                    "the merge base has no contracts/body.json: the first contract_version is 0.1.0, not {version}"
+                ));
+            }
+        }
+        Some(text) if text == body_json => {}
+        Some(text) => match serde_json::from_str::<Value>(text) {
+            Ok(old) => {
+                key_findings(&old, &head, &mut findings);
+                version_findings(&old, &head, &mut findings);
+            }
+            Err(_) => {
+                findings.push("contracts/body.json of the merge base is not JSON".to_string());
+            }
+        },
+    }
+    findings.extend(hash_findings(base.hashes.as_deref(), hashes_json));
+    findings
 }
 
 #[cfg(test)]
