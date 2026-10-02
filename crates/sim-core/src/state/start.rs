@@ -62,9 +62,13 @@ pub(crate) fn death_causes_rejection(causes: &[DeathCause]) -> Option<RejectCode
             .iter()
             .any(|earlier| earlier.cause.key() == cause.cause.key())
     });
+    if twice {
+        return Some(RejectCode::DeathCauseTwice);
+    }
     let too_small = |cause: &DeathCause| cause.per_year.get() < MIN_DEATH_RATE_PER_YEAR;
-    let _ = (twice, causes.iter().any(too_small));
-    let _ = (RejectCode::DeathCauseTwice, RejectCode::DeathRateOutOfRange);
+    if causes.iter().any(too_small) {
+        return Some(RejectCode::DeathRateOutOfRange);
+    }
     None
 }
 

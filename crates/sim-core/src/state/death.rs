@@ -33,7 +33,7 @@ pub(crate) fn needed(
     cause: &DeathCause,
 ) -> Option<SimDuration> {
     let budget = Draws::new(WorldSeed::new(seed)).exponential(budget_key(lineage_key, cause), 1.0);
-    SimDuration::from_years_ceil(budget / cause.per_year.get()).filter(|_| false)
+    SimDuration::from_years_ceil(budget / cause.per_year.get())
 }
 
 /// When a person on whom `cause` acts from `origin` on dies of it: never, if the budget
