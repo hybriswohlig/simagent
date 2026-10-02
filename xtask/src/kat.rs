@@ -275,6 +275,14 @@ mod tests {
                 "exp.csv:3: a class P row needs two non-NaN bit patterns",
             ),
             (
+                "3ff0000000000000,4005bf0a8b14576,P,4005bf0a8b145769",
+                "exp.csv:3: a class P row needs two non-NaN bit patterns",
+            ),
+            (
+                "3ff0000000000000,4005bf0a8b145769,P,04005bf0a8b145769",
+                "exp.csv:3: a class P row needs two non-NaN bit patterns",
+            ),
+            (
                 "3ff0000000000000,4005bf0a8b145769,Q,4005bf0a8b145769",
                 "exp.csv:3: unknown class Q",
             ),
