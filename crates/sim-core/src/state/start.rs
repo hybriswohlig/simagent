@@ -4,7 +4,6 @@
 use alloc::vec::Vec;
 
 use super::{DomainState, Sim, years_between};
-use crate::genome::{Allele, Genotype, Sex};
 use crate::input::{InputRejected, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
@@ -77,10 +76,10 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
         EventPayload::YearEnd,
         started,
     );
-    for founder in &start.founders {
+    for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
-        let lineage_key = LineageKey::founder(&start.founder_tag, 0);
-        let _ = &domain.lineage;
+        let lineage_key = LineageKey::founder(&start.founder_tag, index);
+        domain.lineage.insert(lineage_key);
         let (id, added) = ctx.create_sim(
             LogPayload::FounderAdded { born, lineage_key },
             Causes::new(ctx.trigger()),
@@ -90,11 +89,8 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
             Sim {
                 born,
                 lineage_key,
-                sex: Sex::Male,
-                genotype: Genotype {
-                    maternal: Allele::Wild,
-                    paternal: Allele::Wild,
-                },
+                sex: founder.sex,
+                genotype: founder.genotype,
             },
         );
         let next = first_birthday(born, ctx.now());

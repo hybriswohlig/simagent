@@ -12,7 +12,7 @@ use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{self, LoadedState, PROJECTION_VERSION, YearHash};
 use crate::ids::{Counter, SimId};
 use crate::input::{Input, InputRecord, Start};
-use crate::lineage::LineageIndex;
+use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
 use crate::state::{self, DomainState};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
@@ -191,7 +191,13 @@ impl World {
             .ok()
             .and_then(|len| len.checked_add(1))
             .ok_or(LoadError::Inconsistent)?;
-        let lineage = LineageIndex::new();
+        // Every sim is a founder with the key of its index (`consistent`), so the keys
+        // differ exactly where the uninterrupted run had them differ.
+        let mut lineage = LineageIndex::new();
+        let living = loaded.sims.values().map(|sim| sim.lineage_key);
+        for key in living.chain(loaded.archive.values().map(|sim| sim.lineage_key)) {
+            lineage.insert(key);
+        }
         let world = World {
             sched,
             state: WorldState {
@@ -274,16 +280,17 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
 /// nothing else creates sims, the counter stands at N + 1.
 fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     let mut next_id = 1_u64;
-    for founder in &start.founders {
+    for (index, founder) in (0_u64..).zip(&start.founders) {
         let Ok(id) = SimId::try_from(next_id) else {
             return false;
         };
         let found = match (loaded.sims.get(&id), loaded.archive.get(&id)) {
-            (Some(sim), None) => sim.born,
-            (None, Some(sim)) => sim.born,
+            (Some(sim), None) => (sim.born, sim.lineage_key, sim.sex, sim.genotype),
+            (None, Some(sim)) => (sim.born, sim.lineage_key, sim.sex, sim.genotype),
             (None, None) | (Some(_), Some(_)) => return false,
         };
-        if found != founder.born {
+        let lineage_key = LineageKey::founder(&start.founder_tag, index);
+        if found != (founder.born, lineage_key, founder.sex, founder.genotype) {
             return false;
         }
         next_id += 1;
