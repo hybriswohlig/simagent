@@ -735,7 +735,7 @@ fn load_checks_the_override_blocks_of_the_input_log() {
     };
     assert_eq!(load_error(&two(|_| {})), None);
 
-    let cases: [(&str, Vec<u8>); 14] = [
+    let cases: [(&str, Vec<u8>); 15] = [
         (
             "a world that never started with world parameters",
             never_started().with(|f| f.world_params = Some(false)),
@@ -743,6 +743,13 @@ fn load_checks_the_override_blocks_of_the_input_log() {
         (
             "a started world without world parameters",
             File::tiny().with(|f| f.world_params = None),
+        ),
+        (
+            "a started world without world parameters and without inputs",
+            File::tiny().with(|f| {
+                f.world_params = None;
+                f.input_log.clear();
+            }),
         ),
         (
             "world parameters that are not those of the start",
@@ -757,11 +764,13 @@ fn load_checks_the_override_blocks_of_the_input_log() {
             two(|f| f.world_params = Some(true)),
         ),
         (
+            // The parameters are those of the start that follows: only the order is wrong.
             "an override block before the start",
             overridden().with(|f| {
                 f.input_log.swap(0, 1);
                 f.input_log[0].1 = 1;
                 f.input_log[1].1 = 2;
+                f.world_params = Some(false);
             }),
         ),
         (
