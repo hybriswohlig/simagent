@@ -213,7 +213,12 @@ pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
 /// The only files of `sim-core/src` that may name a text type: the file, the types it
 /// may name and the reason.
-pub const TEXT_FILES: [(&str, &[&str], &str); 3] = [
+pub const TEXT_FILES: [(&str, &[&str], &str); 4] = [
+    (
+        "crates/sim-core/src/body_contract/generated.rs",
+        &["str"],
+        "static keys and version of the body contract, generated (ADR-0005 section 2)",
+    ),
     (
         "crates/sim-core/src/data_id.rs",
         &TEXT_TYPES,
