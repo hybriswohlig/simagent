@@ -408,6 +408,14 @@ pub fn changelog_findings(body_json: &str, changelog: &str) -> Vec<String> {
         .collect()
 }
 
+/// `cargo xtask melanin-chart` (ADR-0005 section 5): the colours of the melanin tables as
+/// an HTML page for a look by eye, at the support points (readers interpolate between
+/// them). `Err` with the findings if the contract does not pass its check.
+pub fn melanin_chart(body_json: &str) -> Result<String, Vec<String>> {
+    let _ = body_json;
+    Ok(String::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -861,6 +869,50 @@ mod tests {
                 c["melanin_to_srgb"]["skin"]["srgb"][0][1] = json!("#f0e0d0");
             }),
             NONE
+        );
+    }
+
+    #[test]
+    fn the_melanin_chart_shows_every_colour_once() {
+        let chart = melanin_chart(&fixture().to_string()).expect("a valid contract");
+        assert!(chart.starts_with("<!doctype html>"), "{chart}");
+        assert_eq!(chart.matches("<td ").count(), 6 + 6 + 3);
+        // Skin and hair share their colours in the fixture: each grid colour twice.
+        for colour in [
+            "#f0e0d0", "#f0d8c0", "#a08070", "#a07860", "#402010", "#401c0a",
+        ] {
+            let cell = format!("<td style=\"background:{colour}\"");
+            assert_eq!(chart.matches(&cell).count(), 2, "{colour}");
+        }
+        for colour in ["#90b0d0", "#907040", "#301810"] {
+            let cell = format!("<td style=\"background:{colour}\"");
+            assert_eq!(chart.matches(&cell).count(), 1, "{colour}");
+        }
+        // Rows are eumelanin, columns pheomelanin, in the order of the file.
+        let first = chart.find("background:#f0e0d0").expect("the first cell");
+        let across = chart
+            .find("background:#f0d8c0")
+            .expect("the next pheomelanin");
+        let down = chart
+            .find("background:#a08070")
+            .expect("the next eumelanin");
+        assert!(first < across && across < down);
+        assert!(chart.contains("<h2>skin</h2>") && chart.contains("<h2>hair</h2>"));
+        assert!(chart.contains("<h2>iris</h2>"));
+        assert!(chart.contains("contract 0.1.0"));
+        assert!(
+            chart.contains("title=\"eumelanin 0.5, pheomelanin 1\""),
+            "{chart}"
+        );
+        assert!(chart.contains("title=\"melanin 0.5\""), "{chart}");
+        // A contract that fails its check has no chart.
+        let mut broken = fixture();
+        broken["melanin_to_srgb"]["skin"]["srgb"][1][0] = json!("#ffffff");
+        assert_eq!(
+            melanin_chart(&broken.to_string()),
+            Err(one(
+                "melanin_to_srgb.skin: luminance rises with eumelanin at srgb[1][0]"
+            ))
         );
     }
 

@@ -39,12 +39,13 @@ fn main() -> ExitCode {
         Some("ci") => gate(true),
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
+        Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/"
             );
             return ExitCode::from(2);
         }
@@ -298,6 +299,23 @@ fn check_gate_run(root: &Path) -> Result {
     } else {
         Err(format!("\n  {}", found.join("\n  ")))
     }
+}
+
+/// `cargo xtask melanin-chart`: the colour tables of the contract as
+/// `target/reports/melanin-chart.html` (ADR-0005 section 5).
+fn melanin_chart() -> Result {
+    let root = workspace_root()?;
+    let body = read(&root.join("contracts/body.json"))?;
+    let chart = contract::melanin_chart(&body)
+        .map_err(|findings| format!("\n  {}", findings.join("\n  ")))?;
+    let dir = root.join("target").join("reports");
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let path = dir.join("melanin-chart.html");
+    std::fs::write(&path, chart)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    println!("wrote {}", relative(&root, &path));
+    Ok(())
 }
 
 /// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
