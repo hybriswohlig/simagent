@@ -13,7 +13,9 @@ pub const EDGES: [(&str, &[&str]); 4] = [
     ("sim-math", &[]),
     ("sim-core", &["sim-math"]),
     ("sim-cli", &["sim-core", "sim-math"]),
-    ("xtask", &[]),
+    // The gate tool computes with the pinned math: the colour rule of the body contract
+    // linearizes sRGB (ADR-0005 section 5) and must not use the float methods of std.
+    ("xtask", &["sim-math"]),
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
