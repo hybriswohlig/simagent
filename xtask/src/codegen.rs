@@ -416,6 +416,7 @@ mod tests {
             "    /// Curl: 0 is straight.\n    pub const fn hair_curl(&self) -> f64 {\n        self.hair_curl\n    }\n",
             "            BodyParamKey::HairCurl => self.hair_curl,\n",
             "            BodyParamKey::HairCurl => &mut self.hair_curl,\n",
+            "    pub(super) fn slot(&mut self, key: BodyParamKey) -> &mut f64 {\n",
             "impl Serialize for BodyParams {\n",
         ] {
             assert!(source.contains(part), "missing:\n{part}\nin:\n{source}");
@@ -574,17 +575,36 @@ mod tests {
             hash_findings(hashes, "0.3.0", 0xbb),
             vec!["body.hashes.json has no entry for 0.3.0: run cargo xtask codegen".to_string()]
         );
-        for broken in [
-            "[]",
-            "{",
-            "{\"0.1.0\": 170}",
-            "{\"0.1.0\": \"AA000000000000aa\"}",
-            "{\"0.1.0\": \"aa\"}",
-            "{\"first\": \"00000000000000aa\"}",
+        for broken in ["[]", "{", "7"] {
+            assert_eq!(
+                hash_findings(broken, "0.1.0", 0xaa),
+                vec!["body.hashes.json is not a JSON object".to_string()],
+                "{broken}"
+            );
+        }
+        // Every entry maps a version to 16 lower-case hex digits, not only the entry of
+        // the current version.
+        for (entry, file) in [
+            ("0.1.0", "{\"0.1.0\": 170}"),
+            ("0.1.0", "{\"0.1.0\": \"AA000000000000aa\"}"),
+            ("0.1.0", "{\"0.1.0\": \"aa\"}"),
+            ("0.1.0", "{\"0.1.0\": \"00000000000000aa0\"}"),
+            (
+                "first",
+                "{\"0.1.0\": \"00000000000000aa\", \"first\": \"00000000000000aa\"}",
+            ),
+            (
+                "0.0.9",
+                "{\"0.0.9\": \"00000000000000AA\", \"0.1.0\": \"00000000000000aa\"}",
+            ),
         ] {
-            let found = hash_findings(broken, "0.1.0", 0xaa);
-            assert_eq!(found.len(), 1, "{broken}");
-            assert!(found[0].starts_with("body.hashes.json"), "{found:?}");
+            assert_eq!(
+                hash_findings(file, "0.1.0", 0xaa),
+                vec![format!(
+                    "body.hashes.json: the entry {entry} must map a version to 16 hex digits"
+                )],
+                "{file}"
+            );
         }
     }
 

@@ -795,3 +795,92 @@ fn cargo(root: &Path, args: &[&str]) -> Result {
         Err(format!("`cargo {}` failed", args.join(" ")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A copy of the files that the step contract check reads, below `target/`, with the
+    /// text of `file` changed by `change`.
+    fn contract_copy(name: &str, file: &str, change: impl Fn(&str) -> String) -> PathBuf {
+        let root = workspace_root().expect("the workspace root");
+        let copy = root.join("target").join("contract-step-tests").join(name);
+        for path in [
+            BODY_FILE,
+            BODY_CHANGELOG_FILE,
+            BODY_HASHES_FILE,
+            codegen::GENERATED_FILE,
+            "Cargo.toml",
+        ] {
+            let mut text = read(&root.join(path)).expect(path);
+            if path == file {
+                let changed = change(&text);
+                assert_ne!(changed, text, "{name}: the change changes nothing");
+                text = changed;
+            }
+            let target = copy.join(path);
+            std::fs::create_dir_all(target.parent().expect("a file in a directory"))
+                .expect("directory");
+            std::fs::write(&target, text).expect(path);
+        }
+        copy
+    }
+
+    /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
+    #[test]
+    fn the_contract_step_passes_on_the_files_of_the_repo() {
+        let copy = contract_copy("clean", "", str::to_string);
+        assert_eq!(check_contract(&copy), Ok(()));
+    }
+
+    /// The step runs every check of ADR-0005 section 7 that exists so far: each broken
+    /// file is refused for its own reason.
+    #[test]
+    fn the_contract_step_runs_every_check() {
+        let with_newline = |text: &str| format!("{text}\n");
+        type Change<'a> = &'a dyn Fn(&str) -> String;
+        let cases: [(&str, &str, Change, &str); 6] = [
+            (
+                "schema",
+                BODY_FILE,
+                &|text| text.replacen("\"format_version\": 1", "\"format_version\": 2", 1),
+                "body.json: format_version must be 1",
+            ),
+            (
+                "changelog",
+                BODY_CHANGELOG_FILE,
+                &|_| "# Changelog\n".to_string(),
+                "body.changelog.md has no section ## ",
+            ),
+            (
+                "hash-of-a-changed-contract",
+                BODY_FILE,
+                &with_newline,
+                ": a changed contract needs a new version",
+            ),
+            (
+                "hash-file",
+                BODY_HASHES_FILE,
+                &|_| "{}\n".to_string(),
+                "body.hashes.json has no entry for ",
+            ),
+            (
+                "stale-types",
+                codegen::GENERATED_FILE,
+                &with_newline,
+                "generated.rs is stale: run cargo xtask codegen and commit the result",
+            ),
+            (
+                "edition",
+                "Cargo.toml",
+                &|text| text.replace("edition = ", "edition="),
+                "Cargo.toml: expected exactly one line edition = \"...\"",
+            ),
+        ];
+        for (name, file, change, expected) in cases {
+            let copy = contract_copy(name, file, change);
+            let refused = check_contract(&copy).expect_err(name);
+            assert!(refused.contains(expected), "{name}: {refused}");
+        }
+    }
+}
