@@ -9,15 +9,15 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 pub const CONTRACT_VERSION: &str = "0.1.0";
 
 /// `stable_hash64` over the bytes of `contracts/body.json`.
-pub const SOURCE_HASH: u64 = 0x2fd0296783a4d6fb;
+pub const SOURCE_HASH: u64 = 0xf2263b9d6af3103d;
 
 /// A parameter of the body contract, in the order of the contract file. The variants
 /// have no stable numbers and no order: both would be positional.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BodyParamKey {
-    /// Body maturity as the age of the reference shape: head to body ratio, limbs, childlike roundness.
+    /// Body maturity: head to body ratio, limbs, childlike roundness.
     BodyFormAge,
-    /// Face maturity as the age of the reference shape: jaw, nose, midface (matures until about 20).
+    /// Face maturity: jaw, nose, midface (matures until about 20).
     FaceFormAge,
     /// Standing height, including the loss of height in old age.
     HeightCm,
@@ -61,11 +61,11 @@ pub enum BodyParamKey {
     FaceAxis11,
     /// Abstract axis 12 of the face space; its meaning is defined only in the render mapping.
     FaceAxis12,
-    /// Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV.
+    /// Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV (C1).
     SkinEumelanin,
     /// Skin pheomelanin, red to yellow.
     SkinPheomelanin,
-    /// Hair eumelanin, including darkening with age, without greying.
+    /// Hair eumelanin, including darkening, without greying.
     HairEumelanin,
     /// Hair pheomelanin, red to yellow.
     HairPheomelanin,
@@ -546,12 +546,12 @@ impl BodyParams {
         breast_development: 0.25,
     };
 
-    /// Body maturity as the age of the reference shape: head to body ratio, limbs, childlike roundness.
+    /// Body maturity: head to body ratio, limbs, childlike roundness.
     pub const fn body_form_age(&self) -> f64 {
         self.body_form_age
     }
 
-    /// Face maturity as the age of the reference shape: jaw, nose, midface (matures until about 20).
+    /// Face maturity: jaw, nose, midface (matures until about 20).
     pub const fn face_form_age(&self) -> f64 {
         self.face_form_age
     }
@@ -661,7 +661,7 @@ impl BodyParams {
         self.face_axis_12
     }
 
-    /// Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV.
+    /// Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV (C1).
     pub const fn skin_eumelanin(&self) -> f64 {
         self.skin_eumelanin
     }
@@ -671,7 +671,7 @@ impl BodyParams {
         self.skin_pheomelanin
     }
 
-    /// Hair eumelanin, including darkening with age, without greying.
+    /// Hair eumelanin, including darkening, without greying.
     pub const fn hair_eumelanin(&self) -> f64 {
         self.hair_eumelanin
     }
