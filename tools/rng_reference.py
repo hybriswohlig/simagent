@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reference for the addressed random draws of sim-core (ADR-0001 sections 1 to 3),
+"""Reference for the addressed random draws of sim-core (ADR-0001 sections 1 to 5),
 written from the ADR alone, without a look at the Rust code.
 
 - mix64: the SplitMix64 finaliser.
@@ -136,6 +136,55 @@ DRAW_KEYS = [
     (MASK, 0xFFFFFFFF, MASK, MASK, MASK),
     (0x5EED, 4, 0, str_key("test:base"), 0),
 ]
+
+# ---------------------------------------------------------------------------------------
+# Lineage keys (section 4) and the choice from a set (section 5)
+
+
+def founder_key(founder_tag: str, index: int) -> int:
+    return absorb(FOUNDER, 0, [str_key(founder_tag), index])
+
+
+def child_key(mother: int, father: int, conception_number: int, multiple_index: int) -> int:
+    return absorb(CHILD, 0, [mother, father, conception_number, multiple_index])
+
+
+def immigrant_key(founder_tag: str, arrival_year: int, number_in_year: int) -> int:
+    return absorb(IMMIGRANT, 0, [str_key(founder_tag), arrival_year, number_in_year])
+
+
+def rank(seed: int, tag: int, seeker: int, occasion: int, candidate: int) -> int:
+    return absorb(RANK, 0, [seed, tag, seeker, occasion, candidate])
+
+
+def k_smallest(seed: int, tag: int, seeker: int, occasion: int, candidates: list, k: int) -> list:
+    """The k candidates with the smallest (rank, key), ascending; all if there are fewer."""
+    ranked = sorted((rank(seed, tag, seeker, occasion, c), c) for c in candidates)
+    return [candidate for _, candidate in ranked[:k]]
+
+
+def print_lineage() -> None:
+    tag = "test:fork_no_density"
+    founders = [founder_key(tag, index) for index in range(8)]
+    print("founders", " ".join(f"{key:016x}" for key in founders))
+    mother, father = founders[0], founders[1]
+    print("child m f 0 0", f"{child_key(mother, father, 0, 0):016x}")
+    print("child m f 0 1", f"{child_key(mother, father, 0, 1):016x}")
+    print("child m f 1 0", f"{child_key(mother, father, 1, 0):016x}")
+    print("child f m 0 0", f"{child_key(father, mother, 0, 0):016x}")
+    print("immigrant 5 0", f"{immigrant_key(tag, 5, 0):016x}")
+    print("immigrant 5 1", f"{immigrant_key(tag, 5, 1):016x}")
+    print("immigrant 6 0", f"{immigrant_key(tag, 6, 0):016x}")
+    seed, pairing_rank, occasion = 0x5EED, 5, 3
+    candidates = founders[1:]
+    print(
+        "ranks",
+        " ".join(f"{rank(seed, pairing_rank, founders[0], occasion, c):016x}" for c in candidates),
+    )
+    for k in (0, 1, 3, 7, 9):
+        chosen = k_smallest(seed, pairing_rank, founders[0], occasion, candidates, k)
+        print(f"k_smallest {k}", " ".join(str(founders.index(c)) for c in chosen))
+
 
 # ---------------------------------------------------------------------------------------
 # Distributions (ADR-0001 section 3)
@@ -320,6 +369,7 @@ if __name__ == "__main__":
             f" poisson(5)={poisson_reference(w[0], 5.0)}"
             f" unit={unit(w[0])!r}"
         )
+    print_lineage()
     write_distributions()
     if kat_reference.MISMATCHES:
         sys.exit(f"{len(kat_reference.MISMATCHES)} file(s) differ from the reference")
