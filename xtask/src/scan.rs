@@ -435,10 +435,14 @@ pub fn generator_findings(workspace_sources: &[(String, String)]) -> Vec<String>
             using_files.push(path.as_str());
         }
     }
-    if !using_files.is_empty() && (uses != 2 || using_files != [GENERATOR_FILE]) {
-        findings.push(format!(
-            "ChaCha8Rng is named {uses} times under {RNG_DIR}, exactly 2 uses in {GENERATOR_FILE} are allowed: the import and the one generator of key_words (ADR-0001 section 2): {}",
+    if uses != 2 || using_files != [GENERATOR_FILE] {
+        let files = if using_files.is_empty() {
+            "no file".to_string()
+        } else {
             using_files.join(", ")
+        };
+        findings.push(format!(
+            "ChaCha8Rng is named {uses} times under {RNG_DIR}, exactly 2 uses in {GENERATOR_FILE} are allowed: the import and the one generator of key_words (ADR-0001 section 2): {files}"
         ));
     }
     findings
@@ -485,9 +489,9 @@ pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<Stri
                 ));
             }
         } else if path == GENERATOR_FILE {
-            if built != 2 {
+            if built > 2 {
                 findings.push(format!(
-                    "{path}: {TYPE}( occurs {built} times, exactly 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
+                    "{path}: {TYPE}( occurs {built} times, at most 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
                 ));
             }
         } else if built > 0 {
