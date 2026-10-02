@@ -162,6 +162,9 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
         normal_union.extend(closure);
     }
+    if built.is_some() {
+        check_one_version(&graph, &normal_union, &mut violations);
+    }
     for &member in &graph.members {
         check_dev_graph(&graph, member, &normal_union, &mut violations);
     }
@@ -369,8 +372,7 @@ pub fn parse_tree_line(line: &str) -> Option<(String, String)> {
 
 /// The build set and the resolve graph must name the same packages in the same
 /// versions, except for the packages on `NOT_BUILT`. A build set that is empty, cut
-/// short or parsed from an unexpected output therefore never passes. Every list of this
-/// file goes by package name, so no name may be built in two versions.
+/// short or parsed from an unexpected output therefore never passes.
 fn check_build_set(
     graph: &Graph,
     built: &BTreeSet<(String, String)>,
@@ -393,17 +395,29 @@ fn check_build_set(
             (true, false) | (false, true) => {}
         }
     }
-    let mut versions_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, version) in built {
         if !resolved.contains(&(name.as_str(), version.as_str())) {
             violations.push(format!(
                 "cargo tree builds {name} {version}, which cargo metadata does not list"
             ));
         }
-        versions_of.entry(name).or_default().push(version);
+    }
+}
+
+/// The positive lists, the never list and the feature list of the normal closures go by
+/// package name, so no name may be in them in two versions. A further version that only
+/// the test graph has is the business of the dev list.
+fn check_one_version(graph: &Graph, normal_union: &BTreeSet<&str>, violations: &mut Vec<String>) {
+    let mut versions_of: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for id in normal_union {
+        versions_of
+            .entry(graph.name(id))
+            .or_default()
+            .insert(graph.version(id));
     }
     for (name, versions) in versions_of {
         if versions.len() > 1 {
+            let versions: Vec<&str> = versions.into_iter().collect();
             violations.push(format!(
                 "{name} is built in two versions ({}); the lists go by package name",
                 versions.join(", ")
