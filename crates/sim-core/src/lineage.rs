@@ -82,6 +82,12 @@ pub struct LineageIndex {
 }
 
 impl LineageIndex {
+    pub const fn new() -> LineageIndex {
+        LineageIndex {
+            keys: BTreeSet::new(),
+        }
+    }
+
     /// Adds the key of a new founder, immigrant or conception. A key that is already
     /// there breaks the invariant `lineage_key_unique`.
     pub fn insert(&mut self, key: LineageKey) {

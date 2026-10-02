@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::Code;
 use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, SimId};
+use crate::lineage::LineageKey;
 use crate::time::SimTime;
 
 /// Companion data of every planned event: the entry that planned it and when.
@@ -96,9 +97,13 @@ pub enum LogPayload {
     /// The `Start` input was applied; the reason for the system series.
     #[serde(rename = "core:started")]
     Started { founders: u32 },
-    /// A founder entered the world (creation entry of a SimId).
+    /// A founder entered the world (creation entry of a SimId). The lineage key names
+    /// the same founder in every fork; the ID does not (ADR-0001 section 6).
     #[serde(rename = "core:founder_added")]
-    FounderAdded { born: SimTime },
+    FounderAdded {
+        born: SimTime,
+        lineage_key: LineageKey,
+    },
     /// Dummy event of step 2: a yearly birthday.
     #[serde(rename = "core:birthday")]
     Birthday { age_years: u32 },

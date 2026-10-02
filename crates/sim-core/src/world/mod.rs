@@ -259,20 +259,49 @@ impl Handler<EventPayload, PlanRef> for WorldState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_id::DataId;
+    use crate::genome::{Allele, Genotype, Sex};
     use crate::input::{Founder, RejectCode, Start};
+    use crate::lineage::LineageKey;
     use crate::time::{SchedulerSnapshot, YEAR};
+
+    const MIXED: Genotype = Genotype {
+        maternal: Allele::Dummy,
+        paternal: Allele::Wild,
+    };
+
+    fn tag() -> DataId {
+        DataId::new("test:world").expect("valid")
+    }
 
     fn start(born: &[i64]) -> Input {
         Input::Start(Start {
             world_seed: 7,
-            founder_tag: crate::data_id::DataId::new("test:world").expect("valid"),
+            founder_tag: tag(),
             founders: born
                 .iter()
                 .map(|&secs| Founder {
                     born: SimTime::from_secs(secs),
+                    sex: Sex::Female,
+                    genotype: MIXED,
                 })
                 .collect(),
         })
+    }
+
+    /// The lineage key of founder 1 of `test:world` is 0x7df9a2c222bf01f1
+    /// (tools/rng_reference.py); this is its postcard varint.
+    const ARCHIVED_KEY_VARINT: [u8; 9] = [241, 131, 252, 149, 162, 216, 232, 252, 125];
+
+    /// A sim that left, built by hand: no rule archives yet.
+    fn archived() -> state::ArchivedSim {
+        state::ArchivedSim {
+            born: SimTime::from_secs(-9),
+            left: SimTime::from_secs(-2),
+            lineage_key: LineageKey::founder(&tag(), 1),
+            sex: Sex::Male,
+            genotype: MIXED,
+        }
     }
 
     /// ADR-0002: the year end series starts at `year_start(1) - 1 s` with period YEAR,
@@ -384,13 +413,7 @@ mod tests {
         let gone = SimId::try_from(2).expect("valid");
         assert_eq!(world.state.born(gone), None);
         assert_eq!(world.state.archive_len(), 0);
-        world.state.domain.archive.insert(
-            gone,
-            state::ArchivedSim {
-                born: SimTime::from_secs(-9),
-                left: SimTime::from_secs(-2),
-            },
-        );
+        world.state.domain.archive.insert(gone, archived());
         assert_eq!(world.state.born(gone), Some(SimTime::from_secs(-9)));
         assert_eq!(world.state.archive_len(), 1);
         assert_eq!(world.state.living(), 1);
@@ -398,23 +421,25 @@ mod tests {
 
     /// ADR-0003 5.2: the archive is in the projection. No rule archives yet, so the
     /// state is built by hand; the bytes follow the postcard format: a map of one entry,
-    /// key 2, then born -9 (zigzag 17) and left -2 (zigzag 3).
+    /// key 2, then born -9 (zigzag 17), left -2 (zigzag 3), the lineage key of founder 1
+    /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1)
+    /// and the alleles dummy (1) and wild (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new();
         world.submit(start(&[-5])).expect("accepted");
         let before = world.canonical_bytes();
         assert_eq!(before.last(), Some(&0), "an empty archive");
-        world.state.domain.archive.insert(
-            SimId::try_from(2).expect("valid"),
-            state::ArchivedSim {
-                born: SimTime::from_secs(-9),
-                left: SimTime::from_secs(-2),
-            },
-        );
+        world
+            .state
+            .domain
+            .archive
+            .insert(SimId::try_from(2).expect("valid"), archived());
         let mut expected = before.clone();
         expected.pop();
         expected.extend([1, 2, 17, 3]);
+        expected.extend(ARCHIVED_KEY_VARINT);
+        expected.extend([1, 1, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

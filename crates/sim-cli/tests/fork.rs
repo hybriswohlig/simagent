@@ -17,7 +17,11 @@ const TEN_YEARS: &str = r#"{
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
-    "founders": [{"born": -943488000}, {"born": -794880000}, {"born": -1}]
+    "founders": [
+      {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
+      {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
+      {"born": -1, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "dummy"}}
+    ]
   },
   "until": 314495999
 }"#;
@@ -279,15 +283,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":1"#, r#""core_version":2"#);
+    replace_in(&log, r#""core_version":2"#, r#""core_version":3"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 2, this is 1"
+            "error: fork_foreign_core_version: the parent run is of core version 3, this is 2"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":2"#, r#""core_version":1"#);
+    replace_in(&log, r#""core_version":3"#, r#""core_version":2"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -340,7 +344,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":1"#, r#""core_version":2"#),
+        (r#""core_version":2"#, r#""core_version":3"#),
         (
             r#""data_hash":"2d06800538d394c2""#,
             r#""data_hash":"2d06800538d394c3""#,
@@ -530,7 +534,7 @@ fn a_fork_has_the_log_of_its_parent() {
     let other_scenario = dir.join("other.json");
     fs::write(
         &other_scenario,
-        TEN_YEARS.replace(r#"{"born": -1}"#, r#"{"born": -2}"#),
+        TEN_YEARS.replace(r#"{"born": -1,"#, r#"{"born": -2,"#),
     )
     .expect("writes");
     let other = dir.join("other");

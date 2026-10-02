@@ -7,6 +7,7 @@
 
 use sim_core::canonical::{YearHash, canonical_bytes};
 use sim_core::data_id::DataId;
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogHasher, PlanRef, log_hash};
@@ -16,12 +17,12 @@ use sim_core::world::{EventPayload, World, YearOut};
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0101ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d0301010100";
-const TINY_AFTER_START_HASH: u64 = 0xf364_d2e5_df1e_1ba5;
-const TINY_YEAR_0_HASH: u64 = 0x6710_517d_804b_1d20;
-const TINY_AFTER_YEAR_0: &str =
-    "0101ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d0401010100";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0xa8c7_1a38_1baa_01df;
+const TINY_AFTER_START: &str =
+    "0201ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
+const TINY_AFTER_START_HASH: u64 = 0x8cc0_22c5_d3b1_a5ef;
+const TINY_YEAR_0_HASH: u64 = 0x27b8_622f_0102_e6fd;
+const TINY_AFTER_YEAR_0: &str = "0201ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0x890d_ebe9_6f47_7684;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -33,16 +34,23 @@ fn hex(text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// A founder born at `secs`: female, with the alleles wild and dummy.
+fn founder(secs: i64) -> Founder {
+    Founder {
+        born: SimTime::from_secs(secs),
+        sex: Sex::Female,
+        genotype: Genotype {
+            maternal: Allele::Wild,
+            paternal: Allele::Dummy,
+        },
+    }
+}
+
 fn start(seed: u64, born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: seed,
-        founder_tag: DataId::new("test:projection").expect("valid"),
-        founders: born
-            .iter()
-            .map(|&secs| Founder {
-                born: SimTime::from_secs(secs),
-            })
-            .collect(),
+        founder_tag: DataId::new("test:tiny").expect("valid"),
+        founders: born.iter().copied().map(founder).collect(),
     })
 }
 
@@ -101,7 +109,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"6710517d804b1d20"}"#
+        r#"{"year":0,"hash":"27b8622f0102e6fd"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

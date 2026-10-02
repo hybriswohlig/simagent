@@ -68,6 +68,11 @@ fn sample_input() -> Input {
         founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
+            sex: Sex::Female,
+            genotype: Genotype {
+                maternal: Allele::Wild,
+                paternal: Allele::Dummy,
+            },
         }],
     })
 }
@@ -96,16 +101,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const RECORD_POSTCARD: &str =
+    "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -385,7 +391,11 @@ fn formats_roundtrip_rejects_empty_causes() {
 fn formats_roundtrip_rejects_unknown_fields_and_variants() {
     let cases = [
         INPUT_JSON.replace(r#""founders""#, r#""extra":1,"founders""#),
-        INPUT_JSON.replace(r#"{"born""#, r#"{"sex":1,"born""#),
+        INPUT_JSON.replace(r#"{"born""#, r#"{"age":1,"born""#),
+        // No silent defaults: a founder without sex or genotype is no founder.
+        INPUT_JSON.replace(r#","sex":"female""#, ""),
+        INPUT_JSON.replace(r#","genotype":{"maternal":"wild","paternal":"dummy"}"#, ""),
+        INPUT_JSON.replace(r#""sex":"female""#, r#""sex":"unknown""#),
         INPUT_JSON.replace(r#"{"start""#, r#"{"begin""#),
         r#"{"start":{"world_seed":"00000000000000ff","founders":[]}}"#.to_owned(),
     ];
@@ -482,8 +492,20 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
+            sex: Sex::Male,
+            genotype: Genotype {
+                maternal: Allele::Dummy,
+                paternal: Allele::Dummy,
+            },
         }],
     });
+    // A lineage key is a full-range number as well.
+    let added = serde_json::to_value(&all_payloads()[1]).expect("json");
+    check(&added, "founder added");
+    assert_eq!(
+        added["core:founder_added"]["lineage_key"],
+        Value::from("cfd3d4551fb363c2")
+    );
     check(
         &serde_json::to_value(&extreme_entry).expect("json"),
         "entry",
@@ -503,6 +525,7 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Started { founders: 3 },
         LogPayload::FounderAdded {
             born: SimTime::from_secs(-86_400),
+            lineage_key: LineageKey::founder(&data_id("test:fork_no_density"), 0),
         },
         LogPayload::Birthday { age_years: 30 },
     ];
@@ -607,7 +630,7 @@ fn formats_roundtrip_rejects_an_unknown_field_everywhere() {
     let stamp = r#"{"t":0,"seq":1}"#;
     let rejected = r#"{"code":"already_started"}"#;
     let plan = r#"{"by":1,"planned_at":0}"#;
-    let founder = r#"{"born":0}"#;
+    let founder = r#"{"born":0,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}"#;
     let extend = |text: &str| text.replace('}', fields);
     assert!(from_json::<InputStamp>(stamp).is_ok());
     assert!(from_json::<InputStamp>(&extend(stamp)).is_err());

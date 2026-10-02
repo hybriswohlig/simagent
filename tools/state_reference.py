@@ -6,8 +6,10 @@ The bytes follow the postcard wire format (see postcard_reference.py), the field
 follows ADR-0003 5.2 and ADR-0002 ("Speichern, Laden, Hash"). The hash is xxh3-64 with
 seed 0 from the C reference implementation (PyPI xxhash, pinned in requirements.txt).
 
-Scenario "tiny": Start with world_seed 0xff and one founder born one second before the
-start (ADR-0004). By hand from ADR-0002 and ADR-0004:
+Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny` and one founder born
+one second before the start, female, with the alleles wild (from the mother) and dummy
+(from the father) at the dummy locus (ADR-0004). Her lineage key is that of founder 0
+of the tag (ADR-0001 section 4). By hand from ADR-0002 and ADR-0004:
 - the input is applied at now = 0; the year end series gets insertion number 1 (first at
   YEAR - 1, period YEAR), the founder's first birthday insertion number 2 (at YEAR - 1);
 - in the queue the birthday comes first: same second, domain phase before observers.
@@ -17,7 +19,21 @@ Usage: .venv/bin/python tools/state_reference.py
 
 import xxhash
 
-from postcard_reference import SAMPLE_ENTRY, seq, signed, string, variant, varint
+from postcard_reference import (
+    DUMMY,
+    FEMALE,
+    SAMPLE_ENTRY,
+    WILD,
+    founder,
+    genotype,
+    lineage_key,
+    seq,
+    signed,
+    string,
+    variant,
+    varint,
+)
+from rng_reference import founder_key
 
 YEAR = 364 * 86_400
 
@@ -42,15 +58,28 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
+PROJECTION_VERSION = 2
+CORE_VERSION = 2
+
+
+def sim_state(born: int, key: int, sex: bytes, genes: bytes) -> bytes:
+    """Sim { born, lineage_key, sex, genotype }"""
+    return signed(born) + lineage_key(key) + sex + genes
+
+
+TINY_KEY = founder_key("test:tiny", 0)
+TINY_GENES = genotype(WILD, DUMMY)
+
+
 def projection(closed_through: int, queue: list, next_insertion: int) -> bytes:
     return (
-        varint(1)  # projection_version
+        varint(PROJECTION_VERSION)
         + some(varint(0xFF))  # world_seed
         + signed(closed_through)
         + varint(2)  # next SimId
         + seq(queue)
         + varint(next_insertion)
-        + seq([varint(1) + signed(-1)])  # sims: id 1, born -1
+        + seq([varint(1) + sim_state(-1, TINY_KEY, FEMALE, TINY_GENES)])  # sims: id 1
         + seq([])  # archive
     )
 
@@ -93,7 +122,8 @@ EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
 
 
 def header(data_hash: int) -> bytes:
-    return b"SIMAGENT" + varint(1) + varint(1) + varint(data_hash)
+    """magic, format_version 1, core_version, data_hash"""
+    return b"SIMAGENT" + varint(1) + varint(CORE_VERSION) + varint(data_hash)
 
 
 def plan_ref(by: int, planned_at: int) -> bytes:
@@ -101,12 +131,17 @@ def plan_ref(by: int, planned_at: int) -> bytes:
 
 
 # The input log of "tiny": Start at stamp t = -1, seq 1, with world_seed 0xff, the
-# founder tag `test:tiny` and one founder born at -1.
+# founder tag `test:tiny` and the one founder.
 TINY_INPUT_LOG = seq(
     [
         signed(-1)
         + varint(1)
-        + variant(0, varint(0xFF), string("test:tiny"), seq([signed(-1)]))
+        + variant(
+            0,
+            varint(0xFF),
+            string("test:tiny"),
+            seq([founder(-1, FEMALE, TINY_GENES)]),
+        )
     ]
 )
 
@@ -124,7 +159,14 @@ TINY_SAVE_AFTER_START = (
 
 # A world that never started: nothing but the clock and the counters.
 EMPTY_PROJECTION = (
-    varint(1) + NONE + signed(-1) + varint(1) + seq([]) + varint(1) + seq([]) + seq([])
+    varint(PROJECTION_VERSION)
+    + NONE
+    + signed(-1)
+    + varint(1)
+    + seq([])
+    + varint(1)
+    + seq([])
+    + seq([])
 )
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
@@ -132,7 +174,7 @@ EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + 
 # The log of "tiny" up to the end of year 0 (ADR-0004 section 7). An entry is
 # (id, t, subjects, causes, payload). Subject::Sim = 0. Cause: Event = 0, Plan = 1
 # { by, planned_at }, Input = 2, Rule = 3. Payload: core:started = 0 { founders },
-# core:founder_added = 1 { born }, core:birthday = 2 { age_years }.
+# core:founder_added = 1 { born, lineage_key }, core:birthday = 2 { age_years }.
 def entry(event_id: int, time: int, subjects: list, causes: list, payload: bytes) -> bytes:
     return varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload
 
@@ -141,7 +183,7 @@ SIM_1 = variant(0, varint(1))
 BY_INPUT_1 = variant(2, varint(1))
 TINY_LOG = [
     entry(1, 0, [], [BY_INPUT_1], variant(0, varint(1))),
-    entry(2, 0, [SIM_1], [BY_INPUT_1], variant(1, signed(-1))),
+    entry(2, 0, [SIM_1], [BY_INPUT_1], variant(1, signed(-1), lineage_key(TINY_KEY))),
     entry(3, YEAR - 1, [SIM_1], [variant(1, varint(2), signed(0))], variant(2, varint(1))),
 ]
 

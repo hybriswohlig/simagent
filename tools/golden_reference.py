@@ -4,6 +4,9 @@ the Rust code (ADR-0003 6.3): year hashes, log hash and the golden save.
 
 The scenario: seed 1, founder tag `test:dummy`, three founders born 30 years (sim 1),
 25 years and 100 days (sim 2) and one second (sim 3) before the start, ten years.
+Sim 1 is female with the alleles wild and dummy (from mother and father), sim 2 male
+with dummy and wild, sim 3 male with dummy twice. Their lineage keys are those of the
+founders 0 to 2 of the tag (ADR-0001 section 4).
 By hand from ADR-0002 and ADR-0004 (a year has 364 days of 86 400 seconds):
 
 - `Start` writes the entries 1 to 4 at t = 0 and plans the year end series (insertion
@@ -24,16 +27,33 @@ from pathlib import Path
 
 import xxhash
 
-from postcard_reference import seq, signed, string, variant, varint
+from postcard_reference import (
+    DUMMY,
+    FEMALE,
+    MALE,
+    WILD,
+    founder,
+    genotype,
+    lineage_key,
+    seq,
+    signed,
+    string,
+    variant,
+    varint,
+)
+from rng_reference import founder_key
 from state_reference import (
+    CORE_VERSION,
     EMPTY_DATA_HASH,
     NONE,
+    PROJECTION_VERSION,
     YEAR,
     birthday,
     entry,
     header,
     plan_ref,
     queue_entry,
+    sim_state,
     some,
     year_end,
 )
@@ -43,6 +63,10 @@ DAY = 86_400
 SEED = 1
 TAG = "test:dummy"
 BORN = [-30 * YEAR, -25 * YEAR - 100 * DAY, -1]
+SEX = [FEMALE, MALE, MALE]
+GENES = [genotype(WILD, DUMMY), genotype(DUMMY, WILD), genotype(DUMMY, DUMMY)]
+KEYS = [founder_key(TAG, index) for index in range(3)]
+FOUNDERS = list(zip(BORN, KEYS, SEX, GENES))
 YEARS = 10
 SAVE_AT = 3 * YEAR + 100 * DAY
 
@@ -63,9 +87,9 @@ def birthday_entry_id(sim: int, year: int) -> int:
 
 
 def projection(closed_through: int, queue: list, next_insertion: int) -> bytes:
-    sims = seq([varint(sim) + signed(born) for sim, born in zip((1, 2, 3), BORN)])
+    sims = seq([varint(sim) + sim_state(*state) for sim, state in zip((1, 2, 3), FOUNDERS)])
     return (
-        varint(1)
+        varint(PROJECTION_VERSION)
         + some(varint(SEED))
         + signed(closed_through)
         + varint(4)
@@ -94,9 +118,10 @@ YEAR_HASHES = [hash64(year_projection(year)) for year in range(YEARS)]
 def log_entries() -> list:
     by_input = variant(2, varint(1))
     entries = [entry(1, 0, [], [by_input], variant(0, varint(len(BORN))))]
-    for sim, born in zip((1, 2, 3), BORN):
+    for sim, born, key in zip((1, 2, 3), BORN, KEYS):
         subject = variant(0, varint(sim))
-        entries.append(entry(1 + sim, 0, [subject], [by_input], variant(1, signed(born))))
+        added = variant(1, signed(born), lineage_key(key))
+        entries.append(entry(1 + sim, 0, [subject], [by_input], added))
     ages = {1: 30, 2: 26, 3: 1}
     for year in range(YEARS):
         for sim in (1, 2, 3):
@@ -140,7 +165,8 @@ def golden_save() -> bytes:
         plan_ref(1, 0),
         plan_ref(birthday_entry_id(1, year), birthday_time(1, year)),
     ]
-    start = variant(0, varint(SEED), string(TAG), seq([signed(born) for born in BORN]))
+    founders = seq([founder(born, sex, genes) for born, _, sex, genes in FOUNDERS])
+    start = variant(0, varint(SEED), string(TAG), founders)
     return (
         header(EMPTY_DATA_HASH)
         + projection(SAVE_AT, [queue_entry(*item) for item in queue], 6 + 3 * year)
@@ -152,7 +178,7 @@ def golden_save() -> bytes:
 
 
 GOLDEN = {
-    "core_version": 1,
+    "core_version": CORE_VERSION,
     "data_hash": f"{EMPTY_DATA_HASH:016x}",
     "year_hashes": [
         {"year": year, "hash": f"{value:016x}"} for year, value in enumerate(YEAR_HASHES)

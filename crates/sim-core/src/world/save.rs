@@ -11,7 +11,8 @@ use super::ctx::{IdCounters, LogBuffer};
 use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{self, LoadedState, PROJECTION_VERSION, YearHash};
 use crate::ids::{Counter, SimId};
-use crate::input::{Input, InputRecord};
+use crate::input::{Input, InputRecord, Start};
+use crate::lineage::LineageIndex;
 use crate::log::PlanRef;
 use crate::state::{self, DomainState};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
@@ -190,6 +191,7 @@ impl World {
             .ok()
             .and_then(|len| len.checked_add(1))
             .ok_or(LoadError::Inconsistent)?;
+        let lineage = LineageIndex::new();
         let world = World {
             sched,
             state: WorldState {
@@ -197,6 +199,7 @@ impl World {
                     world_seed: loaded.world_seed,
                     sims: loaded.sims,
                     archive: loaded.archive,
+                    lineage,
                 },
                 ids: IdCounters::restore(counter(loaded.next_sim_id)?),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
@@ -256,10 +259,7 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
                             let unstarted = DomainState::new();
                             state::start::check_start(&unstarted, record.t, start).is_ok()
                                 && start.world_seed == seed
-                                && founders_are_the_first_sims(
-                                    loaded,
-                                    start.founders.iter().map(|f| f.born),
-                                )
+                                && founders_are_the_first_sims(loaded, start)
                         }
                         // The first input that can follow `Start` needs its stamp
                         // checked here: not before the previous one, not after the
@@ -269,14 +269,12 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
             })
 }
 
-/// The founders are the sims 1 to N, living or archived, with their birth times. As
-/// long as nothing else creates sims, the counter stands at N + 1.
-fn founders_are_the_first_sims(
-    loaded: &LoadedState,
-    founders: impl Iterator<Item = SimTime>,
-) -> bool {
+/// The founders are the sims 1 to N, living or archived, with their birth times, sex
+/// and genotype from `Start` and the lineage key of their place in its list. As long as
+/// nothing else creates sims, the counter stands at N + 1.
+fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     let mut next_id = 1_u64;
-    for born in founders {
+    for founder in &start.founders {
         let Ok(id) = SimId::try_from(next_id) else {
             return false;
         };
@@ -285,7 +283,7 @@ fn founders_are_the_first_sims(
             (None, Some(sim)) => sim.born,
             (None, None) | (Some(_), Some(_)) => return false,
         };
-        if found != born {
+        if found != founder.born {
             return false;
         }
         next_id += 1;

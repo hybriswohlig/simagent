@@ -49,12 +49,44 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_id::DataId;
+    use crate::genome::{Allele, Genotype, Sex};
     use crate::ids::SimId;
+    use crate::lineage::LineageKey;
     use crate::state::{ArchivedSim, Sim};
-    use crate::time::{DAY, year_start};
+    use crate::time::{DAY, SimTime, year_start};
 
     fn sim(n: u64) -> SimId {
         SimId::try_from(n).expect("valid")
+    }
+
+    const GENOTYPE: Genotype = Genotype {
+        maternal: Allele::Wild,
+        paternal: Allele::Wild,
+    };
+
+    fn key(n: u64) -> LineageKey {
+        LineageKey::founder(&DataId::new("test:census").expect("valid"), n)
+    }
+
+    /// The census reads only the times.
+    fn living(n: u64, born: SimTime) -> Sim {
+        Sim {
+            born,
+            lineage_key: key(n),
+            sex: Sex::Female,
+            genotype: GENOTYPE,
+        }
+    }
+
+    fn archived(n: u64, born: SimTime, left: SimTime) -> ArchivedSim {
+        ArchivedSim {
+            born,
+            left,
+            lineage_key: key(n),
+            sex: Sex::Male,
+            genotype: GENOTYPE,
+        }
     }
 
     /// Hand-built state, by hand for year 3 (a year has 364 days):
@@ -70,27 +102,14 @@ mod tests {
         let day_secs = u64::try_from(day).expect("positive");
         let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
         let mut domain = DomainState::new();
-        domain.sims.insert(
-            sim(1),
-            Sim {
-                born: at(3, 10 * day),
-            },
-        );
-        domain.archive.insert(
-            sim(2),
-            ArchivedSim {
-                born: at(-10, 0),
-                left: at(3, 100 * day),
-            },
-        );
-        domain.sims.insert(sim(3), Sim { born: at(0, -1) });
-        domain.archive.insert(
-            sim(4),
-            ArchivedSim {
-                born: at(-10, 0),
-                left: at(3, -1),
-            },
-        );
+        domain.sims.insert(sim(1), living(1, at(3, 10 * day)));
+        domain
+            .archive
+            .insert(sim(2), archived(2, at(-10, 0), at(3, 100 * day)));
+        domain.sims.insert(sim(3), living(3, at(0, -1)));
+        domain
+            .archive
+            .insert(sim(4), archived(4, at(-10, 0), at(3, -1)));
         let last_second = |year: i64| at(year + 1, -1);
         assert_eq!(
             census_row(&domain, last_second(3)),

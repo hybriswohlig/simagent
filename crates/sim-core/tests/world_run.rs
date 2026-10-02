@@ -13,6 +13,7 @@
 //!   same second, and counts 3 living sims with 3 * YEAR lived seconds.
 
 use sim_core::data_id::DataId;
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
@@ -29,13 +30,20 @@ fn start_with(born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: 1,
         founder_tag: DataId::new("test:world_run").expect("valid"),
-        founders: born
-            .iter()
-            .map(|&secs| Founder {
-                born: SimTime::from_secs(secs),
-            })
-            .collect(),
+        founders: born.iter().copied().map(founder).collect(),
     })
+}
+
+/// A founder born at `secs`: female, with the alleles wild and dummy.
+fn founder(secs: i64) -> Founder {
+    Founder {
+        born: SimTime::from_secs(secs),
+        sex: Sex::Female,
+        genotype: Genotype {
+            maternal: Allele::Wild,
+            paternal: Allele::Dummy,
+        },
+    }
 }
 
 fn started(born: &[i64]) -> World {

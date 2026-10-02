@@ -42,12 +42,33 @@ def variant(index: int, *fields: bytes) -> bytes:
     return varint(index) + b"".join(fields)
 
 
-# Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, founders: [Founder { born: SimTime }] }
+# The genome of the Durchstich: enums without fields are their variant index.
+# Sex: female = 0, male = 1. Allele: wild = 0, dummy = 1.
+FEMALE, MALE = variant(0), variant(1)
+WILD, DUMMY = variant(0), variant(1)
+
+
+def genotype(maternal: bytes, paternal: bytes) -> bytes:
+    """Genotype { maternal: Allele, paternal: Allele }"""
+    return maternal + paternal
+
+
+def lineage_key(key: int) -> bytes:
+    """LineageKey(u64): the plain number, like every full-range u64."""
+    return varint(key)
+
+
+def founder(born: int, sex: bytes, genes: bytes) -> bytes:
+    """Founder { born: SimTime, sex: Sex, genotype: Genotype }"""
+    return signed(born) + sex + genes
+
+
+# Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, founders: [Founder] }
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
     string("test:fork_no_density"),
-    seq([signed(-946_080_000)]),
+    seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
 )
 
 # InputStamp { t: SimTime, seq: InputSeq }
@@ -85,22 +106,6 @@ MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 # The largest ID and the full-range seed, to pin the varint widths.
 MAX_ID = varint((1 << 53) - 1)
 MAX_U64 = varint((1 << 64) - 1)
-
-# The genome of the Durchstich: enums without fields are their variant index.
-# Sex: female = 0, male = 1. Allele: wild = 0, dummy = 1.
-FEMALE, MALE = variant(0), variant(1)
-WILD, DUMMY = variant(0), variant(1)
-
-
-def genotype(maternal: bytes, paternal: bytes) -> bytes:
-    """Genotype { maternal: Allele, paternal: Allele }"""
-    return maternal + paternal
-
-
-def lineage_key(key: int) -> bytes:
-    """LineageKey(u64): the plain number, like every full-range u64."""
-    return varint(key)
-
 
 # The first founder of `test:fork_no_density` (ADR-0001 section 4): the value that
 # tools/rng_reference.py prints first under `founders`.
