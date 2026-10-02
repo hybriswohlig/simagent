@@ -2,6 +2,7 @@
 //! and a key. Neither the world nor a save nor the scheduler holds generator state; a
 //! new draw somewhere never shifts another one.
 
+mod select;
 mod tag;
 pub mod tags;
 
@@ -10,6 +11,8 @@ pub use tag::PurposeTag;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
 use sim_math::dist;
+
+use crate::lineage::{GenomeKey, LineageKey};
 
 /// The seed of a world (scenario field `world_seed`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,7 +29,7 @@ impl WorldSeed {
 }
 
 /// Whose draw it is. Only from a lineage key or `WORLD`, never from a counter ID or a
-/// slot (ADR-0001 section 1). The constructor from a lineage key arrives with it.
+/// slot (ADR-0001 section 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubjectKey(u64);
 
@@ -36,6 +39,18 @@ impl SubjectKey {
 
     pub const fn get(self) -> u64 {
         self.0
+    }
+}
+
+impl From<LineageKey> for SubjectKey {
+    fn from(key: LineageKey) -> SubjectKey {
+        SubjectKey(key.get())
+    }
+}
+
+impl From<GenomeKey> for SubjectKey {
+    fn from(key: GenomeKey) -> SubjectKey {
+        SubjectKey(key.get())
     }
 }
 
@@ -52,6 +67,10 @@ pub struct DrawKey {
 
 /// Domains of `absorb`: eight ASCII bytes as a little-endian number.
 pub(crate) const DRAW: u64 = u64::from_le_bytes(*b"sa.draw1");
+pub(crate) const RANK: u64 = u64::from_le_bytes(*b"sa.rank1");
+pub(crate) const CHILD: u64 = u64::from_le_bytes(*b"sa.chld1");
+pub(crate) const FOUNDER: u64 = u64::from_le_bytes(*b"sa.fndr1");
+pub(crate) const IMMIGRANT: u64 = u64::from_le_bytes(*b"sa.immi1");
 
 /// The SplitMix64 finaliser. `wrapping_mul`: overflow checks are on in release too.
 pub(crate) const fn mix64(z: u64) -> u64 {
@@ -240,14 +259,32 @@ mod tests {
     /// Values from tools/rng_reference.py.
     #[test]
     fn absorb_known_answers() {
-        let founder = u64::from_le_bytes(*b"sa.fndr1");
-        let rank = u64::from_le_bytes(*b"sa.rank1");
         let tag = str_key(&DataId::new("test:fork_no_density").expect("valid"));
-        assert_eq!(absorb(founder, 0, &[tag, 0]), 0xcfd3_d455_1fb3_63c2);
-        assert_eq!(absorb(rank, 0, &[7, 5, 11, 13, 17]), 0x7030_8ebc_37d8_4ef5);
+        assert_eq!(absorb(FOUNDER, 0, &[tag, 0]), 0xcfd3_d455_1fb3_63c2);
+        assert_eq!(absorb(RANK, 0, &[7, 5, 11, 13, 17]), 0x7030_8ebc_37d8_4ef5);
         assert_eq!(
             DRAW, 0x3177_6172_642e_6173,
             "the bytes of sa.draw1, little-endian"
+        );
+        // The domains differ in their bytes 3 to 6: `draw`, `rank`, `chld`, `fndr`, `immi`.
+        assert_eq!(RANK, 0x316b_6e61_722e_6173);
+        assert_eq!(CHILD, 0x3164_6c68_632e_6173);
+        assert_eq!(FOUNDER, 0x3172_646e_662e_6173);
+        assert_eq!(IMMIGRANT, 0x3169_6d6d_692e_6173);
+    }
+
+    /// ADR-0001 section 1: a subject is a lineage key (for meiosis the genome key) or
+    /// the world.
+    #[test]
+    fn subjects_come_from_lineage_keys() {
+        let tag = DataId::new("test:fork_no_density").expect("valid");
+        let founder = LineageKey::founder(&tag, 0);
+        assert_eq!(SubjectKey::from(founder).get(), founder.get());
+        assert_eq!(SubjectKey::from(founder).get(), 0xcfd3_d455_1fb3_63c2);
+        let other = LineageKey::founder(&tag, 1);
+        assert_eq!(
+            SubjectKey::from(GenomeKey::of_zygote(other)).get(),
+            0x1e0b_b476_2d39_fa10
         );
     }
 
