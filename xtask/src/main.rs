@@ -341,11 +341,25 @@ fn listed(findings: Vec<String>) -> String {
     format!("\n  {}", findings.join("\n  "))
 }
 
+/// The names of the functions in the hand-written files of the contract module: no
+/// parameter may have such a key, its getter would define the name twice.
+fn taken_names(root: &Path) -> Result<Vec<String>> {
+    let generated = root.join(codegen::GENERATED_FILE);
+    let dir = generated.parent().unwrap_or(root);
+    let mut names = Vec::new();
+    for file in rust_files(dir)? {
+        if file != generated {
+            names.extend(scan::function_names(&read(&file)?));
+        }
+    }
+    Ok(names)
+}
+
 /// The types of the contract `body` as `cargo xtask codegen` writes them: generated and
 /// then formatted in `target/codegen`, never in place.
 fn generated_types(root: &Path, body: &str) -> Result<String> {
     let hash = sim_core::hash::stable_hash64(body.as_bytes());
-    let source = codegen::generate(body, hash).map_err(listed)?;
+    let source = codegen::generate(body, hash, &taken_names(root)?).map_err(listed)?;
     let manifest = read(&root.join("Cargo.toml"))?;
     let edition = codegen::workspace_edition(&manifest)
         .ok_or("Cargo.toml: expected exactly one line edition = \"...\"")?;
@@ -843,6 +857,9 @@ fn cargo(root: &Path, args: &[&str]) -> Result {
 mod tests {
     use super::*;
 
+    /// The hand-written part of the contract module.
+    const CONTRACT_MODULE_FILE: &str = "crates/sim-core/src/body_contract/mod.rs";
+
     /// A copy of the files that the step contract check reads, below `target/`, with the
     /// text of `file` changed by `change`.
     fn contract_copy(name: &str, file: &str, change: impl Fn(&str) -> String) -> PathBuf {
@@ -853,6 +870,7 @@ mod tests {
             BODY_CHANGELOG_FILE,
             BODY_HASHES_FILE,
             codegen::GENERATED_FILE,
+            CONTRACT_MODULE_FILE,
             "Cargo.toml",
         ] {
             let mut text = read(&root.join(path)).expect(path);
@@ -1057,6 +1075,40 @@ mod tests {
                 format!("{}.0.0", major + 1),
             ]
         }
+    }
+
+    /// The functions of `body_contract/mod.rs` are taken, the generated ones are not
+    /// read, and the generator gets the names: a parameter with the key `with` stops it.
+    #[test]
+    fn the_functions_of_the_contract_module_are_taken() {
+        let root = workspace_root().expect("the workspace root");
+        let names = taken_names(&root).expect("names");
+        assert!(names.contains(&"with".to_string()), "{names:?}");
+        for generated in ["get", "slot", "spec", "height_cm"] {
+            assert!(!names.contains(&generated.to_string()), "{generated}");
+        }
+
+        let copy = contract_copy("taken", "", str::to_string);
+        assert_eq!(taken_names(&copy), Ok(names));
+        let body = read(&copy.join(BODY_FILE)).expect("contract");
+        assert!(generated_types(&copy, &body).is_ok());
+        let first_key = body
+            .split("\"key\": \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("a first key");
+        let renamed = body.replacen(&format!("\"key\": \"{first_key}\""), "\"key\": \"with\"", 1);
+        assert_eq!(
+            generated_types(&copy, &renamed),
+            Err(
+                "\n  parameter with: the body contract module has a function of this name"
+                    .to_string()
+            )
+        );
+        // Without the hand-written file the name is free.
+        std::fs::remove_file(copy.join(CONTRACT_MODULE_FILE)).expect("removed");
+        assert_eq!(taken_names(&copy), Ok(Vec::new()));
+        assert!(generated_types(&copy, &renamed).is_ok());
     }
 
     /// ADR-0005 `contract_check_passes_on_repo`, the whole step.

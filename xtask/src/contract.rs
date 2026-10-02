@@ -328,7 +328,7 @@ fn melanin_findings(tables: &Value, findings: &mut Vec<String>) {
 
 /// Keys that occur twice in one object of a JSON text. The parser keeps the last value
 /// without a word, while a reader of the file may see the first.
-fn duplicate_keys(json: &str) -> Vec<String> {
+pub fn duplicate_keys(json: &str) -> Vec<String> {
     let mut found = Vec::new();
     // The keys seen so far per open object; `None` stands for an open array.
     let mut open: Vec<Option<Vec<String>>> = Vec::new();
