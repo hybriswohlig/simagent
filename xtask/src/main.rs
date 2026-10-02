@@ -6,6 +6,7 @@ mod budget;
 mod canary;
 mod checks;
 mod kat;
+mod release_run;
 mod results;
 mod scan;
 
@@ -245,17 +246,22 @@ fn gate(require_clean_tree: bool) -> Result {
         }
         cargo(&root, &args)
     })?;
-    step("log budget", || check_log_budget(&root))
+    step("gate run (release binary): goldens and log budget", || {
+        check_gate_run(&root)
+    })
 }
 
-/// The scenario whose run the gate measures (ADR-0004 section 8): the dummy of step 2,
-/// from step 5 on the walking skeleton.
-const BUDGET_SCENARIO: &str = "tests/scenarios/dummy.json";
+/// The scenario of the gate run (ADR-0004 section 8, ADR-0001 section 7): the dummy of
+/// step 2, from step 5 on the walking skeleton. Its golden has the same file name.
+const GATE_SCENARIO: &str = "tests/scenarios/dummy.json";
+const GATE_GOLDEN: &str = "tests/golden/dummy.json";
 
-/// ADR-0004 section 8: runs the gate scenario through `simagent` and counts its log
-/// entries per person-year from `events.ndjson` and `census.csv`.
-fn check_log_budget(root: &Path) -> Result {
-    let out = root.join("target").join("xtask-log-budget");
+/// Runs the gate scenario once with the release binary of `sim-cli`, which is built
+/// without the features of the dev-dependencies, and checks the run twice: its manifest
+/// against the golden (ADR-0001 section 7) and its log entries per person-year from
+/// `events.ndjson` and `census.csv` (ADR-0004 section 8).
+fn check_gate_run(root: &Path) -> Result {
+    let out = root.join("target").join("xtask-gate-run");
     if out.exists() {
         std::fs::remove_dir_all(&out)
             .map_err(|error| format!("cannot remove {}: {error}", out.display()))?;
@@ -267,19 +273,24 @@ fn check_log_budget(root: &Path) -> Result {
             "run",
             "--quiet",
             "--locked",
+            "--release",
             "--package",
             "sim-cli",
             "--",
             "run",
             "--scenario",
-            BUDGET_SCENARIO,
+            GATE_SCENARIO,
             "--out",
             &out_arg,
         ],
     )?;
+    let mut found = release_run::differences(
+        &read(&out.join("manifest.json"))?,
+        &read(&root.join(GATE_GOLDEN))?,
+    )?;
     let entry_times = budget::entry_times(&read(&out.join("events.ndjson"))?)?;
     let census = budget::census_rows(&read(&out.join("census.csv"))?)?;
-    let found = budget::violations(&entry_times, &census);
+    found.extend(budget::violations(&entry_times, &census));
     if found.is_empty() {
         Ok(())
     } else {
