@@ -19,6 +19,7 @@ const Y: i64 = 31_449_600;
 // tools/state_reference.py
 const TINY_AFTER_START: &str =
     "0201ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
+const PAIR_AFTER_START: &str = "0201ff01010303fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b9010000010201aca1aef0de91d89d860101010100";
 const TINY_AFTER_START_HASH: u64 = 0x8cc0_22c5_d3b1_a5ef;
 const TINY_YEAR_0_HASH: u64 = 0x27b8_622f_0102_e6fd;
 const TINY_AFTER_YEAR_0: &str = "0201ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100";
@@ -78,6 +79,35 @@ fn plan(by: u64, planned_at: i64) -> PlanRef {
         by,
         planned_at: t(planned_at),
     }
+}
+
+/// Scenario "pair" of the reference tool: a woman born two seconds before the start with
+/// the alleles wild and dummy, a man born one second before it with dummy twice. The
+/// projection keeps for each what `Start` gave: the sex, both alleles and the lineage
+/// key of the place in the list.
+#[test]
+fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
+    let mut world = World::new();
+    let dummy_twice = Genotype {
+        maternal: Allele::Dummy,
+        paternal: Allele::Dummy,
+    };
+    world
+        .submit(Input::Start(Start {
+            world_seed: 0xff,
+            founder_tag: DataId::new("test:pair").expect("valid"),
+            founders: vec![
+                founder(-2),
+                Founder {
+                    born: SimTime::from_secs(-1),
+                    sex: Sex::Male,
+                    genotype: dummy_twice,
+                },
+            ],
+        }))
+        .expect("accepted");
+    assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
+    assert_eq!(world.state_hash(), 0x3645_e593_c82f_7b06);
 }
 
 #[test]

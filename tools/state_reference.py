@@ -22,6 +22,7 @@ import xxhash
 from postcard_reference import (
     DUMMY,
     FEMALE,
+    MALE,
     SAMPLE_ENTRY,
     WILD,
     founder,
@@ -117,6 +118,33 @@ TINY_AFTER_YEAR_0 = projection(
 )
 
 
+# Scenario "pair": seed 0xff, founder tag `test:pair`, a woman born two seconds before
+# the start with the alleles wild and dummy, and a man born one second before it with
+# dummy twice. Right after Start: her first birthday (insertion number 2) is due at
+# YEAR - 2, his (insertion number 3) at YEAR - 1, in the same second as the year end.
+PAIR_KEYS = [founder_key("test:pair", index) for index in range(2)]
+PAIR_AFTER_START = (
+    varint(PROJECTION_VERSION)
+    + some(varint(0xFF))
+    + signed(-1)
+    + varint(3)  # next SimId
+    + seq(
+        [
+            queue_entry(YEAR - 2, 2, birthday(1), None),
+            queue_entry(YEAR - 1, 3, birthday(2), None),
+            queue_entry(YEAR - 1, 1, year_end(), YEAR),
+        ]
+    )
+    + varint(4)
+    + seq(
+        [
+            varint(1) + sim_state(-2, PAIR_KEYS[0], FEMALE, genotype(WILD, DUMMY)),
+            varint(2) + sim_state(-1, PAIR_KEYS[1], MALE, genotype(DUMMY, DUMMY)),
+        ]
+    )
+    + seq([])  # archive
+)
+
 # Save file of ADR-0006: header, projection, exceptions.
 EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
 
@@ -210,6 +238,7 @@ if __name__ == "__main__":
         ("tiny_after_start", TINY_AFTER_START),
         ("tiny_year_0", TINY_YEAR_0),
         ("tiny_after_year_0", TINY_AFTER_YEAR_0),
+        ("pair_after_start", PAIR_AFTER_START),
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
