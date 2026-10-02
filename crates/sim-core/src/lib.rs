@@ -16,6 +16,7 @@ extern crate std;
 pub mod body_contract;
 pub mod canonical;
 pub mod data_id;
+pub mod finite;
 pub mod genome;
 pub mod hash;
 pub mod hex_u64;
