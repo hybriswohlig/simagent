@@ -5,10 +5,13 @@ Written from the postcard wire format specification (https://postcard.jamesmunns
 wire-format), independently of the Rust code: unsigned integers are LEB128 varints,
 signed integers are zigzag encoded first, strings and sequences carry a varint length,
 an enum variant is its index as a varint followed by its fields, a struct is its fields
-in declaration order. No dependencies.
+in declaration order, a float is its eight bytes in little endian. No dependencies.
 
 Usage: python3 tools/postcard_reference.py
 """
+
+
+import struct
 
 
 def varint(value: int) -> bytes:
@@ -73,20 +76,39 @@ def param_change(hereditary_diseases: bool) -> bytes:
     return variant(0, flag(hereditary_diseases))
 
 
+def f64(value: float) -> bytes:
+    """A float is eight bytes, little endian."""
+    return struct.pack("<d", value)
+
+
+def death_cause(code: str, per_year: float) -> bytes:
+    """DeathCause { cause: Code, per_year: FiniteF64 }"""
+    return string(code) + f64(per_year)
+
+
 def founder(born: int, sex: bytes, genes: bytes) -> bytes:
     """Founder { born: SimTime, sex: Sex, genotype: Genotype }"""
     return signed(born) + sex + genes
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, founders: [Founder] }
+# WorldParams, death_causes: [DeathCause], founders: [Founder] }
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
     string("test:fork_no_density"),
     world_params(False),
+    seq([death_cause("test:base", 0.02)]),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
 )
+
+# Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.
+SAMPLE_RANDOM_CAUSE = variant(
+    4, varint(4), varint(0xCFD3D4551FB363C2), varint(0x0123456789ABCDEF), varint(0)
+)
+
+# LogPayload::Death (variant 4) { cause: Code }
+SAMPLE_DEATH_PAYLOAD = variant(4, string("test:base"))
 
 # Input::ForkOverride (variant 1) { changes: [ParamChange] }: the switch goes on.
 SAMPLE_OVERRIDE = variant(1, seq([param_change(True)]))
@@ -135,6 +157,9 @@ if __name__ == "__main__":
     for name, data in [
         ("sample_input", SAMPLE_INPUT),
         ("sample_override", SAMPLE_OVERRIDE),
+        ("sample_random_cause", SAMPLE_RANDOM_CAUSE),
+        ("sample_death_payload", SAMPLE_DEATH_PAYLOAD),
+        ("death_cause", death_cause("test:base", 0.02)),
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),

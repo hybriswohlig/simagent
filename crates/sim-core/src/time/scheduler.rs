@@ -124,6 +124,12 @@ impl EventHandle {
     pub const fn seq(self) -> u64 {
         self.0
     }
+
+    /// The handle of the pending event with this insertion number, for an index that a
+    /// load builds again from the queue.
+    pub(crate) const fn from_seq(seq: u64) -> EventHandle {
+        EventHandle(seq)
+    }
 }
 
 /// An event taken from the queue.

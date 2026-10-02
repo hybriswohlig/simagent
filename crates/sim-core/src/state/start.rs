@@ -3,8 +3,8 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, years_between};
-use crate::input::{InputRejected, RejectCode, Start};
+use super::{DomainState, Sim, Slot, death, years_between};
+use crate::input::{DeathCause, InputRejected, MIN_DEATH_RATE_PER_YEAR, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
@@ -21,7 +21,8 @@ pub(crate) fn check_start(
         closed_through,
         start.founders.len(),
         start.founders.iter().any(|f| f.born >= SimTime::START),
-    );
+    )
+    .or_else(|| death_causes_rejection(&start.death_causes));
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -53,6 +54,20 @@ fn start_rejection(
     None
 }
 
+/// Why these causes of death are rejected, if at all: two with the same key, or a hazard
+/// so small that the years until death would not be a finite number.
+pub(crate) fn death_causes_rejection(causes: &[DeathCause]) -> Option<RejectCode> {
+    let twice = causes.iter().enumerate().any(|(index, cause)| {
+        causes[..index]
+            .iter()
+            .any(|earlier| earlier.cause.key() == cause.cause.key())
+    });
+    let too_small = |cause: &DeathCause| cause.per_year.get() < MIN_DEATH_RATE_PER_YEAR;
+    let _ = (twice, causes.iter().any(too_small));
+    let _ = (RejectCode::DeathCauseTwice, RejectCode::DeathRateOutOfRange);
+    None
+}
+
 /// The number of founders as it stands in `core:started`.
 fn founder_count(founders: usize) -> Option<u32> {
     u32::try_from(founders).ok()
@@ -60,10 +75,13 @@ fn founder_count(founders: usize) -> Option<u32> {
 
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
 /// 7). Then one creation entry per founder, in list order; the position in the list
-/// is the founder's index in its lineage key (ADR-0001 section 4).
+/// is the founder's index in its lineage key (ADR-0001 section 4). Per founder the first
+/// birthday is planned, then the deaths in the order of the causes; the causes act on a
+/// founder from the start on.
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params);
+    domain.death_causes.clone_from(&start.death_causes);
     let founders = founder_count(start.founders.len())
         .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
     let started = ctx.emit(
@@ -95,8 +113,10 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
             },
         );
         let next = first_birthday(born, ctx.now());
-        ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
+        let handle = ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
+        domain.pending.insert((id, Slot::Birthday), handle);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });
+        death::plan_deaths(domain, id, lineage_key, SimTime::START, added, ctx);
     }
 }
 

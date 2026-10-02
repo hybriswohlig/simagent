@@ -85,8 +85,8 @@ impl LogBuffer {
     }
 }
 
-/// What a domain handler or an applied input may do. `cancel` and `reschedule`
-/// (ADR-0004 section 7) arrive with their first user, the death rule.
+/// What a domain handler or an applied input may do. `reschedule` (ADR-0004 section 7)
+/// arrives with its first user.
 pub(crate) struct SimCtx<'a, 'q> {
     ctx: &'a mut Ctx<'q, EventPayload, PlanRef>,
     ids: &'a mut IdCounters,
@@ -178,6 +178,11 @@ impl<'a, 'q> SimCtx<'a, 'q> {
     ) -> EventHandle {
         let meta = self.plan_ref(by);
         self.ctx.schedule_periodic(first, period, payload, meta)
+    }
+
+    /// Removes a pending event; `false` if it has run or was cancelled before.
+    pub(crate) fn cancel(&mut self, handle: EventHandle) -> bool {
+        self.ctx.cancel(handle)
     }
 
     fn plan_ref(&self, by: EventId) -> PlanRef {

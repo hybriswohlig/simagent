@@ -53,7 +53,7 @@ mod tests {
     use crate::genome::{Allele, Genotype, Sex};
     use crate::ids::SimId;
     use crate::lineage::LineageKey;
-    use crate::state::{ArchivedSim, Sim};
+    use crate::state::{ArchivedSim, LeftBy, Sim};
     use crate::time::{DAY, SimTime, year_start};
 
     fn sim(n: u64) -> SimId {
@@ -83,6 +83,7 @@ mod tests {
         ArchivedSim {
             born,
             left,
+            left_by: LeftBy::Death { cause: 7 },
             lineage_key: key(n),
             sex: Sex::Male,
             genotype: GENOTYPE,

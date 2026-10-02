@@ -3,18 +3,21 @@
 
 pub(crate) mod birthday;
 pub(crate) mod census;
+pub(crate) mod death;
 pub(crate) mod params;
 pub(crate) mod start;
 
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
 use crate::genome::{Genotype, Sex};
 use crate::ids::SimId;
+use crate::input::DeathCause;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
-use crate::time::{SimTime, YEAR};
+use crate::time::{EventHandle, SimTime, YEAR};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Sim {
@@ -25,12 +28,20 @@ pub(crate) struct Sim {
     pub(crate) genotype: Genotype,
 }
 
-/// Who left the active population stays resolvable by ID, with lineage key and genome
-/// (ADR-0004 section 1). The reason arrives with the rules that write it.
+/// Why a sim left the active population.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum LeftBy {
+    /// It died of the cause with this `str_key`.
+    Death { cause: u64 },
+}
+
+/// Who left the active population stays resolvable by ID, with reason, time, lineage
+/// key and genome (ADR-0004 section 1).
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ArchivedSim {
     pub(crate) born: SimTime,
     pub(crate) left: SimTime,
+    pub(crate) left_by: LeftBy,
     pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
     pub(crate) genotype: Genotype,
@@ -41,12 +52,26 @@ pub(crate) struct DomainState {
     pub(crate) world_seed: Option<u64>,
     /// The parameters of `Start` after every override; `None` until `Start`.
     pub(crate) world_params: Option<WorldParams>,
+    /// The causes of death of `Start`, in its order.
+    pub(crate) death_causes: Vec<DeathCause>,
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
     /// The lineage keys of the living and the archive. Not part of the projection:
     /// loading builds it again (ADR-0001 section 4).
     pub(crate) lineage: LineageIndex,
+    /// The handle of every pending event of a sim, so that the events of a sim that
+    /// dies can be cancelled. Not part of the projection: the queue holds the events,
+    /// loading builds the index again.
+    pub(crate) pending: BTreeMap<(SimId, Slot), EventHandle>,
+}
+
+/// What a pending event of a sim is. A sim has at most one of each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Slot {
+    Birthday,
+    /// The death of the cause with this `str_key`.
+    Death(u64),
 }
 
 impl DomainState {
@@ -54,9 +79,11 @@ impl DomainState {
         DomainState {
             world_seed: None,
             world_params: None,
+            death_causes: Vec::new(),
             sims: BTreeMap::new(),
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),
+            pending: BTreeMap::new(),
         }
     }
 }

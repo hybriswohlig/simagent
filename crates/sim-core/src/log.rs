@@ -14,6 +14,7 @@ use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, SimId};
 use crate::lineage::LineageKey;
 use crate::params::ParamChange;
+use crate::rng::DrawKey;
 use crate::time::SimTime;
 
 /// Companion data of every planned event: the entry that planned it and when.
@@ -36,6 +37,35 @@ pub enum Cause {
     Input(InputSeq),
     /// A stable rule code such as `core:gompertz_hazard`.
     Rule(Code),
+    /// The random draw the entry follows from; seed and key give its value again
+    /// (ADR-0001 section 1).
+    Random(DrawRef),
+}
+
+/// The key of a random draw as a log entry names it: plain numbers, written as hex in
+/// JSON. A log is output; a key read back from it addresses no draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DrawRef {
+    #[serde(with = "crate::hex_u64")]
+    pub tag: u64,
+    #[serde(with = "crate::hex_u64")]
+    pub subject: u64,
+    #[serde(with = "crate::hex_u64")]
+    pub occasion: u64,
+    #[serde(with = "crate::hex_u64")]
+    pub detail: u64,
+}
+
+impl From<DrawKey> for DrawRef {
+    fn from(key: DrawKey) -> DrawRef {
+        DrawRef {
+            tag: key.tag.get(),
+            subject: key.subject.get(),
+            occasion: key.occasion,
+            detail: key.detail,
+        }
+    }
 }
 
 /// Never empty: by construction and when deserialized.
@@ -111,6 +141,9 @@ pub enum LogPayload {
     /// An override block changed a world parameter (ADR-0001 section 6).
     #[serde(rename = "core:param_changed")]
     ParamChanged { change: ParamChange },
+    /// A sim died of this cause and left for the archive (departure entry of a SimId).
+    #[serde(rename = "core:death")]
+    Death { cause: Code },
 }
 
 /// One entry of the domain log.

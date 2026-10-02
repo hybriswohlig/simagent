@@ -18,14 +18,14 @@ use sim_core::world::{EventPayload, World, YearOut};
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0301ff010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
-const PAIR_AFTER_START: &str = "0301ff010100010303fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b9010000010201aca1aef0de91d89d860101010100";
-const TINY_OVERRIDDEN: &str = "0301ff010101010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
+const TINY_AFTER_START: &str = "0401ff01010000010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
+const PAIR_AFTER_START: &str = "0401ff01010000010303fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b9010000010201aca1aef0de91d89d860101010100";
+const TINY_OVERRIDDEN: &str = "0401ff01010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100";
 const TINY_OVERRIDE_ENTRY: &str = "030000010202030001";
-const TINY_AFTER_START_HASH: u64 = 0xfec9_8145_8305_cd0c;
-const TINY_YEAR_0_HASH: u64 = 0x7cf7_9b93_8a46_7246;
-const TINY_AFTER_YEAR_0: &str = "0301ff010100fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0xad2a_3f68_2d50_aeea;
+const TINY_AFTER_START_HASH: u64 = 0x4a91_4f99_5b99_167d;
+const TINY_YEAR_0_HASH: u64 = 0x1d65_40cb_3695_0d24;
+const TINY_AFTER_YEAR_0: &str = "0401ff01010000fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0xe9fa_1e6f_88e1_3624;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -56,6 +56,7 @@ fn start(seed: u64, born: &[i64]) -> Input {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
     })
 }
@@ -104,6 +105,7 @@ fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
             world_params: WorldParams {
                 hereditary_diseases: false,
             },
+            death_causes: Vec::new(),
             founders: vec![
                 founder(-2),
                 Founder {
@@ -115,7 +117,7 @@ fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0x956c_e1dc_8501_cd72);
+    assert_eq!(world.state_hash(), 0x4c70_c285_bd73_be50);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -130,7 +132,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0x8465_e460_555a_bebf);
+    assert_eq!(world.state_hash(), 0x42da_e8fd_d706_32d0);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -168,7 +170,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"7cf79b938a467246"}"#
+        r#"{"year":0,"hash":"1d6540cb36950d24"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

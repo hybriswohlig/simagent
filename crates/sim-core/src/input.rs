@@ -7,7 +7,8 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::data_id::DataId;
+use crate::data_id::{Code, DataId};
+use crate::finite::FiniteF64;
 use crate::genome::{Genotype, Sex};
 use crate::ids::InputSeq;
 use crate::params::{ParamChange, WorldParams};
@@ -33,8 +34,25 @@ pub struct Start {
     /// Data ID of the scenario; founder keys use its `str_key` (ADR-0001).
     pub founder_tag: DataId,
     pub world_params: WorldParams,
+    /// The causes of death of this world, each with its own hazard budget per person
+    /// (ADR-0001). The order of the list is the order in which their events are planned.
+    pub death_causes: Vec<DeathCause>,
     pub founders: Vec<Founder>,
 }
+
+/// A cause of death with a constant hazard (C4, simplified for the Durchstich): a person
+/// dies of it once the cause has acted for the person's budget divided by this rate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeathCause {
+    pub cause: Code,
+    /// Hazard per year, at least `MIN_DEATH_RATE_PER_YEAR`.
+    pub per_year: FiniteF64,
+}
+
+/// The smallest hazard a cause may have. A budget is below 37, so the years until death
+/// stay finite; from 100 000 years on they mean never (ADR-0002).
+pub const MIN_DEATH_RATE_PER_YEAR: f64 = 1e-9;
 
 /// World parameters with their new values, applied in list order. A block is never
 /// empty and names no parameter twice.
@@ -107,6 +125,10 @@ pub enum RejectCode {
     EmptyOverride,
     /// An override block that names a world parameter twice.
     OverrideParamTwice,
+    /// Two causes of death with the same code, or with codes of the same key.
+    DeathCauseTwice,
+    /// A cause of death with a hazard below `MIN_DEATH_RATE_PER_YEAR`.
+    DeathRateOutOfRange,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
