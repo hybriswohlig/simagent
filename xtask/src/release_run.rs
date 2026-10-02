@@ -180,6 +180,13 @@ mod tests {
             differences(&run, "tag 1 A"),
             Err("the golden is not a JSON object".to_string())
         );
+        // Two empty lists are equal, but then no year was compared.
+        let no_years = manifest(1, "2d06800538d394c2", &[], "3233ead4da597110");
+        let empty_golden = r#"{"core_version":1,"data_hash":"2d06800538d394c2","year_hashes":[],"log_hash":"3233ead4da597110"}"#;
+        assert_eq!(
+            differences(&no_years, empty_golden),
+            Err("the golden has no year hashes: nothing to compare".to_string())
+        );
         let without = run.replace(r#","log_hash":"3233ead4da597110""#, "");
         assert_eq!(
             differences(&without, GOLDEN),
