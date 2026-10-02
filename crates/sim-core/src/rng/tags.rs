@@ -56,6 +56,15 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), ALL.len(), "tag names are unique");
 
+        // A tag that is not in `ALL` would escape the pinned list.
+        let declared: std::vec::Vec<&str> = include_str!("tags.rs")
+            .lines()
+            .filter(|line| line.contains(": PurposeTag = PurposeTag("))
+            .filter_map(|line| line.strip_prefix("pub const "))
+            .filter_map(|rest| rest.split(':').next())
+            .collect();
+        let listed: std::vec::Vec<&str> = ALL.iter().map(|(_, name)| *name).collect();
+        assert_eq!(declared, listed, "every tag constant is in ALL, in order");
         let actual: std::string::String = ALL
             .iter()
             .map(|(tag, name)| std::format!("tag {} {name}\n", tag.get()))

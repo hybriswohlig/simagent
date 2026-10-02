@@ -361,12 +361,9 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
 }
 
 /// One message per file outside `RNG_DIR` that names the generator crate. A scan that
-/// cannot be trusted is reported too: no file at all, or no file under `RNG_DIR`
-/// (the module moved or was renamed).
+/// cannot be trusted is reported too: no file under `RNG_DIR` (the module moved or was
+/// renamed, or nothing was scanned at all).
 fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
-    if core_sources.is_empty() {
-        return vec!["no file scanned (generator crate, ADR-0001 section 2)".to_string()];
-    }
     let mut findings = Vec::new();
     if !core_sources
         .iter()
@@ -898,6 +895,10 @@ mod tests {
             (
                 "crates/sim-core/src/rng_helper.rs",
                 "fn g() { let _ = rand_chacha::ChaCha8Rng::from_seed([0; 32]); }",
+            ),
+            (
+                "crates/sim-core/src/world/ctx.rs",
+                "// draws come from rng, never from rand_chacha\nfn f() { let _ = \"rand_chacha\"; }",
             ),
         ]);
         assert_eq!(

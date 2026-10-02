@@ -227,6 +227,7 @@ mod tests {
     fn draw_key_known_answers() {
         let base = str_key(&DataId::new("test:base").expect("valid"));
         assert_eq!(base, 0x8b10_65ec_5b12_5f0b);
+        assert_eq!(SubjectKey::WORLD, SubjectKey(0), "ADR-0001 section 1");
         let cases: [(u64, DrawKey, &[u8; 64], [u64; 8]); 6] = [
             (
                 0,
