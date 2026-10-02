@@ -14,14 +14,42 @@ const YEAR_SECS: i64 = 364 * 86_400;
 /// The violations of the budget: `entry_times` are the times of all log entries,
 /// `census` the rows `(year, lived_secs)` of `census.csv`.
 pub fn violations(entry_times: &[i64], census: &[(i64, u64)]) -> Vec<String> {
-    let _ = (
-        entry_times,
-        census,
-        MAX_ENTRIES_PER_PERSON_YEAR,
-        MIN_PERSON_YEARS,
-        YEAR_SECS,
-    );
-    Vec::new()
+    let year_secs = YEAR_SECS.unsigned_abs();
+    // `entries` in `lived_secs / YEAR_SECS` person-years are over the limit if
+    // entries * YEAR_SECS > limit * lived_secs: whole numbers, no division.
+    let over = |entries: u64, lived_secs: u64| {
+        u128::from(entries) * u128::from(year_secs)
+            > u128::from(MAX_ENTRIES_PER_PERSON_YEAR) * u128::from(lived_secs)
+    };
+    let count = |year: Option<i64>| {
+        let matching = entry_times
+            .iter()
+            .filter(|time| year.is_none_or(|year| time.div_euclid(YEAR_SECS) == year))
+            .count();
+        u64::try_from(matching).unwrap_or(u64::MAX)
+    };
+    let mut found = Vec::new();
+    for &(year, lived_secs) in census {
+        if year < 1 || lived_secs < MIN_PERSON_YEARS * year_secs {
+            continue;
+        }
+        let entries = count(Some(year));
+        if over(entries, lived_secs) {
+            found.push(format!(
+                "year {year}: {entries} log entries in {} person-years: more than {MAX_ENTRIES_PER_PERSON_YEAR} per person-year",
+                lived_secs / year_secs
+            ));
+        }
+    }
+    let total_lived: u64 = census.iter().map(|(_, lived_secs)| lived_secs).sum();
+    let total_entries = count(None);
+    if over(total_entries, total_lived) {
+        found.push(format!(
+            "{total_entries} log entries in {} person-years: more than {MAX_ENTRIES_PER_PERSON_YEAR} per person-year in the whole run",
+            total_lived / year_secs
+        ));
+    }
+    found
 }
 
 #[cfg(test)]
