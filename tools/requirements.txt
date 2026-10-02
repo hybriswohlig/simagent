@@ -2,3 +2,6 @@
 #   python3 -m venv .venv && .venv/bin/pip install -r tools/requirements.txt
 # xxhash 4.0.1 wraps the C reference implementation libxxhash 0.8.3.
 xxhash==4.0.1
+# mpmath computes the reference column of the class P known-answer tests (ADR-0003
+# section 3), dps = 60.
+mpmath==1.3.0

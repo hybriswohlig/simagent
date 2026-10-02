@@ -13,9 +13,9 @@ fn decode_hex(hex: &str) -> Vec<u8> {
 }
 
 fn cases() -> Vec<(Vec<u8>, u64)> {
-    KAT.lines()
-        .filter(|line| !line.starts_with('#'))
-        .skip(1)
+    let mut lines = KAT.lines().filter(|line| !line.starts_with('#'));
+    assert_eq!(lines.next(), Some("input_hex,xxh3_64"), "the header line");
+    lines
         .map(|line| {
             let (input, expected) = line.split_once(',').expect("two columns");
             (
@@ -29,7 +29,7 @@ fn cases() -> Vec<(Vec<u8>, u64)> {
 #[test]
 fn stable_hash_known_answers() {
     let cases = cases();
-    assert!(cases.len() >= 20, "too few KAT rows: {}", cases.len());
+    assert_eq!(cases.len(), 23, "xxh3_64.csv: number of rows");
     for (input, expected) in cases {
         assert_eq!(
             stable_hash64(&input),
