@@ -10,8 +10,9 @@ use serde::Serialize;
 use sim_core::canonical::YearHash;
 use sim_core::data_id::DataId;
 use sim_core::genome::{Allele, Genotype, Sex};
-use sim_core::input::{Founder, Input, Start};
+use sim_core::input::{ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
+use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
@@ -20,9 +21,10 @@ const Y: i64 = 31_449_600;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540102c2a9cec6d380a0832d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540102c2a9cec6d380a0832d0201ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e79010100000100";
-const EMPTY_SAVE: &str = "53494d4147454e540102c2a9cec6d380a0832d020001010001000000010000";
+const HEADER: &str = "53494d4147454e540103c2a9cec6d380a0832d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540103c2a9cec6d380a0832d0301ff010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e7900010100000100";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540103c2a9cec6d380a0832d0301ff010101010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000402010100ff0109746573743a74696e7900010100000101020101000100";
+const EMPTY_SAVE: &str = "53494d4147454e540103c2a9cec6d380a0832d03000001010001000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -39,6 +41,9 @@ fn start(seed: u64, tag: &str, born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: seed,
         founder_tag: DataId::new(tag).expect("valid"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: born.iter().copied().map(founder).collect(),
     })
 }
@@ -115,8 +120,25 @@ enum TestInput {
     Start {
         world_seed: u64,
         founder_tag: String,
+        /// The switch of the hereditary diseases, the only world parameter.
+        world_params: bool,
         founders: Vec<TestFounder>,
     },
+    ForkOverride {
+        changes: Vec<TestChange>,
+    },
+}
+
+#[derive(Clone, Serialize)]
+enum TestChange {
+    HereditaryDiseases(bool),
+}
+
+/// An override block that sets the switch of the hereditary diseases.
+fn override_block(on: bool) -> TestInput {
+    TestInput::ForkOverride {
+        changes: vec![TestChange::HereditaryDiseases(on)],
+    }
 }
 
 /// The lineage keys of the founders 0 and 1 of `test:tiny` (tools/rng_reference.py).
@@ -162,6 +184,8 @@ struct File {
     // Projection (ADR-0003 5.2).
     projection_version: u32,
     world_seed: Option<u64>,
+    /// The switch of the hereditary diseases; `None` before the start.
+    world_params: Option<bool>,
     closed_through: i64,
     next_sim_id: u64,
     queue: Vec<QueueEntry>,
@@ -185,10 +209,11 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 2,
+            core_version: 3,
             data_hash: EMPTY_DATA_HASH,
-            projection_version: 2,
+            projection_version: 3,
             world_seed: Some(0xff),
+            world_params: Some(false),
             closed_through: -1,
             next_sim_id: 2,
             queue: vec![
@@ -206,6 +231,7 @@ impl File {
                 TestInput::Start {
                     world_seed: 0xff,
                     founder_tag: "test:tiny".to_owned(),
+                    world_params: false,
                     founders: vec![test_founder(-1)],
                 },
             )],
@@ -227,7 +253,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 2);
+    assert_eq!(CORE_VERSION, 3);
 }
 
 // ---------------------------------------------------------------------------------
@@ -440,7 +466,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [1, 3] {
+    for version in [2, 4] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -467,9 +493,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 3;
+        f.core_version = 4;
         f.data_hash = 7;
-        f.projection_version = 3;
+        f.projection_version = 4;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -483,11 +509,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 2;
+        f.core_version = 3;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 3);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 4);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -513,7 +539,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [1, 3] {
+    for version in [2, 4] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -540,9 +566,10 @@ fn load_rejects_malformed_bytes() {
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
-    // Behind the header: version, seed (3 bytes), clock, sim counter, queue length, then
-    // the first entry with its time (4 bytes), micro step and insertion number.
-    let payload_at = header + 7 + 4 + 2;
+    // Behind the header: version, seed (3 bytes), world parameters (2 bytes), clock, sim
+    // counter, queue length, then the first entry with its time (4 bytes), micro step and
+    // insertion number.
+    let payload_at = header + 9 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -574,6 +601,7 @@ fn load_rejects_non_canonical_bytes() {
             f.input_log[0].2 = TestInput::Start {
                 world_seed: 0xff,
                 founder_tag: "test:tiny".to_owned(),
+                world_params: false,
                 founders: vec![test_founder(-1), test_founder(-1)],
             };
         })
@@ -586,7 +614,7 @@ fn load_rejects_non_canonical_bytes() {
     );
     // The same value as a varint of two bytes: 0x82 0x00 is 2, like 0x02.
     let good = File::tiny().bytes();
-    let at = hex(HEADER).len() + 5;
+    let at = hex(HEADER).len() + 7;
     assert_eq!(good[at], 2, "next_sim_id of the tiny world");
     let mut overlong = good.clone();
     overlong.splice(at..=at, [0x82, 0x00]);
@@ -647,6 +675,153 @@ fn load_rejects_an_invalid_queue() {
     }
 }
 
+/// "tiny" with an override block right after `Start` that switches the hereditary
+/// diseases on (tools/state_reference.py): one more entry was written, so the next
+/// EventId is 4, and the input log has a second record.
+fn overridden() -> File {
+    let mut file = File::tiny();
+    file.world_params = Some(true);
+    file.next_event_id = 4;
+    file.input_log.push((-1, 2, override_block(true)));
+    file
+}
+
+/// ADR-0006 section 2: the world parameters are part of the projection, the override
+/// block is part of the input log.
+#[test]
+fn a_save_keeps_the_override_and_the_world_parameters() {
+    assert_eq!(overridden().bytes(), hex(TINY_SAVE_OVERRIDDEN));
+    let mut world = tiny();
+    world
+        .submit(Input::ForkOverride(ForkOverride {
+            changes: vec![ParamChange::HereditaryDiseases(true)],
+        }))
+        .expect("accepted");
+    world.take_log();
+    let bytes = world.save(&[]).expect("saves");
+    assert_eq!(bytes, hex(TINY_SAVE_OVERRIDDEN));
+    let (loaded, _) = load(&bytes).expect("loads");
+    assert_eq!(
+        loaded.state().world_params(),
+        Some(WorldParams {
+            hereditary_diseases: true
+        })
+    );
+    assert_eq!(loaded.input_log(), world.input_log());
+    assert_eq!(loaded.state_hash(), world.state_hash());
+}
+
+/// ADR-0006 section 5 for the override block: the world parameters are those of `Start`
+/// after every block of the input log, a block passes the check of the input, and
+/// stamps never fall and never lie after the clock.
+#[test]
+fn load_checks_the_override_blocks_of_the_input_log() {
+    assert_eq!(load_error(&overridden().bytes()), None);
+    // A block that sets the value the switch already has is a block like any other.
+    let same = File::tiny().with(|f| {
+        f.next_event_id = 4;
+        f.input_log.push((-1, 2, override_block(false)));
+    });
+    assert_eq!(load_error(&same), None);
+    // Two blocks: the last one counts. The clock stands at 4, the second block came later.
+    let two = |change: fn(&mut File)| {
+        let mut file = overridden();
+        file.closed_through = 4;
+        file.world_params = Some(false);
+        file.next_event_id = 5;
+        file.input_log.push((3, 3, override_block(false)));
+        change(&mut file);
+        file.bytes()
+    };
+    assert_eq!(load_error(&two(|_| {})), None);
+
+    let cases: [(&str, Vec<u8>); 14] = [
+        (
+            "a world that never started with world parameters",
+            never_started().with(|f| f.world_params = Some(false)),
+        ),
+        (
+            "a started world without world parameters",
+            File::tiny().with(|f| f.world_params = None),
+        ),
+        (
+            "world parameters that are not those of the start",
+            File::tiny().with(|f| f.world_params = Some(true)),
+        ),
+        (
+            "world parameters before the override of the log",
+            overridden().with(|f| f.world_params = Some(false)),
+        ),
+        (
+            "world parameters of the first of two blocks",
+            two(|f| f.world_params = Some(true)),
+        ),
+        (
+            "an override block before the start",
+            overridden().with(|f| {
+                f.input_log.swap(0, 1);
+                f.input_log[0].1 = 1;
+                f.input_log[1].1 = 2;
+            }),
+        ),
+        (
+            "an override block and no start",
+            overridden().with(|f| {
+                f.input_log.remove(0);
+                f.input_log[0].1 = 1;
+            }),
+        ),
+        (
+            "an empty override block",
+            overridden().with(|f| {
+                f.input_log[1].2 = TestInput::ForkOverride {
+                    changes: Vec::new(),
+                };
+                f.world_params = Some(false);
+            }),
+        ),
+        (
+            "an override block that names a parameter twice",
+            overridden().with(|f| {
+                f.input_log[1].2 = TestInput::ForkOverride {
+                    changes: vec![
+                        TestChange::HereditaryDiseases(false),
+                        TestChange::HereditaryDiseases(true),
+                    ],
+                };
+            }),
+        ),
+        (
+            "an override block stamped before the start input",
+            overridden().with(|f| f.input_log[1].0 = -2),
+        ),
+        (
+            "an override block stamped after the clock",
+            overridden().with(|f| f.input_log[1].0 = 0),
+        ),
+        (
+            "a second block stamped before the first",
+            two(|f| {
+                f.input_log[1].0 = 4;
+            }),
+        ),
+        (
+            "a gap in the sequence numbers",
+            overridden().with(|f| f.input_log[1].1 = 3),
+        ),
+        (
+            "a second start after the block",
+            overridden().with(|f| {
+                let start = f.input_log[0].2.clone();
+                f.input_log.push((-1, 3, start));
+            }),
+        ),
+    ];
+    for (name, bytes) in &cases {
+        assert_eq!(load_error(bytes), Some(LoadError::Inconsistent), "{name}");
+    }
+}
+
 /// A started world without sims at `closed_through`, with its year end due at `due`.
 fn empty_started(closed_through: i64, due: i64) -> File {
     let mut file = File::tiny();
@@ -665,6 +840,7 @@ fn empty_started(closed_through: i64, due: i64) -> File {
 fn never_started() -> File {
     let mut file = File::tiny();
     file.world_seed = None;
+    file.world_params = None;
     file.queue.clear();
     file.plan_refs.clear();
     file.next_event_seq = 1;
@@ -679,6 +855,7 @@ fn start_with_founders(file: &mut File, born: Vec<i64>) {
     file.input_log[0].2 = TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:tiny".to_owned(),
+        world_params: false,
         founders: born.into_iter().map(test_founder).collect(),
     };
 }

@@ -18,6 +18,7 @@ use crate::canonical::{self, YearHash};
 use crate::ids::{Counter, InputSeq, SimId};
 use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
+use crate::params::WorldParams;
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
 use crate::trace::{TraceBuffer, TraceEntry, TraceFilter};
@@ -162,6 +163,7 @@ fn check(
 ) -> Result<(), InputRejected> {
     match input {
         Input::Start(start) => state::start::check_start(domain, closed_through, start),
+        Input::ForkOverride(block) => state::params::check_override(domain, block),
     }
 }
 
@@ -176,6 +178,9 @@ impl WorldState {
         );
         match input {
             Input::Start(start) => state::start::apply_start(&mut self.domain, start, &mut ctx),
+            Input::ForkOverride(block) => {
+                state::params::apply_override(&mut self.domain, block, &mut ctx);
+            }
         }
     }
 
@@ -190,6 +195,11 @@ impl WorldState {
     /// `None` until `Start` was applied.
     pub fn world_seed(&self) -> Option<u64> {
         self.domain.world_seed
+    }
+
+    /// The world parameters as they stand; `None` until `Start` was applied.
+    pub fn world_params(&self) -> Option<WorldParams> {
+        self.domain.world_params
     }
 
     pub fn living(&self) -> u64 {
@@ -263,6 +273,7 @@ mod tests {
     use crate::genome::{Allele, Genotype, Sex};
     use crate::input::{Founder, RejectCode, Start};
     use crate::lineage::LineageKey;
+    use crate::params::WorldParams;
     use crate::time::{SchedulerSnapshot, YEAR};
 
     const MIXED: Genotype = Genotype {
@@ -278,6 +289,9 @@ mod tests {
         Input::Start(Start {
             world_seed: 7,
             founder_tag: tag(),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+            },
             founders: born
                 .iter()
                 .map(|&secs| Founder {

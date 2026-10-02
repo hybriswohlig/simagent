@@ -58,18 +58,38 @@ def lineage_key(key: int) -> bytes:
     return varint(key)
 
 
+def flag(on: bool) -> bytes:
+    """A bool is one byte, 0 or 1."""
+    return b"\x01" if on else b"\x00"
+
+
+def world_params(hereditary_diseases: bool) -> bytes:
+    """WorldParams { hereditary_diseases: bool }"""
+    return flag(hereditary_diseases)
+
+
+def param_change(hereditary_diseases: bool) -> bytes:
+    """ParamChange::HereditaryDiseases(bool), variant 0"""
+    return variant(0, flag(hereditary_diseases))
+
+
 def founder(born: int, sex: bytes, genes: bytes) -> bytes:
     """Founder { born: SimTime, sex: Sex, genotype: Genotype }"""
     return signed(born) + sex + genes
 
 
-# Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, founders: [Founder] }
+# Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
+# WorldParams, founders: [Founder] }
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
     string("test:fork_no_density"),
+    world_params(False),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
 )
+
+# Input::ForkOverride (variant 1) { changes: [ParamChange] }: the switch goes on.
+SAMPLE_OVERRIDE = variant(1, seq([param_change(True)]))
 
 # InputStamp { t: SimTime, seq: InputSeq }
 SAMPLE_STAMP = signed(5) + varint(1)
@@ -114,6 +134,7 @@ SAMPLE_LINEAGE_KEY = lineage_key(0xCFD3D4551FB363C2)
 if __name__ == "__main__":
     for name, data in [
         ("sample_input", SAMPLE_INPUT),
+        ("sample_override", SAMPLE_OVERRIDE),
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),

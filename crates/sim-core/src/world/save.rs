@@ -14,6 +14,7 @@ use crate::ids::{Counter, SimId};
 use crate::input::{Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
+use crate::params::ParamChange;
 use crate::state::{self, ArchivedSim, DomainState, Sim};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
@@ -199,6 +200,7 @@ impl World {
             state: WorldState {
                 domain: DomainState {
                     world_seed: loaded.world_seed,
+                    world_params: loaded.world_params,
                     sims: loaded.sims,
                     archive: loaded.archive,
                     lineage,
@@ -243,7 +245,8 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> bool {
     let Some(seed) = loaded.world_seed else {
         // Never started: the world is empty. The queue is empty too: an event needs an
         // insertion number below the counter, which stands at 1.
-        return loaded.sims.is_empty()
+        return loaded.world_params.is_none()
+            && loaded.sims.is_empty()
             && loaded.archive.is_empty()
             && loaded.next_sim_id == 1
             && loaded.next_event_seq == 1
@@ -260,29 +263,42 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> bool {
         && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes)
 }
 
-/// Sequence numbers gapless from 1; `Start` first and only first, stamped before the
-/// start, with the seed of the world and the founders as the sims 1 to N.
+/// Sequence numbers gapless from 1, stamps that never fall and never lie after the
+/// clock. `Start` first and only first, stamped before the start, with the seed of the
+/// world and the founders as the sims 1 to N; then override blocks that pass their own
+/// check. The parameters of `Start` after every override are those of the world.
 fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64) -> bool {
-    !exceptions.input_log.is_empty()
-        && exceptions
-            .input_log
-            .iter()
-            .zip(1_u64..)
-            .all(|(record, position)| {
-                record.seq.get() == position
-                    && match (&record.input, position) {
-                        (Input::Start(start), 1) => {
-                            let unstarted = DomainState::new();
-                            state::start::check_start(&unstarted, record.t, start).is_ok()
-                                && start.world_seed == seed
-                                && founders_are_the_first_sims(loaded, start)
-                        }
-                        // The first input that can follow `Start` needs its stamp
-                        // checked here: not before the previous one, not after the
-                        // clock (ADR-0006 section 5).
-                        (Input::Start(_), _) => false,
-                    }
-            })
+    let mut params = None;
+    let mut last_stamp = None;
+    for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
+        let in_order = last_stamp.is_none_or(|last| last <= record.t);
+        if record.seq.get() != position || !in_order || record.t > loaded.closed_through {
+            return false;
+        }
+        last_stamp = Some(record.t);
+        match (&record.input, params) {
+            (Input::Start(start), None) => {
+                let unstarted = DomainState::new();
+                let fits = state::start::check_start(&unstarted, record.t, start).is_ok()
+                    && start.world_seed == seed
+                    && founders_are_the_first_sims(loaded, start);
+                if !fits {
+                    return false;
+                }
+                params = Some(start.world_params);
+            }
+            (Input::ForkOverride(block), Some(before)) => {
+                let _ = (
+                    &block.changes,
+                    before.with(ParamChange::HereditaryDiseases(true)),
+                );
+                return false;
+            }
+            // A second `Start`, or another input before the first.
+            (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return false,
+        }
+    }
+    params.is_some() && params == loaded.world_params
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times, sex

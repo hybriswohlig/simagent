@@ -12,9 +12,12 @@ use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
 use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
-use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
+use sim_core::input::{
+    ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start,
+};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
+use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
@@ -66,6 +69,9 @@ fn sample_input() -> Input {
     Input::Start(Start {
         world_seed: 0xff,
         founder_tag: data_id("test:fork_no_density"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
             sex: Sex::Female,
@@ -75,6 +81,24 @@ fn sample_input() -> Input {
             },
         }],
     })
+}
+
+/// The override block of a fork that switches the hereditary diseases on.
+fn sample_override() -> Input {
+    Input::ForkOverride(ForkOverride {
+        changes: vec![ParamChange::HereditaryDiseases(true)],
+    })
+}
+
+/// Every `Input` variant. A new variant fails to compile here until it is in the list.
+fn all_inputs() -> Vec<Input> {
+    let inputs = vec![sample_input(), sample_override()];
+    for input in &inputs {
+        match input {
+            Input::Start(_) | Input::ForkOverride(_) => {}
+        }
+    }
+    inputs
 }
 
 fn json<T: Serialize>(value: &T) -> String {
@@ -101,17 +125,18 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e736974790001ffa3a08607000001";
+const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
 const RECORD_POSTCARD: &str =
-    "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
+    "010100ff0114746573743a666f726b5f6e6f5f64656e736974790001ffa3a08607000001";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -134,6 +159,52 @@ fn input_json_form_is_pinned() {
         from_json::<Input>(INPUT_JSON).expect("parses"),
         sample_input()
     );
+}
+
+const OVERRIDE_JSON: &str = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
+
+/// The override block (ADR-0001 section 6): a list of pairs of a world parameter, named
+/// by its data ID, and the new value.
+#[test]
+fn override_form_is_pinned() {
+    assert_eq!(json(&sample_override()), OVERRIDE_JSON);
+    assert_eq!(
+        from_json::<Input>(OVERRIDE_JSON).expect("parses"),
+        sample_override()
+    );
+    assert_eq!(
+        postcard_round_trip(&sample_override()),
+        hex(OVERRIDE_POSTCARD)
+    );
+    let off = ParamChange::HereditaryDiseases(false);
+    assert_eq!(json(&off), r#"{"core:hereditary_diseases":false}"#);
+    assert_eq!(postcard_round_trip(&off), [0, 0]);
+    let params = WorldParams {
+        hereditary_diseases: true,
+    };
+    assert_eq!(json(&params), r#"{"hereditary_diseases":true}"#);
+    assert_eq!(postcard_round_trip(&params), [1]);
+    for rejected in [
+        r#"{"fork_override":{}}"#,
+        r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}],"extra":0}}"#,
+        r#"{"fork_override":{"changes":[{"core:unknown":true}]}}"#,
+        r#"{"fork_override":{"changes":[{"core:hereditary_diseases":1}]}}"#,
+        r#"{"fork_override":{"changes":[{"hereditary_diseases":true}]}}"#,
+        r#"{"fork_override":{"changes":["core:hereditary_diseases"]}}"#,
+    ] {
+        assert!(from_json::<Input>(rejected).is_err(), "{rejected}");
+    }
+    for rejected in [
+        "{}",
+        r#"{"hereditary_diseases":1}"#,
+        r#"{"hereditary_diseases":true,"x":0}"#,
+    ] {
+        assert!(from_json::<WorldParams>(rejected).is_err(), "{rejected}");
+    }
+    // A start without world parameters is no start: nothing is filled in.
+    let without = INPUT_JSON.replace(r#""world_params":{"hereditary_diseases":false},"#, "");
+    assert_ne!(without, INPUT_JSON);
+    assert!(from_json::<Input>(&without).is_err());
 }
 
 #[test]
@@ -196,11 +267,15 @@ fn postcard_forms_are_pinned() {
     let full_seed = Input::Start(Start {
         world_seed: u64::MAX,
         founder_tag: data_id("a:b"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: Vec::new(),
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
-    expected.extend([3, b'a', b':', b'b', 0]);
+    // The tag, the switch off (one byte 0), no founders (length 0).
+    expected.extend([3, b'a', b':', b'b', 0, 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 
@@ -350,9 +425,9 @@ fn formats_roundtrip_rejects_ids_outside_one_to_js_safe() {
 #[test]
 fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
-        from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| {
-            let Input::Start(start) = input;
-            start.world_seed
+        from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| match input {
+            Input::Start(start) => start.world_seed,
+            Input::ForkOverride(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -490,6 +565,9 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
     let extreme_input = Input::Start(Start {
         world_seed: u64::MAX,
         founder_tag: data_id("test:fork_no_density"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
             sex: Sex::Male,
@@ -528,13 +606,17 @@ fn all_payloads() -> Vec<LogPayload> {
             lineage_key: LineageKey::founder(&data_id("test:fork_no_density"), 0),
         },
         LogPayload::Birthday { age_years: 30 },
+        LogPayload::ParamChanged {
+            change: ParamChange::HereditaryDiseases(true),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
         match payload {
             LogPayload::Started { .. }
             | LogPayload::FounderAdded { .. }
-            | LogPayload::Birthday { .. } => {}
+            | LogPayload::Birthday { .. }
+            | LogPayload::ParamChanged { .. } => {}
         }
     }
     payloads
@@ -546,13 +628,19 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::ClockNotAtStart,
         RejectCode::FounderNotBornBeforeStart,
         RejectCode::TooManyFounders,
+        RejectCode::NotStarted,
+        RejectCode::EmptyOverride,
+        RejectCode::OverrideParamTwice,
     ];
     for code in &codes {
         match code {
             RejectCode::AlreadyStarted
             | RejectCode::ClockNotAtStart
             | RejectCode::FounderNotBornBeforeStart
-            | RejectCode::TooManyFounders => {}
+            | RejectCode::TooManyFounders
+            | RejectCode::NotStarted
+            | RejectCode::EmptyOverride
+            | RejectCode::OverrideParamTwice => {}
         }
     }
     codes
@@ -589,10 +677,11 @@ fn formats_roundtrip_every_variant() {
         assert_eq!(json(&from_json::<Cause>(&text).expect("parses")), text);
         postcard_round_trip(&cause);
     }
-    let Input::Start(_) = sample_input();
-    let text = json(&sample_input());
-    assert_eq!(from_json::<Input>(&text).ok(), Some(sample_input()));
-    postcard_round_trip(&sample_input());
+    for input in all_inputs() {
+        let text = json(&input);
+        assert_eq!(from_json::<Input>(&text).ok(), Some(input.clone()));
+        postcard_round_trip(&input);
+    }
     for code in all_reject_codes() {
         let rejected = InputRejected { code };
         let text = json(&rejected);
@@ -646,7 +735,7 @@ fn formats_roundtrip_rejects_an_unknown_field_everywhere() {
             "{text}"
         );
     }
-    assert!(from_json::<RejectCode>(r#""not_started""#).is_err());
+    assert!(from_json::<RejectCode>(r#""never_heard_of""#).is_err());
 }
 
 /// The first postcard byte of a variant is its index (all indices stay below 128).
@@ -671,14 +760,13 @@ fn log_codes_are_stable() {
     let payloads = all_payloads();
     let causes = all_causes();
     let Subject::Sim(_) = Subject::Sim(sim(1));
-    let Input::Start(_) = sample_input();
     let rejects = all_reject_codes();
 
     let mut actual = String::new();
     actual.extend(payloads.iter().map(|p| line("payload", p)));
     actual.extend(causes.iter().map(|c| line("cause", c)));
     actual.push_str(&line("subject", &Subject::Sim(sim(1))));
-    actual.push_str(&line("input", &sample_input()));
+    actual.extend(all_inputs().iter().map(|i| line("input", i)));
     actual.extend(rejects.iter().map(|r| line("reject", r)));
     // ADR-0006 test 8: the codes of saving and loading.
     let saves = [SaveError::LogNotTaken, SaveError::YearHashesMismatch];
@@ -736,6 +824,14 @@ fn log_codes_are_stable() {
     }
     actual.extend(sexes.iter().map(|s| line("sex", s)));
     actual.extend(alleles.iter().map(|a| line("allele", a)));
+    // The world parameters an override block can name.
+    let params = [ParamChange::HereditaryDiseases(true)];
+    for param in &params {
+        match param {
+            ParamChange::HereditaryDiseases(_) => {}
+        }
+    }
+    actual.extend(params.iter().map(|p| line("param", p)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

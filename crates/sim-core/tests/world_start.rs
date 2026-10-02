@@ -8,8 +8,9 @@
 use sim_core::data_id::DataId;
 use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
-use sim_core::input::{Founder, Input, InputRejected, RejectCode, Start};
+use sim_core::input::{ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::log::LogEntry;
+use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
 use sim_core::world::World;
 
@@ -20,6 +21,9 @@ fn start_with(born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: SEED,
         founder_tag: DataId::new("test:world_start").expect("valid"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: born.iter().copied().map(founder).collect(),
     })
 }
@@ -36,6 +40,23 @@ fn founder(secs: i64) -> Founder {
     }
 }
 
+const OFF: WorldParams = WorldParams {
+    hereditary_diseases: false,
+};
+const ON: WorldParams = WorldParams {
+    hereditary_diseases: true,
+};
+
+/// An override block that sets the switch of the hereditary diseases, once per value.
+fn override_block(values: &[bool]) -> Input {
+    Input::ForkOverride(ForkOverride {
+        changes: values
+            .iter()
+            .map(|&on| ParamChange::HereditaryDiseases(on))
+            .collect(),
+    })
+}
+
 fn lines(log: &[LogEntry]) -> Vec<String> {
     log.iter()
         .map(|entry| serde_json::to_string(entry).expect("json"))
@@ -49,7 +70,7 @@ fn sim(n: u64) -> SimId {
 /// Everything a rejected input must leave unchanged, visible through the public API.
 fn fingerprint(world: &World) -> String {
     format!(
-        "closed {} inputs {} pending {} contexts {} sims {} living {} seed {:?}",
+        "closed {} inputs {} pending {} contexts {} sims {} living {} seed {:?} params {:?} hash {:016x}",
         world.closed_through().as_secs(),
         serde_json::to_string(world.input_log()).expect("json"),
         world.pending_events(),
@@ -57,6 +78,8 @@ fn fingerprint(world: &World) -> String {
         world.state().sim_ids_allocated(),
         world.state().living(),
         world.state().world_seed(),
+        world.state().world_params(),
+        world.state_hash(),
     )
 }
 
@@ -107,6 +130,7 @@ fn start_records_seed_and_founders() {
     world.submit(start_with(&BORN)).expect("accepted");
     let state = world.state();
     assert_eq!(state.world_seed(), Some(SEED));
+    assert_eq!(state.world_params(), Some(OFF));
     assert_eq!(state.sim_ids_allocated(), 3);
     assert_eq!(state.living(), 3);
     for (index, &born) in BORN.iter().enumerate() {
@@ -172,7 +196,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}]"#
     );
 }
 
@@ -209,6 +233,97 @@ fn rejected_input_changes_nothing() {
         assert_eq!(fingerprint(&world), before, "{born}");
         assert!(world.take_log().is_empty());
     }
+}
+
+/// ADR-0001 section 6 and ADR-0004 section 4: an override block changes the world
+/// parameters in the order of its list and writes one entry per change, with the input
+/// as the cause. It is stamped like every input and acts in the second after its stamp.
+#[test]
+fn an_override_block_changes_the_world_parameters() {
+    let mut world = World::new();
+    assert_eq!(world.state().world_params(), None);
+    world.submit(start_with(&[-1])).expect("accepted");
+    world.take_log();
+    assert_eq!(world.state().world_params(), Some(OFF));
+    let (pending, hash) = (world.pending_events(), world.state_hash());
+
+    let stamp = world.submit(override_block(&[true])).expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        r#"{"t":-1,"seq":2}"#
+    );
+    assert_eq!(world.state().world_params(), Some(ON));
+    assert_eq!(
+        lines(&world.take_log()),
+        [
+            r#"{"id":3,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
+        ]
+    );
+    assert_ne!(world.state_hash(), hash, "the parameters are state");
+    assert_eq!(world.pending_events(), pending, "nothing is planned anew");
+    assert_eq!(world.input_log().len(), 2);
+    assert_eq!(
+        serde_json::to_string(&world.input_log()[1]).expect("json"),
+        r#"{"t":-1,"seq":2,"input":{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}}"#
+    );
+
+    // Later, after the clock moved: stamped with the last closed second, acting in the
+    // next one. A block that sets the value the switch has is a block like any other.
+    let mut out = sim_core::world::YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(99), &mut |_| false);
+    let on = world.state_hash();
+    let stamp = world.submit(override_block(&[true])).expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        r#"{"t":99,"seq":3}"#
+    );
+    assert_eq!(world.state_hash(), on, "the same value, the same state");
+    assert_eq!(
+        lines(&world.take_log()),
+        [
+            r#"{"id":4,"t":100,"subjects":[],"causes":[{"input":3}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
+        ]
+    );
+    world.submit(override_block(&[false])).expect("accepted");
+    assert_eq!(world.state().world_params(), Some(OFF));
+    assert_eq!(world.take_log().len(), 1);
+}
+
+/// ADR-0004 test 8 for the override block: before the start, without a change or with a
+/// parameter twice it is rejected with its code and changes nothing.
+#[test]
+fn a_rejected_override_block_changes_nothing() {
+    let mut world = World::new();
+    let before = fingerprint(&world);
+    let rejected = world
+        .submit(override_block(&[true]))
+        .expect_err("before the start");
+    assert_eq!(rejected.code, RejectCode::NotStarted);
+    // The world has not started: that comes before the look at the block.
+    let rejected = world.submit(override_block(&[])).expect_err("not started");
+    assert_eq!(rejected.code, RejectCode::NotStarted);
+    assert_eq!(fingerprint(&world), before);
+
+    world.submit(start_with(&BORN)).expect("accepted");
+    world.take_log();
+    let before = fingerprint(&world);
+    for (values, code) in [
+        (&[][..], RejectCode::EmptyOverride),
+        (&[true, true][..], RejectCode::OverrideParamTwice),
+        (&[true, false][..], RejectCode::OverrideParamTwice),
+        (&[false, true, false][..], RejectCode::OverrideParamTwice),
+    ] {
+        let rejected = world.submit(override_block(values)).expect_err("rejected");
+        assert_eq!(rejected, InputRejected { code }, "{values:?}");
+        assert_eq!(fingerprint(&world), before, "{values:?}");
+        assert!(world.take_log().is_empty());
+    }
+    // The next accepted input takes the next sequence number.
+    let stamp = world.submit(override_block(&[true])).expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        r#"{"t":-1,"seq":2}"#
+    );
 }
 
 /// ADR-0004 section 4: a rejected input takes no sequence number.

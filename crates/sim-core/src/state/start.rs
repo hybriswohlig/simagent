@@ -63,6 +63,7 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// is the founder's index in its lineage key (ADR-0001 section 4).
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
+    domain.world_params = Some(start.world_params);
     let founders = founder_count(start.founders.len())
         .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
     let started = ctx.emit(

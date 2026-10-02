@@ -14,8 +14,9 @@ use std::process::Command;
 use serde::Deserialize;
 use sim_cli::files::{self, Manifest, Scenario};
 use sim_core::canonical::YearHash;
-use sim_core::input::Input;
+use sim_core::input::{ForkOverride, Input};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
+use sim_core::params::ParamChange;
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 use sim_core::world::{EventPayload, World, YearOut};
@@ -69,6 +70,56 @@ fn run_to(mut world: World, mut out: YearOut, mut log: Vec<LogEntry>, until: Sim
 
 fn whole_run() -> Run {
     run_to(started(), YearOut::default(), Vec::new(), scenario().until)
+}
+
+/// The year of the fork point of the golden fork, and the fork: the dummy run with the
+/// override "hereditary diseases on", submitted with the stamp `T_5 - 1 s` (ADR-0001
+/// section 6).
+const FORK_YEAR: usize = 5;
+
+fn fork_run() -> Run {
+    let fork_stamp = SimTime::from_secs(5 * 31_449_600 - 1);
+    let mut part = run_to(started(), YearOut::default(), Vec::new(), fork_stamp);
+    let block = ForkOverride {
+        changes: vec![ParamChange::HereditaryDiseases(true)],
+    };
+    let stamp = part
+        .world
+        .submit(Input::ForkOverride(block))
+        .expect("accepted");
+    assert_eq!(stamp.t, fork_stamp);
+    run_to(part.world, part.out, part.log, scenario().until)
+}
+
+/// The golden of the fork (tools/golden_reference.py), and ADR-0001
+/// `fork_point_hash_equals_parent` on it: the years before the fork point have the
+/// hashes of the parent, every year from the fork point on another one.
+#[test]
+fn golden_fork_matches() {
+    let text = fs::read_to_string(repo_file("tests/golden/dummy_fork.json"))
+        .expect("the golden of the fork");
+    let golden_fork: Golden = serde_json::from_str(&text).expect("the golden parses");
+    assert_eq!(golden_fork.core_version, CORE_VERSION);
+    assert_eq!(golden_fork.data_hash, EMPTY_DATA_HASH);
+    let fork = fork_run();
+    assert_eq!(fork.out.year_hashes, golden_fork.year_hashes);
+    assert_eq!(log_hash(&fork.log), golden_fork.log_hash);
+
+    let parent = golden();
+    assert_eq!(golden_fork.year_hashes.len(), parent.year_hashes.len());
+    assert_eq!(
+        golden_fork.year_hashes[..FORK_YEAR],
+        parent.year_hashes[..FORK_YEAR]
+    );
+    for (ours, theirs) in golden_fork.year_hashes[FORK_YEAR..]
+        .iter()
+        .zip(&parent.year_hashes[FORK_YEAR..])
+    {
+        assert_eq!(ours.year, theirs.year);
+        assert_ne!(ours.hash, theirs.hash, "year {}", ours.year);
+    }
+    assert_ne!(golden_fork.log_hash, parent.log_hash);
+    assert_eq!(fork.log.len(), whole_run().log.len() + 1);
 }
 
 #[test]
@@ -184,10 +235,16 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Started { .. } => "core:started",
         LogPayload::FounderAdded { .. } => "core:founder_added",
         LogPayload::Birthday { .. } => "core:birthday",
+        LogPayload::ParamChanged { .. } => "core:param_changed",
     }
 }
 
-const LOG_KINDS: [&str; 3] = ["core:started", "core:founder_added", "core:birthday"];
+const LOG_KINDS: [&str; 4] = [
+    "core:started",
+    "core:founder_added",
+    "core:birthday",
+    "core:param_changed",
+];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
 fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
@@ -206,11 +263,19 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 }
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
-/// appears at least once.
+/// appears at least once. The scenarios are the dummy run and its fork at year 5.
 #[test]
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
-    assert_eq!(uncovered(run.world.stats(), &run.log), Vec::<String>::new());
+    assert_eq!(
+        uncovered(run.world.stats(), &run.log),
+        ["log core:param_changed"],
+        "the dummy run has no override"
+    );
+    let fork = fork_run();
+    let mut log = run.log;
+    log.extend(fork.log);
+    assert_eq!(uncovered(fork.world.stats(), &log), Vec::<String>::new());
 }
 
 /// The two fields behind `prefix` in the lines of a code registry in `tests/golden/`.
@@ -247,14 +312,14 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 3);
+    assert_eq!(logs.len(), 4);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
 /// reported with exactly that one.
 #[test]
 fn every_required_kind_is_checked() {
-    let run = whole_run();
+    let run = fork_run();
     for missing in LOG_KINDS {
         let without: Vec<LogEntry> = run
             .log
@@ -290,7 +355,8 @@ fn the_coverage_check_reports_missing_kinds() {
         [
             "event birthday",
             "log core:founder_added",
-            "log core:birthday"
+            "log core:birthday",
+            "log core:param_changed"
         ]
     );
 }

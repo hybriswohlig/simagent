@@ -6,7 +6,8 @@ The bytes follow the postcard wire format (see postcard_reference.py), the field
 follows ADR-0003 5.2 and ADR-0002 ("Speichern, Laden, Hash"). The hash is xxh3-64 with
 seed 0 from the C reference implementation (PyPI xxhash, pinned in requirements.txt).
 
-Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny` and one founder born
+Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
+hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
 (from the father) at the dummy locus (ADR-0004). Her lineage key is that of founder 0
 of the tag (ADR-0001 section 4). By hand from ADR-0002 and ADR-0004:
@@ -28,11 +29,13 @@ from postcard_reference import (
     founder,
     genotype,
     lineage_key,
+    param_change,
     seq,
     signed,
     string,
     variant,
     varint,
+    world_params,
 )
 from rng_reference import founder_key
 
@@ -59,8 +62,8 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 2
-CORE_VERSION = 2
+PROJECTION_VERSION = 3
+CORE_VERSION = 3
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: bytes) -> bytes:
@@ -72,10 +75,13 @@ TINY_KEY = founder_key("test:tiny", 0)
 TINY_GENES = genotype(WILD, DUMMY)
 
 
-def projection(closed_through: int, queue: list, next_insertion: int) -> bytes:
+def projection(
+    closed_through: int, queue: list, next_insertion: int, diseases: bool = False
+) -> bytes:
     return (
         varint(PROJECTION_VERSION)
         + some(varint(0xFF))  # world_seed
+        + some(world_params(diseases))
         + signed(closed_through)
         + varint(2)  # next SimId
         + seq(queue)
@@ -126,6 +132,7 @@ PAIR_KEYS = [founder_key("test:pair", index) for index in range(2)]
 PAIR_AFTER_START = (
     varint(PROJECTION_VERSION)
     + some(varint(0xFF))
+    + some(world_params(False))
     + signed(-1)
     + varint(3)  # next SimId
     + seq(
@@ -168,6 +175,7 @@ TINY_INPUT_LOG = seq(
             0,
             varint(0xFF),
             string("test:tiny"),
+            world_params(False),
             seq([founder(-1, FEMALE, TINY_GENES)]),
         )
     ]
@@ -188,7 +196,8 @@ TINY_SAVE_AFTER_START = (
 # A world that never started: nothing but the clock and the counters.
 EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
-    + NONE
+    + NONE  # world_seed
+    + NONE  # world_params
     + signed(-1)
     + varint(1)
     + seq([])
@@ -202,7 +211,8 @@ EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + 
 # The log of "tiny" up to the end of year 0 (ADR-0004 section 7). An entry is
 # (id, t, subjects, causes, payload). Subject::Sim = 0. Cause: Event = 0, Plan = 1
 # { by, planned_at }, Input = 2, Rule = 3. Payload: core:started = 0 { founders },
-# core:founder_added = 1 { born, lineage_key }, core:birthday = 2 { age_years }.
+# core:founder_added = 1 { born, lineage_key }, core:birthday = 2 { age_years },
+# core:param_changed = 3 { change }.
 def entry(event_id: int, time: int, subjects: list, causes: list, payload: bytes) -> bytes:
     return varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload
 
@@ -214,6 +224,41 @@ TINY_LOG = [
     entry(2, 0, [SIM_1], [BY_INPUT_1], variant(1, signed(-1), lineage_key(TINY_KEY))),
     entry(3, YEAR - 1, [SIM_1], [variant(1, varint(2), signed(0))], variant(2, varint(1))),
 ]
+
+# "tiny" with an override block right after Start (stamp -1, seq 2) that switches the
+# hereditary diseases on: one entry `core:param_changed` at now = 0 with the next
+# EventId 3 and the input as its cause. Queue and counters of the scheduler stay.
+TINY_OVERRIDE_ENTRY = entry(3, 0, [], [variant(2, varint(2))], variant(3, param_change(True)))
+TINY_OVERRIDDEN = projection(
+    -1,
+    [
+        queue_entry(YEAR - 1, 2, birthday(1), None),
+        queue_entry(YEAR - 1, 1, year_end(), YEAR),
+    ],
+    3,
+    diseases=True,
+)
+TINY_SAVE_OVERRIDDEN = (
+    header(EMPTY_DATA_HASH)
+    + TINY_OVERRIDDEN
+    + seq([plan_ref(2, 0), plan_ref(1, 0)])
+    + varint(4)
+    + seq(
+        [
+            signed(-1)
+            + varint(1)
+            + variant(
+                0,
+                varint(0xFF),
+                string("test:tiny"),
+                world_params(False),
+                seq([founder(-1, FEMALE, TINY_GENES)]),
+            ),
+            signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
+        ]
+    )
+    + seq([])
+)
 
 # The save at the end of year 0: the birthday of that second planned the next one
 # (entry 3 at YEAR - 1), the year end series keeps the plan of `core:started`; the next
@@ -239,6 +284,7 @@ if __name__ == "__main__":
         ("tiny_year_0", TINY_YEAR_0),
         ("tiny_after_year_0", TINY_AFTER_YEAR_0),
         ("pair_after_start", PAIR_AFTER_START),
+        ("tiny_overridden", TINY_OVERRIDDEN),
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
@@ -248,6 +294,8 @@ if __name__ == "__main__":
     print(f"empty_save {EMPTY_SAVE.hex()}")
     print(f"tiny_log_hash {digest(b''.join(TINY_LOG))}")
     print(f"tiny_save_after_year_0 {TINY_SAVE_AFTER_YEAR_0.hex()}")
+    print(f"tiny_override_entry {TINY_OVERRIDE_ENTRY.hex()}")
+    print(f"tiny_save_overridden {TINY_SAVE_OVERRIDDEN.hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

@@ -17,6 +17,7 @@ use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
+use sim_core::params::WorldParams;
 use sim_core::time::{AdvanceOutcome, EventClass, SimDuration, SimTime, YEAR, year_start};
 use sim_core::world::{CensusRow, EventPayload, World, YearOut};
 
@@ -30,6 +31,9 @@ fn start_with(born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: 1,
         founder_tag: DataId::new("test:world_run").expect("valid"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
         founders: born.iter().copied().map(founder).collect(),
     })
 }
