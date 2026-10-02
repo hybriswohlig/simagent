@@ -1,6 +1,8 @@
 //! The event budget (ADR-0004 section 8): log entries per person-year in the gate run.
 //! The limits are tolerances of the protected list (ADR-0000).
 
+use serde_json::Value;
+
 /// At most this many log entries per person-year.
 pub const MAX_ENTRIES_PER_PERSON_YEAR: u64 = 2;
 
@@ -13,14 +15,40 @@ const YEAR_SECS: i64 = 364 * 86_400;
 
 /// The times of the log entries in the text of an `events.ndjson`.
 pub fn entry_times(events: &str) -> Result<Vec<i64>, String> {
-    let _ = events;
-    Ok(Vec::new())
+    let mut times = Vec::new();
+    for (line, number) in events.lines().zip(1..) {
+        let time = serde_json::from_str::<Value>(line)
+            .ok()
+            .and_then(|entry| entry.get("t").and_then(Value::as_i64))
+            .ok_or_else(|| format!("events.ndjson line {number} has no time"))?;
+        times.push(time);
+    }
+    Ok(times)
 }
 
 /// The rows `(year, lived_secs)` in the text of a `census.csv`.
 pub fn census_rows(census: &str) -> Result<Vec<(i64, u64)>, String> {
-    let _ = census;
-    Ok(Vec::new())
+    let mut lines = census.lines().zip(1..);
+    match lines.next() {
+        Some(("year,living,lived_secs", _)) => {}
+        Some(_) => return Err("census.csv does not start with year,living,lived_secs".to_string()),
+        None => return Err("census.csv has no row".to_string()),
+    }
+    let mut rows = Vec::new();
+    for (line, number) in lines {
+        let columns: Vec<&str> = line.split(',').collect();
+        let row = match columns.as_slice() {
+            [year, _living, lived_secs] => year.parse().ok().zip(lived_secs.parse().ok()),
+            _ => None,
+        };
+        rows.push(
+            row.ok_or_else(|| format!("census.csv line {number} is not year,living,lived_secs"))?,
+        );
+    }
+    if rows.is_empty() {
+        return Err("census.csv has no row".to_string());
+    }
+    Ok(rows)
 }
 
 /// The violations of the budget: `entry_times` are the times of all log entries,
