@@ -174,9 +174,6 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                     continue;
                 };
                 let (value, target) = (f64::from_bits(recorded), f64::from_bits(correct));
-                // The composite functions have finite results only; with an infinite
-                // reference the relative bound would be infinite too.
-                let finite = value.is_finite() && target.is_finite();
                 let difference = (value - target).abs();
                 match bound {
                     Bound::Ulp(most) => {
@@ -188,7 +185,10 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::Relative => {
-                        let within = finite && difference <= TWO_POW_MINUS_48 * target.abs();
+                        // The draws have finite results only. With an infinite reference
+                        // the bound would be infinite too and hold for any value.
+                        let within =
+                            target.is_finite() && difference <= TWO_POW_MINUS_48 * target.abs();
                         if !within {
                             findings.push(format!(
                                 "{name}.csv:{line}: {expected} is further than 2^-48 relative from the reference {reference}"
@@ -196,7 +196,8 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                         }
                     }
                     Bound::AbsoluteStandardNormal => {
-                        let within = finite && difference <= TWO_POW_MINUS_45;
+                        // An infinite or NaN difference is not within the bound.
+                        let within = difference <= TWO_POW_MINUS_45;
                         if !inputs.ends_with(STANDARD_NORMAL) {
                             findings.push(format!(
                                 "{name}.csv:{line}: a class P row of normal needs mean 0 and sd 1, other parameters have no bound"
