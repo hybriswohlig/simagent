@@ -45,8 +45,7 @@ pub fn cos(x: f64) -> f64 {
 
 /// `x` to the power of `y`, platform-equal through the pinned libm.
 pub fn pow(x: f64, y: f64) -> f64 {
-    let _ = y;
-    x
+    libm::pow(x, y)
 }
 
 /// Square root of `x`, exactly rounded.
