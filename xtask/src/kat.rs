@@ -76,18 +76,27 @@ fn unary_rows(csv: &str) -> Option<Vec<(usize, Vec<&str>)>> {
 /// The findings of one KAT file `<name>.csv` as the gate sees it. A file in another
 /// form has no reference column and so no class P row: it must not name the class.
 pub fn violations(name: &str, csv: &str) -> Vec<String> {
-    let _ = HEADERS;
+    let Some((_, header)) = HEADERS.iter().find(|(file, _)| *file == name) else {
+        return vec![format!(
+            "{name}.csv: no header is fixed for this file in xtask/src/kat.rs"
+        )];
+    };
+    let first = csv
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.is_empty());
+    if first != Some(*header) {
+        return vec![format!(
+            "{name}.csv: the first line after the comments must be the header {header}"
+        )];
+    }
     let bound = CLASS_P
         .iter()
         .find(|(function, _)| *function == name)
         .map(|(_, bound)| *bound);
     let Some(rows) = unary_rows(csv) else {
+        // Another form has no reference column and so no class P row. A class P function
+        // cannot come here: its header in `HEADERS` is the unary one.
         let mut findings = Vec::new();
-        if bound.is_some() {
-            findings.push(format!(
-                "{name}.csv: a class P file needs the header {HEADER}"
-            ));
-        }
         for (index, line) in csv.lines().enumerate() {
             if !line.starts_with('#') && line.split(',').any(|field| field == "P") {
                 findings.push(format!(
