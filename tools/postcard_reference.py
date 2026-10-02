@@ -86,6 +86,26 @@ MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 MAX_ID = varint((1 << 53) - 1)
 MAX_U64 = varint((1 << 64) - 1)
 
+# The genome of the Durchstich: enums without fields are their variant index.
+# Sex: female = 0, male = 1. Allele: wild = 0, dummy = 1.
+FEMALE, MALE = variant(0), variant(1)
+WILD, DUMMY = variant(0), variant(1)
+
+
+def genotype(maternal: bytes, paternal: bytes) -> bytes:
+    """Genotype { maternal: Allele, paternal: Allele }"""
+    return maternal + paternal
+
+
+def lineage_key(key: int) -> bytes:
+    """LineageKey(u64): the plain number, like every full-range u64."""
+    return varint(key)
+
+
+# The first founder of `test:fork_no_density` (ADR-0001 section 4): the value that
+# tools/rng_reference.py prints first under `founders`.
+SAMPLE_LINEAGE_KEY = lineage_key(0xCFD3D4551FB363C2)
+
 if __name__ == "__main__":
     for name, data in [
         ("sample_input", SAMPLE_INPUT),
@@ -97,5 +117,8 @@ if __name__ == "__main__":
         ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),
+        ("genotype_wild_dummy", genotype(WILD, DUMMY)),
+        ("genotype_dummy_wild", genotype(DUMMY, WILD)),
+        ("sample_lineage_key", SAMPLE_LINEAGE_KEY),
     ]:
         print(f"{name} {data.hex()}")

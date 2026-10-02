@@ -10,8 +10,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
@@ -194,6 +196,81 @@ fn postcard_forms_are_pinned() {
     expected.extend(hex(MAX_U64_POSTCARD));
     expected.extend([3, b'a', b':', b'b', 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
+}
+
+/// The genome of the Durchstich: in JSON the names, in postcard the variant index
+/// (tools/postcard_reference.py).
+#[test]
+fn genome_forms_are_pinned() {
+    for (sex, name, index) in [
+        (Sex::Female, "\"female\"", 0_u8),
+        (Sex::Male, "\"male\"", 1),
+    ] {
+        assert_eq!(json(&sex), name);
+        assert_eq!(from_json::<Sex>(name).expect("parses"), sex);
+        assert_eq!(postcard_round_trip(&sex), [index]);
+    }
+    for (allele, name, index) in [
+        (Allele::Wild, "\"wild\"", 0_u8),
+        (Allele::Dummy, "\"dummy\"", 1),
+    ] {
+        assert_eq!(json(&allele), name);
+        assert_eq!(from_json::<Allele>(name).expect("parses"), allele);
+        assert_eq!(postcard_round_trip(&allele), [index]);
+    }
+    let mixed = Genotype {
+        maternal: Allele::Wild,
+        paternal: Allele::Dummy,
+    };
+    let mixed_json = r#"{"maternal":"wild","paternal":"dummy"}"#;
+    assert_eq!(json(&mixed), mixed_json);
+    assert_eq!(from_json::<Genotype>(mixed_json).expect("parses"), mixed);
+    assert_eq!(postcard_round_trip(&mixed), hex("0001"));
+    let other = Genotype {
+        maternal: Allele::Dummy,
+        paternal: Allele::Wild,
+    };
+    assert_eq!(postcard_round_trip(&other), hex("0100"));
+
+    for rejected in ["\"Female\"", "\"other\"", "0", "null"] {
+        assert!(from_json::<Sex>(rejected).is_err(), "{rejected}");
+        assert!(from_json::<Allele>(rejected).is_err(), "{rejected}");
+    }
+    for rejected in [
+        r#"{"maternal":"wild"}"#,
+        r#"{"paternal":"wild"}"#,
+        r#"{"maternal":"wild","paternal":"dummy","third":"wild"}"#,
+        r#"{"maternal":"wild","paternal":"recessive"}"#,
+        r#"{"maternal":"wild","maternal":"wild","paternal":"dummy"}"#,
+    ] {
+        assert!(from_json::<Genotype>(rejected).is_err(), "{rejected}");
+    }
+    // A variant index that does not exist.
+    assert!(postcard::from_bytes::<Sex>(&[2]).is_err());
+    assert!(postcard::from_bytes::<Allele>(&[2]).is_err());
+    assert!(postcard::from_bytes::<Genotype>(&[0, 2]).is_err());
+}
+
+/// A lineage key is a full-range u64 (ADR-0004 section 3): 16 hex digits in JSON, the
+/// plain number in postcard. The key is the first founder of ADR-0001 `key_rules`.
+#[test]
+fn lineage_key_forms_are_pinned() {
+    let key = LineageKey::founder(&data_id("test:fork_no_density"), 0);
+    assert_eq!(json(&key), "\"cfd3d4551fb363c2\"");
+    assert_eq!(
+        from_json::<LineageKey>("\"cfd3d4551fb363c2\"").expect("parses"),
+        key
+    );
+    assert_eq!(postcard_round_trip(&key), hex("c2c7cdfdd18af5e9cf01"));
+    for rejected in [
+        "14975886013442810818",
+        "\"cfd3d4551fb363c\"",
+        "\"CFD3D4551FB363C2\"",
+        "\"0xcfd3d4551fb363c2\"",
+        "{\"0\":\"cfd3d4551fb363c2\"}",
+    ] {
+        assert!(from_json::<LineageKey>(rejected).is_err(), "{rejected}");
+    }
 }
 
 #[test]
@@ -621,6 +698,21 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(traces.iter().map(|t| line("trace", t)));
+    // The genome of the Durchstich: part of inputs and saves.
+    let sexes = [Sex::Female, Sex::Male];
+    for sex in &sexes {
+        match sex {
+            Sex::Female | Sex::Male => {}
+        }
+    }
+    let alleles = [Allele::Wild, Allele::Dummy];
+    for allele in &alleles {
+        match allele {
+            Allele::Wild | Allele::Dummy => {}
+        }
+    }
+    actual.extend(sexes.iter().map(|s| line("sex", s)));
+    actual.extend(alleles.iter().map(|a| line("allele", a)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
