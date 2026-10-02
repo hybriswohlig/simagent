@@ -141,32 +141,32 @@ impl Draws {
 
     /// Uniform on `0..n`, `n >= 1` (one word).
     pub fn uniform_below(&self, key: DrawKey, n: u64) -> u64 {
-        let _ = (key, n, dist::unit(0));
-        0
+        let [w] = self.words(key);
+        dist::uniform_below(w, n)
     }
 
     /// True with probability `p` in [0, 1] (one word).
     pub fn bernoulli(&self, key: DrawKey, p: f64) -> bool {
-        let _ = (key, p);
-        false
+        let [w] = self.words(key);
+        dist::bernoulli(w, p)
     }
 
     /// Exponential with `rate > 0` (one word).
     pub fn exponential(&self, key: DrawKey, rate: f64) -> f64 {
-        let _ = (key, rate);
-        0.0
+        let [w] = self.words(key);
+        dist::exponential(w, rate)
     }
 
     /// Normal with `mean` and `sd >= 0` (two words).
     pub fn normal(&self, key: DrawKey, mean: f64, sd: f64) -> f64 {
-        let _ = (key, mean, sd);
-        0.0
+        let [w0, w1] = self.words(key);
+        dist::normal(w0, w1, mean, sd)
     }
 
     /// Poisson with `lambda` in [0, 30] (one word).
     pub fn poisson(&self, key: DrawKey, lambda: f64) -> u32 {
-        let _ = (key, lambda);
-        0
+        let [w] = self.words(key);
+        dist::poisson(w, lambda)
     }
 }
 
