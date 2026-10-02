@@ -17,10 +17,11 @@ pub enum Bound {
 
 /// The functions with class P rows and the bound of each against its reference. A
 /// function without an entry cannot have a class P row.
-pub const CLASS_P: [(&str, Bound); 5] = [
+pub const CLASS_P: [(&str, Bound); 6] = [
     ("exp", Bound::Ulp(1)),
     ("ln", Bound::Ulp(1)),
     ("cos", Bound::Ulp(1)),
+    ("pow", Bound::Ulp(1)),
     ("exponential", Bound::Relative),
     ("normal", Bound::AbsoluteStandardNormal),
 ];
@@ -37,12 +38,13 @@ const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 
 /// Every known-answer file with its header line. Readers skip that line, so a file
 /// without it would lose its first row unnoticed.
-pub const HEADERS: [(&str, &str); 15] = [
+pub const HEADERS: [(&str, &str); 16] = [
     ("ceil", HEADER),
     ("exp", HEADER),
     ("ln", HEADER),
     ("cos", HEADER),
     ("sqrt", HEADER),
+    ("pow", HEADER),
     ("to_i64_exact", "input_bits,expected,class"),
     ("i64_to_f64_exact", "input,expected_bits,class"),
     ("xxh3_64", "input_hex,xxh3_64"),

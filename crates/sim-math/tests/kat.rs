@@ -9,6 +9,7 @@ const EXP: &str = include_str!("../../../tests/golden/kat/exp.csv");
 const LN: &str = include_str!("../../../tests/golden/kat/ln.csv");
 const COS: &str = include_str!("../../../tests/golden/kat/cos.csv");
 const SQRT: &str = include_str!("../../../tests/golden/kat/sqrt.csv");
+const POW: &str = include_str!("../../../tests/golden/kat/pow.csv");
 const TO_I64_EXACT: &str = include_str!("../../../tests/golden/kat/to_i64_exact.csv");
 const I64_TO_F64_EXACT: &str = include_str!("../../../tests/golden/kat/i64_to_f64_exact.csv");
 
@@ -97,6 +98,34 @@ fn cos_known_answers() {
 #[test]
 fn sqrt_known_answers() {
     unary_known_answers("sqrt", SQRT, sim_math::sqrt, 22);
+}
+
+/// pow(x, y): the inputs are joined by `;`. The rows every function of two values is
+/// tested at: both zeros, 1, both infinities and NaN on either side.
+#[test]
+fn pow_known_answers() {
+    let rows: Vec<Vec<&str>> = rows(POW, UNARY).collect();
+    assert_eq!(rows.len(), 100, "pow.csv: number of rows");
+    for required in REQUIRED {
+        for side in 0..2 {
+            assert!(
+                rows.iter()
+                    .any(|row| row[0].split(';').nth(side) == Some(required)),
+                "pow.csv has no row with {required} as input {side}"
+            );
+        }
+    }
+    for row in rows {
+        let inputs: Vec<&str> = row[0].split(';').collect();
+        assert_eq!(inputs.len(), 2, "pow({})", row[0]);
+        assert_ne!(
+            row[1], "unrecorded",
+            "pow({}): run cargo xtask kat-record",
+            row[0]
+        );
+        let actual = sim_math::pow(from_bits(inputs[0]), from_bits(inputs[1]));
+        assert_f64("pow", row[0], row[1], actual);
+    }
 }
 
 #[test]

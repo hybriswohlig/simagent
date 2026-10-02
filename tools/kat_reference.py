@@ -4,10 +4,11 @@
 Class E (exact): the expected value follows from IEEE 754 / C99 Annex F or from an exactly
 rounded function and is computed here, independent of libm and of the Rust code.
 
-Class P (platform-equal): exp, ln and cos. The expected bits are those of libm 0.2.16,
-recorded by `cargo xtask kat-record`; this script only supplies the inputs and the
-reference column: the value computed with mpmath (dps = 60) and rounded to f64 half to
-even by `round_to_f64`. A recorded value may differ from its reference by at most 1 ulp.
+Class P (platform-equal): exp, ln, cos and pow. The expected bits are those of libm
+0.2.16, recorded by `cargo xtask kat-record`; this script only supplies the inputs and
+the reference column: the value computed with mpmath (dps = 60) and rounded to f64 half
+to even by `round_to_f64`. A recorded value may differ from its reference by at most 1
+ulp.
 
 Writes tests/golden/kat/<function>.csv. The files are on the protected list (ADR-0000):
 regenerate them only on purpose, in a `bless:` commit with a five-line report. The
@@ -188,6 +189,40 @@ def sqrt_reference(x: float):
     return "E", mp_round(mpmath.sqrt(mpmath.mpf(x)))
 
 
+def is_odd_integer(y: float) -> bool:
+    """True if y is an odd integer. An f64 of magnitude 2^53 or more is an even integer."""
+    return math.isfinite(y) and abs(y) < 2.0**53 and y == math.floor(y) and int(y) % 2 == 1
+
+
+def pow_reference(x: float, y: float):
+    """(class, value) of pow(x, y). The special cases are those of C99 F.9.4.4, in its
+    order of precedence: pow(x, +-0) = 1 and pow(1, y) = 1 also for NaN."""
+    if y == 0.0 or x == 1.0:
+        return "E", 1.0
+    if math.isnan(x) or math.isnan(y):
+        return "E", math.nan
+    odd = is_odd_integer(y)
+    if x == 0.0:
+        negative = math.copysign(1.0, x) < 0.0 and odd
+        if y < 0.0:
+            return "E", (-math.inf if negative else math.inf)
+        return "E", (-0.0 if negative else 0.0)
+    if math.isinf(y):
+        if x == -1.0:
+            return "E", 1.0
+        return "E", (math.inf if (abs(x) > 1.0) == (y > 0.0) else 0.0)
+    if math.isinf(x):
+        if x > 0.0:
+            return "E", (0.0 if y < 0.0 else math.inf)
+        if y < 0.0:
+            return "E", (-0.0 if odd else 0.0)
+        return "E", (-math.inf if odd else math.inf)
+    if x < 0.0 and y != math.floor(y):
+        return "E", math.nan
+    magnitude = mp_round(mpmath.power(mpmath.mpf(abs(x)), mpmath.mpf(y)))
+    return "P", (-magnitude if x < 0.0 and odd else magnitude)
+
+
 MIN_NORMAL = 2.2250738585072014e-308
 TAU = 6.283185307179586
 PI = 3.141592653589793
@@ -225,6 +260,50 @@ SQRT_INPUTS = [
     -1.0, -MIN_SUBNORMAL, math.inf, -math.inf, math.nan,
 ]
 
+E = 2.718281828459045
+
+
+def srgb_base(level: int) -> float:
+    """The base of the power in the sRGB decoding of an 8-bit level (IEC 61966-2-1),
+    computed as the contract check does: ((level / 255) + 0.055) / 1.055."""
+    return (level / 255.0 + 0.055) / 1.055
+
+
+POW_INPUTS = [
+    # pow(x, +-0) and pow(1, y) are 1, also for NaN.
+    (0.0, 0.0), (-0.0, -0.0), (math.nan, 0.0), (math.inf, -0.0), (-2.5, 0.0),
+    (1.0, math.nan), (1.0, math.inf), (1.0, -math.inf), (1.0, 1e300),
+    (math.nan, 1.0), (2.0, math.nan), (math.nan, math.nan),
+    # A zero base.
+    (0.0, -1.0), (-0.0, -1.0), (0.0, -3.0), (-0.0, -3.0), (0.0, -2.0), (-0.0, -2.0),
+    (0.0, -0.5), (-0.0, -0.5), (0.0, -math.inf), (-0.0, -math.inf),
+    (0.0, 3.0), (-0.0, 3.0), (0.0, 2.0), (-0.0, 2.0), (0.0, 0.5), (-0.0, 0.5),
+    (0.0, math.inf), (-0.0, math.inf), (-0.0, 2.0**53 + 2.0), (-0.0, -(2.0**53) + 1.0),
+    # An infinite exponent.
+    (-1.0, math.inf), (-1.0, -math.inf), (0.5, math.inf), (0.5, -math.inf),
+    (2.0, math.inf), (2.0, -math.inf), (-0.5, math.inf), (-2.0, -math.inf),
+    (-2.0, math.inf), (-0.5, -math.inf),
+    # An infinite base.
+    (math.inf, 1.0), (math.inf, -1.0), (math.inf, 0.5), (math.inf, -0.5),
+    (-math.inf, 3.0), (-math.inf, -3.0), (-math.inf, 2.0), (-math.inf, -2.0),
+    (-math.inf, 0.5), (-math.inf, -0.5), (math.inf, math.inf), (-math.inf, -math.inf),
+    # A negative base: an integer exponent decides the sign, another one gives NaN.
+    (-2.0, 3.0), (-2.0, 2.0), (-2.0, -3.0), (-2.0, 0.5), (-8.0, 1.0 / 3.0),
+    (-MIN_SUBNORMAL, 0.5), (-1.5, 2.0**53 + 2.0), (-1.0000000000000002, 2.0**53 - 1.0),
+    # Ordinary values.
+    (2.0, 0.5), (2.0, 10.0), (10.0, 2.0), (10.0, -2.0), (0.5, 0.5), (E, PI),
+    (4.0, 0.5), (27.0, 1.0 / 3.0), (3.0, 1.0), (MAX, 1.0), (MIN_SUBNORMAL, 1.0),
+    (1.0000000000000002, 1e15), (0.9999999999999999, 1e15), (1e-300, 1.1), (1e300, -1.1),
+    # Near overflow and underflow.
+    (2.0, 1023.0), (2.0, 1024.0), (2.0, 1023.9999999999999), (MAX, 2.0), (1e300, 1.1),
+    (2.0, -1022.0), (2.0, -1074.0), (2.0, -1075.0), (2.0, -1076.0),
+    (MIN_SUBNORMAL, 0.5), (MIN_SUBNORMAL, 2.0), (MAX, MAX), (MAX, -MAX), (0.5, MAX),
+    # The sRGB curve (ADR-0005 section 5): decoding with 2.4, encoding with 1 / 2.4.
+    (srgb_base(11), 2.4), (srgb_base(64), 2.4), (srgb_base(128), 2.4),
+    (srgb_base(200), 2.4), (srgb_base(254), 2.4), (srgb_base(255), 2.4),
+    (0.0031308, 1.0 / 2.4), (0.21586050011389923, 1.0 / 2.4), (0.5, 1.0 / 2.4),
+]
+
 UNRECORDED = "unrecorded"
 CHECK = "--check" in sys.argv[1:]
 MISMATCHES = []
@@ -257,6 +336,19 @@ def unary_rows(name: str, inputs: list, reference) -> list:
         ref = value_bits(value)
         expected = ref if kind == "E" else known.get((bits(x), ref), UNRECORDED)
         rows.append(f"{bits(x)},{expected},{kind},{ref}")
+    return rows
+
+
+def binary_rows(name: str, inputs: list, reference) -> list:
+    """As unary_rows for a function of two values; the inputs are joined by `;`."""
+    known = recorded(name)
+    rows = []
+    for x, y in inputs:
+        kind, value = reference(x, y)
+        ref = value_bits(value)
+        given = f"{bits(x)};{bits(y)}"
+        expected = ref if kind == "E" else known.get((given, ref), UNRECORDED)
+        rows.append(f"{given},{expected},{kind},{ref}")
     return rows
 
 
@@ -305,6 +397,7 @@ def main() -> None:
     write("ln", header, unary_rows("ln", LN_INPUTS, ln_reference))
     write("cos", header, unary_rows("cos", COS_INPUTS, cos_reference))
     write("sqrt", header, unary_rows("sqrt", SQRT_INPUTS, sqrt_reference))
+    write("pow", header, binary_rows("pow", POW_INPUTS, pow_reference))
 
     if MISMATCHES:
         sys.exit(f"{len(MISMATCHES)} file(s) differ from the reference")
