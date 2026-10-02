@@ -5,16 +5,21 @@
 payload 0 core:started
 payload 1 core:founder_added
 payload 2 core:birthday
+payload 3 core:param_changed
 cause 0 event
 cause 1 plan
 cause 2 input
 cause 3 rule
 subject 0 sim
 input 0 start
+input 1 fork_override
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
 reject 3 too_many_founders
+reject 4 not_started
+reject 5 empty_override
+reject 6 override_param_twice
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
@@ -30,3 +35,4 @@ sex 0 female
 sex 1 male
 allele 0 wild
 allele 1 dummy
+param 0 core:hereditary_diseases
