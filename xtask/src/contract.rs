@@ -376,13 +376,18 @@ pub fn schema_findings(body_json: &str) -> Vec<String> {
     findings
 }
 
+/// The `contract_version` of the contract, if it has one in the form of a version.
+pub fn version(body_json: &str) -> Option<String> {
+    serde_json::from_str::<Value>(body_json)
+        .ok()
+        .and_then(|body| body["contract_version"].as_str().map(str::to_string))
+        .filter(|version| is_version(version))
+}
+
 /// ADR-0005 section 7, check 2 (the changelog): `contracts/body.changelog.md` has a
 /// section `## <contract_version>` with the entries Neu, Geändert and Stillgelegt.
 pub fn changelog_findings(body_json: &str, changelog: &str) -> Vec<String> {
-    let version = serde_json::from_str::<Value>(body_json)
-        .ok()
-        .and_then(|body| body["contract_version"].as_str().map(str::to_string));
-    let Some(version) = version else {
+    let Some(version) = version(body_json) else {
         return vec!["body.json has no contract_version to look up in the changelog".to_string()];
     };
     let heading = format!("## {version}");

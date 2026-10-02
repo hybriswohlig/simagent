@@ -1,0 +1,334 @@
+//! `cargo xtask codegen` (ADR-0005 section 2): the types of the body contract in
+//! `sim-core` are generated from `contracts/body.json`, checked in and compared with a
+//! fresh generation in the gate. The hash of the contract file per version lives in
+//! `contracts/body.hashes.json`.
+
+use serde_json::Value;
+use std::path::Path;
+
+/// Where the generated types live, relative to the repository root.
+pub const GENERATED_FILE: &str = "crates/sim-core/src/body_contract/generated.rs";
+
+/// The Rust name of a parameter key: `body_form_age` becomes `BodyFormAge`.
+pub fn variant_name(key: &str) -> String {
+    key.to_string()
+}
+
+/// A number of the contract as an f64 literal: 25 becomes `25.0`, -4 becomes `-4.0`.
+fn literal(value: &Value) -> String {
+    value.to_string()
+}
+
+/// The source of the generated types, before rustfmt. `Err` with the findings if the
+/// contract does not pass its check: then nothing is generated.
+pub fn generate(body_json: &str, source_hash: u64) -> Result<String, Vec<String>> {
+    Ok(variant_name(body_json) + &literal(&Value::from(source_hash)))
+}
+
+/// The edition of the workspace, from the one line `edition = "..."` of its manifest.
+pub fn workspace_edition(cargo_toml: &str) -> Option<&str> {
+    cargo_toml.lines().next()
+}
+
+/// `source` formatted by the rustfmt of the pinned toolchain, by way of a file in `dir`
+/// (below the workspace root, so that a rustfmt.toml of the workspace applies). `cargo fmt
+/// --check` and the freshness check then see the same bytes. A source that does not parse
+/// is an error.
+pub fn format(dir: &Path, edition: &str, source: &str) -> Result<String, String> {
+    Ok(format!("{}{edition}{source}", dir.display()))
+}
+
+/// ADR-0005 section 7, check 4: the checked-in file equals a fresh generation.
+pub fn stale_finding(fresh: &str, checked_in: &str) -> Option<String> {
+    (fresh.len() > checked_in.len()).then(String::new)
+}
+
+/// ADR-0005 section 7, check 2: the hash of `contracts/body.json` equals the entry of its
+/// version in `contracts/body.hashes.json`.
+pub fn hash_findings(hashes_json: &str, version: &str, hash: u64) -> Vec<String> {
+    vec![format!("{hashes_json}{version}{hash}")]
+}
+
+/// The text of `contracts/body.hashes.json` with the entry of `version` set to `hash`.
+pub fn with_hash(hashes_json: &str, version: &str, hash: u64) -> Result<String, String> {
+    Ok(format!("{hashes_json}{version}{hash}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A small valid contract.
+    fn fixture() -> Value {
+        let grid = json!({
+            "eumelanin": [0, 1],
+            "pheomelanin": [0, 1],
+            "srgb": [["#f0e0d0", "#f0d8c0"], ["#402010", "#401c0a"]]
+        });
+        let parameter = |key: &str,
+                         group: &str,
+                         unit: &str,
+                         range: Value,
+                         default: Value,
+                         description: &str| {
+            json!({
+                "key": key, "group": group, "unit": unit, "range": range, "default": default,
+                "stability": "stable", "description": description
+            })
+        };
+        json!({
+            "format_version": 1,
+            "contract_version": "0.3.1",
+            "retired_keys": [],
+            "parameters": [
+                parameter("body_form_age", "age", "years", json!([0, 130]), json!(25), "Age of the shape."),
+                parameter("muscle_z", "build", "z", json!([-4, 4]), json!(0), "Muscle mass."),
+                parameter("face_axis_01", "face", "z", json!([-4, 4]), json!(0), "Axis 01 of the face."),
+                parameter("hair_curl", "hair", "fraction", json!([0, 1]), json!(0.25), "Curl: 0 is straight."),
+            ],
+            "melanin_to_srgb": {
+                "skin": grid.clone(),
+                "hair": grid,
+                "iris": {"melanin": [0, 1], "srgb": ["#90b0d0", "#301810"]}
+            }
+        })
+    }
+
+    #[test]
+    fn variant_names_are_the_keys_in_camel_case() {
+        assert_eq!(variant_name("body_form_age"), "BodyFormAge");
+        assert_eq!(variant_name("height_cm"), "HeightCm");
+        assert_eq!(variant_name("face_axis_01"), "FaceAxis01");
+        assert_eq!(variant_name("muscle_z"), "MuscleZ");
+        assert_eq!(variant_name("iris"), "Iris");
+    }
+
+    #[test]
+    fn numbers_become_float_literals() {
+        for (number, text) in [
+            (json!(25), "25.0"),
+            (json!(-4), "-4.0"),
+            (json!(0), "0.0"),
+            (json!(0.25), "0.25"),
+            (json!(130.0), "130.0"),
+            (json!(0.3), "0.3"),
+        ] {
+            assert_eq!(literal(&number), text);
+        }
+    }
+
+    /// ADR-0005 section 2: what the generated file contains.
+    #[test]
+    fn the_generated_source_has_every_part() {
+        let source = generate(&fixture().to_string(), 0x0123_4567_89ab_cdef).expect("valid");
+        assert!(source.starts_with(
+            "// Generated by `cargo xtask codegen` from contracts/body.json. Do not edit.\n"
+        ));
+        for part in [
+            "pub const CONTRACT_VERSION: &str = \"0.3.1\";\n",
+            "pub const SOURCE_HASH: u64 = 0x0123456789abcdef;\n",
+            "pub enum BodyParamKey {\n    /// Age of the shape.\n    BodyFormAge,\n    /// Muscle mass.\n    MuscleZ,\n    /// Axis 01 of the face.\n    FaceAxis01,\n    /// Curl: 0 is straight.\n    HairCurl,\n}\n",
+            "    pub const ALL: [BodyParamKey; 4] = [\n        BodyParamKey::BodyFormAge,\n        BodyParamKey::MuscleZ,\n        BodyParamKey::FaceAxis01,\n        BodyParamKey::HairCurl,\n    ];\n",
+            "            BodyParamKey::FaceAxis01 => \"face_axis_01\",\n",
+            "            BodyParamKey::BodyFormAge => BodyParamSpec { min: 0.0, max: 130.0, default: 25.0 },\n",
+            "            BodyParamKey::MuscleZ => BodyParamSpec { min: -4.0, max: 4.0, default: 0.0 },\n",
+            "            BodyParamKey::HairCurl => BodyParamSpec { min: 0.0, max: 1.0, default: 0.25 },\n",
+            "pub struct BodyParams {\n    pub(super) body_form_age: f64,\n    pub(super) muscle_z: f64,\n    pub(super) face_axis_01: f64,\n    pub(super) hair_curl: f64,\n}\n",
+            "    pub const DEFAULT: BodyParams = BodyParams {\n        body_form_age: 25.0,\n        muscle_z: 0.0,\n        face_axis_01: 0.0,\n        hair_curl: 0.25,\n    };\n",
+            "    /// Curl: 0 is straight.\n    pub const fn hair_curl(&self) -> f64 {\n        self.hair_curl\n    }\n",
+            "            BodyParamKey::HairCurl => self.hair_curl,\n",
+            "            BodyParamKey::HairCurl => &mut self.hair_curl,\n",
+            "impl Serialize for BodyParams {\n",
+        ] {
+            assert!(source.contains(part), "missing:\n{part}\nin:\n{source}");
+        }
+        // No lossy conversion, no hash derive, no 32-bit float (the lints of the core),
+        // and nothing that reads the type back in. Comments may use the words.
+        let code: Vec<&str> = source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect();
+        for banned in [" as ", "Hash", "f32", "Deserialize"] {
+            assert!(!code.iter().any(|line| line.contains(banned)), "{banned}");
+        }
+        // The same contract gives the same bytes; another hash, another file.
+        assert_eq!(
+            generate(&fixture().to_string(), 0x0123_4567_89ab_cdef),
+            Ok(source.clone())
+        );
+        assert_ne!(generate(&fixture().to_string(), 1), Ok(source));
+    }
+
+    #[test]
+    fn a_contract_with_findings_generates_nothing() {
+        let mut broken = fixture();
+        broken["parameters"][1]["range"] = json!([-3, 3]);
+        assert_eq!(
+            generate(&broken.to_string(), 0),
+            Err(vec![
+                "parameter muscle_z: unit z needs the range [-4, 4]".to_string()
+            ])
+        );
+    }
+
+    /// A key whose generated names collide with others stops the generator: `xtask`
+    /// builds the generated file.
+    #[test]
+    fn keys_with_colliding_names_generate_nothing() {
+        for (key, finding) in [
+            (
+                "get",
+                "parameter get: the generated type has a method of this name",
+            ),
+            (
+                "slot",
+                "parameter slot: the generated type has a method of this name",
+            ),
+            (
+                "face_axis01",
+                "parameters face_axis_01 and face_axis01 share the Rust name FaceAxis01",
+            ),
+            (
+                "muscle__z",
+                "parameters muscle_z and muscle__z share the Rust name MuscleZ",
+            ),
+        ] {
+            let mut contract = fixture();
+            contract["parameters"][3]["key"] = json!(key);
+            assert_eq!(
+                generate(&contract.to_string(), 0),
+                Err(vec![finding.to_string()])
+            );
+        }
+    }
+
+    #[test]
+    fn the_edition_is_the_one_line_of_the_manifest() {
+        let manifest = "[workspace.package]\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.96\"\n";
+        assert_eq!(workspace_edition(manifest), Some("2024"));
+        assert_eq!(
+            workspace_edition("[workspace.package]\nversion = \"0.1.0\"\n"),
+            None
+        );
+        assert_eq!(
+            workspace_edition(&format!("{manifest}edition = \"2021\"\n")),
+            None
+        );
+        assert_eq!(workspace_edition("edition = \"2024\" # pinned\n"), None);
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../target/codegen-tests")
+            .join(name)
+    }
+
+    /// The formatted source is what `cargo fmt --check` accepts: formatting it again
+    /// changes nothing, and nothing but layout differs from the raw source.
+    #[test]
+    fn the_formatted_source_is_stable() {
+        let raw = generate(&fixture().to_string(), 7).expect("valid");
+        let dir = scratch("stable");
+        let formatted = format(&dir, "2024", &raw).expect("formats");
+        assert_ne!(formatted, raw);
+        assert_eq!(format(&dir, "2024", &formatted), Ok(formatted.clone()));
+        let dense = |text: &str| -> String {
+            text.chars()
+                .filter(|c| !c.is_whitespace() && *c != ',')
+                .collect()
+        };
+        assert_eq!(dense(&formatted), dense(&raw));
+        // rustfmt puts the fields of a specification on lines of their own.
+        assert!(formatted.contains(
+            "            BodyParamKey::HairCurl => BodyParamSpec {\n                min: 0.0,\n                max: 1.0,\n                default: 0.25,\n            },\n"
+        ));
+    }
+
+    /// A key that is a Rust keyword passes the schema; rustfmt stops it before a file
+    /// that does not compile is written.
+    #[test]
+    fn a_keyword_as_key_stops_at_the_formatter() {
+        for key in ["type", "self", "loop"] {
+            let mut contract = fixture();
+            contract["parameters"][3]["key"] = json!(key);
+            let raw = generate(&contract.to_string(), 7).expect("valid schema");
+            let refused = format(&scratch(key), "2024", &raw).expect_err(key);
+            assert!(
+                refused.starts_with("rustfmt refuses the generated source:\n"),
+                "{refused}"
+            );
+        }
+    }
+
+    /// ADR-0005 `rejects_stale_codegen`.
+    #[test]
+    fn rejects_stale_codegen() {
+        let fresh = generate(&fixture().to_string(), 7).expect("valid");
+        assert_eq!(stale_finding(&fresh, &fresh), None);
+        let mut changed = fixture();
+        changed["parameters"][3]["default"] = json!(0.5);
+        let stale = generate(&changed.to_string(), 7).expect("valid");
+        assert_eq!(
+            stale_finding(&fresh, &stale),
+            Some(format!(
+                "{GENERATED_FILE} is stale: run cargo xtask codegen and commit the result"
+            ))
+        );
+        assert!(stale_finding(&fresh, "").is_some());
+    }
+
+    /// ADR-0005 `rejects_hash_mismatch`.
+    #[test]
+    fn rejects_hash_mismatch() {
+        let hashes =
+            "{\n  \"0.1.0\": \"00000000000000aa\",\n  \"0.2.0\": \"00000000000000bb\"\n}\n";
+        assert_eq!(hash_findings(hashes, "0.2.0", 0xbb), Vec::<String>::new());
+        assert_eq!(hash_findings(hashes, "0.1.0", 0xaa), Vec::<String>::new());
+        assert_eq!(
+            hash_findings(hashes, "0.2.0", 0xbc),
+            vec![
+                "body.hashes.json records 00000000000000bb for 0.2.0, contracts/body.json hashes to 00000000000000bc: a changed contract needs a new version"
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            hash_findings(hashes, "0.3.0", 0xbb),
+            vec!["body.hashes.json has no entry for 0.3.0: run cargo xtask codegen".to_string()]
+        );
+        for broken in [
+            "[]",
+            "{",
+            "{\"0.1.0\": 170}",
+            "{\"0.1.0\": \"AA000000000000aa\"}",
+            "{\"0.1.0\": \"aa\"}",
+            "{\"first\": \"00000000000000aa\"}",
+        ] {
+            let found = hash_findings(broken, "0.1.0", 0xaa);
+            assert_eq!(found.len(), 1, "{broken}");
+            assert!(found[0].starts_with("body.hashes.json"), "{found:?}");
+        }
+    }
+
+    #[test]
+    fn codegen_writes_the_entry_of_its_version() {
+        assert_eq!(
+            with_hash("{}", "0.1.0", 0xaa),
+            Ok("{\n  \"0.1.0\": \"00000000000000aa\"\n}\n".to_string())
+        );
+        let one = "{\n  \"0.1.0\": \"00000000000000aa\"\n}\n";
+        assert_eq!(
+            with_hash(one, "0.2.0", 0xbb),
+            Ok(
+                "{\n  \"0.1.0\": \"00000000000000aa\",\n  \"0.2.0\": \"00000000000000bb\"\n}\n"
+                    .to_string()
+            )
+        );
+        // Until the version is merged its entry follows the file.
+        assert_eq!(
+            with_hash(one, "0.1.0", 0xab),
+            Ok("{\n  \"0.1.0\": \"00000000000000ab\"\n}\n".to_string())
+        );
+        assert!(with_hash("[]", "0.1.0", 1).is_err());
+    }
+}

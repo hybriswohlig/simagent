@@ -5,6 +5,7 @@ mod arch;
 mod budget;
 mod canary;
 mod checks;
+mod codegen;
 mod contract;
 mod kat;
 mod release_run;
@@ -40,12 +41,19 @@ fn main() -> ExitCode {
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
+        Some("codegen") => return report("codegen", codegen()),
+        Some("contract-check") => {
+            return report(
+                "contract-check",
+                workspace_root().and_then(|root| check_contract(&root)),
+            );
+        }
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)"
             );
             return ExitCode::from(2);
         }
@@ -305,9 +313,8 @@ fn check_gate_run(root: &Path) -> Result {
 /// `target/reports/melanin-chart.html` (ADR-0005 section 5).
 fn melanin_chart() -> Result {
     let root = workspace_root()?;
-    let body = read(&root.join("contracts/body.json"))?;
-    let chart = contract::melanin_chart(&body)
-        .map_err(|findings| format!("\n  {}", findings.join("\n  ")))?;
+    let body = read(&root.join(BODY_FILE))?;
+    let chart = contract::melanin_chart(&body).map_err(listed)?;
     let dir = root.join("target").join("reports");
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
@@ -318,20 +325,81 @@ fn melanin_chart() -> Result {
     Ok(())
 }
 
+const BODY_FILE: &str = "contracts/body.json";
+const BODY_CHANGELOG_FILE: &str = "contracts/body.changelog.md";
+const BODY_HASHES_FILE: &str = "contracts/body.hashes.json";
+
+fn listed(findings: Vec<String>) -> String {
+    format!("\n  {}", findings.join("\n  "))
+}
+
+/// The types of the contract `body` as `cargo xtask codegen` writes them: generated and
+/// then formatted in `target/codegen`, never in place.
+fn generated_types(root: &Path, body: &str) -> Result<String> {
+    let hash = sim_core::hash::stable_hash64(body.as_bytes());
+    let source = codegen::generate(body, hash).map_err(listed)?;
+    let manifest = read(&root.join("Cargo.toml"))?;
+    let edition = codegen::workspace_edition(&manifest)
+        .ok_or("Cargo.toml: expected exactly one line edition = \"...\"")?;
+    codegen::format(&root.join("target").join("codegen"), edition, &source)
+}
+
+/// `cargo xtask codegen` (ADR-0005 section 2): writes the generated types of the body
+/// contract into `sim-core` and the hash of the contract file, under its version, into
+/// `contracts/body.hashes.json`. A contract with findings changes nothing.
+fn codegen() -> Result {
+    let root = workspace_root()?;
+    let body = read(&root.join(BODY_FILE))?;
+    let types = generated_types(&root, &body)?;
+    let version = contract::version(&body).ok_or("body.json has no contract_version")?;
+    let hashes_path = root.join(BODY_HASHES_FILE);
+    let hashes = if hashes_path.exists() {
+        read(&hashes_path)?
+    } else {
+        "{}".to_string()
+    };
+    let hash = sim_core::hash::stable_hash64(body.as_bytes());
+    let hashes = codegen::with_hash(&hashes, &version, hash)?;
+    let types_path = root.join(codegen::GENERATED_FILE);
+    for (path, text) in [(&hashes_path, &hashes), (&types_path, &types)] {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+        }
+        std::fs::write(path, text)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        println!("wrote {}", relative(&root, path));
+    }
+    Ok(())
+}
+
 /// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
-/// values. Checked here: its schema with the rules of the units and of the melanin table,
-/// and its changelog.
+/// values. Checked here: its schema with the rules of the units and of the melanin table
+/// (check 1), its hash and its changelog (check 2), and that the generated types in
+/// `sim-core` are the ones of this file (check 4).
 fn check_contract(root: &Path) -> Result {
-    let body = read(&root.join("contracts/body.json"))?;
+    let body = read(&root.join(BODY_FILE))?;
     let mut found = contract::schema_findings(&body);
     found.extend(contract::changelog_findings(
         &body,
-        &read(&root.join("contracts/body.changelog.md"))?,
+        &read(&root.join(BODY_CHANGELOG_FILE))?,
     ));
+    if let Some(version) = contract::version(&body) {
+        found.extend(codegen::hash_findings(
+            &read(&root.join(BODY_HASHES_FILE))?,
+            &version,
+            sim_core::hash::stable_hash64(body.as_bytes()),
+        ));
+    }
+    if found.is_empty() {
+        let fresh = generated_types(root, &body)?;
+        let checked_in = read(&root.join(codegen::GENERATED_FILE))?;
+        found.extend(codegen::stale_finding(&fresh, &checked_in));
+    }
     if found.is_empty() {
         Ok(())
     } else {
-        Err(format!("\n  {}", found.join("\n  ")))
+        Err(listed(found))
     }
 }
 
