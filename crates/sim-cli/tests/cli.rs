@@ -587,13 +587,19 @@ fn replay_compares_the_number_of_years() {
 #[test]
 fn a_session_writes_each_census_row_once() {
     use sim_cli::files::Scenario;
-    use sim_cli::session::Session;
+    use sim_cli::session::{Compare, Session};
     let dir = scratch("session");
     let scenario: Scenario = serde_json::from_str(TINY_SCENARIO).expect("parses");
     let rejected = |code: String| panic!("rejected: {code}");
     let first = Input::Start(scenario.start.clone());
-    let mut session =
-        Session::start(&dir, SimTime::from_secs(-1), first, None, rejected).expect("starts");
+    let mut session = Session::start(
+        &dir,
+        SimTime::from_secs(-1),
+        first,
+        Compare::Nothing,
+        rejected,
+    )
+    .expect("starts");
     for limit in [5, Y - 1, Y, 2 * Y - 1, 3 * Y - 1] {
         session
             .advance(SimTime::from_secs(limit))
