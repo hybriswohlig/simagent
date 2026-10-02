@@ -415,14 +415,22 @@ mod tests {
                     .to_string()
             ]
         );
-        assert_eq!(
-            violations("exponential", &row("7ff0000000000000", "7ff0000000000000")),
-            vec![
-                "exponential.csv:3: 7ff0000000000000 is further than 2^-48 relative from the reference 7ff0000000000000"
-                    .to_string()
-            ],
-            "infinity is no known answer of a draw"
-        );
+        // Infinity is no known answer of a draw, on either side: `inf <= 2^-48 * inf`
+        // would hold.
+        for (recorded, reference) in [
+            ("7ff0000000000000", "7ff0000000000000"),
+            ("3ff0000000000000", "7ff0000000000000"),
+            ("fff0000000000000", "7ff0000000000000"),
+            ("7ff0000000000000", "3ff0000000000000"),
+        ] {
+            assert_eq!(
+                violations("exponential", &row(recorded, reference)),
+                vec![format!(
+                    "exponential.csv:3: {recorded} is further than 2^-48 relative from the reference {reference}"
+                )],
+                "{recorded} against {reference}"
+            );
+        }
     }
 
     /// ADR-0001 section 3: `normal` with mean 0 and sd 1 may differ by 2^-45 absolute;
@@ -463,6 +471,19 @@ mod tests {
                     .to_string()
             ]
         );
+        for (recorded, reference) in [
+            ("7ff0000000000000", "7ff0000000000000"),
+            ("0000000000000000", "7ff0000000000000"),
+            ("fff0000000000000", "0000000000000000"),
+        ] {
+            assert_eq!(
+                violations("normal", &row(STANDARD, recorded, reference)),
+                vec![format!(
+                    "normal.csv:3: {recorded} is further than 2^-45 absolute from the reference {reference}"
+                )],
+                "{recorded} against {reference}"
+            );
+        }
         let scaled = "0000000000000000;0000000000000000;3ff0000000000000;4008000000000000";
         assert_eq!(
             violations("normal", &row(scaled, "3ff0000000000000", "3ff0000000000000")),
