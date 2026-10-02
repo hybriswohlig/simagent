@@ -28,53 +28,384 @@ const PARAMETER_FIELDS: [&str; 7] = [
     "description",
 ];
 
+/// Reports fields of `object` that are missing or unknown; `what` names the object.
+fn field_findings(object: &Map<String, Value>, fields: &[&str], what: &str) -> Vec<String> {
+    let mut findings = Vec::new();
+    for field in fields {
+        if !object.contains_key(*field) {
+            findings.push(format!("{what}: field {field} is missing"));
+        }
+    }
+    for field in object.keys() {
+        if !fields.contains(&field.as_str()) {
+            findings.push(format!("{what}: unknown field {field}"));
+        }
+    }
+    findings
+}
+
+/// `^[a-z][a-z0-9_]*$`
+fn is_key(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    bytes.next().is_some_and(|first| first.is_ascii_lowercase())
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// `MAJOR.MINOR.PATCH`: three decimal numbers without sign, leading zero or suffix.
 pub fn is_version(text: &str) -> bool {
-    !text.is_empty()
+    let parts: Vec<&str> = text.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|b| b.is_ascii_digit())
+                && (*part == "0" || !part.starts_with('0'))
+        })
+}
+
+/// The rule of a unit on range and default (ADR-0005 section 3), as a finding or none.
+fn unit_finding(unit: &str, min: f64, max: f64, default: f64) -> Option<&'static str> {
+    let whole = |x: f64| sim_math::to_i64_exact(x).is_some();
+    match unit {
+        "years" if (min, max) != (0.0, 130.0) => Some("unit years needs the range [0, 130]"),
+        "z" if (min, max) != (-4.0, 4.0) => Some("unit z needs the range [-4, 4]"),
+        "z" if default != 0.0 => Some("unit z needs the default 0"),
+        "melanin" if (min, max) != (0.0, 1.0) => Some("unit melanin needs the range [0, 1]"),
+        "fraction" if min < 0.0 || max > 1.0 => Some("unit fraction needs a range within [0, 1]"),
+        "stage" if min != 0.0 || !whole(max) => Some("unit stage needs whole bounds from 0"),
+        "years" | "cm" | "z" | "fraction" | "stage" | "melanin" => None,
+        _ => Some("unknown unit"),
+    }
+}
+
+fn parameter_findings(
+    index: usize,
+    parameter: &Value,
+    findings: &mut Vec<String>,
+) -> Option<String> {
+    let Some(object) = parameter.as_object() else {
+        findings.push(format!("parameter #{index} is not an object"));
+        return None;
+    };
+    let key = object.get("key").and_then(Value::as_str);
+    let what = match key {
+        Some(key) => format!("parameter {key}"),
+        None => format!("parameter #{index}"),
+    };
+    let before = findings.len();
+    findings.extend(field_findings(object, &PARAMETER_FIELDS, &what));
+    if findings.len() > before {
+        return key.map(str::to_string);
+    }
+    let text = |field: &str| {
+        object
+            .get(field)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    };
+    if !key.is_some_and(is_key) {
+        findings.push(format!("{what}: the key must match [a-z][a-z0-9_]*"));
+    }
+    if !GROUPS.contains(&text("group")) {
+        findings.push(format!("{what}: unknown group {}", object["group"]));
+    }
+    if !["stable", "provisional"].contains(&text("stability")) {
+        findings.push(format!("{what}: stability must be stable or provisional"));
+    }
+    let description = text("description");
+    let one_line = !description.is_empty()
+        && description
+            .bytes()
+            .all(|b| b == b' ' || b.is_ascii_graphic());
+    if !one_line {
+        findings.push(format!(
+            "{what}: description must be one line of ASCII text"
+        ));
+    }
+    let range: Vec<f64> = object["range"]
+        .as_array()
+        .map(|values| values.iter().filter_map(Value::as_f64).collect())
+        .unwrap_or_default();
+    let numbers = object["range"]
+        .as_array()
+        .is_some_and(|values| values.len() == 2);
+    let (Some(default), [min, max], true) = (object["default"].as_f64(), &range[..], numbers)
+    else {
+        findings.push(format!(
+            "{what}: range must be [min, max] and default a number"
+        ));
+        return key.map(str::to_string);
+    };
+    if min >= max {
+        findings.push(format!("{what}: range needs min < max"));
+    } else if default < *min || default > *max {
+        findings.push(format!(
+            "{what}: default {default} lies outside the range [{min}, {max}]"
+        ));
+    }
+    if let Some(rule) = unit_finding(text("unit"), *min, *max, default) {
+        if rule == "unknown unit" {
+            findings.push(format!("{what}: unknown unit {}", object["unit"]));
+        } else {
+            findings.push(format!("{what}: {rule}"));
+        }
+    }
+    key.map(str::to_string)
+}
+
+/// The channels of `#rrggbb` in lower case; `#000000` is no colour of the table.
+fn colour(value: &Value) -> Option<[u8; 3]> {
+    let digits = value.as_str()?.strip_prefix('#')?;
+    let lower_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    if digits.len() != 6 || !digits.bytes().all(lower_hex) || digits == "000000" {
+        return None;
+    }
+    let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
 }
 
 /// An 8-bit sRGB channel in linear light (IEC 61966-2-1).
 fn linear(level: u8) -> f64 {
-    f64::from(level)
+    let c = f64::from(level) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        sim_math::pow((c + 0.055) / 1.055, 2.4)
+    }
 }
 
 /// Relative luminance of a colour, on linear values.
 fn luminance(rgb: [u8; 3]) -> f64 {
-    linear(rgb[0])
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
 }
 
-/// Share of red in a colour, on linear values.
+/// Share of red in a colour, on linear values. The sum is positive: no colour is black.
 fn red_share(rgb: [u8; 3]) -> f64 {
-    linear(rgb[0])
+    let [r, g, b] = rgb.map(linear);
+    r / (r + g + b)
 }
 
-/// The colour tables (ADR-0005 section 5).
+/// The support points of an axis: strictly rising from 0 to 1.
+fn axis(table: &Map<String, Value>, name: &str, what: &str, findings: &mut Vec<String>) -> usize {
+    let values: Option<Vec<f64>> = table[name]
+        .as_array()
+        .map(|values| values.iter().map(Value::as_f64).collect())
+        .unwrap_or_default();
+    let rises = values.as_ref().is_some_and(|values| {
+        values.len() >= 2
+            && values.first() == Some(&0.0)
+            && values.last() == Some(&1.0)
+            && values.windows(2).all(|pair| pair[0] < pair[1])
+    });
+    if !rises {
+        findings.push(format!("{what}.{name} must rise strictly from 0 to 1"));
+    }
+    values.map_or(0, |values| values.len())
+}
+
+/// A grid over eumelanin and pheomelanin (skin, hair).
+fn grid_findings(name: &str, table: &Value, findings: &mut Vec<String>) {
+    let what = format!("melanin_to_srgb.{name}");
+    let Some(table) = table.as_object() else {
+        findings.push(format!("{what} is not an object"));
+        return;
+    };
+    let before = findings.len();
+    findings.extend(field_findings(
+        table,
+        &["eumelanin", "pheomelanin", "srgb"],
+        &what,
+    ));
+    if findings.len() > before {
+        return;
+    }
+    let rows = axis(table, "eumelanin", &what, findings);
+    let columns = axis(table, "pheomelanin", &what, findings);
+    let srgb: Vec<&Vec<Value>> = table["srgb"]
+        .as_array()
+        .map(|rows| rows.iter().filter_map(Value::as_array).collect())
+        .unwrap_or_default();
+    if srgb.len() != rows || srgb.iter().any(|row| row.len() != columns) {
+        findings.push(format!(
+            "{what}.srgb must have {rows} rows of {columns} colours"
+        ));
+        return;
+    }
+    let mut colours = Vec::new();
+    for (i, row) in srgb.iter().enumerate() {
+        let mut parsed = Vec::new();
+        for (j, value) in row.iter().enumerate() {
+            match colour(value) {
+                Some(rgb) => parsed.push(rgb),
+                None => findings.push(format!(
+                    "{what}.srgb[{i}][{j}]: {value} is not a colour #rrggbb in lower case other than #000000"
+                )),
+            }
+        }
+        colours.push(parsed);
+    }
+    if findings.len() > before {
+        return;
+    }
+    for i in 0..rows {
+        for j in 0..columns {
+            if i > 0 && luminance(colours[i][j]) > luminance(colours[i - 1][j]) {
+                findings.push(format!(
+                    "{what}: luminance rises with eumelanin at srgb[{i}][{j}]"
+                ));
+            }
+            if j > 0 && red_share(colours[i][j]) < red_share(colours[i][j - 1]) {
+                findings.push(format!(
+                    "{what}: the red share falls with pheomelanin at srgb[{i}][{j}]"
+                ));
+            }
+        }
+    }
+}
+
+/// The ramp of the iris over one melanin axis.
+fn ramp_findings(table: &Value, findings: &mut Vec<String>) {
+    let what = "melanin_to_srgb.iris";
+    let Some(table) = table.as_object() else {
+        findings.push(format!("{what} is not an object"));
+        return;
+    };
+    let before = findings.len();
+    findings.extend(field_findings(table, &["melanin", "srgb"], what));
+    if findings.len() > before {
+        return;
+    }
+    let points = axis(table, "melanin", what, findings);
+    let srgb = table["srgb"].as_array().map_or(&[][..], Vec::as_slice);
+    if srgb.len() != points {
+        findings.push(format!("{what}.srgb must have {points} colours"));
+        return;
+    }
+    let mut colours = Vec::new();
+    for (i, value) in srgb.iter().enumerate() {
+        match colour(value) {
+            Some(rgb) => colours.push(rgb),
+            None => findings.push(format!(
+                "{what}.srgb[{i}]: {value} is not a colour #rrggbb in lower case other than #000000"
+            )),
+        }
+    }
+    if findings.len() > before {
+        return;
+    }
+    for i in 1..points {
+        if luminance(colours[i]) > luminance(colours[i - 1]) {
+            findings.push(format!("{what}: luminance rises with melanin at srgb[{i}]"));
+        }
+    }
+}
+
+/// The colour tables (ADR-0005 section 5): support points, sizes, colours and the rule on
+/// linear values: luminance does not rise with eumelanin, the red share does not fall
+/// with pheomelanin.
 fn melanin_findings(tables: &Value, findings: &mut Vec<String>) {
-    let _ = (tables, luminance([0; 3]), red_share([0; 3]));
-    findings.clear();
+    let Some(object) = tables.as_object() else {
+        findings.push("melanin_to_srgb is not an object".to_string());
+        return;
+    };
+    let before = findings.len();
+    findings.extend(field_findings(
+        object,
+        &["skin", "hair", "iris"],
+        "melanin_to_srgb",
+    ));
+    if findings.len() > before {
+        return;
+    }
+    grid_findings("skin", &object["skin"], findings);
+    grid_findings("hair", &object["hair"], findings);
+    ramp_findings(&object["iris"], findings);
 }
 
 /// ADR-0005 section 7, check 1: the findings of the schema of `contracts/body.json`.
 pub fn schema_findings(body_json: &str) -> Vec<String> {
-    let mut findings = Vec::new();
-    let empty = Map::new();
-    let _ = (
-        body_json,
-        GROUPS,
-        TOP_FIELDS,
-        PARAMETER_FIELDS,
-        is_version(""),
-        &empty,
-    );
-    melanin_findings(&Value::Null, &mut findings);
+    let Ok(Value::Object(body)) = serde_json::from_str::<Value>(body_json) else {
+        return vec!["body.json is not a JSON object".to_string()];
+    };
+    let mut findings = field_findings(&body, &TOP_FIELDS, "body.json");
+    if !findings.is_empty() {
+        return findings;
+    }
+    if body["format_version"].as_u64() != Some(1) {
+        findings.push("body.json: format_version must be 1".to_string());
+    }
+    if !body["contract_version"].as_str().is_some_and(is_version) {
+        findings.push(format!(
+            "body.json: contract_version {} is not MAJOR.MINOR.PATCH",
+            body["contract_version"]
+        ));
+    }
+    let mut active: Vec<String> = Vec::new();
+    match body["parameters"].as_array() {
+        Some(parameters) if !parameters.is_empty() => {
+            for (index, parameter) in parameters.iter().enumerate() {
+                if let Some(key) = parameter_findings(index, parameter, &mut findings) {
+                    if active.contains(&key) {
+                        findings.push(format!("parameter key {key} occurs twice"));
+                    }
+                    active.push(key);
+                }
+            }
+        }
+        _ => findings.push("body.json: parameters must be a list with entries".to_string()),
+    }
+    match body["retired_keys"].as_array() {
+        Some(retired) => {
+            let mut seen: Vec<&str> = Vec::new();
+            for value in retired {
+                let Some(key) = value.as_str().filter(|key| is_key(key)) else {
+                    findings.push(format!("retired key {value} must match [a-z][a-z0-9_]*"));
+                    continue;
+                };
+                if seen.contains(&key) {
+                    findings.push(format!("retired key {key} is listed twice"));
+                }
+                if active.iter().any(|other| other == key) {
+                    findings.push(format!("retired key {key} is an active parameter"));
+                }
+                seen.push(key);
+            }
+        }
+        None => findings.push("body.json: retired_keys must be a list".to_string()),
+    }
+    melanin_findings(&body["melanin_to_srgb"], &mut findings);
     findings
 }
 
 /// ADR-0005 section 7, check 2 (the changelog): `contracts/body.changelog.md` has a
 /// section `## <contract_version>` with the entries Neu, Geändert and Stillgelegt.
 pub fn changelog_findings(body_json: &str, changelog: &str) -> Vec<String> {
-    let _ = (body_json, changelog);
-    Vec::new()
+    let version = serde_json::from_str::<Value>(body_json)
+        .ok()
+        .and_then(|body| body["contract_version"].as_str().map(str::to_string));
+    let Some(version) = version else {
+        return vec!["body.json has no contract_version to look up in the changelog".to_string()];
+    };
+    let heading = format!("## {version}");
+    let section: Vec<&str> = changelog
+        .lines()
+        .skip_while(|line| *line != heading)
+        .skip(1)
+        .take_while(|line| !line.starts_with("## "))
+        .collect();
+    if !changelog.lines().any(|line| line == heading) {
+        return vec![format!("body.changelog.md has no section {heading}")];
+    }
+    ["Neu", "Geändert", "Stillgelegt"]
+        .iter()
+        .filter(|entry| {
+            !section
+                .iter()
+                .any(|line| line.starts_with(&format!("- {entry}: ")))
+        })
+        .map(|entry| {
+            format!("body.changelog.md: section {heading} has no entry \"- {entry}: ...\"")
+        })
+        .collect()
 }
 
 #[cfg(test)]
