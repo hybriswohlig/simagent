@@ -697,7 +697,7 @@ impl BodyParams {
     on_the_next_line() {}
 }
 type Callback = fn(f64) -> f64;
-fn free() { let often = 1; let fn_like = often; }
+fn free() { let often = 1; let fn_like = often; for each_fn in 0..fn_like {} }
 struct Often { fn_count: u8 }
 "#;
         assert_eq!(

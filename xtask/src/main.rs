@@ -814,6 +814,9 @@ fn cargo(root: &Path, args: &[&str]) -> Result {
 mod tests {
     use super::*;
 
+    /// The hand-written part of the contract module.
+    const CONTRACT_MODULE_FILE: &str = "crates/sim-core/src/body_contract/mod.rs";
+
     /// A copy of the files that the step contract check reads, below `target/`, with the
     /// text of `file` changed by `change`.
     fn contract_copy(name: &str, file: &str, change: impl Fn(&str) -> String) -> PathBuf {
@@ -824,6 +827,7 @@ mod tests {
             BODY_CHANGELOG_FILE,
             BODY_HASHES_FILE,
             codegen::GENERATED_FILE,
+            CONTRACT_MODULE_FILE,
             "Cargo.toml",
         ] {
             let mut text = read(&root.join(path)).expect(path);
@@ -841,7 +845,7 @@ mod tests {
     }
 
     /// The functions of `body_contract/mod.rs` are taken, the generated ones are not
-    /// read.
+    /// read, and the generator gets the names: a parameter with the key `with` stops it.
     #[test]
     fn the_functions_of_the_contract_module_are_taken() {
         let root = workspace_root().expect("the workspace root");
@@ -850,9 +854,28 @@ mod tests {
         for generated in ["get", "slot", "spec", "height_cm"] {
             assert!(!names.contains(&generated.to_string()), "{generated}");
         }
-        // A copy without hand-written files has no taken names.
+
         let copy = contract_copy("taken", "", str::to_string);
+        assert_eq!(taken_names(&copy), Ok(names));
+        let body = read(&copy.join(BODY_FILE)).expect("contract");
+        assert!(generated_types(&copy, &body).is_ok());
+        let first_key = body
+            .split("\"key\": \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("a first key");
+        let renamed = body.replacen(&format!("\"key\": \"{first_key}\""), "\"key\": \"with\"", 1);
+        assert_eq!(
+            generated_types(&copy, &renamed),
+            Err(
+                "\n  parameter with: the body contract module has a function of this name"
+                    .to_string()
+            )
+        );
+        // Without the hand-written file the name is free.
+        std::fs::remove_file(copy.join(CONTRACT_MODULE_FILE)).expect("removed");
         assert_eq!(taken_names(&copy), Ok(Vec::new()));
+        assert!(generated_types(&copy, &renamed).is_ok());
     }
 
     /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
