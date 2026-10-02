@@ -220,9 +220,14 @@ fn grid_findings(name: &str, table: &Value, findings: &mut Vec<String>) {
     }
     let rows = axis(table, "eumelanin", &what, findings);
     let columns = axis(table, "pheomelanin", &what, findings);
-    let srgb: Vec<&Vec<Value>> = table["srgb"]
+    // An entry that is no row stays in the count, as a row without colours.
+    let srgb: Vec<&[Value]> = table["srgb"]
         .as_array()
-        .map(|rows| rows.iter().filter_map(Value::as_array).collect())
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row.as_array().map_or(&[][..], Vec::as_slice))
+                .collect()
+        })
         .unwrap_or_default();
     if srgb.len() != rows || srgb.iter().any(|row| row.len() != columns) {
         findings.push(format!(
@@ -321,11 +326,61 @@ fn melanin_findings(tables: &Value, findings: &mut Vec<String>) {
     ramp_findings(&object["iris"], findings);
 }
 
+/// Keys that occur twice in one object of a JSON text. The parser keeps the last value
+/// without a word, while a reader of the file may see the first.
+fn duplicate_keys(json: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    // The keys seen so far per open object; `None` stands for an open array.
+    let mut open: Vec<Option<Vec<String>>> = Vec::new();
+    let mut rest = json;
+    while let Some(first) = rest.chars().next() {
+        let mut length = first.len_utf8();
+        match first {
+            '{' => open.push(Some(Vec::new())),
+            '[' => open.push(None),
+            '}' | ']' => {
+                open.pop();
+            }
+            '"' => {
+                // The string ends at the first quote that no backslash escapes.
+                let mut escaped = false;
+                let end = rest[1..].char_indices().find(|(_, c)| {
+                    let closes = *c == '"' && !escaped;
+                    escaped = *c == '\\' && !escaped;
+                    closes
+                });
+                length = end.map_or(rest.len(), |(index, _)| index + 2);
+                let is_key = rest[length..].trim_start().starts_with(':');
+                if is_key
+                    && let Some(Some(keys)) = open.last_mut()
+                    && let Ok(key) = serde_json::from_str::<String>(&rest[..length])
+                {
+                    if keys.contains(&key) {
+                        found.push(key);
+                    } else {
+                        keys.push(key);
+                    }
+                }
+            }
+            _ => {}
+        }
+        rest = &rest[length..];
+    }
+    found
+}
+
 /// ADR-0005 section 7, check 1: the findings of the schema of `contracts/body.json`.
 pub fn schema_findings(body_json: &str) -> Vec<String> {
     let Ok(Value::Object(body)) = serde_json::from_str::<Value>(body_json) else {
         return vec!["body.json is not a JSON object".to_string()];
     };
+    let twice = duplicate_keys(body_json);
+    if !twice.is_empty() {
+        return twice
+            .iter()
+            .map(|key| format!("body.json: the key {key} occurs twice in one object"))
+            .collect();
+    }
     let mut findings = field_findings(&body, &TOP_FIELDS, "body.json");
     if !findings.is_empty() {
         return findings;
@@ -517,6 +572,61 @@ mod tests {
     #[test]
     fn the_fixture_is_clean() {
         assert_eq!(after(|_| {}), NONE);
+    }
+
+    /// A key twice in one object: the parser keeps the last value without a word.
+    #[test]
+    fn duplicate_keys_are_found() {
+        let twice = |key: &str| vec![key.to_string()];
+        for (text, found) in [
+            (r#"{"a": 1, "a": 2}"#, twice("a")),
+            (r#"{"a":1,"b":2,"a":3}"#, twice("a")),
+            (r#"{"p": [{"key": "x", "key": "y"}]}"#, twice("key")),
+            (r#"{"p": {"q": {"r": 1, "s": 2, "r": 3}}}"#, twice("r")),
+            // The same key written with an escape.
+            (r#"{"a": 1, "\u0061": 2}"#, twice("a")),
+            (r#"{"a\"b": 1, "a\"b": 2}"#, twice("a\"b")),
+            (
+                r#"{"a": 1, "b": 2, "a": 3, "b": 4}"#,
+                vec!["a".to_string(), "b".to_string()],
+            ),
+            // With space between the key and its colon.
+            ("{\"a\" : 1, \"a\"\n\t: 2}", twice("a")),
+            // After a value that ends in a backslash, and after an array.
+            (r#"{"a": "\\", "a": 1}"#, twice("a")),
+            (r#"{"a": [1, [2]], "a": 2}"#, twice("a")),
+            // No duplicates: other objects, values, texts that look like keys.
+            (r#"{"a": 1, "b": 2}"#, Vec::new()),
+            (r#"{"a": {"a": 1}, "b": {"a": 2}}"#, Vec::new()),
+            (r#"[{"a": 1}, {"a": 2}]"#, Vec::new()),
+            (r#"{"a": "a", "b": ["a", "a"]}"#, Vec::new()),
+            (r#"{"x": "a\": 1, \"x", "y": "\\", "z": 2}"#, Vec::new()),
+            (r#"{"a": {"b": 1}, "b": 2}"#, Vec::new()),
+            (r#"{"a": [{"b": 1}], "b": 2}"#, Vec::new()),
+        ] {
+            assert_eq!(duplicate_keys(text), found, "{text}");
+        }
+    }
+
+    /// A contract with a field twice is refused, whatever the values are.
+    #[test]
+    fn rejects_duplicate_key() {
+        let text = fixture().to_string();
+        assert_eq!(schema_findings(&text), NONE);
+        let range = r#""range":[40.0,230.0]"#;
+        assert_eq!(text.matches(range).count(), 1);
+        let twice = text.replace(range, &format!(r#""range":[0.0,300.0],{range}"#));
+        assert_eq!(
+            schema_findings(&twice),
+            one("body.json: the key range occurs twice in one object")
+        );
+        let version = r#""contract_version":"0.1.0""#;
+        assert_eq!(text.matches(version).count(), 1);
+        let twice = text.replace(version, &format!("{version},{version}"));
+        assert_eq!(
+            schema_findings(&twice),
+            one("body.json: the key contract_version occurs twice in one object")
+        );
     }
 
     /// ADR-0005 acceptance test of step 4.
@@ -848,6 +958,25 @@ mod tests {
             after(|c| c["melanin_to_srgb"]["skin"]["eumelanin"] = json!([0, 1])),
             one("melanin_to_srgb.skin.srgb must have 2 rows of 2 colours")
         );
+        // An entry that is no row counts: three rows remain, but the row of the second
+        // support point is no longer the second entry.
+        for stray in [json!("#a08070"), json!(7), json!(null), json!({})] {
+            for table in ["skin", "hair"] {
+                let found = after(|c| {
+                    let rows = c["melanin_to_srgb"][table]["srgb"]
+                        .as_array_mut()
+                        .expect("rows");
+                    rows.insert(1, stray.clone());
+                });
+                assert_eq!(
+                    found,
+                    one(&format!(
+                        "melanin_to_srgb.{table}.srgb must have 3 rows of 2 colours"
+                    )),
+                    "{stray}"
+                );
+            }
+        }
         assert_eq!(
             after(|c| {
                 c["melanin_to_srgb"]["iris"]["srgb"] =

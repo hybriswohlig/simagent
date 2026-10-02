@@ -10,7 +10,7 @@
       "range": [0, 130],
       "default": 25,
       "stability": "stable",
-      "description": "Body maturity as the age of the reference shape: head to body ratio, limbs, childlike roundness."
+      "description": "Body maturity: head to body ratio, limbs, childlike roundness."
     },
     {
       "key": "face_form_age",
@@ -19,7 +19,7 @@
       "range": [0, 130],
       "default": 25,
       "stability": "stable",
-      "description": "Face maturity as the age of the reference shape: jaw, nose, midface (matures until about 20)."
+      "description": "Face maturity: jaw, nose, midface (matures until about 20)."
     },
     {
       "key": "height_cm",
@@ -217,7 +217,7 @@
       "range": [0, 1],
       "default": 0.3,
       "stability": "stable",
-      "description": "Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV."
+      "description": "Skin eumelanin, brown to black, current value; tanning arrives when the environment summary carries UV (C1)."
     },
     {
       "key": "skin_pheomelanin",
@@ -235,7 +235,7 @@
       "range": [0, 1],
       "default": 0.5,
       "stability": "stable",
-      "description": "Hair eumelanin, including darkening with age, without greying."
+      "description": "Hair eumelanin, including darkening, without greying."
     },
     {
       "key": "hair_pheomelanin",
