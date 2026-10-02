@@ -517,3 +517,55 @@ fn a_resumed_fork_keeps_its_fork_block() {
     );
     assert!(manifest(&parent).get("fork").is_none());
 }
+
+/// Review finding: the fork names its parent by the hash of the parent's log. A parent
+/// directory with the events and the log hash of another run passes the comparison of
+/// the years before the fork point. Without an override and without dropped inputs the
+/// fork is the parent, so its log hash must be the parent's.
+#[test]
+fn a_fork_that_drops_nothing_has_the_log_of_its_parent() {
+    let dir = scratch("provenance");
+    let parent = parent(&dir);
+    // Another run: the third founder is born one second earlier.
+    let other_scenario = dir.join("other.json");
+    fs::write(
+        &other_scenario,
+        TEN_YEARS.replace(r#"{"born": -1}"#, r#"{"born": -2}"#),
+    )
+    .expect("writes");
+    let other = dir.join("other");
+    assert_eq!(
+        simagent(&[
+            "run",
+            "--scenario",
+            arg(&other_scenario),
+            "--out",
+            arg(&other)
+        ]),
+        Ok(())
+    );
+    let (own_hash, other_hash) = (
+        manifest(&parent)["log_hash"]
+            .as_str()
+            .expect("hex")
+            .to_owned(),
+        manifest(&other)["log_hash"]
+            .as_str()
+            .expect("hex")
+            .to_owned(),
+    );
+    assert_ne!(own_hash, other_hash);
+    fs::copy(other.join("events.ndjson"), parent.join("events.ndjson")).expect("copies");
+    replace_in(&parent.join("manifest.json"), &own_hash, &other_hash);
+    let out = dir.join("out");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err(format!(
+            "error: fork_parent_inconsistent: nothing was dropped, so the fork is its parent: its log hash is {own_hash}, the manifest of the parent says {other_hash}"
+        ))
+    );
+    assert!(
+        !out.join("manifest.json").exists(),
+        "no manifest names a wrong parent"
+    );
+}
