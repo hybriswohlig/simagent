@@ -604,15 +604,17 @@ mod tests {
             ]
         );
         assert_eq!(base_findings(&base, &fixture().to_string(), "{}"), NONE);
-        // A version that does not fit into the numbers of the comparison.
-        let huge = changed(|c| c["contract_version"] = json!("0.1.99999999999999999999"));
-        assert_eq!(
-            base_findings(&base, &huge.to_string(), "{}"),
-            vec![
-                "cannot compare contract_version 0.1.99999999999999999999 with 0.1.0 of the merge base"
-                    .to_string()
-            ]
-        );
+        // A version that does not fit into the numbers of the comparison, or that is not
+        // three numbers.
+        for version in ["0.1.99999999999999999999", "0.1.1.0", "0.1", "0.1.x", ""] {
+            let odd = changed(|c| c["contract_version"] = json!(version));
+            assert_eq!(
+                base_findings(&base, &odd.to_string(), "{}"),
+                vec![format!(
+                    "cannot compare contract_version {version} with 0.1.0 of the merge base"
+                )]
+            );
+        }
     }
 
     /// ADR-0005 section 7, check 3: without a file in the base the version is 0.1.0.
