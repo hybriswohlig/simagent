@@ -300,6 +300,101 @@ mod tests {
         }
     }
 
+    /// ADR-0001 section 3: `exponential` may differ from its reference by 2^-48 relative.
+    #[test]
+    fn the_relative_bound_of_exponential() {
+        let row = |expected: &str, reference: &str| {
+            file(&[&format!(
+                "0000000000000000;3ff0000000000000,{expected},P,{reference}"
+            )])
+        };
+        // Around 1.0 an ulp is 2^-52 above and 2^-53 below: 2^-48 is 16 and 32 ulp.
+        for within in ["3ff0000000000000", "3ff0000000000010", "3fefffffffffffe0"] {
+            let csv = row(within, "3ff0000000000000");
+            assert_eq!(
+                violations("exponential", &csv),
+                Vec::<String>::new(),
+                "{within}"
+            );
+        }
+        for beyond in ["3ff0000000000011", "3fefffffffffffdf", "bff0000000000000"] {
+            assert_eq!(
+                violations("exponential", &row(beyond, "3ff0000000000000")),
+                vec![format!(
+                    "exponential.csv:3: {beyond} is further than 2^-48 relative from the reference 3ff0000000000000"
+                )],
+                "{beyond}"
+            );
+        }
+        // A reference of zero allows only zero.
+        assert_eq!(
+            violations("exponential", &row("0000000000000001", "0000000000000000")),
+            vec![
+                "exponential.csv:3: 0000000000000001 is further than 2^-48 relative from the reference 0000000000000000"
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            violations("exponential", &row("7ff0000000000000", "7ff0000000000000")),
+            vec![
+                "exponential.csv:3: 7ff0000000000000 is further than 2^-48 relative from the reference 7ff0000000000000"
+                    .to_string()
+            ],
+            "infinity is no known answer of a draw"
+        );
+    }
+
+    /// ADR-0001 section 3: `normal` with mean 0 and sd 1 may differ by 2^-45 absolute;
+    /// other parameters have no bound and so no class P row.
+    #[test]
+    fn the_absolute_bound_of_normal() {
+        const STANDARD: &str =
+            "0000000000000000;0000000000000000;0000000000000000;3ff0000000000000";
+        let row = |inputs: &str, expected: &str, reference: &str| {
+            file(&[&format!("{inputs},{expected},P,{reference}")])
+        };
+        // 2^-45 is 3d20000000000000.
+        for within in ["0000000000000000", "3d20000000000000", "bd20000000000000"] {
+            let csv = row(STANDARD, within, "0000000000000000");
+            assert_eq!(violations("normal", &csv), Vec::<String>::new(), "{within}");
+        }
+        for beyond in ["3d20000000000001", "bd20000000000001"] {
+            assert_eq!(
+                violations("normal", &row(STANDARD, beyond, "0000000000000000")),
+                vec![format!(
+                    "normal.csv:3: {beyond} is further than 2^-45 absolute from the reference 0000000000000000"
+                )],
+                "{beyond}"
+            );
+        }
+        // Far from zero the absolute bound is below one ulp: only the reference itself.
+        assert_eq!(
+            violations(
+                "normal",
+                &row(STANDARD, "402124b2800eda48", "402124b2800eda48")
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            violations("normal", &row(STANDARD, "4340000000000001", "4340000000000000")),
+            vec![
+                "normal.csv:3: 4340000000000001 is further than 2^-45 absolute from the reference 4340000000000000"
+                    .to_string()
+            ]
+        );
+        let scaled = "0000000000000000;0000000000000000;3ff0000000000000;4008000000000000";
+        assert_eq!(
+            violations("normal", &row(scaled, "3ff0000000000000", "3ff0000000000000")),
+            vec![
+                "normal.csv:3: a class P row of normal needs mean 0 and sd 1, other parameters have no bound"
+                    .to_string()
+            ]
+        );
+        // An exact row may have any parameters.
+        let exact = file(&[&format!("{scaled},3ff0000000000000,E,3ff0000000000000")]);
+        assert_eq!(violations("normal", &exact), Vec::<String>::new());
+    }
+
     /// ADR-0003 section 3.3: without a fixed bound a function has no class P row.
     #[test]
     fn class_p_needs_a_bound_and_a_reference_column() {
