@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 use super::{DomainState, Sim, years_between};
 use crate::input::{InputRejected, RejectCode, Start};
+use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
@@ -58,7 +59,8 @@ fn founder_count(founders: usize) -> Option<u32> {
 }
 
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
-/// 7). Then one creation entry per founder, in list order.
+/// 7). Then one creation entry per founder, in list order; the position in the list
+/// is the founder's index in its lineage key (ADR-0001 section 4).
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
     let founders = founder_count(start.founders.len())
@@ -74,13 +76,23 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
         EventPayload::YearEnd,
         started,
     );
-    for founder in &start.founders {
+    for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
+        let lineage_key = LineageKey::founder(&start.founder_tag, index);
+        domain.lineage.insert(lineage_key);
         let (id, added) = ctx.create_sim(
-            LogPayload::FounderAdded { born },
+            LogPayload::FounderAdded { born, lineage_key },
             Causes::new(ctx.trigger()),
         );
-        domain.sims.insert(id, Sim { born });
+        domain.sims.insert(
+            id,
+            Sim {
+                born,
+                lineage_key,
+                sex: founder.sex,
+                genotype: founder.genotype,
+            },
+        );
         let next = first_birthday(born, ctx.now());
         ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });

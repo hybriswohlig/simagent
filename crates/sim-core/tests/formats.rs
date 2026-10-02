@@ -10,8 +10,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
@@ -66,6 +68,11 @@ fn sample_input() -> Input {
         founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
+            sex: Sex::Female,
+            genotype: Genotype {
+                maternal: Allele::Wild,
+                paternal: Allele::Dummy,
+            },
         }],
     })
 }
@@ -94,16 +101,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607";
+const RECORD_POSTCARD: &str =
+    "010100ff0114746573743a666f726b5f6e6f5f64656e7369747901ffa3a08607000001";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -194,6 +202,81 @@ fn postcard_forms_are_pinned() {
     expected.extend(hex(MAX_U64_POSTCARD));
     expected.extend([3, b'a', b':', b'b', 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
+}
+
+/// The genome of the Durchstich: in JSON the names, in postcard the variant index
+/// (tools/postcard_reference.py).
+#[test]
+fn genome_forms_are_pinned() {
+    for (sex, name, index) in [
+        (Sex::Female, "\"female\"", 0_u8),
+        (Sex::Male, "\"male\"", 1),
+    ] {
+        assert_eq!(json(&sex), name);
+        assert_eq!(from_json::<Sex>(name).expect("parses"), sex);
+        assert_eq!(postcard_round_trip(&sex), [index]);
+    }
+    for (allele, name, index) in [
+        (Allele::Wild, "\"wild\"", 0_u8),
+        (Allele::Dummy, "\"dummy\"", 1),
+    ] {
+        assert_eq!(json(&allele), name);
+        assert_eq!(from_json::<Allele>(name).expect("parses"), allele);
+        assert_eq!(postcard_round_trip(&allele), [index]);
+    }
+    let mixed = Genotype {
+        maternal: Allele::Wild,
+        paternal: Allele::Dummy,
+    };
+    let mixed_json = r#"{"maternal":"wild","paternal":"dummy"}"#;
+    assert_eq!(json(&mixed), mixed_json);
+    assert_eq!(from_json::<Genotype>(mixed_json).expect("parses"), mixed);
+    assert_eq!(postcard_round_trip(&mixed), hex("0001"));
+    let other = Genotype {
+        maternal: Allele::Dummy,
+        paternal: Allele::Wild,
+    };
+    assert_eq!(postcard_round_trip(&other), hex("0100"));
+
+    for rejected in ["\"Female\"", "\"other\"", "0", "null"] {
+        assert!(from_json::<Sex>(rejected).is_err(), "{rejected}");
+        assert!(from_json::<Allele>(rejected).is_err(), "{rejected}");
+    }
+    for rejected in [
+        r#"{"maternal":"wild"}"#,
+        r#"{"paternal":"wild"}"#,
+        r#"{"maternal":"wild","paternal":"dummy","third":"wild"}"#,
+        r#"{"maternal":"wild","paternal":"recessive"}"#,
+        r#"{"maternal":"wild","maternal":"wild","paternal":"dummy"}"#,
+    ] {
+        assert!(from_json::<Genotype>(rejected).is_err(), "{rejected}");
+    }
+    // A variant index that does not exist.
+    assert!(postcard::from_bytes::<Sex>(&[2]).is_err());
+    assert!(postcard::from_bytes::<Allele>(&[2]).is_err());
+    assert!(postcard::from_bytes::<Genotype>(&[0, 2]).is_err());
+}
+
+/// A lineage key is a full-range u64 (ADR-0004 section 3): 16 hex digits in JSON, the
+/// plain number in postcard. The key is the first founder of ADR-0001 `key_rules`.
+#[test]
+fn lineage_key_forms_are_pinned() {
+    let key = LineageKey::founder(&data_id("test:fork_no_density"), 0);
+    assert_eq!(json(&key), "\"cfd3d4551fb363c2\"");
+    assert_eq!(
+        from_json::<LineageKey>("\"cfd3d4551fb363c2\"").expect("parses"),
+        key
+    );
+    assert_eq!(postcard_round_trip(&key), hex("c2c7cdfdd18af5e9cf01"));
+    for rejected in [
+        "14975886013442810818",
+        "\"cfd3d4551fb363c\"",
+        "\"CFD3D4551FB363C2\"",
+        "\"0xcfd3d4551fb363c2\"",
+        "{\"0\":\"cfd3d4551fb363c2\"}",
+    ] {
+        assert!(from_json::<LineageKey>(rejected).is_err(), "{rejected}");
+    }
 }
 
 #[test]
@@ -308,7 +391,11 @@ fn formats_roundtrip_rejects_empty_causes() {
 fn formats_roundtrip_rejects_unknown_fields_and_variants() {
     let cases = [
         INPUT_JSON.replace(r#""founders""#, r#""extra":1,"founders""#),
-        INPUT_JSON.replace(r#"{"born""#, r#"{"sex":1,"born""#),
+        INPUT_JSON.replace(r#"{"born""#, r#"{"age":1,"born""#),
+        // No silent defaults: a founder without sex or genotype is no founder.
+        INPUT_JSON.replace(r#","sex":"female""#, ""),
+        INPUT_JSON.replace(r#","genotype":{"maternal":"wild","paternal":"dummy"}"#, ""),
+        INPUT_JSON.replace(r#""sex":"female""#, r#""sex":"unknown""#),
         INPUT_JSON.replace(r#"{"start""#, r#"{"begin""#),
         r#"{"start":{"world_seed":"00000000000000ff","founders":[]}}"#.to_owned(),
     ];
@@ -405,8 +492,20 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         founder_tag: data_id("test:fork_no_density"),
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
+            sex: Sex::Male,
+            genotype: Genotype {
+                maternal: Allele::Dummy,
+                paternal: Allele::Dummy,
+            },
         }],
     });
+    // A lineage key is a full-range number as well.
+    let added = serde_json::to_value(&all_payloads()[1]).expect("json");
+    check(&added, "founder added");
+    assert_eq!(
+        added["core:founder_added"]["lineage_key"],
+        Value::from("cfd3d4551fb363c2")
+    );
     check(
         &serde_json::to_value(&extreme_entry).expect("json"),
         "entry",
@@ -426,6 +525,7 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Started { founders: 3 },
         LogPayload::FounderAdded {
             born: SimTime::from_secs(-86_400),
+            lineage_key: LineageKey::founder(&data_id("test:fork_no_density"), 0),
         },
         LogPayload::Birthday { age_years: 30 },
     ];
@@ -530,7 +630,7 @@ fn formats_roundtrip_rejects_an_unknown_field_everywhere() {
     let stamp = r#"{"t":0,"seq":1}"#;
     let rejected = r#"{"code":"already_started"}"#;
     let plan = r#"{"by":1,"planned_at":0}"#;
-    let founder = r#"{"born":0}"#;
+    let founder = r#"{"born":0,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}"#;
     let extend = |text: &str| text.replace('}', fields);
     assert!(from_json::<InputStamp>(stamp).is_ok());
     assert!(from_json::<InputStamp>(&extend(stamp)).is_err());
@@ -621,6 +721,21 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(traces.iter().map(|t| line("trace", t)));
+    // The genome of the Durchstich: part of inputs and saves.
+    let sexes = [Sex::Female, Sex::Male];
+    for sex in &sexes {
+        match sex {
+            Sex::Female | Sex::Male => {}
+        }
+    }
+    let alleles = [Allele::Wild, Allele::Dummy];
+    for allele in &alleles {
+        match allele {
+            Allele::Wild | Allele::Dummy => {}
+        }
+    }
+    actual.extend(sexes.iter().map(|s| line("sex", s)));
+    actual.extend(alleles.iter().map(|a| line("allele", a)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

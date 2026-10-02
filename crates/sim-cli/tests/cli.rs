@@ -19,7 +19,7 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1}]},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
@@ -27,7 +27,11 @@ const TEN_YEARS: &str = r#"{
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
-    "founders": [{"born": -943488000}, {"born": -794880000}, {"born": -1}]
+    "founders": [
+      {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
+      {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
+      {"born": -1, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "dummy"}}
+    ]
   },
   "until": 314495999
 }"#;
@@ -127,9 +131,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":1,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":2,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1}]}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -140,7 +144,7 @@ fn run_writes_the_run_directory() {
         concat!(
             r#"{"id":1,"t":0,"subjects":[],"causes":[{"input":1}],"payload":{"core:started":{"founders":1}}}"#,
             "\n",
-            r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1}}}"#,
+            r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1,"lineage_key":"5ed9498f7efac998"}}}"#,
             "\n",
             r#"{"id":3,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
             "\n",
@@ -154,7 +158,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":1,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"6710517d804b1d20"}],"log_hash":"3233ead4da597110"}"#,
+            r#"{"format_version":1,"core_version":2,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"27b8622f0102e6fd"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -165,7 +169,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540101c2a9cec6d380a0832d0101ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d04010101000203fe87ff1d01000401010100ff0109746573743a74696e7901010100a0baac82d8af948867"
+        "53494d4147454e540102c2a9cec6d380a0832d0201ff01fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e000001000203fe87ff1d01000401010100ff0109746573743a74696e7901010000010100fdcd8b88f0c598dc27"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -214,7 +218,7 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","founders":[{"born":-943488000},{"born":-794880000},{"born":-1}]}}"#;
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}]}}"#;
     let commands = vec![(serde_json::from_str::<Input>(start).expect("parses"), start)];
     for (input, _) in &commands {
         match input {
@@ -316,12 +320,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":1"#, r#""core_version":2"#);
+    replace_in(&log, r#""core_version":2"#, r#""core_version":3"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 2, this is 1"
+        "error: replay_foreign_core_version: the input log is of core version 3, this is 2"
     );
-    replace_in(&log, r#""core_version":2"#, r#""core_version":1"#);
+    replace_in(&log, r#""core_version":3"#, r#""core_version":2"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -375,7 +379,7 @@ fn replay_compares_the_log_hash() {
     let dir = scratch("log_hash");
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let manifest_path = original.join("manifest.json");
-    replace_in(&manifest_path, "3233ead4da597110", "3233ead4da597111");
+    replace_in(&manifest_path, "6bed3b6ab04c2db0", "6bed3b6ab04c2db1");
     let log = original.join("input.ndjson");
     assert_eq!(
         error_of(&[
@@ -387,7 +391,7 @@ fn replay_compares_the_log_hash() {
             "--out",
             arg(&dir.join("out")),
         ]),
-        "error: replay_diverged: the log hash is 3233ead4da597110, the manifest says 3233ead4da597111"
+        "error: replay_diverged: the log hash is 6bed3b6ab04c2db0, the manifest says 6bed3b6ab04c2db1"
     );
 }
 
@@ -658,11 +662,32 @@ fn replay_rejects_a_changed_input_log() {
         replay(&with_lines(&[positional])),
         "error: input_log_invalid: line 2 is not a record of the input log"
     );
-    let nested_positional = lines[1].replacen(r#"{"born":-1}"#, "[-1]", 1);
-    assert_eq!(
-        replay(&with_lines(&[&nested_positional])),
-        "error: input_log_invalid: line 2 is not a record of the input log"
-    );
+    let founder = r#"{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}"#;
+    assert!(lines[1].contains(founder));
+    for positional in [
+        r#"[-1,"female",{"maternal":"wild","paternal":"dummy"}]"#,
+        r#"{"born":-1,"sex":"female","genotype":["wild","dummy"]}"#,
+    ] {
+        let nested_positional = lines[1].replacen(founder, positional, 1);
+        assert_eq!(
+            replay(&with_lines(&[&nested_positional])),
+            "error: input_log_invalid: line 2 is not a record of the input log",
+            "{positional}"
+        );
+    }
+    // A founder without sex or genotype is no founder: nothing is filled in.
+    for missing in [
+        r#"{"born":-1,"genotype":{"maternal":"wild","paternal":"dummy"}}"#,
+        r#"{"born":-1,"sex":"female"}"#,
+        r#"{"born":-1}"#,
+    ] {
+        let incomplete = lines[1].replacen(founder, missing, 1);
+        assert_eq!(
+            replay(&with_lines(&[&incomplete])),
+            "error: input_log_invalid: line 2 is not a record of the input log",
+            "{missing}"
+        );
+    }
     let unknown = lines[1].replacen(r#""seq":1"#, r#""seq":1,"extra":0"#, 1);
     assert_eq!(
         replay(&with_lines(&[&unknown])),
@@ -709,7 +734,19 @@ fn bad_scenarios_and_directories_are_rejected() {
         "error: scenario_invalid: not a scenario of format version 1"
     );
     assert_eq!(
-        run(&TINY_SCENARIO.replacen(r#"{"born":-1}"#, "[-1]", 1)),
+        run(&TINY_SCENARIO.replacen(r#"{"born":-1,"sex":"female","#, r#"{"born":-1,"#, 1)),
+        "error: scenario_invalid: not a scenario of format version 1"
+    );
+    assert_eq!(
+        run(&TINY_SCENARIO.replacen(
+            r#"{"maternal":"wild","paternal":"dummy"}"#,
+            r#"["wild","dummy"]"#,
+            1
+        )),
+        "error: scenario_invalid: not a scenario of format version 1"
+    );
+    assert_eq!(
+        run(&TINY_SCENARIO.replacen(r#""paternal":"dummy""#, r#""paternal":"recessive""#, 1)),
         "error: scenario_invalid: not a scenario of format version 1"
     );
     assert_eq!(
@@ -717,7 +754,7 @@ fn bad_scenarios_and_directories_are_rejected() {
         "error: scenario_invalid: not a scenario of format version 1"
     );
     assert_eq!(
-        run(&TINY_SCENARIO.replacen(r#"{"born":-1}"#, r#"{"born":0}"#, 1)),
+        run(&TINY_SCENARIO.replacen(r#"{"born":-1,"#, r#"{"born":0,"#, 1)),
         "error: input_rejected: founder_not_born_before_start"
     );
     assert_eq!(
@@ -745,7 +782,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    bytes[9] = 2;
+    assert_eq!(bytes[9], 2, "the core version in the header of the save");
+    bytes[9] = 3;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

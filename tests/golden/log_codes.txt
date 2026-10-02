@@ -26,3 +26,7 @@ load 5 malformed
 load 6 invalid_queue
 load 7 inconsistent
 trace 0 core:birthday_planned
+sex 0 female
+sex 1 male
+allele 0 wild
+allele 1 dummy

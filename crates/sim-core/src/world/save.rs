@@ -1,7 +1,7 @@
 //! Saving and loading (ADR-0006): header, the canonical projection, the saved
 //! exceptions. The bytes are uncompressed and fully deterministic.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use serde::de::DeserializeOwned;
@@ -11,9 +11,10 @@ use super::ctx::{IdCounters, LogBuffer};
 use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{self, LoadedState, PROJECTION_VERSION, YearHash};
 use crate::ids::{Counter, SimId};
-use crate::input::{Input, InputRecord};
+use crate::input::{Input, InputRecord, Start};
+use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
-use crate::state::{self, DomainState};
+use crate::state::{self, ArchivedSim, DomainState, Sim};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
@@ -190,6 +191,9 @@ impl World {
             .ok()
             .and_then(|len| len.checked_add(1))
             .ok_or(LoadError::Inconsistent)?;
+        // Every sim is a founder with the key of its index (`consistent`), so the keys
+        // differ exactly where the uninterrupted run had them differ.
+        let lineage = lineage_index(&loaded.sims, &loaded.archive);
         let world = World {
             sched,
             state: WorldState {
@@ -197,6 +201,7 @@ impl World {
                     world_seed: loaded.world_seed,
                     sims: loaded.sims,
                     archive: loaded.archive,
+                    lineage,
                 },
                 ids: IdCounters::restore(counter(loaded.next_sim_id)?),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
@@ -210,6 +215,20 @@ impl World {
         };
         Ok((world, exceptions.year_hashes))
     }
+}
+
+/// The lineage keys of a saved state: those of the living and of the archive (ADR-0001
+/// section 4). The index is not saved, loading builds it again.
+pub(super) fn lineage_index(
+    sims: &BTreeMap<SimId, Sim>,
+    archive: &BTreeMap<SimId, ArchivedSim>,
+) -> LineageIndex {
+    let mut index = LineageIndex::new();
+    let living = sims.values().map(|sim| sim.lineage_key);
+    for key in living.chain(archive.values().map(|sim| sim.lineage_key)) {
+        index.insert(key);
+    }
+    index
 }
 
 /// True if the saved state is one the core can reach, as far as that shows without a
@@ -256,10 +275,7 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
                             let unstarted = DomainState::new();
                             state::start::check_start(&unstarted, record.t, start).is_ok()
                                 && start.world_seed == seed
-                                && founders_are_the_first_sims(
-                                    loaded,
-                                    start.founders.iter().map(|f| f.born),
-                                )
+                                && founders_are_the_first_sims(loaded, start)
                         }
                         // The first input that can follow `Start` needs its stamp
                         // checked here: not before the previous one, not after the
@@ -269,23 +285,22 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
             })
 }
 
-/// The founders are the sims 1 to N, living or archived, with their birth times. As
-/// long as nothing else creates sims, the counter stands at N + 1.
-fn founders_are_the_first_sims(
-    loaded: &LoadedState,
-    founders: impl Iterator<Item = SimTime>,
-) -> bool {
+/// The founders are the sims 1 to N, living or archived, with their birth times, sex
+/// and genotype from `Start` and the lineage key of their place in its list. As long as
+/// nothing else creates sims, the counter stands at N + 1.
+fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     let mut next_id = 1_u64;
-    for born in founders {
+    for (index, founder) in (0_u64..).zip(&start.founders) {
         let Ok(id) = SimId::try_from(next_id) else {
             return false;
         };
         let found = match (loaded.sims.get(&id), loaded.archive.get(&id)) {
-            (Some(sim), None) => sim.born,
-            (None, Some(sim)) => sim.born,
+            (Some(sim), None) => (sim.born, sim.lineage_key, sim.sex, sim.genotype),
+            (None, Some(sim)) => (sim.born, sim.lineage_key, sim.sex, sim.genotype),
             (None, None) | (Some(_), Some(_)) => return false,
         };
-        if found != born {
+        let lineage_key = LineageKey::founder(&start.founder_tag, index);
+        if found != (founder.born, lineage_key, founder.sex, founder.genotype) {
             return false;
         }
         next_id += 1;

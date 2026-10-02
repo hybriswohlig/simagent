@@ -9,20 +9,29 @@ use alloc::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::genome::{Genotype, Sex};
 use crate::ids::SimId;
+use crate::lineage::{LineageIndex, LineageKey};
 use crate::time::{SimTime, YEAR};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Sim {
     pub(crate) born: SimTime,
+    /// Who this is in every fork (ADR-0001 section 4); the ID is only a counter.
+    pub(crate) lineage_key: LineageKey,
+    pub(crate) sex: Sex,
+    pub(crate) genotype: Genotype,
 }
 
-/// Who left the active population stays resolvable by ID (ADR-0004 section 1). The
-/// reason and the genome arrive with the rules that write them.
+/// Who left the active population stays resolvable by ID, with lineage key and genome
+/// (ADR-0004 section 1). The reason arrives with the rules that write it.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ArchivedSim {
     pub(crate) born: SimTime,
     pub(crate) left: SimTime,
+    pub(crate) lineage_key: LineageKey,
+    pub(crate) sex: Sex,
+    pub(crate) genotype: Genotype,
 }
 
 pub(crate) struct DomainState {
@@ -31,6 +40,9 @@ pub(crate) struct DomainState {
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
+    /// The lineage keys of the living and the archive. Not part of the projection:
+    /// loading builds it again (ADR-0001 section 4).
+    pub(crate) lineage: LineageIndex,
 }
 
 impl DomainState {
@@ -39,6 +51,7 @@ impl DomainState {
             world_seed: None,
             sims: BTreeMap::new(),
             archive: BTreeMap::new(),
+            lineage: LineageIndex::new(),
         }
     }
 }

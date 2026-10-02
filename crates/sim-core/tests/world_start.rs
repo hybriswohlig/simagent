@@ -6,6 +6,7 @@
 //! from the ADRs. Logs are compared as JSON lines because `EventId` cannot be compared.
 
 use sim_core::data_id::DataId;
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::log::LogEntry;
@@ -19,13 +20,20 @@ fn start_with(born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: SEED,
         founder_tag: DataId::new("test:world_start").expect("valid"),
-        founders: born
-            .iter()
-            .map(|&secs| Founder {
-                born: SimTime::from_secs(secs),
-            })
-            .collect(),
+        founders: born.iter().copied().map(founder).collect(),
     })
+}
+
+/// A founder born at `secs`: female, with the alleles wild and dummy.
+fn founder(secs: i64) -> Founder {
+    Founder {
+        born: SimTime::from_secs(secs),
+        sex: Sex::Female,
+        genotype: Genotype {
+            maternal: Allele::Wild,
+            paternal: Allele::Dummy,
+        },
+    }
 }
 
 fn lines(log: &[LogEntry]) -> Vec<String> {
@@ -77,16 +85,18 @@ fn start_is_stamped_minus_one_seq_one() {
 }
 
 /// ADR-0004 section 7: `core:started` comes first; every founder gets one creation
-/// entry. An input's entries carry `now`, the second after its stamp (ADR-0002).
+/// entry. An input's entries carry `now`, the second after its stamp (ADR-0002). The
+/// lineage keys are those of the founders 0 to 2 of `test:world_start` (ADR-0001
+/// section 4, values from tools/rng_reference.py).
 #[test]
 fn start_writes_started_then_one_founder_added_each() {
     let mut world = World::new();
     world.submit(start_with(&BORN)).expect("accepted");
     let expected = [
         r#"{"id":1,"t":0,"subjects":[],"causes":[{"input":1}],"payload":{"core:started":{"founders":3}}}"#,
-        r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-943488000}}}"#,
-        r#"{"id":3,"t":0,"subjects":[{"sim":2}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-794880000}}}"#,
-        r#"{"id":4,"t":0,"subjects":[{"sim":3}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1}}}"#,
+        r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-943488000,"lineage_key":"84828ab838f0f36a"}}}"#,
+        r#"{"id":3,"t":0,"subjects":[{"sim":2}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-794880000,"lineage_key":"c4e5b66af9b28b79"}}}"#,
+        r#"{"id":4,"t":0,"subjects":[{"sim":3}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1,"lineage_key":"f6b2e48506372978"}}}"#,
     ];
     assert_eq!(lines(&world.take_log()), expected);
 }
@@ -162,7 +172,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","founders":[{"born":-1}]}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}]"#
     );
 }
 

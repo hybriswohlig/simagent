@@ -9,6 +9,7 @@ use proptest::test_runner::RngSeed;
 use serde::Serialize;
 use sim_core::canonical::YearHash;
 use sim_core::data_id::DataId;
+use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::input::{Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::time::SimTime;
@@ -19,9 +20,9 @@ const Y: i64 = 31_449_600;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540101c2a9cec6d380a0832d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540101c2a9cec6d380a0832d0101ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101010002020001000301010100ff0109746573743a74696e79010100";
-const EMPTY_SAVE: &str = "53494d4147454e540101c2a9cec6d380a0832d010001010001000000010000";
+const HEADER: &str = "53494d4147454e540102c2a9cec6d380a0832d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540102c2a9cec6d380a0832d0201ff01010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e79010100000100";
+const EMPTY_SAVE: &str = "53494d4147454e540102c2a9cec6d380a0832d020001010001000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -38,8 +39,20 @@ fn start(seed: u64, tag: &str, born: &[i64]) -> Input {
     Input::Start(Start {
         world_seed: seed,
         founder_tag: DataId::new(tag).expect("valid"),
-        founders: born.iter().map(|&secs| Founder { born: t(secs) }).collect(),
+        founders: born.iter().copied().map(founder).collect(),
     })
+}
+
+/// A founder born at `secs`: female, with the alleles wild and dummy.
+fn founder(secs: i64) -> Founder {
+    Founder {
+        born: SimTime::from_secs(secs),
+        sex: Sex::Female,
+        genotype: Genotype {
+            maternal: Allele::Wild,
+            paternal: Allele::Dummy,
+        },
+    }
 }
 
 /// Scenario "tiny" of the reference tool, with the log taken.
@@ -102,8 +115,38 @@ enum TestInput {
     Start {
         world_seed: u64,
         founder_tag: String,
-        founders: Vec<i64>,
+        founders: Vec<TestFounder>,
     },
+}
+
+/// The lineage keys of the founders 0 and 1 of `test:tiny` (tools/rng_reference.py).
+const TINY_KEYS: [u64; 2] = [0x5ed9_498f_7efa_c998, 0xca85_f610_f1bb_1e89];
+/// Variant indices of the sex and the alleles (tests/golden/log_codes.txt).
+const FEMALE: u8 = 0;
+const MALE: u8 = 1;
+const WILD: u8 = 0;
+const DUMMY: u8 = 1;
+
+/// (born, sex, (maternal, paternal))
+type TestFounder = (i64, u8, (u8, u8));
+/// (born, lineage_key, sex, (maternal, paternal))
+type Living = (i64, u64, u8, (u8, u8));
+/// (born, left, lineage_key, sex, (maternal, paternal))
+type Archived = (i64, i64, u64, u8, (u8, u8));
+
+/// A founder as `founder` of the tests builds it.
+fn test_founder(born: i64) -> TestFounder {
+    (born, FEMALE, (WILD, DUMMY))
+}
+
+/// The founder at `index` of the list of `test:tiny` as a living sim.
+fn living(index: usize, born: i64) -> Living {
+    (born, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
+}
+
+/// The same founder after leaving at `left`.
+fn archived(index: usize, born: i64, left: i64) -> Archived {
+    (born, left, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
 }
 
 /// (time, micro, seq, payload, period)
@@ -123,10 +166,9 @@ struct File {
     next_sim_id: u64,
     queue: Vec<QueueEntry>,
     next_event_seq: u64,
-    /// (id, born); a list of pairs encodes like a map and can hold duplicates.
-    sims: Vec<(u64, i64)>,
-    /// (id, (born, left))
-    archive: Vec<(u64, (i64, i64))>,
+    /// (id, sim); a list of pairs encodes like a map and can hold duplicates.
+    sims: Vec<(u64, Living)>,
+    archive: Vec<(u64, Archived)>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -143,9 +185,9 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 1,
+            core_version: 2,
             data_hash: EMPTY_DATA_HASH,
-            projection_version: 1,
+            projection_version: 2,
             world_seed: Some(0xff),
             closed_through: -1,
             next_sim_id: 2,
@@ -154,7 +196,7 @@ impl File {
                 (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
             ],
             next_event_seq: 3,
-            sims: vec![(1, -1)],
+            sims: vec![(1, living(0, -1))],
             archive: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0)],
             next_event_id: 3,
@@ -164,7 +206,7 @@ impl File {
                 TestInput::Start {
                     world_seed: 0xff,
                     founder_tag: "test:tiny".to_owned(),
-                    founders: vec![-1],
+                    founders: vec![test_founder(-1)],
                 },
             )],
             year_hashes: Vec::new(),
@@ -185,7 +227,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 1);
+    assert_eq!(CORE_VERSION, 2);
 }
 
 // ---------------------------------------------------------------------------------
@@ -398,7 +440,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [0, 2] {
+    for version in [1, 3] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -425,9 +467,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 2;
+        f.core_version = 3;
         f.data_hash = 7;
-        f.projection_version = 2;
+        f.projection_version = 3;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -441,11 +483,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 1;
+        f.core_version = 2;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 2);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 3);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -457,7 +499,7 @@ fn load_checks_run_in_order() {
     assert_eq!(load_error(&bytes), Some(LoadError::Malformed));
     // Decoding and the canonical form come before the queue and the invariants.
     let bytes = File::tiny().with(|f| {
-        f.sims = vec![(1, -1), (1, -1)];
+        f.sims = vec![(1, living(0, -1)), (1, living(0, -1))];
         f.plan_refs.clear();
         f.next_sim_id = 0;
     });
@@ -471,7 +513,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [0, 2] {
+    for version in [1, 3] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -494,7 +536,7 @@ fn load_rejects_malformed_bytes() {
     longer.push(0);
     assert_eq!(load_error(&longer), Some(LoadError::Malformed));
     // A time outside the range of the simulation.
-    let far = File::tiny().with(|f| f.sims = vec![(1, i64::MIN)]);
+    let far = File::tiny().with(|f| f.sims = vec![(1, living(0, i64::MIN))]);
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
@@ -514,10 +556,10 @@ fn load_rejects_malformed_bytes() {
 /// read more than that: repeated and unsorted map keys, varints longer than needed.
 #[test]
 fn load_rejects_non_canonical_bytes() {
-    let repeated = File::tiny().with(|f| f.sims = vec![(1, -1), (1, -1)]);
+    let repeated = File::tiny().with(|f| f.sims = vec![(1, living(0, -1)), (1, living(0, -1))]);
     assert_eq!(load_error(&repeated), Some(LoadError::Malformed));
     // Two founders, valid in every other respect, with the map keys in the wrong order.
-    let two = |sims: Vec<(u64, i64)>| {
+    let two = |sims: Vec<(u64, Living)>| {
         File::tiny().with(|f| {
             f.next_sim_id = 3;
             f.sims = sims;
@@ -532,13 +574,14 @@ fn load_rejects_non_canonical_bytes() {
             f.input_log[0].2 = TestInput::Start {
                 world_seed: 0xff,
                 founder_tag: "test:tiny".to_owned(),
-                founders: vec![-1, -1],
+                founders: vec![test_founder(-1), test_founder(-1)],
             };
         })
     };
-    assert_eq!(load_error(&two(vec![(1, -1), (2, -1)])), None);
+    let (first, second) = ((1, living(0, -1)), (2, living(1, -1)));
+    assert_eq!(load_error(&two(vec![first, second])), None);
     assert_eq!(
-        load_error(&two(vec![(2, -1), (1, -1)])),
+        load_error(&two(vec![second, first])),
         Some(LoadError::Malformed)
     );
     // The same value as a varint of two bytes: 0x82 0x00 is 2, like 0x02.
@@ -632,18 +675,18 @@ fn never_started() -> File {
     file
 }
 
-fn start_with_founders(file: &mut File, founders: Vec<i64>) {
+fn start_with_founders(file: &mut File, born: Vec<i64>) {
     file.input_log[0].2 = TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:tiny".to_owned(),
-        founders,
+        founders: born.into_iter().map(test_founder).collect(),
     };
 }
 
 /// The tiny world with its founder archived instead of living.
 fn archive_the_founder(file: &mut File, born: i64, left: i64) {
     file.sims.clear();
-    file.archive = vec![(1, (born, left))];
+    file.archive = vec![(1, archived(0, born, left))];
     file.queue.remove(0);
     file.plan_refs.remove(0);
 }
@@ -684,11 +727,11 @@ fn load_rejects_inconsistent_saves() {
         // Never started: the world is empty.
         (
             "unstarted with a sim, the counter untouched",
-            never_started().with(|f| f.sims = vec![(1, -1)]),
+            never_started().with(|f| f.sims = vec![(1, living(0, -1))]),
         ),
         (
             "unstarted with an archive, the counter untouched",
-            never_started().with(|f| f.archive = vec![(1, (-9, -2))]),
+            never_started().with(|f| f.archive = vec![(1, archived(0, -9, -2))]),
         ),
         (
             "unstarted with an input",
@@ -697,14 +740,14 @@ fn load_rejects_inconsistent_saves() {
         (
             "unstarted with a sim",
             never_started().with(|f| {
-                f.sims = vec![(1, -1)];
+                f.sims = vec![(1, living(0, -1))];
                 f.next_sim_id = 2;
             }),
         ),
         (
             "unstarted with an archive",
             never_started().with(|f| {
-                f.archive = vec![(1, (-9, -2))];
+                f.archive = vec![(1, archived(0, -9, -2))];
                 f.next_sim_id = 2;
             }),
         ),
@@ -777,7 +820,7 @@ fn load_rejects_inconsistent_saves() {
             "a start the input check rejects",
             File::tiny().with(|f| {
                 // A founder born at the start; everything else fits such a founder.
-                f.sims = vec![(1, 0)];
+                f.sims = vec![(1, living(0, 0))];
                 f.queue = vec![
                     (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
                     (Y, 0, 2, birthday(1), None),
@@ -798,7 +841,7 @@ fn load_rejects_inconsistent_saves() {
         (
             "a living sim beyond the counter, with its birthday",
             File::tiny().with(|f| {
-                f.sims.push((5, -1));
+                f.sims.push((5, living(1, -1)));
                 f.queue.insert(1, (Y - 1, 0, 3, birthday(5), None));
                 f.plan_refs.insert(1, (2, 0));
                 f.next_event_seq = 4;
@@ -806,15 +849,56 @@ fn load_rejects_inconsistent_saves() {
         ),
         (
             "an archived id not below the counter",
-            File::tiny().with(|f| f.archive = vec![(2, (-9, -2))]),
+            File::tiny().with(|f| f.archive = vec![(2, archived(1, -9, -2))]),
         ),
         (
             "an id living and archived",
-            File::tiny().with(|f| f.archive = vec![(1, (-1, 0))]),
+            File::tiny().with(|f| f.archive = vec![(1, archived(0, -1, 0))]),
         ),
         (
             "a founder with another birth time",
             File::tiny().with(|f| start_with_founders(f, vec![-2])),
+        ),
+        (
+            "a founder with another sex",
+            File::tiny().with(|f| f.sims[0].1.2 = MALE),
+        ),
+        (
+            "a founder with another allele from the mother",
+            File::tiny().with(|f| f.sims[0].1.3.0 = DUMMY),
+        ),
+        (
+            "a founder with another allele from the father",
+            File::tiny().with(|f| f.sims[0].1.3.1 = WILD),
+        ),
+        (
+            "a founder with the lineage key of another place in the list",
+            File::tiny().with(|f| f.sims[0].1.1 = TINY_KEYS[1]),
+        ),
+        (
+            "a founder with a lineage key of no founder",
+            File::tiny().with(|f| f.sims[0].1.1 += 1),
+        ),
+        (
+            "an archived founder with another sex",
+            File::tiny().with(|f| {
+                archive_the_founder(f, -1, 0);
+                f.archive[0].1.3 = MALE;
+            }),
+        ),
+        (
+            "an archived founder with another genotype",
+            File::tiny().with(|f| {
+                archive_the_founder(f, -1, 0);
+                f.archive[0].1.4 = (DUMMY, DUMMY);
+            }),
+        ),
+        (
+            "an archived founder with another lineage key",
+            File::tiny().with(|f| {
+                archive_the_founder(f, -1, 0);
+                f.archive[0].1.2 = TINY_KEYS[1];
+            }),
         ),
         (
             "a sim without a founder",
@@ -841,7 +925,7 @@ fn load_rejects_inconsistent_saves() {
             "a birthday for an archived sim",
             File::tiny().with(|f| {
                 f.sims.clear();
-                f.archive = vec![(1, (-1, 0))];
+                f.archive = vec![(1, archived(0, -1, 0))];
             }),
         ),
         (

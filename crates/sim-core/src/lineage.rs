@@ -6,12 +6,17 @@
 
 use alloc::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use crate::data_id::{DataId, str_key};
 use crate::rng::{CHILD, FOUNDER, IMMIGRANT, absorb};
 
-/// The key of one person across forks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LineageKey(u64);
+/// The key of one person across forks. In JSON 16 hex digits, in postcard the plain
+/// u64 (ADR-0004 section 3). Reading a saved key is the only way to get one that was
+/// not built here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LineageKey(#[serde(with = "crate::hex_u64")] u64);
 
 impl LineageKey {
     /// A founder: `index` is the position from 0 in the founder list of the resolved
@@ -77,6 +82,12 @@ pub struct LineageIndex {
 }
 
 impl LineageIndex {
+    pub const fn new() -> LineageIndex {
+        LineageIndex {
+            keys: BTreeSet::new(),
+        }
+    }
+
     /// Adds the key of a new founder, immigrant or conception. A key that is already
     /// there breaks the invariant `lineage_key_unique`.
     pub fn insert(&mut self, key: LineageKey) {

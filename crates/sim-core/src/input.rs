@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::genome::{Genotype, Sex};
 use crate::ids::InputSeq;
 use crate::time::SimTime;
 
@@ -34,6 +35,9 @@ pub struct Start {
 #[serde(deny_unknown_fields)]
 pub struct Founder {
     pub born: SimTime,
+    pub sex: Sex,
+    /// The alleles at the dummy locus of the Durchstich.
+    pub genotype: Genotype,
 }
 
 /// One line of the input log: an accepted input with its stamp (ADR-0004 section 4).
