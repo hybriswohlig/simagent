@@ -917,13 +917,22 @@ mod tests {
         for colour in [
             "#f0e0d0", "#f0d8c0", "#a08070", "#a07860", "#402010", "#401c0a",
         ] {
-            let cell = format!("<td style=\"background:{colour}\"");
+            let cell = format!("<td style=\"background:{colour}");
             assert_eq!(chart.matches(&cell).count(), 2, "{colour}");
         }
         for colour in ["#90b0d0", "#907040", "#301810"] {
-            let cell = format!("<td style=\"background:{colour}\"");
+            let cell = format!("<td style=\"background:{colour}");
             assert_eq!(chart.matches(&cell).count(), 1, "{colour}");
         }
+        // The label is dark on light colours and white on dark ones.
+        assert!(
+            chart.contains("<td style=\"background:#f0e0d0\" "),
+            "{chart}"
+        );
+        assert!(
+            chart.contains("<td style=\"background:#402010;color:#fff\" "),
+            "{chart}"
+        );
         // Rows are eumelanin, columns pheomelanin, in the order of the file.
         let first = chart.find("background:#f0e0d0").expect("the first cell");
         let across = chart
