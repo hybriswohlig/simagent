@@ -287,7 +287,7 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
                 params = Some(start.world_params);
             }
             (Input::ForkOverride(block), Some(before)) => {
-                if state::params::override_rejection(true, &block.changes).is_some() {
+                if block.rejection().is_some() {
                     return false;
                 }
                 let after = block

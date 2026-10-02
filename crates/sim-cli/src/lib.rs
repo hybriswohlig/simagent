@@ -285,6 +285,12 @@ fn fork_run(
         })?,
         None => Vec::new(),
     };
+    // What the core would reject at the fork point is refused before anything is written.
+    let block = ForkOverride { changes };
+    if let Some(code) = block.rejection().filter(|_| !block.changes.is_empty()) {
+        return Err(CliError::new("override_rejected", files::code(&code)));
+    }
+    let changes = block.changes;
     let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN)?;
     let manifest = read_manifest(&parent.join(files::MANIFEST))?;
     let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)

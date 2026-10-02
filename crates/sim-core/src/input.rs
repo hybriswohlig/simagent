@@ -44,6 +44,24 @@ pub struct ForkOverride {
     pub changes: Vec<ParamChange>,
 }
 
+impl ForkOverride {
+    /// Why this block is rejected whatever the state of the world, if at all: it has no
+    /// change, or it names a parameter twice.
+    pub fn rejection(&self) -> Option<RejectCode> {
+        // An empty block would take a place in the input log and make a fork without
+        // override differ from its parent.
+        if self.changes.is_empty() {
+            return Some(RejectCode::EmptyOverride);
+        }
+        let twice = self.changes.iter().enumerate().any(|(index, change)| {
+            self.changes[..index]
+                .iter()
+                .any(|earlier| earlier.same_param(*change))
+        });
+        twice.then_some(RejectCode::OverrideParamTwice)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Founder {
