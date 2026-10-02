@@ -550,14 +550,12 @@ fn check_result_changes(root: &Path) -> Result {
 const CORE_VERSION_FILE: &str = "crates/sim-core/src/version.rs";
 const GOLDEN_DIR: &str = "tests/golden";
 
-/// The variables by which git finds a repository apart from the directory it runs in
-/// (`git rev-parse --local-env-vars`). Inside a hook git exports some of them for the
-/// repository of the hook.
-const LOCAL_GIT_ENV: [&str; 15] = [
+/// The variables by which git finds a repository apart from the directory it runs in:
+/// those of `git rev-parse --local-env-vars` without the configuration of one command
+/// (`GIT_CONFIG`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`), which names no
+/// repository. Inside a hook git exports some of them for the repository of the hook.
+const LOCAL_GIT_ENV: [&str; 12] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
     "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -966,6 +964,8 @@ mod tests {
         let output = git_command(repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env_remove("GIT_CONFIG_PARAMETERS")
+            .env_remove("GIT_CONFIG_COUNT")
             .arg("--git-dir")
             .arg(repo.join(".git"))
             .arg("--work-tree")
@@ -998,6 +998,12 @@ mod tests {
     fn contract_repo(name: &str, files: &[&str]) -> PathBuf {
         let repo = contract_copy(name, "", str::to_string);
         let _ = std::fs::remove_dir_all(repo.join(".git"));
+        // Nothing may be left that git would follow elsewhere, such as a `.git` file.
+        assert!(
+            repo.join(".git").symlink_metadata().is_err(),
+            "{} still has a .git",
+            repo.display()
+        );
         git(&repo, &["init", "-q"]);
         assert!(
             repo.join(".git").join("HEAD").is_file(),
