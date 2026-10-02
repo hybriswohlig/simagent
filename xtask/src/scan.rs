@@ -486,9 +486,12 @@ fn statements_naming(source: &str, ident: &str) -> Vec<(usize, String)> {
 /// The tag rules over all files of `sim-core/src` (ADR-0001 section 5); `golden` is the
 /// text of `tests/golden/rng_tags.txt`. The compiler does the first half: the field of
 /// the tag type is private to `TAG_TYPE_FILE`, so the rest of the core gets a pinned tag
-/// only from the function `from_pinned_list`. The gate counts the uses of that name.
+/// only from the function `from_pinned_list`. The gate does the second: that name
+/// stands only in `TAGS_FILE`, only in constants of one form, and their names and values
+/// are the tag lines of the golden.
 pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<String> {
     const BUILD: &str = "from_pinned_list";
+    const GOLDEN: &str = "tests/golden/rng_tags.txt";
     let mut findings = Vec::new();
     for file in [TAGS_FILE, TAG_TYPE_FILE] {
         if !core_sources.iter().any(|(path, _)| path == file) {
@@ -497,28 +500,58 @@ pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<Stri
             ));
         }
     }
-    let pinned = golden
+    let pinned: Vec<&str> = golden
         .lines()
         .filter(|line| line.starts_with("tag "))
-        .count();
+        .collect();
     for (path, source) in core_sources {
-        // Every use of the name outside its definition: a call, a path, a reference.
-        let uses = count_uses(source, BUILD);
         if path == TAGS_FILE {
-            // One use per tag, and `ALL` equals the golden (test `tags_unique_and_pinned`):
-            // a tag beside the list breaks the count.
-            if uses != pinned {
-                findings.push(format!(
-                    "{path}: names {BUILD} {uses} times, tests/golden/rng_tags.txt pins {pinned} tags (ADR-0001 section 5)"
-                ));
+            // The name stands only in tag constants of one form, and these are the tag
+            // lines of the golden: no wrapper, no alias, no tag beside the list.
+            let mut constants = Vec::new();
+            for (line, statement) in statements_naming(source, BUILD) {
+                match tag_constant(&statement) {
+                    Some((name, value)) => constants.push(format!("tag {value} {name}")),
+                    None => findings.push(format!(
+                        "{path}:{line}: {BUILD} outside a constant of the form pub const NAME: PurposeTag = PurposeTag::{BUILD}(N); (ADR-0001 section 5): {statement}"
+                    )),
+                }
             }
-        } else if uses > 0 {
+            for constant in &constants {
+                if !pinned.contains(&constant.as_str()) {
+                    findings.push(format!(
+                        "{path}: {constant} is not pinned in {GOLDEN} (ADR-0001 section 5)"
+                    ));
+                }
+            }
+            for line in &pinned {
+                if !constants.iter().any(|constant| constant == line) {
+                    findings.push(format!(
+                        "{GOLDEN}: {line} has no constant in {path} (ADR-0001 section 5)"
+                    ));
+                }
+            }
+        } else if count_uses(source, BUILD) > 0 {
             findings.push(format!(
                 "{path}: names {BUILD}; only {TAGS_FILE} builds pinned tags (ADR-0001 section 5)"
             ));
         }
     }
     findings
+}
+
+/// Name and value of a statement of exactly the form
+/// `pub const NAME: PurposeTag = PurposeTag::from_pinned_list(N);` with a plain number.
+fn tag_constant(statement: &str) -> Option<(&str, &str)> {
+    let rest = statement.strip_prefix("pub const ")?;
+    let (name, rest) = rest.split_once(": PurposeTag = PurposeTag::from_pinned_list(")?;
+    let value = rest.strip_suffix(");")?;
+    let plain_name = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+    let plain_value = !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit());
+    (plain_name && plain_value).then_some((name, value))
 }
 
 /// One message per file (path, source) that names one of `idents` as an identifier
@@ -1363,7 +1396,11 @@ mod tests {
         assert_eq!(
             tag_findings(&wrapper, TAGS_GOLDEN),
             vec![
-                other_form(2, "PurposeTag::from_pinned_list(value) }"),
+                // A statement runs to the next semicolon.
+                other_form(
+                    2,
+                    "PurposeTag::from_pinned_list(value) } pub const A: PurposeTag = make(1);"
+                ),
                 format!(
                     "tests/golden/rng_tags.txt: tag 1 A has no constant in {TAGS_FILE} (ADR-0001 section 5)"
                 ),
