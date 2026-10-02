@@ -333,11 +333,25 @@ fn listed(findings: Vec<String>) -> String {
     format!("\n  {}", findings.join("\n  "))
 }
 
+/// The names of the functions in the hand-written files of the contract module: no
+/// parameter may have such a key, its getter would define the name twice.
+fn taken_names(root: &Path) -> Result<Vec<String>> {
+    let generated = root.join(codegen::GENERATED_FILE);
+    let dir = generated.parent().unwrap_or(root);
+    let mut names = Vec::new();
+    for file in rust_files(dir)? {
+        if file != generated {
+            names.extend(scan::function_names(&read(&file)?));
+        }
+    }
+    Ok(names)
+}
+
 /// The types of the contract `body` as `cargo xtask codegen` writes them: generated and
 /// then formatted in `target/codegen`, never in place.
 fn generated_types(root: &Path, body: &str) -> Result<String> {
     let hash = sim_core::hash::stable_hash64(body.as_bytes());
-    let source = codegen::generate(body, hash).map_err(listed)?;
+    let source = codegen::generate(body, hash, &taken_names(root)?).map_err(listed)?;
     let manifest = read(&root.join("Cargo.toml"))?;
     let edition = codegen::workspace_edition(&manifest)
         .ok_or("Cargo.toml: expected exactly one line edition = \"...\"")?;
@@ -824,6 +838,21 @@ mod tests {
             std::fs::write(&target, text).expect(path);
         }
         copy
+    }
+
+    /// The functions of `body_contract/mod.rs` are taken, the generated ones are not
+    /// read.
+    #[test]
+    fn the_functions_of_the_contract_module_are_taken() {
+        let root = workspace_root().expect("the workspace root");
+        let names = taken_names(&root).expect("names");
+        assert!(names.contains(&"with".to_string()), "{names:?}");
+        for generated in ["get", "slot", "spec", "height_cm"] {
+            assert!(!names.contains(&generated.to_string()), "{generated}");
+        }
+        // A copy without hand-written files has no taken names.
+        let copy = contract_copy("taken", "", str::to_string);
+        assert_eq!(taken_names(&copy), Ok(Vec::new()));
     }
 
     /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
