@@ -12,8 +12,51 @@ const FIELDS: [&str; 4] = ["core_version", "data_hash", "year_hashes", "log_hash
 /// What differs between the manifest of a run and the golden of its scenario. `Err` if
 /// one of the two cannot be read: then nothing was compared.
 pub fn differences(manifest_json: &str, golden_json: &str) -> Result<Vec<String>, String> {
-    let _ = (manifest_json, golden_json, FIELDS, Value::Null);
-    Ok(Vec::new())
+    let object = |text: &str, what: &str| match serde_json::from_str(text) {
+        Ok(Value::Object(map)) => Ok(map),
+        _ => Err(format!("{what} is not a JSON object")),
+    };
+    let run = object(manifest_json, "the manifest of the run")?;
+    let golden = object(golden_json, "the golden")?;
+    let mut found = Vec::new();
+    for field in FIELDS {
+        let want = golden
+            .get(field)
+            .ok_or_else(|| format!("the golden has no field {field}"))?;
+        let got = run
+            .get(field)
+            .ok_or_else(|| format!("the manifest of the run has no field {field}"))?;
+        if field != "year_hashes" {
+            if got != want {
+                found.push(format!(
+                    "{field}: the release binary gives {got}, the golden says {want}"
+                ));
+            }
+            continue;
+        }
+        let (Some(got), Some(want)) = (got.as_array(), want.as_array()) else {
+            return Err(
+                "year_hashes must be a list in the manifest of the run and in the golden"
+                    .to_string(),
+            );
+        };
+        if got.len() != want.len() {
+            found.push(format!(
+                "year_hashes: the release binary has {} years, the golden {}",
+                got.len(),
+                want.len()
+            ));
+            continue;
+        }
+        for (index, (got, want)) in got.iter().zip(want).enumerate() {
+            if got != want {
+                found.push(format!(
+                    "year_hashes[{index}]: the release binary gives {got}, the golden says {want}"
+                ));
+            }
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -152,7 +195,7 @@ mod tests {
         assert_eq!(
             differences(&run, &no_list),
             Err(
-                "year_hashes is not a list in the manifest of the run and in the golden"
+                "year_hashes must be a list in the manifest of the run and in the golden"
                     .to_string()
             )
         );
