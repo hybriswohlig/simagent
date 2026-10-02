@@ -11,13 +11,25 @@ use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 use sim_core::world::{World, YearOut};
 
 use crate::error::CliError;
-use crate::files::{self, LogEnd, LogHeader, Manifest, Scenario};
+use crate::files::{self, ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
 
 /// Set at build time by whoever builds a release; informative only (ADR-0003 1.4).
 pub const BUILD_COMMIT: &str = match option_env!("SIMAGENT_BUILD_COMMIT") {
     Some(commit) => commit,
     None => "unknown",
 };
+
+/// What a run compares its year hashes with.
+pub enum Compare {
+    Nothing,
+    /// A replay: every year and at the end the log hash of the original (ADR-0003 1.4).
+    Replay(Manifest),
+    /// A fork: the years before the fork point with the parent (ADR-0001 section 6).
+    Fork {
+        parent: Manifest,
+        info: ForkInfo,
+    },
+}
 
 pub struct Session {
     world: World,
@@ -28,8 +40,7 @@ pub struct Session {
     census_written: usize,
     /// Year hashes already compared with the manifest.
     years_compared: usize,
-    /// The manifest of the original run, for a replay that compares with it.
-    expected: Option<Manifest>,
+    compare: Compare,
 }
 
 /// A limit a run can reach: not before the clock, and not in the last year of the time
@@ -90,7 +101,7 @@ impl Session {
         dir: &Path,
         first_t: SimTime,
         first: Input,
-        expected: Option<Manifest>,
+        compare: Compare,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<Session, CliError> {
         let occupied = fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some());
@@ -115,7 +126,7 @@ impl Session {
             dir: dir.to_path_buf(),
             census_written: 0,
             years_compared: 0,
-            expected,
+            compare,
         };
         let mut log = files::json(&header()) + "\n";
         for record in session.world.input_log() {
@@ -186,7 +197,7 @@ impl Session {
             dir: dir.to_path_buf(),
             census_written: 0,
             years_compared: 0,
-            expected: None,
+            compare: Compare::Nothing,
         })
     }
 
@@ -244,13 +255,16 @@ impl Session {
     }
 
     /// Runs to `limit` and writes what the run produced. A replay with a manifest goes
-    /// year by year and ends at the first year whose hash differs (ADR-0003 1.4).
+    /// year by year and ends at the first year whose hash differs (ADR-0003 1.4); so
+    /// does a fork up to its fork point.
     pub fn advance(&mut self, limit: SimTime) -> Result<(), CliError> {
         check_limit(self.world.closed_through(), limit)?;
         while self.world.closed_through() < limit {
-            let step = match &self.expected {
-                Some(_) => limit.min(end_of_the_open_year(self.world.closed_through())),
-                None => limit,
+            let year_by_year = self.years_compared < self.years_to_compare();
+            let step = if year_by_year {
+                limit.min(end_of_the_open_year(self.world.closed_through()))
+            } else {
+                limit
             };
             self.world
                 .advance_until(&mut self.out, step, &mut |_| false);
@@ -274,19 +288,37 @@ impl Session {
         files::append(&self.path(files::CENSUS), &rows)
     }
 
+    /// How many years from year 0 on are compared: all of a replay, those before the
+    /// fork point of a fork.
+    fn years_to_compare(&self) -> usize {
+        match &self.compare {
+            Compare::Nothing => 0,
+            Compare::Replay(_) => usize::MAX,
+            Compare::Fork { info, .. } => usize::try_from(info.from_year).unwrap_or(usize::MAX),
+        }
+    }
+
     /// Compares the year hashes that are new since the last call with the manifest.
     fn compare_with_the_manifest(&mut self) -> Result<(), CliError> {
-        let Some(expected) = &self.expected else {
-            return Ok(());
+        let (expected, code, whose) = match &self.compare {
+            Compare::Nothing => return Ok(()),
+            Compare::Replay(manifest) => (manifest, "replay_diverged", "the manifest"),
+            Compare::Fork { parent, .. } => (
+                parent,
+                "fork_diverged_before_fork_point",
+                "the manifest of the parent",
+            ),
         };
-        let produced = &self.out.year_hashes[self.years_compared..];
-        let wanted = expected.year_hashes.iter().skip(self.years_compared);
+        let until = self.years_to_compare().min(self.out.year_hashes.len());
+        let from = self.years_compared.min(until);
+        let produced = &self.out.year_hashes[from..until];
+        let wanted = expected.year_hashes.iter().skip(from);
         for (got, want) in produced.iter().zip(wanted) {
             if got != want {
                 return Err(CliError::new(
-                    "replay_diverged",
+                    code,
                     format!(
-                        "year {} has hash {:016x}, the manifest says {:016x}",
+                        "year {} has hash {:016x}, {whose} says {:016x}",
                         got.year, got.hash, want.hash
                     ),
                 ));
@@ -298,7 +330,7 @@ impl Session {
 
     /// The orderly end: the end line, the manifest, the save, the scenario.
     pub fn finish(self, scenario: &Scenario) -> Result<(), CliError> {
-        if let Some(expected) = &self.expected {
+        if let Compare::Replay(expected) = &self.compare {
             let (got, want) = (self.out.year_hashes.len(), expected.year_hashes.len());
             if got != want {
                 let detail = format!("the replay has {got} year hashes, the manifest {want}");
@@ -323,6 +355,10 @@ impl Session {
             closed_through: self.world.closed_through(),
             year_hashes: self.out.year_hashes.clone(),
             log_hash: self.hasher.digest(),
+            fork: match &self.compare {
+                Compare::Fork { info, .. } => Some(info.clone()),
+                Compare::Nothing | Compare::Replay(_) => None,
+            },
         };
         let manifest = files::json(&manifest) + "\n";
         files::write(&self.path(files::MANIFEST), manifest.as_bytes())?;

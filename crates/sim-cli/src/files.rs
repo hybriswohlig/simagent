@@ -66,6 +66,22 @@ pub struct Manifest {
     pub year_hashes: Vec<YearHash>,
     #[serde(with = "sim_core::hex_u64")]
     pub log_hash: u64,
+    /// Only in the manifest of a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork: Option<ForkInfo>,
+}
+
+/// The block `fork` of a manifest (ADR-0004 section 8, ADR-0001 section 6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForkInfo {
+    /// The parent run, named by the hash of its log: a path would differ per machine.
+    #[serde(with = "sim_core::hex_u64")]
+    pub parent_log_hash: u64,
+    /// The fork point is the start of this year.
+    pub from_year: u32,
+    /// Inputs of the parent that would take effect from the fork point on.
+    pub dropped_inputs: u64,
 }
 
 /// The JSON form of `value` on one line.

@@ -11,12 +11,12 @@ use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
 use sim_core::input::{Input, InputRecord};
-use sim_core::time::SimTime;
+use sim_core::time::{SimDuration, SimTime, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 
 use crate::error::CliError;
-use crate::files::{LogEnd, LogHeader, Manifest, Scenario};
-use crate::session::Session;
+use crate::files::{ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
+use crate::session::{Compare, Session};
 
 /// Arguments through clap's builder API: its derive macros set their own lint levels
 /// and collide with the workspace `forbid` lints (ADR-0000).
@@ -45,17 +45,38 @@ fn command() -> Command {
                 .value_name("MANIFEST_JSON")
                 .requires("replay"),
         );
+    let fork = Command::new("fork")
+        .about("Runs a parent run again from t0 and checks the years before the fork point")
+        .arg(Arg::new("parent").value_name("PARENT_DIR").required(true))
+        .arg(
+            Arg::new("from-year")
+                .long("from-year")
+                .value_name("YEAR")
+                .allow_negative_numbers(true)
+                .required(true),
+        )
+        .arg(Arg::new("out").long("out").value_name("DIR").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .subcommand(run)
+        .subcommand(fork)
 }
 
 /// Runs the program with these arguments. A usage error ends the process through clap.
 pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     let matches = command().get_matches_from(args);
-    let Some(("run", run)) = matches.subcommand() else {
-        return Err(CliError::new("usage", "unknown subcommand"));
+    let run = match matches.subcommand() {
+        Some(("run", run)) => run,
+        Some(("fork", fork)) => {
+            let text = |name: &str| fork.get_one::<String>(name).map_or("", String::as_str);
+            let year = text("from-year");
+            let from_year: i64 = year
+                .parse()
+                .map_err(|_| CliError::new("usage", format!("--from-year {year} is not a year")))?;
+            return fork_run(Path::new(text("parent")), from_year, Path::new(text("out")));
+        }
+        _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
     let text = |name: &str| run.get_one::<String>(name).map(String::as_str);
     let out = Path::new(text("out").unwrap_or_default());
@@ -99,7 +120,7 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
     session::check_limit(stamp, until.unwrap_or(scenario.until))?;
     let first = Input::Start(scenario.start.clone());
     let rejected = |code: String| CliError::new("input_rejected", code);
-    let mut session = Session::start(out, stamp, first, None, rejected)?;
+    let mut session = Session::start(out, stamp, first, Compare::Nothing, rejected)?;
     session.advance(until.unwrap_or(scenario.until))?;
     session.finish(&scenario)
 }
@@ -117,9 +138,28 @@ fn resume(dir: &Path, until: Option<SimTime>) -> Result<(), CliError> {
     session.finish(&scenario)
 }
 
-/// ADR-0004 section 4: a new world, per record `advance_until(t)` and `submit`, at the
-/// end `advance_until(end)`. The whole log is read and checked before anything runs.
-fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliError> {
+/// Whose log is read, for the messages about a foreign version.
+struct Source {
+    subject: &'static str,
+    foreign_core_version: &'static str,
+    foreign_data_hash: &'static str,
+}
+
+const REPLAYED_LOG: Source = Source {
+    subject: "the input log",
+    foreign_core_version: "replay_foreign_core_version",
+    foreign_data_hash: "replay_foreign_data_hash",
+};
+
+const PARENT_RUN: Source = Source {
+    subject: "the parent run",
+    foreign_core_version: "fork_foreign_core_version",
+    foreign_data_hash: "fork_foreign_data_hash",
+};
+
+/// The records and the end line of an input log of this core version and data hash.
+/// The whole log is read and checked before anything runs.
+fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogEnd), CliError> {
     let invalid = |detail: String| CliError::new("input_log_invalid", detail);
     let text = files::read_text(log)?;
     let mut lines: Vec<&str> = text.lines().collect();
@@ -132,19 +172,20 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
             "line 1 is not the header of an input log".to_owned(),
         ));
     }
+    let subject = source.subject;
     if header.core_version != CORE_VERSION {
         let detail = format!(
-            "the input log is of core version {}, this is {CORE_VERSION}",
+            "{subject} is of core version {}, this is {CORE_VERSION}",
             header.core_version
         );
-        return Err(CliError::new("replay_foreign_core_version", detail));
+        return Err(CliError::new(source.foreign_core_version, detail));
     }
     if header.data_hash != EMPTY_DATA_HASH {
         let detail = format!(
-            "the input log has data hash {:016x}, this is {EMPTY_DATA_HASH:016x}",
+            "{subject} has data hash {:016x}, this is {EMPTY_DATA_HASH:016x}",
             header.data_hash
         );
-        return Err(CliError::new("replay_foreign_data_hash", detail));
+        return Err(CliError::new(source.foreign_data_hash, detail));
     }
     let end: LogEnd = lines
         .pop()
@@ -165,13 +206,22 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
             last.as_secs()
         )));
     }
-    let expected = match manifest {
-        Some(path) => {
-            let manifest: Manifest = files::parse_strict(files::read_text(path)?.trim_end())
-                .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
-            Some(manifest)
-        }
-        None => None,
+    Ok((records, end))
+}
+
+fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
+    files::parse_strict(files::read_text(path)?.trim_end())
+        .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))
+}
+
+/// ADR-0004 section 4: a new world, per record `advance_until(t)` and `submit`, at the
+/// end `advance_until(end)`.
+fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliError> {
+    let invalid = |detail: String| CliError::new("input_log_invalid", detail);
+    let (records, end) = read_input_log(log, &REPLAYED_LOG)?;
+    let compare = match manifest {
+        Some(path) => Compare::Replay(read_manifest(path)?),
+        None => Compare::Nothing,
     };
     let mut records = records.into_iter();
     let Some(first) = records.next() else {
@@ -189,7 +239,7 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
     session::check_limit(first.t, end.end)?;
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
-    let mut session = Session::start(out, t, first.input.clone(), expected, rejected)?;
+    let mut session = Session::start(out, t, first.input.clone(), compare, rejected)?;
     session.check_stamp(t, seq)?;
     for record in records {
         if record.t > session.closed_through() {
@@ -197,6 +247,91 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
         }
         session.replay_input(record)?;
     }
+    session.advance(end.end)?;
+    session.finish(&scenario)
+}
+
+/// ADR-0001 section 6: a fork is a new run from t0 with the resolved scenario and the
+/// seed of the parent. The inputs of the parent with a stamp before `T_X - 1 s` are
+/// taken over; the run goes to `T_X - 1 s`, where the year hashes 0 to X - 1 must equal
+/// those in the manifest of the parent, and then on to the end of the parent. An
+/// override would be submitted at `T_X - 1 s`; it arrives with the first world
+/// parameter. Without it and without dropped inputs the fork is exactly the parent.
+fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
+    let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN)?;
+    let manifest = read_manifest(&parent.join(files::MANIFEST))?;
+    let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)
+        .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
+        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
+    if manifest.closed_through != end.end {
+        let detail = format!(
+            "the manifest of the parent ends at {}, its input log at {}",
+            manifest.closed_through.as_secs(),
+            end.end.as_secs()
+        );
+        return Err(CliError::new("manifest_invalid", detail));
+    }
+    let out_of_range = |detail: String| {
+        CliError::new(
+            "fork_point_out_of_range",
+            format!("from-year {from_year}: {detail}"),
+        )
+    };
+    if from_year < 1 {
+        return Err(out_of_range("a fork starts at year 1 or later".to_owned()));
+    }
+    // Year X may start one second after the end of the parent at the latest.
+    let second = SimDuration::from_secs(1);
+    let last_year = calendar(end.end + second).year;
+    let years = u32::try_from(from_year)
+        .ok()
+        .filter(|_| from_year <= last_year);
+    let Some(years) = years else {
+        return Err(out_of_range(format!(
+            "the parent run ends at {}, before year {from_year} starts",
+            end.end.as_secs()
+        )));
+    };
+    let fork_stamp = year_start(from_year) - second;
+    let (kept, dropped): (Vec<InputRecord>, Vec<InputRecord>) = records
+        .into_iter()
+        .partition(|record| record.t < fork_stamp);
+    let mut kept = kept.into_iter();
+    let Some(first) = kept.next() else {
+        return Err(CliError::new(
+            "input_log_invalid",
+            "the input log has no input before the fork point",
+        ));
+    };
+    let Input::Start(start) = &first.input;
+    if *start != scenario.start {
+        return Err(CliError::new(
+            "run_dir_inconsistent",
+            "the resolved scenario of the parent does not start as its input log",
+        ));
+    }
+    session::check_limit(first.t, end.end)?;
+    let info = ForkInfo {
+        parent_log_hash: manifest.log_hash,
+        from_year: years,
+        dropped_inputs: u64::try_from(dropped.len())
+            .unwrap_or_else(|_| panic!("invariant cli.count_range")),
+    };
+    let compare = Compare::Fork {
+        parent: manifest,
+        info,
+    };
+    let (t, seq) = (first.t, first.seq.get());
+    let rejected = |code: String| session::replay_rejected(t, seq, &code);
+    let mut session = Session::start(out, t, first.input.clone(), compare, rejected)?;
+    session.check_stamp(t, seq)?;
+    for record in kept {
+        if record.t > session.closed_through() {
+            session.advance(record.t)?;
+        }
+        session.replay_input(record)?;
+    }
+    session.advance(fork_stamp)?;
     session.advance(end.end)?;
     session.finish(&scenario)
 }
