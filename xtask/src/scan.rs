@@ -211,19 +211,23 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
 /// is reported as well; a file that needs it joins `TEXT_FILES` with a reason.
 pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
-/// The only files of `sim-core/src` that may name a text type, with the reason.
-pub const TEXT_FILES: [(&str, &str); 3] = [
+/// The only files of `sim-core/src` that may name a text type: the file, the types it
+/// may name and the reason.
+pub const TEXT_FILES: [(&str, &[&str], &str); 3] = [
     (
         "crates/sim-core/src/data_id.rs",
+        &TEXT_TYPES,
         "DataId and Code, the checked newtypes",
     ),
     (
         "crates/sim-core/src/hex_u64.rs",
+        &TEXT_TYPES,
         "hex form of u64 in human-readable formats",
     ),
     (
-        "crates/sim-core/src/rng/tags.rs",
-        "names of the purpose tags for the pinned list (ADR-0001 section 5)",
+        TAGS_FILE,
+        &["str"],
+        "static names of the purpose tags for the pinned list (ADR-0001 section 5)",
     ),
 ];
 
@@ -349,11 +353,28 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
             "{finding} (only sim-core/src/hash.rs names the hash crate, ADR-0003 S5)"
         ));
     }
-    let text_files: Vec<&str> = TEXT_FILES.iter().map(|(file, _)| *file).collect();
-    for finding in identifiers_outside(core_sources, &TEXT_TYPES, &text_files) {
-        findings.push(format!(
-            "{finding} (no text in the core outside the checked newtypes, ADR-0004 section 7)"
-        ));
+    const TEXT_RULE: &str =
+        "(no text in the core outside the checked newtypes, ADR-0004 section 7)";
+    if core_sources.is_empty() {
+        findings.push(format!("no file scanned {TEXT_RULE}"));
+    }
+    for (file, _, _) in TEXT_FILES {
+        if !core_sources.is_empty() && !core_sources.iter().any(|(path, _)| path == file) {
+            findings.push(format!(
+                "{file}: allowed file is not among the scanned files {TEXT_RULE}"
+            ));
+        }
+    }
+    for (path, source) in core_sources {
+        let allowed: &[&str] = TEXT_FILES
+            .iter()
+            .find(|(file, _, _)| file == path)
+            .map_or(&[], |(_, types, _)| *types);
+        for ty in TEXT_TYPES {
+            if !allowed.contains(&ty) && mentions_identifier(source, ty) {
+                findings.push(format!("{path}: names {ty} {TEXT_RULE}"));
+            }
+        }
     }
     findings
 }
@@ -368,10 +389,9 @@ pub const TAGS_FILE: &str = "crates/sim-core/src/rng/tags.rs";
 /// The generator rules over the Rust files of all workspace members (ADR-0001 section
 /// 2). A scan that cannot be trusted is reported too: no file under `RNG_DIR` (the
 /// module moved or was renamed, or nothing was scanned at all).
-pub fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
-    let _ = GENERATOR_FILE;
+pub fn generator_findings(workspace_sources: &[(String, String)]) -> Vec<String> {
     let mut findings = Vec::new();
-    if !core_sources
+    if !workspace_sources
         .iter()
         .any(|(path, _)| path.starts_with(RNG_DIR))
     {
@@ -379,21 +399,104 @@ pub fn generator_findings(core_sources: &[(String, String)]) -> Vec<String> {
             "{RNG_DIR}: no file of the allowed directory is among the scanned files"
         ));
     }
-    for (path, source) in core_sources {
+    // Outside the random module nothing names the crate.
+    for (path, source) in workspace_sources {
         if !path.starts_with(RNG_DIR) && mentions_identifier(source, "rand_chacha") {
             findings.push(format!(
                 "{path}: names rand_chacha (only sim-core/src/rng/ names the generator crate, ADR-0001 section 2)"
             ));
         }
     }
+    // Inside, the crate and the generator type stay private: no re-export, no alias,
+    // no field, no second generator.
+    let mut uses = 0;
+    let mut using_files = Vec::new();
+    for (path, source) in workspace_sources {
+        if !path.starts_with(RNG_DIR) {
+            continue;
+        }
+        let code = mask_non_code(source);
+        for (index, line) in code.lines().enumerate() {
+            if line.trim_start().starts_with("pub") && mentions_identifier(line, "rand_chacha") {
+                findings.push(format!(
+                    "{path}:{}: re-exports the generator crate (ADR-0001 section 2)",
+                    index + 1
+                ));
+            }
+        }
+        if mentions_identifier(source, "include") {
+            findings.push(format!(
+                "{path}: include! hides code of the random module from the scans (ADR-0001)"
+            ));
+        }
+        let count = count_uses(source, "ChaCha8Rng");
+        if count > 0 {
+            uses += count;
+            using_files.push(path.as_str());
+        }
+    }
+    if !using_files.is_empty() && (uses != 2 || using_files != [GENERATOR_FILE]) {
+        findings.push(format!(
+            "ChaCha8Rng is named {uses} times under {RNG_DIR}, exactly 2 uses in {GENERATOR_FILE} are allowed: the import and the one generator of key_words (ADR-0001 section 2): {}",
+            using_files.join(", ")
+        ));
+    }
     findings
+}
+
+/// How often the code builds a value of the tuple struct `name`: the identifier followed
+/// by an opening parenthesis, white space in between allowed. The definition
+/// `struct name(..)` counts as well.
+fn count_constructions(source: &str, name: &str) -> usize {
+    let code = mask_non_code(source);
+    code.match_indices(name)
+        .filter(|(start, _)| {
+            let before = code[..*start].chars().next_back();
+            let after = &code[start + name.len()..];
+            !before.is_some_and(is_identifier_char) && after.trim_start().starts_with('(')
+        })
+        .count()
 }
 
 /// The tag rules over all files of `sim-core/src` (ADR-0001 section 5); `golden` is the
 /// text of `tests/golden/rng_tags.txt`.
 pub fn tag_findings(core_sources: &[(String, String)], golden: &str) -> Vec<String> {
-    let _ = (core_sources, golden, TAGS_FILE);
-    Vec::new()
+    const TYPE: &str = "PurposeTag";
+    let mut findings = Vec::new();
+    for file in [TAGS_FILE, GENERATOR_FILE] {
+        if !core_sources.iter().any(|(path, _)| path == file) {
+            findings.push(format!(
+                "{file}: file of the tag rules is not among the scanned files"
+            ));
+        }
+    }
+    let pinned = golden
+        .lines()
+        .filter(|line| line.starts_with("tag "))
+        .count();
+    for (path, source) in core_sources {
+        let built = count_constructions(source, TYPE);
+        if path == TAGS_FILE {
+            // Every tag in any spelling is one construction, and `ALL` equals the golden
+            // (test `tags_unique_and_pinned`): a tag beside the list breaks the count.
+            if built != pinned {
+                findings.push(format!(
+                    "{path}: builds {built} tags, tests/golden/rng_tags.txt pins {pinned} (ADR-0001 section 5)"
+                ));
+            }
+        } else if path == GENERATOR_FILE {
+            if built != 2 {
+                findings.push(format!(
+                    "{path}: {TYPE}( occurs {built} times, exactly 2 are allowed: the definition and the helper of the tests (ADR-0001 section 5)"
+                ));
+            }
+        } else if built > 0 {
+            findings.push(format!(
+                "{path}: builds a {TYPE}; tags are the constants of {TAGS_FILE} (ADR-0001 section 5)"
+            ));
+        }
+    }
+    findings
 }
 
 /// One message per file (path, source) that names one of `idents` as an identifier

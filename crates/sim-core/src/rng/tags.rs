@@ -56,32 +56,29 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), ALL.len(), "tag names are unique");
 
-        // A tag that is not in `ALL` would escape the pinned list.
-        let declared: std::vec::Vec<&str> = include_str!("tags.rs")
-            .lines()
-            .filter(|line| line.contains(": PurposeTag = PurposeTag("))
-            .filter_map(|line| line.strip_prefix("pub const "))
-            .filter_map(|rest| rest.split(':').next())
-            .collect();
-        let listed: std::vec::Vec<&str> = ALL.iter().map(|(_, name)| *name).collect();
-        assert_eq!(declared, listed, "every tag constant is in ALL, in order");
-        let actual: std::string::String = ALL
-            .iter()
-            .map(|(tag, name)| std::format!("tag {} {name}\n", tag.get()))
-            .chain(
-                RETIRED
-                    .iter()
-                    .map(|value| std::format!("retired {value}\n")),
-            )
-            .collect();
+        // `ALL` and `RETIRED` equal the golden, line by line. That no tag exists beside
+        // `ALL` is the job of the gate (it counts the tags this file builds).
         let golden = include_str!("../../../../tests/golden/rng_tags.txt");
-        let pinned: std::string::String = golden
-            .lines()
-            .filter(|line| !line.starts_with('#'))
-            .map(|line| std::format!("{line}\n"))
-            .collect();
+        let mut lines = golden.lines().filter(|line| !line.starts_with('#'));
+        for (tag, name) in ALL {
+            let line = lines.next().expect("a golden line per tag");
+            let mut fields = line.split(' ');
+            assert_eq!(fields.next(), Some("tag"), "{line}");
+            let value = fields.next().and_then(|value| value.parse::<u64>().ok());
+            assert_eq!(value, Some(tag.get()), "{line}");
+            assert_eq!(fields.next(), Some(*name), "{line}");
+            assert_eq!(fields.next(), None, "{line}");
+        }
+        for retired in RETIRED {
+            let line = lines.next().expect("a golden line per retired value");
+            let value = line
+                .strip_prefix("retired ")
+                .and_then(|value| value.parse::<u64>().ok());
+            assert_eq!(value, Some(*retired), "{line}");
+        }
         assert_eq!(
-            actual, pinned,
+            lines.next(),
+            None,
             "purpose tags are never renumbered (ADR-0001)"
         );
     }

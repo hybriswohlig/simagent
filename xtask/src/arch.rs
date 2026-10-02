@@ -192,6 +192,7 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
     }
     check_pinned(&graph, &mut violations);
+    check_no_rename(&graph, &mut violations);
     check_serde_json(&graph, &mut violations);
     for (id, declared) in &graph.declared {
         let name = graph.name(id);
@@ -325,6 +326,22 @@ fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
     }
 }
 
+/// The scans and the positive lists find crates by their name. A member that renames a
+/// dependency would name it in the code as something else.
+fn check_no_rename(graph: &Graph, violations: &mut Vec<String>) {
+    for &member in &graph.members {
+        for spec in graph.specs.get(member).into_iter().flatten() {
+            if let Some(alias) = spec.rename {
+                violations.push(format!(
+                    "{} renames its dependency {} to {alias}; the scans find crates by name (ADR-0000)",
+                    graph.name(member),
+                    spec.name
+                ));
+            }
+        }
+    }
+}
+
 /// Checks the manifests of the workspace members only: third-party crates may declare
 /// libm themselves (num-traits does, optionally); what they change in the build shows
 /// up in the resolved features of the core closure.
@@ -441,6 +458,8 @@ fn check_one_version(graph: &Graph, normal_union: &BTreeSet<&str>, violations: &
 /// A dependency as declared in a package manifest.
 struct Spec<'a> {
     name: &'a str,
+    /// The name in the code if the manifest renames the dependency.
+    rename: Option<&'a str>,
     requirement: &'a str,
     default_features: bool,
     features: Vec<&'a str>,
@@ -485,6 +504,7 @@ impl<'a> Graph<'a> {
             for dep in declared_deps.into_iter().flatten() {
                 specs.push(Spec {
                     name: string(dep, "name")?,
+                    rename: dep.get("rename").and_then(Value::as_str),
                     requirement: string(dep, "req")?,
                     default_features: dep
                         .get("uses_default_features")
