@@ -362,6 +362,18 @@ impl Session {
                 return Err(CliError::new("replay_diverged", detail));
             }
         }
+        // A fork without dropped inputs is its parent (there is no override yet), so its
+        // whole log must be the parent's: that ties the hash by which the fork names its
+        // parent to the history the fork has run.
+        if let Compare::Fork { parent, info } = &self.compare {
+            let (got, want) = (self.hasher.digest(), parent.log_hash);
+            if info.dropped_inputs == 0 && got != want {
+                let detail = format!(
+                    "nothing was dropped, so the fork is its parent: its log hash is {got:016x}, the manifest of the parent says {want:016x}"
+                );
+                return Err(CliError::new("fork_parent_inconsistent", detail));
+            }
+        }
         let end = LogEnd {
             end: self.world.closed_through(),
         };
