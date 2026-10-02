@@ -270,8 +270,46 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     replace_in(&log, "2d06800538d394c3", "2d06800538d394c2");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
-    // The manifest must belong to the input log.
+    // The resolved scenario must start as the input log does.
+    let scenario_path = parent.join("scenario.resolved.json");
+    replace_in(&scenario_path, "0000000000000001", "0000000000000002");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: run_dir_inconsistent: the resolved scenario of the parent does not start as its input log".to_owned())
+    );
+    replace_in(&scenario_path, "0000000000000002", "0000000000000001");
+    fs::write(&scenario_path, "{}\n").expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: scenario_invalid: not a scenario of format version 1".to_owned())
+    );
+    fs::copy(
+        dir.join("restored").join("scenario.resolved.json"),
+        &scenario_path,
+    )
+    .expect("copies");
+    assert_eq!(fork(&parent, "5", &dir.join("restored_again")), Ok(()));
+
+    // The manifest must belong to the input log and have a hash for every year before
+    // the fork point.
     let manifest_path = parent.join("manifest.json");
+    let whole = text(&manifest_path);
+    let mut short: Value = serde_json::from_str(&whole).expect("json");
+    short["year_hashes"]
+        .as_array_mut()
+        .expect("array")
+        .truncate(4);
+    fs::write(
+        &manifest_path,
+        serde_json::to_string(&short).expect("json") + "\n",
+    )
+    .expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: manifest_invalid: the manifest of the parent has 4 year hashes, the fork point needs 5".to_owned())
+    );
+    assert_eq!(fork(&parent, "4", &dir.join("four")), Ok(()));
+    fs::write(&manifest_path, &whole).expect("writes");
     let end = (10 * Y - 1).to_string();
     replace_in(
         &manifest_path,
