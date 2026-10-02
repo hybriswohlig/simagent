@@ -575,7 +575,9 @@ const LOCAL_GIT_ENV: [&str; 15] = [
 fn git_command(dir: &Path) -> Command {
     let mut command = Command::new("git");
     command.current_dir(dir);
-    let _ = LOCAL_GIT_ENV;
+    for name in LOCAL_GIT_ENV {
+        command.env_remove(name);
+    }
     command
 }
 
@@ -954,9 +956,16 @@ mod tests {
         assert!(listed.lines().any(|name| name == "GIT_DIR"));
     }
 
-    /// Runs git in `dir` without the hooks and the identity of the machine.
-    fn git(dir: &Path, args: &[&str]) {
-        let output = Command::new("git")
+    /// Runs git in the throwaway repository `repo`, named by its own `.git`, without the
+    /// configuration, the hooks and the identity of the machine.
+    fn git(repo: &Path, args: &[&str]) {
+        let output = git_command(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .arg("--git-dir")
+            .arg(repo.join(".git"))
+            .arg("--work-tree")
+            .arg(repo)
             .args([
                 "-c",
                 "user.name=test",
@@ -970,12 +979,12 @@ mod tests {
                 "core.hooksPath=/dev/null",
             ])
             .args(args)
-            .current_dir(dir)
             .output()
             .expect("git runs");
         assert!(
             output.status.success(),
-            "git {args:?}: {}",
+            "git {args:?}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
     }
@@ -986,6 +995,11 @@ mod tests {
         let repo = contract_copy(name, "", str::to_string);
         let _ = std::fs::remove_dir_all(repo.join(".git"));
         git(&repo, &["init", "-q"]);
+        assert!(
+            repo.join(".git").join("HEAD").is_file(),
+            "the throwaway repository was not created in {}",
+            repo.display()
+        );
         for file in files {
             git(&repo, &["add", "--", file]);
         }
