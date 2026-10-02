@@ -15,31 +15,174 @@ const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 /// The place of an f64 on a monotone integer scale: negative values mirrored, both
 /// zeros at 0, so neighbouring values are 1 apart, also across zero.
 pub fn ordinal(bits: u64) -> i128 {
-    i128::from(bits)
+    let magnitude = i128::from(bits & (u64::MAX >> 1));
+    if bits >> 63 == 1 {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 /// Distance of two f64 bit patterns in ulp (ADR-0003 section 3.3).
 pub fn ulp_distance(a: u64, b: u64) -> u128 {
-    let _ = (ordinal(a), ordinal(b));
-    0
+    ordinal(a).abs_diff(ordinal(b))
 }
 
-/// The findings of one KAT file `<name>.csv` as the gate sees it.
+/// 16 lowercase hex digits as bits; NaN patterns are refused, a NaN result is written
+/// as `nan` and never compared by bits.
+fn finite_bits(field: &str) -> Option<u64> {
+    if field.len() != 16
+        || !field
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return None;
+    }
+    let bits = u64::from_str_radix(field, 16).ok()?;
+    (!f64::from_bits(bits).is_nan()).then_some(bits)
+}
+
+/// The data rows of a file in the unary form, with their line numbers from 1. Comment
+/// lines and the header are skipped; `None` if the header is another one.
+fn unary_rows(csv: &str) -> Option<Vec<(usize, Vec<&str>)>> {
+    let mut lines = csv
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.starts_with('#') && !line.is_empty());
+    let (_, header) = lines.next()?;
+    if header != HEADER {
+        return None;
+    }
+    Some(
+        lines
+            .map(|(index, line)| (index + 1, line.split(',').collect()))
+            .collect(),
+    )
+}
+
+/// The findings of one KAT file `<name>.csv` as the gate sees it. A file in another
+/// form has no reference column and so no class P row: it must not name the class.
 pub fn violations(name: &str, csv: &str) -> Vec<String> {
-    let _ = (name, csv, CLASS_P, UNRECORDED, HEADER, ulp_distance(0, 0));
-    Vec::new()
+    let bound = CLASS_P
+        .iter()
+        .find(|(function, _)| *function == name)
+        .map(|(_, bound)| *bound);
+    let Some(rows) = unary_rows(csv) else {
+        let mut findings = Vec::new();
+        if bound.is_some() {
+            findings.push(format!(
+                "{name}.csv: a class P file needs the header {HEADER}"
+            ));
+        }
+        for (index, line) in csv.lines().enumerate() {
+            if !line.starts_with('#') && line.split(',').any(|field| field == "P") {
+                findings.push(format!(
+                    "{name}.csv:{}: a class P row needs a reference column",
+                    index + 1
+                ));
+            }
+        }
+        return findings;
+    };
+    let mut findings = Vec::new();
+    for (line, fields) in rows {
+        let [_, expected, class, reference] = fields[..] else {
+            findings.push(format!("{name}.csv:{line}: expected 4 fields"));
+            continue;
+        };
+        match class {
+            "E" => {
+                if expected != reference {
+                    findings.push(format!(
+                        "{name}.csv:{line}: a class E row expects its reference"
+                    ));
+                }
+            }
+            "P" => {
+                let Some(bound) = bound else {
+                    findings.push(format!(
+                        "{name}.csv:{line}: class P row in a function without a bound in xtask/src/kat.rs"
+                    ));
+                    continue;
+                };
+                if expected == UNRECORDED {
+                    findings.push(format!(
+                        "{name}.csv:{line}: not recorded, run cargo xtask kat-record"
+                    ));
+                    continue;
+                }
+                match (finite_bits(expected), finite_bits(reference)) {
+                    (Some(recorded), Some(correct)) => {
+                        let distance = ulp_distance(recorded, correct);
+                        if distance > bound {
+                            findings.push(format!(
+                                "{name}.csv:{line}: {expected} is {distance} ulp from the reference {reference}, at most {bound} allowed"
+                            ));
+                        }
+                    }
+                    _ => findings.push(format!(
+                        "{name}.csv:{line}: a class P row needs two non-NaN bit patterns"
+                    )),
+                }
+            }
+            other => findings.push(format!("{name}.csv:{line}: unknown class {other}")),
+        }
+    }
+    findings
+}
+
+/// True for the fields of a class P row.
+fn is_class_p(fields: &[&str]) -> bool {
+    fields.len() == 4 && fields[2] == "P"
 }
 
 /// The input fields of the class P rows of a file, in file order.
 pub fn class_p_inputs(csv: &str) -> Vec<String> {
-    let _ = csv;
-    Vec::new()
+    unary_rows(csv)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, fields)| is_class_p(fields))
+        .map(|(_, fields)| fields[0].to_string())
+        .collect()
 }
 
-/// The file with the expected bits of its class P rows replaced by `actual`.
+/// The file with the expected bits of its class P rows replaced by `actual` (one value
+/// per row, in file order), every other byte unchanged. Findings instead of a file if
+/// the count does not fit or a row breaks its bound: then nothing may be written.
 pub fn record(name: &str, csv: &str, actual: &[String]) -> Result<String, Vec<String>> {
-    let _ = (name, actual);
-    Ok(csv.to_string())
+    let wanted = class_p_inputs(csv).len();
+    if actual.len() != wanted {
+        return Err(vec![format!(
+            "{name}.csv: {wanted} class P rows but {} values",
+            actual.len()
+        )]);
+    }
+    let mut values = actual.iter();
+    let mut text = String::new();
+    for line in csv.lines() {
+        let fields: Vec<&str> = line.split(',').collect();
+        let recorded = if !line.starts_with('#') && is_class_p(&fields) {
+            values.next()
+        } else {
+            None
+        };
+        match recorded {
+            Some(value) => {
+                text.push_str(&format!(
+                    "{},{value},{},{}",
+                    fields[0], fields[2], fields[3]
+                ));
+            }
+            None => text.push_str(line),
+        }
+        text.push('\n');
+    }
+    let findings = violations(name, &text);
+    if findings.is_empty() {
+        Ok(text)
+    } else {
+        Err(findings)
+    }
 }
 
 #[cfg(test)]

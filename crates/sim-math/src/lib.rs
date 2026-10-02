@@ -25,22 +25,22 @@ pub fn ceil(x: f64) -> f64 {
 
 /// e to the power of `x`, platform-equal through the pinned libm.
 pub fn exp(x: f64) -> f64 {
-    x
+    libm::exp(x)
 }
 
 /// Natural logarithm of `x`, platform-equal through the pinned libm.
 pub fn ln(x: f64) -> f64 {
-    x
+    libm::log(x)
 }
 
 /// Cosine of `x` (radians), platform-equal through the pinned libm.
 pub fn cos(x: f64) -> f64 {
-    x
+    libm::cos(x)
 }
 
 /// Square root of `x`, exactly rounded.
 pub fn sqrt(x: f64) -> f64 {
-    x
+    libm::sqrt(x)
 }
 
 /// `x` as `i64` if it is finite, integral and inside the `i64` range; `-0.0` gives 0.
