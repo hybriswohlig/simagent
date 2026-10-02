@@ -20,7 +20,14 @@ impl BodyParams {
     /// These values with the parameter `key` set to `value`: only a finite value inside
     /// the range of the contract (both ends inside) is accepted.
     pub fn with(mut self, key: BodyParamKey, value: f64) -> Result<BodyParams, BodyParamError> {
+        let spec = key.spec();
+        if !value.is_finite() {
+            return Err(BodyParamError::NotFinite(key));
+        }
+        if value < spec.min || value > spec.max {
+            return Err(BodyParamError::OutOfRange(key));
+        }
         *self.slot(key) = value;
-        Err(BodyParamError::NotFinite(key))
+        Ok(self)
     }
 }
