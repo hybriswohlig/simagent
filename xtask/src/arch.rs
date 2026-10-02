@@ -13,7 +13,9 @@ pub const EDGES: [(&str, &[&str]); 4] = [
     ("sim-math", &[]),
     ("sim-core", &["sim-math"]),
     ("sim-cli", &["sim-core", "sim-math"]),
-    ("xtask", &[]),
+    // The gate tool computes with the pinned math: the colour rule of the body contract
+    // linearizes sRGB (ADR-0005 section 5) and must not use the float methods of std.
+    ("xtask", &["sim-math"]),
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
@@ -1206,6 +1208,19 @@ mod tests {
     fn edges_between_members_follow_the_matrix() {
         let fixture = Fixture::workspace().dep("sim-core", "sim-cli", None);
         assert_reports(fixture, "sim-core -> sim-cli");
+        // The gate tool computes with the pinned math (the colour rule of the body
+        // contract, ADR-0005 section 5), so it may use sim-math and nothing else yet.
+        let with_math = Fixture::workspace().dep("xtask", "sim-math", None);
+        assert_eq!(violations(with_math), Vec::<String>::new());
+        for member in ["sim-core", "sim-cli"] {
+            let fixture = Fixture::workspace().dep("xtask", member, None);
+            assert_eq!(
+                violations(fixture),
+                vec![format!("edge xtask -> {member} is not allowed (EDGES)")]
+            );
+        }
+        let backwards = Fixture::workspace().dep("sim-math", "xtask", None);
+        assert_reports(backwards, "edge sim-math -> xtask is not allowed (EDGES)");
     }
 
     #[test]

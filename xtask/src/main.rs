@@ -5,6 +5,7 @@ mod arch;
 mod budget;
 mod canary;
 mod checks;
+mod contract;
 mod kat;
 mod release_run;
 mod results;
@@ -38,12 +39,13 @@ fn main() -> ExitCode {
         Some("ci") => gate(true),
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
+        Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/"
             );
             return ExitCode::from(2);
         }
@@ -204,6 +206,7 @@ fn gate(require_clean_tree: bool) -> Result {
     step("document limits", || check_document_limits(&root))?;
     step("result changes", || check_result_changes(&root))?;
     step("architecture", || check_architecture(&root))?;
+    step("contract check", || check_contract(&root))?;
     step("scans", || check_scans(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
@@ -291,6 +294,40 @@ fn check_gate_run(root: &Path) -> Result {
     let entry_times = budget::entry_times(&read(&out.join("events.ndjson"))?)?;
     let census = budget::census_rows(&read(&out.join("census.csv"))?)?;
     found.extend(budget::violations(&entry_times, &census));
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", found.join("\n  ")))
+    }
+}
+
+/// `cargo xtask melanin-chart`: the colour tables of the contract as
+/// `target/reports/melanin-chart.html` (ADR-0005 section 5).
+fn melanin_chart() -> Result {
+    let root = workspace_root()?;
+    let body = read(&root.join("contracts/body.json"))?;
+    let chart = contract::melanin_chart(&body)
+        .map_err(|findings| format!("\n  {}", findings.join("\n  ")))?;
+    let dir = root.join("target").join("reports");
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let path = dir.join("melanin-chart.html");
+    std::fs::write(&path, chart)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    println!("wrote {}", relative(&root, &path));
+    Ok(())
+}
+
+/// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
+/// values. Checked here: its schema with the rules of the units and of the melanin table,
+/// and its changelog.
+fn check_contract(root: &Path) -> Result {
+    let body = read(&root.join("contracts/body.json"))?;
+    let mut found = contract::schema_findings(&body);
+    found.extend(contract::changelog_findings(
+        &body,
+        &read(&root.join("contracts/body.changelog.md"))?,
+    ));
     if found.is_empty() {
         Ok(())
     } else {

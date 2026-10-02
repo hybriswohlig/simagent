@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The pinned math for the colour rule of the body contract (ADR-0005 section 5).
+sim-math = { path = "../crates/sim-math" }
 # Parses `cargo metadata` for the architecture test (ADR-0000).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 
