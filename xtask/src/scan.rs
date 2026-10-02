@@ -1417,6 +1417,17 @@ mod tests {
                 "pub const C: PurposeTag = PurposeTag::from_pinned_list(1 + 2);"
             )]
         );
+        // Something after the call.
+        let chained = core_with_tags(&format!(
+            "{TAGS}pub const C: PurposeTag = PurposeTag::from_pinned_list(2).next();\n"
+        ));
+        assert_eq!(
+            tag_findings(&chained, TAGS_GOLDEN),
+            vec![other_form(
+                4,
+                "pub const C: PurposeTag = PurposeTag::from_pinned_list(2).next();"
+            )]
+        );
         // A renumbered or renamed constant, and one that left the file but not the golden.
         let renumbered =
             core_with_tags(&TAGS.replace("from_pinned_list(2)", "from_pinned_list(7)"));
