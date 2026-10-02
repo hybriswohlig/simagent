@@ -21,15 +21,20 @@ pub struct Results {
 /// Packages whose update must not change results in the same pull request (ADR-0003 6.5).
 pub const LOCKED_PACKAGES: [&str; 3] = ["postcard", "xxhash-rust", "serde_json"];
 
-/// `CORE_VERSION` as written in `version.rs`.
+/// `CORE_VERSION` as written in `version.rs`: the one line of that form. With a second
+/// one (in a block comment, in an inner module) the gate could read another number than
+/// the core uses, so that is no version at all.
 pub fn parse_core_version(source: &str) -> Option<u32> {
-    source.lines().find_map(|line| {
+    let mut versions = source.lines().filter_map(|line| {
         line.trim()
             .strip_prefix("pub const CORE_VERSION: u32 = ")?
-            .strip_suffix(';')?
-            .parse()
-            .ok()
-    })
+            .strip_suffix(';')
+    });
+    let version = versions.next()?;
+    if versions.next().is_some() {
+        return None;
+    }
+    version.parse().ok()
 }
 
 /// The versions of `LOCKED_PACKAGES` in the text of a `Cargo.lock`. A package that is
@@ -76,7 +81,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
         return false;
     }
     if path.ends_with(".json") {
-        // A scenario golden: later years may be added, existing hashes must stay.
+        // A scenario golden: its year hashes and its log hash. A longer run changes the
+        // log hash and so counts; a new year alone never occurs.
         if let (Some((base_years, base_log)), Some((head_years, head_log))) =
             (scenario_hashes(base), scenario_hashes(head))
         {
@@ -88,9 +94,11 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
     }
     if path.ends_with(".csv") || path.ends_with(".txt") {
         // Known answers and code lists: lines may be added, existing lines must stay.
+        // Comment lines are no results.
         let (base, head) = (String::from_utf8_lossy(base), String::from_utf8_lossy(head));
         return base
             .lines()
+            .filter(|line| !line.starts_with('#'))
             .any(|line| !head.lines().any(|kept| kept == line));
     }
     true
@@ -98,7 +106,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
 
 /// The goldens of `base` whose existing results differ in `head`: a year hash or the
 /// log hash of a scenario golden, the bytes of a golden save, an existing line of a
-/// known-answer file. New files, new years and new lines are no change.
+/// known-answer file or a code list. New files, new lines and comment lines are no
+/// change.
 pub fn changed_results(base: &Results, head: &Results) -> Vec<String> {
     base.goldens
         .iter()
