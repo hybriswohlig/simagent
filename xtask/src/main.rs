@@ -5,6 +5,7 @@ mod arch;
 mod budget;
 mod canary;
 mod checks;
+mod codegen;
 mod contract;
 mod kat;
 mod release_run;
@@ -40,12 +41,19 @@ fn main() -> ExitCode {
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
+        Some("codegen") => return report("codegen", codegen()),
+        Some("contract-check") => {
+            return report(
+                "contract-check",
+                workspace_root().and_then(|root| check_contract(&root)),
+            );
+        }
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)"
             );
             return ExitCode::from(2);
         }
@@ -305,9 +313,8 @@ fn check_gate_run(root: &Path) -> Result {
 /// `target/reports/melanin-chart.html` (ADR-0005 section 5).
 fn melanin_chart() -> Result {
     let root = workspace_root()?;
-    let body = read(&root.join("contracts/body.json"))?;
-    let chart = contract::melanin_chart(&body)
-        .map_err(|findings| format!("\n  {}", findings.join("\n  ")))?;
+    let body = read(&root.join(BODY_FILE))?;
+    let chart = contract::melanin_chart(&body).map_err(listed)?;
     let dir = root.join("target").join("reports");
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
@@ -318,20 +325,95 @@ fn melanin_chart() -> Result {
     Ok(())
 }
 
+const BODY_FILE: &str = "contracts/body.json";
+const BODY_CHANGELOG_FILE: &str = "contracts/body.changelog.md";
+const BODY_HASHES_FILE: &str = "contracts/body.hashes.json";
+
+fn listed(findings: Vec<String>) -> String {
+    format!("\n  {}", findings.join("\n  "))
+}
+
+/// The names of the functions in the hand-written files of the contract module: no
+/// parameter may have such a key, its getter would define the name twice.
+fn taken_names(root: &Path) -> Result<Vec<String>> {
+    let generated = root.join(codegen::GENERATED_FILE);
+    let dir = generated.parent().unwrap_or(root);
+    let mut names = Vec::new();
+    for file in rust_files(dir)? {
+        if file != generated {
+            names.extend(scan::function_names(&read(&file)?));
+        }
+    }
+    Ok(names)
+}
+
+/// The types of the contract `body` as `cargo xtask codegen` writes them: generated and
+/// then formatted in `target/codegen`, never in place.
+fn generated_types(root: &Path, body: &str) -> Result<String> {
+    let hash = sim_core::hash::stable_hash64(body.as_bytes());
+    let source = codegen::generate(body, hash, &taken_names(root)?).map_err(listed)?;
+    let manifest = read(&root.join("Cargo.toml"))?;
+    let edition = codegen::workspace_edition(&manifest)
+        .ok_or("Cargo.toml: expected exactly one line edition = \"...\"")?;
+    codegen::format(&root.join("target").join("codegen"), edition, &source)
+}
+
+/// `cargo xtask codegen` (ADR-0005 section 2): writes the generated types of the body
+/// contract into `sim-core` and the hash of the contract file, under its version, into
+/// `contracts/body.hashes.json`. A contract with findings changes nothing.
+fn codegen() -> Result {
+    let root = workspace_root()?;
+    let body = read(&root.join(BODY_FILE))?;
+    let types = generated_types(&root, &body)?;
+    let version = contract::version(&body).ok_or("body.json has no contract_version")?;
+    let hashes_path = root.join(BODY_HASHES_FILE);
+    let hashes = if hashes_path.exists() {
+        read(&hashes_path)?
+    } else {
+        "{}".to_string()
+    };
+    let hash = sim_core::hash::stable_hash64(body.as_bytes());
+    let hashes = codegen::with_hash(&hashes, &version, hash)?;
+    let types_path = root.join(codegen::GENERATED_FILE);
+    for (path, text) in [(&hashes_path, &hashes), (&types_path, &types)] {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+        }
+        std::fs::write(path, text)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        println!("wrote {}", relative(&root, path));
+    }
+    Ok(())
+}
+
 /// ADR-0005 section 7: `contracts/body.json` is the single source of the visible body
-/// values. Checked here: its schema with the rules of the units and of the melanin table,
-/// and its changelog.
+/// values. Checked here: its schema with the rules of the units and of the melanin table
+/// (check 1), its hash and its changelog (check 2), and that the generated types in
+/// `sim-core` are the ones of this file (check 4).
 fn check_contract(root: &Path) -> Result {
-    let body = read(&root.join("contracts/body.json"))?;
+    let body = read(&root.join(BODY_FILE))?;
     let mut found = contract::schema_findings(&body);
     found.extend(contract::changelog_findings(
         &body,
-        &read(&root.join("contracts/body.changelog.md"))?,
+        &read(&root.join(BODY_CHANGELOG_FILE))?,
     ));
+    if let Some(version) = contract::version(&body) {
+        found.extend(codegen::hash_findings(
+            &read(&root.join(BODY_HASHES_FILE))?,
+            &version,
+            sim_core::hash::stable_hash64(body.as_bytes()),
+        ));
+    }
+    if found.is_empty() {
+        let fresh = generated_types(root, &body)?;
+        let checked_in = read(&root.join(codegen::GENERATED_FILE))?;
+        found.extend(codegen::stale_finding(&fresh, &checked_in));
+    }
     if found.is_empty() {
         Ok(())
     } else {
-        Err(format!("\n  {}", found.join("\n  ")))
+        Err(listed(found))
     }
 }
 
@@ -725,5 +807,139 @@ fn cargo(root: &Path, args: &[&str]) -> Result {
         Ok(())
     } else {
         Err(format!("`cargo {}` failed", args.join(" ")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hand-written part of the contract module.
+    const CONTRACT_MODULE_FILE: &str = "crates/sim-core/src/body_contract/mod.rs";
+
+    /// A copy of the files that the step contract check reads, below `target/`, with the
+    /// text of `file` changed by `change`.
+    fn contract_copy(name: &str, file: &str, change: impl Fn(&str) -> String) -> PathBuf {
+        let root = workspace_root().expect("the workspace root");
+        let copy = root.join("target").join("contract-step-tests").join(name);
+        for path in [
+            BODY_FILE,
+            BODY_CHANGELOG_FILE,
+            BODY_HASHES_FILE,
+            codegen::GENERATED_FILE,
+            CONTRACT_MODULE_FILE,
+            "Cargo.toml",
+        ] {
+            let mut text = read(&root.join(path)).expect(path);
+            if path == file {
+                let changed = change(&text);
+                assert_ne!(changed, text, "{name}: the change changes nothing");
+                text = changed;
+            }
+            let target = copy.join(path);
+            std::fs::create_dir_all(target.parent().expect("a file in a directory"))
+                .expect("directory");
+            std::fs::write(&target, text).expect(path);
+        }
+        copy
+    }
+
+    /// The functions of `body_contract/mod.rs` are taken, the generated ones are not
+    /// read, and the generator gets the names: a parameter with the key `with` stops it.
+    #[test]
+    fn the_functions_of_the_contract_module_are_taken() {
+        let root = workspace_root().expect("the workspace root");
+        let names = taken_names(&root).expect("names");
+        assert!(names.contains(&"with".to_string()), "{names:?}");
+        for generated in ["get", "slot", "spec", "height_cm"] {
+            assert!(!names.contains(&generated.to_string()), "{generated}");
+        }
+
+        let copy = contract_copy("taken", "", str::to_string);
+        assert_eq!(taken_names(&copy), Ok(names));
+        let body = read(&copy.join(BODY_FILE)).expect("contract");
+        assert!(generated_types(&copy, &body).is_ok());
+        let first_key = body
+            .split("\"key\": \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("a first key");
+        let renamed = body.replacen(&format!("\"key\": \"{first_key}\""), "\"key\": \"with\"", 1);
+        assert_eq!(
+            generated_types(&copy, &renamed),
+            Err(
+                "\n  parameter with: the body contract module has a function of this name"
+                    .to_string()
+            )
+        );
+        // Without the hand-written file the name is free.
+        std::fs::remove_file(copy.join(CONTRACT_MODULE_FILE)).expect("removed");
+        assert_eq!(taken_names(&copy), Ok(Vec::new()));
+        assert!(generated_types(&copy, &renamed).is_ok());
+    }
+
+    /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
+    #[test]
+    fn the_contract_step_passes_on_the_files_of_the_repo() {
+        let copy = contract_copy("clean", "", str::to_string);
+        assert_eq!(check_contract(&copy), Ok(()));
+    }
+
+    /// The step runs every check of ADR-0005 section 7 that exists so far: each broken
+    /// file is refused for its own reason.
+    #[test]
+    fn the_contract_step_runs_every_check() {
+        let with_newline = |text: &str| format!("{text}\n");
+        type Change<'a> = &'a dyn Fn(&str) -> String;
+        let cases: [(&str, &str, Change, &str); 7] = [
+            (
+                "schema",
+                BODY_FILE,
+                &|text| text.replacen("\"format_version\": 1", "\"format_version\": 2", 1),
+                "body.json: format_version must be 1",
+            ),
+            (
+                "changelog",
+                BODY_CHANGELOG_FILE,
+                &|_| "# Changelog\n".to_string(),
+                "body.changelog.md has no section ## ",
+            ),
+            (
+                "hash-of-a-changed-contract",
+                BODY_FILE,
+                &with_newline,
+                ": a changed contract needs a new version",
+            ),
+            (
+                "hash-file",
+                BODY_HASHES_FILE,
+                &|_| "{}\n".to_string(),
+                "body.hashes.json has no entry for ",
+            ),
+            (
+                "stale-types",
+                codegen::GENERATED_FILE,
+                &with_newline,
+                "generated.rs is stale: run cargo xtask codegen and commit the result",
+            ),
+            (
+                "edition",
+                "Cargo.toml",
+                &|text| text.replace("edition = ", "edition="),
+                "Cargo.toml: expected exactly one line edition = \"...\"",
+            ),
+            // The edition of the manifest reaches the formatter: one it does not know.
+            (
+                "edition-of-the-manifest",
+                "Cargo.toml",
+                &|text| text.replace("edition = \"", "edition = \"1"),
+                "rustfmt refuses the generated source:",
+            ),
+        ];
+        for (name, file, change, expected) in cases {
+            let copy = contract_copy(name, file, change);
+            let refused = check_contract(&copy).expect_err(name);
+            assert!(refused.contains(expected), "{name}: {refused}");
+        }
     }
 }

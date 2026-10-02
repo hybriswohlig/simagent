@@ -204,6 +204,29 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
     })
 }
 
+/// The names of the functions that `source` declares (strings and comments ignored).
+pub fn function_names(source: &str) -> Vec<String> {
+    let code = mask_non_code(source);
+    let mut names = Vec::new();
+    for (start, _) in code.match_indices("fn") {
+        let before = code[..start].chars().next_back();
+        let rest = &code[start + 2..];
+        let name: String = rest
+            .trim_start()
+            .chars()
+            .take_while(|c| is_identifier_char(*c))
+            .collect();
+        // The word `fn`, space, a name: `fn(f64)` is a type and `fn_count` a name.
+        if !before.is_some_and(is_identifier_char)
+            && rest.starts_with(char::is_whitespace)
+            && !name.is_empty()
+        {
+            names.push(name);
+        }
+    }
+    names
+}
+
 /// Text types that the core must not name: log entries carry only numbers, IDs, codes
 /// and data IDs (ADR-0004 section 7, B16). Scanning every file of `sim-core/src` also
 /// covers a payload field whose type (newtype or alias) is defined outside `log.rs`.
@@ -213,7 +236,12 @@ pub const TEXT_TYPES: [&str; 4] = ["String", "str", "Cow", "char"];
 
 /// The only files of `sim-core/src` that may name a text type: the file, the types it
 /// may name and the reason.
-pub const TEXT_FILES: [(&str, &[&str], &str); 3] = [
+pub const TEXT_FILES: [(&str, &[&str], &str); 4] = [
+    (
+        "crates/sim-core/src/body_contract/generated.rs",
+        &["str"],
+        "static keys and version of the body contract, generated (ADR-0005 section 2)",
+    ),
     (
         "crates/sim-core/src/data_id.rs",
         &TEXT_TYPES,
@@ -655,6 +683,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn function_names_are_the_declared_functions() {
+        let source = r#"
+impl BodyParams {
+    /// Not this: fn in_a_comment() {}
+    pub fn with(mut self, key: BodyParamKey) -> Self {
+        let text = "fn in_a_string() {}";
+        self
+    }
+    pub(super) const fn clamp_to_contract (raw: f64) -> f64 { raw }
+    fn  spaced<T>(value: T) {}
+    fn
+    on_the_next_line() {}
+}
+type Callback = fn(f64) -> f64;
+type Spaced = fn (f64) -> f64;
+fn free() { let often = 1; let fn_like = often; for each_fn in 0..fn_like {} }
+struct Often { fn_count: u8 }
+"#;
+        assert_eq!(
+            function_names(source),
+            [
+                "with",
+                "clamp_to_contract",
+                "spaced",
+                "on_the_next_line",
+                "free"
+            ]
+        );
+        assert_eq!(function_names("const X: u8 = 1;"), Vec::<String>::new());
+    }
+
+    #[test]
     fn extern_std_is_allowed_only_under_cfg_test() {
         let source = "#![no_std]\nextern crate alloc;\n\n#[cfg(test)]\nextern crate std;\n";
         assert!(extern_std_outside_test(source).is_empty());
@@ -1005,6 +1065,10 @@ mod tests {
                 "crates/sim-core/src/rng/tags.rs",
                 "pub const ALL: &[(PurposeTag, &str)] = &[];",
             ),
+            (
+                "crates/sim-core/src/body_contract/generated.rs",
+                "pub const fn as_str(self) -> &'static str { \"\" }",
+            ),
         ];
         all.extend_from_slice(extra);
         files(&all)
@@ -1053,17 +1117,34 @@ mod tests {
                     .to_string()
             ]
         );
-        // Of the text types the tag file may name only `str`.
-        let mut owned = core(&[]);
-        for (path, source) in &mut owned {
-            if path == "crates/sim-core/src/rng/tags.rs" {
-                source.push_str("\npub type Label = alloc::string::String;");
+        // Of the text types the tag file and the generated contract types may name only
+        // `str`: static names, never owned text.
+        for file in [
+            "crates/sim-core/src/rng/tags.rs",
+            "crates/sim-core/src/body_contract/generated.rs",
+        ] {
+            let mut owned = core(&[]);
+            for (path, source) in &mut owned {
+                if path == file {
+                    source.push_str("\npub type Label = alloc::string::String;");
+                }
             }
+            assert_eq!(
+                core_identifier_findings(&owned),
+                vec![format!(
+                    "{file}: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                )]
+            );
         }
+        // The hand-written part of the contract module stays under the rule.
+        let hand_written = core(&[(
+            "crates/sim-core/src/body_contract/mod.rs",
+            "pub fn name(key: BodyParamKey) -> &'static str { key.as_str() }",
+        )]);
         assert_eq!(
-            core_identifier_findings(&owned),
+            core_identifier_findings(&hand_written),
             vec![
-                "crates/sim-core/src/rng/tags.rs: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                "crates/sim-core/src/body_contract/mod.rs: names str (no text in the core outside the checked newtypes, ADR-0004 section 7)"
                     .to_string()
             ]
         );
@@ -1073,12 +1154,13 @@ mod tests {
     fn a_core_without_its_allowed_files_is_a_finding() {
         let found =
             core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
-        assert_eq!(found.len(), 4, "{found:?}");
+        assert_eq!(found.len(), 5, "{found:?}");
         for path in [
             HASH_FILE,
             "crates/sim-core/src/data_id.rs",
             "crates/sim-core/src/hex_u64.rs",
             "crates/sim-core/src/rng/tags.rs",
+            "crates/sim-core/src/body_contract/generated.rs",
         ] {
             assert!(
                 found.iter().any(|f| f.starts_with(&format!(

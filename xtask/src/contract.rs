@@ -328,7 +328,7 @@ fn melanin_findings(tables: &Value, findings: &mut Vec<String>) {
 
 /// Keys that occur twice in one object of a JSON text. The parser keeps the last value
 /// without a word, while a reader of the file may see the first.
-fn duplicate_keys(json: &str) -> Vec<String> {
+pub fn duplicate_keys(json: &str) -> Vec<String> {
     let mut found = Vec::new();
     // The keys seen so far per open object; `None` stands for an open array.
     let mut open: Vec<Option<Vec<String>>> = Vec::new();
@@ -431,13 +431,18 @@ pub fn schema_findings(body_json: &str) -> Vec<String> {
     findings
 }
 
+/// The `contract_version` of the contract, if it has one in the form of a version.
+pub fn version(body_json: &str) -> Option<String> {
+    serde_json::from_str::<Value>(body_json)
+        .ok()
+        .and_then(|body| body["contract_version"].as_str().map(str::to_string))
+        .filter(|version| is_version(version))
+}
+
 /// ADR-0005 section 7, check 2 (the changelog): `contracts/body.changelog.md` has a
 /// section `## <contract_version>` with the entries Neu, Geändert and Stillgelegt.
 pub fn changelog_findings(body_json: &str, changelog: &str) -> Vec<String> {
-    let version = serde_json::from_str::<Value>(body_json)
-        .ok()
-        .and_then(|body| body["contract_version"].as_str().map(str::to_string));
-    let Some(version) = version else {
+    let Some(version) = version(body_json) else {
         return vec!["body.json has no contract_version to look up in the changelog".to_string()];
     };
     let heading = format!("## {version}");
