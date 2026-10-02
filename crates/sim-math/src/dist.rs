@@ -219,12 +219,13 @@ mod tests {
 
     /// ADR-0001: the tail of the Poisson draw. At lambda = 0 every word gives 0, also
     /// the largest. For lambda <= 30 the sum saturates before k = 90, so the largest
-    /// word ends there instead of breaking the invariant.
+    /// word ends there instead of breaking the invariant. At 2.5, 4 and 7 the rounded sum
+    /// stays some ulp below the largest u: only the exit `g == f` ends the draw there.
     #[test]
     fn poisson_ends_at_the_upper_edge() {
         assert_eq!(poisson(u64::MAX, 0.0), 0);
         assert_eq!(poisson(0, 30.0), 0, "u = 0 lies below exp(-30)");
-        for lambda in [0.5, 5.0, 30.0] {
+        for lambda in [0.5, 2.5, 4.0, 5.0, 7.0, 30.0] {
             let k = poisson(u64::MAX, lambda);
             assert!(k > 0 && k < 90, "lambda {lambda}: {k}");
         }
