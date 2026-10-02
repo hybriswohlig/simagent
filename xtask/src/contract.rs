@@ -585,6 +585,8 @@ mod tests {
                 r#"{"a": 1, "b": 2, "a": 3, "b": 4}"#,
                 vec!["a".to_string(), "b".to_string()],
             ),
+            // With space between the key and its colon.
+            ("{\"a\" : 1, \"a\"\n\t: 2}", twice("a")),
             // After a value that ends in a backslash, and after an array.
             (r#"{"a": "\\", "a": 1}"#, twice("a")),
             (r#"{"a": [1, [2]], "a": 2}"#, twice("a")),
