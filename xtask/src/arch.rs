@@ -17,7 +17,7 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 15] = [
+pub const CORE_ALLOWED: [&str; 19] = [
     "sim-core",
     "sim-math",
     "libm",
@@ -37,6 +37,12 @@ pub const CORE_ALLOWED: [&str; 15] = [
     "cobs",
     "thiserror",
     "thiserror-impl",
+    // ChaCha8 for the addressed random draws (ADR-0001 section 2). rand_core, ppv-lite86
+    // and zerocopy are the fixed dependencies of rand_chacha 0.10.0; no getrandom.
+    "rand_chacha",
+    "rand_core",
+    "ppv-lite86",
+    "zerocopy",
 ];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
@@ -59,7 +65,9 @@ pub const TOOL_ALLOWED: [&str; 11] = [
 /// Packages allowed only in the test graph (reached through dev-dependencies): proptest
 /// with default features off and only `std` (step 2c). rand and getrandom are banned in
 /// the normal graph but allowed here: every proptest runs with a fixed seed (ADR-0001).
-pub const DEV_ALLOWED: [&str; 15] = [
+/// rand_chacha and rand_core stand here for the older versions that proptest brings;
+/// the versions of the core are on the core list.
+pub const DEV_ALLOWED: [&str; 13] = [
     "proptest",
     "rand",
     "rand_core",
@@ -68,8 +76,6 @@ pub const DEV_ALLOWED: [&str; 15] = [
     "getrandom",
     "libc",
     "cfg-if",
-    "ppv-lite86",
-    "zerocopy",
     "num-traits",
     "autocfg",
     "bitflags",
@@ -79,8 +85,13 @@ pub const DEV_ALLOWED: [&str; 15] = [
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
-pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 8] = [
+pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 10] = [
     ("xxhash-rust", &["xxh3"]),
+    // simd is the default of both in rand_chacha 0.10.0 (ADR-0001 section 7). std on
+    // ppv-lite86 arrives only through the test graph (proptest); it changes the choice
+    // of SIMD path, not the values. The wasm32v1-none build proves the core without it.
+    ("ppv-lite86", &["simd", "std"]),
+    ("zerocopy", &["simd"]),
     ("postcard", &["alloc"]),
     ("serde", &["alloc", "derive", "serde_derive"]),
     // std arrives through feature unification with serde_json (xtask, test graph); it
@@ -105,10 +116,11 @@ pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 8] = [
 /// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
 /// depend on it directly, the exact version requirement, and exactly the features it
 /// enables. Default features must be off.
-pub const PINNED: [(&str, &str, &str, &[&str]); 3] = [
+pub const PINNED: [(&str, &str, &str, &[&str]); 4] = [
     ("libm", "sim-math", "=0.2.16", &[]),
     ("xxhash-rust", "sim-core", "=0.8.19", &["xxh3"]),
     ("postcard", "sim-core", "=1.1.3", &["alloc"]),
+    ("rand_chacha", "sim-core", "=0.10.0", &[]),
 ];
 
 /// Crates that must not declare Cargo features of their own (ADR-0000).
@@ -1015,6 +1027,36 @@ mod tests {
         ] {
             assert_eq!(parse_tree_line(bad), None, "{bad:?}");
         }
+    }
+
+    /// ADR-0001 canary: rand_chacha only in sim-core, exactly `=0.10.0`, without default
+    /// features and without any feature that 0.10.0 offers.
+    #[test]
+    fn rand_chacha_is_pinned_without_features() {
+        let with = |from: &str, requirement: &str, default_features: bool, features: &[&str]| {
+            Fixture::workspace()
+                .package("rand_chacha", &[])
+                .dep(from, "rand_chacha", None)
+                .spec(from, "rand_chacha", requirement, default_features, features)
+        };
+        let clean = with("sim-core", "=0.10.0", false, &[]);
+        assert_eq!(violations(clean), Vec::<String>::new());
+        assert_reports(
+            with("sim-core", "=0.10.0", false, &["serde"]),
+            "sim-core enables features [\"serde\"] of rand_chacha; it must enable exactly [] (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-core", "=0.10.0", true, &[]),
+            "sim-core must use rand_chacha with default-features = false (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-core", "0.10", false, &[]),
+            "sim-core requires rand_chacha as \"0.10\"; it must be \"=0.10.0\" (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-math", "=0.10.0", false, &[]),
+            "rand_chacha may only be a direct dependency of sim-core, not of sim-math (ADR-0003)",
+        );
     }
 
     /// AT5: a member that declares serde_json enables float_roundtrip.
