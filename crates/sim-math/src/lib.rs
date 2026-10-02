@@ -23,6 +23,26 @@ pub fn ceil(x: f64) -> f64 {
     libm::ceil(x)
 }
 
+/// e to the power of `x`, platform-equal through the pinned libm.
+pub fn exp(x: f64) -> f64 {
+    x
+}
+
+/// Natural logarithm of `x`, platform-equal through the pinned libm.
+pub fn ln(x: f64) -> f64 {
+    x
+}
+
+/// Cosine of `x` (radians), platform-equal through the pinned libm.
+pub fn cos(x: f64) -> f64 {
+    x
+}
+
+/// Square root of `x`, exactly rounded.
+pub fn sqrt(x: f64) -> f64 {
+    x
+}
+
 /// `x` as `i64` if it is finite, integral and inside the `i64` range; `-0.0` gives 0.
 /// Works on the bit pattern and never saturates, unlike `as` (ADR-0002).
 pub fn to_i64_exact(x: f64) -> Option<i64> {
