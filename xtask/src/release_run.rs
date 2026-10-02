@@ -40,6 +40,9 @@ pub fn differences(manifest_json: &str, golden_json: &str) -> Result<Vec<String>
                     .to_string(),
             );
         };
+        if want.is_empty() {
+            return Err("the golden has no year hashes: nothing to compare".to_string());
+        }
         if got.len() != want.len() {
             found.push(format!(
                 "year_hashes: the release binary has {} years, the golden {}",
