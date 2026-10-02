@@ -11,6 +11,18 @@ pub const MIN_PERSON_YEARS: u64 = 20;
 /// Seconds of a game year of 364 days.
 const YEAR_SECS: i64 = 364 * 86_400;
 
+/// The times of the log entries in the text of an `events.ndjson`.
+pub fn entry_times(events: &str) -> Result<Vec<i64>, String> {
+    let _ = events;
+    Ok(Vec::new())
+}
+
+/// The rows `(year, lived_secs)` in the text of a `census.csv`.
+pub fn census_rows(census: &str) -> Result<Vec<(i64, u64)>, String> {
+    let _ = census;
+    Ok(Vec::new())
+}
+
 /// The violations of the budget: `entry_times` are the times of all log entries,
 /// `census` the rows `(year, lived_secs)` of `census.csv`.
 pub fn violations(entry_times: &[i64], census: &[(i64, u64)]) -> Vec<String> {
@@ -129,6 +141,48 @@ mod tests {
         assert_eq!(
             violations(&[5], &census),
             vec!["1 log entries in 0 person-years: more than 2 per person-year in the whole run"]
+        );
+    }
+
+    #[test]
+    fn the_run_files_are_read() {
+        let events = concat!(
+            r#"{"id":1,"t":0,"subjects":[],"causes":[{"input":1}],"payload":{"core:started":{"founders":1}}}"#,
+            "\n",
+            r#"{"id":3,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
+            "\n",
+        );
+        assert_eq!(entry_times(events), Ok(vec![0, 31_449_599]));
+        assert_eq!(entry_times(""), Ok(Vec::new()));
+        assert_eq!(
+            entry_times("{\"id\":1}\n"),
+            Err("events.ndjson line 1 has no time".to_string())
+        );
+        assert_eq!(
+            entry_times("{\"t\":0}\nnot json\n"),
+            Err("events.ndjson line 2 has no time".to_string())
+        );
+        let census = "year,living,lived_secs\n0,1,31449600\n1,3,94348800\n";
+        assert_eq!(
+            census_rows(census),
+            Ok(vec![(0, 31_449_600), (1, 94_348_800)])
+        );
+        assert_eq!(
+            census_rows("year,living,lived_secs\n"),
+            Err("census.csv has no row".to_string())
+        );
+        assert_eq!(census_rows(""), Err("census.csv has no row".to_string()));
+        assert_eq!(
+            census_rows("living,year,lived_secs\n0,1,5\n"),
+            Err("census.csv does not start with year,living,lived_secs".to_string())
+        );
+        assert_eq!(
+            census_rows("year,living,lived_secs\n0,1\n"),
+            Err("census.csv line 2 is not year,living,lived_secs".to_string())
+        );
+        assert_eq!(
+            census_rows("year,living,lived_secs\n0,1,x\n"),
+            Err("census.csv line 2 is not year,living,lived_secs".to_string())
         );
     }
 

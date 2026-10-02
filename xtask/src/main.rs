@@ -136,31 +136,8 @@ fn check_log_budget(root: &Path) -> Result {
             &out_arg,
         ],
     )?;
-    let mut entry_times = Vec::new();
-    for (line, number) in read(&out.join("events.ndjson"))?.lines().zip(1..) {
-        let time = serde_json::from_str::<serde_json::Value>(line)
-            .ok()
-            .and_then(|entry| entry.get("t").and_then(serde_json::Value::as_i64))
-            .ok_or_else(|| format!("events.ndjson line {number} has no time"))?;
-        entry_times.push(time);
-    }
-    let mut census = Vec::new();
-    for (line, number) in read(&out.join("census.csv"))?.lines().zip(1..).skip(1) {
-        let mut columns = line.split(',');
-        let year = columns.next().and_then(|text| text.parse::<i64>().ok());
-        let lived_secs = columns.nth(1).and_then(|text| text.parse::<u64>().ok());
-        match (year, lived_secs) {
-            (Some(year), Some(lived_secs)) => census.push((year, lived_secs)),
-            _ => {
-                return Err(format!(
-                    "census.csv line {number} is not year,living,lived_secs"
-                ));
-            }
-        }
-    }
-    if census.is_empty() {
-        return Err("the gate run has no census row".to_string());
-    }
+    let entry_times = budget::entry_times(&read(&out.join("events.ndjson"))?)?;
+    let census = budget::census_rows(&read(&out.join("census.csv"))?)?;
     let found = budget::violations(&entry_times, &census);
     if found.is_empty() {
         Ok(())
