@@ -118,8 +118,8 @@ fn fork_without_override_equals_original() {
             .len(),
         10
     );
-    // Year 10 starts one second after the end of the parent: the latest fork point.
-    for from_year in [1_u64, 5, 10] {
+    // Year 9 is the last year that starts inside the parent: the latest fork point.
+    for from_year in [1_u64, 5, 9] {
         let out = dir.join(format!("fork{from_year}"));
         assert_eq!(fork(&parent, &from_year.to_string(), &out), Ok(()));
         for file in FILES {
@@ -148,8 +148,8 @@ fn fork_without_override_equals_original() {
     assert!(parent_manifest.get("fork").is_none(), "a run is no fork");
 }
 
-/// ADR-0001 section 6: X >= 1, and year X starts at the end of the parent at the latest.
-/// A refused fork writes nothing.
+/// ADR-0001 section 6: X >= 1, and year X starts at the end of the parent at the latest:
+/// `T_X` is a second the parent has run. A refused fork writes nothing.
 #[test]
 fn the_fork_point_lies_inside_the_parent() {
     let dir = scratch("range");
@@ -162,13 +162,16 @@ fn the_fork_point_lies_inside_the_parent() {
                 .to_owned()
         )
     );
-    assert_eq!(
-        fork(&parent, "11", &out),
-        Err(format!(
-            "error: fork_point_out_of_range: from-year 11: the parent run ends at {}, before year 11 starts",
-            10 * Y - 1
-        ))
-    );
+    // The parent ends at the last second of year 9; year 10 starts one second later.
+    for year in ["10", "11"] {
+        assert_eq!(
+            fork(&parent, year, &out),
+            Err(format!(
+                "error: fork_point_out_of_range: from-year {year}: the parent run ends at {}, before year {year} starts",
+                10 * Y - 1
+            ))
+        );
+    }
     assert_eq!(
         fork(&parent, "9223372036854775807", &out),
         Err(format!(
@@ -177,10 +180,33 @@ fn the_fork_point_lies_inside_the_parent() {
         ))
     );
     assert!(!out.exists(), "a refused fork writes nothing");
-    // A parent that ended inside year 3 can fork from year 3, not from year 4.
-    let short = dir.join("short");
+    // A parent that ended at the first second of year 3 can fork from year 3, not from
+    // year 4; one second shorter, not from year 3 either.
     let scenario = dir.join("scenario.json");
-    let until = (3 * Y + 5).to_string();
+    let shorter = dir.join("shorter");
+    let until = (3 * Y - 1).to_string();
+    assert_eq!(
+        simagent(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(&shorter),
+            "--until",
+            &until
+        ]),
+        Ok(())
+    );
+    assert_eq!(fork(&shorter, "2", &dir.join("shorter2")), Ok(()));
+    assert_eq!(
+        fork(&shorter, "3", &out),
+        Err(format!(
+            "error: fork_point_out_of_range: from-year 3: the parent run ends at {}, before year 3 starts",
+            3 * Y - 1
+        ))
+    );
+    let short = dir.join("short");
+    let until = (3 * Y).to_string();
     assert_eq!(
         simagent(&[
             "run",
@@ -198,7 +224,7 @@ fn the_fork_point_lies_inside_the_parent() {
         fork(&short, "4", &out),
         Err(format!(
             "error: fork_point_out_of_range: from-year 4: the parent run ends at {}, before year 4 starts",
-            3 * Y + 5
+            3 * Y
         ))
     );
 }
@@ -310,6 +336,53 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     );
     assert_eq!(fork(&parent, "4", &dir.join("four")), Ok(()));
     fs::write(&manifest_path, &whole).expect("writes");
+    // Review finding: the manifest names the parent in the fork, so it must describe the
+    // run it lies in: version, data hash, seed and the hash of its log.
+    let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
+    for (from, to) in [
+        (r#""core_version":1"#, r#""core_version":2"#),
+        (
+            r#""data_hash":"2d06800538d394c2""#,
+            r#""data_hash":"2d06800538d394c3""#,
+        ),
+        (
+            r#""world_seed":"0000000000000001""#,
+            r#""world_seed":"0000000000000002""#,
+        ),
+    ] {
+        replace_in(&manifest_path, from, to);
+        assert_eq!(fork(&parent, "5", &out), Err(foreign.to_owned()), "{to}");
+        fs::write(&manifest_path, &whole).expect("writes");
+    }
+    let log_hash = manifest(&parent)["log_hash"]
+        .as_str()
+        .expect("hex")
+        .to_owned();
+    replace_in(&manifest_path, &log_hash, "0123456789abcdef");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err(format!(
+            "error: manifest_invalid: the manifest of the parent has log hash 0123456789abcdef, its events.ndjson gives {log_hash}"
+        ))
+    );
+    fs::write(&manifest_path, &whole).expect("writes");
+    let events_path = parent.join("events.ndjson");
+    let events = text(&events_path);
+    let without_last: Vec<&str> = events.lines().collect();
+    fs::write(
+        &events_path,
+        without_last[..without_last.len() - 1].join("\n") + "\n",
+    )
+    .expect("writes");
+    let message = fork(&parent, "5", &out).expect_err("events without their last line");
+    assert!(
+        message.starts_with(&format!(
+            "error: manifest_invalid: the manifest of the parent has log hash {log_hash}, its events.ndjson gives "
+        )),
+        "{message}"
+    );
+    fs::write(&events_path, &events).expect("writes");
+    assert_eq!(fork(&parent, "5", &dir.join("whole_again")), Ok(()));
     let end = (10 * Y - 1).to_string();
     replace_in(
         &manifest_path,
@@ -394,4 +467,30 @@ fn inputs_from_the_fork_point_on_are_dropped() {
             5 * Y - 2
         ))
     );
+}
+
+/// Review finding: a fork that is continued stays a fork. `--resume` writes the manifest
+/// again and keeps the block `fork`.
+#[test]
+fn a_resumed_fork_keeps_its_fork_block() {
+    let dir = scratch("resumed");
+    let parent = parent(&dir);
+    let out = dir.join("fork");
+    assert_eq!(fork(&parent, "5", &out), Ok(()));
+    let block = manifest(&out)["fork"].clone();
+    assert_eq!(block["from_year"], json!(5));
+    let later = (11 * Y - 1).to_string();
+    assert_eq!(
+        simagent(&["run", "--resume", "--out", arg(&out), "--until", &later]),
+        Ok(())
+    );
+    let resumed = manifest(&out);
+    assert_eq!(resumed["year_hashes"].as_array().expect("array").len(), 11);
+    assert_eq!(resumed["fork"], block);
+    // A run that is no fork gets none by a resume.
+    assert_eq!(
+        simagent(&["run", "--resume", "--out", arg(&parent), "--until", &later]),
+        Ok(())
+    );
+    assert!(manifest(&parent).get("fork").is_none());
 }
