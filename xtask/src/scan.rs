@@ -803,6 +803,10 @@ mod tests {
                 "crates/sim-core/src/rng/mod.rs",
                 "use rand_chacha::ChaCha8Rng;",
             ),
+            (
+                "crates/sim-core/src/rng/tags.rs",
+                "pub const ALL: &[(PurposeTag, &str)] = &[];",
+            ),
         ];
         all.extend_from_slice(extra);
         files(&all)
@@ -839,6 +843,18 @@ mod tests {
                     .to_string()
             ]
         );
+        // The tag names are allowed in their file only, not in the whole random module.
+        let named = core(&[(
+            "crates/sim-core/src/rng/select.rs",
+            "pub fn name(tag: PurposeTag) -> &'static str { \"\" }",
+        )]);
+        assert_eq!(
+            core_identifier_findings(&named),
+            vec![
+                "crates/sim-core/src/rng/select.rs: names str (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                    .to_string()
+            ]
+        );
         // ADR-0001 canary: an import of the generator crate outside the random module.
         let generator = core(&[
             (
@@ -846,7 +862,7 @@ mod tests {
                 "use rand_chacha::ChaCha8Rng;\npub struct World { generator: ChaCha8Rng }",
             ),
             (
-                "crates/sim-core/src/rng/tags.rs",
+                "crates/sim-core/src/rng/select.rs",
                 "// rand_chacha in a comment\nuse rand_chacha::rand_core::Rng;",
             ),
             (
@@ -869,11 +885,12 @@ mod tests {
     fn a_core_without_its_allowed_files_is_a_finding() {
         let found =
             core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
-        assert_eq!(found.len(), 4, "{found:?}");
+        assert_eq!(found.len(), 5, "{found:?}");
         for path in [
             HASH_FILE,
             "crates/sim-core/src/data_id.rs",
             "crates/sim-core/src/hex_u64.rs",
+            "crates/sim-core/src/rng/tags.rs",
         ] {
             assert!(
                 found.iter().any(|f| f.starts_with(&format!(
