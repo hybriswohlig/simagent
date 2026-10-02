@@ -264,6 +264,11 @@ fn fork_run(parent: &Path, from_year: i64, out: &Path) -> Result<(), CliError> {
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
     let no_input = || CliError::new("input_log_invalid", "the input log has no input");
+    // When a second input exists, this pattern no longer compiles. Then a fork can
+    // differ from its parent after the fork point (an override, or a dropped input the
+    // parent had applied), and `Session::finish` may compare the whole log only for a
+    // fork that drops nothing and overrides nothing; for the others the events of the
+    // parent before the fork point must be compared instead.
     let Input::Start(start) = &records.first().ok_or_else(no_input)?.input;
     if *start != scenario.start {
         return Err(CliError::new(

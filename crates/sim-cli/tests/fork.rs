@@ -520,10 +520,10 @@ fn a_resumed_fork_keeps_its_fork_block() {
 
 /// Review finding: the fork names its parent by the hash of the parent's log. A parent
 /// directory with the events and the log hash of another run passes the comparison of
-/// the years before the fork point. Without an override and without dropped inputs the
-/// fork is the parent, so its log hash must be the parent's.
+/// the years before the fork point. As long as there is no override and the world accepts
+/// no input after the start, a fork is its parent, so its log hash must be the parent's.
 #[test]
-fn a_fork_that_drops_nothing_has_the_log_of_its_parent() {
+fn a_fork_has_the_log_of_its_parent() {
     let dir = scratch("provenance");
     let parent = parent(&dir);
     // Another run: the third founder is born one second earlier.
@@ -561,7 +561,7 @@ fn a_fork_that_drops_nothing_has_the_log_of_its_parent() {
     assert_eq!(
         fork(&parent, "5", &out),
         Err(format!(
-            "error: fork_parent_inconsistent: nothing was dropped, so the fork is its parent: its log hash is {own_hash}, the manifest of the parent says {other_hash}"
+            "error: fork_parent_inconsistent: a fork without override is its parent: its log hash is {own_hash}, the manifest of the parent says {other_hash}"
         ))
     );
     assert!(
