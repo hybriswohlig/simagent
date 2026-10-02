@@ -24,16 +24,22 @@ pub fn variant_name(key: &str) -> String {
         .collect()
 }
 
-/// Methods of `BodyParams` beside the getters: a parameter with such a key would define
-/// the name twice.
+/// Methods that the generated file gives `BodyParams` beside the getters: a parameter
+/// with such a key would define the name twice. The functions of the hand-written files
+/// of the module come in as `taken`.
 const TAKEN_NAMES: [&str; 2] = ["get", "slot"];
 
 /// Keys whose generated names collide. `xtask` builds the generated file, so a file that
 /// does not compile would lock out the tool that writes it. A key that is a Rust keyword
 /// never gets that far: rustfmt refuses the file.
-fn name_findings(keys: &[String]) -> Vec<String> {
+fn name_findings(keys: &[String], taken: &[String]) -> Vec<String> {
     let mut findings = Vec::new();
     for (index, key) in keys.iter().enumerate() {
+        if taken.contains(key) {
+            findings.push(format!(
+                "parameter {key}: the body contract module has a function of this name"
+            ));
+        }
         if TAKEN_NAMES.contains(&key.as_str()) {
             findings.push(format!(
                 "parameter {key}: the generated type has a method of this name"
@@ -58,13 +64,13 @@ fn literal(value: &Value) -> String {
 }
 
 /// The source of the generated types, before rustfmt. `Err` with the findings if the
-/// contract does not pass its check: then nothing is generated.
+/// contract does not pass its check or a key collides with a name of the module (`taken`:
+/// the functions of its hand-written files): then nothing is generated.
 pub fn generate(
     body_json: &str,
     source_hash: u64,
     taken: &[String],
 ) -> Result<String, Vec<String>> {
-    let _ = taken;
     let findings = contract::schema_findings(body_json);
     if !findings.is_empty() {
         return Err(findings);
@@ -85,7 +91,7 @@ pub fn generate(
         .iter()
         .map(|parameter| text(parameter, "key"))
         .collect();
-    let findings = name_findings(&keys);
+    let findings = name_findings(&keys, taken);
     if !findings.is_empty() {
         return Err(findings);
     }

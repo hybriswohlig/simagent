@@ -206,11 +206,25 @@ pub fn mentions_identifier(source: &str, ident: &str) -> bool {
 
 /// The names of the functions that `source` declares (strings and comments ignored).
 pub fn function_names(source: &str) -> Vec<String> {
-    source
-        .lines()
-        .skip(usize::MAX)
-        .map(str::to_string)
-        .collect()
+    let code = mask_non_code(source);
+    let mut names = Vec::new();
+    for (start, _) in code.match_indices("fn") {
+        let before = code[..start].chars().next_back();
+        let rest = &code[start + 2..];
+        let name: String = rest
+            .trim_start()
+            .chars()
+            .take_while(|c| is_identifier_char(*c))
+            .collect();
+        // The word `fn`, space, a name: `fn(f64)` is a type and `fn_count` a name.
+        if !before.is_some_and(is_identifier_char)
+            && rest.starts_with(char::is_whitespace)
+            && !name.is_empty()
+        {
+            names.push(name);
+        }
+    }
+    names
 }
 
 /// Text types that the core must not name: log entries carry only numbers, IDs, codes
