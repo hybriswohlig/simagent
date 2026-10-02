@@ -363,6 +363,196 @@ fn replay_reports_first_divergent_year() {
             year(3)
         )
     );
+    // The replay ended there (ADR-0003 1.4): the years 0 to 3 are written, nothing later.
+    assert_eq!(text(&out.join("census.csv")).lines().count(), 1 + 4);
+    assert_eq!(text(&out.join("events.ndjson")).lines().count(), 4 + 4 * 3);
+}
+
+/// The manifest also carries the log hash of the original run; a replay compares it at
+/// the end (ADR-0004 test 1: the same year hashes and the same log hash).
+#[test]
+fn replay_compares_the_log_hash() {
+    let dir = scratch("log_hash");
+    let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
+    let manifest_path = original.join("manifest.json");
+    replace_in(&manifest_path, "3233ead4da597110", "3233ead4da597111");
+    let log = original.join("input.ndjson");
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--replay",
+            arg(&log),
+            "--manifest",
+            arg(&manifest_path),
+            "--out",
+            arg(&dir.join("out")),
+        ]),
+        "error: replay_diverged: the log hash is 3233ead4da597110, the manifest says 3233ead4da597111"
+    );
+}
+
+/// A limit the run cannot reach is refused before anything is written: a time before
+/// the clock, or one in the last year of the time range, where the next year end could
+/// no longer be planned (ADR-0002).
+#[test]
+fn until_outside_the_run_is_rejected() {
+    let dir = scratch("until");
+    let scenario = dir.join("scenario.json");
+    fs::write(&scenario, TINY_SCENARIO).expect("writes");
+    let out = dir.join("out");
+    let run = |until: &str| {
+        error_of(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(&out),
+            "--until",
+            until,
+        ])
+    };
+    assert_eq!(
+        run("-2"),
+        "error: until_in_the_past: the run stands at -1, until is -2"
+    );
+    // 1 000 000 years of 31 449 600 seconds, less one year, is the last limit.
+    assert_eq!(
+        run("31449568550401"),
+        "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert_eq!(
+        run("31449599999999"),
+        "error: until_beyond_horizon: until 31449599999999 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert_eq!(
+        run("31449600000001"),
+        "error: usage: --until 31449600000001 is not a time in seconds"
+    );
+    assert!(!out.exists(), "nothing was written");
+    let far = TINY_SCENARIO.replacen("31449599", "31449568550401", 1);
+    fs::write(&scenario, far).expect("writes");
+    assert_eq!(
+        error_of(&["run", "--scenario", arg(&scenario), "--out", arg(&out)]),
+        "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert!(!out.exists(), "nothing was written");
+    // Also when this call would stop earlier: the run could never be resumed to its end.
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(&out),
+            "--until",
+            "5"
+        ]),
+        "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert!(!out.exists(), "nothing was written");
+    // A resumed run has the same limits and stays untouched when refused.
+    let done = run_scenario(&dir, TINY_SCENARIO, "done");
+    let before = text(&done.join("input.ndjson"));
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--resume",
+            "--out",
+            arg(&done),
+            "--until",
+            "31449568550401"
+        ]),
+        "error: until_beyond_horizon: until 31449568550401 is later than 31449568550400, one year before the end of the time range"
+    );
+    assert_eq!(text(&done.join("input.ndjson")), before);
+}
+
+/// A run that was interrupted while it wrote leaves lines in its files that the save
+/// does not know. Resuming it would write those years twice; it is refused instead.
+#[test]
+fn resume_refuses_a_directory_that_does_not_match_its_save() {
+    let dir = scratch("interrupted");
+    let scenario = dir.join("scenario.json");
+    fs::write(&scenario, TEN_YEARS).expect("writes");
+    let out = dir.join("out");
+    let mid = (3 * Y + 100 * 86_400).to_string();
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&out),
+        "--until",
+        &mid,
+    ]);
+    let snapshot = |name: &str| fs::read(out.join(name)).expect("reads");
+    let pristine: Vec<Vec<u8>> = FILES.iter().map(|name| snapshot(name)).collect();
+    let restore = || {
+        for (name, bytes) in FILES.iter().zip(&pristine) {
+            fs::write(out.join(name), bytes).expect("writes");
+        }
+    };
+    let resume = || error_of(&["run", "--resume", "--out", arg(&out)]);
+    let unchanged = |tampered: &str, with: &[u8]| {
+        for (name, bytes) in FILES.iter().zip(&pristine) {
+            let expected: &[u8] = if *name == tampered { with } else { bytes };
+            assert!(
+                snapshot(name) == expected,
+                "{name} was changed by a refused resume"
+            );
+        }
+    };
+
+    // One more complete event line, as a crashed run would leave it.
+    let events = text(&out.join("events.ndjson"));
+    let extra = r#"{"id":15,"t":103161600,"subjects":[{"sim":2}],"causes":[{"plan":{"by":12,"planned_at":85708800}}],"payload":{"core:birthday":{"age_years":29}}}"#;
+    let longer = format!("{events}{extra}\n");
+    fs::write(out.join("events.ndjson"), &longer).expect("writes");
+    assert_eq!(
+        resume(),
+        "error: run_dir_inconsistent: events.ndjson does not match the log hash of the manifest"
+    );
+    unchanged("events.ndjson", longer.as_bytes());
+    restore();
+
+    // One more census row.
+    let census = text(&out.join("census.csv")) + "3,3,94348800\n";
+    fs::write(out.join("census.csv"), &census).expect("writes");
+    assert_eq!(
+        resume(),
+        "error: run_dir_inconsistent: census.csv has 4 rows, the save has 3 completed years"
+    );
+    unchanged("census.csv", census.as_bytes());
+    restore();
+
+    // A manifest of another moment of the run.
+    replace_in(
+        &out.join("manifest.json"),
+        &format!(r#""closed_through":{mid}"#),
+        r#""closed_through":5"#,
+    );
+    assert_eq!(
+        resume(),
+        "error: run_dir_inconsistent: manifest.json does not describe the save"
+    );
+    restore();
+
+    // A scenario file of another format version.
+    replace_in(
+        &out.join("scenario.resolved.json"),
+        r#""format_version":1"#,
+        r#""format_version":2"#,
+    );
+    assert_eq!(
+        resume(),
+        "error: scenario_invalid: not a scenario of format version 1"
+    );
+    restore();
+
+    // The pristine directory resumes and ends like the uninterrupted run.
+    must(&["run", "--resume", "--out", arg(&out)]);
+    let whole = run_scenario(&dir, TEN_YEARS, "whole");
+    assert_same_run(&whole, &out);
 }
 
 /// A manifest with another number of years than the replay produces is a divergence
@@ -397,13 +587,19 @@ fn replay_compares_the_number_of_years() {
 #[test]
 fn a_session_writes_each_census_row_once() {
     use sim_cli::files::Scenario;
-    use sim_cli::session::Session;
+    use sim_cli::session::{Compare, Session};
     let dir = scratch("session");
     let scenario: Scenario = serde_json::from_str(TINY_SCENARIO).expect("parses");
     let rejected = |code: String| panic!("rejected: {code}");
     let first = Input::Start(scenario.start.clone());
-    let mut session =
-        Session::start(&dir, SimTime::from_secs(-1), first, None, rejected).expect("starts");
+    let mut session = Session::start(
+        &dir,
+        SimTime::from_secs(-1),
+        first,
+        Compare::Nothing,
+        rejected,
+    )
+    .expect("starts");
     for limit in [5, Y - 1, Y, 2 * Y - 1, 3 * Y - 1] {
         session
             .advance(SimTime::from_secs(limit))

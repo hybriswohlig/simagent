@@ -20,6 +20,7 @@ use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
+use crate::trace::{TraceBuffer, TraceEntry, TraceFilter};
 use crate::version::EMPTY_DATA_HASH;
 use ctx::{IdCounters, LogBuffer};
 
@@ -52,6 +53,8 @@ pub struct WorldState {
     domain: DomainState,
     ids: IdCounters,
     log: LogBuffer,
+    /// Output like the log, and no state: not hashed, not saved (ADR-0004 section 6).
+    trace: TraceBuffer,
 }
 
 impl Default for World {
@@ -68,6 +71,7 @@ impl World {
                 domain: DomainState::new(),
                 ids: IdCounters::new(),
                 log: LogBuffer::new(),
+                trace: TraceBuffer::default(),
             },
             inputs: InputLog {
                 next_seq: Counter::new(),
@@ -117,6 +121,17 @@ impl World {
         canonical::canonical_bytes(&self.state, &self.sched)
     }
 
+    /// Chooses which sims are traced from now on. Not an input, not state, not saved
+    /// (ADR-0004 section 6); a loaded world traces nothing.
+    pub fn set_trace(&mut self, filter: TraceFilter) {
+        self.state.trace.set_filter(filter);
+    }
+
+    /// Hands the buffered trace over.
+    pub fn take_trace(&mut self) -> Vec<TraceEntry> {
+        self.state.trace.take()
+    }
+
     /// Hands the buffered domain log over; the core never reads it (ADR-0004 section 6).
     pub fn take_log(&mut self) -> Vec<LogEntry> {
         self.state.log.take()
@@ -152,7 +167,13 @@ fn check(
 
 impl WorldState {
     fn apply(&mut self, input: &Input, seq: InputSeq, ctx: &mut Ctx<'_, EventPayload, PlanRef>) {
-        let mut ctx = SimCtx::new(ctx, &mut self.ids, &mut self.log, Cause::Input(seq));
+        let mut ctx = SimCtx::new(
+            ctx,
+            &mut self.ids,
+            &mut self.log,
+            &mut self.trace,
+            Cause::Input(seq),
+        );
         match input {
             Input::Start(start) => state::start::apply_start(&mut self.domain, start, &mut ctx),
         }
@@ -200,7 +221,13 @@ impl Handler<EventPayload, PlanRef> for WorldState {
         ev: Fired<EventPayload, PlanRef>,
         ctx: &mut Ctx<'_, EventPayload, PlanRef>,
     ) {
-        let mut ctx = SimCtx::new(ctx, &mut self.ids, &mut self.log, Cause::Plan(ev.meta));
+        let mut ctx = SimCtx::new(
+            ctx,
+            &mut self.ids,
+            &mut self.log,
+            &mut self.trace,
+            Cause::Plan(ev.meta),
+        );
         match ev.payload {
             EventPayload::Birthday { sim } => {
                 state::birthday::on_birthday(&self.domain, sim, &mut ctx);

@@ -8,6 +8,11 @@
 
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
+pub mod dist;
+
 /// Width of the fraction field of an `f64`.
 const FRACTION_BITS: u32 = 52;
 /// Exponent bias of an `f64` plus the fraction width: a normal value is
@@ -21,6 +26,26 @@ const TWO_POW_32: f64 = 4_294_967_296.0;
 /// Smallest integer not less than `x` (C99 `ceil`), exactly rounded.
 pub fn ceil(x: f64) -> f64 {
     libm::ceil(x)
+}
+
+/// e to the power of `x`, platform-equal through the pinned libm.
+pub fn exp(x: f64) -> f64 {
+    libm::exp(x)
+}
+
+/// Natural logarithm of `x`, platform-equal through the pinned libm.
+pub fn ln(x: f64) -> f64 {
+    libm::log(x)
+}
+
+/// Cosine of `x` (radians), platform-equal through the pinned libm.
+pub fn cos(x: f64) -> f64 {
+    libm::cos(x)
+}
+
+/// Square root of `x`, exactly rounded.
+pub fn sqrt(x: f64) -> f64 {
+    libm::sqrt(x)
 }
 
 /// `x` as `i64` if it is finite, integral and inside the `i64` range; `-0.0` gives 0.

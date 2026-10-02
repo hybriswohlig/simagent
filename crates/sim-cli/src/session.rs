@@ -4,21 +4,32 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sim_core::canonical::YearHash;
 use sim_core::input::{Input, InputRecord};
 use sim_core::log::{LogEntry, LogHasher};
-use sim_core::time::SimTime;
+use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
 use sim_core::world::{World, YearOut};
 
 use crate::error::CliError;
-use crate::files::{self, LogEnd, LogHeader, Manifest, Scenario};
+use crate::files::{self, ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
 
 /// Set at build time by whoever builds a release; informative only (ADR-0003 1.4).
 pub const BUILD_COMMIT: &str = match option_env!("SIMAGENT_BUILD_COMMIT") {
     Some(commit) => commit,
     None => "unknown",
 };
+
+/// What a run compares its year hashes with.
+pub enum Compare {
+    Nothing,
+    /// A replay: every year and at the end the log hash of the original (ADR-0003 1.4).
+    Replay(Manifest),
+    /// A fork: the years before the fork point with the parent (ADR-0001 section 6).
+    Fork {
+        parent: Manifest,
+        info: ForkInfo,
+    },
+}
 
 pub struct Session {
     world: World,
@@ -27,8 +38,61 @@ pub struct Session {
     dir: PathBuf,
     /// Census rows already in `census.csv`.
     census_written: usize,
-    /// Year hashes of the original run, for a replay with a manifest.
-    expected: Option<Vec<YearHash>>,
+    /// Year hashes already compared with the manifest.
+    years_compared: usize,
+    compare: Compare,
+    /// The block `fork` of the manifest, if this run is a fork: also after a resume.
+    fork: Option<ForkInfo>,
+}
+
+/// The hash of the log in `events.ndjson` of a run directory (ADR-0004 section 8).
+pub fn log_hash_of_events(dir: &Path) -> Result<u64, CliError> {
+    let mut hasher = LogHasher::new();
+    read_events_into(dir, &mut hasher)?;
+    Ok(hasher.digest())
+}
+
+fn read_events_into(dir: &Path, hasher: &mut LogHasher) -> Result<(), CliError> {
+    let events = files::read_text(&dir.join(files::EVENTS))?;
+    for (line, number) in events.lines().zip(1..) {
+        let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
+            CliError::new(
+                "events_invalid",
+                format!("line {number} is not a log entry"),
+            )
+        })?;
+        hasher.update(core::slice::from_ref(&entry));
+    }
+    Ok(())
+}
+
+/// A limit a run can reach: not before the clock, and not in the last year of the time
+/// range. There the core could not plan the next year end or the next birthday; it
+/// would break `time.out_of_range` (ADR-0002).
+pub fn check_limit(closed: SimTime, limit: SimTime) -> Result<(), CliError> {
+    if limit < closed {
+        let detail = format!(
+            "the run stands at {}, until is {}",
+            closed.as_secs(),
+            limit.as_secs()
+        );
+        return Err(CliError::new("until_in_the_past", detail));
+    }
+    let horizon = MAX_ABS_SECS - YEAR.as_secs();
+    if limit.as_secs() > horizon {
+        let detail = format!(
+            "until {} is later than {horizon}, one year before the end of the time range",
+            limit.as_secs()
+        );
+        return Err(CliError::new("until_beyond_horizon", detail));
+    }
+    Ok(())
+}
+
+/// The last second of the year that begins or continues right after `closed`.
+fn end_of_the_open_year(closed: SimTime) -> SimTime {
+    let second = SimDuration::from_secs(1);
+    year_start(calendar(closed + second).year + 1) - second
 }
 
 pub fn header() -> LogHeader {
@@ -60,7 +124,7 @@ impl Session {
         dir: &Path,
         first_t: SimTime,
         first: Input,
-        expected: Option<Vec<YearHash>>,
+        compare: Compare,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<Session, CliError> {
         let occupied = fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some());
@@ -78,13 +142,19 @@ impl Session {
             .submit(first)
             .map_err(|error| rejected(files::code(&error.code)))?;
         fs::create_dir_all(dir).map_err(|error| CliError::io(dir, &error))?;
+        let fork = match &compare {
+            Compare::Fork { info, .. } => Some(info.clone()),
+            Compare::Nothing | Compare::Replay(_) => None,
+        };
         let mut session = Session {
             world,
             out: YearOut::default(),
             hasher: LogHasher::new(),
             dir: dir.to_path_buf(),
             census_written: 0,
-            expected,
+            years_compared: 0,
+            compare,
+            fork,
         };
         let mut log = files::json(&header()) + "\n";
         for record in session.world.input_log() {
@@ -101,19 +171,40 @@ impl Session {
     /// over the whole log, so the entries written so far are read back (ADR-0004
     /// section 8).
     pub fn resume(dir: &Path) -> Result<Session, CliError> {
+        let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
         let bytes = files::read(&dir.join(files::SAVE))?;
         let (world, year_hashes) = World::load(&bytes, EMPTY_DATA_HASH)
             .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+        // A run that was interrupted while it wrote has lines in its files that the
+        // save does not know. The manifest of the last orderly end tells them apart.
+        let manifest: Manifest =
+            files::parse_strict(files::read_text(&dir.join(files::MANIFEST))?.trim_end())
+                .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
+        let describes_the_save = manifest.closed_through == world.closed_through()
+            && manifest.year_hashes == year_hashes
+            && manifest.core_version == CORE_VERSION
+            && manifest.data_hash == EMPTY_DATA_HASH;
+        if !describes_the_save {
+            return Err(inconsistent(
+                "manifest.json does not describe the save".to_owned(),
+            ));
+        }
         let mut hasher = LogHasher::new();
-        let events = files::read_text(&dir.join(files::EVENTS))?;
-        for (line, number) in events.lines().zip(1..) {
-            let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
-                CliError::new(
-                    "events_invalid",
-                    format!("line {number} is not a log entry"),
-                )
-            })?;
-            hasher.update(core::slice::from_ref(&entry));
+        read_events_into(dir, &mut hasher)?;
+        if hasher.digest() != manifest.log_hash {
+            return Err(inconsistent(
+                "events.ndjson does not match the log hash of the manifest".to_owned(),
+            ));
+        }
+        let rows = files::read_text(&dir.join(files::CENSUS))?
+            .lines()
+            .count()
+            .saturating_sub(1);
+        if rows != year_hashes.len() {
+            return Err(inconsistent(format!(
+                "census.csv has {rows} rows, the save has {} completed years",
+                year_hashes.len()
+            )));
         }
         Ok(Session {
             world,
@@ -124,7 +215,9 @@ impl Session {
             hasher,
             dir: dir.to_path_buf(),
             census_written: 0,
-            expected: None,
+            years_compared: 0,
+            compare: Compare::Nothing,
+            fork: manifest.fork,
         })
     }
 
@@ -181,12 +274,24 @@ impl Session {
         self.check_stamp(t, seq)
     }
 
-    /// Runs to `limit`, which is not before the clock, and writes what the run produced.
+    /// Runs to `limit` and writes what the run produced. A replay with a manifest goes
+    /// year by year and ends at the first year whose hash differs (ADR-0003 1.4); so
+    /// does a fork up to its fork point.
     pub fn advance(&mut self, limit: SimTime) -> Result<(), CliError> {
-        self.world
-            .advance_until(&mut self.out, limit, &mut |_| false);
-        self.drain()?;
-        self.compare_with_the_manifest()
+        check_limit(self.world.closed_through(), limit)?;
+        while self.world.closed_through() < limit {
+            let year_by_year = self.years_compared < self.years_to_compare();
+            let step = if year_by_year {
+                limit.min(end_of_the_open_year(self.world.closed_through()))
+            } else {
+                limit
+            };
+            self.world
+                .advance_until(&mut self.out, step, &mut |_| false);
+            self.drain()?;
+            self.compare_with_the_manifest()?;
+        }
+        Ok(())
     }
 
     /// Hands the new log entries and census rows to the files.
@@ -203,38 +308,72 @@ impl Session {
         files::append(&self.path(files::CENSUS), &rows)
     }
 
-    /// ADR-0003 1.4: a replay ends at the first year whose hash differs.
-    fn compare_with_the_manifest(&self) -> Result<(), CliError> {
-        let Some(expected) = &self.expected else {
-            return Ok(());
+    /// How many years from year 0 on are compared: all of a replay, those before the
+    /// fork point of a fork.
+    fn years_to_compare(&self) -> usize {
+        match &self.compare {
+            Compare::Nothing => 0,
+            Compare::Replay(_) => usize::MAX,
+            Compare::Fork { info, .. } => usize::try_from(info.from_year).unwrap_or(usize::MAX),
+        }
+    }
+
+    /// Compares the year hashes that are new since the last call with the manifest.
+    fn compare_with_the_manifest(&mut self) -> Result<(), CliError> {
+        let (expected, code, whose) = match &self.compare {
+            Compare::Nothing => return Ok(()),
+            Compare::Replay(manifest) => (manifest, "replay_diverged", "the manifest"),
+            Compare::Fork { parent, .. } => (
+                parent,
+                "fork_diverged_before_fork_point",
+                "the manifest of the parent",
+            ),
         };
-        for (got, want) in self.out.year_hashes.iter().zip(expected) {
+        let until = self.years_to_compare().min(self.out.year_hashes.len());
+        let from = self.years_compared.min(until);
+        let produced = &self.out.year_hashes[from..until];
+        let wanted = expected.year_hashes.iter().skip(from);
+        for (got, want) in produced.iter().zip(wanted) {
             if got != want {
                 return Err(CliError::new(
-                    "replay_diverged",
+                    code,
                     format!(
-                        "year {} has hash {:016x}, the manifest says {:016x}",
+                        "year {} has hash {:016x}, {whose} says {:016x}",
                         got.year, got.hash, want.hash
                     ),
                 ));
             }
         }
+        self.years_compared = self.out.year_hashes.len();
         Ok(())
     }
 
     /// The orderly end: the end line, the manifest, the save, the scenario.
     pub fn finish(self, scenario: &Scenario) -> Result<(), CliError> {
-        if let Some(expected) = &self.expected
-            && expected.len() != self.out.year_hashes.len()
-        {
-            return Err(CliError::new(
-                "replay_diverged",
-                format!(
-                    "the replay has {} year hashes, the manifest {}",
-                    self.out.year_hashes.len(),
-                    expected.len()
-                ),
-            ));
+        if let Compare::Replay(expected) = &self.compare {
+            let (got, want) = (self.out.year_hashes.len(), expected.year_hashes.len());
+            if got != want {
+                let detail = format!("the replay has {got} year hashes, the manifest {want}");
+                return Err(CliError::new("replay_diverged", detail));
+            }
+            let (got, want) = (self.hasher.digest(), expected.log_hash);
+            if got != want {
+                let detail = format!("the log hash is {got:016x}, the manifest says {want:016x}");
+                return Err(CliError::new("replay_diverged", detail));
+            }
+        }
+        // As long as the world accepts no input after the start and there is no
+        // override, every fork is its parent, so its whole log must be the parent's. That
+        // ties the hash by which the fork names its parent to the history the fork has
+        // run. `fork_run` in lib.rs says where this changes.
+        if let Compare::Fork { parent, .. } = &self.compare {
+            let (got, want) = (self.hasher.digest(), parent.log_hash);
+            if got != want {
+                let detail = format!(
+                    "a fork without override is its parent: its log hash is {got:016x}, the manifest of the parent says {want:016x}"
+                );
+                return Err(CliError::new("fork_parent_inconsistent", detail));
+            }
         }
         let end = LogEnd {
             end: self.world.closed_through(),
@@ -249,6 +388,7 @@ impl Session {
             closed_through: self.world.closed_through(),
             year_hashes: self.out.year_hashes.clone(),
             log_hash: self.hasher.digest(),
+            fork: self.fork.clone(),
         };
         let manifest = files::json(&manifest) + "\n";
         files::write(&self.path(files::MANIFEST), manifest.as_bytes())?;

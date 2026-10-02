@@ -17,7 +17,7 @@ pub const EDGES: [(&str, &[&str]); 4] = [
 ];
 
 /// Positive list for the normal and build closure of `sim-core` (ADR-0000).
-pub const CORE_ALLOWED: [&str; 15] = [
+pub const CORE_ALLOWED: [&str; 19] = [
     "sim-core",
     "sim-math",
     "libm",
@@ -37,6 +37,12 @@ pub const CORE_ALLOWED: [&str; 15] = [
     "cobs",
     "thiserror",
     "thiserror-impl",
+    // ChaCha8 for the addressed random draws (ADR-0001 section 2). rand_core, ppv-lite86
+    // and zerocopy are the fixed dependencies of rand_chacha 0.10.0; no getrandom.
+    "rand_chacha",
+    "rand_core",
+    "ppv-lite86",
+    "zerocopy",
 ];
 
 /// Further packages allowed in the normal and build closure of the tool crates.
@@ -59,7 +65,9 @@ pub const TOOL_ALLOWED: [&str; 11] = [
 /// Packages allowed only in the test graph (reached through dev-dependencies): proptest
 /// with default features off and only `std` (step 2c). rand and getrandom are banned in
 /// the normal graph but allowed here: every proptest runs with a fixed seed (ADR-0001).
-pub const DEV_ALLOWED: [&str; 15] = [
+/// rand_chacha and rand_core stand here for the older versions that proptest brings;
+/// the versions of the core are on the core list.
+pub const DEV_ALLOWED: [&str; 13] = [
     "proptest",
     "rand",
     "rand_core",
@@ -68,8 +76,6 @@ pub const DEV_ALLOWED: [&str; 15] = [
     "getrandom",
     "libc",
     "cfg-if",
-    "ppv-lite86",
-    "zerocopy",
     "num-traits",
     "autocfg",
     "bitflags",
@@ -79,8 +85,13 @@ pub const DEV_ALLOWED: [&str; 15] = [
 
 /// Resolved features allowed per package in the closure of `sim-core`; a package that
 /// is not listed must resolve without features (ADR-0000 B1: feature unification).
-pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 8] = [
+pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 10] = [
     ("xxhash-rust", &["xxh3"]),
+    // simd is the default of both in rand_chacha 0.10.0 (ADR-0001 section 7). std on
+    // ppv-lite86 arrives only through the test graph (proptest); it changes the choice
+    // of SIMD path, not the values. The wasm32v1-none build proves the core without it.
+    ("ppv-lite86", &["simd", "std"]),
+    ("zerocopy", &["simd"]),
     ("postcard", &["alloc"]),
     ("serde", &["alloc", "derive", "serde_derive"]),
     // std arrives through feature unification with serde_json (xtask, test graph); it
@@ -105,10 +116,11 @@ pub const CORE_FEATURES_ALLOWED: [(&str, &[&str]); 8] = [
 /// Dependencies pinned by ADR-0003 (AT1 to AT3): package, the only member that may
 /// depend on it directly, the exact version requirement, and exactly the features it
 /// enables. Default features must be off.
-pub const PINNED: [(&str, &str, &str, &[&str]); 3] = [
+pub const PINNED: [(&str, &str, &str, &[&str]); 4] = [
     ("libm", "sim-math", "=0.2.16", &[]),
     ("xxhash-rust", "sim-core", "=0.8.19", &["xxh3"]),
     ("postcard", "sim-core", "=1.1.3", &["alloc"]),
+    ("rand_chacha", "sim-core", "=0.10.0", &[]),
 ];
 
 /// Crates that must not declare Cargo features of their own (ADR-0000).
@@ -162,6 +174,9 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
         normal_union.extend(closure);
     }
+    if built.is_some() {
+        check_one_version(&graph, &normal_union, &mut violations);
+    }
     for &member in &graph.members {
         check_dev_graph(&graph, member, &normal_union, &mut violations);
     }
@@ -177,6 +192,7 @@ pub fn check(metadata: &Value, built: Option<&BTreeSet<(String, String)>>) -> Ve
         }
     }
     check_pinned(&graph, &mut violations);
+    check_no_rename(&graph, &mut violations);
     check_serde_json(&graph, &mut violations);
     for (id, declared) in &graph.declared {
         let name = graph.name(id);
@@ -279,9 +295,12 @@ fn check_core_features(package: &str, resolved: &[&str], violations: &mut Vec<St
 }
 
 /// AT5 (ADR-0003 5.7): `serde_json` only with the feature `float_roundtrip`, so that
-/// every finite f64 survives writing and reading bit for bit. Checked where a member
-/// declares it and in what cargo resolves. That it stays out of the core is the job
-/// of the core positive list.
+/// every finite f64 survives writing and reading bit for bit. The rule that carries is
+/// the first: a member can only call serde_json if it declares it, and then its own
+/// declaration puts the feature into every build of that member. The resolved feature
+/// list is a second look only: cargo metadata gives one list per package, the union
+/// over all kinds of dependencies. That serde_json stays out of the core is the job of
+/// the core positive list.
 fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
     const PACKAGE: &str = "serde_json";
     const FEATURE: &str = "float_roundtrip";
@@ -303,6 +322,22 @@ fn check_serde_json(graph: &Graph, violations: &mut Vec<String>) {
             violations.push(format!(
                 "{PACKAGE} resolves without the feature {FEATURE} (ADR-0003 AT5)"
             ));
+        }
+    }
+}
+
+/// The scans and the positive lists find crates by their name. A member that renames a
+/// dependency would name it in the code as something else.
+fn check_no_rename(graph: &Graph, violations: &mut Vec<String>) {
+    for &member in &graph.members {
+        for spec in graph.specs.get(member).into_iter().flatten() {
+            if let Some(alias) = spec.rename {
+                violations.push(format!(
+                    "{} renames its dependency {} to {alias}; the scans find crates by name (ADR-0000)",
+                    graph.name(member),
+                    spec.name
+                ));
+            }
         }
     }
 }
@@ -366,8 +401,7 @@ pub fn parse_tree_line(line: &str) -> Option<(String, String)> {
 
 /// The build set and the resolve graph must name the same packages in the same
 /// versions, except for the packages on `NOT_BUILT`. A build set that is empty, cut
-/// short or parsed from an unexpected output therefore never passes. Every list of this
-/// file goes by package name, so no name may be built in two versions.
+/// short or parsed from an unexpected output therefore never passes.
 fn check_build_set(
     graph: &Graph,
     built: &BTreeSet<(String, String)>,
@@ -390,17 +424,29 @@ fn check_build_set(
             (true, false) | (false, true) => {}
         }
     }
-    let mut versions_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, version) in built {
         if !resolved.contains(&(name.as_str(), version.as_str())) {
             violations.push(format!(
                 "cargo tree builds {name} {version}, which cargo metadata does not list"
             ));
         }
-        versions_of.entry(name).or_default().push(version);
+    }
+}
+
+/// The positive lists, the never list and the feature list of the normal closures go by
+/// package name, so no name may be in them in two versions. A further version that only
+/// the test graph has is the business of the dev list.
+fn check_one_version(graph: &Graph, normal_union: &BTreeSet<&str>, violations: &mut Vec<String>) {
+    let mut versions_of: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for id in normal_union {
+        versions_of
+            .entry(graph.name(id))
+            .or_default()
+            .insert(graph.version(id));
     }
     for (name, versions) in versions_of {
         if versions.len() > 1 {
+            let versions: Vec<&str> = versions.into_iter().collect();
             violations.push(format!(
                 "{name} is built in two versions ({}); the lists go by package name",
                 versions.join(", ")
@@ -412,6 +458,8 @@ fn check_build_set(
 /// A dependency as declared in a package manifest.
 struct Spec<'a> {
     name: &'a str,
+    /// The name in the code if the manifest renames the dependency.
+    rename: Option<&'a str>,
     requirement: &'a str,
     default_features: bool,
     features: Vec<&'a str>,
@@ -456,6 +504,7 @@ impl<'a> Graph<'a> {
             for dep in declared_deps.into_iter().flatten() {
                 specs.push(Spec {
                     name: string(dep, "name")?,
+                    rename: dep.get("rename").and_then(Value::as_str),
                     requirement: string(dep, "req")?,
                     default_features: dep
                         .get("uses_default_features")
@@ -588,6 +637,8 @@ mod tests {
         features: Vec<(String, Vec<String>)>,
         /// Declared dependencies: (from, to, requirement, default features, features).
         specs: Vec<(String, String, String, bool, Vec<String>)>,
+        /// Renamed dependencies: (from, to, name in the code).
+        renames: Vec<(String, String, String)>,
         members: Option<Vec<String>>,
     }
 
@@ -599,6 +650,7 @@ mod tests {
                 deps: Vec::new(),
                 features: Vec::new(),
                 specs: Vec::new(),
+                renames: Vec::new(),
                 members: None,
             };
             for name in MEMBERS.into_iter().chain([
@@ -654,6 +706,12 @@ mod tests {
             self
         }
 
+        fn renamed(mut self, from: &str, to: &str, alias: &str) -> Self {
+            self.renames
+                .push((from.to_string(), to.to_string(), alias.to_string()));
+            self
+        }
+
         fn dep(mut self, from: &str, to: &str, kind: Option<&'static str>) -> Self {
             self.deps.push((from.to_string(), to.to_string(), kind));
             self
@@ -692,12 +750,18 @@ mod tests {
                         .specs
                         .iter()
                         .filter(|(from, ..)| from == name)
-                        .map(|(_, to, requirement, default_features, features)| {
+                        .map(|(from, to, requirement, default_features, features)| {
+                            let rename = self
+                                .renames
+                                .iter()
+                                .find(|(f, t, _)| f == from && t == to)
+                                .map(|(_, _, alias)| alias.clone());
                             json!({
                                 "name": to,
                                 "req": requirement,
                                 "uses_default_features": default_features,
                                 "features": features,
+                                "rename": rename,
                                 "kind": null
                             })
                         })
@@ -894,6 +958,30 @@ mod tests {
         );
     }
 
+    /// The test graph may hold another version of a core package: proptest brings its
+    /// own rand_chacha next to the one the core pins. The dev list names it, and the two
+    /// versions never meet in a normal build.
+    #[test]
+    fn a_second_version_only_in_the_test_graph_is_fine() {
+        let fixture = Fixture::workspace()
+            .package("proptest", &[])
+            .package("rand_chacha@0.9.0", &[])
+            .dep("sim-core", "proptest", Some("dev"))
+            .dep("proptest", "rand_chacha@0.9.0", None)
+            .package("libm@9.9.9", &[])
+            .dep("proptest", "libm@9.9.9", None);
+        let mut built_set = built_workspace();
+        built_set.extend([built("proptest"), built("rand_chacha@0.9.0")]);
+        // rand_chacha is on the dev list: fine. libm is not: its second version, which
+        // exists only in the test graph, is reported by the dev list, not as a duplicate.
+        built_set.insert(built("libm@9.9.9"));
+        let found = check(&fixture.build(), Some(&built_set));
+        assert_eq!(
+            found,
+            vec!["libm is a dev dependency of sim-core but not on the dev list".to_string()]
+        );
+    }
+
     /// A second version that is built would pass every list by its name alone.
     #[test]
     fn two_built_versions_of_one_package_are_a_violation() {
@@ -974,6 +1062,61 @@ mod tests {
         ] {
             assert_eq!(parse_tree_line(bad), None, "{bad:?}");
         }
+    }
+
+    /// ADR-0001 canary: rand_chacha only in sim-core, exactly `=0.10.0`, without default
+    /// features and without any feature that 0.10.0 offers.
+    #[test]
+    fn rand_chacha_is_pinned_without_features() {
+        let with = |from: &str, requirement: &str, default_features: bool, features: &[&str]| {
+            Fixture::workspace()
+                .package("rand_chacha", &[])
+                .dep(from, "rand_chacha", None)
+                .spec(from, "rand_chacha", requirement, default_features, features)
+        };
+        let clean = with("sim-core", "=0.10.0", false, &[]);
+        assert_eq!(violations(clean), Vec::<String>::new());
+        assert_reports(
+            with("sim-core", "=0.10.0", false, &["serde"]),
+            "sim-core enables features [\"serde\"] of rand_chacha; it must enable exactly [] (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-core", "=0.10.0", true, &[]),
+            "sim-core must use rand_chacha with default-features = false (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-core", "0.10", false, &[]),
+            "sim-core requires rand_chacha as \"0.10\"; it must be \"=0.10.0\" (ADR-0003)",
+        );
+        assert_reports(
+            with("sim-math", "=0.10.0", false, &[]),
+            "rand_chacha may only be a direct dependency of sim-core, not of sim-math (ADR-0003)",
+        );
+    }
+
+    /// Review finding: the scans look for crates by name; a renamed dependency of a
+    /// member would be invisible to them.
+    #[test]
+    fn a_renamed_dependency_of_a_member_is_reported() {
+        let plain = || {
+            Fixture::workspace()
+                .package("rand_chacha", &[])
+                .dep("sim-core", "rand_chacha", None)
+                .spec("sim-core", "rand_chacha", "=0.10.0", false, &[])
+        };
+        assert_eq!(violations(plain()), Vec::<String>::new());
+        assert_eq!(
+            violations(plain().renamed("sim-core", "rand_chacha", "chacha")),
+            vec![
+                "sim-core renames its dependency rand_chacha to chacha; the scans find crates by name (ADR-0000)"
+                    .to_string()
+            ]
+        );
+        // What a third-party crate renames is its own business.
+        let foreign = Fixture::workspace()
+            .spec("serde_json", "itoa", "1", true, &[])
+            .renamed("serde_json", "itoa", "fmt");
+        assert_eq!(violations(foreign), Vec::<String>::new());
     }
 
     /// AT5: a member that declares serde_json enables float_roundtrip.
