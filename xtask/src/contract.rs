@@ -418,9 +418,12 @@ pub fn melanin_chart(body_json: &str) -> Result<String, Vec<String>> {
     }
     let body: Value = serde_json::from_str(body_json).map_err(|error| vec![error.to_string()])?;
     let tables = &body["melanin_to_srgb"];
-    let cell = |colour: &Value, title: String| {
-        let colour = colour.as_str().unwrap_or_default();
-        format!("<td style=\"background:{colour}\" title=\"{title}\">{colour}</td>")
+    // The label is white on dark colours, so that it stays readable.
+    let cell = |value: &Value, title: String| {
+        let dark = colour(value).is_some_and(|rgb| luminance(rgb) < 0.18);
+        let text = if dark { ";color:#fff" } else { "" };
+        let name = value.as_str().unwrap_or_default();
+        format!("<td style=\"background:{name}{text}\" title=\"{title}\">{name}</td>")
     };
     let list = |values: &Value| values.as_array().cloned().unwrap_or_default();
     let mut html = String::from(
