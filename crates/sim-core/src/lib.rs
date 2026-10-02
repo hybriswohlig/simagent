@@ -20,6 +20,7 @@ pub mod hex_u64;
 pub mod ids;
 pub mod input;
 pub mod log;
+pub mod rng;
 mod state;
 pub mod time;
 pub mod trace;

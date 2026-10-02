@@ -337,6 +337,17 @@ fn check_scans(root: &Path) -> Result {
     }
     problems.extend(scan::core_identifier_findings(&core_sources));
     problems.extend(scan::core_time_findings(&core_sources));
+    problems.extend(scan::tag_findings(
+        &core_sources,
+        &read(&root.join("tests/golden/rng_tags.txt"))?,
+    ));
+    let mut workspace_sources = Vec::new();
+    for member in arch::MEMBERS {
+        for file in rust_files(&member_dir(root, member))? {
+            workspace_sources.push((relative(root, &file), read(&file)?));
+        }
+    }
+    problems.extend(scan::generator_findings(&workspace_sources));
     let mut reference: Option<(&str, String)> = None;
     for member in arch::MEMBERS {
         let dir = member_dir(root, member);

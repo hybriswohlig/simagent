@@ -1,0 +1,8 @@
+# Purpose tags of the addressed random draws (ADR-0001 section 5).
+# Form: tag <value> <NAME> and retired <value>. Never renumber; a deleted tag becomes a
+# retired line. Changing a line changes every draw of that tag.
+tag 1 MEIOSIS_START_STRAND
+tag 2 SEX_CHROMOSOME
+tag 3 CONCEPTION_ATTEMPT
+tag 4 DEATH_BUDGET
+tag 5 PAIRING_RANK
