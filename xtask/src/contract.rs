@@ -905,6 +905,9 @@ mod tests {
                     .to_string(),
             ]
         );
+        // The words in running text are no entries.
+        let prose = "## 0.1.0\n\nNeu ist alles. Geändert und Stillgelegt wurde nichts.\n- Neu\n";
+        assert_eq!(changelog_findings(&body, prose).len(), 3);
         assert_eq!(
             changelog_findings("{}", complete),
             one("body.json has no contract_version to look up in the changelog")
