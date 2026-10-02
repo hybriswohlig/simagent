@@ -585,6 +585,9 @@ mod tests {
                 r#"{"a": 1, "b": 2, "a": 3, "b": 4}"#,
                 vec!["a".to_string(), "b".to_string()],
             ),
+            // After a value that ends in a backslash, and after an array.
+            (r#"{"a": "\\", "a": 1}"#, twice("a")),
+            (r#"{"a": [1, [2]], "a": 2}"#, twice("a")),
             // No duplicates: other objects, values, texts that look like keys.
             (r#"{"a": 1, "b": 2}"#, Vec::new()),
             (r#"{"a": {"a": 1}, "b": {"a": 2}}"#, Vec::new()),
