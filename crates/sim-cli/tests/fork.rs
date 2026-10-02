@@ -816,7 +816,7 @@ fn a_bad_override_ends_the_fork() {
     let refused = fork_with(&parent, "5", &missing, &out).expect_err("no file");
     assert!(refused.starts_with("error: io: "), "{refused}");
     assert!(!out.exists());
-    // A parameter twice: the core rejects the block at the fork point.
+    // A parameter twice: the rule of the core, asked before anything is written.
     let twice = override_file(
         &dir,
         r#"[{"core:hereditary_diseases":true},{"core:hereditary_diseases":false}]"#,
@@ -825,10 +825,10 @@ fn a_bad_override_ends_the_fork() {
         fork_with(&parent, "5", &twice, &out),
         Err("error: override_rejected: override_param_twice".to_owned())
     );
-    assert!(
-        !out.join("manifest.json").exists(),
-        "a rejected override ends the fork without a manifest"
-    );
+    assert!(!out.exists(), "a rejected override writes nothing");
+    // With the block corrected the same output directory serves.
+    let block = override_file(&dir, SWITCH_ON);
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
 }
 
 /// A fork can be forked again. From a later year its override is taken over and the
