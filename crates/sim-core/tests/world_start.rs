@@ -165,6 +165,34 @@ fn more_founders_give_more_sims() {
     assert_eq!(large.take_log().len(), 6);
 }
 
+/// Lever test: the world parameters of the input are those of the world, and they are
+/// state: the same start with the switch on has another hash.
+#[test]
+fn start_sets_the_world_parameters() {
+    let with_switch = |on: bool| {
+        let Input::Start(mut start) = start_with(&BORN) else {
+            panic!("a start");
+        };
+        start.world_params = WorldParams {
+            hereditary_diseases: on,
+        };
+        let mut world = World::new();
+        world.submit(Input::Start(start)).expect("accepted");
+        world
+    };
+    let (off, on) = (with_switch(false), with_switch(true));
+    assert_eq!(off.state().world_params(), Some(OFF));
+    assert_eq!(on.state().world_params(), Some(ON));
+    assert_ne!(off.state_hash(), on.state_hash());
+    // A start with the switch on and an override that switches it on reach the same
+    // parameters; the projections differ by nothing else.
+    let mut overridden = with_switch(false);
+    overridden
+        .submit(override_block(&[true]))
+        .expect("accepted");
+    assert_eq!(overridden.state_hash(), on.state_hash());
+}
+
 #[test]
 fn a_start_without_founders_writes_only_started() {
     let mut world = World::new();

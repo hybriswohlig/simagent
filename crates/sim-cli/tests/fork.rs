@@ -379,6 +379,18 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     .expect("copies");
     assert_eq!(fork(&parent, "5", &dir.join("restored_again")), Ok(()));
 
+    // The input log of the parent begins with its start.
+    let log_text = text(&log);
+    let mut lines: Vec<&str> = log_text.lines().collect();
+    let block = r#"{"t":-1,"seq":1,"input":{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}}"#;
+    lines.insert(1, block);
+    fs::write(&log, lines.join("\n") + "\n").expect("writes");
+    assert_eq!(
+        fork(&parent, "5", &out),
+        Err("error: input_log_invalid: the first input is not a start".to_owned())
+    );
+    fs::write(&log, &log_text).expect("writes");
+
     // The manifest must belong to the input log and have a hash for every year before
     // the fork point.
     let manifest_path = parent.join("manifest.json");

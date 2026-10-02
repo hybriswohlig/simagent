@@ -692,6 +692,13 @@ fn replay_rejects_a_changed_input_log() {
         "error: replay_input_rejected: input 1 at t 5 was rejected: clock_not_at_start"
     );
     assert!(!dir.join("attempt3").exists(), "nothing was written");
+    // A log that does not begin with a start, and a start that is not the first input.
+    let block = r#"{"t":-1,"seq":1,"input":{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}}"#;
+    assert_eq!(
+        replay(&with_lines(&[block, lines[1]])),
+        "error: input_log_invalid: the first input is not a start"
+    );
+    assert!(!dir.join("attempt4").exists(), "nothing was written");
     // The record as a list of values instead of an object with field names.
     let positional = r#"[-1,1,{"start":["00000000000000ff","test:tiny",[[-1]]]}]"#;
     assert_eq!(
