@@ -8,6 +8,7 @@ use super::event::EventPayload;
 use crate::ids::{Counter, EventId, SimId};
 use crate::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use crate::time::{Ctx, EventHandle, SimDuration, SimTime};
+use crate::trace::{TraceBuffer, TracePayload};
 
 /// One counter per entity kind (ADR-0004 section 1). Only `SimCtx` allocates.
 pub(super) struct IdCounters {
@@ -90,6 +91,7 @@ pub(crate) struct SimCtx<'a, 'q> {
     ctx: &'a mut Ctx<'q, EventPayload, PlanRef>,
     ids: &'a mut IdCounters,
     log: &'a mut LogBuffer,
+    trace: &'a mut TraceBuffer,
     trigger: Cause,
 }
 
@@ -98,14 +100,22 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         ctx: &'a mut Ctx<'q, EventPayload, PlanRef>,
         ids: &'a mut IdCounters,
         log: &'a mut LogBuffer,
+        trace: &'a mut TraceBuffer,
         trigger: Cause,
     ) -> SimCtx<'a, 'q> {
         SimCtx {
             ctx,
             ids,
             log,
+            trace,
             trigger,
         }
+    }
+
+    /// A trace entry about `sim` at `now`. `make` only reads and only runs if the sim
+    /// is traced (ADR-0004 section 6), so tracing cannot change the run.
+    pub(crate) fn trace(&mut self, sim: SimId, make: impl FnOnce() -> TracePayload) {
+        self.trace.record(self.ctx.now(), sim, make);
     }
 
     /// The first open second.

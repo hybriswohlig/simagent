@@ -23,5 +23,6 @@ pub mod log;
 pub mod rng;
 mod state;
 pub mod time;
+pub mod trace;
 pub mod version;
 pub mod world;

@@ -2,6 +2,7 @@
 //! hook and every agent run exactly this command.
 
 mod arch;
+mod budget;
 mod canary;
 mod checks;
 mod scan;
@@ -102,7 +103,47 @@ fn gate(require_clean_tree: bool) -> Result {
             args.extend(["--package", krate]);
         }
         cargo(&root, &args)
-    })
+    })?;
+    step("log budget", || check_log_budget(&root))
+}
+
+/// The scenario whose run the gate measures (ADR-0004 section 8): the dummy of step 2,
+/// from step 5 on the walking skeleton.
+const BUDGET_SCENARIO: &str = "tests/scenarios/dummy.json";
+
+/// ADR-0004 section 8: runs the gate scenario through `simagent` and counts its log
+/// entries per person-year from `events.ndjson` and `census.csv`.
+fn check_log_budget(root: &Path) -> Result {
+    let out = root.join("target").join("xtask-log-budget");
+    if out.exists() {
+        std::fs::remove_dir_all(&out)
+            .map_err(|error| format!("cannot remove {}: {error}", out.display()))?;
+    }
+    let out_arg = out.display().to_string();
+    cargo(
+        root,
+        &[
+            "run",
+            "--quiet",
+            "--locked",
+            "--package",
+            "sim-cli",
+            "--",
+            "run",
+            "--scenario",
+            BUDGET_SCENARIO,
+            "--out",
+            &out_arg,
+        ],
+    )?;
+    let entry_times = budget::entry_times(&read(&out.join("events.ndjson"))?)?;
+    let census = budget::census_rows(&read(&out.join("census.csv"))?)?;
+    let found = budget::violations(&entry_times, &census);
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("\n  {}", found.join("\n  ")))
+    }
 }
 
 fn step(name: &str, check: impl FnOnce() -> Result) -> Result {
