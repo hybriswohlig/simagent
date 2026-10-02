@@ -14,7 +14,6 @@ use crate::ids::{Counter, SimId};
 use crate::input::{Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
-use crate::params::ParamChange;
 use crate::state::{self, ArchivedSim, DomainState, Sim};
 use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
@@ -288,11 +287,14 @@ fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64
                 params = Some(start.world_params);
             }
             (Input::ForkOverride(block), Some(before)) => {
-                let _ = (
-                    &block.changes,
-                    before.with(ParamChange::HereditaryDiseases(true)),
-                );
-                return false;
+                if state::params::override_rejection(true, &block.changes).is_some() {
+                    return false;
+                }
+                let after = block
+                    .changes
+                    .iter()
+                    .fold(before, |params, change| params.with(*change));
+                params = Some(after);
             }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return false,

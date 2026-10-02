@@ -22,9 +22,22 @@ pub(crate) fn check_override(
 /// Why an override block with these changes is rejected, if at all. Also the check of a
 /// saved input log, where the world has started by then.
 pub(crate) fn override_rejection(started: bool, changes: &[ParamChange]) -> Option<RejectCode> {
-    let _ = (started, changes, RejectCode::NotStarted);
-    let _ = (RejectCode::EmptyOverride, RejectCode::OverrideParamTwice);
-    let _ = changes.first().map(|change| change.same_param(*change));
+    if !started {
+        return Some(RejectCode::NotStarted);
+    }
+    // An empty block would take a place in the input log and make a fork without
+    // override differ from its parent.
+    if changes.is_empty() {
+        return Some(RejectCode::EmptyOverride);
+    }
+    let twice = changes.iter().enumerate().any(|(index, change)| {
+        changes[..index]
+            .iter()
+            .any(|earlier| earlier.same_param(*change))
+    });
+    if twice {
+        return Some(RejectCode::OverrideParamTwice);
+    }
     None
 }
 
@@ -34,8 +47,16 @@ pub(crate) fn apply_override(
     block: &ForkOverride,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let _ = (&domain.world_params, &block.changes, ctx.trigger());
-    let _ = |change| LogPayload::ParamChanged { change };
-    let _ = Causes::new;
-    let _ = Vec::<ParamChange>::new;
+    let mut params = domain
+        .world_params
+        .unwrap_or_else(|| panic!("invariant override.before_start"));
+    for change in &block.changes {
+        params = params.with(*change);
+        ctx.emit(
+            LogPayload::ParamChanged { change: *change },
+            Vec::new(),
+            Causes::new(ctx.trigger()),
+        );
+    }
+    domain.world_params = Some(params);
 }

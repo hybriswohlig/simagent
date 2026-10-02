@@ -385,7 +385,7 @@ fn fork_run(
         info,
         fork_point,
         events_before: session::log_hash_of_events_before(parent, fork_point)?,
-        is_its_parent: true,
+        is_its_parent: changes.is_empty() && dropped.is_empty(),
     };
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
@@ -400,12 +400,9 @@ fn fork_run(
     // The session compares year by year up to the fork point. The override is stamped
     // `T_X - 1 s`: it acts before the first event of year X.
     if !changes.is_empty() {
+        session.advance(fork_stamp)?;
         let rejected = |code: String| CliError::new("override_rejected", code);
-        let _ = (
-            &mut session,
-            Input::ForkOverride(ForkOverride { changes }),
-            rejected,
-        );
+        session.submit(Input::ForkOverride(ForkOverride { changes }), rejected)?;
     }
     session.advance(end.end)?;
     session.finish(&scenario)

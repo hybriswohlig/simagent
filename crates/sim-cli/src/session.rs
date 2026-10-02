@@ -417,7 +417,7 @@ impl Session {
         } = &self.compare
         {
             let (got, want) = (self.before_fork.digest(), *events_before);
-            if false {
+            if got != want {
                 let detail = format!(
                     "the events before the fork point have log hash {got:016x}, those of the parent {want:016x}"
                 );
