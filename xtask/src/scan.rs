@@ -1005,6 +1005,10 @@ mod tests {
                 "crates/sim-core/src/rng/tags.rs",
                 "pub const ALL: &[(PurposeTag, &str)] = &[];",
             ),
+            (
+                "crates/sim-core/src/body_contract/generated.rs",
+                "pub const fn as_str(self) -> &'static str { \"\" }",
+            ),
         ];
         all.extend_from_slice(extra);
         files(&all)
@@ -1053,17 +1057,34 @@ mod tests {
                     .to_string()
             ]
         );
-        // Of the text types the tag file may name only `str`.
-        let mut owned = core(&[]);
-        for (path, source) in &mut owned {
-            if path == "crates/sim-core/src/rng/tags.rs" {
-                source.push_str("\npub type Label = alloc::string::String;");
+        // Of the text types the tag file and the generated contract types may name only
+        // `str`: static names, never owned text.
+        for file in [
+            "crates/sim-core/src/rng/tags.rs",
+            "crates/sim-core/src/body_contract/generated.rs",
+        ] {
+            let mut owned = core(&[]);
+            for (path, source) in &mut owned {
+                if path == file {
+                    source.push_str("\npub type Label = alloc::string::String;");
+                }
             }
+            assert_eq!(
+                core_identifier_findings(&owned),
+                vec![format!(
+                    "{file}: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                )]
+            );
         }
+        // The hand-written part of the contract module stays under the rule.
+        let hand_written = core(&[(
+            "crates/sim-core/src/body_contract/mod.rs",
+            "pub fn name(key: BodyParamKey) -> &'static str { key.as_str() }",
+        )]);
         assert_eq!(
-            core_identifier_findings(&owned),
+            core_identifier_findings(&hand_written),
             vec![
-                "crates/sim-core/src/rng/tags.rs: names String (no text in the core outside the checked newtypes, ADR-0004 section 7)"
+                "crates/sim-core/src/body_contract/mod.rs: names str (no text in the core outside the checked newtypes, ADR-0004 section 7)"
                     .to_string()
             ]
         );
@@ -1073,12 +1094,13 @@ mod tests {
     fn a_core_without_its_allowed_files_is_a_finding() {
         let found =
             core_identifier_findings(&files(&[("crates/sim-core/src/lib.rs", "pub mod log;")]));
-        assert_eq!(found.len(), 4, "{found:?}");
+        assert_eq!(found.len(), 5, "{found:?}");
         for path in [
             HASH_FILE,
             "crates/sim-core/src/data_id.rs",
             "crates/sim-core/src/hex_u64.rs",
             "crates/sim-core/src/rng/tags.rs",
+            "crates/sim-core/src/body_contract/generated.rs",
         ] {
             assert!(
                 found.iter().any(|f| f.starts_with(&format!(
