@@ -3,9 +3,32 @@
 //! the correctly rounded value from `tools/kat_reference.py`. This module holds the
 //! bound between the two and checks the files in `tests/golden/kat/`.
 
-/// The functions with class P rows and the bound of each against its reference, in ulp.
-/// A function without an entry cannot have a class P row.
-pub const CLASS_P: [(&str, u128); 3] = [("exp", 1), ("ln", 1), ("cos", 1)];
+/// How far a recorded value may lie from its reference.
+#[derive(Clone, Copy)]
+pub enum Bound {
+    /// In ulp: the libm functions (ADR-0003 section 3.3).
+    Ulp(u128),
+    /// 2^-48 times the reference: `exponential` (ADR-0001 section 3).
+    Relative,
+    /// 2^-45, and only at mean 0 and sd 1: `normal` (ADR-0001 section 3). Rounded
+    /// intermediate values near a zero of the cosine may cost many ulp.
+    AbsoluteStandardNormal,
+}
+
+/// The functions with class P rows and the bound of each against its reference. A
+/// function without an entry cannot have a class P row.
+pub const CLASS_P: [(&str, Bound); 5] = [
+    ("exp", Bound::Ulp(1)),
+    ("ln", Bound::Ulp(1)),
+    ("cos", Bound::Ulp(1)),
+    ("exponential", Bound::Relative),
+    ("normal", Bound::AbsoluteStandardNormal),
+];
+
+const TWO_POW_MINUS_48: f64 = f64::from_bits(0x3cf0_0000_0000_0000);
+const TWO_POW_MINUS_45: f64 = f64::from_bits(0x3d20_0000_0000_0000);
+/// The inputs of `normal` end with mean 0 and sd 1 in the rows that have a bound.
+const STANDARD_NORMAL: &str = ";0000000000000000;3ff0000000000000";
 
 /// The expected field of a class P row before its first recording.
 pub const UNRECORDED: &str = "unrecorded";
@@ -86,7 +109,7 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
     };
     let mut findings = Vec::new();
     for (line, fields) in rows {
-        let [_, expected, class, reference] = fields[..] else {
+        let [inputs, expected, class, reference] = fields[..] else {
             findings.push(format!("{name}.csv:{line}: expected 4 fields"));
             continue;
         };
@@ -111,18 +134,45 @@ pub fn violations(name: &str, csv: &str) -> Vec<String> {
                     ));
                     continue;
                 }
-                match (finite_bits(expected), finite_bits(reference)) {
-                    (Some(recorded), Some(correct)) => {
+                let (Some(recorded), Some(correct)) =
+                    (finite_bits(expected), finite_bits(reference))
+                else {
+                    findings.push(format!(
+                        "{name}.csv:{line}: a class P row needs two non-NaN bit patterns"
+                    ));
+                    continue;
+                };
+                let difference = (f64::from_bits(recorded) - f64::from_bits(correct)).abs();
+                match bound {
+                    Bound::Ulp(most) => {
                         let distance = ulp_distance(recorded, correct);
-                        if distance > bound {
+                        if distance > most {
                             findings.push(format!(
-                                "{name}.csv:{line}: {expected} is {distance} ulp from the reference {reference}, at most {bound} allowed"
+                                "{name}.csv:{line}: {expected} is {distance} ulp from the reference {reference}, at most {most} allowed"
                             ));
                         }
                     }
-                    _ => findings.push(format!(
-                        "{name}.csv:{line}: a class P row needs two non-NaN bit patterns"
-                    )),
+                    Bound::Relative => {
+                        // A difference of NaN (two infinities) is not within the bound.
+                        let within = difference <= TWO_POW_MINUS_48 * f64::from_bits(correct).abs();
+                        if !within {
+                            findings.push(format!(
+                                "{name}.csv:{line}: {expected} is further than 2^-48 relative from the reference {reference}"
+                            ));
+                        }
+                    }
+                    Bound::AbsoluteStandardNormal => {
+                        let within = difference <= TWO_POW_MINUS_45;
+                        if !inputs.ends_with(STANDARD_NORMAL) {
+                            findings.push(format!(
+                                "{name}.csv:{line}: a class P row of normal needs mean 0 and sd 1, other parameters have no bound"
+                            ));
+                        } else if !within {
+                            findings.push(format!(
+                                "{name}.csv:{line}: {expected} is further than 2^-45 absolute from the reference {reference}"
+                            ));
+                        }
+                    }
                 }
             }
             other => findings.push(format!("{name}.csv:{line}: unknown class {other}")),

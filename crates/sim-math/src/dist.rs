@@ -6,55 +6,91 @@ use crate::{cos, exp, i64_to_f64_exact, ln, sqrt};
 
 /// 2^-53: the distance of the values of `unit`.
 const TWO_POW_MINUS_53: f64 = f64::from_bits(0x3ca0_0000_0000_0000);
+/// 2 pi, the nearest f64.
+const TAU: f64 = core::f64::consts::TAU;
 /// Largest `lambda` of `poisson`.
 const POISSON_MAX_LAMBDA: f64 = 30.0;
 /// Largest result of `poisson`; the sum saturates long before for `lambda <= 30`.
 const POISSON_MAX_K: u32 = 255;
 
-/// `b * 2^-53` for `b <= 2^53`, exact.
+/// `b * 2^-53` for `b <= 2^53`, exact: an integer up to 2^53 times a power of two.
 fn scaled(b: u64) -> f64 {
-    let _ = (b, TWO_POW_MINUS_53, i64_to_f64_exact(0));
-    0.0
+    let exact = i64::try_from(b)
+        .ok()
+        .and_then(i64_to_f64_exact)
+        .unwrap_or_else(|| panic!("invariant dist.unit_range"));
+    exact * TWO_POW_MINUS_53
 }
 
 /// Uniform in [0, 1): the upper 53 bits of `w` times 2^-53.
 pub fn unit(w: u64) -> f64 {
-    scaled(w)
+    scaled(w >> 11)
 }
 
 /// Uniform in (0, 1]: as `unit` plus 2^-53, so that `ln` never sees 0.
 pub fn unit_open0(w: u64) -> f64 {
-    scaled(w)
+    scaled((w >> 11) + 1)
 }
 
-/// Uniform on `0..n`: the upper 64 bits of `w * n`. The bias is at most n / 2^64.
+/// Uniform on `0..n` for `n >= 1`: the upper 64 bits of `w * n`. The bias is at most
+/// n / 2^64.
 pub fn uniform_below(w: u64, n: u64) -> u64 {
-    let _ = (w, n);
-    0
+    if n == 0 {
+        panic!("invariant dist.uniform_below_n");
+    }
+    let product = u128::from(w) * u128::from(n);
+    u64::try_from(product >> 64).unwrap_or_else(|_| panic!("invariant dist.uniform_below_range"))
 }
 
 /// True with probability `p`, `p` in [0, 1].
 pub fn bernoulli(w: u64, p: f64) -> bool {
-    let _ = (w, p);
-    false
+    if !(0.0..=1.0).contains(&p) {
+        panic!("invariant dist.bernoulli_p");
+    }
+    unit(w) < p
 }
 
-/// Exponential with `rate > 0` (mean `1 / rate`).
+/// Exponential with `rate > 0` (mean `1 / rate`). `0.0 - x` instead of `-x` keeps a
+/// result of zero positive.
 pub fn exponential(w: u64, rate: f64) -> f64 {
-    let _ = (w, rate, ln(1.0));
-    0.0
+    let valid = rate > 0.0 && rate.is_finite();
+    if !valid {
+        panic!("invariant dist.exponential_rate");
+    }
+    (0.0 - ln(unit_open0(w))) / rate
 }
 
 /// Normal with `mean` and standard deviation `sd >= 0` (Box-Muller, the cosine branch).
 pub fn normal(w0: u64, w1: u64, mean: f64, sd: f64) -> f64 {
-    let _ = (w0, w1, mean, sd, sqrt(1.0), cos(0.0));
-    0.0
+    let valid = mean.is_finite() && sd >= 0.0 && sd.is_finite();
+    if !valid {
+        panic!("invariant dist.normal_parameters");
+    }
+    mean + sd * (sqrt(0.0 - 2.0 * ln(unit_open0(w0))) * cos(TAU * unit(w1)))
 }
 
-/// Poisson with `lambda` in [0, 30], by inversion.
+/// Poisson with `lambda` in [0, 30], by inversion: the smallest `k` with `u < F(k)`.
+/// `g == f` ends the sum where it no longer grows (the rounding rest at the upper edge).
 pub fn poisson(w: u64, lambda: f64) -> u32 {
-    let _ = (w, lambda, exp(0.0), POISSON_MAX_LAMBDA, POISSON_MAX_K);
-    0
+    if !(0.0..=POISSON_MAX_LAMBDA).contains(&lambda) {
+        panic!("invariant dist.poisson_lambda");
+    }
+    let u = unit(w);
+    let mut p = exp(0.0 - lambda);
+    let mut f = 0.0;
+    let mut k = 0;
+    loop {
+        let g = f + p;
+        if u < g || g == f {
+            return k;
+        }
+        if k == POISSON_MAX_K {
+            panic!("invariant dist.poisson_tail");
+        }
+        f = g;
+        p = p * lambda / f64::from(k + 1);
+        k += 1;
+    }
 }
 
 #[cfg(test)]
