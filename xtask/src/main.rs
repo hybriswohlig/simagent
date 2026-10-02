@@ -839,7 +839,7 @@ mod tests {
     fn the_contract_step_runs_every_check() {
         let with_newline = |text: &str| format!("{text}\n");
         type Change<'a> = &'a dyn Fn(&str) -> String;
-        let cases: [(&str, &str, Change, &str); 6] = [
+        let cases: [(&str, &str, Change, &str); 7] = [
             (
                 "schema",
                 BODY_FILE,
@@ -875,6 +875,13 @@ mod tests {
                 "Cargo.toml",
                 &|text| text.replace("edition = ", "edition="),
                 "Cargo.toml: expected exactly one line edition = \"...\"",
+            ),
+            // The edition of the manifest reaches the formatter: one it does not know.
+            (
+                "edition-of-the-manifest",
+                "Cargo.toml",
+                &|text| text.replace("edition = \"", "edition = \"1"),
+                "rustfmt refuses the generated source:",
             ),
         ];
         for (name, file, change, expected) in cases {
