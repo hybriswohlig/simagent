@@ -656,7 +656,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_names_and_lists() {
-        for key in ["Muscle", "9lives", "muscle-z", "", "muskel_größe"] {
+        for key in [
+            "Muscle",
+            "muscleZ",
+            "9lives",
+            "muscle-z",
+            "",
+            "muskel_größe",
+        ] {
             assert_eq!(
                 after(|c| c["parameters"][2]["key"] = json!(key)),
                 one(&format!(
@@ -773,9 +780,28 @@ mod tests {
                 "{axis}"
             );
         }
+        // From 0 to 1 with the right number of points, but not rising strictly.
+        for axis in [json!([0, 0, 1]), json!([0, 1, 1]), json!([0, 2, 1])] {
+            assert_eq!(
+                after(|c| c["melanin_to_srgb"]["skin"]["eumelanin"] = axis.clone()),
+                one("melanin_to_srgb.skin.eumelanin must rise strictly from 0 to 1"),
+                "{axis}"
+            );
+        }
+        assert_eq!(
+            after(|c| c["melanin_to_srgb"]["iris"]["melanin"] = json!([0, 0.5, 0.5])),
+            vec!["melanin_to_srgb.iris.melanin must rise strictly from 0 to 1".to_string()]
+        );
         assert_eq!(
             after(|c| c["melanin_to_srgb"]["skin"]["eumelanin"] = json!([0, 1])),
             one("melanin_to_srgb.skin.srgb must have 2 rows of 2 colours")
+        );
+        assert_eq!(
+            after(|c| {
+                c["melanin_to_srgb"]["iris"]["srgb"] =
+                    json!(["#90b0d0", "#907040", "#301810", "#201008"])
+            }),
+            one("melanin_to_srgb.iris.srgb must have 3 colours")
         );
         assert_eq!(
             after(|c| c["melanin_to_srgb"]["skin"]["pheomelanin"] = json!([0, 0.5, 1])),
