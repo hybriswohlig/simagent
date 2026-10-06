@@ -318,13 +318,25 @@ fn of_the_disease_and_a_cause_for_everyone_due_together_the_first_in_the_list_wi
     }
 }
 
-/// Loading and going on gives the uninterrupted run, with the switch on, off, on again
-/// and his death between: the loaded world keeps the exposure and the plans.
+/// Loading and going on gives the uninterrupted run, with the switch on, off, on, off,
+/// on (two closed periods), his death of the disease between, and off again after it:
+/// the loaded world keeps the exposure and the plans, and the archive the exposure of
+/// his death.
 #[test]
 fn save_load_continue_across_the_switch() {
-    let switches = [(Y, false), (2 * Y, true)];
-    let end = 6 * Y - 1;
+    let switches = [
+        (Y, false),
+        (2 * Y, true),
+        (3 * Y, false),
+        (4 * Y, true),
+        (6 * Y, false),
+    ];
+    let end = 7 * Y - 1;
     let whole = drive(true, &switches, end);
+    assert_eq!(
+        whole.deaths(),
+        [died(2 * Y + HIS_DISEASE, "test:dummy_disease")]
+    );
     for stop in [
         0,
         Y - 2,
@@ -332,9 +344,13 @@ fn save_load_continue_across_the_switch() {
         Y,
         2 * Y - 1,
         2 * Y,
-        Y + HIS_DISEASE - 1,
-        Y + HIS_DISEASE,
-        5 * Y,
+        3 * Y,
+        4 * Y - 1,
+        4 * Y,
+        2 * Y + HIS_DISEASE - 1,
+        2 * Y + HIS_DISEASE,
+        6 * Y - 1,
+        6 * Y,
     ] {
         let before: Vec<(i64, bool)> = switches
             .iter()
