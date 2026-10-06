@@ -6,10 +6,12 @@ payload 0 core:started
 payload 1 core:founder_added
 payload 2 core:birthday
 payload 3 core:param_changed
+payload 4 core:death
 cause 0 event
 cause 1 plan
 cause 2 input
 cause 3 rule
+cause 4 random
 subject 0 sim
 input 0 start
 input 1 fork_override
@@ -20,6 +22,8 @@ reject 3 too_many_founders
 reject 4 not_started
 reject 5 empty_override
 reject 6 override_param_twice
+reject 7 death_cause_twice
+reject 8 death_rate_out_of_range
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

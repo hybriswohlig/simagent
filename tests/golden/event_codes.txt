@@ -10,3 +10,4 @@ subject partnership 2
 subject household 3
 kind year_end 1
 kind birthday 2
+kind death 3
