@@ -220,6 +220,42 @@ fn the_death_of_one_sim_leaves_the_others_alone() {
     assert_eq!(before.world.pending_events(), 7);
 }
 
+/// A death before the first birthday cancels that birthday as well: with `test:base`
+/// at 5 per year both die within half a year (budgets of about 0.73 and 2.29), so no
+/// birthday is ever written.
+#[test]
+fn a_death_before_the_first_birthday_cancels_it() {
+    let mut world = World::new();
+    let causes = vec![cause("test:base", 5.0), cause("test:old_age", 0.05)];
+    world
+        .submit(start("test:mortal", causes, vec![woman(-1), man(-2)]))
+        .expect("accepted");
+    let run = run(world, 3 * Y - 1);
+    let kinds: Vec<String> = run
+        .log
+        .iter()
+        .map(|entry| {
+            let payload = serde_json::to_value(&entry.payload).expect("json");
+            payload
+                .as_object()
+                .and_then(|kind| kind.keys().next().cloned())
+                .expect("a kind")
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "core:started",
+            "core:founder_added",
+            "core:founder_added",
+            "core:death",
+            "core:death"
+        ]
+    );
+    assert!(run.log[3].t.as_secs() < Y / 2 && run.log[4].t.as_secs() < Y / 2);
+    assert_eq!(run.world.pending_events(), 1, "only the year end series");
+}
+
 /// The world goes on without living sims: the year end series runs, the years are
 /// counted, nothing else happens.
 #[test]
