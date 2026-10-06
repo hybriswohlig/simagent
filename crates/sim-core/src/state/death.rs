@@ -112,6 +112,7 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             lineage_key: person.lineage_key,
             sex: person.sex,
             genotype: person.genotype,
+            exposure: person.exposure,
         },
     );
 }

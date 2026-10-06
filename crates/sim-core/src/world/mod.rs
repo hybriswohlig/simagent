@@ -322,6 +322,7 @@ mod tests {
             lineage_key: LineageKey::founder(&tag(), 1),
             sex: Sex::Male,
             genotype: MIXED,
+            exposure: None,
         }
     }
 
@@ -469,6 +470,7 @@ mod tests {
                 lineage_key: key(0),
                 sex: Sex::Female,
                 genotype: MIXED,
+                exposure: None,
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();

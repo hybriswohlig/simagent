@@ -114,6 +114,7 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
                 lineage_key,
                 sex: founder.sex,
                 genotype: founder.genotype,
+                exposure: None,
             },
         );
         let next = first_birthday(born, ctx.now());

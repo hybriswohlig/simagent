@@ -340,6 +340,7 @@ fn causes_are_those_of(loaded: &LoadedState, start: &Start) -> bool {
     let projected = start.death_causes.iter().map(|cause| ProjectedCause {
         cause: cause.cause.key(),
         per_year: cause.per_year,
+        applies_to: cause.applies_to,
     });
     loaded.death_causes.iter().copied().eq(projected)
 }

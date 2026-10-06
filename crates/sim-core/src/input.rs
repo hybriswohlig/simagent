@@ -48,6 +48,18 @@ pub struct DeathCause {
     pub cause: Code,
     /// Hazard per year, at least `MIN_DEATH_RATE_PER_YEAR`.
     pub per_year: FiniteF64,
+    pub applies_to: AppliesTo,
+}
+
+/// On whom a cause of death acts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppliesTo {
+    /// On everyone; on a founder from the start on.
+    Everyone,
+    /// Only on a sim with the dummy allele twice, and only while the switch of the
+    /// hereditary diseases is on (C5): the hereditary disease of the Durchstich.
+    DummyHomozygous,
 }
 
 /// The smallest hazard a cause may have. A budget is below 37, so the years until death

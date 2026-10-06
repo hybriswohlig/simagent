@@ -14,8 +14,8 @@ use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{
-    DeathCause, ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode,
-    Start,
+    AppliesTo, DeathCause, ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp,
+    RejectCode, Start,
 };
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
@@ -77,6 +77,7 @@ fn sample_input() -> Input {
         death_causes: vec![DeathCause {
             cause: Code::new("test:base").expect("valid"),
             per_year: FiniteF64::try_new(0.02).expect("finite"),
+            applies_to: AppliesTo::Everyone,
         }],
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
@@ -142,17 +143,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f01ffa3a08607000001";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f01ffa3a08607000001";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -223,30 +224,52 @@ fn override_form_is_pinned() {
     assert!(from_json::<Input>(&without).is_err());
 }
 
-/// Death (ADR-0001, ADR-0004 section 7): the cause in the input, the entry of a death
-/// and the draw it names as its cause, with all four numbers as hex in JSON.
+/// Death (ADR-0001, ADR-0004 section 7): the causes in the input (one for everyone, one
+/// for the homozygous only), the entry of a death and the draw it names as its cause,
+/// with all four numbers as hex in JSON.
 #[test]
 fn death_forms_are_pinned() {
     let cause = DeathCause {
         cause: Code::new("test:base").expect("valid"),
         per_year: FiniteF64::try_new(0.02).expect("finite"),
+        applies_to: AppliesTo::Everyone,
     };
-    let cause_json = r#"{"cause":"test:base","per_year":0.02}"#;
+    let cause_json = r#"{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}"#;
     assert_eq!(json(&cause), cause_json);
     assert_eq!(from_json::<DeathCause>(cause_json).expect("parses"), cause);
     assert_eq!(
         postcard_round_trip(&cause),
-        hex("09746573743a626173657b14ae47e17a943f")
+        hex("09746573743a626173657b14ae47e17a943f00")
+    );
+    let disease = DeathCause {
+        cause: Code::new("test:dummy_disease").expect("valid"),
+        per_year: FiniteF64::try_new(0.3).expect("finite"),
+        applies_to: AppliesTo::DummyHomozygous,
+    };
+    let disease_json =
+        r#"{"cause":"test:dummy_disease","per_year":0.3,"applies_to":"dummy_homozygous"}"#;
+    assert_eq!(json(&disease), disease_json);
+    assert_eq!(
+        from_json::<DeathCause>(disease_json).expect("parses"),
+        disease
+    );
+    assert_eq!(
+        postcard_round_trip(&disease),
+        hex("12746573743a64756d6d795f64697365617365333333333333d33f01")
     );
     for rejected in [
-        r#"{"cause":"test:base"}"#,
-        r#"{"per_year":0.02}"#,
-        r#"{"cause":"test:base","per_year":"0.02"}"#,
-        r#"{"cause":"test:base","per_year":null}"#,
-        r#"{"cause":"test:base","per_year":-0.0}"#,
-        r#"{"cause":"test:base","per_year":1e999}"#,
-        r#"{"cause":"Base","per_year":0.02}"#,
-        r#"{"cause":"test:base","per_year":0.02,"applies":"all"}"#,
+        r#"{"cause":"test:base","applies_to":"everyone"}"#,
+        r#"{"per_year":0.02,"applies_to":"everyone"}"#,
+        r#"{"cause":"test:base","per_year":0.02}"#,
+        r#"{"cause":"test:base","per_year":"0.02","applies_to":"everyone"}"#,
+        r#"{"cause":"test:base","per_year":null,"applies_to":"everyone"}"#,
+        r#"{"cause":"test:base","per_year":-0.0,"applies_to":"everyone"}"#,
+        r#"{"cause":"test:base","per_year":1e999,"applies_to":"everyone"}"#,
+        r#"{"cause":"Base","per_year":0.02,"applies_to":"everyone"}"#,
+        r#"{"cause":"test:base","per_year":0.02,"applies_to":"all"}"#,
+        r#"{"cause":"test:base","per_year":0.02,"applies_to":"DummyHomozygous"}"#,
+        r#"{"cause":"test:base","per_year":0.02,"applies_to":1}"#,
+        r#"{"cause":"test:base","per_year":0.02,"applies_to":"everyone","applies":"all"}"#,
     ] {
         assert!(from_json::<DeathCause>(rejected).is_err(), "{rejected}");
     }

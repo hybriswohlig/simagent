@@ -81,9 +81,22 @@ def f64(value: float) -> bytes:
     return struct.pack("<d", value)
 
 
-def death_cause(code: str, per_year: float) -> bytes:
-    """DeathCause { cause: Code, per_year: FiniteF64 }"""
-    return string(code) + f64(per_year)
+# AppliesTo: everyone = 0, dummy_homozygous = 1.
+APPLIES_TO = {"everyone": 0, "dummy_homozygous": 1}
+
+
+def death_cause(code: str, per_year: float, applies_to: str = "everyone") -> bytes:
+    """DeathCause { cause: Code, per_year: FiniteF64, applies_to: AppliesTo }"""
+    return string(code) + f64(per_year) + variant(APPLIES_TO[applies_to])
+
+
+def exposure(value) -> bytes:
+    """Option<Exposure>, Exposure { before: SimDuration, since: Option<SimTime> }; the
+    value is None or a pair (before, since) with since None or a time."""
+    if value is None:
+        return b"\x00"
+    before, since = value
+    return b"\x01" + signed(before) + (b"\x00" if since is None else b"\x01" + signed(since))
 
 
 def founder(born: int, sex: bytes, genes: bytes) -> bytes:
@@ -160,6 +173,7 @@ if __name__ == "__main__":
         ("sample_random_cause", SAMPLE_RANDOM_CAUSE),
         ("sample_death_payload", SAMPLE_DEATH_PAYLOAD),
         ("death_cause", death_cause("test:base", 0.02)),
+        ("death_cause_dummy", death_cause("test:dummy_disease", 0.3, "dummy_homozygous")),
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),
