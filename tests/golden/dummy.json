@@ -1,46 +1,46 @@
 {
-  "core_version": 4,
+  "core_version": 5,
   "data_hash": "2d06800538d394c2",
   "year_hashes": [
     {
       "year": 0,
-      "hash": "218599bd0f2427c1"
+      "hash": "113af7df7776e85c"
     },
     {
       "year": 1,
-      "hash": "69100e69e51db037"
+      "hash": "d9505b8bedea0b67"
     },
     {
       "year": 2,
-      "hash": "d000be28f7f76770"
+      "hash": "fbee8bfd185a6294"
     },
     {
       "year": 3,
-      "hash": "b64b661d35aa1943"
+      "hash": "5077d9a5d2d67f12"
     },
     {
       "year": 4,
-      "hash": "3085758e7bcb2032"
+      "hash": "38a854ee135d61af"
     },
     {
       "year": 5,
-      "hash": "23cb1856c29f2cad"
+      "hash": "47df287ef42d1078"
     },
     {
       "year": 6,
-      "hash": "c9cbf0f90cfa1077"
+      "hash": "064795ed3859151b"
     },
     {
       "year": 7,
-      "hash": "ff3bb74772b427a1"
+      "hash": "e77db1f0172fffa7"
     },
     {
       "year": 8,
-      "hash": "ffa11e552d61e51b"
+      "hash": "ee0a13b6f81cbda5"
     },
     {
       "year": 9,
-      "hash": "5c8720f6211ec169"
+      "hash": "2e3f74ef682c17ac"
     }
   ],
   "log_hash": "d39354598c88814b"

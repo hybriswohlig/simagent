@@ -322,6 +322,7 @@ mod tests {
             lineage_key: LineageKey::founder(&tag(), 1),
             sex: Sex::Male,
             genotype: MIXED,
+            exposure: None,
         }
     }
 
@@ -469,6 +470,7 @@ mod tests {
                 lineage_key: key(0),
                 sex: Sex::Female,
                 genotype: MIXED,
+                exposure: None,
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();
@@ -500,8 +502,8 @@ mod tests {
     /// state is built by hand; the bytes follow the postcard format: a map of one entry,
     /// key 2, then born -9 (zigzag 17), left -2 (zigzag 3), the reason (death, variant 0,
     /// of the cause with the key 7), the lineage key of founder 1
-    /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1)
-    /// and the alleles dummy (1) and wild (0).
+    /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
+    /// the alleles dummy (1) and wild (0), and no exposure (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new();
@@ -517,7 +519,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 1, 0]);
+        expected.extend([1, 1, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

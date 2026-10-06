@@ -18,12 +18,20 @@ What the model knows:
   already in the queue.
 - Death: per person and cause a budget `B = exponential(DEATH_BUDGET, 1.0)` at the key
   (tag DEATH_BUDGET, subject lineage key, occasion `str_key` of the cause, detail 0). A
-  cause with the hazard `r` per year acts on a founder from the start on; the death is
-  due `ceil(B / r * YEAR)` seconds later, never if `B / r` is 100 000 years or more
-  (ADR-0002). The death writes `core:death` with the plan and the draw as causes, moves
-  the sim to the archive and cancels its other pending events.
+  cause with the hazard `r` per year must act `ceil(B / r * YEAR)` seconds on a person
+  until the person dies of it, never if `B / r` is 100 000 years or more (ADR-0002). A
+  cause for everyone acts on a founder from the start on. A cause for the homozygous
+  (C5) acts only on a sim with the dummy allele twice and only while the switch of the
+  hereditary diseases is on; such a sim keeps its exposure (the time the switch was on
+  in closed periods, and since when it is on now). The deaths of a sim are planned in
+  the order of the causes. The death writes `core:death` with the plan and the draw as
+  causes, moves the sim with its exposure to the archive and cancels its other pending
+  events.
 - An override block is an input: stamped with the last closed second, acting in the
-  next one, one entry `core:param_changed` per change.
+  next one, one entry `core:param_changed` per change. If the switch flips, every living
+  homozygous sim (by ID) updates its exposure, and if a cause for the homozygous exists,
+  its deaths from the first such cause on are cancelled and planned again in the order
+  of the causes, by that entry.
 
 Usage: .venv/bin/python tools/world_reference.py (prints nothing; the other tools use it)
 """
@@ -33,7 +41,10 @@ import math
 import xxhash
 
 from postcard_reference import (
+    DUMMY,
     death_cause,
+    exposure,
+    genotype,
     f64,
     founder,
     lineage_key,
@@ -49,11 +60,13 @@ from rng_reference import chacha_key, exponential_reference, founder_key, str_ke
 
 YEAR = 364 * 86_400
 NEVER_YEARS = 100_000.0
+# The range of the clock (ADR-0002): a time beyond it is never.
+MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 DEATH_BUDGET = 4
 
-PROJECTION_VERSION = 4
-CORE_VERSION = 4
+PROJECTION_VERSION = 5
+CORE_VERSION = 5
 FORMAT_VERSION = 1
 EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
 
@@ -63,6 +76,8 @@ NONE = b"\x00"
 GENERAL, DEATH, OBSERVER = 500, 900, 1000
 YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND = 1, 2, 3
 WORLD_SUBJECT, SIM_SUBJECT = 0, 1
+HOMOZYGOUS = genotype(DUMMY, DUMMY)
+APPLIES_TO_INDEX = {"everyone": 0, "dummy_homozygous": 1}
 
 
 def some(data: bytes) -> bytes:
@@ -105,14 +120,15 @@ class Event:
 
 
 class World:
-    """A started world. `causes` is a list of (code, hazard per year), `founders` a list
-    of (born, sex, genotype) with the last two as postcard bytes."""
+    """A started world. `causes` is a list of (code, hazard per year) for everyone or
+    (code, hazard per year, "dummy_homozygous"), `founders` a list of (born, sex,
+    genotype) with the last two as postcard bytes."""
 
     def __init__(self, seed: int, tag: str, diseases: bool, causes: list, founders: list):
         self.seed = seed
         self.tag = tag
         self.diseases = diseases
-        self.causes = causes
+        self.causes = [cause if len(cause) == 3 else (*cause, "everyone") for cause in causes]
         self.closed = -1
         self.queue = []
         self.next_insertion = 1
@@ -127,7 +143,7 @@ class World:
             varint(seed),
             string(tag),
             world_params(diseases),
-            seq([death_cause(code, rate) for code, rate in causes]),
+            seq([death_cause(*cause) for cause in self.causes]),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
         )
         self.inputs = [signed(-1) + varint(1) + start]
@@ -146,26 +162,68 @@ class World:
             key = founder_key(self.tag, index)
             subject = variant(0, varint(sim))
             added = self._entry(now, [subject], [by_input], variant(1, signed(born), lineage_key(key)))
-            self.sims[sim] = (born, key, sex, genes)
+            # The exposure of a homozygous founder: nothing closed, on from the start if
+            # the switch is on.
+            sick = [0, now if self.diseases else None] if genes == HOMOZYGOUS else None
+            self.sims[sim] = (born, key, sex, genes, sick)
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
             self._plan_birthday(sim, born + age * YEAR, added, now)
-            for code, rate in self.causes:
-                needed = needed_seconds(self.seed, key, code, rate)
-                if needed is None:
-                    continue
-                cause_key = str_key(code)
-                payload = variant(2, varint(sim), varint(cause_key))
-                self._schedule(now + needed, DEATH, (SIM_SUBJECT, sim), DEATH_KIND, payload, None, added, now)
+            self._plan_deaths(sim, 0, added, now)
+
+    def due(self, sim: int, cause: tuple):
+        """When the sim dies of the cause if nothing else happens first, or None."""
+        code, rate, applies_to = cause
+        _, key, _, _, sick = self.sims[sim]
+        needed = needed_seconds(self.seed, key, code, rate)
+        if needed is None:
+            return None
+        if applies_to == "everyone":
+            due = 0 + needed  # a founder: from the start on
+        elif sick is None or sick[1] is None:
+            return None
+        else:
+            before, since = sick
+            assert before <= needed
+            due = since + needed - before
+        return due if abs(due) <= MAX_ABS_SECS else None
+
+    def _plan_deaths(self, sim: int, first: int, by: int, now: int) -> None:
+        for cause in self.causes[first:]:
+            due = self.due(sim, cause)
+            if due is None:
+                continue
+            payload = variant(2, varint(sim), varint(str_key(cause[0])))
+            self._schedule(due, DEATH, (SIM_SUBJECT, sim), DEATH_KIND, payload, None, by, now)
 
     def override(self, diseases: bool) -> None:
         """An override block with the one change, submitted right now."""
         number = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(number) + variant(1, seq([param_change(diseases)])))
         now = self.closed + 1
+        flips = diseases != self.diseases
         self.diseases = diseases
-        self._entry(now, [], [variant(2, varint(number))], variant(3, param_change(diseases)))
+        changed = self._entry(now, [], [variant(2, varint(number))], variant(3, param_change(diseases)))
+        if not flips:
+            return
+        first = next(
+            (index for index, cause in enumerate(self.causes) if cause[2] == "dummy_homozygous"), None
+        )
+        for sim in sorted(self.sims):
+            sick = self.sims[sim][4]
+            if sick is None:
+                continue
+            if diseases:
+                sick[1] = now
+            else:
+                sick[0] += now - sick[1]
+                sick[1] = None
+            if first is None:
+                continue
+            later = {variant(2, varint(sim), varint(str_key(cause[0]))) for cause in self.causes[first:]}
+            self.queue = [event for event in self.queue if event.payload not in later]
+            self._plan_deaths(sim, first, changed, now)
 
     # ------------------------------------------------------------------ events
 
@@ -210,12 +268,15 @@ class World:
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
-        born, key, sex, genes = self.sims.pop(sim)
-        code = next(code for code, _ in self.causes if event.payload == variant(2, varint(sim), varint(str_key(code))))
+        born, key, sex, genes, sick = self.sims.pop(sim)
+        code = next(
+            code for code, _, _ in self.causes if event.payload == variant(2, varint(sim), varint(str_key(code)))
+        )
         draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
         self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
         self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
-        self.archive[sim] = (born, now, str_key(code), key, sex, genes)
+        # The exposure stays as it was: whether the disease acted at the death.
+        self.archive[sim] = (born, now, str_key(code), key, sex, genes, sick)
 
     # ------------------------------------------------------------------ views
 
@@ -225,18 +286,30 @@ class World:
     def projection(self, closed=None) -> bytes:
         closed = self.closed if closed is None else closed
         sims = [
-            varint(sim) + signed(born) + lineage_key(key) + sex + genes
-            for sim, (born, key, sex, genes) in sorted(self.sims.items())
+            varint(sim) + signed(born) + lineage_key(key) + sex + genes + exposure(sick)
+            for sim, (born, key, sex, genes, sick) in sorted(self.sims.items())
         ]
         archive = [
-            varint(sim) + signed(born) + signed(left) + variant(0, varint(cause)) + lineage_key(key) + sex + genes
-            for sim, (born, left, cause, key, sex, genes) in sorted(self.archive.items())
+            varint(sim)
+            + signed(born)
+            + signed(left)
+            + variant(0, varint(cause))
+            + lineage_key(key)
+            + sex
+            + genes
+            + exposure(sick)
+            for sim, (born, left, cause, key, sex, genes, sick) in sorted(self.archive.items())
         ]
         return (
             varint(PROJECTION_VERSION)
             + some(varint(self.seed))
             + some(world_params(self.diseases))
-            + seq([varint(str_key(code)) + f64(rate) for code, rate in self.causes])
+            + seq(
+                [
+                    varint(str_key(code)) + f64(rate) + variant(APPLIES_TO_INDEX[applies_to])
+                    for code, rate, applies_to in self.causes
+                ]
+            )
             + signed(closed)
             + varint(self.next_sim_id)
             + seq([event.queue_bytes() for event in self.ordered_queue()])

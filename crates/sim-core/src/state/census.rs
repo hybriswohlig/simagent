@@ -76,6 +76,7 @@ mod tests {
             lineage_key: key(n),
             sex: Sex::Female,
             genotype: GENOTYPE,
+            exposure: None,
         }
     }
 
@@ -87,6 +88,7 @@ mod tests {
             lineage_key: key(n),
             sex: Sex::Male,
             genotype: GENOTYPE,
+            exposure: None,
         }
     }
 

@@ -11,7 +11,7 @@ use sim_core::canonical::YearHash;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
-use sim_core::input::{DeathCause, ForkOverride, Founder, Input, Start};
+use sim_core::input::{AppliesTo, DeathCause, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -22,10 +22,10 @@ const Y: i64 = 31_449_600;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540104c2a9cec6d380a0832d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff01010000010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e790000010100000100";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff01010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000402010100ff0109746573743a74696e790000010100000101020101000100";
-const EMPTY_SAVE: &str = "53494d4147454e540104c2a9cec6d380a0832d0400000001010001000000010000";
+const HEADER: &str = "53494d4147454e540105c2a9cec6d380a0832d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff01010000010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000002020001000301010100ff0109746573743a74696e790000010100000100";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff01010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000002020001000402010100ff0109746573743a74696e790000010100000101020101000100";
+const EMPTY_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0500000001010001000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -125,14 +125,22 @@ enum TestInput {
         founder_tag: String,
         /// The switch of the hereditary diseases, the only world parameter.
         world_params: bool,
-        /// (code, hazard per year)
-        death_causes: Vec<(String, f64)>,
+        /// (code, hazard per year, on whom it acts)
+        death_causes: Vec<(String, f64, TestAppliesTo)>,
         founders: Vec<TestFounder>,
     },
     ForkOverride {
         changes: Vec<TestChange>,
     },
 }
+
+/// On whom a cause of death acts: everyone, or the homozygous while the switch is on.
+#[derive(Clone, Copy, Serialize)]
+enum TestAppliesTo {
+    Everyone,
+    DummyHomozygous,
+}
+use TestAppliesTo::{DummyHomozygous, Everyone};
 
 #[derive(Clone, Serialize)]
 enum TestChange {
@@ -156,16 +164,27 @@ const DUMMY: u8 = 1;
 
 /// (born, sex, (maternal, paternal))
 type TestFounder = (i64, u8, (u8, u8));
-/// (born, lineage_key, sex, (maternal, paternal))
-type Living = (i64, u64, u8, (u8, u8));
+/// (before, since): how long the hereditary causes acted in closed periods, and since
+/// when they act now.
+type TestExposure = (i64, Option<i64>);
+/// (born, lineage_key, sex, (maternal, paternal), exposure)
+type Living = (i64, u64, u8, (u8, u8), Option<TestExposure>);
 /// Why a sim left: it died of the cause with this key.
 #[derive(Clone, Copy, Serialize)]
 enum TestLeftBy {
     Death { cause: u64 },
 }
 
-/// (born, left, reason, lineage_key, sex, (maternal, paternal))
-type Archived = (i64, i64, TestLeftBy, u64, u8, (u8, u8));
+/// (born, left, reason, lineage_key, sex, (maternal, paternal), exposure)
+type Archived = (
+    i64,
+    i64,
+    TestLeftBy,
+    u64,
+    u8,
+    (u8, u8),
+    Option<TestExposure>,
+);
 
 /// A founder as `founder` of the tests builds it.
 fn test_founder(born: i64) -> TestFounder {
@@ -174,13 +193,21 @@ fn test_founder(born: i64) -> TestFounder {
 
 /// The founder at `index` of the list of `test:tiny` as a living sim.
 fn living(index: usize, born: i64) -> Living {
-    (born, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
+    (born, TINY_KEYS[index], FEMALE, (WILD, DUMMY), None)
 }
 
 /// The same founder after leaving at `left`.
 fn archived(index: usize, born: i64, left: i64) -> Archived {
     let reason = TestLeftBy::Death { cause: 7 };
-    (born, left, reason, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
+    (
+        born,
+        left,
+        reason,
+        TINY_KEYS[index],
+        FEMALE,
+        (WILD, DUMMY),
+        None,
+    )
 }
 
 /// (time, micro, seq, payload, period)
@@ -198,8 +225,8 @@ struct File {
     world_seed: Option<u64>,
     /// The switch of the hereditary diseases; `None` before the start.
     world_params: Option<bool>,
-    /// (key of the code, hazard per year)
-    death_causes: Vec<(u64, f64)>,
+    /// (key of the code, hazard per year, on whom it acts)
+    death_causes: Vec<(u64, f64, TestAppliesTo)>,
     closed_through: i64,
     next_sim_id: u64,
     queue: Vec<QueueEntry>,
@@ -223,9 +250,9 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 4,
+            core_version: 5,
             data_hash: EMPTY_DATA_HASH,
-            projection_version: 4,
+            projection_version: 5,
             world_seed: Some(0xff),
             world_params: Some(false),
             death_causes: Vec::new(),
@@ -269,7 +296,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 4);
+    assert_eq!(CORE_VERSION, 5);
 }
 
 // ---------------------------------------------------------------------------------
@@ -482,7 +509,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [3, 5] {
+    for version in [4, 6] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -509,9 +536,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 5;
+        f.core_version = 6;
         f.data_hash = 7;
-        f.projection_version = 5;
+        f.projection_version = 6;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -525,11 +552,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 4;
+        f.core_version = 5;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 5);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 6);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -555,7 +582,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [3, 5] {
+    for version in [4, 6] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -850,8 +877,8 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs): she dies of
 // `test:base` in year 1, he of `test:old_age` a little later.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff010100028bbec9d8c5bd99888b01000000000000e03fded289dba5abffff549a9999999999a93f010307fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010203cbdbe1f0b893cbc91e010101000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f0c746573743a6f6c645f6167659a9999999999a93f02010000010301010100";
-const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff010100028bbec9d8c5bd99888b01000000000000e03fded289dba5abffff549a9999999999a93ffe8ffe3b0301fe97fd59000100018088ff1d0a0002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f0c746573743a6f6c645f6167659a9999999999a93f0201000001030101010200a38de3ed87fedad3f701028cb782a1e6a3a6efb701";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010307fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b301000001000203cbdbe1f0b893cbc91e010101010000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f0002010000010301010100";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00fe8ffe3b0301fe97fd59000100018088ff1d0a0002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b301000001000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010100000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f000201000001030101010200fade89bbe5eab7c4930102d2cae5d6f493e5eb17";
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
 const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
 /// `str_key` of `test:base` and `test:old_age`.
@@ -863,26 +890,35 @@ const HER_DEATH: i64 = 45_838_596;
 const HER_OLD_AGE: i64 = 119_167_578;
 const HIS_BASE: i64 = 144_172_832;
 const HIS_DEATH: i64 = 53_688_989;
-const MORTAL_YEAR_HASHES: [u64; 2] = [0xf7a7_6bf0_7db8_c6a3, 0xb7de_991e_6420_9b8c];
+const MORTAL_YEAR_HASHES: [u64; 2] = [0x9388_df56_5762_6f7a, 0x17d7_949f_4ad9_6552];
 
 fn she(born: i64) -> Living {
-    (born, MORTAL_KEYS[0], FEMALE, (WILD, DUMMY))
+    (born, MORTAL_KEYS[0], FEMALE, (WILD, DUMMY), None)
 }
 
 fn he(born: i64) -> Living {
-    (born, MORTAL_KEYS[1], MALE, (DUMMY, DUMMY))
+    // The dummy allele twice: an exposure, nothing closed, the switch off.
+    (born, MORTAL_KEYS[1], MALE, (DUMMY, DUMMY), Some((0, None)))
 }
 
 /// A living sim in the archive: it left at `left`, dead of the cause with the key `cause`.
 fn dead(sim: Living, left: i64, cause: u64) -> Archived {
-    let (born, key, sex, genes) = sim;
-    (born, left, TestLeftBy::Death { cause }, key, sex, genes)
+    let (born, key, sex, genes, exposure) = sim;
+    (
+        born,
+        left,
+        TestLeftBy::Death { cause },
+        key,
+        sex,
+        genes,
+        exposure,
+    )
 }
 
 /// "mortal" right after `Start`: per founder the birthday and the two deaths.
 fn mortal_started() -> File {
     let mut file = File::tiny();
-    file.death_causes = vec![(BASE, 0.5), (OLD_AGE, 0.05)];
+    file.death_causes = vec![(BASE, 0.5, Everyone), (OLD_AGE, 0.05, Everyone)];
     file.next_sim_id = 3;
     file.queue = vec![
         (Y - 2, 0, 5, Payload::Birthday { sim: 2 }, None),
@@ -902,8 +938,8 @@ fn mortal_started() -> File {
         founder_tag: "test:mortal".to_owned(),
         world_params: false,
         death_causes: vec![
-            ("test:base".to_owned(), 0.5),
-            ("test:old_age".to_owned(), 0.05),
+            ("test:base".to_owned(), 0.5, Everyone),
+            ("test:old_age".to_owned(), 0.05, Everyone),
         ],
         founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
     };
@@ -962,7 +998,7 @@ const TIE_DUE: i64 = 51_240_314;
 fn tie_started() -> File {
     let mut file = File::tiny();
     let old_age_per_year = 0.593_419_882_389_541_8;
-    file.death_causes = vec![(BASE, 5.0), (OLD_AGE, old_age_per_year)];
+    file.death_causes = vec![(BASE, 5.0, Everyone), (OLD_AGE, old_age_per_year, Everyone)];
     file.queue = vec![
         (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
         (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
@@ -970,15 +1006,15 @@ fn tie_started() -> File {
         (TIE_DUE, 0, 4, death(1, OLD_AGE), None),
     ];
     file.next_event_seq = 5;
-    file.sims = vec![(1, (-1, TIE_KEY, FEMALE, (WILD, DUMMY)))];
+    file.sims = vec![(1, (-1, TIE_KEY, FEMALE, (WILD, DUMMY), None))];
     file.plan_refs = vec![(2, 0), (1, 0), (2, 0), (2, 0)];
     file.input_log[0].2 = TestInput::Start {
         founder_tag: "test:tie".to_owned(),
         world_seed: 0xff,
         world_params: false,
         death_causes: vec![
-            ("test:base".to_owned(), 5.0),
-            ("test:old_age".to_owned(), old_age_per_year),
+            ("test:base".to_owned(), 5.0, Everyone),
+            ("test:old_age".to_owned(), old_age_per_year, Everyone),
         ],
         founders: vec![test_founder(-1)],
     };
@@ -1043,10 +1079,12 @@ fn a_save_keeps_the_deaths_and_the_archive() {
                 DeathCause {
                     cause: Code::new("test:base").expect("valid"),
                     per_year: FiniteF64::try_new(0.5).expect("finite"),
+                    applies_to: AppliesTo::Everyone,
                 },
                 DeathCause {
                     cause: Code::new("test:old_age").expect("valid"),
                     per_year: FiniteF64::try_new(0.05).expect("finite"),
+                    applies_to: AppliesTo::Everyone,
                 },
             ],
             founders: vec![
@@ -1222,14 +1260,14 @@ fn load_checks_the_deaths() {
         ),
         (
             "a world that never started with a cause",
-            never_started().with(|f| f.death_causes = vec![(BASE, 0.5)]),
+            never_started().with(|f| f.death_causes = vec![(BASE, 0.5, Everyone)]),
         ),
         (
             "a start with a hazard below the smallest one",
             File::tiny().with(|f| {
-                f.death_causes = vec![(BASE, 0.0)];
+                f.death_causes = vec![(BASE, 0.0, Everyone)];
                 if let TestInput::Start { death_causes, .. } = &mut f.input_log[0].2 {
-                    *death_causes = vec![("test:base".to_owned(), 0.0)];
+                    *death_causes = vec![("test:base".to_owned(), 0.0, Everyone)];
                 }
             }),
         ),
@@ -1245,6 +1283,242 @@ fn load_checks_the_deaths() {
         f.next_event_seq = 9;
     });
     assert_eq!(load_error(&twice), Some(LoadError::Inconsistent));
+}
+
+// Scenario "sick" of tools/state_reference.py: `test:base` with 0.02 per year for everyone,
+// `test:dummy_disease` with 0.3 per year for the homozygous only, while the switch is on.
+// She has one dummy allele, he has two.
+const SWITCHED_ON_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe87ff1d0306fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c0101010100018088ff1d000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101fe87ff1d02010100010100aad2ecc3debdf8c720";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe9ffc770303fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000100010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c01010101000100030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f010201000001030101010400dce187c8b1bdbf840402e5e9adac93ed8cbc6b04f1f9f7ecfef0e2acb70106b29fffa8a7fd9be9f601";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fea7fb95010305fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c01010101c6ceaf600000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101c4ceaf6002010100000500dce187c8b1bdbf840402e5e9adac93ed8cbc6b04f1f9f7ecfef0e2acb70106f8b9ecf1a49fefac0a08d6bf9df7f5918cfd03";
+/// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
+const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
+/// The `str_key` of `test:dummy_disease`.
+const DISEASE: u64 = 0xf476_9e1c_a855_085d;
+/// How long each cause must act on each of them, in seconds.
+const HIS_DISEASE: i64 = 101_053_347;
+const HIS_SICK_BASE: i64 = 617_173_485;
+const HER_SICK_BASE: i64 = 661_039_431;
+
+fn sick_start(on: bool) -> TestInput {
+    TestInput::Start {
+        world_seed: 0xff,
+        founder_tag: "test:sick".to_owned(),
+        world_params: on,
+        death_causes: vec![
+            ("test:base".to_owned(), 0.02, Everyone),
+            ("test:dummy_disease".to_owned(), 0.3, DummyHomozygous),
+        ],
+        founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+    }
+}
+
+fn sick_she() -> Living {
+    (-1, SICK_KEYS[0], FEMALE, (WILD, DUMMY), None)
+}
+
+fn sick_he(exposure: TestExposure) -> Living {
+    (-2, SICK_KEYS[1], MALE, (DUMMY, DUMMY), Some(exposure))
+}
+
+/// "sick" with the switch off, switched on at the start of year 1: his exposure begins
+/// there, his death of the disease is planned by the entry of the override (6) after
+/// all that was planned before.
+fn sick_switched_on() -> File {
+    let mut file = File::tiny();
+    file.world_params = Some(true);
+    file.death_causes = vec![(BASE, 0.02, Everyone), (DISEASE, 0.3, DummyHomozygous)];
+    file.closed_through = Y - 1;
+    file.next_sim_id = 3;
+    file.queue = vec![
+        (2 * Y - 2, 0, 6, Payload::Birthday { sim: 2 }, None),
+        (2 * Y - 1, 0, 7, Payload::Birthday { sim: 1 }, None),
+        (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (Y + HIS_DISEASE, 0, 8, death(2, DISEASE), None),
+        (HIS_SICK_BASE, 0, 5, death(2, BASE), None),
+        (HER_SICK_BASE, 0, 3, death(1, BASE), None),
+    ];
+    file.next_event_seq = 9;
+    file.sims = vec![(1, sick_she()), (2, sick_he((0, Some(Y))))];
+    file.plan_refs = vec![(4, Y - 2), (5, Y - 1), (1, 0), (6, Y), (3, 0), (2, 0)];
+    file.next_event_id = 7;
+    file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
+    file.year_hashes = vec![(0, 0x208f_e1ed_e87b_292a)];
+    file
+}
+
+/// "sick" with the switch on from the start, at the end of year 3: he died of the
+/// disease, his exposure is kept as it was then.
+fn sick_on_after_year_3() -> File {
+    let mut file = sick_switched_on();
+    file.closed_through = 4 * Y - 1;
+    file.queue = vec![
+        (5 * Y - 1, 0, 13, Payload::Birthday { sim: 1 }, None),
+        (5 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HER_SICK_BASE, 0, 3, death(1, BASE), None),
+    ];
+    file.next_event_seq = 14;
+    file.sims = vec![(1, sick_she())];
+    file.archive = vec![(2, dead(sick_he((0, Some(0))), HIS_DISEASE, DISEASE))];
+    file.plan_refs = vec![(11, 4 * Y - 1), (1, 0), (2, 0)];
+    file.next_event_id = 12;
+    file.input_log = vec![(-1, 1, sick_start(true))];
+    file.year_hashes = vec![
+        (0, 0x0408_fdeb_1901_f0dc),
+        (1, 0x6b78_3369_358b_74e5),
+        (2, 0xb759_8b87_ed9d_fcf1),
+        (3, 0xf6d2_6fea_751f_cfb2),
+    ];
+    file
+}
+
+/// "sick" with the switch on from the start and off in the very second his death of the
+/// disease was due: he lives with the budget used up, at the end of year 4.
+fn sick_off_at_due() -> File {
+    let mut file = sick_switched_on();
+    file.world_params = Some(false);
+    file.closed_through = 5 * Y - 1;
+    file.queue = vec![
+        (6 * Y - 2, 0, 15, Payload::Birthday { sim: 2 }, None),
+        (6 * Y - 1, 0, 16, Payload::Birthday { sim: 1 }, None),
+        (6 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HIS_SICK_BASE, 0, 5, death(2, BASE), None),
+        (HER_SICK_BASE, 0, 3, death(1, BASE), None),
+    ];
+    file.next_event_seq = 17;
+    file.sims = vec![(1, sick_she()), (2, sick_he((HIS_DISEASE, None)))];
+    file.plan_refs = vec![(13, 5 * Y - 2), (14, 5 * Y - 1), (1, 0), (3, 0), (2, 0)];
+    file.next_event_id = 15;
+    file.input_log = vec![
+        (-1, 1, sick_start(true)),
+        (HIS_DISEASE - 1, 2, override_block(false)),
+    ];
+    file.year_hashes = vec![
+        (0, 0x0408_fdeb_1901_f0dc),
+        (1, 0x6b78_3369_358b_74e5),
+        (2, 0xb759_8b87_ed9d_fcf1),
+        (3, 0x0a59_bcfa_4e3b_1cf8),
+        (4, 0x03fa_308f_5ee7_5fd6),
+    ];
+    file
+}
+
+/// The saves of "sick" from the reference and the test encoder are the same bytes, and
+/// they load: an exposure since the override, one kept in the archive, one used up.
+#[test]
+fn a_save_keeps_the_exposure() {
+    assert_eq!(sick_switched_on().bytes(), hex(SWITCHED_ON_SAVE));
+    assert_eq!(
+        sick_on_after_year_3().bytes(),
+        hex(SICK_ON_SAVE_AFTER_YEAR_3)
+    );
+    assert_eq!(sick_off_at_due().bytes(), hex(OFF_AT_DUE_SAVE));
+    for file in [
+        sick_switched_on(),
+        sick_on_after_year_3(),
+        sick_off_at_due(),
+    ] {
+        assert_eq!(load_error(&file.bytes()), None);
+    }
+}
+
+/// An exposure is what the switch history of the input log gives: an exposure exactly
+/// for a sim with the dummy allele twice, since the start or the last override that
+/// switched on, with the closed periods before. The living have not used up a budget,
+/// the archive keeps the exposure of the death. ADR-0006 section 5.
+#[test]
+fn load_checks_the_exposure() {
+    let cases: [(&str, Vec<u8>); 15] = [
+        // The living.
+        (
+            "a sim with the dummy allele twice without an exposure",
+            sick_switched_on().with(|f| f.sims[1].1.4 = None),
+        ),
+        (
+            "an exposure for a sim with one dummy allele",
+            sick_switched_on().with(|f| f.sims[0].1.4 = Some((0, None))),
+        ),
+        (
+            "an exposure since one second after the override",
+            sick_switched_on().with(|f| {
+                f.sims[1].1.4 = Some((0, Some(Y + 1)));
+                f.queue[3].0 += 1;
+            }),
+        ),
+        (
+            "an exposure that is off while the switch is on",
+            sick_switched_on().with(|f| {
+                f.sims[1].1.4 = Some((0, None));
+                f.queue.remove(3);
+                f.plan_refs.remove(3);
+            }),
+        ),
+        (
+            "an exposure with a closed second that never was",
+            sick_switched_on().with(|f| {
+                f.sims[1].1.4 = Some((1, Some(Y)));
+                f.queue[3].0 -= 1;
+            }),
+        ),
+        (
+            "an exposure with a negative time",
+            sick_switched_on().with(|f| {
+                f.sims[1].1.4 = Some((-1, Some(Y)));
+                f.queue[3].0 += 1;
+            }),
+        ),
+        (
+            "a start with the switch on and an exposure only since the override",
+            sick_switched_on().with(|f| f.input_log[0].2 = sick_start(true)),
+        ),
+        (
+            "a cause for the homozygous that acts on everyone in the projection",
+            sick_switched_on().with(|f| f.death_causes[1].2 = Everyone),
+        ),
+        (
+            "a death of the disease for her",
+            sick_switched_on().with(|f| {
+                f.queue
+                    .insert(4, (Y + HIS_DISEASE + 1, 0, 9, death(1, DISEASE), None));
+                f.plan_refs.insert(4, (6, Y));
+                f.next_event_seq = 10;
+            }),
+        ),
+        (
+            "an exposure one second short of the history",
+            sick_off_at_due().with(|f| f.sims[1].1.4 = Some((HIS_DISEASE - 1, None))),
+        ),
+        (
+            "alive although the disease used up its budget while the switch was on",
+            sick_off_at_due().with(|f| {
+                f.input_log[1].0 = HIS_DISEASE + 99;
+                f.sims[1].1.4 = Some((HIS_DISEASE + 100, None));
+            }),
+        ),
+        // The archive.
+        (
+            "an archived sim with the dummy allele twice without an exposure",
+            sick_on_after_year_3().with(|f| f.archive[0].1.6 = None),
+        ),
+        (
+            "an archived exposure that is off though the switch was on",
+            sick_on_after_year_3().with(|f| f.archive[0].1.6 = Some((0, None))),
+        ),
+        (
+            "an archived exposure since a second after the start, with its death",
+            sick_on_after_year_3().with(|f| {
+                f.archive[0].1.6 = Some((0, Some(1)));
+                f.archive[0].1.1 = HIS_DISEASE + 1;
+            }),
+        ),
+        (
+            "an archived death of the disease one second early",
+            sick_on_after_year_3().with(|f| f.archive[0].1.1 = HIS_DISEASE - 1),
+        ),
+    ];
+    for (name, bytes) in &cases {
+        assert_eq!(load_error(bytes), Some(LoadError::Inconsistent), "{name}");
+    }
 }
 
 /// A started world without sims at `closed_through`, with its year end due at `due`.

@@ -17,7 +17,7 @@ use crate::ids::SimId;
 use crate::input::DeathCause;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
-use crate::time::{EventHandle, SimTime, YEAR};
+use crate::time::{EventHandle, SimDuration, SimTime, YEAR};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Sim {
@@ -26,6 +26,18 @@ pub(crate) struct Sim {
     pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
     pub(crate) genotype: Genotype,
+    /// `Some` exactly for a sim with the dummy allele twice.
+    pub(crate) exposure: Option<Exposure>,
+}
+
+/// How long the hereditary causes of death have acted on a sim with the dummy allele
+/// twice (C5): `before` in the closed periods of the switch, `since` the start of the
+/// current one while the switch is on. Every hereditary cause acts under the same
+/// condition, so one exposure serves them all; each cause has its own budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Exposure {
+    pub(crate) before: SimDuration,
+    pub(crate) since: Option<SimTime>,
 }
 
 /// Why a sim left the active population.
@@ -45,6 +57,8 @@ pub(crate) struct ArchivedSim {
     pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
     pub(crate) genotype: Genotype,
+    /// The exposure as it was at the death: it shows whether the switch was on.
+    pub(crate) exposure: Option<Exposure>,
 }
 
 pub(crate) struct DomainState {

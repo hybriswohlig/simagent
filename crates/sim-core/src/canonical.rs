@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::ids::SimId;
+use crate::input::AppliesTo;
 use crate::log::PlanRef;
 use crate::params::WorldParams;
 use crate::state::{ArchivedSim, Sim};
@@ -25,7 +26,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 4;
+pub const PROJECTION_VERSION: u32 = 5;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -38,12 +39,14 @@ pub(crate) struct QueueEntry {
     pub(crate) period: Option<SimDuration>,
 }
 
-/// A cause of death as the projection holds it: the `str_key` of its code and its
-/// hazard. Data IDs never appear as text or as an internal number (ADR-0003 5.2).
+/// A cause of death as the projection holds it: the `str_key` of its code, its hazard
+/// and on whom it acts. Data IDs never appear as text or as an internal number
+/// (ADR-0003 5.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ProjectedCause {
     pub(crate) cause: u64,
     pub(crate) per_year: FiniteF64,
+    pub(crate) applies_to: AppliesTo,
 }
 
 /// The projection as a save holds it: the same fields in the same order as
@@ -103,6 +106,7 @@ pub fn canonical_projection<'a>(
             .map(|cause| ProjectedCause {
                 cause: cause.cause.key(),
                 per_year: cause.per_year,
+                applies_to: cause.applies_to,
             })
             .collect(),
         closed_through: snapshot.closed_through,

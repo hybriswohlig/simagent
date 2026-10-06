@@ -5,14 +5,19 @@
     "founder_tag": "test:dummy",
     "world_params": { "hereditary_diseases": false },
     "death_causes": [
-      { "cause": "test:base", "per_year": 0.04 },
-      { "cause": "test:old_age", "per_year": 0.02 }
+      { "cause": "test:base", "per_year": 0.04, "applies_to": "everyone" },
+      { "cause": "test:old_age", "per_year": 0.02, "applies_to": "everyone" },
+      {
+        "cause": "test:dummy_disease",
+        "per_year": 0.3,
+        "applies_to": "dummy_homozygous"
+      }
     ],
     "founders": [
       {
         "born": -943488000,
         "sex": "female",
-        "genotype": { "maternal": "wild", "paternal": "dummy" }
+        "genotype": { "maternal": "dummy", "paternal": "dummy" }
       },
       {
         "born": -794880000,

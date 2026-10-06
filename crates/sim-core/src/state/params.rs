@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use super::DomainState;
+use super::{DomainState, death};
 use crate::input::{ForkOverride, InputRejected, RejectCode};
 use crate::log::{Causes, LogPayload};
 use crate::world::SimCtx;
@@ -23,7 +23,9 @@ pub(crate) fn check_override(
     }
 }
 
-/// One entry `core:param_changed` per change, in list order.
+/// One entry `core:param_changed` per change, in list order. A change that flips the
+/// switch of the hereditary diseases plans the deaths of the exposed sims again, by
+/// its entry; one that keeps a value changes nothing else.
 pub(crate) fn apply_override(
     domain: &mut DomainState,
     block: &ForkOverride,
@@ -33,12 +35,16 @@ pub(crate) fn apply_override(
         .world_params
         .unwrap_or_else(|| panic!("invariant override.before_start"));
     for change in &block.changes {
+        let before = params;
         params = params.with(*change);
-        ctx.emit(
+        domain.world_params = Some(params);
+        let entry = ctx.emit(
             LogPayload::ParamChanged { change: *change },
             Vec::new(),
             Causes::new(ctx.trigger()),
         );
+        if params.hereditary_diseases != before.hereditary_diseases {
+            death::switch_diseases(domain, params.hereditary_diseases, entry, ctx);
+        }
     }
-    domain.world_params = Some(params);
 }

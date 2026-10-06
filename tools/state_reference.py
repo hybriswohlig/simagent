@@ -26,6 +26,7 @@ from postcard_reference import (
     MALE,
     SAMPLE_ENTRY,
     WILD,
+    exposure,
     founder,
     genotype,
     lineage_key,
@@ -64,13 +65,14 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 4
-CORE_VERSION = 4
+PROJECTION_VERSION = 5
+CORE_VERSION = 5
 
 
-def sim_state(born: int, key: int, sex: bytes, genes: bytes) -> bytes:
-    """Sim { born, lineage_key, sex, genotype }"""
-    return signed(born) + lineage_key(key) + sex + genes
+def sim_state(born: int, key: int, sex: bytes, genes: bytes, sick=None) -> bytes:
+    """Sim { born, lineage_key, sex, genotype, exposure }: the exposure is None but for
+    a sim with the dummy allele twice (C5)."""
+    return signed(born) + lineage_key(key) + sex + genes + exposure(sick)
 
 
 TINY_KEY = founder_key("test:tiny", 0)
@@ -150,7 +152,8 @@ PAIR_AFTER_START = (
     + seq(
         [
             varint(1) + sim_state(-2, PAIR_KEYS[0], FEMALE, genotype(WILD, DUMMY)),
-            varint(2) + sim_state(-1, PAIR_KEYS[1], MALE, genotype(DUMMY, DUMMY)),
+            # He has the dummy allele twice: nothing closed, the switch is off.
+            varint(2) + sim_state(-1, PAIR_KEYS[1], MALE, genotype(DUMMY, DUMMY), (0, None)),
         ]
     )
     + seq([])  # archive
@@ -372,6 +375,121 @@ assert TIE_BASE_FIRST.archive[1][2] == world_reference.str_key("test:base")
 assert TIE_OLD_AGE_FIRST.archive[1][2] == world_reference.str_key("test:old_age")
 
 
+# Scenario "sick": seed 0xff, founder tag `test:sick`, `test:base` with 0.02 per year for
+# everyone and `test:dummy_disease` with 0.3 per year only for the homozygous while the
+# switch of the hereditary diseases is on (C5). The woman (wild, dummy) and the man (dummy
+# twice) of "mortal". Only he can have the disease: it needs about 3.21 years of exposure
+# to kill him, `test:base` about 19.6 years (her: about 21.0 years).
+SICK_BASE = ("test:base", 0.02)
+SICK_DISEASE = ("test:dummy_disease", 0.3, "dummy_homozygous")
+SICK_KEYS = [founder_key("test:sick", index) for index in range(2)]
+HIS_DISEASE = world_reference.needed_seconds(0xFF, SICK_KEYS[1], *SICK_DISEASE[:2])
+HIS_BASE = world_reference.needed_seconds(0xFF, SICK_KEYS[1], *SICK_BASE)
+HER_BASE = world_reference.needed_seconds(0xFF, SICK_KEYS[0], *SICK_BASE)
+assert 3 * YEAR < HIS_DISEASE < 4 * YEAR < 19 * YEAR < HIS_BASE < HER_BASE
+
+
+def sick_world(on: bool, switches=(), causes=None) -> world_reference.World:
+    """"sick" with the switch `on` at the start and an override block (the switch, the
+    time it acts) at each of `switches`."""
+    world = world_reference.World(
+        0xFF, "test:sick", on, causes or [SICK_BASE, SICK_DISEASE], MORTAL_FOUNDERS
+    )
+    for at, value in switches:
+        world.advance(at - 1)
+        world.override(value)
+    return world
+
+
+def death_of(world: world_reference.World, sim: int):
+    """(time, key of the cause) of the death of the sim, from the archive."""
+    _, left, cause, *_ = world.archive[sim]
+    return left, cause
+
+
+DISEASE_KEY = world_reference.str_key("test:dummy_disease")
+BASE_KEY = world_reference.str_key("test:base")
+
+# The switch on from the start: he has an exposure since the start and dies of the
+# disease; she has none.
+SICK_ON = sick_world(True)
+SICK_ON_SAVE_AFTER_START = SICK_ON.save()
+SICK_ON.advance(4 * YEAR - 1)
+assert death_of(SICK_ON, 2) == (HIS_DISEASE, DISEASE_KEY) and sorted(SICK_ON.sims) == [1]
+SICK_ON_SAVE_AFTER_YEAR_3 = SICK_ON.save()
+
+# The switch off: no disease, his exposure stays closed at nothing.
+SICK_OFF = sick_world(False)
+SICK_OFF_SAVE_AFTER_START = SICK_OFF.save()
+SICK_OFF.advance(4 * YEAR - 1)
+assert sorted(SICK_OFF.sims) == [1, 2]
+
+# Switched on at the start of year 1: the disease needs its whole budget from then on.
+# `test:base` comes first in the list, so his death of it keeps its plan.
+SWITCHED_ON = sick_world(False, [(YEAR, True)])
+SWITCHED_ON_SAVE = SWITCHED_ON.save()
+SWITCHED_ON.advance(5 * YEAR - 1)
+assert death_of(SWITCHED_ON, 2) == (YEAR + HIS_DISEASE, DISEASE_KEY)
+
+# The same with the disease first in the list: his death of `test:base` comes after it
+# and is planned again by the entry of the override, in the same second.
+DISEASE_FIRST = sick_world(False, [(YEAR, True)], [SICK_DISEASE, SICK_BASE])
+DISEASE_FIRST_SAVE = DISEASE_FIRST.save()
+
+# On, off at the start of year 1, on again at the start of year 2: the year it was on
+# counts, he dies one year after the start plus the budget.
+ON_OFF_ON = sick_world(True, [(YEAR, False), (2 * YEAR, True)])
+ON_OFF_ON_SAVE = ON_OFF_ON.save()
+ON_OFF_ON.advance(6 * YEAR - 1)
+assert death_of(ON_OFF_ON, 2) == (YEAR + HIS_DISEASE, DISEASE_KEY)
+
+# Two closed periods: on in years 0 and 2, off in years 1 and 3, on again from year 4.
+# Two years count, he dies two years after the start plus the budget.
+TWO_PERIODS = sick_world(True, [(YEAR, False), (2 * YEAR, True), (3 * YEAR, False), (4 * YEAR, True)])
+TWO_PERIODS.advance(7 * YEAR - 1)
+assert death_of(TWO_PERIODS, 2) == (2 * YEAR + HIS_DISEASE, DISEASE_KEY)
+
+# Without a hereditary cause the switch changes no rate: his death of `test:base` keeps
+# its plan (his creation entry 3 at the start) when the switch goes on.
+NO_DISEASE = sick_world(False, [(YEAR, True)], [SICK_BASE])
+NO_DISEASE.advance(HIS_BASE)
+assert death_of(NO_DISEASE, 2) == (HIS_BASE, BASE_KEY)
+
+# Switched on close to the end of the clock: a death beyond it is never due, one in its
+# last second is (ADR-0002).
+LATE = sick_world(False, causes=[SICK_DISEASE])
+LATE.sims[2][4][1] = world_reference.MAX_ABS_SECS - 1000
+assert LATE.due(2, SICK_DISEASE) is None
+LATE.sims[2][4][1] = world_reference.MAX_ABS_SECS - HIS_DISEASE
+assert LATE.due(2, SICK_DISEASE) == world_reference.MAX_ABS_SECS
+
+# Off in the very second his death of the disease is due: the input acts first, he
+# lives, the budget is used up. On again at the start of year 5: he dies in that second.
+OFF_AT_DUE = sick_world(True, [(HIS_DISEASE, False)])
+OFF_AT_DUE.advance(5 * YEAR - 1)
+assert sorted(OFF_AT_DUE.sims) == [1, 2] and OFF_AT_DUE.sims[2][4] == [HIS_DISEASE, None]
+OFF_AT_DUE_SAVE = OFF_AT_DUE.save()
+OFF_AT_DUE.override(True)
+OFF_AT_DUE.advance(5 * YEAR)
+assert death_of(OFF_AT_DUE, 2) == (5 * YEAR, DISEASE_KEY)
+
+# An override that keeps the switch as it is changes nothing but the log.
+SAME = sick_world(True, [(YEAR, True)])
+UNCHANGED = sick_world(True)
+UNCHANGED.advance(YEAR - 1)
+assert SAME.projection() == UNCHANGED.projection() and len(SAME.log) == len(UNCHANGED.log) + 1
+
+# A tie of the disease and `test:base`: switched on so that both are due in the second
+# of his death of `test:base`. The cause earlier in the list wins.
+TIE_SWITCH = HIS_BASE - HIS_DISEASE
+BASE_WINS = sick_world(False, [(TIE_SWITCH, True)])
+BASE_WINS.advance(HIS_BASE)
+assert death_of(BASE_WINS, 2) == (HIS_BASE, BASE_KEY)
+DISEASE_WINS = sick_world(False, [(TIE_SWITCH, True)], [SICK_DISEASE, SICK_BASE])
+DISEASE_WINS.advance(HIS_BASE)
+assert death_of(DISEASE_WINS, 2) == (HIS_BASE, DISEASE_KEY)
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -409,6 +527,18 @@ if __name__ == "__main__":
     print(f"mortal_log_hash {digest(b''.join(MORTAL.log))}")
     print(f"mortal_year_hashes {[format(value, '016x') for value in MORTAL.year_hashes]}")
     print(f"mortal_save_after_year_1 {MORTAL_SAVE_AFTER_YEAR_1.hex()}")
+    print(f"sick_keys {[format(key, '016x') for key in SICK_KEYS]} disease_key {DISEASE_KEY:016x}")
+    print(f"sick_due his_disease {HIS_DISEASE} his_base {HIS_BASE} her_base {HER_BASE}")
+    print(f"sick_on_save_after_start {SICK_ON_SAVE_AFTER_START.hex()}")
+    print(f"sick_on_save_after_year_3 {SICK_ON_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"sick_on_his_death_entry {SICK_ON.log[-1].hex()}")
+    print(f"sick_off_save_after_start {SICK_OFF_SAVE_AFTER_START.hex()}")
+    print(f"switched_on_save {SWITCHED_ON_SAVE.hex()}")
+    print(f"disease_first_save {DISEASE_FIRST_SAVE.hex()}")
+    print(f"on_off_on_save {ON_OFF_ON_SAVE.hex()}")
+    print(f"off_at_due_save {OFF_AT_DUE_SAVE.hex()}")
+    print(f"tie_switch {TIE_SWITCH}")
+    print(f"no_disease_his_death {NO_DISEASE.log[-1].hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

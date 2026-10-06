@@ -1,15 +1,21 @@
 //! Death through hazard budgets (ADR-0001, C4 simplified for the Durchstich). A person
 //! has one budget per cause of death, drawn exponentially with rate 1 at an address
 //! that depends only on the person and the cause. A cause with a constant hazard uses
-//! the budget up in `budget / hazard` years; then the person dies of it. The draw is a
-//! pure function of seed and key, so the budget is never stored.
+//! the budget up in `budget / hazard` years of acting; then the person dies of it. The
+//! draw is a pure function of seed and key, so the budget is never stored.
+//!
+//! A cause for everyone acts on a founder from the start on. A hereditary cause acts
+//! only on a sim with the dummy allele twice while the switch is on (C5); the exposure
+//! of the sim says how long it has acted. When the switch flips, its deaths are planned
+//! again from what is left of the budget, without a new draw (ADR-0001 section 6).
 
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{ArchivedSim, DomainState, LeftBy, Slot};
+use super::{ArchivedSim, DomainState, Exposure, LeftBy, Slot};
+use crate::genome::Genotype;
 use crate::ids::{EventId, SimId};
-use crate::input::DeathCause;
+use crate::input::{AppliesTo, DeathCause};
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
@@ -36,37 +42,119 @@ pub(crate) fn needed(
     SimDuration::from_years_ceil(budget / cause.per_year.get())
 }
 
-/// When a person on whom `cause` acts from `origin` on dies of it: never, if the budget
-/// lasts 100 000 years or the time lies beyond the range of the clock.
+/// When a person dies of `cause` if nothing else comes first. A cause for everyone acts
+/// from `origin` on (the start for a founder). A hereditary cause acts only while the
+/// exposure runs, for what is left of the budget; without an exposure, or with one that
+/// does not run, never. Never also if the budget lasts 100 000 years or the time lies
+/// beyond the range of the clock.
 pub(crate) fn due(
     seed: u64,
     lineage_key: LineageKey,
+    exposure: Option<Exposure>,
     cause: &DeathCause,
     origin: SimTime,
 ) -> Option<SimTime> {
-    origin.checked_add(needed(seed, lineage_key, cause)?)
+    let needed = needed(seed, lineage_key, cause)?;
+    match cause.applies_to {
+        AppliesTo::Everyone => origin.checked_add(needed),
+        AppliesTo::DummyHomozygous => {
+            let exposure = exposure?;
+            exposure
+                .since?
+                .checked_add(needed.checked_sub(exposure.before)?)
+        }
+    }
 }
 
-/// Plans the death of `sim` for every cause, in the order of the list. The causes act
-/// from `origin` on: the start for a founder. `by` is the creation entry of the sim.
+/// The exposure a founder starts with: one for the dummy allele twice, running from the
+/// start if the switch is on.
+pub(crate) fn first_exposure(genotype: Genotype, switch_on: bool) -> Option<Exposure> {
+    genotype.dummy_homozygous().then_some(Exposure {
+        before: SimDuration::ZERO,
+        since: switch_on.then_some(SimTime::START),
+    })
+}
+
+/// Plans the deaths of `sim` for the causes from the list position `from` on, in the
+/// order of the list. All sims are founders so far: the causes for everyone act from
+/// the start on. `by` is the entry that plans them.
 pub(crate) fn plan_deaths(
     domain: &mut DomainState,
     sim: SimId,
-    lineage_key: LineageKey,
-    origin: SimTime,
+    from: usize,
     by: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let seed = domain
         .world_seed
         .unwrap_or_else(|| panic!("invariant death.before_start"));
-    for cause in &domain.death_causes {
-        let Some(at) = due(seed, lineage_key, cause, origin) else {
+    let Some(person) = domain.sims.get(&sim) else {
+        panic!("invariant unknown_entity_id: sim {}", sim.get());
+    };
+    let (lineage_key, exposure) = (person.lineage_key, person.exposure);
+    for cause in domain.death_causes.iter().skip(from) {
+        let Some(at) = due(seed, lineage_key, exposure, cause, SimTime::START) else {
             continue;
         };
         let key = cause.cause.key();
         let handle = ctx.schedule(at, EventPayload::Death { sim, cause: key }, by);
         domain.pending.insert((sim, Slot::Death(key)), handle);
+    }
+}
+
+/// The switch of the hereditary diseases flipped to `on`. Every living sim with an
+/// exposure (by ID) opens or closes its period now. If a hereditary cause exists, its
+/// deaths from the first hereditary cause in the list on are cancelled and planned
+/// again by `by`, the entry of the change: a later cause keeps its time but is planned
+/// after the hereditary one, so that of two deaths due in the same second the cause
+/// earlier in the list still runs first. Nobody else is touched.
+pub(crate) fn switch_diseases(
+    domain: &mut DomainState,
+    on: bool,
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let first = domain
+        .death_causes
+        .iter()
+        .position(|cause| cause.applies_to == AppliesTo::DummyHomozygous);
+    let exposed: Vec<SimId> = domain
+        .sims
+        .iter()
+        .filter(|(_, person)| person.exposure.is_some())
+        .map(|(id, _)| *id)
+        .collect();
+    for sim in exposed {
+        let exposure = domain
+            .sims
+            .get_mut(&sim)
+            .and_then(|person| person.exposure.as_mut())
+            .unwrap_or_else(|| panic!("invariant exposure.lost"));
+        match (on, exposure.since) {
+            (true, None) => exposure.since = Some(now),
+            (false, Some(since)) => {
+                exposure.before = now
+                    .checked_since(since)
+                    .and_then(|period| exposure.before.checked_add(period))
+                    .unwrap_or_else(|| panic!("invariant time.out_of_range"));
+                exposure.since = None;
+            }
+            // The switch flips, so every exposure runs exactly when it was on.
+            (true, Some(_)) | (false, None) => panic!("invariant exposure.switch"),
+        }
+        let Some(first) = first else {
+            continue;
+        };
+        for cause in domain.death_causes.iter().skip(first) {
+            if let Some(handle) = domain
+                .pending
+                .remove(&(sim, Slot::Death(cause.cause.key())))
+            {
+                ctx.cancel(handle);
+            }
+        }
+        plan_deaths(domain, sim, first, by, ctx);
     }
 }
 
@@ -112,6 +200,48 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             lineage_key: person.lineage_key,
             sex: person.sex,
             genotype: person.genotype,
+            exposure: person.exposure,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_id::{Code, DataId};
+    use crate::finite::FiniteF64;
+    use crate::time::MAX_ABS_SECS;
+
+    /// The death of a hereditary cause lies at most at the end of the clock; beyond it,
+    /// it is never due (ADR-0002). He is founder 1 of `test:sick`; the disease needs
+    /// 101 053 347 seconds of exposure to kill him (tools/state_reference.py).
+    #[test]
+    fn a_death_beyond_the_clock_is_never_due() {
+        let his_disease = 101_053_347;
+        let disease = DeathCause {
+            cause: Code::new("test:dummy_disease").expect("valid"),
+            per_year: FiniteF64::try_new(0.3).expect("finite"),
+            applies_to: AppliesTo::DummyHomozygous,
+        };
+        let key = LineageKey::founder(&DataId::new("test:sick").expect("valid"), 1);
+        let running = |before: i64, since: i64| {
+            Some(Exposure {
+                before: SimDuration::from_secs(before),
+                since: Some(SimTime::from_secs(since)),
+            })
+        };
+        let due = |exposure| due(0xff, key, exposure, &disease, SimTime::START);
+        assert_eq!(due(running(0, 0)), Some(SimTime::from_secs(his_disease)));
+        assert_eq!(
+            due(running(0, MAX_ABS_SECS - his_disease)),
+            Some(SimTime::from_secs(MAX_ABS_SECS))
+        );
+        assert_eq!(due(running(0, MAX_ABS_SECS - his_disease + 1)), None);
+        assert_eq!(due(running(0, MAX_ABS_SECS - 1000)), None);
+        // Used up: due in the second it runs again, at the very end too.
+        assert_eq!(
+            due(running(his_disease, MAX_ABS_SECS)),
+            Some(SimTime::from_secs(MAX_ABS_SECS))
+        );
+    }
 }
