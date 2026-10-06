@@ -20,6 +20,8 @@ pub const INPUT_LOG: &str = "input.ndjson";
 pub const EVENTS: &str = "events.ndjson";
 pub const CENSUS: &str = "census.csv";
 pub const SAVE: &str = "state.save";
+/// Written by `simagent export`, not part of a run.
+pub const PEDIGREE: &str = "pedigree.json";
 
 /// The format version of the files this program writes and reads.
 pub const FORMAT_VERSION: u32 = 1;

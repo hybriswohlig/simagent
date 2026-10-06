@@ -10,6 +10,7 @@ use crate::data_id::Code;
 use crate::genome::{Genotype, Sex};
 use crate::ids::{PartnershipId, SimId};
 use crate::lineage::LineageKey;
+use crate::state::LeftBy;
 use crate::time::SimTime;
 
 /// All sims by ID and all partnerships by ID.
@@ -45,10 +46,58 @@ pub struct Couple {
 }
 
 impl crate::world::WorldState {
+    /// The pedigree as the state holds it: the persons by ID, the living and the archive
+    /// together, and the partnerships by ID.
     pub fn pedigree(&self) -> Pedigree {
+        let domain = self.domain();
+        let living = domain.sims.iter().map(|(id, sim)| Person {
+            sim: *id,
+            lineage_key: sim.lineage_key,
+            sex: sim.sex,
+            genotype: sim.genotype,
+            born: sim.born,
+            died: None,
+            cause_of_death: None,
+            mother: sim.parents.map(|parents| parents.mother),
+            father: sim.parents.map(|parents| parents.father),
+        });
+        let cause_of = |key: u64| {
+            domain
+                .death_causes
+                .iter()
+                .find(|cause| cause.cause.key() == key)
+                .map(|cause| cause.cause.clone())
+        };
+        let archived = domain.archive.iter().map(|(id, sim)| {
+            let LeftBy::Death { cause } = sim.left_by;
+            Person {
+                sim: *id,
+                lineage_key: sim.lineage_key,
+                sex: sim.sex,
+                genotype: sim.genotype,
+                born: sim.born,
+                died: Some(sim.left),
+                cause_of_death: cause_of(cause),
+                mother: sim.parents.map(|parents| parents.mother),
+                father: sim.parents.map(|parents| parents.father),
+            }
+        });
+        let mut persons: Vec<Person> = living.chain(archived).collect();
+        persons.sort_unstable_by_key(|person| person.sim);
+        let partnerships = domain
+            .partnerships
+            .iter()
+            .map(|(id, partnership)| Couple {
+                partnership: *id,
+                woman: partnership.woman,
+                man: partnership.man,
+                formed: partnership.formed,
+                ended: partnership.ended,
+            })
+            .collect();
         Pedigree {
-            persons: Vec::new(),
-            partnerships: Vec::new(),
+            persons,
+            partnerships,
         }
     }
 }

@@ -14,6 +14,7 @@ use sim_core::input::{ForkOverride, Input, InputRecord};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::world::World;
 
 use crate::error::CliError;
 use crate::files::{ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
@@ -121,9 +122,14 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
     }
 }
 
-/// Writes `pedigree.json` into the run directory, from its save.
-fn export_run(_dir: &Path) -> Result<(), CliError> {
-    Ok(())
+/// Writes `pedigree.json` into the run directory, from its save. The pedigree is the
+/// core's view of the state; the CLI only writes it.
+fn export_run(dir: &Path) -> Result<(), CliError> {
+    let bytes = files::read(&dir.join(files::SAVE))?;
+    let (world, _) = World::load(&bytes, EMPTY_DATA_HASH)
+        .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+    let pedigree = files::json(&world.state().pedigree()) + "\n";
+    files::write(&dir.join(files::PEDIGREE), pedigree.as_bytes())
 }
 
 fn parse_time(text: &str) -> Option<SimTime> {
