@@ -1987,9 +1987,22 @@ fn a_save_keeps_the_pregnancy() {
 /// start the rule allows. ADR-0006 section 5.
 #[test]
 fn load_checks_conceptions_and_pregnancies() {
-    let cases: [(&str, Vec<u8>); 18] = [
+    let cases: [(&str, Vec<u8>); 20] = [
         // Each of these fails at exactly one check (keys and draws from
         // tools/rng_reference.py).
+        (
+            "a pregnancy conceived inside a month, in a closed second",
+            clan_conceived().with(|f| {
+                f.closed_through = 5 * MONTH + 10;
+                f.pregnancies[0].1.5 = 5 * MONTH + 1;
+            }),
+        ),
+        (
+            "a pregnancy as a conception before her latest, with its own child",
+            clan_conceived().with(|f| {
+                f.pregnancies[0].1 = (2, 0xe6f8_1c92_e297_9324, 1, MALE, (WILD, WILD), 5 * MONTH);
+            }),
+        ),
         (
             "a pregnancy by a man she is not paired with",
             clan_conceived().with(|f| {
