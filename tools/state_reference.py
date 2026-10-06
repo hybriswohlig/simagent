@@ -443,6 +443,18 @@ ON_OFF_ON_SAVE = ON_OFF_ON.save()
 ON_OFF_ON.advance(6 * YEAR - 1)
 assert death_of(ON_OFF_ON, 2) == (YEAR + HIS_DISEASE, DISEASE_KEY)
 
+# Two closed periods: on in years 0 and 2, off in years 1 and 3, on again from year 4.
+# Two years count, he dies two years after the start plus the budget.
+TWO_PERIODS = sick_world(True, [(YEAR, False), (2 * YEAR, True), (3 * YEAR, False), (4 * YEAR, True)])
+TWO_PERIODS.advance(7 * YEAR - 1)
+assert death_of(TWO_PERIODS, 2) == (2 * YEAR + HIS_DISEASE, DISEASE_KEY)
+
+# Without a hereditary cause the switch changes no rate: his death of `test:base` keeps
+# its plan (his creation entry 3 at the start) when the switch goes on.
+NO_DISEASE = sick_world(False, [(YEAR, True)], [SICK_BASE])
+NO_DISEASE.advance(HIS_BASE)
+assert death_of(NO_DISEASE, 2) == (HIS_BASE, BASE_KEY)
+
 # Off in the very second his death of the disease is due: the input acts first, he
 # lives, the budget is used up. On again at the start of year 5: he dies in that second.
 OFF_AT_DUE = sick_world(True, [(HIS_DISEASE, False)])
@@ -518,6 +530,7 @@ if __name__ == "__main__":
     print(f"on_off_on_save {ON_OFF_ON_SAVE.hex()}")
     print(f"off_at_due_save {OFF_AT_DUE_SAVE.hex()}")
     print(f"tie_switch {TIE_SWITCH}")
+    print(f"no_disease_his_death {NO_DISEASE.log[-1].hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

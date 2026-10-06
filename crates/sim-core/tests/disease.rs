@@ -37,6 +37,8 @@ const SICK_OFF_SAVE_AFTER_START: &str = "53494d4147454e540105c2a9cec6d380a0832d0
 const SWITCHED_ON_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe87ff1d0306fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c0101010100018088ff1d000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101fe87ff1d02010100010100aad2ecc3debdf8c720";
 const DISEASE_FIRST_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff01010102dd90d4c2cac3a7bbf401333333333333d33f018bbec9d8c5bd99888b017b14ae47e17a943f00fe87ff1d0306fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000902028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b01000a020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c0101010100018088ff1d000604fc87ff1d05fe87ff1d0100068088ff1d068088ff1d02000702010100ff0109746573743a7369636b000212746573743a64756d6d795f64697365617365333333333333d33f0109746573743a626173657b14ae47e17a943f00020100000103010101fe87ff1d02010100010100f6ddb49ad7e0b0abfb01";
 const ON_OFF_ON_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe8ffe3b0306fc97fd590009010200fe97fd59000a010100fe97fd59000100018088ff1dc6d6ae7e000b0202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b01000c020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c010101018088ff1d018090fe3b000607fc8ffe3b08fe8ffe3b0100098090fe3b030002000a03010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101fe87ff1d0201010000fe8ffe3b03010100010200dce187c8b1bdbf84040283b4c5c0a587b7953b";
+const NO_DISEASE_HIS_DEATH: &str =
+    "2bdac7cacc04010002020103000404fba99785c4c1bc5c8bbec9d8c5bd99888b01000409746573743a62617365";
 const OFF_AT_DUE_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fea7fb95010305fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c01010101c6ceaf600000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101c4ceaf6002010100000500dce187c8b1bdbf840402e5e9adac93ed8cbc6b04f1f9f7ecfef0e2acb70106f8b9ecf1a49fefac0a08d6bf9df7f5918cfd03";
 
 fn hex(text: &str) -> Vec<u8> {
@@ -236,7 +238,8 @@ fn the_deaths_after_the_disease_are_planned_again() {
 
 /// The exposure adds up: on from the start, off at the start of year 1, on again at the
 /// start of year 2. The year it was on counts, so he dies one year after the start of
-/// year 1 plus his budget. No new draw: the time follows from the same budget.
+/// year 1 plus his budget. No new draw: the time follows from the same budget. With two
+/// closed periods (on in years 0 and 2) two years count.
 #[test]
 fn the_exposure_adds_up_over_the_periods_of_the_switch() {
     let mut run = Run::new(sick(true, vec![base(), disease()]));
@@ -245,6 +248,29 @@ fn the_exposure_adds_up_over_the_periods_of_the_switch() {
     assert_eq!(run.save(), hex(ON_OFF_ON_SAVE));
     run.advance(6 * Y - 1);
     assert_eq!(run.deaths(), [died(Y + HIS_DISEASE, "test:dummy_disease")]);
+
+    let switches = [(Y, false), (2 * Y, true), (3 * Y, false), (4 * Y, true)];
+    let two = drive(true, &switches, 7 * Y - 1);
+    assert_eq!(
+        two.deaths(),
+        [died(2 * Y + HIS_DISEASE, "test:dummy_disease")]
+    );
+}
+
+/// Without a hereditary cause the switch changes no rate: the override plans nothing
+/// again, his death of `test:base` keeps the plan of his creation entry (3, at the
+/// start).
+#[test]
+fn without_a_hereditary_cause_the_switch_plans_nothing() {
+    let mut run = Run::new(sick(false, vec![base()]));
+    run.switch(Y, true);
+    run.advance(HIS_BASE);
+    assert_eq!(run.deaths(), [died(HIS_BASE, "test:base")]);
+    let entry = run.log.last().expect("his death");
+    assert_eq!(
+        postcard::to_allocvec(entry).expect("encodes"),
+        hex(NO_DISEASE_HIS_DEATH)
+    );
 }
 
 /// Switched off in the very second his death of the disease is due: the input acts
