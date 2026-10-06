@@ -16,8 +16,8 @@ use crate::world::{EventPayload, SimCtx};
 /// of death and its exposure act from now on. If she is in an open partnership, her
 /// attempts begin again from the second after the birth.
 pub(crate) fn on_birth(domain: &mut DomainState, mother: SimId, ctx: &mut SimCtx<'_, '_>) {
-    // The event that runs right now is no longer pending.
-    domain.pending.remove(&(mother, Slot::Birth));
+    // The index keeps the handle of this birth until her next conception or her death:
+    // handles are never used again, so cancelling it then changes nothing.
     let Some(pregnancy) = domain.pregnancies.remove(&mother) else {
         panic!("invariant birth.without_pregnancy: sim {}", mother.get());
     };
