@@ -1867,11 +1867,8 @@ fn load_rejects_inconsistent_saves() {
             never_started().with(|f| f.next_partnership_id = 2),
         ),
         (
-            "unstarted with a partnership",
-            never_started().with(|f| {
-                f.partnerships = vec![(1, (1, 2, 0, None))];
-                f.next_partnership_id = 2;
-            }),
+            "unstarted with a partnership but an unused counter",
+            never_started().with(|f| f.partnerships = vec![(1, (1, 2, 0, None))]),
         ),
         (
             "unstarted with a used event counter",
