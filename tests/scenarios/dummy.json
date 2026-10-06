@@ -30,7 +30,13 @@
         "genotype": { "maternal": "dummy", "paternal": "dummy" }
       }
     ],
-    "couples": [{ "woman": 0, "man": 1 }]
+    "couples": [{ "woman": 0, "man": 1 }],
+    "fertility": {
+      "per_month": 0.05,
+      "from_years": 18,
+      "until_years": 45,
+      "pregnancy_months": 10
+    }
   },
   "until": 314495999
 }

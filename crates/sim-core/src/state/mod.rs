@@ -3,6 +3,7 @@
 
 pub(crate) mod birthday;
 pub(crate) mod census;
+pub(crate) mod conception;
 pub(crate) mod death;
 pub(crate) mod params;
 pub(crate) mod partnership;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::genome::{Genotype, Sex};
 use crate::ids::{PartnershipId, SimId};
 use crate::input::DeathCause;
+use crate::input::Fertility;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
 use crate::time::{EventHandle, SimDuration, SimTime, YEAR};
@@ -29,6 +31,21 @@ pub(crate) struct Sim {
     pub(crate) genotype: Genotype,
     /// `Some` exactly for a sim with the dummy allele twice.
     pub(crate) exposure: Option<Exposure>,
+    /// How often she conceived (ADR-0001 section 4: the conception number of the next
+    /// child); always 0 for a man.
+    pub(crate) conceptions: u32,
+}
+
+/// A running pregnancy, fixed at conception (B18): the father, the child's lineage key,
+/// the mother's conception number, sex and genotype.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Pregnancy {
+    pub(crate) father: SimId,
+    pub(crate) lineage_key: LineageKey,
+    pub(crate) conception: u32,
+    pub(crate) sex: Sex,
+    pub(crate) genotype: Genotype,
+    pub(crate) conceived: SimTime,
 }
 
 /// How long the hereditary causes of death have acted on a sim with the dummy allele
@@ -71,6 +88,7 @@ pub(crate) struct ArchivedSim {
     pub(crate) genotype: Genotype,
     /// The exposure as it was at the death: it shows whether the switch was on.
     pub(crate) exposure: Option<Exposure>,
+    pub(crate) conceptions: u32,
 }
 
 pub(crate) struct DomainState {
@@ -80,9 +98,13 @@ pub(crate) struct DomainState {
     pub(crate) world_params: Option<WorldParams>,
     /// The causes of death of `Start`, in its order.
     pub(crate) death_causes: Vec<DeathCause>,
+    /// The fertility of `Start`; `None` until `Start`.
+    pub(crate) fertility: Option<Fertility>,
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) partnerships: BTreeMap<PartnershipId, Partnership>,
+    /// The running pregnancies, by mother.
+    pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
     /// The lineage keys of the living and the archive. Not part of the projection:
     /// loading builds it again (ADR-0001 section 4).
@@ -97,6 +119,8 @@ pub(crate) struct DomainState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Slot {
     Birthday,
+    /// The monthly series of conception attempts of a woman.
+    Conception,
     /// The death of the cause with this `str_key`.
     Death(u64),
 }
@@ -108,6 +132,8 @@ impl DomainState {
             world_params: None,
             death_causes: Vec::new(),
             sims: BTreeMap::new(),
+            fertility: None,
+            pregnancies: BTreeMap::new(),
             partnerships: BTreeMap::new(),
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),

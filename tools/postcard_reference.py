@@ -109,6 +109,21 @@ def couple(woman: int, man: int) -> bytes:
     return varint(woman) + varint(man)
 
 
+def fertility(per_month: float, from_years: int, until_years: int, pregnancy_months: int) -> bytes:
+    """Fertility { per_month: FiniteF64, from_years: u32, until_years: u32, pregnancy_months: u32 }"""
+    return f64(per_month) + varint(from_years) + varint(until_years) + varint(pregnancy_months)
+
+
+# Strand: maternal = 0, paternal = 1. SexChromosome: x = 0, y = 1.
+MATERNAL, PATERNAL = variant(0), variant(1)
+X, Y_CHROMOSOME = variant(0), variant(1)
+
+
+def pregnancy(father: int, key: int, conception: int, sex: bytes, genes: bytes, conceived: int) -> bytes:
+    """Pregnancy { father: SimId, lineage_key, conception: u32, sex, genotype, conceived: SimTime }"""
+    return varint(father) + varint(key) + varint(conception) + sex + genes + signed(conceived)
+
+
 def partnership(woman: int, man: int, formed: int, ended) -> bytes:
     """Partnership { woman: SimId, man: SimId, formed: SimTime, ended: Option<SimTime> }"""
     return varint(woman) + varint(man) + signed(formed) + (b"\x00" if ended is None else b"\x01" + signed(ended))
@@ -124,6 +139,7 @@ SAMPLE_INPUT = variant(
     seq([death_cause("test:base", 0.02)]),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
+    fertility(0.05, 18, 45, 10),
 )
 
 # Input::ArrangePartnership (variant 2) { woman: SimId, man: SimId }
@@ -131,6 +147,11 @@ SAMPLE_ARRANGE = variant(2, varint(1), varint(2))
 
 # LogPayload::Partnered (variant 5) { partnership: PartnershipId }
 SAMPLE_PARTNERED_PAYLOAD = variant(5, varint(1))
+
+# LogPayload::Conception (variant 6) { lineage_key } and Meiosis (variant 7) { genome_key,
+# start_strand, sex_chromosome }: the keys are plain u64.
+SAMPLE_CONCEPTION_PAYLOAD = variant(6, varint(0x0123456789ABCDEF))
+SAMPLE_MEIOSIS_PAYLOAD = variant(7, varint(0x0123456789ABCDEF), PATERNAL, Y_CHROMOSOME)
 
 # Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.
 SAMPLE_RANDOM_CAUSE = variant(
@@ -194,6 +215,9 @@ if __name__ == "__main__":
         ("sample_arrange", SAMPLE_ARRANGE),
         ("sample_partnered_payload", SAMPLE_PARTNERED_PAYLOAD),
         ("couple", couple(0, 1)),
+        ("fertility", fertility(0.05, 18, 45, 10)),
+        ("sample_conception_payload", SAMPLE_CONCEPTION_PAYLOAD),
+        ("sample_meiosis_payload", SAMPLE_MEIOSIS_PAYLOAD),
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),

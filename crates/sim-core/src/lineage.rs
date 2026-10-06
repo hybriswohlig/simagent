@@ -59,7 +59,8 @@ impl LineageKey {
 /// The key all meiosis draws of a person are addressed by: the own lineage key, for
 /// identical multiples that of the first child of the zygote. Meiosis and mutation
 /// depend only on the genomes of the parents and on these draws.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct GenomeKey(LineageKey);
 
 impl GenomeKey {
@@ -98,6 +99,12 @@ impl LineageIndex {
 
     pub fn contains(&self, key: LineageKey) -> bool {
         self.keys.contains(&key)
+    }
+
+    /// Takes out the key of a pregnancy that ended with the death of the mother: it is
+    /// no longer in the living, the archive or a pregnancy.
+    pub fn remove(&mut self, key: LineageKey) {
+        self.keys.remove(&key);
     }
 }
 

@@ -10,9 +10,10 @@ use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::ids::{PartnershipId, SimId};
 use crate::input::AppliesTo;
+use crate::input::Fertility;
 use crate::log::PlanRef;
 use crate::params::WorldParams;
-use crate::state::{ArchivedSim, Partnership, Sim};
+use crate::state::{ArchivedSim, Partnership, Pregnancy, Sim};
 use crate::time::{Scheduler, SimDuration, SimTime};
 use crate::world::{EventPayload, WorldState};
 
@@ -26,7 +27,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 6;
+pub const PROJECTION_VERSION: u32 = 7;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -58,6 +59,7 @@ pub(crate) struct LoadedState {
     pub(crate) world_seed: Option<u64>,
     pub(crate) world_params: Option<WorldParams>,
     pub(crate) death_causes: Vec<ProjectedCause>,
+    pub(crate) fertility: Option<Fertility>,
     pub(crate) closed_through: SimTime,
     pub(crate) next_sim_id: u64,
     pub(crate) next_partnership_id: u64,
@@ -65,6 +67,7 @@ pub(crate) struct LoadedState {
     pub(crate) next_event_seq: u64,
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) partnerships: BTreeMap<PartnershipId, Partnership>,
+    pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
 }
 
@@ -76,6 +79,7 @@ pub struct CanonicalState<'a> {
     world_seed: Option<u64>,
     world_params: Option<WorldParams>,
     death_causes: Vec<ProjectedCause>,
+    fertility: Option<Fertility>,
     closed_through: SimTime,
     next_sim_id: u64,
     next_partnership_id: u64,
@@ -83,6 +87,7 @@ pub struct CanonicalState<'a> {
     next_event_seq: u64,
     sims: &'a BTreeMap<SimId, Sim>,
     partnerships: &'a BTreeMap<PartnershipId, Partnership>,
+    pregnancies: &'a BTreeMap<SimId, Pregnancy>,
     archive: &'a BTreeMap<SimId, ArchivedSim>,
 }
 
@@ -113,6 +118,7 @@ pub fn canonical_projection<'a>(
                 applies_to: cause.applies_to,
             })
             .collect(),
+        fertility: domain.fertility,
         closed_through: snapshot.closed_through,
         next_sim_id: state.next_sim_id(),
         next_partnership_id: state.next_partnership_id(),
@@ -130,6 +136,7 @@ pub fn canonical_projection<'a>(
         next_event_seq: snapshot.next_seq,
         sims: &domain.sims,
         partnerships: &domain.partnerships,
+        pregnancies: &domain.pregnancies,
         archive: &domain.archive,
     }
 }

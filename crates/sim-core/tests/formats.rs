@@ -11,18 +11,28 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
-    AppliesTo, ArrangePartnership, Couple, DeathCause, ForkOverride, Founder, Input, InputRecord,
-    InputRejected, InputStamp, RejectCode, Start,
+    AppliesTo, ArrangePartnership, Couple, DeathCause, Fertility, ForkOverride, Founder, Input,
+    InputRecord, InputRejected, InputStamp, RejectCode, Start,
 };
-use sim_core::lineage::LineageKey;
+use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
+
+/// A fertility under which nobody ever conceives.
+fn barren() -> Fertility {
+    Fertility {
+        per_month: FiniteF64::try_new(0.0).expect("finite"),
+        from_years: 18,
+        until_years: 45,
+        pregnancy_months: 10,
+    }
+}
 
 /// `EventId` is opaque (ADR-0004 section 6): outside the core it only comes from serde.
 fn event(n: u64) -> EventId {
@@ -88,6 +98,12 @@ fn sample_input() -> Input {
             },
         }],
         couples: Vec::new(),
+        fertility: Fertility {
+            per_month: FiniteF64::try_new(0.05).expect("finite"),
+            from_years: 18,
+            until_years: 45,
+            pregnancy_months: 10,
+        },
     })
 }
 
@@ -152,17 +168,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700000100";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001009a9999999999a93f122d0a";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700000100";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001009a9999999999a93f122d0a";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -229,6 +245,99 @@ fn override_form_is_pinned() {
     }
     // A start without world parameters is no start: nothing is filled in.
     let without = INPUT_JSON.replace(r#""world_params":{"hereditary_diseases":false},"#, "");
+    assert_ne!(without, INPUT_JSON);
+    assert!(from_json::<Input>(&without).is_err());
+}
+
+/// A conception of the child with a lineage key that shows every hex digit.
+fn sample_conception() -> LogPayload {
+    LogPayload::Conception {
+        lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),
+    }
+}
+
+/// The meiosis of a father who passes on his paternal strand and a Y.
+fn sample_meiosis() -> LogPayload {
+    LogPayload::Meiosis {
+        genome_key: GenomeKey::of_zygote(lineage_key_of(0x0123_4567_89ab_cdef)),
+        start_strand: Strand::Paternal,
+        sex_chromosome: SexChromosome::Y,
+    }
+}
+
+/// A lineage key read from JSON: the only way to get one that was not built (ADR-0001).
+fn lineage_key_of(value: u64) -> LineageKey {
+    from_json(&format!(r#""{value:016x}""#)).expect("a key")
+}
+
+/// Conception (ADR-0001, ADR-0004 section 7, B18): the fertility of a scenario, the
+/// entry of a conception and the meiosis of a parent, with the keys as hex in JSON.
+/// Values from tools/postcard_reference.py.
+#[test]
+fn conception_forms_are_pinned() {
+    let fertility = Fertility {
+        per_month: FiniteF64::try_new(0.05).expect("finite"),
+        from_years: 18,
+        until_years: 45,
+        pregnancy_months: 10,
+    };
+    let fertility_json =
+        r#"{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}"#;
+    assert_eq!(json(&fertility), fertility_json);
+    assert_eq!(
+        from_json::<Fertility>(fertility_json).expect("parses"),
+        fertility
+    );
+    assert_eq!(
+        postcard_round_trip(&fertility),
+        hex("9a9999999999a93f122d0a")
+    );
+
+    let conception_json = r#"{"core:conception":{"lineage_key":"0123456789abcdef"}}"#;
+    assert_eq!(json(&sample_conception()), conception_json);
+    assert_eq!(
+        from_json::<LogPayload>(conception_json).ok(),
+        Some(sample_conception())
+    );
+    assert_eq!(
+        postcard_round_trip(&sample_conception()),
+        hex("06ef9bafcdf8acd19101")
+    );
+    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal","sex_chromosome":"y"}}"#;
+    assert_eq!(json(&sample_meiosis()), meiosis_json);
+    assert_eq!(
+        from_json::<LogPayload>(meiosis_json).ok(),
+        Some(sample_meiosis())
+    );
+    assert_eq!(
+        postcard_round_trip(&sample_meiosis()),
+        hex("07ef9bafcdf8acd191010101")
+    );
+    assert_eq!(json(&Strand::Maternal), r#""maternal""#);
+    assert_eq!(json(&SexChromosome::X), r#""x""#);
+
+    for rejected in [
+        r#"{"per_month":0.05,"from_years":18,"until_years":45}"#,
+        r#"{"per_month":"0.05","from_years":18,"until_years":45,"pregnancy_months":10}"#,
+        r#"{"per_month":0.05,"from_years":-1,"until_years":45,"pregnancy_months":10}"#,
+        r#"{"per_month":1e999,"from_years":18,"until_years":45,"pregnancy_months":10}"#,
+        r#"{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10,"twins":0}"#,
+    ] {
+        assert!(from_json::<Fertility>(rejected).is_err(), "{rejected}");
+    }
+    for rejected in [
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"Paternal","sex_chromosome":"y"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal","sex_chromosome":"Y"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal"}}"#,
+        r#"{"core:conception":{"lineage_key":81985529216486895}}"#,
+    ] {
+        assert!(from_json::<LogPayload>(rejected).is_err(), "{rejected}");
+    }
+    // A start without fertility is no start: nothing is filled in.
+    let without = INPUT_JSON.replace(
+        r#","fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}"#,
+        "",
+    );
     assert_ne!(without, INPUT_JSON);
     assert!(from_json::<Input>(&without).is_err());
 }
@@ -430,12 +539,16 @@ fn postcard_forms_are_pinned() {
         death_causes: Vec::new(),
         founders: Vec::new(),
         couples: Vec::new(),
+        fertility: barren(),
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
     // The tag, the switch off (one byte 0), no causes of death, no founders and no
-    // couples (three lengths 0).
+    // couples (three lengths 0), then the fertility: eight bytes of 0.0 and the
+    // varints 18, 45 and 10.
     expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0]);
+    expected.extend([0; 8]);
+    expected.extend([18, 45, 10]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 
@@ -687,8 +800,10 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
     fn check(value: &Value, path: &str) {
         match value {
             Value::Number(n) => {
+                // A float (a chance, a hazard) is a JavaScript number as it stands.
                 let ok = n.as_u64().is_some_and(|v| v <= MAX_JS_SAFE)
-                    || n.as_i64().is_some_and(|v| v.unsigned_abs() <= MAX_JS_SAFE);
+                    || n.as_i64().is_some_and(|v| v.unsigned_abs() <= MAX_JS_SAFE)
+                    || n.is_f64();
                 assert!(ok, "{path} = {n}");
             }
             Value::Array(items) => {
@@ -738,6 +853,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
             },
         }],
         couples: Vec::new(),
+        fertility: barren(),
     });
     // A lineage key is a full-range number as well.
     let added = serde_json::to_value(&all_payloads()[1]).expect("json");
@@ -777,6 +893,8 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Partnered {
             partnership: PartnershipId::try_from(1).expect("valid"),
         },
+        sample_conception(),
+        sample_meiosis(),
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -786,7 +904,9 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Birthday { .. }
             | LogPayload::ParamChanged { .. }
             | LogPayload::Death { .. }
-            | LogPayload::Partnered { .. } => {}
+            | LogPayload::Partnered { .. }
+            | LogPayload::Conception { .. }
+            | LogPayload::Meiosis { .. } => {}
         }
     }
     payloads
@@ -808,6 +928,7 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::PartnersOfWrongSex,
         RejectCode::AlreadyPartnered,
         RejectCode::UnknownFounder,
+        RejectCode::FertilityOutOfRange,
     ];
     for code in &codes {
         match code {
@@ -824,7 +945,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::SimNotAlive
             | RejectCode::PartnersOfWrongSex
             | RejectCode::AlreadyPartnered
-            | RejectCode::UnknownFounder => {}
+            | RejectCode::UnknownFounder
+            | RejectCode::FertilityOutOfRange => {}
         }
     }
     codes
@@ -1029,6 +1151,21 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(targets.iter().map(|t| line("applies_to", t)));
+    // The meiosis entry: the start strand and the sex chromosome passed on.
+    let strands = [Strand::Maternal, Strand::Paternal];
+    for strand in &strands {
+        match strand {
+            Strand::Maternal | Strand::Paternal => {}
+        }
+    }
+    let chromosomes = [SexChromosome::X, SexChromosome::Y];
+    for chromosome in &chromosomes {
+        match chromosome {
+            SexChromosome::X | SexChromosome::Y => {}
+        }
+    }
+    actual.extend(strands.iter().map(|s| line("strand", s)));
+    actual.extend(chromosomes.iter().map(|c| line("sex_chromosome", c)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

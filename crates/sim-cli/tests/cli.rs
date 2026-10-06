@@ -19,7 +19,7 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
@@ -34,7 +34,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
       {"born": -1, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "dummy"}}
     ],
-    "couples": []
+    "couples": [],
+    "fertility": {"per_month": 0.0, "from_years": 18, "until_years": 45, "pregnancy_months": 10}
   },
   "until": 314495999
 }"#;
@@ -134,9 +135,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":6,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":7,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -161,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":6,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"7d25f597d0f51848"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":7,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"ee59127346e6581b"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -172,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540106c2a9cec6d380a0832d0601ff01010000fe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000010000000203fe87ff1d01000401010100ff0109746573743a74696e7900000101000001000100c8b0d487fdb2fd927d"
+        "53494d4147454e540107c2a9cec6d380a0832d0701ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100000000000203fe87ff1d01000401010100ff0109746573743a74696e7900000101000001000000000000000000122d0a01009bb099b7b4cec4acee01"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -221,7 +222,7 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}],"couples":[]}}"#;
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
     let commands = vec![
@@ -507,12 +508,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":6"#, r#""core_version":7"#);
+    replace_in(&log, r#""core_version":7"#, r#""core_version":8"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 7, this is 6"
+        "error: replay_foreign_core_version: the input log is of core version 8, this is 7"
     );
-    replace_in(&log, r#""core_version":7"#, r#""core_version":6"#);
+    replace_in(&log, r#""core_version":8"#, r#""core_version":7"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -976,8 +977,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 6, "the core version in the header of the save");
-    bytes[9] = 7;
+    assert_eq!(bytes[9], 7, "the core version in the header of the save");
+    bytes[9] = 8;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

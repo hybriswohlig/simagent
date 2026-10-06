@@ -27,6 +27,7 @@ from postcard_reference import (
     SAMPLE_ENTRY,
     WILD,
     exposure,
+    fertility,
     founder,
     genotype,
     lineage_key,
@@ -65,14 +66,17 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 6
-CORE_VERSION = 6
+PROJECTION_VERSION = 7
+CORE_VERSION = 7
+
+# The fertility of a scenario without its own: nobody ever conceives.
+BARREN = fertility(0.0, 18, 45, 10)
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: bytes, sick=None) -> bytes:
-    """Sim { born, lineage_key, sex, genotype, exposure }: the exposure is None but for
-    a sim with the dummy allele twice (C5)."""
-    return signed(born) + lineage_key(key) + sex + genes + exposure(sick)
+    """Sim { born, lineage_key, sex, genotype, exposure, conceptions }: the exposure is
+    None but for a sim with the dummy allele twice (C5); no conceptions yet."""
+    return signed(born) + lineage_key(key) + sex + genes + exposure(sick) + varint(0)
 
 
 TINY_KEY = founder_key("test:tiny", 0)
@@ -87,6 +91,7 @@ def projection(
         + some(varint(0xFF))  # world_seed
         + some(world_params(diseases))
         + seq([])  # death_causes
+        + some(BARREN)
         + signed(closed_through)
         + varint(2)  # next SimId
         + varint(1)  # next PartnershipId
@@ -94,6 +99,7 @@ def projection(
         + varint(next_insertion)
         + seq([varint(1) + sim_state(-1, TINY_KEY, FEMALE, TINY_GENES)])  # sims: id 1
         + seq([])  # partnerships
+        + seq([])  # pregnancies
         + seq([])  # archive
     )
 
@@ -141,6 +147,7 @@ PAIR_AFTER_START = (
     + some(varint(0xFF))
     + some(world_params(False))
     + seq([])  # death_causes
+    + some(BARREN)
     + signed(-1)
     + varint(3)  # next SimId
     + varint(1)  # next PartnershipId
@@ -160,6 +167,7 @@ PAIR_AFTER_START = (
         ]
     )
     + seq([])  # partnerships
+    + seq([])  # pregnancies
     + seq([])  # archive
 )
 
@@ -190,6 +198,7 @@ TINY_INPUT_LOG = seq(
             seq([]),  # death_causes
             seq([founder(-1, FEMALE, TINY_GENES)]),
             seq([]),  # couples
+            BARREN,
         )
     ]
 )
@@ -212,6 +221,7 @@ EMPTY_PROJECTION = (
     + NONE  # world_seed
     + NONE  # world_params
     + seq([])  # death_causes
+    + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
     + varint(1)  # next PartnershipId
@@ -219,6 +229,7 @@ EMPTY_PROJECTION = (
     + varint(1)
     + seq([])  # sims
     + seq([])  # partnerships
+    + seq([])  # pregnancies
     + seq([])  # archive
 )
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
@@ -272,6 +283,7 @@ TINY_SAVE_OVERRIDDEN = (
                 seq([]),  # death_causes
                 seq([founder(-1, FEMALE, TINY_GENES)]),
                 seq([]),  # couples
+                BARREN,
             ),
             signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
         ]
@@ -542,6 +554,70 @@ assert not PARTNERS.sims
 PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 
 
+# Scenario "clan": seed 0xff, founder tag `test:clan`, `test:base` with 0.02 per year, and
+# a fertility of 0.25 per month, the mother 18 to 45 years old, ten months. Three founder
+# couples: a woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 12 (dummy
+# twice) and a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first
+# couple tries from month 0 and conceives in month 5; the girl's attempts begin at her
+# 18th birthday (month 78) and she conceives in month 85; the third couple never tries.
+CLAN_FOUNDERS = [
+    (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
+    (-22 * YEAR, MALE, genotype(DUMMY, WILD)),
+    (-12 * YEAR, FEMALE, genotype(DUMMY, DUMMY)),
+    (-30 * YEAR, MALE, genotype(WILD, WILD)),
+    (-46 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-46 * YEAR, MALE, genotype(WILD, WILD)),
+]
+CLAN_KEYS = [founder_key("test:clan", index) for index in range(6)]
+MONTH = world_reference.MONTH
+
+
+def clan_world() -> world_reference.World:
+    return world_reference.World(
+        0xFF,
+        "test:clan",
+        False,
+        [("test:base", 0.02)],
+        CLAN_FOUNDERS,
+        [(0, 1), (2, 3), (4, 5)],
+        (0.25, 18, 45, 10),
+    )
+
+
+CLAN = clan_world()
+CLAN_SAVE_AFTER_START = CLAN.save()
+CLAN.advance(5 * MONTH - 1)
+assert not CLAN.pregnancies
+CLAN_LOG_BEFORE = len(CLAN.log)
+CLAN.advance(5 * MONTH)
+assert list(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][5] == 5 * MONTH
+CLAN_CONCEPTION_ENTRIES = CLAN.log[CLAN_LOG_BEFORE:]
+assert len(CLAN_CONCEPTION_ENTRIES) == 3
+CLAN_SAVE_AFTER_CONCEPTION = CLAN.save()
+CLAN.advance(8 * YEAR - 1)
+assert sorted(CLAN.pregnancies) == [1, 3] and CLAN.pregnancies[3][5] == 85 * MONTH
+assert [sim[5] for sim in CLAN.sims.values()] == [1, 0, 1, 0, 0, 0]
+CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
+
+# "clan" with a second cause, `test:fever` with 0.5 per year: the father dies in month 6.2
+# (the pregnancy goes on), the girl's partner in month 7.2 (her attempts end before
+# they begin), and the pregnant woman in month 35.1 (the pregnancy ends with her). By
+# the end of year 3 all six have died.
+FEVER = world_reference.World(
+    0xFF,
+    "test:clan",
+    False,
+    [("test:base", 0.02), ("test:fever", 0.5)],
+    CLAN_FOUNDERS,
+    [(0, 1), (2, 3), (4, 5)],
+    (0.25, 18, 45, 10),
+)
+FEVER.advance(4 * YEAR - 1)
+assert sorted(FEVER.archive) == [1, 2, 3, 4, 5, 6] and not FEVER.pregnancies
+assert FEVER.archive[1][7] == 1 and 1 not in FEVER.sims
+CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -599,6 +675,16 @@ if __name__ == "__main__":
     print(f"partners_save_after_arrange {PARTNERS_SAVE_AFTER_ARRANGE.hex()}")
     print(f"partners_save_after_year_4 {PARTNERS_SAVE_AFTER_YEAR_4.hex()}")
     print(f"partners_year_hashes {[format(value, '016x') for value in PARTNERS.year_hashes]}")
+    print(f"clan_keys {[format(key, '016x') for key in CLAN_KEYS]}")
+    print(f"clan_save_after_start {CLAN_SAVE_AFTER_START.hex()}")
+    for number, line in enumerate(CLAN_CONCEPTION_ENTRIES):
+        print(f"clan_conception_entry_{number} {line.hex()}")
+    print(f"clan_save_after_conception {CLAN_SAVE_AFTER_CONCEPTION.hex()}")
+    print(f"clan_save_after_year_7 {CLAN_SAVE_AFTER_YEAR_7.hex()}")
+    print(f"clan_pregnancies {CLAN.pregnancies}")
+    print(f"clan_fever_save_after_year_3 {CLAN_FEVER_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"clan_fever_archive {[(sim, left) for sim, (_, left, *_ ) in sorted(FEVER.archive.items())]}")
+    print(f"clan_year_hashes {[format(value, '016x') for value in CLAN.year_hashes]}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

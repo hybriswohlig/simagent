@@ -6,13 +6,24 @@
 //! from the ADRs. Logs are compared as JSON lines because `EventId` cannot be compared.
 
 use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::SimId;
-use sim_core::input::{ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
+use sim_core::input::{Fertility, ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::log::LogEntry;
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
 use sim_core::world::World;
+
+/// A fertility under which nobody ever conceives.
+fn barren() -> Fertility {
+    Fertility {
+        per_month: FiniteF64::try_new(0.0).expect("finite"),
+        from_years: 18,
+        until_years: 45,
+        pregnancy_months: 10,
+    }
+}
 
 const SEED: u64 = 0x5eed_0000_0000_0001;
 const BORN: [i64; 3] = [-943_488_000, -794_880_000, -1];
@@ -27,6 +38,7 @@ fn start_with(born: &[i64]) -> Input {
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
+        fertility: barren(),
     })
 }
 
@@ -226,7 +238,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
     );
 }
 
