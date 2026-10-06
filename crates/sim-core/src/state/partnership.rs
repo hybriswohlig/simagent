@@ -2,7 +2,7 @@
 //! `ArrangePartnership` pair a living woman and a living man. A partnership ends with the
 //! first death of the two and stays as history.
 
-use super::{DomainState, Partnership};
+use super::{DomainState, Partnership, conception};
 use crate::genome::Sex;
 use crate::ids::{PartnershipId, SimId};
 use crate::input::{ArrangePartnership, Couple, Founder, InputRejected, RejectCode};
@@ -84,14 +84,14 @@ pub(crate) fn apply_arrange(
 }
 
 /// A new partnership of two living sims, formed now, with its creation entry caused
-/// by what runs (the input).
+/// by what runs (the input). Her monthly attempts begin by that entry.
 pub(crate) fn pair_up(
     domain: &mut DomainState,
     woman: SimId,
     man: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> PartnershipId {
-    let (id, _) = ctx.create_partnership(woman, man, Causes::new(ctx.trigger()));
+    let (id, entry) = ctx.create_partnership(woman, man, Causes::new(ctx.trigger()));
     domain.partnerships.insert(
         id,
         Partnership {
@@ -101,6 +101,7 @@ pub(crate) fn pair_up(
             ended: None,
         },
     );
+    conception::plan_attempts(domain, woman, entry, ctx);
     id
 }
 
@@ -115,11 +116,14 @@ pub(crate) fn open_partnership(domain: &DomainState, sim: SimId) -> Option<Partn
         .map(|(id, _)| *id)
 }
 
-/// `sim` died now: its open partnership ends in this second.
-pub(crate) fn end_with_death(domain: &mut DomainState, sim: SimId, now: SimTime) {
+/// `sim` died now: its open partnership ends in this second, and with it her attempts.
+pub(crate) fn end_with_death(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+    let now: SimTime = ctx.now();
     if let Some(id) = open_partnership(domain, sim)
         && let Some(partnership) = domain.partnerships.get_mut(&id)
     {
         partnership.ended = Some(now);
+        let woman = partnership.woman;
+        conception::stop_attempts(domain, woman, ctx);
     }
 }

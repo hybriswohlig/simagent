@@ -2024,7 +2024,7 @@ fn load_checks_conceptions_and_pregnancies() {
             clan_conceived().with(|f| {
                 f.pregnancies.clear();
                 f.queue.insert(
-                    7,
+                    0,
                     (
                         6 * MONTH,
                         0,
@@ -2033,7 +2033,7 @@ fn load_checks_conceptions_and_pregnancies() {
                         Some(MONTH),
                     ),
                 );
-                f.plan_refs.insert(7, (8, 0));
+                f.plan_refs.insert(0, (8, 0));
                 f.next_event_seq = 23;
             }),
         ),
@@ -2041,7 +2041,7 @@ fn load_checks_conceptions_and_pregnancies() {
             "attempts of a pregnant woman",
             clan_conceived().with(|f| {
                 f.queue.insert(
-                    7,
+                    0,
                     (
                         6 * MONTH,
                         0,
@@ -2050,7 +2050,7 @@ fn load_checks_conceptions_and_pregnancies() {
                         Some(MONTH),
                     ),
                 );
-                f.plan_refs.insert(7, (8, 0));
+                f.plan_refs.insert(0, (8, 0));
                 f.next_event_seq = 23;
             }),
         ),
@@ -2063,7 +2063,13 @@ fn load_checks_conceptions_and_pregnancies() {
         ),
         (
             "the girl's attempts before her 18th birthday",
-            clan_conceived().with(|f| f.queue[7].0 = 6 * MONTH),
+            clan_conceived().with(|f| {
+                let mut early = f.queue.remove(7);
+                let plan = f.plan_refs.remove(7);
+                early.0 = 6 * MONTH;
+                f.queue.insert(0, early);
+                f.plan_refs.insert(0, plan);
+            }),
         ),
         (
             "the girl's attempts without their period",
@@ -2073,7 +2079,7 @@ fn load_checks_conceptions_and_pregnancies() {
             "attempts for the woman of 46",
             clan_conceived().with(|f| {
                 f.queue.insert(
-                    7,
+                    0,
                     (
                         6 * MONTH,
                         0,
@@ -2082,7 +2088,7 @@ fn load_checks_conceptions_and_pregnancies() {
                         Some(MONTH),
                     ),
                 );
-                f.plan_refs.insert(7, (10, 0));
+                f.plan_refs.insert(0, (10, 0));
                 f.next_event_seq = 23;
             }),
         ),

@@ -37,16 +37,17 @@ What the model knows:
 - Conception (ADR-0001 scenario `fork_no_density`, ADR-0004 section 7): a partnership
   plans a monthly series of attempts (period MONTH, by its entry) from the first month
   start at or after the forming and her `from_years` birthday, if she is younger than
-  `until_years` then and not pregnant. An attempt at or after her `until_years` birthday
-  ends the series. Otherwise it draws `bernoulli(CONCEPTION_ATTEMPT, per_month)` (subject
+  `until_years` then and not pregnant. An attempt draws
+  `bernoulli(CONCEPTION_ATTEMPT, per_month)` (subject
   her lineage key, occasion the month index, detail his lineage key); on success she
   conceives her conception number n: the child key `child(her, his, n, 0)`, per parent
   the start strand `uniform_below(MEIOSIS_START_STRAND, 2)` (subject the genome key,
   occasion 0 mother and 1 father) and the sex `uniform_below(SEX_CHROMOSOME, 2)`
   (occasion 1). Entries: `core:conception` (her, him; plan and draw), then
   `core:meiosis` of her and of him (event, rule `core:meiosis`, the strand draw, for him
-  also the sex draw). The series ends; the pregnancy is state. The death of either ends
-  the series; her death ends the pregnancy. If the switch flips, every living
+  also the sex draw). The series ends; the pregnancy is state. A failed attempt ends the
+  series if the next month start is her `until_years` birthday or later. The death of
+  either ends the series; her death ends the pregnancy. If the switch flips, every living
   homozygous sim (by ID) updates its exposure, and if a cause for the homozygous exists,
   its deaths from the first such cause on are cancelled and planned again in the order
   of the causes, by that entry.
@@ -224,13 +225,13 @@ class World:
         woman = event.subject[1]
         per_month, _, until_years, _ = self.fertility
         her = self.sims[woman]
-        if now >= her[0] + until_years * YEAR:
-            self.queue.remove(event)
-            return
         man = next(p[1] for p in self.partnerships.values() if p[0] == woman and p[3] is None)
         him = self.sims[man]
         draw = (CONCEPTION_ATTEMPT, her[1], now // MONTH, him[1])
         if not bernoulli(words(chacha_key(self.seed, *draw))[0], per_month):
+            # Her last attempt: the next one would be at or after her `until_years` birthday.
+            if now + MONTH >= her[0] + until_years * YEAR:
+                self.queue.remove(event)
             return
         self.queue.remove(event)
         number = her[5]

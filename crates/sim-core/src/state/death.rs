@@ -204,7 +204,11 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             conceptions: person.conceptions,
         },
     );
-    partnership::end_with_death(domain, sim, ctx.now());
+    // Her pregnancy ends with her; her conception stays counted.
+    if let Some(pregnancy) = domain.pregnancies.remove(&sim) {
+        domain.lineage.remove(pregnancy.lineage_key);
+    }
+    partnership::end_with_death(domain, sim, ctx);
 }
 
 #[cfg(test)]

@@ -4,7 +4,10 @@
 use alloc::vec::Vec;
 
 use super::{DomainState, Sim, Slot, death, partnership, years_between};
-use crate::input::{DeathCause, InputRejected, MIN_DEATH_RATE_PER_YEAR, RejectCode, Start};
+use crate::input::{
+    DeathCause, Fertility, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS,
+    MIN_DEATH_RATE_PER_YEAR, RejectCode, Start,
+};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
@@ -23,7 +26,8 @@ pub(crate) fn check_start(
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
     .or_else(|| death_causes_rejection(&start.death_causes))
-    .or_else(|| partnership::couples_rejection(&start.founders, &start.couples));
+    .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
+    .or_else(|| fertility_rejection(&start.fertility));
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -73,6 +77,18 @@ pub(crate) fn death_causes_rejection(causes: &[DeathCause]) -> Option<RejectCode
     None
 }
 
+/// Why this fertility is rejected, if at all: a chance outside 0 to 1, no age at which a
+/// woman can conceive, an end of fertility after `MAX_FERTILE_YEARS`, or a pregnancy
+/// outside 1 to `MAX_PREGNANCY_MONTHS` months.
+pub(crate) fn fertility_rejection(fertility: &Fertility) -> Option<RejectCode> {
+    let chance = fertility.per_month.get();
+    let fits = (0.0..=1.0).contains(&chance)
+        && fertility.from_years < fertility.until_years
+        && fertility.until_years <= MAX_FERTILE_YEARS
+        && (1..=MAX_PREGNANCY_MONTHS).contains(&fertility.pregnancy_months);
+    (!fits).then_some(RejectCode::FertilityOutOfRange)
+}
+
 /// The number of founders as it stands in `core:started`.
 fn founder_count(founders: usize) -> Option<u32> {
     u32::try_from(founders).ok()
@@ -88,6 +104,7 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params);
     domain.death_causes.clone_from(&start.death_causes);
+    domain.fertility = Some(start.fertility);
     let founders = founder_count(start.founders.len())
         .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
     let started = ctx.emit(

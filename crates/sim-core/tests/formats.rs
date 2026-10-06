@@ -800,8 +800,10 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
     fn check(value: &Value, path: &str) {
         match value {
             Value::Number(n) => {
+                // A float (a chance, a hazard) is a JavaScript number as it stands.
                 let ok = n.as_u64().is_some_and(|v| v <= MAX_JS_SAFE)
-                    || n.as_i64().is_some_and(|v| v.unsigned_abs() <= MAX_JS_SAFE);
+                    || n.as_i64().is_some_and(|v| v.unsigned_abs() <= MAX_JS_SAFE)
+                    || n.is_f64();
                 assert!(ok, "{path} = {n}");
             }
             Value::Array(items) => {

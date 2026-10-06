@@ -261,6 +261,37 @@ fn a_start_with_a_fertility_out_of_range_is_rejected() {
     );
 }
 
+/// Her last attempt is the one before her `until_years` birthday: after it her series
+/// ends, so that a pending attempt always lies before that birthday. She turns 45 at the
+/// start of month 3: she tries in months 0, 1 and 2, never with success here.
+#[test]
+fn the_last_attempt_before_the_end_of_fertility_ends_the_series() {
+    let Input::Start(mut start) =
+        clan_start(vec![cause("test:base", 0.02)], fertility(0.0, 18, 45, 10))
+    else {
+        unreachable!("a start")
+    };
+    start.founders.truncate(2);
+    start.founders[0].born = SimTime::from_secs(3 * MONTH - 45 * Y);
+    start.couples.truncate(1);
+    let mut world = World::new();
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut run = Run::new(world);
+    let loads = |run: &Run| {
+        let bytes = run.save();
+        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        assert_eq!(loaded.save(&years).expect("saves"), bytes);
+    };
+    run.advance(MONTH);
+    let with_attempts = run.world.pending_events();
+    loads(&run);
+    run.advance(2 * MONTH);
+    assert_eq!(run.world.pending_events(), with_attempts - 1);
+    loads(&run);
+    run.advance(Y);
+    assert_eq!(run.world.pending_events(), with_attempts - 1);
+}
+
 /// Loading and going on gives the uninterrupted run, before, at and after the first
 /// conception and across the girl's.
 #[test]

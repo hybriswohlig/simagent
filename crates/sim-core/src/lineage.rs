@@ -100,6 +100,12 @@ impl LineageIndex {
     pub fn contains(&self, key: LineageKey) -> bool {
         self.keys.contains(&key)
     }
+
+    /// Takes out the key of a pregnancy that ended with the death of the mother: it is
+    /// no longer in the living, the archive or a pregnancy.
+    pub fn remove(&mut self, key: LineageKey) {
+        self.keys.remove(&key);
+    }
 }
 
 #[cfg(test)]

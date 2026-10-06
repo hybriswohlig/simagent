@@ -253,7 +253,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Death { sim, cause } => {
                 state::death::on_death(&mut self.domain, sim, cause, &mut ctx);
             }
-            EventPayload::ConceptionAttempt { .. } => {}
+            EventPayload::ConceptionAttempt { woman } => {
+                state::conception::on_attempt(&mut self.domain, woman, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -501,11 +503,12 @@ mod tests {
         );
         let mut archive = alloc::collections::BTreeMap::new();
         archive.insert(id(2), archived());
-        let index = save::lineage_index(&sims, &archive);
+        let none = alloc::collections::BTreeMap::new();
+        let index = save::lineage_index(&sims, &archive, &none);
         assert!(index.contains(key(0)), "the living");
         assert!(index.contains(key(1)), "the archive");
         assert!(!index.contains(key(2)));
-        let nobody = save::lineage_index(&alloc::collections::BTreeMap::new(), &archive);
+        let nobody = save::lineage_index(&alloc::collections::BTreeMap::new(), &archive, &none);
         assert!(!nobody.contains(key(0)) && nobody.contains(key(1)));
     }
 
@@ -529,7 +532,7 @@ mod tests {
     /// key 2, then born -9 (zigzag 17), left -2 (zigzag 3), the reason (death, variant 0,
     /// of the cause with the key 7), the lineage key of founder 1
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
-    /// the alleles dummy (1) and wild (0), and no exposure (0).
+    /// the alleles dummy (1) and wild (0), no exposure (0) and no conception (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new();
@@ -545,7 +548,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 1, 0, 0]);
+        expected.extend([1, 1, 0, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 
