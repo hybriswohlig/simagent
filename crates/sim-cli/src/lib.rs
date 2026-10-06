@@ -68,11 +68,15 @@ fn command() -> Command {
                 .value_name("OVERRIDE_JSON"),
         )
         .arg(Arg::new("out").long("out").value_name("DIR").required(true));
+    let export = Command::new("export")
+        .about("Writes the pedigree of a run into its directory (pedigree.json)")
+        .arg(Arg::new("run").value_name("RUN_DIR").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .subcommand(run)
         .subcommand(fork)
+        .subcommand(export)
 }
 
 /// Runs the program with these arguments. A usage error ends the process through clap.
@@ -94,6 +98,10 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
                 Path::new(text("out")),
             );
         }
+        Some(("export", export)) => {
+            let dir = export.get_one::<String>("run").map_or("", String::as_str);
+            return export_run(Path::new(dir));
+        }
         _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
     let text = |name: &str| run.get_one::<String>(name).map(String::as_str);
@@ -111,6 +119,11 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
     } else {
         resume(out, until, text("input").map(Path::new))
     }
+}
+
+/// Writes `pedigree.json` into the run directory, from its save.
+fn export_run(_dir: &Path) -> Result<(), CliError> {
+    Ok(())
 }
 
 fn parse_time(text: &str) -> Option<SimTime> {

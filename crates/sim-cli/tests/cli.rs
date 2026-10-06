@@ -455,6 +455,92 @@ fn command_schema_matches_direct_call() {
     );
 }
 
+/// The mini pedigree of the Durchstich (HANDOFF §9 step 5): `simagent export` writes
+/// every sim of a run with its parents, its birth and its death, and every partnership,
+/// into `pedigree.json`. The dummy scenario after ten years: the founders 1 to 3 (sims
+/// 2 and 3 have died), the three children of sims 1 and 2, and their partnership, which
+/// ended with the death of sim 2. Values from tools/golden_reference.py.
+#[test]
+fn export_writes_the_pedigree() {
+    let dir = scratch("export");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let run = dir.join("dummy");
+    must(&["run", "--scenario", arg(&scenario), "--out", arg(&run)]);
+    let before: Vec<Vec<u8>> = FILES
+        .iter()
+        .map(|file| fs::read(run.join(file)).expect("reads"))
+        .collect();
+    must(&["export", arg(&run)]);
+    let founder = |sim: u64,
+                   key: &str,
+                   sex: &str,
+                   genes: (&str, &str),
+                   born: i64,
+                   died: &str,
+                   cause: &str| {
+        format!(
+            r#"{{"sim":{sim},"lineage_key":"{key}","sex":"{sex}","genotype":{{"maternal":"{}","paternal":"{}"}},"born":{born},"died":{died},"cause_of_death":{cause},"mother":null,"father":null}}"#,
+            genes.0, genes.1
+        )
+    };
+    let child = |sim: u64, key: &str, sex: &str, born: i64| {
+        format!(
+            r#"{{"sim":{sim},"lineage_key":"{key}","sex":"{sex}","genotype":{{"maternal":"dummy","paternal":"wild"}},"born":{born},"died":null,"cause_of_death":null,"mother":1,"father":2}}"#
+        )
+    };
+    let persons = [
+        founder(
+            1,
+            "67a2a1a58cf8f47a",
+            "female",
+            ("dummy", "dummy"),
+            -943_488_000,
+            "null",
+            "null",
+        ),
+        founder(
+            2,
+            "d14e686636ce6fd8",
+            "male",
+            ("dummy", "wild"),
+            -794_880_000,
+            "125649014",
+            r#""test:base""#,
+        ),
+        founder(
+            3,
+            "431e7431023db46a",
+            "male",
+            ("dummy", "dummy"),
+            -1,
+            "91095303",
+            r#""test:base""#,
+        ),
+        child(4, "82a371d4d7ec74d0", "male", 41_126_400),
+        child(5, "633a53f95f45349a", "female", 91_929_600),
+        child(6, "3b95377839225a93", "female", 118_540_800),
+    ];
+    assert_eq!(
+        text(&run.join("pedigree.json")),
+        format!(
+            r#"{{"persons":[{}],"partnerships":[{{"partnership":1,"woman":1,"man":2,"formed":0,"ended":125649014}}]}}"#,
+            persons.join(",")
+        ) + "\n"
+    );
+    // The run itself stays as it was.
+    let after: Vec<Vec<u8>> = FILES
+        .iter()
+        .map(|file| fs::read(run.join(file)).expect("reads"))
+        .collect();
+    assert!(after == before);
+    assert_eq!(
+        error_of(&["export", arg(&dir.join("nothing"))])
+            .split(':')
+            .next(),
+        Some("error")
+    );
+}
+
 /// ADR-0004 test 4: saving in the middle of a year, loading in a fresh process and
 /// running on gives the run directory of the uninterrupted run.
 #[test]
