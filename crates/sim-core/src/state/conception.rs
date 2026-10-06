@@ -17,9 +17,6 @@ use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::time::{MONTH, SimTime, YEAR};
 use crate::world::{EventPayload, SimCtx};
 
-/// The rule of a meiosis, the cause of its entry next to the conception.
-const MEIOSIS_RULE: &str = "core:meiosis";
-
 /// The second a person born at `born` turns `years` old; `None` beyond the clock.
 pub(crate) fn birthday(born: SimTime, years: u32) -> Option<SimTime> {
     born.checked_add(YEAR.checked_mul(i64::from(years))?)
@@ -229,7 +226,9 @@ fn conceive(
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
     let genome = GenomeKey::of_zygote(child);
-    let rule = Code::new(MEIOSIS_RULE).unwrap_or_else(|_| panic!("invariant conception.rule_code"));
+    // The rule of a meiosis, the cause of its entry next to the conception.
+    let rule =
+        Code::new("core:meiosis").unwrap_or_else(|_| panic!("invariant conception.rule_code"));
     let meiosis = |side: u64| {
         Causes::new(Cause::Event(conception))
             .with(Cause::Rule(rule.clone()))
