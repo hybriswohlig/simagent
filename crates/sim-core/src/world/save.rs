@@ -385,7 +385,8 @@ fn input_log_consistent(
 /// The partnerships are those the input log formed, with the IDs from 1 in that order,
 /// and the counter follows them. Each pairs a woman and a man; it is open while both
 /// live and ended in the second of the first death of the two, never before it was
-/// formed. Nobody is in two open partnerships.
+/// formed. Each of the two was free when it was formed: an earlier partnership of theirs
+/// had ended in an earlier second (a pairing acts before the events of its second).
 fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime)]) -> bool {
     let counted = u64::try_from(pairs.len())
         .ok()
@@ -399,7 +400,9 @@ fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime
             .or_else(|| loaded.archive.get(id).map(|sim| sim.sex))
     };
     let left_of = |id: &SimId| loaded.archive.get(id).map(|sim| sim.left);
-    let mut open = BTreeSet::new();
+    // Per sim the end of its latest partnership so far (`None` while it is open); the
+    // partnerships come in the order they were formed.
+    let mut latest: BTreeMap<SimId, Option<SimTime>> = BTreeMap::new();
     counted
         && loaded.partnerships.len() == pairs.len()
         && loaded.partnerships.iter().zip(pairs).zip(1_u64..).all(
@@ -412,7 +415,12 @@ fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime
                     && sex_of(&man) == Some(Sex::Male)
                     && partnership.ended == first_death
                     && first_death.is_none_or(|death| death >= formed)
-                    && (partnership.ended.is_some() || (open.insert(woman) && open.insert(man)))
+                    && [woman, man].into_iter().all(|sim| {
+                        match latest.insert(sim, partnership.ended) {
+                            None => true,
+                            Some(earlier) => earlier.is_some_and(|end| end < formed),
+                        }
+                    })
             },
         )
 }
