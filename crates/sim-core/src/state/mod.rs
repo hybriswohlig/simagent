@@ -1,6 +1,7 @@
 //! The domain state (ADR-0003 section 4). Domain code changes it only inside a handler
 //! or an applied input and sees the rest of the world through `SimCtx`.
 
+pub(crate) mod birth;
 pub(crate) mod birthday;
 pub(crate) mod census;
 pub(crate) mod conception;

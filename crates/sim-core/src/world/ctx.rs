@@ -162,6 +162,21 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         (id, entry)
     }
 
+    /// A newborn sim: allocates its ID and writes its creation entry with the child, the
+    /// mother and the father as subjects (ADR-0004 sections 1 and 7).
+    #[track_caller]
+    pub(crate) fn create_child(
+        &mut self,
+        payload: LogPayload,
+        [mother, father]: [SimId; 2],
+        causes: Causes,
+    ) -> (SimId, EventId) {
+        let id = self.ids.sim.allocate_sim();
+        let subjects = vec![Subject::Sim(id), Subject::Sim(mother), Subject::Sim(father)];
+        let entry = self.emit(payload, subjects, causes);
+        (id, entry)
+    }
+
     /// A new partnership of a woman and a man: allocates its ID and writes its creation
     /// entry `core:partnered` with the two as subjects (ADR-0004 section 1).
     #[track_caller]

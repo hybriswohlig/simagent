@@ -43,12 +43,13 @@ pub(crate) fn first_attempt(
     (first < too_old).then_some(first)
 }
 
-/// Plans the monthly attempts of `woman`, now paired, by `by`; nothing if she is
-/// pregnant or cannot conceive any more.
+/// Plans the monthly attempts of `woman` from `from` on (her pairing, or the second
+/// after a birth), by `by`; nothing if she is pregnant or cannot conceive any more.
 pub(crate) fn plan_attempts(
     domain: &mut DomainState,
     woman: SimId,
     by: EventId,
+    from: SimTime,
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let fertility = domain
@@ -60,7 +61,7 @@ pub(crate) fn plan_attempts(
     if domain.pregnancies.contains_key(&woman) {
         return;
     }
-    let Some(first) = first_attempt(&fertility, her.born, ctx.now()) else {
+    let Some(first) = first_attempt(&fertility, her.born, from) else {
         return;
     };
     let payload = EventPayload::ConceptionAttempt { woman };
@@ -190,7 +191,7 @@ pub(crate) fn on_attempt(domain: &mut DomainState, woman: SimId, ctx: &mut SimCt
         return;
     }
     stop_attempts(domain, woman, ctx);
-    conceive(domain, seed, woman, man, draw, ctx);
+    conceive(domain, seed, &fertility, woman, man, draw, ctx);
 }
 
 /// She conceives her next child with him now: the entries of the conception and of the
@@ -198,6 +199,7 @@ pub(crate) fn on_attempt(domain: &mut DomainState, woman: SimId, ctx: &mut SimCt
 fn conceive(
     domain: &mut DomainState,
     seed: u64,
+    fertility: &Fertility,
     woman: SimId,
     man: SimId,
     draw: DrawKey,
@@ -252,6 +254,7 @@ fn conceive(
         vec![Subject::Sim(man)],
         meiosis(1).with(Cause::Random(DrawRef::from(sex_key(genome)))),
     );
+    let now = ctx.now();
     domain.pregnancies.insert(
         woman,
         Pregnancy {
@@ -260,7 +263,15 @@ fn conceive(
             conception: number,
             sex: zygote.sex(),
             genotype: zygote.genotype,
-            conceived: ctx.now(),
+            conceived: now,
         },
     );
+    let due = birth_of(fertility, now).unwrap_or_else(|| panic!("invariant time.out_of_range"));
+    let handle = ctx.schedule(due, EventPayload::Birth { mother: woman }, conception);
+    domain.pending.insert((woman, Slot::Birth), handle);
+}
+
+/// When a child conceived at `conceived` is born: `pregnancy_months` months later.
+pub(crate) fn birth_of(fertility: &Fertility, conceived: SimTime) -> Option<SimTime> {
+    conceived.checked_add(MONTH.checked_mul(i64::from(fertility.pregnancy_months))?)
 }

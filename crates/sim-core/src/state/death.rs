@@ -66,18 +66,28 @@ pub(crate) fn due(
     }
 }
 
-/// The exposure a founder starts with: one for the dummy allele twice, running from the
-/// start if the switch is on.
-pub(crate) fn first_exposure(genotype: Genotype, switch_on: bool) -> Option<Exposure> {
+/// The exposure a sim starts with at `origin` (the start for a founder, the birth for a
+/// child): one for the dummy allele twice, running from then on if the switch is on.
+pub(crate) fn first_exposure(
+    genotype: Genotype,
+    switch_on: bool,
+    origin: SimTime,
+) -> Option<Exposure> {
     genotype.dummy_homozygous().then_some(Exposure {
         before: SimDuration::ZERO,
-        since: switch_on.then_some(SimTime::START),
+        since: switch_on.then_some(origin),
     })
 }
 
+/// From when the causes for everyone act on a sim: from its birth, on a founder from the
+/// start.
+pub(crate) fn origin(born: SimTime) -> SimTime {
+    born.max(SimTime::START)
+}
+
 /// Plans the deaths of `sim` for the causes from the list position `from` on, in the
-/// order of the list. All sims are founders so far: the causes for everyone act from
-/// the start on. `by` is the entry that plans them.
+/// order of the list; the causes for everyone act from its origin on. `by` is the entry
+/// that plans them.
 pub(crate) fn plan_deaths(
     domain: &mut DomainState,
     sim: SimId,
@@ -92,8 +102,9 @@ pub(crate) fn plan_deaths(
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
     let (lineage_key, exposure) = (person.lineage_key, person.exposure);
+    let origin = origin(person.born);
     for cause in domain.death_causes.iter().skip(from) {
-        let Some(at) = due(seed, lineage_key, exposure, cause, SimTime::START) else {
+        let Some(at) = due(seed, lineage_key, exposure, cause, origin) else {
             continue;
         };
         let key = cause.cause.key();
