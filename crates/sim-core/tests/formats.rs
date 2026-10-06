@@ -1151,6 +1151,21 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(targets.iter().map(|t| line("applies_to", t)));
+    // The meiosis entry: the start strand and the sex chromosome passed on.
+    let strands = [Strand::Maternal, Strand::Paternal];
+    for strand in &strands {
+        match strand {
+            Strand::Maternal | Strand::Paternal => {}
+        }
+    }
+    let chromosomes = [SexChromosome::X, SexChromosome::Y];
+    for chromosome in &chromosomes {
+        match chromosome {
+            SexChromosome::X | SexChromosome::Y => {}
+        }
+    }
+    actual.extend(strands.iter().map(|s| line("strand", s)));
+    actual.extend(chromosomes.iter().map(|c| line("sex_chromosome", c)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
