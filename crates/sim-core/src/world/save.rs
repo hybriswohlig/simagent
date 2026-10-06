@@ -12,12 +12,13 @@ use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{
     self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
 };
+use crate::genome::Genotype;
 use crate::ids::{Counter, SimId};
-use crate::input::{DeathCause, Input, InputRecord, Start};
+use crate::input::{AppliesTo, DeathCause, Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
 use crate::params::WorldParams;
-use crate::state::{self, ArchivedSim, DomainState, LeftBy, Sim, Slot};
+use crate::state::{self, ArchivedSim, DomainState, Exposure, LeftBy, Sim, Slot};
 use crate::time::{EventHandle, Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
@@ -276,9 +277,14 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<Death
             && exceptions.year_hashes.is_empty();
         return empty.then(Vec::new);
     };
-    let causes = input_log_consistent(loaded, exceptions, seed)?;
-    let rest = sims_consistent(loaded, now, seed, &causes)
-        && queue_consistent(loaded, now, seed, &causes)
+    let (causes, switch) = input_log_consistent(loaded, exceptions, seed)?;
+    let rules = Rules {
+        seed,
+        causes: &causes,
+        switch: &switch,
+    };
+    let rest = sims_consistent(loaded, now, &rules)
+        && queue_consistent(loaded, now, &rules)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
@@ -290,13 +296,15 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<Death
 /// clock. `Start` first and only first, stamped before the start, with the seed of the
 /// world, its causes of death and the founders as the sims 1 to N; then override blocks
 /// that pass their own check. The parameters of `Start` after every override are those
-/// of the world. Gives the causes of death of `Start`, or `None` if anything is off.
+/// of the world. Gives the causes of death of `Start` and the history of the switch of
+/// the hereditary diseases (see `Rules`), or `None` if anything is off.
 fn input_log_consistent(
     loaded: &LoadedState,
     exceptions: &Exceptions,
     seed: u64,
-) -> Option<Vec<DeathCause>> {
+) -> Option<(Vec<DeathCause>, SwitchHistory)> {
     let mut started: Option<(WorldParams, &Start)> = None;
+    let mut switch = Vec::new();
     let mut last_stamp = None;
     for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
         let in_order = last_stamp.is_none_or(|last| last <= record.t);
@@ -315,6 +323,10 @@ fn input_log_consistent(
                     return None;
                 }
                 started = Some((start.world_params, start));
+                switch.push((
+                    SimTime::START.as_secs(),
+                    start.world_params.hereditary_diseases,
+                ));
             }
             (Input::ForkOverride(block), Some((before, start))) => {
                 if block.rejection().is_some() {
@@ -325,13 +337,91 @@ fn input_log_consistent(
                     .iter()
                     .fold(before, |params, change| params.with(*change));
                 started = Some((after, start));
+                // Stamped with the last closed second, the block acts in the next one.
+                switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
             }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return None,
         }
     }
     let (params, start) = started?;
-    (Some(params) == loaded.world_params).then(|| start.death_causes.clone())
+    (Some(params) == loaded.world_params).then(|| (start.death_causes.clone(), switch))
+}
+
+/// The switch of the hereditary diseases: each value with the second from which it holds.
+type SwitchHistory = Vec<(i64, bool)>;
+
+/// What the sims are checked against: the seed, the causes of death of `Start`, and the
+/// history of the switch of the hereditary diseases from the input log, as the second
+/// from which each value holds (`Start` at the start, an override block one second
+/// after its stamp). All sims are founders so far: the causes act from the start on.
+struct Rules<'a> {
+    seed: u64,
+    causes: &'a [DeathCause],
+    switch: &'a [(i64, bool)],
+}
+
+impl Rules<'_> {
+    /// When a sim dies of `cause` if nothing else comes first.
+    fn due(
+        &self,
+        lineage_key: LineageKey,
+        exposure: Option<Exposure>,
+        cause: &DeathCause,
+    ) -> Option<SimTime> {
+        state::death::due(self.seed, lineage_key, exposure, cause, SimTime::START)
+    }
+
+    /// The exposure the switch history gives a founder at the second `at`: the closed
+    /// periods of the switch before, and since when it is on.
+    fn exposure_at(&self, at: i64) -> (i64, Option<i64>) {
+        let mut before = 0_i64;
+        let mut since = None;
+        for &(from, on) in self.switch.iter().filter(|(from, _)| *from <= at) {
+            match (since, on) {
+                (None, true) => since = Some(from),
+                (Some(begin), false) => {
+                    before += from - begin;
+                    since = None;
+                }
+                (None, false) | (Some(_), true) => {}
+            }
+        }
+        (before, since)
+    }
+
+    /// A sim has an exposure exactly if it has the dummy allele twice, and then the one
+    /// the switch history gives it at `at` (now for the living, the death for the
+    /// archive). No hereditary cause has used up more than its budget: the sim would
+    /// have died of it. Exactly used up is possible: the switch went off in the very
+    /// second of the death.
+    fn exposure_consistent(
+        &self,
+        genotype: Genotype,
+        lineage_key: LineageKey,
+        exposure: Option<Exposure>,
+        at: i64,
+    ) -> bool {
+        match (genotype.dummy_homozygous(), exposure) {
+            (false, None) => true,
+            (true, Some(exposure)) => {
+                let held = (
+                    exposure.before.as_secs(),
+                    exposure.since.map(SimTime::as_secs),
+                );
+                held == self.exposure_at(at)
+                    && self
+                        .causes
+                        .iter()
+                        .filter(|cause| cause.applies_to == AppliesTo::DummyHomozygous)
+                        .all(|cause| {
+                            state::death::needed(self.seed, lineage_key, cause)
+                                .is_none_or(|needed| exposure.before <= needed)
+                        })
+            }
+            (false, Some(_)) | (true, None) => false,
+        }
+    }
 }
 
 /// The causes of death of the projection are those of `Start`, in its order: each by
@@ -368,30 +458,38 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     loaded.next_sim_id == next_id
 }
 
-/// Every ID below the counter; a departure in a closed second (an event of the first
-/// open second has not run yet) and as the death rule gives it (so never before the
-/// birth: the causes act from the start on). All sims are founders so far:
+/// Every ID below the counter; every exposure as the switch history gives it, for the
+/// archive at the death; a departure in a closed second (an event of the first open
+/// second has not run yet) and as the death rule gives it (so never before the birth:
+/// the causes act from the start on). All sims are founders so far:
 /// `founders_are_the_first_sims` has shown that each is in one place only and born
 /// before the start. The first rule that creates sims needs both checks here (ADR-0006
 /// section 5).
-fn sims_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCause]) -> bool {
+fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
-    loaded.sims.keys().all(below_counter)
-        && loaded.archive.iter().all(|(id, sim)| {
-            below_counter(id) && sim.left.as_secs() < now && died_by_the_rule(sim, seed, causes)
-        })
+    loaded.sims.iter().all(|(id, sim)| {
+        below_counter(id)
+            && rules.exposure_consistent(sim.genotype, sim.lineage_key, sim.exposure, now)
+    }) && loaded.archive.iter().all(|(id, sim)| {
+        let left = sim.left.as_secs();
+        below_counter(id)
+            && left < now
+            && rules.exposure_consistent(sim.genotype, sim.lineage_key, sim.exposure, left)
+            && died_by_the_rule(sim, rules)
+    })
 }
 
 /// An archived sim died of a cause of the world, in the second its budget for that
 /// cause ran out, and no other cause was due before. Of two causes due in the same
-/// second the one earlier in the list wins: its event was planned first. The causes
-/// act on a founder from the start on.
-fn died_by_the_rule(sim: &ArchivedSim, seed: u64, causes: &[DeathCause]) -> bool {
+/// second the one earlier in the list wins: its event was planned first. A hereditary
+/// cause was due only if the exposure kept with the sim ran at the death.
+fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
     let LeftBy::Death { cause } = sim.left_by;
+    let causes = rules.causes;
     let Some(position) = causes.iter().position(|other| other.cause.key() == cause) else {
         return false;
     };
-    let due = |cause: &DeathCause| state::death::due(seed, sim.lineage_key, cause, SimTime::START);
+    let due = |cause: &DeathCause| rules.due(sim.lineage_key, sim.exposure, cause);
     due(&causes[position]) == Some(sim.left)
         && causes
             .iter()
@@ -406,7 +504,8 @@ fn died_by_the_rule(sim: &ArchivedSim, seed: u64, causes: &[DeathCause]) -> bool
 /// its next anniversary; per living sim and cause of death one death, due when the
 /// budget for that cause runs out, and none where it never does; nothing for a sim that
 /// does not live.
-fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCause]) -> bool {
+fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
+    let causes = rules.causes;
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
@@ -415,7 +514,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCa
     let mut planned = Vec::new();
     let death_due = |person: &Sim, key: u64| {
         let cause = causes.iter().find(|cause| cause.cause.key() == key)?;
-        state::death::due(seed, person.lineage_key, cause, SimTime::START)
+        rules.due(person.lineage_key, person.exposure, cause)
     };
     for entry in &loaded.queue {
         let due = entry.time.as_secs();

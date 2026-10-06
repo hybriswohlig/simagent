@@ -26,3 +26,13 @@ pub struct Genotype {
     pub maternal: Allele,
     pub paternal: Allele,
 }
+
+impl Genotype {
+    /// The dummy allele from both parents: the hereditary disease can act (C5).
+    pub(crate) const fn dummy_homozygous(self) -> bool {
+        matches!(
+            (self.maternal, self.paternal),
+            (Allele::Dummy, Allele::Dummy)
+        )
+    }
+}

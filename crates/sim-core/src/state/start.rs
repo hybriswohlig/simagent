@@ -81,7 +81,8 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// 7). Then one creation entry per founder, in list order; the position in the list
 /// is the founder's index in its lineage key (ADR-0001 section 4). Per founder the first
 /// birthday is planned, then the deaths in the order of the causes; the causes act on a
-/// founder from the start on.
+/// founder from the start on, a hereditary one only with the dummy allele twice and the
+/// switch on.
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params);
@@ -114,14 +115,17 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
                 lineage_key,
                 sex: founder.sex,
                 genotype: founder.genotype,
-                exposure: None,
+                exposure: death::first_exposure(
+                    founder.genotype,
+                    start.world_params.hereditary_diseases,
+                ),
             },
         );
         let next = first_birthday(born, ctx.now());
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
         domain.pending.insert((id, Slot::Birthday), handle);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });
-        death::plan_deaths(domain, id, lineage_key, SimTime::START, added, ctx);
+        death::plan_deaths(domain, id, 0, added, ctx);
     }
 }
 
