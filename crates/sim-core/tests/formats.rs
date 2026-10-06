@@ -943,6 +943,14 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(params.iter().map(|p| line("param", p)));
+    // On whom a cause of death acts: part of `Start` and of saves.
+    let targets = [AppliesTo::Everyone, AppliesTo::DummyHomozygous];
+    for target in &targets {
+        match target {
+            AppliesTo::Everyone | AppliesTo::DummyHomozygous => {}
+        }
+    }
+    actual.extend(targets.iter().map(|t| line("applies_to", t)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
