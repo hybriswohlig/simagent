@@ -14,13 +14,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sim_core::genome::{Allele, Genotype, SexChromosome, Strand};
-use sim_core::ids::SimId;
+use sim_core::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
+use sim_core::ids::{EventId, SimId};
 use sim_core::input::{ForkOverride, Input};
 use sim_core::lineage::LineageKey;
-use sim_core::log::{LogEntry, LogPayload, Subject, log_hash};
+use sim_core::log::{Cause, LogEntry, LogPayload, Subject, log_hash};
 use sim_core::params::ParamChange;
-use sim_core::pedigree::{Pedigree, Person};
+use sim_core::pedigree::Pedigree;
 use sim_core::time::SimTime;
 use sim_core::world::{World, YearOut};
 
@@ -89,14 +89,39 @@ struct Conception {
     genome: (Strand, Strand, SexChromosome),
 }
 
-/// What a run says by lineage key: the persons of its pedigree and its conceptions,
+/// What a run says about one born lineage key (ADR-0001): parent keys, genome, the
+/// times of birth and death. No SimId and no EventId; the conception is in
+/// `Projection::conceptions`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Member {
+    /// The keys of mother and father, `None` for a founder.
+    parents: Option<(LineageKey, LineageKey)>,
+    sex: Sex,
+    genotype: Genotype,
+    born: SimTime,
+    died: Option<SimTime>,
+}
+
+/// Everything of a member but its death.
+type Origin = (Option<(LineageKey, LineageKey)>, Sex, Genotype, SimTime);
+
+impl Member {
+    fn origin(&self) -> Origin {
+        (self.parents, self.sex, self.genotype, self.born)
+    }
+}
+
+/// What a run says by lineage key: the members of its pedigree and its conceptions,
 /// those lost with the death of the mother included.
 struct Projection {
-    persons: BTreeMap<LineageKey, Person>,
+    members: BTreeMap<LineageKey, Member>,
     conceptions: BTreeMap<LineageKey, Conception>,
     /// The founder couples, by the keys of woman and man.
     couples: Vec<(LineageKey, LineageKey)>,
 }
+
+/// Ten months of 28 days (the scenario's `pregnancy_months`).
+const PREGNANCY: i64 = 10 * 28 * 86_400;
 
 fn project(run: &Run) -> Projection {
     let pedigree: Pedigree = run.world.state().pedigree();
@@ -105,10 +130,24 @@ fn project(run: &Run) -> Projection {
         .iter()
         .map(|person| (person.sim, person.lineage_key))
         .collect();
-    let persons = pedigree
+    let members: BTreeMap<LineageKey, Member> = pedigree
         .persons
         .iter()
-        .map(|person| (person.lineage_key, person.clone()))
+        .map(|person| {
+            assert_eq!(person.mother.is_some(), person.father.is_some());
+            let parents = person
+                .mother
+                .zip(person.father)
+                .map(|(mother, father)| (key_of[&mother], key_of[&father]));
+            let member = Member {
+                parents,
+                sex: person.sex,
+                genotype: person.genotype,
+                born: person.born,
+                died: person.died,
+            };
+            (person.lineage_key, member)
+        })
         .collect();
     let couples = pedigree
         .partnerships
@@ -148,8 +187,21 @@ fn project(run: &Run) -> Projection {
         assert_eq!(meioses.len(), 2, "two meioses per conception (ADR-0004)");
         conception.genome = (meioses[0].0, meioses[1].0, meioses[1].1);
     }
+    // The pedigree and the log agree: every born child has the parents of its
+    // conception and is born ten months after it; a founder was never conceived.
+    for (key, member) in &members {
+        match (member.parents, conceptions.get(key)) {
+            (None, None) => {}
+            (Some(parents), Some(conception)) => {
+                assert_eq!(parents, (conception.mother, conception.father), "{key:?}");
+                let born = conception.at.as_secs() + PREGNANCY;
+                assert_eq!(member.born.as_secs(), born, "{key:?}");
+            }
+            _ => panic!("{key:?}: parents without conception or the other way round"),
+        }
+    }
     Projection {
-        persons,
+        members,
         conceptions,
         couples,
     }
@@ -204,26 +256,31 @@ fn fork_projection_by_lineage_key() {
             .collect()
     };
     assert_eq!(before(&parent), before(&fork), "(1) conceptions before T_5");
-    let founders = |projection: &Projection| -> Vec<(LineageKey, Genotype)> {
+    let founders = |projection: &Projection| -> Vec<(LineageKey, Origin)> {
         projection
-            .persons
-            .values()
-            .filter(|person| person.mother.is_none())
-            .map(|person| (person.lineage_key, person.genotype))
+            .members
+            .iter()
+            .filter(|(_, member)| member.parents.is_none())
+            .map(|(key, member)| (*key, member.origin()))
             .collect()
     };
     assert_eq!(founders(&parent), founders(&fork), "(1) founders");
-    for (key, person) in &fork.persons {
-        if let Some(theirs) = parent.persons.get(key) {
-            assert_eq!(person.genotype, theirs.genotype, "(1) genome of {key:?}");
+    assert_eq!(founders(&parent).len(), 32);
+    // A key born in both runs has the same parent keys, sex, genome and birth there.
+    let mut both = 0;
+    for (key, ours) in &fork.members {
+        if let Some(theirs) = parent.members.get(key) {
+            assert_eq!(ours.origin(), theirs.origin(), "(1) {key:?}");
+            both += 1;
         }
     }
+    assert!(both > 32, "(1) no child is born in both runs");
 
     // (2) Persons who are not homozygous and live in both runs die at the same time.
     // (3) The homozygous die in the fork not later.
     let mut earlier = 0;
-    for (key, ours) in &fork.persons {
-        let Some(theirs) = parent.persons.get(key) else {
+    for (key, ours) in &fork.members {
+        let Some(theirs) = parent.members.get(key) else {
             continue;
         };
         if ours.genotype == HOMOZYGOUS {
@@ -254,7 +311,7 @@ fn fork_projection_by_lineage_key() {
     };
     assert_eq!(parent.couples, fork.couples);
     assert_eq!(parent.couples.len(), 16);
-    let homozygous = |key: &LineageKey| parent.persons[key].genotype == HOMOZYGOUS;
+    let homozygous = |key: &LineageKey| parent.members[key].genotype == HOMOZYGOUS;
     let (mut mixed, mut fewer, mut after) = (0, 0, 0);
     for &couple in &parent.couples {
         let (theirs, ours) = (of(&parent, couple), of(&fork, couple));
@@ -283,6 +340,47 @@ fn fork_projection_by_lineage_key() {
         after >= 3,
         "(6) {after} conceptions of heterozygous couples after T_5"
     );
+}
+
+/// `draw_keys_unique_in_log`: every draw key is the cause of at most one log entry, in
+/// the parent run and in the fork. Every death, conception and meiosis names its draw,
+/// so the check covers every entry that draws.
+#[test]
+fn draw_keys_unique_in_log() {
+    for fork in [false, true] {
+        let run = run(fork);
+        let mut seen: BTreeMap<(u64, u64, u64, u64), EventId> = BTreeMap::new();
+        for entry in &run.log {
+            let draws: BTreeSet<(u64, u64, u64, u64)> = entry
+                .causes
+                .as_slice()
+                .iter()
+                .filter_map(|cause| match cause {
+                    Cause::Random(draw) => {
+                        Some((draw.tag, draw.subject, draw.occasion, draw.detail))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if matches!(
+                entry.payload,
+                LogPayload::Death { .. }
+                    | LogPayload::Conception { .. }
+                    | LogPayload::Meiosis { .. }
+            ) {
+                assert!(
+                    !draws.is_empty(),
+                    "fork {fork}: {:?} names no draw",
+                    entry.id
+                );
+            }
+            for draw in draws {
+                if let Some(first) = seen.insert(draw, entry.id) {
+                    panic!("fork {fork}: {draw:x?} in {first:?} and {:?}", entry.id);
+                }
+            }
+        }
+    }
 }
 
 /// ADR-0004 test 5 on the parent run, year by year: the creation entries so far are as
