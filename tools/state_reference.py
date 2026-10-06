@@ -609,6 +609,22 @@ assert sorted(CLAN.pregnancies) == [1, 3] and [CLAN.sims[1][5], CLAN.sims[3][5]]
 assert sorted(CLAN.archive) == [9, 10] and CLAN.sims[13][6] == (3, 4, 0)
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
 
+# "clan" with the switch of the hereditary diseases on from the start: the girl (dummy
+# twice) is exposed from the start, the first child (dummy twice) from its birth in
+# month 15.
+CLAN_ON = world_reference.World(
+    0xFF,
+    "test:clan",
+    True,
+    [("test:base", 0.02)],
+    CLAN_FOUNDERS,
+    [(0, 1), (2, 3), (4, 5)],
+    (0.25, 18, 45, 10),
+)
+CLAN_ON.advance(15 * MONTH)
+assert CLAN_ON.sims[7][4] == [0, 15 * MONTH] and CLAN_ON.sims[3][4] == [0, 0]
+CLAN_ON_SAVE_AFTER_BIRTH = CLAN_ON.save()
+
 # "clan" with a second cause, `test:fever` with 0.5 per year: the father dies in month 6.2
 # (the pregnancy goes on, his child is born in month 15), the girl's partner in month 7.2
 # (her attempts end before they begin). By the end of year 3 all seven have died, the
@@ -708,6 +724,7 @@ if __name__ == "__main__":
     print(f"clan_save_after_year_7 {CLAN_SAVE_AFTER_YEAR_7.hex()}")
     print(f"clan_pregnancies {CLAN.pregnancies}")
     print(f"clan_fever_save_after_year_3 {CLAN_FEVER_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"clan_on_save_after_birth {CLAN_ON_SAVE_AFTER_BIRTH.hex()}")
     print(f"clan_blight_save_after_year_0 {CLAN_BLIGHT_SAVE_AFTER_YEAR_0.hex()}")
     print(f"clan_blight_her_death {BLIGHT.archive[1][1]}")
     for number, line in enumerate(CLAN_BIRTH_ENTRIES):

@@ -2130,7 +2130,26 @@ fn a_save_keeps_the_child() {
 /// founders without a gap. ADR-0006 section 5.
 #[test]
 fn load_checks_the_born() {
-    let cases: [(&str, Vec<u8>); 10] = [
+    let cases: [(&str, Vec<u8>); 11] = [
+        (
+            "a second conception while she was pregnant with the first child",
+            clan_born().with(|f| {
+                // The draw of month 12 succeeds (tools/rng_reference.py).
+                f.pregnancies = vec![(
+                    1,
+                    (2, 0xe6f8_1c92_e297_9324, 1, MALE, (WILD, WILD), 12 * MONTH),
+                )];
+                f.sims[0].1.5 = 2;
+                take_event(f, 0);
+                let seq = f.next_event_seq;
+                f.next_event_seq += 1;
+                insert_event(
+                    f,
+                    (22 * MONTH, 0, seq, Payload::Birth { mother: 1 }, None),
+                    (17, 12 * MONTH),
+                );
+            }),
+        ),
         (
             "a child with another genotype",
             clan_born().with(|f| {
