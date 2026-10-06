@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, Slot, death, years_between};
+use super::{DomainState, Sim, Slot, death, partnership, years_between};
 use crate::input::{DeathCause, InputRejected, MIN_DEATH_RATE_PER_YEAR, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
@@ -22,7 +22,8 @@ pub(crate) fn check_start(
         start.founders.len(),
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
-    .or_else(|| death_causes_rejection(&start.death_causes));
+    .or_else(|| death_causes_rejection(&start.death_causes))
+    .or_else(|| partnership::couples_rejection(&start.founders, &start.couples));
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -82,7 +83,7 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// is the founder's index in its lineage key (ADR-0001 section 4). Per founder the first
 /// birthday is planned, then the deaths in the order of the causes; the causes act on a
 /// founder from the start on, a hereditary one only with the dummy allele twice and the
-/// switch on.
+/// switch on. Then the couples are paired, in list order.
 pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params);
@@ -100,6 +101,7 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
         EventPayload::YearEnd,
         started,
     );
+    let mut ids = Vec::with_capacity(start.founders.len());
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
         let lineage_key = LineageKey::founder(&start.founder_tag, index);
@@ -126,6 +128,16 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
         domain.pending.insert((id, Slot::Birthday), handle);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });
         death::plan_deaths(domain, id, 0, added, ctx);
+        ids.push(id);
+    }
+    for couple in &start.couples {
+        let founder = |place: u32| {
+            usize::try_from(place)
+                .ok()
+                .and_then(|place| ids.get(place).copied())
+                .unwrap_or_else(|| panic!("invariant start.couple_place"))
+        };
+        partnership::pair_up(domain, founder(couple.woman), founder(couple.man), ctx);
     }
 }
 

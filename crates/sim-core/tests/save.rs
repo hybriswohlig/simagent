@@ -22,10 +22,10 @@ const Y: i64 = 31_449_600;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540105c2a9cec6d380a0832d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff01010000010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000002020001000301010100ff0109746573743a74696e790000010100000100";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff01010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000002020001000402010100ff0109746573743a74696e790000010100000101020101000100";
-const EMPTY_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0500000001010001000000010000";
+const HEADER: &str = "53494d4147454e540106c2a9cec6d380a0832d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff0101000001020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100000002020001000301010100ff0109746573743a74696e79000001010000010000";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff0101010001020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100000002020001000402010100ff0109746573743a74696e79000001010000010001020101000100";
+const EMPTY_SAVE: &str = "53494d4147454e540106c2a9cec6d380a0832d06000000010101000100000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -47,6 +47,7 @@ fn start(seed: u64, tag: &str, born: &[i64]) -> Input {
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
+        couples: Vec::new(),
     })
 }
 
@@ -128,9 +129,15 @@ enum TestInput {
         /// (code, hazard per year, on whom it acts)
         death_causes: Vec<(String, f64, TestAppliesTo)>,
         founders: Vec<TestFounder>,
+        /// (woman, man) by their places among the founders
+        couples: Vec<(u32, u32)>,
     },
     ForkOverride {
         changes: Vec<TestChange>,
+    },
+    ArrangePartnership {
+        woman: u64,
+        man: u64,
     },
 }
 
@@ -212,6 +219,8 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
 
 /// (time, micro, seq, payload, period)
 type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
+/// (woman, man, formed, ended)
+type TestPartnership = (u64, u64, i64, Option<i64>);
 
 #[derive(Clone, Serialize)]
 struct File {
@@ -229,10 +238,12 @@ struct File {
     death_causes: Vec<(u64, f64, TestAppliesTo)>,
     closed_through: i64,
     next_sim_id: u64,
+    next_partnership_id: u64,
     queue: Vec<QueueEntry>,
     next_event_seq: u64,
     /// (id, sim); a list of pairs encodes like a map and can hold duplicates.
     sims: Vec<(u64, Living)>,
+    partnerships: Vec<(u64, TestPartnership)>,
     archive: Vec<(u64, Archived)>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
@@ -250,20 +261,22 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 5,
+            core_version: 6,
             data_hash: EMPTY_DATA_HASH,
-            projection_version: 5,
+            projection_version: 6,
             world_seed: Some(0xff),
             world_params: Some(false),
             death_causes: Vec::new(),
             closed_through: -1,
             next_sim_id: 2,
+            next_partnership_id: 1,
             queue: vec![
                 (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
                 (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
             ],
             next_event_seq: 3,
             sims: vec![(1, living(0, -1))],
+            partnerships: Vec::new(),
             archive: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0)],
             next_event_id: 3,
@@ -276,6 +289,7 @@ impl File {
                     world_params: false,
                     death_causes: Vec::new(),
                     founders: vec![test_founder(-1)],
+                    couples: Vec::new(),
                 },
             )],
             year_hashes: Vec::new(),
@@ -296,7 +310,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 5);
+    assert_eq!(CORE_VERSION, 6);
 }
 
 // ---------------------------------------------------------------------------------
@@ -509,7 +523,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [4, 6] {
+    for version in [5, 7] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -536,9 +550,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 6;
+        f.core_version = 7;
         f.data_hash = 7;
-        f.projection_version = 6;
+        f.projection_version = 7;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -552,11 +566,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 5;
+        f.core_version = 6;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 6);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 7);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -582,7 +596,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [4, 6] {
+    for version in [5, 7] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -610,9 +624,9 @@ fn load_rejects_malformed_bytes() {
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
     // Behind the header: version, seed (3 bytes), world parameters (2 bytes), the number of
-    // causes of death, clock, sim counter, queue length, then the first entry with its
-    // time (4 bytes), micro step and insertion number.
-    let payload_at = header + 10 + 4 + 2;
+    // causes of death, clock, sim counter, partnership counter, queue length, then the
+    // first entry with its time (4 bytes), micro step and insertion number.
+    let payload_at = header + 11 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -647,6 +661,7 @@ fn load_rejects_non_canonical_bytes() {
                 world_params: false,
                 death_causes: Vec::new(),
                 founders: vec![test_founder(-1), test_founder(-1)],
+                couples: Vec::new(),
             };
         })
     };
@@ -663,8 +678,10 @@ fn load_rejects_non_canonical_bytes() {
     let mut overlong = good.clone();
     overlong.splice(at..=at, [0x82, 0x00]);
     assert_eq!(load_error(&overlong), Some(LoadError::Malformed));
-    // Length prefixes far beyond the input: rejected without reading that much.
-    let queue_len = at + 1;
+    // Length prefixes far beyond the input: rejected without reading that much. The
+    // partnership counter lies between.
+    assert_eq!(good[at + 1], 1, "next_partnership_id of the tiny world");
+    let queue_len = at + 2;
     assert_eq!(good[queue_len], 2, "two pending events");
     let mut huge = good.clone();
     huge.splice(queue_len..=queue_len, [0xff, 0xff, 0xff, 0xff, 0x0f]);
@@ -877,8 +894,8 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs): she dies of
 // `test:base` in year 1, he of `test:old_age` a little later.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010307fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b301000001000203cbdbe1f0b893cbc91e010101010000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f0002010000010301010100";
-const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00fe8ffe3b0301fe97fd59000100018088ff1d0a0002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b301000001000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010100000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f000201000001030101010200fade89bbe5eab7c4930102d2cae5d6f493e5eb17";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f0001030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b301000001000203cbdbe1f0b893cbc91e01010101000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f000201000001030101010000";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00fe8ffe3b030101fe97fd59000100018088ff1d0a000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b301000001000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010100000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f000201000001030101010002009984e3eec68aefa4610299fdcae4c2d5f4a6a101";
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
 const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
 /// `str_key` of `test:base` and `test:old_age`.
@@ -890,7 +907,7 @@ const HER_DEATH: i64 = 45_838_596;
 const HER_OLD_AGE: i64 = 119_167_578;
 const HIS_BASE: i64 = 144_172_832;
 const HIS_DEATH: i64 = 53_688_989;
-const MORTAL_YEAR_HASHES: [u64; 2] = [0x9388_df56_5762_6f7a, 0x17d7_949f_4ad9_6552];
+const MORTAL_YEAR_HASHES: [u64; 2] = [0x6149_bc54_6dd8_c219, 0xa14d_d2ac_2c92_be99];
 
 fn she(born: i64) -> Living {
     (born, MORTAL_KEYS[0], FEMALE, (WILD, DUMMY), None)
@@ -942,6 +959,7 @@ fn mortal_started() -> File {
             ("test:old_age".to_owned(), 0.05, Everyone),
         ],
         founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+        couples: Vec::new(),
     };
     file
 }
@@ -1017,6 +1035,7 @@ fn tie_started() -> File {
             ("test:old_age".to_owned(), old_age_per_year, Everyone),
         ],
         founders: vec![test_founder(-1)],
+        couples: Vec::new(),
     };
     file
 }
@@ -1098,6 +1117,7 @@ fn a_save_keeps_the_deaths_and_the_archive() {
                     },
                 },
             ],
+            couples: Vec::new(),
         }))
         .expect("accepted");
     let mut out = YearOut::default();
@@ -1288,9 +1308,9 @@ fn load_checks_the_deaths() {
 // Scenario "sick" of tools/state_reference.py: `test:base` with 0.02 per year for everyone,
 // `test:dummy_disease` with 0.3 per year for the homozygous only, while the switch is on.
 // She has one dummy allele, he has two.
-const SWITCHED_ON_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe87ff1d0306fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c0101010100018088ff1d000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101fe87ff1d02010100010100aad2ecc3debdf8c720";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe9ffc770303fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000100010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c01010101000100030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f010201000001030101010400dce187c8b1bdbf840402e5e9adac93ed8cbc6b04f1f9f7ecfef0e2acb70106b29fffa8a7fd9be9f601";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e540105c2a9cec6d380a0832d0501ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fea7fb95010305fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c01010101c6ceaf600000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101c4ceaf6002010100000500dce187c8b1bdbf840402e5e9adac93ed8cbc6b04f1f9f7ecfef0e2acb70106f8b9ecf1a49fefac0a08d6bf9df7f5918cfd03";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c0101010100018088ff1d00000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f0102010000010301010100fe87ff1d02010100010100f5ae9ad788fa81c019";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab010000010000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c01010101000100030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f010201000001030101010004008ad9aaa7ca9086962202d9aabef7e793bc842604f6a7e295f69fb391860106e4a48cb6c1f0aa97e701";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01fea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab01000001000203fba99785c4c1bc5c01010101c6ceaf60000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f0102010000010301010100c4ceaf60020101000005008ad9aaa7ca9086962202d9aabef7e793bc842604f6a7e295f69fb391860106a3b3bb97d8edcbc40908fc82bc8996e5c9cf04";
 /// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
 const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
 /// The `str_key` of `test:dummy_disease`.
@@ -1310,6 +1330,7 @@ fn sick_start(on: bool) -> TestInput {
             ("test:dummy_disease".to_owned(), 0.3, DummyHomozygous),
         ],
         founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+        couples: Vec::new(),
     }
 }
 
@@ -1343,7 +1364,7 @@ fn sick_switched_on() -> File {
     file.plan_refs = vec![(4, Y - 2), (5, Y - 1), (1, 0), (6, Y), (3, 0), (2, 0)];
     file.next_event_id = 7;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0x208f_e1ed_e87b_292a)];
+    file.year_hashes = vec![(0, 0x1980_07d0_8ae6_9775)];
     file
 }
 
@@ -1364,10 +1385,10 @@ fn sick_on_after_year_3() -> File {
     file.next_event_id = 12;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0x0408_fdeb_1901_f0dc),
-        (1, 0x6b78_3369_358b_74e5),
-        (2, 0xb759_8b87_ed9d_fcf1),
-        (3, 0xf6d2_6fea_751f_cfb2),
+        (0, 0x222c_1884_a4ea_ac8a),
+        (1, 0x2608_f09e_7eef_9559),
+        (2, 0x8622_ccff_62b8_93f6),
+        (3, 0xe72e_ab84_16c3_1264),
     ];
     file
 }
@@ -1394,11 +1415,11 @@ fn sick_off_at_due() -> File {
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0x0408_fdeb_1901_f0dc),
-        (1, 0x6b78_3369_358b_74e5),
-        (2, 0xb759_8b87_ed9d_fcf1),
-        (3, 0x0a59_bcfa_4e3b_1cf8),
-        (4, 0x03fa_308f_5ee7_5fd6),
+        (0, 0x222c_1884_a4ea_ac8a),
+        (1, 0x2608_f09e_7eef_9559),
+        (2, 0x8622_ccff_62b8_93f6),
+        (3, 0x0989_2f6d_82ee_d9a3),
+        (4, 0x049f_2729_612f_017c),
     ];
     file
 }
@@ -1521,6 +1542,237 @@ fn load_checks_the_exposure() {
     }
 }
 
+// Scenario "partners" of tools/state_reference.py: the causes of "mortal", a woman and two
+// men. `Start` pairs her with the first man; he dies first, and at the start of year 1
+// `ArrangePartnership` pairs her with the second.
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00fe87ff1d040307fa8ffe3b000b010300fe8ffe3b000c010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff5400daa4c38f0a000a0203ded289dba5abffff54000d020101aa90d4c3eeedd09bdb01000001000305a7f3f8fdb9ee88cfed0101010000020101020001eab582180201038088ff1d00010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb0010101010100000707fa87ff1d08fe87ff1d010004000200020004000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f0003010000010301010105010100010001fe87ff1d020201030100ccf3a6a8fff6d8ffe401";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540106c2a9cec6d380a0832d0601ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00fea7fb9501040301feaffab301000100018088ff1d1300020101020001eab582180201038088ff1d01bca1e98b010301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb01000001000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb0010101010100000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed01010100000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f0003010000010301010105010100010001fe87ff1d020201030500ccf3a6a8fff6d8ffe40102e286d28285a49cc1690495a1e5dad1e9dbed2106d7f2c4f7cec7d3e3c50108b1869fbcc1ed82c120";
+/// The lineage keys of the founders 0 to 2 of `test:partners` (tools/rng_reference.py).
+const PARTNERS_KEYS: [u64; 3] = [
+    0xdb37_436e_e875_082a,
+    0xb039_e764_c557_0c70,
+    0xed9e_2373_9fbe_39a7,
+];
+/// When each of the three dies of `test:base`, and would die of `test:old_age`.
+const PARTNER_DEATHS: [i64; 3] = [153_458_437, 25_185_653, 146_614_366];
+const PARTNER_OLD_AGE: [i64; 3] = [218_906_065, 115_348_095, 1_358_457_133];
+
+fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
+    TestInput::Start {
+        world_seed: 0xff,
+        founder_tag: "test:partners".to_owned(),
+        world_params: false,
+        death_causes: vec![
+            ("test:base".to_owned(), 0.5, Everyone),
+            ("test:old_age".to_owned(), 0.05, Everyone),
+        ],
+        founders: vec![
+            (-1, FEMALE, (WILD, DUMMY)),
+            (-2, MALE, (DUMMY, DUMMY)),
+            (-3, MALE, (DUMMY, WILD)),
+        ],
+        couples,
+    }
+}
+
+/// The founder at `index` of "partners" as a living sim.
+fn partner(index: usize) -> Living {
+    [
+        (-1, PARTNERS_KEYS[0], FEMALE, (WILD, DUMMY), None),
+        (-2, PARTNERS_KEYS[1], MALE, (DUMMY, DUMMY), Some((0, None))),
+        (-3, PARTNERS_KEYS[2], MALE, (DUMMY, WILD), None),
+    ][index]
+}
+
+/// "partners" right after her second partnership: the first man is in the archive, the
+/// first partnership ended with his death, the second formed at the start of year 1 by
+/// the input with sequence number 2.
+fn partners_arranged() -> File {
+    let mut file = File::tiny();
+    file.death_causes = vec![(BASE, 0.5, Everyone), (OLD_AGE, 0.05, Everyone)];
+    file.closed_through = Y - 1;
+    file.next_sim_id = 4;
+    file.next_partnership_id = 3;
+    file.queue = vec![
+        (2 * Y - 3, 0, 11, Payload::Birthday { sim: 3 }, None),
+        (2 * Y - 1, 0, 12, Payload::Birthday { sim: 1 }, None),
+        (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (PARTNER_DEATHS[2], 0, 9, death(3, BASE), None),
+        (PARTNER_DEATHS[0], 0, 3, death(1, BASE), None),
+        (PARTNER_OLD_AGE[0], 0, 4, death(1, OLD_AGE), None),
+        (PARTNER_OLD_AGE[2], 0, 10, death(3, OLD_AGE), None),
+    ];
+    file.next_event_seq = 13;
+    file.sims = vec![(1, partner(0)), (3, partner(2))];
+    file.partnerships = vec![
+        (1, (1, 2, 0, Some(PARTNER_DEATHS[1]))),
+        (2, (1, 3, Y, None)),
+    ];
+    file.archive = vec![(2, dead(partner(1), PARTNER_DEATHS[1], BASE))];
+    file.plan_refs = vec![
+        (7, Y - 3),
+        (8, Y - 1),
+        (1, 0),
+        (4, 0),
+        (2, 0),
+        (2, 0),
+        (4, 0),
+    ];
+    file.next_event_id = 10;
+    file.input_log = vec![
+        (-1, 1, partners_start(vec![(0, 1)])),
+        (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
+    ];
+    file.year_hashes = vec![(0, 0xe4ff_63b7_f509_b9cc)];
+    file
+}
+
+/// "partners" at the end of year 4: all three are in the archive, the second
+/// partnership ended with the death of the second man, before hers.
+fn partners_after_year_4() -> File {
+    let mut file = partners_arranged();
+    file.closed_through = 5 * Y - 1;
+    file.queue = vec![(6 * Y - 1, 0, 1, Payload::YearEnd, Some(Y))];
+    file.next_event_seq = 19;
+    file.sims.clear();
+    file.partnerships[1].1.3 = Some(PARTNER_DEATHS[2]);
+    file.archive = vec![
+        (1, dead(partner(0), PARTNER_DEATHS[0], BASE)),
+        (2, dead(partner(1), PARTNER_DEATHS[1], BASE)),
+        (3, dead(partner(2), PARTNER_DEATHS[2], BASE)),
+    ];
+    file.plan_refs = vec![(1, 0)];
+    file.next_event_id = 18;
+    file.year_hashes = vec![
+        (0, 0xe4ff_63b7_f509_b9cc),
+        (1, 0x6982_7120_5054_8362),
+        (2, 0x21db_6f4d_1b59_5095),
+        (3, 0xc5c7_4e3c_eef1_3957),
+        (4, 0x2082_0b6c_1787_c331),
+    ];
+    file
+}
+
+/// The saves of "partners" from the reference and the test encoder are the same bytes,
+/// and they load.
+#[test]
+fn a_save_keeps_the_partnerships() {
+    assert_eq!(
+        partners_arranged().bytes(),
+        hex(PARTNERS_SAVE_AFTER_ARRANGE)
+    );
+    assert_eq!(
+        partners_after_year_4().bytes(),
+        hex(PARTNERS_SAVE_AFTER_YEAR_4)
+    );
+    for file in [partners_arranged(), partners_after_year_4()] {
+        assert_eq!(load_error(&file.bytes()), None);
+    }
+}
+
+/// The partnerships are those the input log formed, in its order: the couples of
+/// `Start` at the start, then one per `ArrangePartnership` in the second after its
+/// stamp; the counter follows them. Each pairs a woman and a man; it is open while both
+/// live and ended in the second of the first death of the two. ADR-0006 section 5.
+#[test]
+fn load_checks_the_partnerships() {
+    let cases: [(&str, Vec<u8>); 17] = [
+        // Review finding: a pairing while the first partnership of the woman was open.
+        (
+            "a second partnership formed while the first was open",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1.2 = 0;
+                f.input_log[1].0 = -1;
+            }),
+        ),
+        (
+            "a second partnership formed in the second the first ended",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1.2 = PARTNER_DEATHS[1];
+                f.input_log[1].0 = PARTNER_DEATHS[1] - 1;
+            }),
+        ),
+        (
+            "a partnership with an ID beyond its place",
+            partners_arranged().with(|f| f.partnerships[1].0 = 3),
+        ),
+        (
+            "a partnership of a man as the woman, as its input said",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1 = (3, 1, Y, None);
+                f.input_log[1].2 = TestInput::ArrangePartnership { woman: 3, man: 1 };
+            }),
+        ),
+        (
+            "a partnership formed after the death of the man",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1 = (1, 2, Y, Some(PARTNER_DEATHS[1]));
+                f.input_log[1].2 = TestInput::ArrangePartnership { woman: 1, man: 2 };
+            }),
+        ),
+        (
+            "a partnership counter one too high",
+            partners_arranged().with(|f| f.next_partnership_id = 4),
+        ),
+        (
+            "a partnership counter below a partnership",
+            partners_arranged().with(|f| f.next_partnership_id = 2),
+        ),
+        (
+            "a partnership with woman and man swapped",
+            partners_arranged().with(|f| f.partnerships[1].1 = (3, 1, Y, None)),
+        ),
+        (
+            "an open partnership of a sim in the archive",
+            partners_arranged().with(|f| f.partnerships[0].1.3 = None),
+        ),
+        (
+            "a partnership that ended a second after the death",
+            partners_arranged().with(|f| f.partnerships[0].1.3 = Some(PARTNER_DEATHS[1] + 1)),
+        ),
+        (
+            "an ended partnership of two living sims",
+            partners_arranged().with(|f| f.partnerships[1].1.3 = Some(Y)),
+        ),
+        (
+            "a partnership formed a second after its input acted",
+            partners_arranged().with(|f| f.partnerships[1].1.2 = Y + 1),
+        ),
+        (
+            "a partnership without its input",
+            partners_arranged().with(|f| {
+                f.input_log.pop();
+            }),
+        ),
+        (
+            "an input that paired another man",
+            partners_arranged().with(|f| {
+                f.input_log[1].2 = TestInput::ArrangePartnership { woman: 1, man: 2 };
+            }),
+        ),
+        (
+            "a founder couple missing from the start",
+            partners_arranged().with(|f| f.input_log[0].2 = partners_start(Vec::new())),
+        ),
+        (
+            "a partnership ended at the later of the two deaths",
+            partners_after_year_4().with(|f| f.partnerships[1].1.3 = Some(PARTNER_DEATHS[0])),
+        ),
+        (
+            "a sim in two open partnerships",
+            partners_arranged().with(|f| {
+                f.partnerships.push((3, (1, 3, Y, None)));
+                f.next_partnership_id = 4;
+                f.input_log
+                    .push((Y - 1, 3, TestInput::ArrangePartnership { woman: 1, man: 3 }));
+            }),
+        ),
+    ];
+    for (name, bytes) in &cases {
+        assert_eq!(load_error(bytes), Some(LoadError::Inconsistent), "{name}");
+    }
+}
+
 /// A started world without sims at `closed_through`, with its year end due at `due`.
 fn empty_started(closed_through: i64, due: i64) -> File {
     let mut file = File::tiny();
@@ -1557,6 +1809,7 @@ fn start_with_founders(file: &mut File, born: Vec<i64>) {
         world_params: false,
         death_causes: Vec::new(),
         founders: born.into_iter().map(test_founder).collect(),
+        couples: Vec::new(),
     };
 }
 
@@ -1623,6 +1876,14 @@ fn load_rejects_inconsistent_saves() {
         (
             "unstarted with a used sim counter",
             never_started().with(|f| f.next_sim_id = 2),
+        ),
+        (
+            "unstarted with a used partnership counter",
+            never_started().with(|f| f.next_partnership_id = 2),
+        ),
+        (
+            "unstarted with a partnership but an unused counter",
+            never_started().with(|f| f.partnerships = vec![(1, (1, 2, 0, None))]),
         ),
         (
             "unstarted with a used event counter",

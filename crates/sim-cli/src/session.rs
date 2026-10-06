@@ -247,12 +247,25 @@ impl Session {
 
     /// The input log of an orderly run ends with `{"end":t}`. Before a resumed run
     /// writes anything else, the log is open again: header and records, no end line.
-    pub fn reopen_input_log(&self) -> Result<(), CliError> {
+    fn reopen_input_log(&self) -> Result<(), CliError> {
         let mut log = files::json(&header()) + "\n";
         for record in self.world.input_log() {
             log.push_str(&record_line(record));
         }
         files::write(&self.path(files::INPUT_LOG), log.as_bytes())
+    }
+
+    /// Applies inputs at the stop of a resumed run and opens the input log again. All of
+    /// them are applied before anything is written: a rejected one ends the run with its
+    /// code, and the files stay as they were.
+    pub fn submit_at_stop(&mut self, inputs: Vec<Input>) -> Result<(), CliError> {
+        for input in inputs {
+            self.world
+                .submit(input)
+                .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
+        }
+        self.reopen_input_log()?;
+        self.drain()
     }
 
     /// Compares the stamp of the input applied last with the recorded one.

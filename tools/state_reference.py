@@ -65,8 +65,8 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 5
-CORE_VERSION = 5
+PROJECTION_VERSION = 6
+CORE_VERSION = 6
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: bytes, sick=None) -> bytes:
@@ -89,9 +89,11 @@ def projection(
         + seq([])  # death_causes
         + signed(closed_through)
         + varint(2)  # next SimId
+        + varint(1)  # next PartnershipId
         + seq(queue)
         + varint(next_insertion)
         + seq([varint(1) + sim_state(-1, TINY_KEY, FEMALE, TINY_GENES)])  # sims: id 1
+        + seq([])  # partnerships
         + seq([])  # archive
     )
 
@@ -141,6 +143,7 @@ PAIR_AFTER_START = (
     + seq([])  # death_causes
     + signed(-1)
     + varint(3)  # next SimId
+    + varint(1)  # next PartnershipId
     + seq(
         [
             queue_entry(YEAR - 2, 2, birthday(1), None),
@@ -156,6 +159,7 @@ PAIR_AFTER_START = (
             varint(2) + sim_state(-1, PAIR_KEYS[1], MALE, genotype(DUMMY, DUMMY), (0, None)),
         ]
     )
+    + seq([])  # partnerships
     + seq([])  # archive
 )
 
@@ -185,6 +189,7 @@ TINY_INPUT_LOG = seq(
             world_params(False),
             seq([]),  # death_causes
             seq([founder(-1, FEMALE, TINY_GENES)]),
+            seq([]),  # couples
         )
     ]
 )
@@ -208,11 +213,13 @@ EMPTY_PROJECTION = (
     + NONE  # world_params
     + seq([])  # death_causes
     + signed(-1)
-    + varint(1)
+    + varint(1)  # next SimId
+    + varint(1)  # next PartnershipId
     + seq([])
     + varint(1)
-    + seq([])
-    + seq([])
+    + seq([])  # sims
+    + seq([])  # partnerships
+    + seq([])  # archive
 )
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
@@ -264,6 +271,7 @@ TINY_SAVE_OVERRIDDEN = (
                 world_params(False),
                 seq([]),  # death_causes
                 seq([founder(-1, FEMALE, TINY_GENES)]),
+                seq([]),  # couples
             ),
             signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
         ]
@@ -490,6 +498,50 @@ DISEASE_WINS.advance(HIS_BASE)
 assert death_of(DISEASE_WINS, 2) == (HIS_BASE, DISEASE_KEY)
 
 
+# Scenario "partners": seed 0xff, founder tag `test:partners`, the causes of "mortal", a
+# woman (wild, dummy) and two men (dummy twice; dummy, wild) born one, two and three
+# seconds before the start. `Start` pairs her with the first man (partnership 1). He dies
+# after about 0.8 years, which ends it; at the start of year 1 `ArrangePartnership` pairs
+# her with the second man (partnership 2, by the input with sequence number 2). He dies
+# after about 4.66 years, she after about 4.88.
+PARTNERS_FOUNDERS = [
+    (-1, FEMALE, genotype(WILD, DUMMY)),
+    (-2, MALE, genotype(DUMMY, DUMMY)),
+    (-3, MALE, genotype(DUMMY, WILD)),
+]
+PARTNERS_KEYS = [founder_key("test:partners", index) for index in range(3)]
+PARTNERS_DEATHS = [
+    min(
+        world_reference.needed_seconds(0xFF, key, code, rate) for code, rate in MORTAL_CAUSES
+    )
+    for key in PARTNERS_KEYS
+]
+assert PARTNERS_DEATHS[1] < YEAR < PARTNERS_DEATHS[2] < PARTNERS_DEATHS[0] < 5 * YEAR
+
+
+def partners_world() -> world_reference.World:
+    return world_reference.World(
+        0xFF, "test:partners", False, MORTAL_CAUSES, PARTNERS_FOUNDERS, [(0, 1)]
+    )
+
+
+PARTNERS = partners_world()
+PARTNERS_SAVE_AFTER_START = PARTNERS.save()
+PARTNERS_STARTED_ENTRY = PARTNERS.log[4]
+PARTNERS.advance(YEAR - 1)
+assert PARTNERS.partnerships == {1: [1, 2, 0, PARTNERS_DEATHS[1]]}
+PARTNERS.arrange(1, 3)
+PARTNERS_ARRANGED_ENTRY = PARTNERS.log[-1]
+PARTNERS_SAVE_AFTER_ARRANGE = PARTNERS.save()
+PARTNERS.advance(5 * YEAR - 1)
+assert PARTNERS.partnerships == {
+    1: [1, 2, 0, PARTNERS_DEATHS[1]],
+    2: [1, 3, YEAR, PARTNERS_DEATHS[2]],
+}
+assert not PARTNERS.sims
+PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -539,6 +591,14 @@ if __name__ == "__main__":
     print(f"off_at_due_save {OFF_AT_DUE_SAVE.hex()}")
     print(f"tie_switch {TIE_SWITCH}")
     print(f"no_disease_his_death {NO_DISEASE.log[-1].hex()}")
+    print(f"partners_keys {[format(key, '016x') for key in PARTNERS_KEYS]}")
+    print(f"partners_deaths {PARTNERS_DEATHS}")
+    print(f"partners_save_after_start {PARTNERS_SAVE_AFTER_START.hex()}")
+    print(f"partners_started_entry {PARTNERS_STARTED_ENTRY.hex()}")
+    print(f"partners_arranged_entry {PARTNERS_ARRANGED_ENTRY.hex()}")
+    print(f"partners_save_after_arrange {PARTNERS_SAVE_AFTER_ARRANGE.hex()}")
+    print(f"partners_save_after_year_4 {PARTNERS_SAVE_AFTER_YEAR_4.hex()}")
+    print(f"partners_year_hashes {[format(value, '016x') for value in PARTNERS.year_hashes]}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

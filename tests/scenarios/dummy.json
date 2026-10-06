@@ -29,7 +29,8 @@
         "sex": "male",
         "genotype": { "maternal": "dummy", "paternal": "dummy" }
       }
-    ]
+    ],
+    "couples": [{ "woman": 0, "man": 1 }]
   },
   "until": 314495999
 }

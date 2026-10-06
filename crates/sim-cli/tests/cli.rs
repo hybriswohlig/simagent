@@ -19,7 +19,7 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":1,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
@@ -33,7 +33,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
       {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
       {"born": -1, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "dummy"}}
-    ]
+    ],
+    "couples": []
   },
   "until": 314495999
 }"#;
@@ -133,9 +134,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":5,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":6,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -160,7 +161,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":5,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"1765b346de94132e"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":6,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"7d25f597d0f51848"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -171,7 +172,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540105c2a9cec6d380a0832d0501ff01010000fe87ff1d0202fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000100000203fe87ff1d01000401010100ff0109746573743a74696e79000001010000010100aea6d0f4ede8ecb217"
+        "53494d4147454e540106c2a9cec6d380a0832d0601ff01010000fe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000010000000203fe87ff1d01000401010100ff0109746573743a74696e7900000101000001000100c8b0d487fdb2fd927d"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -220,16 +221,165 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}]}}"#;
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-943488000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}},{"born":-794880000,"sex":"male","genotype":{"maternal":"dummy","paternal":"wild"}},{"born":-1,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}],"couples":[]}}"#;
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
-    let commands = vec![(parse(start), start), (parse(block), block)];
+    let commands = vec![
+        (parse(start), start),
+        (parse(block), block),
+        (parse(ARRANGE), ARRANGE),
+    ];
     for (input, _) in &commands {
         match input {
-            Input::Start(_) | Input::ForkOverride(_) => {}
+            Input::Start(_) | Input::ForkOverride(_) | Input::ArrangePartnership(_) => {}
         }
     }
     commands
+}
+
+/// The woman and the first man of `TEN_YEARS` paired, in the command schema.
+const ARRANGE: &str = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+
+/// ADR-0004 tests 1 and 2 with a partnership: a run stopped at the end of year 0 gets
+/// an `ArrangePartnership` in the command schema at the stop (`run --resume --input`)
+/// and runs on. The replay only from `input.ndjson` gives the same run directory, and
+/// the same inputs directly through `submit` give the same hashes and save.
+#[test]
+fn a_partnership_at_a_stop_replays() {
+    let dir = scratch("arrange");
+    let scenario = dir.join("ten.scenario.json");
+    fs::write(&scenario, TEN_YEARS).expect("writes the scenario");
+    let run = dir.join("run");
+    let stop = (Y - 1).to_string();
+    let end = 10 * Y - 1;
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&run),
+        "--until",
+        &stop,
+    ]);
+    let inputs = dir.join("arrange.json");
+    fs::write(&inputs, format!("[{ARRANGE}]")).expect("writes the inputs");
+    let until = end.to_string();
+    must(&[
+        "run",
+        "--resume",
+        "--out",
+        arg(&run),
+        "--input",
+        arg(&inputs),
+        "--until",
+        &until,
+    ]);
+    let log = text(&run.join("input.ndjson"));
+    assert_eq!(
+        log.lines().nth(2),
+        Some(format!(r#"{{"t":{stop},"seq":2,"input":{ARRANGE}}}"#).as_str())
+    );
+    assert!(text(&run.join("events.ndjson")).contains(
+        r#""subjects":[{"sim":1},{"sim":2}],"causes":[{"input":2}],"payload":{"core:partnered":{"partnership":1}}}"#
+    ));
+    let replayed = dir.join("replayed");
+    must(&[
+        "run",
+        "--replay",
+        arg(&run.join("input.ndjson")),
+        "--manifest",
+        arg(&run.join("manifest.json")),
+        "--out",
+        arg(&replayed),
+    ]);
+    assert_same_run(&run, &replayed);
+
+    let scenario: Value = serde_json::from_str(TEN_YEARS).expect("json");
+    let start: Input =
+        serde_json::from_value(serde_json::json!({"start": scenario["start"]})).expect("a start");
+    let arrange: Input = serde_json::from_str(ARRANGE).expect("an input");
+    let mut world = World::new();
+    let mut hasher = LogHasher::new();
+    let mut out = YearOut::default();
+    world.submit(start).expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(Y - 1), &mut |_| false);
+    world.submit(arrange).expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(end), &mut |_| false);
+    hasher.update(&world.take_log());
+    let manifest: Value = serde_json::from_str(&text(&run.join("manifest.json"))).expect("json");
+    assert_eq!(
+        manifest["year_hashes"],
+        serde_json::to_value(&out.year_hashes).expect("json")
+    );
+    assert_eq!(
+        manifest["log_hash"],
+        Value::from(format!("{:016x}", hasher.digest()))
+    );
+    assert_eq!(
+        fs::read(run.join("state.save")).expect("reads"),
+        world.save(&out.year_hashes).expect("saves")
+    );
+}
+
+/// An input at a stop that the core rejects ends with its code and changes nothing in
+/// the run directory; so does a file that is no list of inputs.
+#[test]
+fn a_rejected_input_at_a_stop_changes_nothing() {
+    let dir = scratch("arrange_rejected");
+    let scenario = dir.join("ten.scenario.json");
+    fs::write(&scenario, TEN_YEARS).expect("writes the scenario");
+    let run = dir.join("run");
+    let stop = (Y - 1).to_string();
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&run),
+        "--until",
+        &stop,
+    ]);
+    let before: Vec<Vec<u8>> = FILES
+        .iter()
+        .map(|file| fs::read(run.join(file)).expect("reads"))
+        .collect();
+    let until = (2 * Y - 1).to_string();
+    for (content, error) in [
+        (
+            r#"[{"arrange_partnership":{"woman":1,"man":9}}]"#,
+            "error: input_rejected: unknown_sim",
+        ),
+        (
+            r#"[{"arrange_partnership":{"woman":2,"man":3}}]"#,
+            "error: input_rejected: partners_of_wrong_sex",
+        ),
+        (
+            r#"{"arrange_partnership":{"woman":1,"man":2}}"#,
+            "error: input_invalid: not a list of inputs in the command schema",
+        ),
+    ] {
+        let inputs = dir.join("inputs.json");
+        fs::write(&inputs, content).expect("writes the inputs");
+        assert_eq!(
+            error_of(&[
+                "run",
+                "--resume",
+                "--out",
+                arg(&run),
+                "--input",
+                arg(&inputs),
+                "--until",
+                &until,
+            ]),
+            error,
+            "{content}"
+        );
+        let after: Vec<Vec<u8>> = FILES
+            .iter()
+            .map(|file| fs::read(run.join(file)).expect("reads"))
+            .collect();
+        assert!(after == before, "{content}");
+    }
 }
 
 /// ADR-0004 test 2: the same inputs directly through `submit` and as JSON through the
@@ -240,7 +390,7 @@ fn command_schema_matches_direct_call() {
     let end = SimTime::from_secs(10 * Y - 1);
     let fork_stamp = SimTime::from_secs(5 * Y - 1);
     let commands = commands();
-    let [(start, start_line), (block, block_line)] = &commands[..] else {
+    let [(start, start_line), (block, block_line)] = &commands[..2] else {
         panic!("a start and an override block");
     };
     let mut world = World::new();
@@ -357,12 +507,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":5"#, r#""core_version":6"#);
+    replace_in(&log, r#""core_version":6"#, r#""core_version":7"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 6, this is 5"
+        "error: replay_foreign_core_version: the input log is of core version 7, this is 6"
     );
-    replace_in(&log, r#""core_version":6"#, r#""core_version":5"#);
+    replace_in(&log, r#""core_version":7"#, r#""core_version":6"#);
     replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -826,8 +976,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 5, "the core version in the header of the save");
-    bytes[9] = 6;
+    assert_eq!(bytes[9], 6, "the core version in the header of the save");
+    bytes[9] = 7;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

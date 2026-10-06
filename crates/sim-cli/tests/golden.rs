@@ -241,15 +241,17 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Birthday { .. } => "core:birthday",
         LogPayload::ParamChanged { .. } => "core:param_changed",
         LogPayload::Death { .. } => "core:death",
+        LogPayload::Partnered { .. } => "core:partnered",
     }
 }
 
-const LOG_KINDS: [&str; 5] = [
+const LOG_KINDS: [&str; 6] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
     "core:param_changed",
     "core:death",
+    "core:partnered",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -318,7 +320,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 5);
+    assert_eq!(logs.len(), 6);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -347,12 +349,13 @@ fn every_required_kind_is_checked() {
     assert_eq!(uncovered(idle.stats(), &run.log), events);
 }
 
-/// The canary of the coverage check (ADR-0003 K10): a scenario without founders misses
-/// the birthday event and two log kinds, and the check says so.
+/// The canary of the coverage check (ADR-0003 K10): a scenario without founders, and so
+/// without couples, misses the events and entries of sims, and the check says so.
 #[test]
 fn the_coverage_check_reports_missing_kinds() {
     let mut empty = scenario();
     empty.start.founders.clear();
+    empty.start.couples.clear();
     let mut world = World::new();
     world.submit(Input::Start(empty.start)).expect("accepted");
     let run = run_to(world, YearOut::default(), Vec::new(), empty.until);
@@ -364,7 +367,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
-            "log core:death"
+            "log core:death",
+            "log core:partnered"
         ]
     );
 }

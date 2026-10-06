@@ -63,6 +63,10 @@ entity_id!(
     /// Position of an input in the input log, from 1.
     InputSeq
 );
+entity_id!(
+    /// A partnership of a woman and a man, from its forming on (ADR-0004 section 1).
+    PartnershipId
+);
 
 /// ID of a log entry. Opaque: handlers only pass it on as a cause or `by`; there is no
 /// comparison and no access to the number (ADR-0004 section 6). Outside the core an
@@ -147,6 +151,10 @@ impl Counter {
 
     pub(crate) fn allocate_sim(&mut self) -> SimId {
         SimId(self.allocate())
+    }
+
+    pub(crate) fn allocate_partnership(&mut self) -> PartnershipId {
+        PartnershipId(self.allocate())
     }
 
     pub(crate) fn allocate_event(&mut self) -> EventId {

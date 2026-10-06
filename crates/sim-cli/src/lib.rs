@@ -45,6 +45,12 @@ fn command() -> Command {
                 .long("manifest")
                 .value_name("MANIFEST_JSON")
                 .requires("replay"),
+        )
+        .arg(
+            Arg::new("input")
+                .long("input")
+                .value_name("INPUTS_JSON")
+                .requires("resume"),
         );
     let fork = Command::new("fork")
         .about("Runs a parent run again from t0 and checks the years before the fork point")
@@ -103,7 +109,7 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
     } else if let Some(log) = text("replay") {
         replay(Path::new(log), text("manifest").map(Path::new), out)
     } else {
-        resume(out, until)
+        resume(out, until, text("input").map(Path::new))
     }
 }
 
@@ -137,15 +143,27 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
     session.finish(&scenario)
 }
 
-fn resume(dir: &Path, until: Option<SimTime>) -> Result<(), CliError> {
+/// Continues a run from its save. The inputs of `inputs` (a JSON list in the command
+/// schema, ADR-0004 section 4) act at the stop, before the clock moves on.
+fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(), CliError> {
     let scenario: Scenario = files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
+    let inputs: Vec<Input> = match inputs {
+        Some(file) => files::parse_strict(&files::read_text(file)?).ok_or_else(|| {
+            CliError::new(
+                "input_invalid",
+                "not a list of inputs in the command schema",
+            )
+        })?,
+        None => Vec::new(),
+    };
     let mut session = Session::resume(dir)?;
     let limit = until.unwrap_or(scenario.until);
     session::check_limit(session.closed_through(), limit)?;
-    // Nothing has been written up to here: a refused resume leaves the run as it was.
-    session.reopen_input_log()?;
+    // Nothing has been written up to here: a refused resume, or a rejected input, leaves
+    // the run as it was.
+    session.submit_at_stop(inputs)?;
     session.advance(limit)?;
     session.finish(&scenario)
 }

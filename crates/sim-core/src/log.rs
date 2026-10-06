@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::Code;
 use crate::hash::StableHasher;
-use crate::ids::{EventId, InputSeq, SimId};
+use crate::ids::{EventId, InputSeq, PartnershipId, SimId};
 use crate::lineage::LineageKey;
 use crate::params::ParamChange;
 use crate::rng::DrawKey;
@@ -144,6 +144,10 @@ pub enum LogPayload {
     /// A sim died of this cause and left for the archive (departure entry of a SimId).
     #[serde(rename = "core:death")]
     Death { cause: Code },
+    /// A woman and a man (the subjects, in this order) formed a partnership (creation
+    /// entry of a PartnershipId).
+    #[serde(rename = "core:partnered")]
+    Partnered { partnership: PartnershipId },
 }
 
 /// One entry of the domain log.
