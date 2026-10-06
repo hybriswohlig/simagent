@@ -539,6 +539,15 @@ fn export_writes_the_pedigree() {
             .next(),
         Some("error")
     );
+    // Review finding: a `pedigree.json` that links to the save. The export replaces the
+    // link with its own file and leaves the save as it was.
+    let pedigree = run.join("pedigree.json");
+    fs::remove_file(&pedigree).expect("removes");
+    std::os::unix::fs::symlink(run.join("state.save"), &pedigree).expect("links");
+    must(&["export", arg(&run)]);
+    assert_eq!(fs::read(run.join("state.save")).expect("reads"), before[5]);
+    let kind = fs::symlink_metadata(&pedigree).expect("exists").file_type();
+    assert!(!kind.is_symlink());
 }
 
 /// ADR-0004 test 4: saving in the middle of a year, loading in a fresh process and
