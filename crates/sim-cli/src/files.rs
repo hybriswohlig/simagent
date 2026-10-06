@@ -120,6 +120,21 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     fs::write(path, bytes).map_err(|error| CliError::io(path, &error))
 }
 
+/// Writes `bytes` to a fresh file next to `path` and renames it over `path`. A link at
+/// `path` is replaced, never followed: the export writes into a directory it did not
+/// create.
+pub fn replace(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".tmp");
+    let fresh = Path::new(&name);
+    // The leftover of an interrupted export may itself be a link; it goes first.
+    if fs::symlink_metadata(fresh).is_ok() {
+        fs::remove_file(fresh).map_err(|error| CliError::io(fresh, &error))?;
+    }
+    fs::write(fresh, bytes).map_err(|error| CliError::io(fresh, &error))?;
+    fs::rename(fresh, path).map_err(|error| CliError::io(path, &error))
+}
+
 pub fn append(path: &Path, text: &str) -> Result<(), CliError> {
     OpenOptions::new()
         .create(true)

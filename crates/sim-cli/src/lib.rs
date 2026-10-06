@@ -129,7 +129,7 @@ fn export_run(dir: &Path) -> Result<(), CliError> {
     let (world, _) = World::load(&bytes, EMPTY_DATA_HASH)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
     let pedigree = files::json(&world.state().pedigree()) + "\n";
-    files::write(&dir.join(files::PEDIGREE), pedigree.as_bytes())
+    files::replace(&dir.join(files::PEDIGREE), pedigree.as_bytes())
 }
 
 fn parse_time(text: &str) -> Option<SimTime> {

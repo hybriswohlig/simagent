@@ -520,13 +520,11 @@ fn export_writes_the_pedigree() {
         child(5, "633a53f95f45349a", "female", 91_929_600),
         child(6, "3b95377839225a93", "female", 118_540_800),
     ];
-    assert_eq!(
-        text(&run.join("pedigree.json")),
-        format!(
-            r#"{{"persons":[{}],"partnerships":[{{"partnership":1,"woman":1,"man":2,"formed":0,"ended":125649014}}]}}"#,
-            persons.join(",")
-        ) + "\n"
-    );
+    let expected = format!(
+        r#"{{"persons":[{}],"partnerships":[{{"partnership":1,"woman":1,"man":2,"formed":0,"ended":125649014}}]}}"#,
+        persons.join(",")
+    ) + "\n";
+    assert_eq!(text(&run.join("pedigree.json")), expected);
     // The run itself stays as it was.
     let after: Vec<Vec<u8>> = FILES
         .iter()
@@ -548,6 +546,26 @@ fn export_writes_the_pedigree() {
     assert_eq!(fs::read(run.join("state.save")).expect("reads"), before[5]);
     let kind = fs::symlink_metadata(&pedigree).expect("exists").file_type();
     assert!(!kind.is_symlink());
+    assert_eq!(text(&pedigree), expected);
+    // The same for the leftover of an interrupted export.
+    let leftover = run.join("pedigree.json.tmp");
+    std::os::unix::fs::symlink(run.join("state.save"), &leftover).expect("links");
+    must(&["export", arg(&run)]);
+    assert_eq!(fs::read(run.join("state.save")).expect("reads"), before[5]);
+    assert_eq!(text(&pedigree), expected);
+    // No temporary file stays behind.
+    let mut names: Vec<String> = fs::read_dir(&run)
+        .expect("lists")
+        .map(|entry| {
+            let name = entry.expect("lists").file_name();
+            name.into_string().expect("names")
+        })
+        .collect();
+    names.sort();
+    let mut wanted: Vec<String> = FILES.iter().map(|file| (*file).to_owned()).collect();
+    wanted.push("pedigree.json".to_owned());
+    wanted.sort();
+    assert_eq!(names, wanted);
 }
 
 /// ADR-0004 test 4: saving in the middle of a year, loading in a fresh process and
