@@ -1739,7 +1739,7 @@ fn a_save_keeps_the_partnerships() {
 /// live and ended in the second of the first death of the two. ADR-0006 section 5.
 #[test]
 fn load_checks_the_partnerships() {
-    let cases: [(&str, Vec<u8>); 17] = [
+    let cases: [(&str, Vec<u8>); 19] = [
         // Review finding: a pairing while the first partnership of the woman was open.
         (
             "a second partnership formed while the first was open",
@@ -1816,6 +1816,14 @@ fn load_checks_the_partnerships() {
         (
             "a founder couple missing from the start",
             partners_arranged().with(|f| f.input_log[0].2 = partners_start(Vec::new())),
+        ),
+        (
+            "an archived woman with two conceptions",
+            partners_after_year_4().with(|f| f.archive[0].1.7 = 2),
+        ),
+        (
+            "an archived man with a conception",
+            partners_after_year_4().with(|f| f.archive[1].1.7 = 1),
         ),
         (
             "a partnership ended at the later of the two deaths",
@@ -1979,7 +1987,42 @@ fn a_save_keeps_the_pregnancy() {
 /// start the rule allows. ADR-0006 section 5.
 #[test]
 fn load_checks_conceptions_and_pregnancies() {
-    let cases: [(&str, Vec<u8>); 15] = [
+    let cases: [(&str, Vec<u8>); 18] = [
+        // Each of these fails at exactly one check (keys and draws from
+        // tools/rng_reference.py).
+        (
+            "a pregnancy by a man she is not paired with",
+            clan_conceived().with(|f| {
+                f.pregnancies[0].1 = (4, 0x4645_df5a_e961_ca02, 0, FEMALE, (WILD, WILD), MONTH);
+            }),
+        ),
+        (
+            "a pregnancy of the girl before her 18th birthday",
+            clan_conceived().with(|f| {
+                f.pregnancies
+                    .push((3, (4, 0x0d0d_06d7_b21d_4bc0, 0, FEMALE, (DUMMY, WILD), 0)));
+                f.sims[2].1.5 = 1;
+                f.queue.remove(7);
+                f.plan_refs.remove(7);
+            }),
+        ),
+        (
+            "two series of attempts for the girl",
+            clan_conceived().with(|f| {
+                f.queue.insert(
+                    8,
+                    (
+                        78 * MONTH,
+                        0,
+                        22,
+                        Payload::ConceptionAttempt { woman: 3 },
+                        Some(MONTH),
+                    ),
+                );
+                f.plan_refs.insert(8, (9, 0));
+                f.next_event_seq = 23;
+            }),
+        ),
         (
             "a fertility unlike that of the start",
             clan_conceived().with(|f| f.fertility = Some((0.5, 18, 45, 10))),

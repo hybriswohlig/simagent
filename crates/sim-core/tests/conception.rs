@@ -18,6 +18,7 @@ use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::input::{
     AppliesTo, Couple, DeathCause, Fertility, Founder, Input, InputRejected, RejectCode, Start,
 };
+use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
@@ -192,7 +193,8 @@ fn the_girl_tries_from_her_18th_birthday_on() {
 
 /// With a second cause the father dies in month 6.2: the pregnancy goes on. The girl's
 /// partner dies in month 7.2: her attempts end before they begin. The pregnant woman
-/// dies in month 35.1: her pregnancy ends with her, her conception stays counted.
+/// dies in month 35.1: her pregnancy ends with her, her conception stays counted, and
+/// the child's key is no longer known, also not to a loaded world.
 #[test]
 fn deaths_end_attempts_and_pregnancies() {
     let mut world = World::new();
@@ -202,7 +204,21 @@ fn deaths_end_attempts_and_pregnancies() {
             fertility(0.25, 18, 45, 10),
         ))
         .expect("accepted");
+    let tag = DataId::new("test:clan").expect("valid");
+    let child = LineageKey::child(
+        LineageKey::founder(&tag, 0),
+        LineageKey::founder(&tag, 1),
+        0,
+        0,
+    );
     let mut run = Run::new(world);
+    // She dies in the second 84 878 812 (tools/state_reference.py).
+    run.advance(84_878_811);
+    assert!(run.world.state().knows_lineage_key(child));
+    run.advance(84_878_812);
+    assert!(!run.world.state().knows_lineage_key(child));
+    let (loaded, _) = World::load(&run.save(), EMPTY_DATA_HASH).expect("loads");
+    assert!(!loaded.state().knows_lineage_key(child));
     run.advance(4 * Y - 1);
     assert_eq!(run.save(), hex(CLAN_FEVER_SAVE_AFTER_YEAR_3));
 }

@@ -229,6 +229,12 @@ impl WorldState {
         let living = self.domain.sims.get(&id).map(|sim| sim.born);
         living.or_else(|| self.domain.archive.get(&id).map(|sim| sim.born))
     }
+
+    /// Whether a living or archived sim or a running pregnancy has this lineage key
+    /// (ADR-0001 section 4).
+    pub fn knows_lineage_key(&self, key: crate::lineage::LineageKey) -> bool {
+        self.domain.lineage.contains(key)
+    }
 }
 
 impl Handler<EventPayload, PlanRef> for WorldState {
