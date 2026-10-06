@@ -119,7 +119,8 @@ fn golden_fork_matches() {
         assert_ne!(ours.hash, theirs.hash, "year {}", ours.year);
     }
     assert_ne!(golden_fork.log_hash, parent.log_hash);
-    assert_eq!(fork.log.len(), whole_run().log.len() + 1);
+    // The entry of the override, and the death of sim 1 of the disease in year 9.
+    assert_eq!(fork.log.len(), whole_run().log.len() + 2);
 }
 
 #[test]

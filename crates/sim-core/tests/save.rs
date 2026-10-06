@@ -509,7 +509,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [3, 5] {
+    for version in [4, 6] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -536,9 +536,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 5;
+        f.core_version = 6;
         f.data_hash = 7;
-        f.projection_version = 5;
+        f.projection_version = 6;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -552,11 +552,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 4;
+        f.core_version = 5;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 5);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 6);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -582,7 +582,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [3, 5] {
+    for version in [4, 6] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
