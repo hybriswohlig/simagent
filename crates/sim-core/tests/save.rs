@@ -1676,7 +1676,25 @@ fn a_save_keeps_the_partnerships() {
 /// live and ended in the second of the first death of the two. ADR-0006 section 5.
 #[test]
 fn load_checks_the_partnerships() {
-    let cases: [(&str, Vec<u8>); 12] = [
+    let cases: [(&str, Vec<u8>); 15] = [
+        (
+            "a partnership with an ID beyond its place",
+            partners_arranged().with(|f| f.partnerships[1].0 = 3),
+        ),
+        (
+            "a partnership of a man as the woman, as its input said",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1 = (3, 1, Y, None);
+                f.input_log[1].2 = TestInput::ArrangePartnership { woman: 3, man: 1 };
+            }),
+        ),
+        (
+            "a partnership formed after the death of the man",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1 = (1, 2, Y, Some(PARTNER_DEATHS[1]));
+                f.input_log[1].2 = TestInput::ArrangePartnership { woman: 1, man: 2 };
+            }),
+        ),
         (
             "a partnership counter one too high",
             partners_arranged().with(|f| f.next_partnership_id = 4),

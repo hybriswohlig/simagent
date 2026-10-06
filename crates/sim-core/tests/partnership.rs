@@ -66,6 +66,17 @@ fn couple(woman: u32, man: u32) -> Couple {
 }
 
 fn partners_start(couples: Vec<Couple>) -> Input {
+    let Input::Start(start) = two_women_start(couples) else {
+        unreachable!("a start")
+    };
+    Input::Start(Start {
+        founders: start.founders[..3].to_vec(),
+        ..start
+    })
+}
+
+/// The founders of "partners" and a second woman, born four seconds before the start.
+fn two_women_start(couples: Vec<Couple>) -> Input {
     Input::Start(Start {
         world_seed: 0xff,
         founder_tag: DataId::new("test:partners").expect("valid"),
@@ -77,6 +88,7 @@ fn partners_start(couples: Vec<Couple>) -> Input {
             founder(-1, Sex::Female, Allele::Wild, Allele::Dummy),
             founder(-2, Sex::Male, Allele::Dummy, Allele::Dummy),
             founder(-3, Sex::Male, Allele::Dummy, Allele::Wild),
+            founder(-4, Sex::Female, Allele::Wild, Allele::Wild),
         ],
         couples,
     })
@@ -222,6 +234,17 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
         rejected(world, arrange(1, 3)),
         Some(RejectCode::AlreadyPartnered)
     );
+    // The man is the one in a partnership.
+    let mut world = World::new();
+    world
+        .submit(two_women_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.take_log();
+    assert_eq!(
+        rejected(&mut world, arrange(4, 2)),
+        Some(RejectCode::AlreadyPartnered)
+    );
+    world.submit(arrange(4, 3)).expect("accepted");
 }
 
 /// The couples of `Start` name founders by their places: each place in the list, a
@@ -240,6 +263,7 @@ fn start_couples_are_checked() {
     assert_eq!(code(Vec::new()), None);
     assert_eq!(code(vec![couple(0, 2)]), None);
     assert_eq!(code(vec![couple(0, 3)]), Some(RejectCode::UnknownFounder));
+    assert_eq!(code(vec![couple(3, 1)]), Some(RejectCode::UnknownFounder));
     assert_eq!(
         code(vec![couple(1, 0)]),
         Some(RejectCode::PartnersOfWrongSex)
@@ -255,6 +279,21 @@ fn start_couples_are_checked() {
     assert_eq!(
         code(vec![couple(0, 1), couple(0, 1)]),
         Some(RejectCode::AlreadyPartnered)
+    );
+    // A man in two couples.
+    let mut world = World::new();
+    assert_eq!(
+        world
+            .submit(two_women_start(vec![couple(0, 1), couple(3, 1)]))
+            .err(),
+        Some(InputRejected {
+            code: RejectCode::AlreadyPartnered
+        })
+    );
+    assert!(
+        world
+            .submit(two_women_start(vec![couple(0, 1), couple(3, 2)]))
+            .is_ok()
     );
     // The faults in the order of the checks, whatever their place in the list.
     assert_eq!(
