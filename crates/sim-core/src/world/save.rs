@@ -627,42 +627,39 @@ struct Facts {
     parents: Option<Parents>,
 }
 
+/// The facts of a sim in exactly one place, the living or the archive; `None` for an ID
+/// in neither or in both.
 fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
-    let living = loaded.sims.get(&id).map(|sim| Facts {
-        born: sim.born,
-        lineage_key: sim.lineage_key,
-        sex: sim.sex,
-        genotype: sim.genotype,
-        parents: sim.parents,
-    });
-    living.or_else(|| {
-        let sim = loaded.archive.get(&id)?;
-        Some(Facts {
+    match (loaded.sims.get(&id), loaded.archive.get(&id)) {
+        (Some(sim), None) => Some(Facts {
             born: sim.born,
             lineage_key: sim.lineage_key,
             sex: sim.sex,
             genotype: sim.genotype,
             parents: sim.parents,
-        })
-    })
+        }),
+        (None, Some(sim)) => Some(Facts {
+            born: sim.born,
+            lineage_key: sim.lineage_key,
+            sex: sim.sex,
+            genotype: sim.genotype,
+            parents: sim.parents,
+        }),
+        (None, None) | (Some(_), Some(_)) => None,
+    }
 }
 
-/// The SimIds are 1 to the counter without a gap, each in one place: the founders first
-/// (`founders_are_the_first_sims`), then the born. Each born sim is the child of a
+/// The SimIds are 1 to the counter without a gap, each in one place (`facts`): the
+/// founders first (`founders_are_the_first_sims`), then the born. Each born sim is the child of a
 /// conception the rule allows, born as many months later as a pregnancy lasts and in a
 /// closed second.
 fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: u64) -> bool {
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
-    let in_one_place = loaded
+    loaded
         .sims
         .keys()
-        .all(|id| !loaded.archive.contains_key(id));
-    in_one_place
-        && loaded
-            .sims
-            .keys()
-            .chain(loaded.archive.keys())
-            .all(below_counter)
+        .chain(loaded.archive.keys())
+        .all(below_counter)
         && (founders.saturating_add(1)..loaded.next_sim_id).all(|number| {
             let Some(child) = SimId::try_from(number)
                 .ok()
@@ -805,7 +802,8 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         });
         match sex {
             Sex::Female => (all || but_the_last) && in_order,
-            Sex::Male => count == 0 && numbers.is_empty(),
+            // A man is no mother: the partnership at a conception has shown it.
+            Sex::Male => count == 0,
         }
     };
     let living = loaded
@@ -816,7 +814,8 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         .archive
         .iter()
         .all(|(id, sim)| counted(id, sim.sex, sim.conceptions, true));
-    living && archived && conceived.is_empty()
+    // A child of a mother who is nowhere fails at its conception.
+    living && archived
 }
 
 /// When the next attempt of a living woman is due: from the first month start at or
