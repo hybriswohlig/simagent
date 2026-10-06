@@ -66,17 +66,18 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 7
-CORE_VERSION = 7
+PROJECTION_VERSION = 8
+CORE_VERSION = 8
 
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: bytes, sick=None) -> bytes:
-    """Sim { born, lineage_key, sex, genotype, exposure, conceptions }: the exposure is
-    None but for a sim with the dummy allele twice (C5); no conceptions yet."""
-    return signed(born) + lineage_key(key) + sex + genes + exposure(sick) + varint(0)
+    """Sim { born, lineage_key, sex, genotype, exposure, conceptions, parents }: the
+    exposure is None but for a sim with the dummy allele twice (C5); no conceptions yet;
+    a founder has no parents."""
+    return signed(born) + lineage_key(key) + sex + genes + exposure(sick) + varint(0) + NONE
 
 
 TINY_KEY = founder_key("test:tiny", 0)
@@ -558,8 +559,11 @@ PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 # a fertility of 0.25 per month, the mother 18 to 45 years old, ten months. Three founder
 # couples: a woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 12 (dummy
 # twice) and a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first
-# couple tries from month 0 and conceives in month 5; the girl's attempts begin at her
-# 18th birthday (month 78) and she conceives in month 85; the third couple never tries.
+# couple tries from month 0, conceives in month 5 and has the child (sim 7) in month 15;
+# her attempts begin again in month 16, and by the end of year 7 she has conceived eight
+# times (two of the children die young). The girl's attempts begin at her 18th birthday
+# (month 78); she conceives in month 85 and gives birth in month 95. The third couple
+# never tries.
 CLAN_FOUNDERS = [
     (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
     (-22 * YEAR, MALE, genotype(DUMMY, WILD)),
@@ -594,15 +598,21 @@ assert list(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][5] == 5 * MONTH
 CLAN_CONCEPTION_ENTRIES = CLAN.log[CLAN_LOG_BEFORE:]
 assert len(CLAN_CONCEPTION_ENTRIES) == 3
 CLAN_SAVE_AFTER_CONCEPTION = CLAN.save()
+CLAN.advance(15 * MONTH - 1)
+CLAN_LOG_BEFORE_BIRTH = len(CLAN.log)
+CLAN.advance(15 * MONTH)
+assert 7 in CLAN.sims and CLAN.sims[7][6] == (1, 2, 0) and not CLAN.pregnancies
+CLAN_BIRTH_ENTRIES = CLAN.log[CLAN_LOG_BEFORE_BIRTH:]
+CLAN_SAVE_AFTER_BIRTH = CLAN.save()
 CLAN.advance(8 * YEAR - 1)
-assert sorted(CLAN.pregnancies) == [1, 3] and CLAN.pregnancies[3][5] == 85 * MONTH
-assert [sim[5] for sim in CLAN.sims.values()] == [1, 0, 1, 0, 0, 0]
+assert sorted(CLAN.pregnancies) == [1, 3] and [CLAN.sims[1][5], CLAN.sims[3][5]] == [8, 2]
+assert sorted(CLAN.archive) == [9, 10] and CLAN.sims[13][6] == (3, 4, 0)
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
 
 # "clan" with a second cause, `test:fever` with 0.5 per year: the father dies in month 6.2
-# (the pregnancy goes on), the girl's partner in month 7.2 (her attempts end before
-# they begin), and the pregnant woman in month 35.1 (the pregnancy ends with her). By
-# the end of year 3 all six have died.
+# (the pregnancy goes on, his child is born in month 15), the girl's partner in month 7.2
+# (her attempts end before they begin). By the end of year 3 all seven have died, the
+# child in month 43.1.
 FEVER = world_reference.World(
     0xFF,
     "test:clan",
@@ -613,9 +623,24 @@ FEVER = world_reference.World(
     (0.25, 18, 45, 10),
 )
 FEVER.advance(4 * YEAR - 1)
-assert sorted(FEVER.archive) == [1, 2, 3, 4, 5, 6] and not FEVER.pregnancies
-assert FEVER.archive[1][7] == 1 and 1 not in FEVER.sims
+assert sorted(FEVER.archive) == [1, 2, 3, 4, 5, 6, 7] and not FEVER.pregnancies
+assert FEVER.archive[1][7] == 1 and FEVER.archive[7][8] == (1, 2, 0)
 CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
+
+# "clan" with `test:blight` with 0.1 per year instead: the first woman dies in month 6.7,
+# pregnant since month 5; the pregnancy ends with her, her conception stays counted.
+BLIGHT = world_reference.World(
+    0xFF,
+    "test:clan",
+    False,
+    [("test:base", 0.02), ("test:blight", 0.1)],
+    CLAN_FOUNDERS,
+    [(0, 1), (2, 3), (4, 5)],
+    (0.25, 18, 45, 10),
+)
+BLIGHT.advance(YEAR - 1)
+assert sorted(BLIGHT.archive) == [1, 3, 5] and BLIGHT.archive[1][7] == 1 and not BLIGHT.pregnancies
+CLAN_BLIGHT_SAVE_AFTER_YEAR_0 = BLIGHT.save()
 
 
 def digest(data: bytes) -> str:
@@ -683,6 +708,11 @@ if __name__ == "__main__":
     print(f"clan_save_after_year_7 {CLAN_SAVE_AFTER_YEAR_7.hex()}")
     print(f"clan_pregnancies {CLAN.pregnancies}")
     print(f"clan_fever_save_after_year_3 {CLAN_FEVER_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"clan_blight_save_after_year_0 {CLAN_BLIGHT_SAVE_AFTER_YEAR_0.hex()}")
+    print(f"clan_blight_her_death {BLIGHT.archive[1][1]}")
+    for number, line in enumerate(CLAN_BIRTH_ENTRIES):
+        print(f"clan_birth_entry_{number} {line.hex()}")
+    print(f"clan_save_after_birth {CLAN_SAVE_AFTER_BIRTH.hex()}")
     print(f"clan_fever_archive {[(sim, left) for sim, (_, left, *_ ) in sorted(FEVER.archive.items())]}")
     print(f"clan_year_hashes {[format(value, '016x') for value in CLAN.year_hashes]}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).

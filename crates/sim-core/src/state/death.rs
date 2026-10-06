@@ -202,6 +202,7 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             genotype: person.genotype,
             exposure: person.exposure,
             conceptions: person.conceptions,
+            parents: person.parents,
         },
     );
     // Her pregnancy ends with her; her conception stays counted.

@@ -271,6 +271,7 @@ pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), Eve
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
+            EventPayload::Birth { mother } => (*mother, Slot::Birth),
         };
         index.insert(slot, EventHandle::from_seq(entry.seq));
     }
@@ -744,6 +745,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                         .get(sim)
                         .is_some_and(|person| death_due(person, *cause) == Some(entry.time))
             }
+            EventPayload::Birth { .. } => false,
             EventPayload::ConceptionAttempt { woman } => {
                 entry.period == Some(MONTH)
                     && attempts.insert(*woman)

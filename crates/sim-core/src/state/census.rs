@@ -78,6 +78,7 @@ mod tests {
             genotype: GENOTYPE,
             exposure: None,
             conceptions: 0,
+            parents: None,
         }
     }
 
@@ -91,6 +92,7 @@ mod tests {
             genotype: GENOTYPE,
             exposure: None,
             conceptions: 0,
+            parents: None,
         }
     }
 

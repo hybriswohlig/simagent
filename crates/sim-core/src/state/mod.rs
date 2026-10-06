@@ -34,6 +34,16 @@ pub(crate) struct Sim {
     /// How often she conceived (ADR-0001 section 4: the conception number of the next
     /// child); always 0 for a man.
     pub(crate) conceptions: u32,
+    /// The biological parents of a born sim; `None` for a founder.
+    pub(crate) parents: Option<Parents>,
+}
+
+/// The biological parents of a sim and the mother's conception number of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Parents {
+    pub(crate) mother: SimId,
+    pub(crate) father: SimId,
+    pub(crate) conception: u32,
 }
 
 /// A running pregnancy, fixed at conception (B18): the father, the child's lineage key,
@@ -89,6 +99,7 @@ pub(crate) struct ArchivedSim {
     /// The exposure as it was at the death: it shows whether the switch was on.
     pub(crate) exposure: Option<Exposure>,
     pub(crate) conceptions: u32,
+    pub(crate) parents: Option<Parents>,
 }
 
 pub(crate) struct DomainState {
@@ -121,6 +132,8 @@ pub(crate) enum Slot {
     Birthday,
     /// The monthly series of conception attempts of a woman.
     Conception,
+    /// The birth that ends her pregnancy.
+    Birth,
     /// The death of the cause with this `str_key`.
     Death(u64),
 }

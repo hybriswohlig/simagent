@@ -21,11 +21,12 @@ What happens (a year has 364 days of 86 400 seconds):
   nothing. Sim 3 dies of `test:base` in year 2 and sim 2 of the same cause near the end
   of year 3; their deaths of old age (due after 26 and 239 years) and their next
   birthdays are cancelled. The death of sim 2 ends partnership 1.
-- Sim 1 conceives in month 7 (entries `core:conception` and two `core:meiosis`); the
-  monthly attempts end with it. Sim 1 lives through the ten years; its deaths are due after
+- Sim 1 conceives in month 7 (entries `core:conception` and two `core:meiosis`) and has
+  the child (sim 4, entry `core:birth`) in month 17; she has two more, in months 38 and
+  49 (sims 5 and 6). The death of sim 2 in month 52 ends her attempts. Sim 1 lives through the ten years; its deaths are due after
   27 years (`test:base`) and 20 years (`test:old_age`).
 - The golden save is taken on day 100 of year 3: sim 3 is in the archive, sim 2 still
-  lives.
+  lives, sims 4 and 5 are born and sim 1 is pregnant with her third child.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
 input `ForkOverride` with the stamp T_5 - 1 s. It acts at T_5 before every event of
@@ -100,9 +101,10 @@ assert all(
     for ours, theirs in zip(FORK.year_hashes[FORK_YEAR:], PARENT.year_hashes[FORK_YEAR:])
 )
 assert len(FORK.log) == len(PARENT.log) + 2, "the override and the death of sim 1"
-assert sorted(PARENT.archive) == [2, 3] and sorted(PARENT.sims) == [1]
+assert sorted(PARENT.archive) == [2, 3] and sorted(PARENT.sims) == [1, 4, 5, 6]
 assert PARENT.partnerships == {1: [1, 2, 0, DUE[(2, "test:base")]]}
-assert [value[5] for value in PARENT.pregnancies.values()] == [7 * MONTH]
+assert [PARENT.sims[sim][0] for sim in (4, 5, 6)] == [17 * MONTH, 38 * MONTH, 49 * MONTH]
+assert not PARENT.pregnancies
 assert sorted(FORK.archive) == [1, 2, 3] and FORK.archive[1][1] == FORK_YEAR * YEAR + DUE[(1, "test:dummy_disease")]
 
 
@@ -110,7 +112,8 @@ def golden_save() -> bytes:
     """The save on day 100 of year 3."""
     world = dummy_world()
     world.advance(SAVE_AT)
-    assert sorted(world.archive) == [3] and sorted(world.sims) == [1, 2]
+    assert sorted(world.archive) == [3] and sorted(world.sims) == [1, 2, 4, 5]
+    assert [value[2] for value in world.pregnancies.values()] == [2]
     return world.save()
 
 

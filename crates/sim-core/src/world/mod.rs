@@ -262,6 +262,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::ConceptionAttempt { woman } => {
                 state::conception::on_attempt(&mut self.domain, woman, &mut ctx);
             }
+            EventPayload::Birth { .. } => {}
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -283,7 +284,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             }
             EventPayload::Birthday { .. }
             | EventPayload::Death { .. }
-            | EventPayload::ConceptionAttempt { .. } => {
+            | EventPayload::ConceptionAttempt { .. }
+            | EventPayload::Birth { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -356,6 +358,7 @@ mod tests {
             genotype: MIXED,
             exposure: None,
             conceptions: 0,
+            parents: None,
         }
     }
 
@@ -505,6 +508,7 @@ mod tests {
                 genotype: MIXED,
                 exposure: None,
                 conceptions: 0,
+                parents: None,
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();
