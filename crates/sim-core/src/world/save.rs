@@ -613,15 +613,16 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
         let him = loaded
             .sims
             .get(&pregnancy.father)
-            .map(|sim| (sim.sex, sim.lineage_key, sim.genotype))
+            .map(|sim| (sim.lineage_key, sim.genotype))
             .or_else(|| {
                 let sim = loaded.archive.get(&pregnancy.father)?;
-                Some((sim.sex, sim.lineage_key, sim.genotype))
+                Some((sim.lineage_key, sim.genotype))
             });
-        let Some((his_sex, his_key, his_genes)) = him else {
+        let Some((his_key, his_genes)) = him else {
             return false;
         };
         let conceived = pregnancy.conceived;
+        // A partnership pairs a woman and a man (`partnerships_consistent`).
         let paired = loaded.partnerships.values().any(|partnership| {
             (partnership.woman, partnership.man) == (*mother, pregnancy.father)
                 && partnership.formed <= conceived
@@ -645,9 +646,7 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
             her.genotype,
             his_genes,
         );
-        her.sex == Sex::Female
-            && his_sex == Sex::Male
-            && paired
+        paired
             && at_a_month_start
             && conceived.as_secs() < now
             && of_age
