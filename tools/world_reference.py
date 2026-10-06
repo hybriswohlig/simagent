@@ -28,7 +28,12 @@ What the model knows:
   causes, moves the sim with its exposure to the archive and cancels its other pending
   events.
 - An override block is an input: stamped with the last closed second, acting in the
-  next one, one entry `core:param_changed` per change. If the switch flips, every living
+  next one, one entry `core:param_changed` per change.
+- Couples: after the founders, `Start` forms a partnership per couple of its list (a
+  woman and a man by their places among the founders); `ArrangePartnership` forms one
+  between two living sims. Each gets the next PartnershipId and one entry
+  `core:partnered` (subjects the woman and the man). A death ends the open partnership
+  of the sim: it keeps the second of the death. If the switch flips, every living
   homozygous sim (by ID) updates its exposure, and if a cause for the homozygous exists,
   its deaths from the first such cause on are cancelled and planned again in the order
   of the causes, by that entry.
@@ -42,6 +47,7 @@ import xxhash
 
 from postcard_reference import (
     DUMMY,
+    couple,
     death_cause,
     exposure,
     genotype,
@@ -49,6 +55,7 @@ from postcard_reference import (
     founder,
     lineage_key,
     param_change,
+    partnership,
     seq,
     signed,
     string,
@@ -65,8 +72,8 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 DEATH_BUDGET = 4
 
-PROJECTION_VERSION = 5
-CORE_VERSION = 5
+PROJECTION_VERSION = 6
+CORE_VERSION = 6
 FORMAT_VERSION = 1
 EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
 
@@ -122,9 +129,10 @@ class Event:
 class World:
     """A started world. `causes` is a list of (code, hazard per year) for everyone or
     (code, hazard per year, "dummy_homozygous"), `founders` a list of (born, sex,
-    genotype) with the last two as postcard bytes."""
+    genotype) with the last two as postcard bytes, `couples` a list of (woman, man) by
+    their places among the founders."""
 
-    def __init__(self, seed: int, tag: str, diseases: bool, causes: list, founders: list):
+    def __init__(self, seed: int, tag: str, diseases: bool, causes: list, founders: list, couples=()):
         self.seed = seed
         self.tag = tag
         self.diseases = diseases
@@ -134,6 +142,8 @@ class World:
         self.next_insertion = 1
         self.next_event_id = 1
         self.next_sim_id = 1
+        self.next_partnership_id = 1
+        self.partnerships = {}
         self.sims = {}
         self.archive = {}
         self.log = []
@@ -145,9 +155,25 @@ class World:
             world_params(diseases),
             seq([death_cause(*cause) for cause in self.causes]),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
+            seq([couple(woman, man) for woman, man in couples]),
         )
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
+        for woman, man in couples:
+            self._partner(woman + 1, man + 1, variant(2, varint(1)), 0)
+
+    def _partner(self, woman: int, man: int, cause: bytes, now: int) -> None:
+        number = self.next_partnership_id
+        self.next_partnership_id += 1
+        subjects = [variant(0, varint(woman)), variant(0, varint(man))]
+        self._entry(now, subjects, [cause], variant(5, varint(number)))
+        self.partnerships[number] = [woman, man, now, None]
+
+    def arrange(self, woman: int, man: int) -> None:
+        """`ArrangePartnership` of two living sims, submitted right now."""
+        number = len(self.inputs) + 1
+        self.inputs.append(signed(self.closed) + varint(number) + variant(2, varint(woman), varint(man)))
+        self._partner(woman, man, variant(2, varint(number)), self.closed + 1)
 
     # ------------------------------------------------------------------ inputs
 
@@ -275,6 +301,9 @@ class World:
         draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
         self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
         self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
+        for couple_ in self.partnerships.values():
+            if couple_[3] is None and sim in couple_[:2]:
+                couple_[3] = now
         # The exposure stays as it was: whether the disease acted at the death.
         self.archive[sim] = (born, now, str_key(code), key, sex, genes, sick)
 
@@ -312,9 +341,11 @@ class World:
             )
             + signed(closed)
             + varint(self.next_sim_id)
+            + varint(self.next_partnership_id)
             + seq([event.queue_bytes() for event in self.ordered_queue()])
             + varint(self.next_insertion)
             + seq(sims)
+            + seq([varint(number) + partnership(*value) for number, value in sorted(self.partnerships.items())])
             + seq(archive)
         )
 
@@ -350,10 +381,12 @@ EMPTY_PROJECTION = (
     + NONE  # world_params
     + seq([])  # death_causes
     + signed(-1)
-    + varint(1)
+    + varint(1)  # next SimId
+    + varint(1)  # next PartnershipId
     + seq([])
     + varint(1)
-    + seq([])
-    + seq([])
+    + seq([])  # sims
+    + seq([])  # partnerships
+    + seq([])  # archive
 )
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])

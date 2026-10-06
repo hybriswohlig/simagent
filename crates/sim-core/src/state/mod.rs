@@ -5,6 +5,7 @@ pub(crate) mod birthday;
 pub(crate) mod census;
 pub(crate) mod death;
 pub(crate) mod params;
+pub(crate) mod partnership;
 pub(crate) mod start;
 
 use alloc::collections::BTreeMap;
@@ -13,7 +14,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::genome::{Genotype, Sex};
-use crate::ids::SimId;
+use crate::ids::{PartnershipId, SimId};
 use crate::input::DeathCause;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
@@ -38,6 +39,17 @@ pub(crate) struct Sim {
 pub(crate) struct Exposure {
     pub(crate) before: SimDuration,
     pub(crate) since: Option<SimTime>,
+}
+
+/// A woman and a man paired by `Start` or `ArrangePartnership`. It ends with the first
+/// death of the two and stays as history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Partnership {
+    pub(crate) woman: SimId,
+    pub(crate) man: SimId,
+    pub(crate) formed: SimTime,
+    /// The second of the first death of the two; `None` while both live.
+    pub(crate) ended: Option<SimTime>,
 }
 
 /// Why a sim left the active population.
@@ -70,6 +82,7 @@ pub(crate) struct DomainState {
     pub(crate) death_causes: Vec<DeathCause>,
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
+    pub(crate) partnerships: BTreeMap<PartnershipId, Partnership>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
     /// The lineage keys of the living and the archive. Not part of the projection:
     /// loading builds it again (ADR-0001 section 4).
@@ -95,6 +108,7 @@ impl DomainState {
             world_params: None,
             death_causes: Vec::new(),
             sims: BTreeMap::new(),
+            partnerships: BTreeMap::new(),
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),
             pending: BTreeMap::new(),

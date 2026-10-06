@@ -164,6 +164,7 @@ fn check(
     match input {
         Input::Start(start) => state::start::check_start(domain, closed_through, start),
         Input::ForkOverride(block) => state::params::check_override(domain, block),
+        Input::ArrangePartnership(pair) => state::partnership::check_arrange(domain, pair),
     }
 }
 
@@ -181,6 +182,9 @@ impl WorldState {
             Input::ForkOverride(block) => {
                 state::params::apply_override(&mut self.domain, block, &mut ctx);
             }
+            Input::ArrangePartnership(pair) => {
+                state::partnership::apply_arrange(&mut self.domain, pair, &mut ctx);
+            }
         }
     }
 
@@ -190,6 +194,10 @@ impl WorldState {
 
     pub(crate) fn next_sim_id(&self) -> u64 {
         self.ids.next_sim()
+    }
+
+    pub(crate) fn next_partnership_id(&self) -> u64 {
+        self.ids.next_partnership()
     }
 
     /// `None` until `Start` was applied.
@@ -306,6 +314,7 @@ mod tests {
                     genotype: MIXED,
                 })
                 .collect(),
+            couples: Vec::new(),
         })
     }
 

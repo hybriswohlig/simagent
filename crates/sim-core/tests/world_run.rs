@@ -36,6 +36,7 @@ fn start_with(born: &[i64]) -> Input {
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
+        couples: Vec::new(),
     })
 }
 

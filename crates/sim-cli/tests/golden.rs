@@ -241,15 +241,17 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Birthday { .. } => "core:birthday",
         LogPayload::ParamChanged { .. } => "core:param_changed",
         LogPayload::Death { .. } => "core:death",
+        LogPayload::Partnered { .. } => "core:partnered",
     }
 }
 
-const LOG_KINDS: [&str; 5] = [
+const LOG_KINDS: [&str; 6] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
     "core:param_changed",
     "core:death",
+    "core:partnered",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).

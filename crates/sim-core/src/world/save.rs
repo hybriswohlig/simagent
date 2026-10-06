@@ -205,11 +205,15 @@ impl World {
                     world_params: loaded.world_params,
                     death_causes,
                     sims: loaded.sims,
+                    partnerships: loaded.partnerships,
                     archive: loaded.archive,
                     lineage,
                     pending,
                 },
-                ids: IdCounters::restore(counter(loaded.next_sim_id)?),
+                ids: IdCounters::restore(
+                    counter(loaded.next_sim_id)?,
+                    counter(loaded.next_partnership_id)?,
+                ),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
                 trace: TraceBuffer::default(),
             },
@@ -341,7 +345,9 @@ fn input_log_consistent(
                 switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
             }
             // A second `Start`, or another input before the first.
-            (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return None,
+            (Input::Start(_), Some(_))
+            | (Input::ForkOverride(_), None)
+            | (Input::ArrangePartnership(_), _) => return None,
         }
     }
     let (params, start) = started?;

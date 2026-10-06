@@ -13,23 +13,30 @@ use crate::trace::{TraceBuffer, TracePayload};
 /// One counter per entity kind (ADR-0004 section 1). Only `SimCtx` allocates.
 pub(super) struct IdCounters {
     sim: Counter,
+    partnership: Counter,
 }
 
 impl IdCounters {
     pub(super) const fn new() -> IdCounters {
         IdCounters {
             sim: Counter::new(),
+            partnership: Counter::new(),
         }
     }
 
     /// The counters of a loaded world.
-    pub(super) fn restore(sim: Counter) -> IdCounters {
-        IdCounters { sim }
+    pub(super) fn restore(sim: Counter, partnership: Counter) -> IdCounters {
+        IdCounters { sim, partnership }
     }
 
     /// The SimId the next sim gets.
     pub(super) fn next_sim(&self) -> u64 {
         self.sim.peek()
+    }
+
+    /// The PartnershipId the next partnership gets.
+    pub(super) fn next_partnership(&self) -> u64 {
+        self.partnership.peek()
     }
 
     /// Number of SimIds handed out so far.

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::{Code, DataId};
 use crate::finite::FiniteF64;
 use crate::genome::{Genotype, Sex};
-use crate::ids::InputSeq;
+use crate::ids::{InputSeq, SimId};
 use crate::params::{ParamChange, WorldParams};
 use crate::time::SimTime;
 
@@ -22,6 +22,8 @@ pub enum Input {
     /// The override block of a fork (ADR-0001 section 6). `simagent fork` submits it
     /// stamped `T_X - 1 s`, so it acts before the first event of year X.
     ForkOverride(ForkOverride),
+    /// Pairs two living sims ("Paare stiften", A2).
+    ArrangePartnership(ArrangePartnership),
 }
 
 /// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
@@ -38,6 +40,25 @@ pub struct Start {
     /// (ADR-0001). The order of the list is the order in which their events are planned.
     pub death_causes: Vec<DeathCause>,
     pub founders: Vec<Founder>,
+    /// The fixed couples of founders (ADR-0001, Durchstich), paired after all founders
+    /// entered the world, in list order.
+    pub couples: Vec<Couple>,
+}
+
+/// A couple of founders, by their places in the list of founders.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Couple {
+    pub woman: u32,
+    pub man: u32,
+}
+
+/// A woman and a man to pair; both must live and be in no partnership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArrangePartnership {
+    pub woman: SimId,
+    pub man: SimId,
 }
 
 /// A cause of death with a constant hazard (C4, simplified for the Durchstich): a person
@@ -141,6 +162,16 @@ pub enum RejectCode {
     DeathCauseTwice,
     /// A cause of death with a hazard below `MIN_DEATH_RATE_PER_YEAR`.
     DeathRateOutOfRange,
+    /// A SimId that was never handed out.
+    UnknownSim,
+    /// A sim that is in the archive.
+    SimNotAlive,
+    /// A "woman" who is not female or a "man" who is not male.
+    PartnersOfWrongSex,
+    /// A sim that is in a partnership already.
+    AlreadyPartnered,
+    /// A couple of `Start` with a place beyond the list of founders.
+    UnknownFounder,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

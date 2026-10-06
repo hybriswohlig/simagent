@@ -104,8 +104,18 @@ def founder(born: int, sex: bytes, genes: bytes) -> bytes:
     return signed(born) + sex + genes
 
 
+def couple(woman: int, man: int) -> bytes:
+    """Couple { woman: u32, man: u32 }: positions in the list of founders."""
+    return varint(woman) + varint(man)
+
+
+def partnership(woman: int, man: int, formed: int, ended) -> bytes:
+    """Partnership { woman: SimId, man: SimId, formed: SimTime, ended: Option<SimTime> }"""
+    return varint(woman) + varint(man) + signed(formed) + (b"\x00" if ended is None else b"\x01" + signed(ended))
+
+
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, death_causes: [DeathCause], founders: [Founder] }
+# WorldParams, death_causes: [DeathCause], founders: [Founder], couples: [Couple] }
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
@@ -113,7 +123,14 @@ SAMPLE_INPUT = variant(
     world_params(False),
     seq([death_cause("test:base", 0.02)]),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
+    seq([]),
 )
+
+# Input::ArrangePartnership (variant 2) { woman: SimId, man: SimId }
+SAMPLE_ARRANGE = variant(2, varint(1), varint(2))
+
+# LogPayload::Partnered (variant 5) { partnership: PartnershipId }
+SAMPLE_PARTNERED_PAYLOAD = variant(5, varint(1))
 
 # Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.
 SAMPLE_RANDOM_CAUSE = variant(
@@ -174,6 +191,9 @@ if __name__ == "__main__":
         ("sample_death_payload", SAMPLE_DEATH_PAYLOAD),
         ("death_cause", death_cause("test:base", 0.02)),
         ("death_cause_dummy", death_cause("test:dummy_disease", 0.3, "dummy_homozygous")),
+        ("sample_arrange", SAMPLE_ARRANGE),
+        ("sample_partnered_payload", SAMPLE_PARTNERED_PAYLOAD),
+        ("couple", couple(0, 1)),
         ("sample_stamp", SAMPLE_STAMP),
         ("sample_record", SAMPLE_RECORD),
         ("sample_entry", SAMPLE_ENTRY),

@@ -12,10 +12,10 @@ use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
-use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
+use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
-    AppliesTo, DeathCause, ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp,
-    RejectCode, Start,
+    AppliesTo, ArrangePartnership, Couple, DeathCause, ForkOverride, Founder, Input, InputRecord,
+    InputRejected, InputStamp, RejectCode, Start,
 };
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
@@ -87,6 +87,7 @@ fn sample_input() -> Input {
                 paternal: Allele::Dummy,
             },
         }],
+        couples: Vec::new(),
     })
 }
 
@@ -108,12 +109,20 @@ fn sample_override() -> Input {
     })
 }
 
+/// The first woman and the first man of a world paired.
+fn sample_arrange() -> Input {
+    Input::ArrangePartnership(ArrangePartnership {
+        woman: sim(1),
+        man: sim(2),
+    })
+}
+
 /// Every `Input` variant. A new variant fails to compile here until it is in the list.
 fn all_inputs() -> Vec<Input> {
-    let inputs = vec![sample_input(), sample_override()];
+    let inputs = vec![sample_input(), sample_override(), sample_arrange()];
     for input in &inputs {
         match input {
-            Input::Start(_) | Input::ForkOverride(_) => {}
+            Input::Start(_) | Input::ForkOverride(_) | Input::ArrangePartnership(_) => {}
         }
     }
     inputs
@@ -143,17 +152,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700000100";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700000100";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -220,6 +229,60 @@ fn override_form_is_pinned() {
     }
     // A start without world parameters is no start: nothing is filled in.
     let without = INPUT_JSON.replace(r#""world_params":{"hereditary_diseases":false},"#, "");
+    assert_ne!(without, INPUT_JSON);
+    assert!(from_json::<Input>(&without).is_err());
+}
+
+/// Partnerships (ADR-0004 sections 1, 4 and 7): the couples of `Start` by the places of
+/// the founders, the input that pairs two sims by ID, and the creation entry of a
+/// partnership. All values from tools/postcard_reference.py.
+#[test]
+fn partnership_forms_are_pinned() {
+    let couple = Couple { woman: 0, man: 1 };
+    let couple_json = r#"{"woman":0,"man":1}"#;
+    assert_eq!(json(&couple), couple_json);
+    assert_eq!(from_json::<Couple>(couple_json).expect("parses"), couple);
+    assert_eq!(postcard_round_trip(&couple), hex("0001"));
+
+    let arrange_json = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+    assert_eq!(json(&sample_arrange()), arrange_json);
+    assert_eq!(
+        from_json::<Input>(arrange_json).expect("parses"),
+        sample_arrange()
+    );
+    assert_eq!(postcard_round_trip(&sample_arrange()), hex("020102"));
+
+    let partnered = LogPayload::Partnered {
+        partnership: PartnershipId::try_from(1).expect("valid"),
+    };
+    let partnered_json = r#"{"core:partnered":{"partnership":1}}"#;
+    assert_eq!(json(&partnered), partnered_json);
+    assert_eq!(
+        from_json::<LogPayload>(partnered_json).ok(),
+        Some(partnered.clone())
+    );
+    assert_eq!(postcard_round_trip(&partnered), hex("0501"));
+
+    for rejected in [
+        r#"{"woman":0}"#,
+        r#"{"woman":0,"man":1,"since":0}"#,
+        r#"{"woman":-1,"man":1}"#,
+        r#"{"woman":4294967296,"man":1}"#,
+    ] {
+        assert!(from_json::<Couple>(rejected).is_err(), "{rejected}");
+    }
+    for rejected in [
+        r#"{"arrange_partnership":{"woman":1}}"#,
+        r#"{"arrange_partnership":{"woman":0,"man":2}}"#,
+        r#"{"arrange_partnership":{"woman":1,"man":"2"}}"#,
+        r#"{"arrange_partnership":{"woman":1,"man":2,"since":0}}"#,
+        r#"{"arrange_partnership":[1,2]}"#,
+    ] {
+        assert!(from_json::<Input>(rejected).is_err(), "{rejected}");
+    }
+    assert!(from_json::<LogPayload>(r#"{"core:partnered":{"partnership":0}}"#).is_err());
+    // A start without couples is no start: the list is required, even when empty.
+    let without = INPUT_JSON.replace(r#","couples":[]"#, "");
     assert_ne!(without, INPUT_JSON);
     assert!(from_json::<Input>(&without).is_err());
 }
@@ -367,6 +430,7 @@ fn postcard_forms_are_pinned() {
         },
         death_causes: Vec::new(),
         founders: Vec::new(),
+        couples: Vec::new(),
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
@@ -524,7 +588,7 @@ fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
         from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| match input {
             Input::Start(start) => start.world_seed,
-            Input::ForkOverride(_) => panic!("a start"),
+            Input::ForkOverride(_) | Input::ArrangePartnership(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -674,6 +738,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
                 paternal: Allele::Dummy,
             },
         }],
+        couples: Vec::new(),
     });
     // A lineage key is a full-range number as well.
     let added = serde_json::to_value(&all_payloads()[1]).expect("json");
@@ -710,6 +775,9 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Death {
             cause: Code::new("test:base").expect("valid"),
         },
+        LogPayload::Partnered {
+            partnership: PartnershipId::try_from(1).expect("valid"),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -718,7 +786,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::FounderAdded { .. }
             | LogPayload::Birthday { .. }
             | LogPayload::ParamChanged { .. }
-            | LogPayload::Death { .. } => {}
+            | LogPayload::Death { .. }
+            | LogPayload::Partnered { .. } => {}
         }
     }
     payloads
@@ -735,6 +804,11 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::OverrideParamTwice,
         RejectCode::DeathCauseTwice,
         RejectCode::DeathRateOutOfRange,
+        RejectCode::UnknownSim,
+        RejectCode::SimNotAlive,
+        RejectCode::PartnersOfWrongSex,
+        RejectCode::AlreadyPartnered,
+        RejectCode::UnknownFounder,
     ];
     for code in &codes {
         match code {
@@ -746,7 +820,12 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::EmptyOverride
             | RejectCode::OverrideParamTwice
             | RejectCode::DeathCauseTwice
-            | RejectCode::DeathRateOutOfRange => {}
+            | RejectCode::DeathRateOutOfRange
+            | RejectCode::UnknownSim
+            | RejectCode::SimNotAlive
+            | RejectCode::PartnersOfWrongSex
+            | RejectCode::AlreadyPartnered
+            | RejectCode::UnknownFounder => {}
         }
     }
     codes
