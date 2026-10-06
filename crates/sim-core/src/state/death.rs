@@ -201,6 +201,7 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             sex: person.sex,
             genotype: person.genotype,
             exposure: person.exposure,
+            conceptions: person.conceptions,
         },
     );
     partnership::end_with_death(domain, sim, ctx.now());

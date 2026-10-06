@@ -121,6 +121,7 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
                     founder.genotype,
                     start.world_params.hereditary_diseases,
                 ),
+                conceptions: 0,
             },
         );
         let next = first_birthday(born, ctx.now());

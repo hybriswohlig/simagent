@@ -19,19 +19,24 @@ pub enum EventPayload {
     /// The hazard budget of `sim` for a cause of death runs out; `cause` is the
     /// `str_key` of its code (ADR-0003 5.2).
     Death { sim: SimId, cause: u64 },
+    /// Monthly series: the woman of an open partnership may conceive.
+    ConceptionAttempt { woman: SimId },
 }
 
 impl EventPayload {
     pub const YEAR_END: EventKind = EventKind(1);
     pub const BIRTHDAY: EventKind = EventKind(2);
     pub const DEATH: EventKind = EventKind(3);
+    pub const CONCEPTION_ATTEMPT: EventKind = EventKind(4);
 }
 
 impl Payload for EventPayload {
     fn class(&self) -> EventClass {
         match self {
             EventPayload::YearEnd => EventClass::OBSERVER,
-            EventPayload::Birthday { .. } => EventClass::GENERAL,
+            EventPayload::Birthday { .. } | EventPayload::ConceptionAttempt { .. } => {
+                EventClass::GENERAL
+            }
             EventPayload::Death { .. } => EventClass::DEATH,
         }
     }
@@ -39,9 +44,9 @@ impl Payload for EventPayload {
     fn subject(&self) -> EventSubject {
         match self {
             EventPayload::YearEnd => EventSubject::WORLD,
-            EventPayload::Birthday { sim } | EventPayload::Death { sim, .. } => {
-                EventSubject::sim(sim.get())
-            }
+            EventPayload::Birthday { sim }
+            | EventPayload::Death { sim, .. }
+            | EventPayload::ConceptionAttempt { woman: sim } => EventSubject::sim(sim.get()),
         }
     }
 
@@ -50,6 +55,7 @@ impl Payload for EventPayload {
             EventPayload::YearEnd => EventPayload::YEAR_END,
             EventPayload::Birthday { .. } => EventPayload::BIRTHDAY,
             EventPayload::Death { .. } => EventPayload::DEATH,
+            EventPayload::ConceptionAttempt { .. } => EventPayload::CONCEPTION_ATTEMPT,
         }
     }
 }

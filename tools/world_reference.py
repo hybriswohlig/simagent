@@ -33,7 +33,20 @@ What the model knows:
   woman and a man by their places among the founders); `ArrangePartnership` forms one
   between two living sims. Each gets the next PartnershipId and one entry
   `core:partnered` (subjects the woman and the man). A death ends the open partnership
-  of the sim: it keeps the second of the death. If the switch flips, every living
+  of the sim: it keeps the second of the death.
+- Conception (ADR-0001 scenario `fork_no_density`, ADR-0004 section 7): a partnership
+  plans a monthly series of attempts (period MONTH, by its entry) from the first month
+  start at or after the forming and her `from_years` birthday, if she is younger than
+  `until_years` then and not pregnant. An attempt at or after her `until_years` birthday
+  ends the series. Otherwise it draws `bernoulli(CONCEPTION_ATTEMPT, per_month)` (subject
+  her lineage key, occasion the month index, detail his lineage key); on success she
+  conceives her conception number n: the child key `child(her, his, n, 0)`, per parent
+  the start strand `uniform_below(MEIOSIS_START_STRAND, 2)` (subject the genome key,
+  occasion 0 mother and 1 father) and the sex `uniform_below(SEX_CHROMOSOME, 2)`
+  (occasion 1). Entries: `core:conception` (her, him; plan and draw), then
+  `core:meiosis` of her and of him (event, rule `core:meiosis`, the strand draw, for him
+  also the sex draw). The series ends; the pregnancy is state. The death of either ends
+  the series; her death ends the pregnancy. If the switch flips, every living
   homozygous sim (by ID) updates its exposure, and if a cause for the homozygous exists,
   its deaths from the first such cause on are cancelled and planned again in the order
   of the causes, by that entry.
@@ -47,15 +60,23 @@ import xxhash
 
 from postcard_reference import (
     DUMMY,
+    FEMALE,
+    MALE,
+    MATERNAL,
+    PATERNAL,
+    X,
+    Y_CHROMOSOME,
     couple,
     death_cause,
     exposure,
+    fertility,
     genotype,
     f64,
     founder,
     lineage_key,
     param_change,
     partnership,
+    pregnancy,
     seq,
     signed,
     string,
@@ -63,17 +84,30 @@ from postcard_reference import (
     varint,
     world_params,
 )
-from rng_reference import chacha_key, exponential_reference, founder_key, str_key, words
+from rng_reference import (
+    bernoulli,
+    chacha_key,
+    child_key,
+    exponential_reference,
+    founder_key,
+    str_key,
+    uniform_below,
+    words,
+)
 
 YEAR = 364 * 86_400
+MONTH = 28 * 86_400
 NEVER_YEARS = 100_000.0
 # The range of the clock (ADR-0002): a time beyond it is never.
 MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
-DEATH_BUDGET = 4
+MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
-PROJECTION_VERSION = 6
-CORE_VERSION = 6
+PROJECTION_VERSION = 7
+CORE_VERSION = 7
+
+# A scenario without its own fertility: nobody ever conceives.
+BARREN = (0.0, 18, 45, 10)
 FORMAT_VERSION = 1
 EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
 
@@ -81,7 +115,7 @@ NONE = b"\x00"
 
 # Event classes and kinds (tests/golden/event_codes.txt).
 GENERAL, DEATH, OBSERVER = 500, 900, 1000
-YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND = 1, 2, 3
+YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND, ATTEMPT_KIND = 1, 2, 3, 4
 WORLD_SUBJECT, SIM_SUBJECT = 0, 1
 HOMOZYGOUS = genotype(DUMMY, DUMMY)
 APPLIES_TO_INDEX = {"everyone": 0, "dummy_homozygous": 1}
@@ -132,7 +166,9 @@ class World:
     genotype) with the last two as postcard bytes, `couples` a list of (woman, man) by
     their places among the founders."""
 
-    def __init__(self, seed: int, tag: str, diseases: bool, causes: list, founders: list, couples=()):
+    def __init__(
+        self, seed: int, tag: str, diseases: bool, causes: list, founders: list, couples=(), fertility_=BARREN
+    ):
         self.seed = seed
         self.tag = tag
         self.diseases = diseases
@@ -144,6 +180,8 @@ class World:
         self.next_sim_id = 1
         self.next_partnership_id = 1
         self.partnerships = {}
+        self.fertility = fertility_
+        self.pregnancies = {}
         self.sims = {}
         self.archive = {}
         self.log = []
@@ -156,6 +194,7 @@ class World:
             seq([death_cause(*cause) for cause in self.causes]),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
+            fertility(*fertility_),
         )
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
@@ -166,8 +205,60 @@ class World:
         number = self.next_partnership_id
         self.next_partnership_id += 1
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
-        self._entry(now, subjects, [cause], variant(5, varint(number)))
+        entry = self._entry(now, subjects, [cause], variant(5, varint(number)))
         self.partnerships[number] = [woman, man, now, None]
+        self._plan_attempts(woman, entry, now)
+
+    def _plan_attempts(self, woman: int, by: int, now: int) -> None:
+        """The monthly series of a woman in a partnership, if she can conceive at all."""
+        _, from_years, until_years, _ = self.fertility
+        born = self.sims[woman][0]
+        earliest = max(now, born + from_years * YEAR)
+        first = -(-earliest // MONTH) * MONTH
+        if woman in self.pregnancies or first >= born + until_years * YEAR:
+            return
+        payload = variant(3, varint(woman))
+        self._schedule(first, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, payload, MONTH, by, now)
+
+    def _attempt(self, event: Event, now: int, plan: bytes) -> None:
+        woman = event.subject[1]
+        per_month, _, until_years, _ = self.fertility
+        her = self.sims[woman]
+        if now >= her[0] + until_years * YEAR:
+            self.queue.remove(event)
+            return
+        man = next(p[1] for p in self.partnerships.values() if p[0] == woman and p[3] is None)
+        him = self.sims[man]
+        draw = (CONCEPTION_ATTEMPT, her[1], now // MONTH, him[1])
+        if not bernoulli(words(chacha_key(self.seed, *draw))[0], per_month):
+            return
+        self.queue.remove(event)
+        number = her[5]
+        her[5] += 1
+        child = child_key(her[1], him[1], number, 0)
+        random = lambda key: variant(4, *(varint(word) for word in key))
+        conception = self._entry(
+            now,
+            [variant(0, varint(woman)), variant(0, varint(man))],
+            [plan, random(draw)],
+            variant(6, varint(child)),
+        )
+        alleles = []
+        for side, parent, person in ((0, woman, her), (1, man, him)):
+            strand_key = (MEIOSIS_START_STRAND, child, side, 0)
+            strand = uniform_below(words(chacha_key(self.seed, *strand_key))[0], 2)
+            genes = person[3]
+            alleles.append(genes[strand : strand + 1])
+            causes = [variant(0, varint(conception)), variant(3, string("core:meiosis")), random(strand_key)]
+            chromosome = X
+            if side == 1:
+                sex_key = (SEX_CHROMOSOME, child, 1, 0)
+                chromosome = [X, Y_CHROMOSOME][uniform_below(words(chacha_key(self.seed, *sex_key))[0], 2)]
+                causes.append(random(sex_key))
+            payload = variant(7, varint(child), [MATERNAL, PATERNAL][strand], chromosome)
+            self._entry(now, [variant(0, varint(parent))], causes, payload)
+        sex = FEMALE if chromosome == X else MALE
+        self.pregnancies[woman] = (man, child, number, sex, alleles[0] + alleles[1], now)
 
     def arrange(self, woman: int, man: int) -> None:
         """`ArrangePartnership` of two living sims, submitted right now."""
@@ -191,7 +282,8 @@ class World:
             # The exposure of a homozygous founder: nothing closed, on from the start if
             # the switch is on.
             sick = [0, now if self.diseases else None] if genes == HOMOZYGOUS else None
-            self.sims[sim] = (born, key, sex, genes, sick)
+            # born, lineage key, sex, genotype, exposure, conceptions
+            self.sims[sim] = [born, key, sex, genes, sick, 0]
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
@@ -201,7 +293,7 @@ class World:
     def due(self, sim: int, cause: tuple):
         """When the sim dies of the cause if nothing else happens first, or None."""
         code, rate, applies_to = cause
-        _, key, _, _, sick = self.sims[sim]
+        _, key, _, _, sick, _ = self.sims[sim]
         needed = needed_seconds(self.seed, key, code, rate)
         if needed is None:
             return None
@@ -282,6 +374,10 @@ class World:
                 event.time += event.period
                 self.queue.append(event)
                 self.year_hashes.append(hash64(self.projection(now - 1)))
+            elif event.kind == ATTEMPT_KIND:
+                event.time += event.period
+                self.queue.append(event)
+                self._attempt(event, now, plan)
             elif event.kind == BIRTHDAY_KIND:
                 sim = event.subject[1]
                 age = (now - self.sims[sim][0]) // YEAR
@@ -294,7 +390,7 @@ class World:
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
-        born, key, sex, genes, sick = self.sims.pop(sim)
+        born, key, sex, genes, sick, conceptions = self.sims.pop(sim)
         code = next(
             code for code, _, _ in self.causes if event.payload == variant(2, varint(sim), varint(str_key(code)))
         )
@@ -304,8 +400,13 @@ class World:
         for couple_ in self.partnerships.values():
             if couple_[3] is None and sim in couple_[:2]:
                 couple_[3] = now
+                # The partnership ends, and with it her series of attempts.
+                attempts = variant(3, varint(couple_[0]))
+                self.queue = [other for other in self.queue if other.payload != attempts]
+        # Her pregnancy ends with her.
+        self.pregnancies.pop(sim, None)
         # The exposure stays as it was: whether the disease acted at the death.
-        self.archive[sim] = (born, now, str_key(code), key, sex, genes, sick)
+        self.archive[sim] = (born, now, str_key(code), key, sex, genes, sick, conceptions)
 
     # ------------------------------------------------------------------ views
 
@@ -315,8 +416,8 @@ class World:
     def projection(self, closed=None) -> bytes:
         closed = self.closed if closed is None else closed
         sims = [
-            varint(sim) + signed(born) + lineage_key(key) + sex + genes + exposure(sick)
-            for sim, (born, key, sex, genes, sick) in sorted(self.sims.items())
+            varint(sim) + signed(born) + lineage_key(key) + sex + genes + exposure(sick) + varint(conceptions)
+            for sim, (born, key, sex, genes, sick, conceptions) in sorted(self.sims.items())
         ]
         archive = [
             varint(sim)
@@ -327,7 +428,8 @@ class World:
             + sex
             + genes
             + exposure(sick)
-            for sim, (born, left, cause, key, sex, genes, sick) in sorted(self.archive.items())
+            + varint(conceptions)
+            for sim, (born, left, cause, key, sex, genes, sick, conceptions) in sorted(self.archive.items())
         ]
         return (
             varint(PROJECTION_VERSION)
@@ -339,6 +441,7 @@ class World:
                     for code, rate, applies_to in self.causes
                 ]
             )
+            + some(fertility(*self.fertility))
             + signed(closed)
             + varint(self.next_sim_id)
             + varint(self.next_partnership_id)
@@ -346,6 +449,7 @@ class World:
             + varint(self.next_insertion)
             + seq(sims)
             + seq([varint(number) + partnership(*value) for number, value in sorted(self.partnerships.items())])
+            + seq([varint(mother) + pregnancy(*value) for mother, value in sorted(self.pregnancies.items())])
             + seq(archive)
         )
 
@@ -380,6 +484,7 @@ EMPTY_PROJECTION = (
     + NONE  # world_seed
     + NONE  # world_params
     + seq([])  # death_causes
+    + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
     + varint(1)  # next PartnershipId
@@ -387,6 +492,7 @@ EMPTY_PROJECTION = (
     + varint(1)
     + seq([])  # sims
     + seq([])  # partnerships
+    + seq([])  # pregnancies
     + seq([])  # archive
 )
 EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])

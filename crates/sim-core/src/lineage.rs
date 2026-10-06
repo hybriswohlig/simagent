@@ -59,7 +59,8 @@ impl LineageKey {
 /// The key all meiosis draws of a person are addressed by: the own lineage key, for
 /// identical multiples that of the first child of the zygote. Meiosis and mutation
 /// depend only on the genomes of the parents and on these draws.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct GenomeKey(LineageKey);
 
 impl GenomeKey {

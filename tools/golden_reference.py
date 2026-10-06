@@ -11,14 +11,18 @@ years (sim 1), 25 years and 100 days (sim 2) and one second (sim 3) before the s
 ten years. Sim 1 is female with the dummy allele twice, sim 2 male with dummy and wild
 (from mother and father), sim 3 male with dummy twice. Their lineage keys are those of
 the founders 0 to 2 of the tag (ADR-0001 section 4). Sims 1 and 2 are a couple from the
-start (partnership 1, entry `core:partnered` after the founders).
+start (partnership 1, entry `core:partnered` after the founders). Fertility as in the
+acceptance scenario of ADR-0001: an attempt per month with 0.05, the mother 18 to 45
+years old, ten months of pregnancy.
 
 What happens (a year has 364 days of 86 400 seconds):
 
 - With the switch off the disease acts on nobody; sims 1 and 3 keep an exposure of
   nothing. Sim 3 dies of `test:base` in year 2 and sim 2 of the same cause near the end
   of year 3; their deaths of old age (due after 26 and 239 years) and their next
-  birthdays are cancelled. The death of sim 2 ends partnership 1. Sim 1 lives through the ten years; its deaths are due after
+  birthdays are cancelled. The death of sim 2 ends partnership 1.
+- Sim 1 conceives in month 7 (entries `core:conception` and two `core:meiosis`); the
+  monthly attempts end with it. Sim 1 lives through the ten years; its deaths are due after
   27 years (`test:base`) and 20 years (`test:old_age`).
 - The golden save is taken on day 100 of year 3: sim 3 is in the archive, sim 2 still
   lives.
@@ -40,7 +44,7 @@ import sys
 from pathlib import Path
 
 from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype
-from world_reference import CORE_VERSION, EMPTY_DATA_HASH, YEAR, World, needed_seconds
+from world_reference import CORE_VERSION, EMPTY_DATA_HASH, MONTH, YEAR, World, needed_seconds
 from rng_reference import founder_key
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +57,7 @@ SEX = [FEMALE, MALE, MALE]
 GENES = [genotype(DUMMY, DUMMY), genotype(DUMMY, WILD), genotype(DUMMY, DUMMY)]
 FOUNDERS = list(zip(BORN, SEX, GENES))
 COUPLES = [(0, 1)]
+FERTILITY = (0.05, 18, 45, 10)
 YEARS = 10
 SAVE_AT = 3 * YEAR + 100 * DAY
 FORK_YEAR = 5
@@ -74,7 +79,7 @@ assert DUE[(3, "test:old_age")] > DUE[(3, "test:base")]
 
 
 def dummy_world() -> World:
-    return World(SEED, TAG, False, CAUSES, FOUNDERS, COUPLES)
+    return World(SEED, TAG, False, CAUSES, FOUNDERS, COUPLES, FERTILITY)
 
 
 def run(fork: bool) -> World:
@@ -97,6 +102,7 @@ assert all(
 assert len(FORK.log) == len(PARENT.log) + 2, "the override and the death of sim 1"
 assert sorted(PARENT.archive) == [2, 3] and sorted(PARENT.sims) == [1]
 assert PARENT.partnerships == {1: [1, 2, 0, DUE[(2, "test:base")]]}
+assert [value[5] for value in PARENT.pregnancies.values()] == [7 * MONTH]
 assert sorted(FORK.archive) == [1, 2, 3] and FORK.archive[1][1] == FORK_YEAR * YEAR + DUE[(1, "test:dummy_disease")]
 
 

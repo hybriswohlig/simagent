@@ -1,0 +1,302 @@
+//! Conception (ADR-0001 scenario `fork_no_density`, ADR-0004 section 7, B18): the woman
+//! of a partnership tries once a month while she is old enough and not pregnant; a
+//! successful draw fixes the child at once: its lineage key, the two meioses at the
+//! dummy locus and its sex. The pregnancy is state.
+//!
+//! The expected bytes come from `tools/state_reference.py`, which runs the model of
+//! `tools/world_reference.py`, written from the ADRs and not from this code.
+//!
+//! Scenario "clan": seed 0xff, founder tag `test:clan`, `test:base` with 0.02 per year,
+//! a fertility of 0.25 per month (the mother 18 to 45 years old, ten months). Three
+//! founder couples: a woman of 20 and a man of 22; a girl of 12 and a man of 30; a woman
+//! and a man of 46. The first couple tries from month 0 and conceives in month 5, the
+//! girl from her 18th birthday (month 78) and conceives in month 85, the third never.
+
+use sim_core::data_id::{Code, DataId};
+use sim_core::finite::FiniteF64;
+use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::input::{
+    AppliesTo, Couple, DeathCause, Fertility, Founder, Input, InputRejected, RejectCode, Start,
+};
+use sim_core::log::{LogEntry, log_hash};
+use sim_core::params::WorldParams;
+use sim_core::time::SimTime;
+use sim_core::version::EMPTY_DATA_HASH;
+use sim_core::world::{World, YearOut};
+
+const Y: i64 = 31_449_600;
+const MONTH: i64 = 2_419_200;
+
+// tools/state_reference.py
+const CLAN_SAVE_AFTER_START: &str = "53494d4147454e540107c2a9cec6d380a0832d0701ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a0107040f00000201010000000e03010180a8a70200000401020000000601030000000801040000000a01050000000c010600fe87ff1d000100018088ff1d80b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100100601ff9fedd704dded83919698d6d0d001000001000002ffafeb9305f6eb9bebea9bd7c53e010100000003ffdff4e70285b2a2a3e3ecdafac4010001010100000004ffefe38307f9a4bfd6bdf093fea701010000000005ffefd4e30afacbdcacb9abf18703000000000006ffefd4e30af1c5c4b2d9a691fded0101000000000301010200000203040000030506000000000f0200080003000400050006000700010009000600040007000500020003000b01010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a00";
+const CLAN_CONCEPTION_ENTRIES: [&str; 3] = [
+    "1180c8c40b0200010002020108000403dded83919698d6d0d00105f6eb9bebea9bd7c53e06f3c89ad6cdbbe183cd01",
+    "1280c8c40b010001030011030c636f72653a6d65696f7369730401f3c89ad6cdbbe183cd01000007f3c89ad6cdbbe183cd010100",
+    "1380c8c40b010002040011030c636f72653a6d65696f7369730401f3c89ad6cdbbe183cd0101000402f3c89ad6cdbbe183cd01010007f3c89ad6cdbbe183cd010000",
+];
+const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e540107c2a9cec6d380a0832d0701ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80c8c40b07040efe87ff1d000100018088ff1d8088ff1d00100101008088ff1d00110102008088ff1d00120103008088ff1d00130104008088ff1d00140105008088ff1d001501060080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100160601ff9fedd704dded83919698d6d0d001000001000102ffafeb9305f6eb9bebea9bd7c53e010100000003ffdff4e70285b2a2a3e3ecdafac4010001010100000004ffefe38307f9a4bfd6bdf093fea701010000000005ffefd4e30afacbdcacb9abf18703000000000006ffefd4e30af1c5c4b2d9a691fded01010000000003010102000002030400000305060000010102f3c89ad6cdbbe183cd010000010180c8c40b000e01000b000c000d000e000f00100009000600040007000500020003001401010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a00";
+const CLAN_SAVE_AFTER_YEAR_7: &str = "53494d4147454e540107c2a9cec6d380a0832d0701ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0afebff8ef0107040d80c0f8ef01003a01010080c0f8ef01003b01020080c0f8ef01003c01030080c0f8ef01003d01040080c0f8ef01003e01050080c0f8ef01003f010600fec7f78d02000100018088ff1d9cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100400601ff9fedd704dded83919698d6d0d001000001000102ffafeb9305f6eb9bebea9bd7c53e010100000003ffdff4e70285b2a2a3e3ecdafac4010001010100000104ffefe38307f9a4bfd6bdf093fea701010000000005ffefd4e30afacbdcacb9abf18703000000000006ffefd4e30af1c5c4b2d9a691fded01010000000003010102000002030400000305060000020102f3c89ad6cdbbe183cd010000010180c8c40b0304c097f590fbdac1860d0000010080c88dc401000d3b80b8f9d1013c80b8f9d1013d80b8f9d1013e80b8f9d1013f80b8f9d1014080b8f9d10101000600040007000500020003004101010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a0800f391fba6d9e4fdd62b028991dbafafdd839cfc0104cba8a5abeb96fb83a60106d0c3a99c9196a2d3960108d8d79fefab90e7aa530ab0ffcfea8c9aafeee4010cb0d8d58697febd91350ef7cd9bdbaa9dd784b601";
+const CLAN_FEVER_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540107c2a9cec6d380a0832d0701ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00839baab3cfd993e94b000000000000e03f0001000000000000d03f122d0afe9ffc77070401fea7fb9501000100018088ff1d26000301010200018cb6a20e020304000190f8d4100305060001ea81fd4e000601ff9fedd704b897f95000839baab3cfd993e94bdded83919698d6d0d001000001000102ffafeb93058cb6a20e00839baab3cfd993e94bf6eb9bebea9bd7c53e010100000003ffdff4e70282e6ec5f00839baab3cfd993e94b85b2a2a3e3ecdafac4010001010100000004ffefe3830790f8d41000839baab3cfd993e94bf9a4bfd6bdf093fea701010000000005ffefd4e30aea81fd4e00839baab3cfd993e94bfacbdcacb9abf18703000000000006ffefd4e30ab0c2ce6700839baab3cfd993e94bf1c5c4b2d9a691fded0101000000000101002401010100ff0109746573743a636c616e000209746573743a626173657b14ae47e17a943f000a746573743a6665766572000000000000e03f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a0400f88bbb8ce1a4f6882402b0cbfce39d9bdba35f04cbdb84e49af2e79e1e0693e3f8f897aaef937f";
+
+fn hex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex digits"))
+        .collect()
+}
+
+fn cause(code: &str, per_year: f64) -> DeathCause {
+    DeathCause {
+        cause: Code::new(code).expect("valid"),
+        per_year: FiniteF64::try_new(per_year).expect("finite"),
+        applies_to: AppliesTo::Everyone,
+    }
+}
+
+fn founder(years: i64, sex: Sex, maternal: Allele, paternal: Allele) -> Founder {
+    Founder {
+        born: SimTime::from_secs(-years * Y),
+        sex,
+        genotype: Genotype { maternal, paternal },
+    }
+}
+
+fn fertility(
+    per_month: f64,
+    from_years: u32,
+    until_years: u32,
+    pregnancy_months: u32,
+) -> Fertility {
+    Fertility {
+        per_month: FiniteF64::try_new(per_month).expect("finite"),
+        from_years,
+        until_years,
+        pregnancy_months,
+    }
+}
+
+fn clan_start(death_causes: Vec<DeathCause>, fertility: Fertility) -> Input {
+    use Allele::{Dummy, Wild};
+    Input::Start(Start {
+        world_seed: 0xff,
+        founder_tag: DataId::new("test:clan").expect("valid"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+        },
+        death_causes,
+        founders: vec![
+            founder(20, Sex::Female, Wild, Dummy),
+            founder(22, Sex::Male, Dummy, Wild),
+            founder(12, Sex::Female, Dummy, Dummy),
+            founder(30, Sex::Male, Wild, Wild),
+            founder(46, Sex::Female, Wild, Wild),
+            founder(46, Sex::Male, Wild, Wild),
+        ],
+        couples: vec![
+            Couple { woman: 0, man: 1 },
+            Couple { woman: 2, man: 3 },
+            Couple { woman: 4, man: 5 },
+        ],
+        fertility,
+    })
+}
+
+fn clan() -> World {
+    let mut world = World::new();
+    world
+        .submit(clan_start(
+            vec![cause("test:base", 0.02)],
+            fertility(0.25, 18, 45, 10),
+        ))
+        .expect("accepted");
+    world
+}
+
+struct Run {
+    world: World,
+    out: YearOut,
+    log: Vec<LogEntry>,
+}
+
+impl Run {
+    fn new(mut world: World) -> Run {
+        let log = world.take_log();
+        Run {
+            world,
+            out: YearOut::default(),
+            log,
+        }
+    }
+
+    fn advance(&mut self, until: i64) {
+        self.world
+            .advance_until(&mut self.out, SimTime::from_secs(until), &mut |_| false);
+        self.log.extend(self.world.take_log());
+    }
+
+    fn save(&self) -> Vec<u8> {
+        self.world.save(&self.out.year_hashes).expect("saves")
+    }
+}
+
+/// Each couple whose woman can conceive gets a monthly series of attempts: the first
+/// couple from month 0, the girl from her 18th birthday; the couple of 46 none.
+#[test]
+fn couples_try_once_a_month_while_she_can_conceive() {
+    let run = Run::new(clan());
+    assert_eq!(run.save(), hex(CLAN_SAVE_AFTER_START));
+}
+
+/// The attempt in month 5 succeeds: `core:conception` with the plan of the series and
+/// the draw as causes, then the meiosis of the mother and of the father, each caused by
+/// the conception and the rule, with its own draw (the father's also with the draw of
+/// the sex chromosome). Her attempts end; the pregnancy is in the state.
+#[test]
+fn a_conception_fixes_the_child() {
+    let mut run = Run::new(clan());
+    run.advance(5 * MONTH - 1);
+    let before = run.log.len();
+    run.advance(5 * MONTH);
+    let entries: Vec<Vec<u8>> = run.log[before..]
+        .iter()
+        .map(|entry| postcard::to_allocvec(entry).expect("encodes"))
+        .collect();
+    assert_eq!(entries, CLAN_CONCEPTION_ENTRIES.map(hex));
+    let json: Vec<String> = run.log[before..]
+        .iter()
+        .map(|entry| serde_json::to_string(entry).expect("json"))
+        .collect();
+    assert_eq!(
+        json[0],
+        r#"{"id":17,"t":12096000,"subjects":[{"sim":1},{"sim":2}],"causes":[{"plan":{"by":8,"planned_at":0}},{"random":{"tag":"0000000000000003","subject":"d0a158c16220f6dd","occasion":"0000000000000005","detail":"3e8b5cdead66f5f6"}}],"payload":{"core:conception":{"lineage_key":"cd0785dcdac6a473"}}}"#
+    );
+    assert_eq!(
+        json[1],
+        r#"{"id":18,"t":12096000,"subjects":[{"sim":1}],"causes":[{"event":17},{"rule":"core:meiosis"},{"random":{"tag":"0000000000000001","subject":"cd0785dcdac6a473","occasion":"0000000000000000","detail":"0000000000000000"}}],"payload":{"core:meiosis":{"genome_key":"cd0785dcdac6a473","start_strand":"paternal","sex_chromosome":"x"}}}"#
+    );
+    assert_eq!(
+        json[2],
+        r#"{"id":19,"t":12096000,"subjects":[{"sim":2}],"causes":[{"event":17},{"rule":"core:meiosis"},{"random":{"tag":"0000000000000001","subject":"cd0785dcdac6a473","occasion":"0000000000000001","detail":"0000000000000000"}},{"random":{"tag":"0000000000000002","subject":"cd0785dcdac6a473","occasion":"0000000000000001","detail":"0000000000000000"}}],"payload":{"core:meiosis":{"genome_key":"cd0785dcdac6a473","start_strand":"maternal","sex_chromosome":"x"}}}"#
+    );
+    assert_eq!(run.save(), hex(CLAN_SAVE_AFTER_CONCEPTION));
+}
+
+/// The girl's attempts begin at her 18th birthday and she conceives in month 85; at the
+/// end of year 7 both women are pregnant, each with her first conception.
+#[test]
+fn the_girl_tries_from_her_18th_birthday_on() {
+    let mut run = Run::new(clan());
+    run.advance(8 * Y - 1);
+    assert_eq!(run.save(), hex(CLAN_SAVE_AFTER_YEAR_7));
+}
+
+/// With a second cause the father dies in month 6.2: the pregnancy goes on. The girl's
+/// partner dies in month 7.2: her attempts end before they begin. The pregnant woman
+/// dies in month 35.1: her pregnancy ends with her, her conception stays counted.
+#[test]
+fn deaths_end_attempts_and_pregnancies() {
+    let mut world = World::new();
+    world
+        .submit(clan_start(
+            vec![cause("test:base", 0.02), cause("test:fever", 0.5)],
+            fertility(0.25, 18, 45, 10),
+        ))
+        .expect("accepted");
+    let mut run = Run::new(world);
+    run.advance(4 * Y - 1);
+    assert_eq!(run.save(), hex(CLAN_FEVER_SAVE_AFTER_YEAR_3));
+}
+
+/// The fertility of `Start`: a chance from 0 to 1, from an age below the end of
+/// fertility, which is at most 1000 years, and a pregnancy of 1 to 13 000 months. It is
+/// checked after the couples.
+#[test]
+fn a_start_with_a_fertility_out_of_range_is_rejected() {
+    let code = |fertility: Fertility| {
+        let mut world = World::new();
+        let result = world
+            .submit(clan_start(vec![cause("test:base", 0.02)], fertility))
+            .err();
+        if result.is_some() {
+            assert_eq!(world.state_hash(), World::new().state_hash());
+            assert!(world.input_log().is_empty());
+        }
+        result.map(|InputRejected { code }| code)
+    };
+    for accepted in [
+        fertility(0.0, 18, 45, 10),
+        fertility(1.0, 18, 45, 10),
+        fertility(0.25, 0, 1, 1),
+        fertility(0.25, 999, 1000, 13_000),
+    ] {
+        assert_eq!(code(accepted), None, "{accepted:?}");
+    }
+    for rejected in [
+        fertility(-0.01, 18, 45, 10),
+        fertility(1.01, 18, 45, 10),
+        fertility(0.25, 45, 45, 10),
+        fertility(0.25, 46, 45, 10),
+        fertility(0.25, 18, 1001, 10),
+        fertility(0.25, 18, 45, 0),
+        fertility(0.25, 18, 45, 13_001),
+    ] {
+        assert_eq!(
+            code(rejected),
+            Some(RejectCode::FertilityOutOfRange),
+            "{rejected:?}"
+        );
+    }
+    let mut world = World::new();
+    let Input::Start(mut start) =
+        clan_start(vec![cause("test:base", 0.02)], fertility(2.0, 18, 45, 10))
+    else {
+        unreachable!("a start")
+    };
+    start.couples.push(Couple { woman: 0, man: 9 });
+    assert_eq!(
+        world.submit(Input::Start(start)).err(),
+        Some(InputRejected {
+            code: RejectCode::UnknownFounder
+        })
+    );
+}
+
+/// Loading and going on gives the uninterrupted run, before, at and after the first
+/// conception and across the girl's.
+#[test]
+fn save_load_continue_across_conceptions() {
+    let end = 8 * Y - 1;
+    let mut whole = Run::new(clan());
+    whole.advance(end);
+    for stop in [
+        0,
+        5 * MONTH - 1,
+        5 * MONTH,
+        Y,
+        78 * MONTH,
+        85 * MONTH,
+        7 * Y,
+    ] {
+        let mut part = Run::new(clan());
+        part.advance(stop);
+        let bytes = part.save();
+        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
+        let mut rest = Run {
+            world: loaded,
+            out: YearOut {
+                census: part.out.census.clone(),
+                year_hashes: years,
+            },
+            log: part.log,
+        };
+        rest.advance(end);
+        assert_eq!(rest.out.year_hashes, whole.out.year_hashes, "stop {stop}");
+        assert_eq!(log_hash(&rest.log), log_hash(&whole.log), "stop {stop}");
+        assert_eq!(
+            rest.world.state_hash(),
+            whole.world.state_hash(),
+            "stop {stop}"
+        );
+    }
+}

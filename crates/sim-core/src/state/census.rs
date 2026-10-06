@@ -77,6 +77,7 @@ mod tests {
             sex: Sex::Female,
             genotype: GENOTYPE,
             exposure: None,
+            conceptions: 0,
         }
     }
 
@@ -89,6 +90,7 @@ mod tests {
             sex: Sex::Male,
             genotype: GENOTYPE,
             exposure: None,
+            conceptions: 0,
         }
     }
 

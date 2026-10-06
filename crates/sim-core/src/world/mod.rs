@@ -253,6 +253,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Death { sim, cause } => {
                 state::death::on_death(&mut self.domain, sim, cause, &mut ctx);
             }
+            EventPayload::ConceptionAttempt { .. } => {}
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -272,7 +273,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 });
                 out.census.push(row);
             }
-            EventPayload::Birthday { .. } | EventPayload::Death { .. } => {
+            EventPayload::Birthday { .. }
+            | EventPayload::Death { .. }
+            | EventPayload::ConceptionAttempt { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -283,11 +286,22 @@ impl Handler<EventPayload, PlanRef> for WorldState {
 mod tests {
     use super::*;
     use crate::data_id::DataId;
+    use crate::finite::FiniteF64;
     use crate::genome::{Allele, Genotype, Sex};
-    use crate::input::{Founder, RejectCode, Start};
+    use crate::input::{Fertility, Founder, RejectCode, Start};
     use crate::lineage::LineageKey;
     use crate::params::WorldParams;
     use crate::time::{SchedulerSnapshot, YEAR};
+
+    /// A fertility under which nobody ever conceives.
+    fn barren() -> Fertility {
+        Fertility {
+            per_month: FiniteF64::try_new(0.0).expect("finite"),
+            from_years: 18,
+            until_years: 45,
+            pregnancy_months: 10,
+        }
+    }
 
     const MIXED: Genotype = Genotype {
         maternal: Allele::Dummy,
@@ -315,6 +329,7 @@ mod tests {
                 })
                 .collect(),
             couples: Vec::new(),
+            fertility: barren(),
         })
     }
 
@@ -332,6 +347,7 @@ mod tests {
             sex: Sex::Male,
             genotype: MIXED,
             exposure: None,
+            conceptions: 0,
         }
     }
 
@@ -480,6 +496,7 @@ mod tests {
                 sex: Sex::Female,
                 genotype: MIXED,
                 exposure: None,
+                conceptions: 0,
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();

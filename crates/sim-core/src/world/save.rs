@@ -208,6 +208,8 @@ impl World {
                     death_causes,
                     sims: loaded.sims,
                     partnerships: loaded.partnerships,
+                    fertility: None,
+                    pregnancies: loaded.pregnancies,
                     archive: loaded.archive,
                     lineage,
                     pending,
@@ -252,6 +254,7 @@ pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), Eve
             EventPayload::YearEnd => continue,
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
+            EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
         };
         index.insert(slot, EventHandle::from_seq(entry.seq));
     }
@@ -619,6 +622,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                         .get(sim)
                         .is_some_and(|person| death_due(person, *cause) == Some(entry.time))
             }
+            EventPayload::ConceptionAttempt { .. } => false,
         };
         if !expected {
             return false;

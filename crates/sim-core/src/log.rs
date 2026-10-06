@@ -10,9 +10,10 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::Code;
+use crate::genome::{SexChromosome, Strand};
 use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, PartnershipId, SimId};
-use crate::lineage::LineageKey;
+use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
 use crate::rng::DrawKey;
 use crate::time::SimTime;
@@ -148,6 +149,18 @@ pub enum LogPayload {
     /// entry of a PartnershipId).
     #[serde(rename = "core:partnered")]
     Partnered { partnership: PartnershipId },
+    /// A woman and a man (the subjects) conceived the child with this lineage key.
+    #[serde(rename = "core:conception")]
+    Conception { lineage_key: LineageKey },
+    /// The meiosis of a parent (the subject) for the zygote with this genome key: the
+    /// start strand at the dummy locus and the sex chromosome passed on (ADR-0004
+    /// section 7).
+    #[serde(rename = "core:meiosis")]
+    Meiosis {
+        genome_key: GenomeKey,
+        start_strand: Strand,
+        sex_chromosome: SexChromosome,
+    },
 }
 
 /// One entry of the domain log.
