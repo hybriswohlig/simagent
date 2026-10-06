@@ -137,8 +137,10 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
                 exposure: death::first_exposure(
                     founder.genotype,
                     start.world_params.hereditary_diseases,
+                    SimTime::START,
                 ),
                 conceptions: 0,
+                parents: None,
             },
         );
         let next = first_birthday(born, ctx.now());
@@ -160,7 +162,7 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
 }
 
 /// The first anniversary of `born` at or after `now` (`born <= now`).
-fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
+pub(crate) fn first_birthday(born: SimTime, now: SimTime) -> SimTime {
     let secs = next_anniversary_secs(born, now.as_secs())
         .unwrap_or_else(|| panic!("invariant age.out_of_range"));
     SimTime::from_secs(secs)

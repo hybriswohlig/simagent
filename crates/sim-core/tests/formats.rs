@@ -313,6 +313,16 @@ fn conception_forms_are_pinned() {
         postcard_round_trip(&sample_meiosis()),
         hex("07ef9bafcdf8acd191010101")
     );
+    let birth = LogPayload::Birth {
+        lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),
+    };
+    let birth_json = r#"{"core:birth":{"lineage_key":"0123456789abcdef"}}"#;
+    assert_eq!(json(&birth), birth_json);
+    assert_eq!(
+        from_json::<LogPayload>(birth_json).ok(),
+        Some(birth.clone())
+    );
+    assert_eq!(postcard_round_trip(&birth), hex("08ef9bafcdf8acd19101"));
     assert_eq!(json(&Strand::Maternal), r#""maternal""#);
     assert_eq!(json(&SexChromosome::X), r#""x""#);
 
@@ -895,6 +905,9 @@ fn all_payloads() -> Vec<LogPayload> {
         },
         sample_conception(),
         sample_meiosis(),
+        LogPayload::Birth {
+            lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -906,7 +919,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Death { .. }
             | LogPayload::Partnered { .. }
             | LogPayload::Conception { .. }
-            | LogPayload::Meiosis { .. } => {}
+            | LogPayload::Meiosis { .. }
+            | LogPayload::Birth { .. } => {}
         }
     }
     payloads

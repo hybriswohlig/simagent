@@ -21,6 +21,8 @@ pub enum EventPayload {
     Death { sim: SimId, cause: u64 },
     /// Monthly series: the woman of an open partnership may conceive.
     ConceptionAttempt { woman: SimId },
+    /// The pregnancy of `mother` ends in a birth.
+    Birth { mother: SimId },
 }
 
 impl EventPayload {
@@ -28,6 +30,7 @@ impl EventPayload {
     pub const BIRTHDAY: EventKind = EventKind(2);
     pub const DEATH: EventKind = EventKind(3);
     pub const CONCEPTION_ATTEMPT: EventKind = EventKind(4);
+    pub const BIRTH: EventKind = EventKind(5);
 }
 
 impl Payload for EventPayload {
@@ -38,6 +41,7 @@ impl Payload for EventPayload {
                 EventClass::GENERAL
             }
             EventPayload::Death { .. } => EventClass::DEATH,
+            EventPayload::Birth { .. } => EventClass::BIRTH,
         }
     }
 
@@ -46,7 +50,8 @@ impl Payload for EventPayload {
             EventPayload::YearEnd => EventSubject::WORLD,
             EventPayload::Birthday { sim }
             | EventPayload::Death { sim, .. }
-            | EventPayload::ConceptionAttempt { woman: sim } => EventSubject::sim(sim.get()),
+            | EventPayload::ConceptionAttempt { woman: sim }
+            | EventPayload::Birth { mother: sim } => EventSubject::sim(sim.get()),
         }
     }
 
@@ -56,6 +61,7 @@ impl Payload for EventPayload {
             EventPayload::Birthday { .. } => EventPayload::BIRTHDAY,
             EventPayload::Death { .. } => EventPayload::DEATH,
             EventPayload::ConceptionAttempt { .. } => EventPayload::CONCEPTION_ATTEMPT,
+            EventPayload::Birth { .. } => EventPayload::BIRTH,
         }
     }
 }

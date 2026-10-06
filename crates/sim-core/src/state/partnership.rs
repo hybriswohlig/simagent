@@ -101,7 +101,8 @@ pub(crate) fn pair_up(
             ended: None,
         },
     );
-    conception::plan_attempts(domain, woman, entry, ctx);
+    let now = ctx.now();
+    conception::plan_attempts(domain, woman, entry, now, ctx);
     id
 }
 

@@ -10,6 +10,7 @@ payload 4 core:death
 payload 5 core:partnered
 payload 6 core:conception
 payload 7 core:meiosis
+payload 8 core:birth
 cause 0 event
 cause 1 plan
 cause 2 input

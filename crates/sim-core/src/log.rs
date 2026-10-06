@@ -161,6 +161,10 @@ pub enum LogPayload {
         start_strand: Strand,
         sex_chromosome: SexChromosome,
     },
+    /// The child with this lineage key was born (creation entry of a SimId; subjects the
+    /// child, the mother and the father).
+    #[serde(rename = "core:birth")]
+    Birth { lineage_key: LineageKey },
 }
 
 /// One entry of the domain log.

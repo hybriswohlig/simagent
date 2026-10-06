@@ -12,3 +12,4 @@ kind year_end 1
 kind birthday 2
 kind death 3
 kind conception_attempt 4
+kind birth 5
