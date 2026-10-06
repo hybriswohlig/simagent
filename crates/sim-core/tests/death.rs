@@ -299,6 +299,24 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
             "{code}"
         );
     }
+    // Loading knows the rule: the save where she died of `test:base` with the reason
+    // changed to `test:old_age`, due in the same second but later in the list, is no
+    // state the core reaches.
+    let base = postcard::to_allocvec(&0x8b10_65ec_5b12_5f0b_u64).expect("encodes");
+    let old_age = postcard::to_allocvec(&0x54ff_fd5a_5b62_695e_u64).expect("encodes");
+    let bytes = hex(TIE_BASE_FIRST_SAVE);
+    assert!(World::load(&bytes, EMPTY_DATA_HASH).is_ok());
+    let at: Vec<usize> = (0..bytes.len())
+        .filter(|&i| bytes[i..].starts_with(&base))
+        .collect();
+    assert_eq!(at.len(), 2, "in the causes and in the archive");
+    let mut changed = bytes[..at[1]].to_vec();
+    changed.extend(&old_age);
+    changed.extend(&bytes[at[1] + base.len()..]);
+    assert_eq!(
+        World::load(&changed, EMPTY_DATA_HASH).err(),
+        Some(sim_core::world::LoadError::Inconsistent)
+    );
 }
 
 /// A hazard so small that the budget lasts 100 000 years or more means never (ADR-0002):
