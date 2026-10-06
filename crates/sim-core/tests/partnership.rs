@@ -247,6 +247,26 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
     world.submit(arrange(4, 3)).expect("accepted");
 }
 
+/// A pairing acts at the start of the second after its stamp, before the events of that
+/// second: stamped one second before his death, it finds her still paired; stamped in
+/// the second of his death, it pairs her, and that save loads.
+#[test]
+fn a_pairing_right_after_a_death() {
+    let mut run = Run::new(partners());
+    run.advance(FIRST_MAN_DIES - 1);
+    assert_eq!(
+        run.world.submit(arrange(1, 3)).err(),
+        Some(InputRejected {
+            code: RejectCode::AlreadyPartnered
+        })
+    );
+    run.advance(FIRST_MAN_DIES);
+    run.submit(arrange(1, 3));
+    let bytes = run.save();
+    let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+    assert_eq!(loaded.save(&years).expect("saves"), bytes);
+}
+
 /// The couples of `Start` name founders by their places: each place in the list, a
 /// woman and a man, nobody twice. The other checks of `Start` come first.
 #[test]

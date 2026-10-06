@@ -1676,7 +1676,22 @@ fn a_save_keeps_the_partnerships() {
 /// live and ended in the second of the first death of the two. ADR-0006 section 5.
 #[test]
 fn load_checks_the_partnerships() {
-    let cases: [(&str, Vec<u8>); 15] = [
+    let cases: [(&str, Vec<u8>); 17] = [
+        // Review finding: a pairing while the first partnership of the woman was open.
+        (
+            "a second partnership formed while the first was open",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1.2 = 0;
+                f.input_log[1].0 = -1;
+            }),
+        ),
+        (
+            "a second partnership formed in the second the first ended",
+            partners_arranged().with(|f| {
+                f.partnerships[1].1.2 = PARTNER_DEATHS[1];
+                f.input_log[1].0 = PARTNER_DEATHS[1] - 1;
+            }),
+        ),
         (
             "a partnership with an ID beyond its place",
             partners_arranged().with(|f| f.partnerships[1].0 = 3),
