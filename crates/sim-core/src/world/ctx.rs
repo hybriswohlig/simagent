@@ -5,7 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::event::EventPayload;
-use crate::ids::{Counter, EventId, SimId};
+use crate::ids::{Counter, EventId, PartnershipId, SimId};
 use crate::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use crate::time::{Ctx, EventHandle, SimDuration, SimTime};
 use crate::trace::{TraceBuffer, TracePayload};
@@ -159,6 +159,24 @@ impl<'a, 'q> SimCtx<'a, 'q> {
     pub(crate) fn create_sim(&mut self, payload: LogPayload, causes: Causes) -> (SimId, EventId) {
         let id = self.ids.sim.allocate_sim();
         let entry = self.emit(payload, vec![Subject::Sim(id)], causes);
+        (id, entry)
+    }
+
+    /// A new partnership of a woman and a man: allocates its ID and writes its creation
+    /// entry `core:partnered` with the two as subjects (ADR-0004 section 1).
+    #[track_caller]
+    pub(crate) fn create_partnership(
+        &mut self,
+        woman: SimId,
+        man: SimId,
+        causes: Causes,
+    ) -> (PartnershipId, EventId) {
+        let id = self.ids.partnership.allocate_partnership();
+        let entry = self.emit(
+            LogPayload::Partnered { partnership: id },
+            vec![Subject::Sim(woman), Subject::Sim(man)],
+            causes,
+        );
         (id, entry)
     }
 

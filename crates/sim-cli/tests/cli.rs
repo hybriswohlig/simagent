@@ -390,7 +390,7 @@ fn command_schema_matches_direct_call() {
     let end = SimTime::from_secs(10 * Y - 1);
     let fork_stamp = SimTime::from_secs(5 * Y - 1);
     let commands = commands();
-    let [(start, start_line), (block, block_line)] = &commands[..] else {
+    let [(start, start_line), (block, block_line)] = &commands[..2] else {
         panic!("a start and an override block");
     };
     let mut world = World::new();

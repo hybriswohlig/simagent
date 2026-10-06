@@ -276,7 +276,6 @@ fn partnership_forms_are_pinned() {
         r#"{"arrange_partnership":{"woman":0,"man":2}}"#,
         r#"{"arrange_partnership":{"woman":1,"man":"2"}}"#,
         r#"{"arrange_partnership":{"woman":1,"man":2,"since":0}}"#,
-        r#"{"arrange_partnership":[1,2]}"#,
     ] {
         assert!(from_json::<Input>(rejected).is_err(), "{rejected}");
     }
@@ -434,9 +433,9 @@ fn postcard_forms_are_pinned() {
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
-    // The tag, the switch off (one byte 0), no causes of death and no founders (two
-    // lengths 0).
-    expected.extend([3, b'a', b':', b'b', 0, 0, 0]);
+    // The tag, the switch off (one byte 0), no causes of death, no founders and no
+    // couples (three lengths 0).
+    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 

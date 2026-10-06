@@ -624,9 +624,9 @@ fn load_rejects_malformed_bytes() {
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
     // Behind the header: version, seed (3 bytes), world parameters (2 bytes), the number of
-    // causes of death, clock, sim counter, queue length, then the first entry with its
-    // time (4 bytes), micro step and insertion number.
-    let payload_at = header + 10 + 4 + 2;
+    // causes of death, clock, sim counter, partnership counter, queue length, then the
+    // first entry with its time (4 bytes), micro step and insertion number.
+    let payload_at = header + 11 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -678,8 +678,10 @@ fn load_rejects_non_canonical_bytes() {
     let mut overlong = good.clone();
     overlong.splice(at..=at, [0x82, 0x00]);
     assert_eq!(load_error(&overlong), Some(LoadError::Malformed));
-    // Length prefixes far beyond the input: rejected without reading that much.
-    let queue_len = at + 1;
+    // Length prefixes far beyond the input: rejected without reading that much. The
+    // partnership counter lies between.
+    assert_eq!(good[at + 1], 1, "next_partnership_id of the tiny world");
+    let queue_len = at + 2;
     assert_eq!(good[queue_len], 2, "two pending events");
     let mut huge = good.clone();
     huge.splice(queue_len..=queue_len, [0xff, 0xff, 0xff, 0xff, 0x0f]);

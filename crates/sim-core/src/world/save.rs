@@ -12,14 +12,16 @@ use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{
     self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
 };
-use crate::genome::Genotype;
+use crate::genome::{Genotype, Sex};
 use crate::ids::{Counter, SimId};
 use crate::input::{AppliesTo, DeathCause, Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
 use crate::params::WorldParams;
 use crate::state::{self, ArchivedSim, DomainState, Exposure, LeftBy, Sim, Slot};
-use crate::time::{EventHandle, Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
+use crate::time::{
+    EventHandle, Scheduler, SchedulerSnapshot, SimDuration, SimTime, SnapshotEntry, YEAR,
+};
 use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
 
@@ -273,42 +275,56 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<Death
         let empty = loaded.world_params.is_none()
             && loaded.death_causes.is_empty()
             && loaded.sims.is_empty()
+            && loaded.partnerships.is_empty()
             && loaded.archive.is_empty()
             && loaded.next_sim_id == 1
+            && loaded.next_partnership_id == 1
             && loaded.next_event_seq == 1
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
             && exceptions.year_hashes.is_empty();
         return empty.then(Vec::new);
     };
-    let (causes, switch) = input_log_consistent(loaded, exceptions, seed)?;
+    let history = input_log_consistent(loaded, exceptions, seed)?;
     let rules = Rules {
         seed,
-        causes: &causes,
-        switch: &switch,
+        causes: &history.causes,
+        switch: &history.switch,
     };
     let rest = sims_consistent(loaded, now, &rules)
+        && partnerships_consistent(loaded, &history.pairs)
         && queue_consistent(loaded, now, &rules)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
         && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes);
-    rest.then_some(causes)
+    rest.then_some(history.causes)
+}
+
+/// What the input log says beyond the projection.
+struct InputHistory {
+    /// The causes of death of `Start`.
+    causes: Vec<DeathCause>,
+    /// The switch of the hereditary diseases over time (see `Rules`).
+    switch: SwitchHistory,
+    /// (woman, man, formed) of each partnership the inputs formed, in their order.
+    pairs: Vec<(SimId, SimId, SimTime)>,
 }
 
 /// Sequence numbers gapless from 1, stamps that never fall and never lie after the
 /// clock. `Start` first and only first, stamped before the start, with the seed of the
 /// world, its causes of death and the founders as the sims 1 to N; then override blocks
-/// that pass their own check. The parameters of `Start` after every override are those
-/// of the world. Gives the causes of death of `Start` and the history of the switch of
-/// the hereditary diseases (see `Rules`), or `None` if anything is off.
+/// that pass their own check, and pairings. The parameters of `Start` after every
+/// override are those of the world. Gives what the log says beyond the projection, or
+/// `None` if anything is off.
 fn input_log_consistent(
     loaded: &LoadedState,
     exceptions: &Exceptions,
     seed: u64,
-) -> Option<(Vec<DeathCause>, SwitchHistory)> {
+) -> Option<InputHistory> {
     let mut started: Option<(WorldParams, &Start)> = None;
     let mut switch = Vec::new();
+    let mut pairs = Vec::new();
     let mut last_stamp = None;
     for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
         let in_order = last_stamp.is_none_or(|last| last <= record.t);
@@ -331,6 +347,11 @@ fn input_log_consistent(
                     SimTime::START.as_secs(),
                     start.world_params.hereditary_diseases,
                 ));
+                // The founders are the sims 1 to N, in the order of the list.
+                let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
+                for couple in &start.couples {
+                    pairs.push((founder(couple.woman)?, founder(couple.man)?, SimTime::START));
+                }
             }
             (Input::ForkOverride(block), Some((before, start))) => {
                 if block.rejection().is_some() {
@@ -344,14 +365,56 @@ fn input_log_consistent(
                 // Stamped with the last closed second, the block acts in the next one.
                 switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
             }
+            (Input::ArrangePartnership(pair), Some(_)) => {
+                let formed = record.t.checked_add(SimDuration::from_secs(1))?;
+                pairs.push((pair.woman, pair.man, formed));
+            }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_))
-            | (Input::ForkOverride(_), None)
-            | (Input::ArrangePartnership(_), _) => return None,
+            | (Input::ForkOverride(_) | Input::ArrangePartnership(_), None) => return None,
         }
     }
     let (params, start) = started?;
-    (Some(params) == loaded.world_params).then(|| (start.death_causes.clone(), switch))
+    (Some(params) == loaded.world_params).then(|| InputHistory {
+        causes: start.death_causes.clone(),
+        switch,
+        pairs,
+    })
+}
+
+/// The partnerships are those the input log formed, with the IDs from 1 in that order,
+/// and the counter follows them. Each pairs a woman and a man; it is open while both
+/// live and ended in the second of the first death of the two, never before it was
+/// formed. Nobody is in two open partnerships.
+fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime)]) -> bool {
+    let counted = u64::try_from(pairs.len())
+        .ok()
+        .and_then(|count| count.checked_add(1))
+        == Some(loaded.next_partnership_id);
+    let sex_of = |id: &SimId| {
+        loaded
+            .sims
+            .get(id)
+            .map(|sim| sim.sex)
+            .or_else(|| loaded.archive.get(id).map(|sim| sim.sex))
+    };
+    let left_of = |id: &SimId| loaded.archive.get(id).map(|sim| sim.left);
+    let mut open = BTreeSet::new();
+    counted
+        && loaded.partnerships.len() == pairs.len()
+        && loaded.partnerships.iter().zip(pairs).zip(1_u64..).all(
+            |(((id, partnership), &(woman, man, formed)), number)| {
+                let first_death = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
+                id.get() == number
+                    && (partnership.woman, partnership.man, partnership.formed)
+                        == (woman, man, formed)
+                    && sex_of(&woman) == Some(Sex::Female)
+                    && sex_of(&man) == Some(Sex::Male)
+                    && partnership.ended == first_death
+                    && first_death.is_none_or(|death| death >= formed)
+                    && (partnership.ended.is_some() || (open.insert(woman) && open.insert(man)))
+            },
+        )
 }
 
 /// The switch of the hereditary diseases: each value with the second from which it holds.

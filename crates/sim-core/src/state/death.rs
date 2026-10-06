@@ -12,7 +12,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{ArchivedSim, DomainState, Exposure, LeftBy, Slot};
+use super::{ArchivedSim, DomainState, Exposure, LeftBy, Slot, partnership};
 use crate::genome::Genotype;
 use crate::ids::{EventId, SimId};
 use crate::input::{AppliesTo, DeathCause};
@@ -203,6 +203,7 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             exposure: person.exposure,
         },
     );
+    partnership::end_with_death(domain, sim, ctx.now());
 }
 
 #[cfg(test)]

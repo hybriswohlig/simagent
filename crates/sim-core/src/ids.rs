@@ -153,6 +153,10 @@ impl Counter {
         SimId(self.allocate())
     }
 
+    pub(crate) fn allocate_partnership(&mut self) -> PartnershipId {
+        PartnershipId(self.allocate())
+    }
+
     pub(crate) fn allocate_event(&mut self) -> EventId {
         EventId(self.allocate())
     }
