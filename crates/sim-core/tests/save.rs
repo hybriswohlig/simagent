@@ -932,6 +932,59 @@ fn mortal_after_year_1() -> File {
     file
 }
 
+/// "mortal" right after her death of `test:base`: she is in the archive, his events are
+/// pending (his birthday was planned anew by entry 4 at his birthday in year 0).
+fn mortal_after_her_death() -> File {
+    let mut file = mortal_started();
+    file.closed_through = HER_DEATH;
+    file.queue = vec![
+        (HIS_DEATH, 0, 7, death(2, OLD_AGE), None),
+        (2 * Y - 2, 0, 8, Payload::Birthday { sim: 2 }, None),
+        (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HIS_BASE, 0, 6, death(2, BASE), None),
+    ];
+    file.next_event_seq = 10;
+    file.sims = vec![(2, he(-2))];
+    file.archive = vec![(1, dead(she(-1), HER_DEATH, BASE))];
+    file.plan_refs = vec![(3, 0), (4, Y - 2), (1, 0), (3, 0)];
+    file.next_event_id = 7;
+    file.year_hashes = vec![(0, MORTAL_YEAR_HASHES[0])];
+    file
+}
+
+// Scenario "tie" of tools/state_reference.py: both causes are due in the same second.
+/// The lineage key of founder 0 of `test:tie` (tools/rng_reference.py).
+const TIE_KEY: u64 = 0x9515_c6c8_f345_ed70;
+const TIE_DUE: i64 = 51_240_314;
+
+/// "tie" right after `Start`: the woman's birthday, then her two deaths in the order
+/// of the causes, both due in one second.
+fn tie_started() -> File {
+    let mut file = File::tiny();
+    let old_age_per_year = 0.593_419_882_389_541_8;
+    file.death_causes = vec![(BASE, 5.0), (OLD_AGE, old_age_per_year)];
+    file.queue = vec![
+        (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
+        (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (TIE_DUE, 0, 3, death(1, BASE), None),
+        (TIE_DUE, 0, 4, death(1, OLD_AGE), None),
+    ];
+    file.next_event_seq = 5;
+    file.sims = vec![(1, (-1, TIE_KEY, FEMALE, (WILD, DUMMY)))];
+    file.plan_refs = vec![(2, 0), (1, 0), (2, 0), (2, 0)];
+    file.input_log[0].2 = TestInput::Start {
+        founder_tag: "test:tie".to_owned(),
+        world_seed: 0xff,
+        world_params: false,
+        death_causes: vec![
+            ("test:base".to_owned(), 5.0),
+            ("test:old_age".to_owned(), old_age_per_year),
+        ],
+        founders: vec![test_founder(-1)],
+    };
+    file
+}
+
 /// "mortal" at the start of year 1, one second after the year end: nobody has died yet.
 /// The birthdays of year 0 planned the next ones (insertion numbers 8 and 9, by the
 /// entries 4 and 5).
@@ -968,7 +1021,13 @@ fn mortal_in_year_1() -> File {
 fn a_save_keeps_the_deaths_and_the_archive() {
     assert_eq!(mortal_started().bytes(), hex(MORTAL_SAVE_AFTER_START));
     assert_eq!(mortal_after_year_1().bytes(), hex(MORTAL_SAVE_AFTER_YEAR_1));
-    for file in [mortal_started(), mortal_in_year_1(), mortal_after_year_1()] {
+    for file in [
+        mortal_started(),
+        mortal_in_year_1(),
+        mortal_after_her_death(),
+        mortal_after_year_1(),
+        tie_started(),
+    ] {
         assert_eq!(load_error(&file.bytes()), None);
     }
     // The state in year 1 is the one the core reaches.
@@ -1010,6 +1069,12 @@ fn a_save_keeps_the_deaths_and_the_archive() {
         world.save(&out.year_hashes).expect("saves"),
         mortal_in_year_1().bytes()
     );
+    world.advance_until(&mut out, t(HER_DEATH), &mut |_| false);
+    world.take_log();
+    assert_eq!(
+        world.save(&out.year_hashes).expect("saves"),
+        mortal_after_her_death().bytes()
+    );
 }
 
 /// ADR-0006 section 5 for death: an archived sim died as the rule says, a living sim
@@ -1028,7 +1093,21 @@ fn load_checks_the_deaths() {
     };
     assert_eq!(load_error(&late(|_| {})), None);
 
-    let cases: [(&str, Vec<u8>); 22] = [
+    let cases: [(&str, Vec<u8>); 24] = [
+        // Review finding: a death in the first open second has not run yet.
+        (
+            "a death in the second that is still open",
+            mortal_after_her_death().with(|f| f.closed_through = HER_DEATH - 1),
+        ),
+        // Review finding: of two deaths due in one second the one planned first runs
+        // first; the causes were planned in the order of the list.
+        (
+            "two deaths of one second planned against the order of the causes",
+            tie_started().with(|f| {
+                f.queue[2].3 = death(1, OLD_AGE);
+                f.queue[3].3 = death(1, BASE);
+            }),
+        ),
         // The archive.
         (
             "a death one second after the budget ran out",
