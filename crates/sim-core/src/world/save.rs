@@ -313,6 +313,8 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<Death
         switch: &history.switch,
         fertility: history.fertility,
     };
+    // The other checks leave no two equal keys short of a 64-bit collision; this one
+    // keeps building the index from a panic.
     let keys = lineage_keys(&loaded.sims, &loaded.archive, &loaded.pregnancies);
     let distinct = keys.collect::<BTreeSet<_>>().len()
         == loaded.sims.len() + loaded.archive.len() + loaded.pregnancies.len();
