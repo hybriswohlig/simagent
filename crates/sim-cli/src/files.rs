@@ -20,6 +20,8 @@ pub const INPUT_LOG: &str = "input.ndjson";
 pub const EVENTS: &str = "events.ndjson";
 pub const CENSUS: &str = "census.csv";
 pub const SAVE: &str = "state.save";
+/// Written by `simagent export`, not part of a run.
+pub const PEDIGREE: &str = "pedigree.json";
 
 /// The format version of the files this program writes and reads.
 pub const FORMAT_VERSION: u32 = 1;
@@ -116,6 +118,21 @@ pub fn read_text(path: &Path) -> Result<String, CliError> {
 
 pub fn write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     fs::write(path, bytes).map_err(|error| CliError::io(path, &error))
+}
+
+/// Writes `bytes` to a fresh file next to `path` and renames it over `path`. A link at
+/// `path` is replaced, never followed: the export writes into a directory it did not
+/// create.
+pub fn replace(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".tmp");
+    let fresh = Path::new(&name);
+    // The leftover of an interrupted export may itself be a link; it goes first.
+    if fs::symlink_metadata(fresh).is_ok() {
+        fs::remove_file(fresh).map_err(|error| CliError::io(fresh, &error))?;
+    }
+    fs::write(fresh, bytes).map_err(|error| CliError::io(fresh, &error))?;
+    fs::rename(fresh, path).map_err(|error| CliError::io(path, &error))
 }
 
 pub fn append(path: &Path, text: &str) -> Result<(), CliError> {

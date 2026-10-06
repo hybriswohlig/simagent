@@ -14,6 +14,7 @@ use sim_core::input::{ForkOverride, Input, InputRecord};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
 use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::world::World;
 
 use crate::error::CliError;
 use crate::files::{ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
@@ -68,11 +69,15 @@ fn command() -> Command {
                 .value_name("OVERRIDE_JSON"),
         )
         .arg(Arg::new("out").long("out").value_name("DIR").required(true));
+    let export = Command::new("export")
+        .about("Writes the pedigree of a run into its directory (pedigree.json)")
+        .arg(Arg::new("run").value_name("RUN_DIR").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .subcommand(run)
         .subcommand(fork)
+        .subcommand(export)
 }
 
 /// Runs the program with these arguments. A usage error ends the process through clap.
@@ -94,6 +99,10 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
                 Path::new(text("out")),
             );
         }
+        Some(("export", export)) => {
+            let dir = export.get_one::<String>("run").map_or("", String::as_str);
+            return export_run(Path::new(dir));
+        }
         _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
     let text = |name: &str| run.get_one::<String>(name).map(String::as_str);
@@ -111,6 +120,16 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
     } else {
         resume(out, until, text("input").map(Path::new))
     }
+}
+
+/// Writes `pedigree.json` into the run directory, from its save. The pedigree is the
+/// core's view of the state; the CLI only writes it.
+fn export_run(dir: &Path) -> Result<(), CliError> {
+    let bytes = files::read(&dir.join(files::SAVE))?;
+    let (world, _) = World::load(&bytes, EMPTY_DATA_HASH)
+        .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+    let pedigree = files::json(&world.state().pedigree()) + "\n";
+    files::replace(&dir.join(files::PEDIGREE), pedigree.as_bytes())
 }
 
 fn parse_time(text: &str) -> Option<SimTime> {

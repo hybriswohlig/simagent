@@ -25,6 +25,7 @@ pub mod input;
 pub mod lineage;
 pub mod log;
 pub mod params;
+pub mod pedigree;
 pub mod rng;
 mod state;
 pub mod time;

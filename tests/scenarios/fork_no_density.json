@@ -1,0 +1,353 @@
+{
+  "format_version": 1,
+  "start": {
+    "world_seed": "0000000000000001",
+    "founder_tag": "test:fork_no_density",
+    "world_params": {
+      "hereditary_diseases": false
+    },
+    "death_causes": [
+      {
+        "cause": "test:base",
+        "per_year": 0.02,
+        "applies_to": "everyone"
+      },
+      {
+        "cause": "test:dummy_disease",
+        "per_year": 0.3,
+        "applies_to": "dummy_homozygous"
+      }
+    ],
+    "founders": [
+      {
+        "born": -628992000,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -723600000,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -661046400,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -755654400,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -693100800,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -787708800,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -725155200,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -631065600,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -757209600,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -663120000,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -789264000,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -695174400,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -632620800,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -727228800,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -664675200,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -759283200,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -696729600,
+        "sex": "female",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -791337600,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -728784000,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -634694400,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -760838400,
+        "sex": "female",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -666748800,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -792892800,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -698803200,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -636249600,
+        "sex": "female",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -730857600,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -668304000,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -762912000,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -700358400,
+        "sex": "female",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      },
+      {
+        "born": -794966400,
+        "sex": "male",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -732412800,
+        "sex": "female",
+        "genotype": {
+          "maternal": "dummy",
+          "paternal": "wild"
+        }
+      },
+      {
+        "born": -638323200,
+        "sex": "male",
+        "genotype": {
+          "maternal": "wild",
+          "paternal": "dummy"
+        }
+      }
+    ],
+    "couples": [
+      {
+        "woman": 0,
+        "man": 1
+      },
+      {
+        "woman": 2,
+        "man": 3
+      },
+      {
+        "woman": 4,
+        "man": 5
+      },
+      {
+        "woman": 6,
+        "man": 7
+      },
+      {
+        "woman": 8,
+        "man": 9
+      },
+      {
+        "woman": 10,
+        "man": 11
+      },
+      {
+        "woman": 12,
+        "man": 13
+      },
+      {
+        "woman": 14,
+        "man": 15
+      },
+      {
+        "woman": 16,
+        "man": 17
+      },
+      {
+        "woman": 18,
+        "man": 19
+      },
+      {
+        "woman": 20,
+        "man": 21
+      },
+      {
+        "woman": 22,
+        "man": 23
+      },
+      {
+        "woman": 24,
+        "man": 25
+      },
+      {
+        "woman": 26,
+        "man": 27
+      },
+      {
+        "woman": 28,
+        "man": 29
+      },
+      {
+        "woman": 30,
+        "man": 31
+      }
+    ],
+    "fertility": {
+      "per_month": 0.05,
+      "from_years": 18,
+      "until_years": 45,
+      "pregnancy_months": 10
+    }
+  },
+  "until": 1886975999
+}
