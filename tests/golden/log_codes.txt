@@ -7,6 +7,7 @@ payload 1 core:founder_added
 payload 2 core:birthday
 payload 3 core:param_changed
 payload 4 core:death
+payload 5 core:partnered
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -15,6 +16,7 @@ cause 4 random
 subject 0 sim
 input 0 start
 input 1 fork_override
+input 2 arrange_partnership
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
@@ -24,6 +26,11 @@ reject 5 empty_override
 reject 6 override_param_twice
 reject 7 death_cause_twice
 reject 8 death_rate_out_of_range
+reject 9 unknown_sim
+reject 10 sim_not_alive
+reject 11 partners_of_wrong_sex
+reject 12 already_partnered
+reject 13 unknown_founder
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
