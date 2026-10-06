@@ -204,3 +204,44 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
         },
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_id::{Code, DataId};
+    use crate::finite::FiniteF64;
+    use crate::time::MAX_ABS_SECS;
+
+    /// The death of a hereditary cause lies at most at the end of the clock; beyond it,
+    /// it is never due (ADR-0002). He is founder 1 of `test:sick`; the disease needs
+    /// 101 053 347 seconds of exposure to kill him (tools/state_reference.py).
+    #[test]
+    fn a_death_beyond_the_clock_is_never_due() {
+        let his_disease = 101_053_347;
+        let disease = DeathCause {
+            cause: Code::new("test:dummy_disease").expect("valid"),
+            per_year: FiniteF64::try_new(0.3).expect("finite"),
+            applies_to: AppliesTo::DummyHomozygous,
+        };
+        let key = LineageKey::founder(&DataId::new("test:sick").expect("valid"), 1);
+        let running = |before: i64, since: i64| {
+            Some(Exposure {
+                before: SimDuration::from_secs(before),
+                since: Some(SimTime::from_secs(since)),
+            })
+        };
+        let due = |exposure| due(0xff, key, exposure, &disease, SimTime::START);
+        assert_eq!(due(running(0, 0)), Some(SimTime::from_secs(his_disease)));
+        assert_eq!(
+            due(running(0, MAX_ABS_SECS - his_disease)),
+            Some(SimTime::from_secs(MAX_ABS_SECS))
+        );
+        assert_eq!(due(running(0, MAX_ABS_SECS - his_disease + 1)), None);
+        assert_eq!(due(running(0, MAX_ABS_SECS - 1000)), None);
+        // Used up: due in the second it runs again, at the very end too.
+        assert_eq!(
+            due(running(his_disease, MAX_ABS_SECS)),
+            Some(SimTime::from_secs(MAX_ABS_SECS))
+        );
+    }
+}

@@ -455,6 +455,14 @@ NO_DISEASE = sick_world(False, [(YEAR, True)], [SICK_BASE])
 NO_DISEASE.advance(HIS_BASE)
 assert death_of(NO_DISEASE, 2) == (HIS_BASE, BASE_KEY)
 
+# Switched on close to the end of the clock: a death beyond it is never due, one in its
+# last second is (ADR-0002).
+LATE = sick_world(False, causes=[SICK_DISEASE])
+LATE.sims[2][4][1] = world_reference.MAX_ABS_SECS - 1000
+assert LATE.due(2, SICK_DISEASE) is None
+LATE.sims[2][4][1] = world_reference.MAX_ABS_SECS - HIS_DISEASE
+assert LATE.due(2, SICK_DISEASE) == world_reference.MAX_ABS_SECS
+
 # Off in the very second his death of the disease is due: the input acts first, he
 # lives, the budget is used up. On again at the start of year 5: he dies in that second.
 OFF_AT_DUE = sick_world(True, [(HIS_DISEASE, False)])

@@ -60,6 +60,8 @@ from rng_reference import chacha_key, exponential_reference, founder_key, str_ke
 
 YEAR = 364 * 86_400
 NEVER_YEARS = 100_000.0
+# The range of the clock (ADR-0002): a time beyond it is never.
+MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 DEATH_BUDGET = 4
 
@@ -178,12 +180,14 @@ class World:
         if needed is None:
             return None
         if applies_to == "everyone":
-            return 0 + needed  # a founder: from the start on
-        if sick is None or sick[1] is None:
+            due = 0 + needed  # a founder: from the start on
+        elif sick is None or sick[1] is None:
             return None
-        before, since = sick
-        assert before <= needed
-        return since + needed - before
+        else:
+            before, since = sick
+            assert before <= needed
+            due = since + needed - before
+        return due if abs(due) <= MAX_ABS_SECS else None
 
     def _plan_deaths(self, sim: int, first: int, by: int, now: int) -> None:
         for cause in self.causes[first:]:
