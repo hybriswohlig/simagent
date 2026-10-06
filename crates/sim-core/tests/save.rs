@@ -2174,8 +2174,11 @@ fn load_checks_the_born() {
             clan_born().with(|f| f.sims[6].1.6 = Some((2, 1, 0))),
         ),
         (
-            "a child born in the second that is still open",
-            clan_born().with(|f| f.closed_through = 15 * MONTH - 1),
+            "a child born in the second that is still open, her attempts from then on",
+            clan_born().with(|f| {
+                f.closed_through = 15 * MONTH - 1;
+                f.queue[0].0 = 15 * MONTH;
+            }),
         ),
         (
             "a mother whose count misses her child",

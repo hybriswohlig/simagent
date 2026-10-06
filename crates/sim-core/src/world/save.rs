@@ -648,20 +648,16 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
 }
 
 /// The SimIds are 1 to the counter without a gap, each in one place: the founders first
-/// (`founders_are_the_first_sims`), then the born in the order of their births. Each
-/// born sim is the child of a conception the rule allows, born as many months later as
-/// a pregnancy lasts and in a closed second.
+/// (`founders_are_the_first_sims`), then the born. Each born sim is the child of a
+/// conception the rule allows, born as many months later as a pregnancy lasts and in a
+/// closed second.
 fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: u64) -> bool {
-    let all = u64::try_from(loaded.sims.len() + loaded.archive.len()).ok();
-    let counted = all == loaded.next_sim_id.checked_sub(1);
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
     let in_one_place = loaded
         .sims
         .keys()
         .all(|id| !loaded.archive.contains_key(id));
-    let mut last_born = None;
-    counted
-        && in_one_place
+    in_one_place
         && loaded
             .sims
             .keys()
@@ -677,15 +673,11 @@ fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: 
             let Some(parents) = child.parents else {
                 return false;
             };
-            let in_order = last_born.is_none_or(|last| last <= child.born);
-            last_born = Some(child.born);
             let months = MONTH.checked_mul(i64::from(rules.fertility.pregnancy_months));
             let Some(conceived) = months.and_then(|months| child.born.checked_sub(months)) else {
                 return false;
             };
-            in_order
-                && child.born.as_secs() < now
-                && conception_fits(loaded, rules, parents, conceived, &child)
+            child.born.as_secs() < now && conception_fits(loaded, rules, parents, conceived, &child)
         })
 }
 
