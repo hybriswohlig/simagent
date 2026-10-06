@@ -2,7 +2,7 @@
 
 use alloc::vec;
 
-use super::{DomainState, whole_years};
+use super::{DomainState, Slot, whole_years};
 use crate::ids::SimId;
 use crate::log::{Causes, LogPayload, Subject};
 use crate::time::YEAR;
@@ -11,7 +11,7 @@ use crate::world::{EventPayload, SimCtx};
 
 /// Writes the entry and plans the next birthday with this entry as its `by`. The age
 /// follows from the birth time, so no state changes.
-pub(crate) fn on_birthday(domain: &DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn on_birthday(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
     let Some(person) = domain.sims.get(&sim) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
@@ -22,6 +22,7 @@ pub(crate) fn on_birthday(domain: &DomainState, sim: SimId, ctx: &mut SimCtx<'_,
         Causes::new(ctx.trigger()),
     );
     let next = ctx.now() + YEAR;
-    ctx.schedule(next, EventPayload::Birthday { sim }, entry);
+    let handle = ctx.schedule(next, EventPayload::Birthday { sim }, entry);
+    domain.pending.insert((sim, Slot::Birthday), handle);
     ctx.trace(sim, || TracePayload::BirthdayPlanned { next });
 }

@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""A model of the world of sim-core, written from the ADRs and independent of the Rust
+code: the event queue (ADR-0002), the log entries (ADR-0004), the canonical projection
+(ADR-0003 5.2), the save (ADR-0006 section 2) and death through hazard budgets
+(ADR-0001). The goldens and the reference bytes of the tests come from it.
+
+What the model knows:
+
+- `Start` writes `core:started`, plans the year end series (insertion number 1, first at
+  the last second of year 0, period one year) and then per founder, in list order: the
+  creation entry, the first birthday (the first anniversary at or after the start) and
+  the deaths in the order of the causes.
+- Events run in the order of their key: time, phase (0 domain, 1 observer), micro step,
+  class (general 500, death 900, observer 1000), subject (kind, ID), kind (year end 1,
+  birthday 2, death 3), insertion number.
+- A birthday writes `core:birthday` and plans the next one a year later. The year end
+  observer sees the clock one second before its own second, with its next occurrence
+  already in the queue.
+- Death: per person and cause a budget `B = exponential(DEATH_BUDGET, 1.0)` at the key
+  (tag DEATH_BUDGET, subject lineage key, occasion `str_key` of the cause, detail 0). A
+  cause with the hazard `r` per year acts on a founder from the start on; the death is
+  due `ceil(B / r * YEAR)` seconds later, never if `B / r` is 100 000 years or more
+  (ADR-0002). The death writes `core:death` with the plan and the draw as causes, moves
+  the sim to the archive and cancels its other pending events.
+- An override block is an input: stamped with the last closed second, acting in the
+  next one, one entry `core:param_changed` per change.
+
+Usage: .venv/bin/python tools/world_reference.py (prints nothing; the other tools use it)
+"""
+
+import math
+
+import xxhash
+
+from postcard_reference import (
+    death_cause,
+    f64,
+    founder,
+    lineage_key,
+    param_change,
+    seq,
+    signed,
+    string,
+    variant,
+    varint,
+    world_params,
+)
+from rng_reference import chacha_key, exponential_reference, founder_key, str_key, words
+
+YEAR = 364 * 86_400
+NEVER_YEARS = 100_000.0
+# tests/golden/rng_tags.txt
+DEATH_BUDGET = 4
+
+PROJECTION_VERSION = 4
+CORE_VERSION = 4
+FORMAT_VERSION = 1
+EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
+
+NONE = b"\x00"
+
+# Event classes and kinds (tests/golden/event_codes.txt).
+GENERAL, DEATH, OBSERVER = 500, 900, 1000
+YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND = 1, 2, 3
+WORLD_SUBJECT, SIM_SUBJECT = 0, 1
+
+
+def some(data: bytes) -> bytes:
+    return b"\x01" + data
+
+
+def hash64(data: bytes) -> int:
+    return xxhash.xxh3_64_intdigest(data, seed=0)
+
+
+def needed_seconds(seed: int, key: int, code: str, per_year: float):
+    """How long the cause must act until the person with this lineage key dies of it."""
+    word = words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), 0))[0]
+    _, budget = exponential_reference(word, 1.0)
+    years = budget / per_year
+    if years >= NEVER_YEARS:
+        return None
+    return math.ceil(years * 31_449_600.0)
+
+
+class Event:
+    def __init__(self, time, cls, subject, kind, insertion, payload, period, plan):
+        self.time = time
+        self.cls = cls
+        self.subject = subject
+        self.kind = kind
+        self.insertion = insertion
+        self.payload = payload
+        self.period = period
+        self.plan = plan
+
+    def key(self):
+        phase = 1 if self.cls >= OBSERVER else 0
+        return (self.time, phase, 0, self.cls, self.subject[0], self.subject[1], self.kind, self.insertion)
+
+    def queue_bytes(self) -> bytes:
+        """(time, micro, seq, payload, period), ADR-0002."""
+        period = NONE if self.period is None else some(signed(self.period))
+        return signed(self.time) + varint(0) + varint(self.insertion) + self.payload + period
+
+
+class World:
+    """A started world. `causes` is a list of (code, hazard per year), `founders` a list
+    of (born, sex, genotype) with the last two as postcard bytes."""
+
+    def __init__(self, seed: int, tag: str, diseases: bool, causes: list, founders: list):
+        self.seed = seed
+        self.tag = tag
+        self.diseases = diseases
+        self.causes = causes
+        self.closed = -1
+        self.queue = []
+        self.next_insertion = 1
+        self.next_event_id = 1
+        self.next_sim_id = 1
+        self.sims = {}
+        self.archive = {}
+        self.log = []
+        self.year_hashes = []
+        start = variant(
+            0,
+            varint(seed),
+            string(tag),
+            world_params(diseases),
+            seq([death_cause(code, rate) for code, rate in causes]),
+            seq([founder(born, sex, genes) for born, sex, genes in founders]),
+        )
+        self.inputs = [signed(-1) + varint(1) + start]
+        self._start(founders)
+
+    # ------------------------------------------------------------------ inputs
+
+    def _start(self, founders: list) -> None:
+        now = 0
+        by_input = variant(2, varint(1))
+        started = self._entry(now, [], [by_input], variant(0, varint(len(founders))))
+        self._schedule(YEAR - 1, OBSERVER, (WORLD_SUBJECT, 0), YEAR_END_KIND, variant(0), YEAR, started, now)
+        for index, (born, sex, genes) in enumerate(founders):
+            sim = self.next_sim_id
+            self.next_sim_id += 1
+            key = founder_key(self.tag, index)
+            subject = variant(0, varint(sim))
+            added = self._entry(now, [subject], [by_input], variant(1, signed(born), lineage_key(key)))
+            self.sims[sim] = (born, key, sex, genes)
+            whole = (now - born) // YEAR
+            on_the_day = born + whole * YEAR == now
+            age = whole if on_the_day and whole >= 1 else whole + 1
+            self._plan_birthday(sim, born + age * YEAR, added, now)
+            for code, rate in self.causes:
+                needed = needed_seconds(self.seed, key, code, rate)
+                if needed is None:
+                    continue
+                cause_key = str_key(code)
+                payload = variant(2, varint(sim), varint(cause_key))
+                self._schedule(now + needed, DEATH, (SIM_SUBJECT, sim), DEATH_KIND, payload, None, added, now)
+
+    def override(self, diseases: bool) -> None:
+        """An override block with the one change, submitted right now."""
+        number = len(self.inputs) + 1
+        self.inputs.append(signed(self.closed) + varint(number) + variant(1, seq([param_change(diseases)])))
+        now = self.closed + 1
+        self.diseases = diseases
+        self._entry(now, [], [variant(2, varint(number))], variant(3, param_change(diseases)))
+
+    # ------------------------------------------------------------------ events
+
+    def _entry(self, time: int, subjects: list, causes: list, payload: bytes) -> int:
+        event_id = self.next_event_id
+        self.next_event_id += 1
+        self.log.append(varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload)
+        return event_id
+
+    def _schedule(self, time, cls, subject, kind, payload, period, by, planned_at) -> None:
+        insertion = self.next_insertion
+        self.next_insertion += 1
+        self.queue.append(Event(time, cls, subject, kind, insertion, payload, period, (by, planned_at)))
+
+    def _plan_birthday(self, sim: int, time: int, by: int, now: int) -> None:
+        self._schedule(time, GENERAL, (SIM_SUBJECT, sim), BIRTHDAY_KIND, variant(1, varint(sim)), None, by, now)
+
+    def advance(self, limit: int) -> None:
+        """Runs every event up to and including `limit`."""
+        while True:
+            due = [event for event in self.queue if event.time <= limit]
+            if not due:
+                break
+            event = min(due, key=Event.key)
+            self.queue.remove(event)
+            now = event.time
+            plan = variant(1, varint(event.plan[0]), signed(event.plan[1]))
+            if event.kind == YEAR_END_KIND:
+                # The next occurrence is in the queue before the observer looks.
+                event.time += event.period
+                self.queue.append(event)
+                self.year_hashes.append(hash64(self.projection(now - 1)))
+            elif event.kind == BIRTHDAY_KIND:
+                sim = event.subject[1]
+                age = (now - self.sims[sim][0]) // YEAR
+                subject = variant(0, varint(sim))
+                entry = self._entry(now, [subject], [plan], variant(2, varint(age)))
+                self._plan_birthday(sim, now + YEAR, entry, now)
+            else:
+                self._die(event, now, plan)
+        self.closed = limit
+
+    def _die(self, event: Event, now: int, plan: bytes) -> None:
+        sim = event.subject[1]
+        born, key, sex, genes = self.sims.pop(sim)
+        code = next(code for code, _ in self.causes if event.payload == variant(2, varint(sim), varint(str_key(code))))
+        draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
+        self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
+        self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
+        self.archive[sim] = (born, now, str_key(code), key, sex, genes)
+
+    # ------------------------------------------------------------------ views
+
+    def ordered_queue(self) -> list:
+        return sorted(self.queue, key=Event.key)
+
+    def projection(self, closed=None) -> bytes:
+        closed = self.closed if closed is None else closed
+        sims = [
+            varint(sim) + signed(born) + lineage_key(key) + sex + genes
+            for sim, (born, key, sex, genes) in sorted(self.sims.items())
+        ]
+        archive = [
+            varint(sim) + signed(born) + signed(left) + variant(0, varint(cause)) + lineage_key(key) + sex + genes
+            for sim, (born, left, cause, key, sex, genes) in sorted(self.archive.items())
+        ]
+        return (
+            varint(PROJECTION_VERSION)
+            + some(varint(self.seed))
+            + some(world_params(self.diseases))
+            + seq([varint(str_key(code)) + f64(rate) for code, rate in self.causes])
+            + signed(closed)
+            + varint(self.next_sim_id)
+            + seq([event.queue_bytes() for event in self.ordered_queue()])
+            + varint(self.next_insertion)
+            + seq(sims)
+            + seq(archive)
+        )
+
+    def state_hash(self) -> int:
+        return hash64(self.projection())
+
+    def log_hash(self) -> int:
+        return hash64(b"".join(self.log))
+
+    def save(self) -> bytes:
+        """Header, projection, exceptions (ADR-0006 section 2)."""
+        plans = [varint(event.plan[0]) + signed(event.plan[1]) for event in self.ordered_queue()]
+        years = [signed(year) + varint(value) for year, value in enumerate(self.year_hashes)]
+        return (
+            header(EMPTY_DATA_HASH)
+            + self.projection()
+            + seq(plans)
+            + varint(self.next_event_id)
+            + seq(self.inputs)
+            + seq(years)
+        )
+
+
+def header(data_hash: int) -> bytes:
+    """magic, format_version, core_version, data_hash"""
+    return b"SIMAGENT" + varint(FORMAT_VERSION) + varint(CORE_VERSION) + varint(data_hash)
+
+
+# A world that never started: nothing but the clock and the counters.
+EMPTY_PROJECTION = (
+    varint(PROJECTION_VERSION)
+    + NONE  # world_seed
+    + NONE  # world_params
+    + seq([])  # death_causes
+    + signed(-1)
+    + varint(1)
+    + seq([])
+    + varint(1)
+    + seq([])
+    + seq([])
+)
+EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])

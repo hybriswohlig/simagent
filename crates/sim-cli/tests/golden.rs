@@ -219,11 +219,14 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
     let all = [
         ("year_end", EventPayload::YearEnd),
         ("birthday", EventPayload::Birthday { sim }),
+        ("death", EventPayload::Death { sim, cause: 0 }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
             match payload {
-                EventPayload::YearEnd | EventPayload::Birthday { .. } => {}
+                EventPayload::YearEnd
+                | EventPayload::Birthday { .. }
+                | EventPayload::Death { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -236,14 +239,16 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::FounderAdded { .. } => "core:founder_added",
         LogPayload::Birthday { .. } => "core:birthday",
         LogPayload::ParamChanged { .. } => "core:param_changed",
+        LogPayload::Death { .. } => "core:death",
     }
 }
 
-const LOG_KINDS: [&str; 4] = [
+const LOG_KINDS: [&str; 5] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
     "core:param_changed",
+    "core:death",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -304,7 +309,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 2);
+    assert_eq!(kinds.len(), 3);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -312,7 +317,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 4);
+    assert_eq!(logs.len(), 5);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -354,9 +359,11 @@ fn the_coverage_check_reports_missing_kinds() {
         uncovered(run.world.stats(), &run.log),
         [
             "event birthday",
+            "event death",
             "log core:founder_added",
             "log core:birthday",
-            "log core:param_changed"
+            "log core:param_changed",
+            "log core:death"
         ]
     );
 }

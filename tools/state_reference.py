@@ -39,6 +39,8 @@ from postcard_reference import (
 )
 from rng_reference import founder_key
 
+import world_reference
+
 YEAR = 364 * 86_400
 
 NONE = b"\x00"
@@ -62,8 +64,8 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 3
-CORE_VERSION = 3
+PROJECTION_VERSION = 4
+CORE_VERSION = 4
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: bytes) -> bytes:
@@ -82,6 +84,7 @@ def projection(
         varint(PROJECTION_VERSION)
         + some(varint(0xFF))  # world_seed
         + some(world_params(diseases))
+        + seq([])  # death_causes
         + signed(closed_through)
         + varint(2)  # next SimId
         + seq(queue)
@@ -133,6 +136,7 @@ PAIR_AFTER_START = (
     varint(PROJECTION_VERSION)
     + some(varint(0xFF))
     + some(world_params(False))
+    + seq([])  # death_causes
     + signed(-1)
     + varint(3)  # next SimId
     + seq(
@@ -176,6 +180,7 @@ TINY_INPUT_LOG = seq(
             varint(0xFF),
             string("test:tiny"),
             world_params(False),
+            seq([]),  # death_causes
             seq([founder(-1, FEMALE, TINY_GENES)]),
         )
     ]
@@ -198,6 +203,7 @@ EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
     + NONE  # world_seed
     + NONE  # world_params
+    + seq([])  # death_causes
     + signed(-1)
     + varint(1)
     + seq([])
@@ -212,7 +218,8 @@ EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + 
 # (id, t, subjects, causes, payload). Subject::Sim = 0. Cause: Event = 0, Plan = 1
 # { by, planned_at }, Input = 2, Rule = 3. Payload: core:started = 0 { founders },
 # core:founder_added = 1 { born, lineage_key }, core:birthday = 2 { age_years },
-# core:param_changed = 3 { change }.
+# core:param_changed = 3 { change }, core:death = 4 { cause }. Cause::Random = 4
+# { tag, subject, occasion, detail }.
 def entry(event_id: int, time: int, subjects: list, causes: list, payload: bytes) -> bytes:
     return varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload
 
@@ -252,6 +259,7 @@ TINY_SAVE_OVERRIDDEN = (
                 varint(0xFF),
                 string("test:tiny"),
                 world_params(False),
+                seq([]),  # death_causes
                 seq([founder(-1, FEMALE, TINY_GENES)]),
             ),
             signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
@@ -274,6 +282,96 @@ TINY_SAVE_AFTER_YEAR_0 = (
 )
 
 
+# ---------------------------------------------------------------------------------------
+# The model of tools/world_reference.py gives the same bytes as the derivations by hand
+# above, and the bytes of the scenarios with death.
+
+TINY_FOUNDERS = [(-1, FEMALE, TINY_GENES)]
+
+
+def tiny_world() -> world_reference.World:
+    return world_reference.World(0xFF, "test:tiny", False, [], TINY_FOUNDERS)
+
+
+def check_the_model_on_tiny() -> None:
+    world = tiny_world()
+    assert world.projection() == TINY_AFTER_START
+    assert world.save() == TINY_SAVE_AFTER_START
+    world.advance(YEAR - 1)
+    assert world.year_hashes == [TINY_YEAR_0_HASH]
+    assert world.projection() == TINY_AFTER_YEAR_0
+    assert world.log == TINY_LOG
+    assert world.save() == TINY_SAVE_AFTER_YEAR_0
+    overridden = tiny_world()
+    overridden.override(True)
+    assert overridden.projection() == TINY_OVERRIDDEN
+    assert overridden.log[-1] == TINY_OVERRIDE_ENTRY
+    assert overridden.save() == TINY_SAVE_OVERRIDDEN
+    pair = world_reference.World(
+        0xFF,
+        "test:pair",
+        False,
+        [],
+        [(-2, FEMALE, genotype(WILD, DUMMY)), (-1, MALE, genotype(DUMMY, DUMMY))],
+    )
+    assert pair.projection() == PAIR_AFTER_START
+    assert world_reference.EMPTY_SAVE == EMPTY_SAVE
+
+
+check_the_model_on_tiny()
+
+# Scenario "mortal": seed 0xff, founder tag `test:mortal`, the switch off, the causes
+# `test:base` with 0.5 per year and `test:old_age` with 0.05 per year. A woman born one
+# second before the start (wild, dummy) and a man born two seconds before it (dummy
+# twice). Her budgets are about 0.729 and 0.189: she dies of `test:base` after about
+# 1.46 years, her death of old age (after 3.79 years) and her next birthday are
+# cancelled. His are about 2.292 and 0.085: he dies of old age after about 1.71 years,
+# his death of `test:base` (after 4.58 years) and his next birthday are cancelled.
+MORTAL_CAUSES = [("test:base", 0.5), ("test:old_age", 0.05)]
+MORTAL_FOUNDERS = [(-1, FEMALE, genotype(WILD, DUMMY)), (-2, MALE, genotype(DUMMY, DUMMY))]
+
+
+def mortal_world() -> world_reference.World:
+    return world_reference.World(0xFF, "test:mortal", False, MORTAL_CAUSES, MORTAL_FOUNDERS)
+
+
+MORTAL = mortal_world()
+MORTAL_AFTER_START = MORTAL.projection()
+MORTAL_SAVE_AFTER_START = MORTAL.save()
+MORTAL_DEATHS = [
+    world_reference.needed_seconds(0xFF, founder_key("test:mortal", index), code, rate)
+    for index in range(2)
+    for code, rate in MORTAL_CAUSES
+]
+MORTAL.advance(2 * YEAR - 1)
+MORTAL_AFTER_YEAR_1 = MORTAL.projection()
+MORTAL_SAVE_AFTER_YEAR_1 = MORTAL.save()
+assert len(MORTAL.log) == 7 and not MORTAL.sims and sorted(MORTAL.archive) == [1, 2]
+
+
+# Scenario "tie": seed 0xff, founder tag `test:tie`, one woman born one second before
+# the start. `test:base` has 5 per year; the hazard of `test:old_age` is chosen so that
+# both causes are due in the same second (about 1.63 years). The cause earlier in the
+# list wins: its event was planned first.
+TIE_KEY = founder_key("test:tie", 0)
+TIE_BASE = ("test:base", 5.0)
+TIE_DUE = world_reference.needed_seconds(0xFF, TIE_KEY, *TIE_BASE)
+TIE_OLD_AGE = ("test:old_age", 0.5934198823895418)
+assert world_reference.needed_seconds(0xFF, TIE_KEY, *TIE_OLD_AGE) == TIE_DUE
+
+
+def tie_world(causes: list) -> world_reference.World:
+    world = world_reference.World(0xFF, "test:tie", False, causes, TINY_FOUNDERS)
+    world.advance(2 * YEAR - 1)
+    return world
+
+
+TIE_BASE_FIRST = tie_world([TIE_BASE, TIE_OLD_AGE])
+TIE_OLD_AGE_FIRST = tie_world([TIE_OLD_AGE, TIE_BASE])
+assert TIE_BASE_FIRST.archive[1][2] == world_reference.str_key("test:base")
+assert TIE_OLD_AGE_FIRST.archive[1][2] == world_reference.str_key("test:old_age")
+
+
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
@@ -285,6 +383,8 @@ if __name__ == "__main__":
         ("tiny_after_year_0", TINY_AFTER_YEAR_0),
         ("pair_after_start", PAIR_AFTER_START),
         ("tiny_overridden", TINY_OVERRIDDEN),
+        ("mortal_after_start", MORTAL_AFTER_START),
+        ("mortal_after_year_1", MORTAL_AFTER_YEAR_1),
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
@@ -296,6 +396,19 @@ if __name__ == "__main__":
     print(f"tiny_save_after_year_0 {TINY_SAVE_AFTER_YEAR_0.hex()}")
     print(f"tiny_override_entry {TINY_OVERRIDE_ENTRY.hex()}")
     print(f"tiny_save_overridden {TINY_SAVE_OVERRIDDEN.hex()}")
+    print(f"mortal_save_after_start {MORTAL_SAVE_AFTER_START.hex()}")
+    print(f"mortal_keys {[format(founder_key('test:mortal', index), '016x') for index in range(2)]}")
+    cause_keys = [format(world_reference.str_key(code), "016x") for code, _ in MORTAL_CAUSES]
+    print(f"cause_keys {cause_keys}")
+    print(f"tie_key {TIE_KEY:016x} due {TIE_DUE} old_age_rate {TIE_OLD_AGE[1]!r}")
+    print(f"tie_base_first_save {TIE_BASE_FIRST.save().hex()}")
+    print(f"tie_old_age_first_save {TIE_OLD_AGE_FIRST.save().hex()}")
+    print(f"mortal_deaths_due {MORTAL_DEATHS}")
+    for number, line in enumerate(MORTAL.log, start=1):
+        print(f"mortal_entry_{number} {line.hex()}")
+    print(f"mortal_log_hash {digest(b''.join(MORTAL.log))}")
+    print(f"mortal_year_hashes {[format(value, '016x') for value in MORTAL.year_hashes]}")
+    print(f"mortal_save_after_year_1 {MORTAL_SAVE_AFTER_YEAR_1.hex()}")
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")

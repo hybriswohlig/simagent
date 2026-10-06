@@ -16,11 +16,15 @@ pub enum EventPayload {
     YearEnd,
     /// Dummy domain event of step 2: a sim's birthday, re-planned by its handler.
     Birthday { sim: SimId },
+    /// The hazard budget of `sim` for a cause of death runs out; `cause` is the
+    /// `str_key` of its code (ADR-0003 5.2).
+    Death { sim: SimId, cause: u64 },
 }
 
 impl EventPayload {
     pub const YEAR_END: EventKind = EventKind(1);
     pub const BIRTHDAY: EventKind = EventKind(2);
+    pub const DEATH: EventKind = EventKind(3);
 }
 
 impl Payload for EventPayload {
@@ -28,13 +32,16 @@ impl Payload for EventPayload {
         match self {
             EventPayload::YearEnd => EventClass::OBSERVER,
             EventPayload::Birthday { .. } => EventClass::GENERAL,
+            EventPayload::Death { .. } => EventClass::DEATH,
         }
     }
 
     fn subject(&self) -> EventSubject {
         match self {
             EventPayload::YearEnd => EventSubject::WORLD,
-            EventPayload::Birthday { sim } => EventSubject::sim(sim.get()),
+            EventPayload::Birthday { sim } | EventPayload::Death { sim, .. } => {
+                EventSubject::sim(sim.get())
+            }
         }
     }
 
@@ -42,6 +49,7 @@ impl Payload for EventPayload {
         match self {
             EventPayload::YearEnd => EventPayload::YEAR_END,
             EventPayload::Birthday { .. } => EventPayload::BIRTHDAY,
+            EventPayload::Death { .. } => EventPayload::DEATH,
         }
     }
 }

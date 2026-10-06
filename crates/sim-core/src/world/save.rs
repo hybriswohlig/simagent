@@ -9,13 +9,16 @@ use serde::{Deserialize, Serialize};
 
 use super::ctx::{IdCounters, LogBuffer};
 use super::{EventPayload, InputLog, World, WorldState};
-use crate::canonical::{self, LoadedState, PROJECTION_VERSION, YearHash};
+use crate::canonical::{
+    self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
+};
 use crate::ids::{Counter, SimId};
-use crate::input::{Input, InputRecord, Start};
+use crate::input::{DeathCause, Input, InputRecord, Start};
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
-use crate::state::{self, ArchivedSim, DomainState, Sim};
-use crate::time::{Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
+use crate::params::WorldParams;
+use crate::state::{self, ArchivedSim, DomainState, LeftBy, Sim, Slot};
+use crate::time::{EventHandle, Scheduler, SchedulerSnapshot, SimTime, SnapshotEntry, YEAR};
 use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
 
@@ -182,9 +185,7 @@ impl World {
             entries,
         })
         .map_err(|_| LoadError::InvalidQueue)?;
-        if !consistent(&loaded, &exceptions) {
-            return Err(LoadError::Inconsistent);
-        }
+        let death_causes = consistent(&loaded, &exceptions).ok_or(LoadError::Inconsistent)?;
         // `consistent` has checked the ranges of the three counters.
         let counter = |next: u64| Counter::from_next(next).ok_or(LoadError::Inconsistent);
         let next_input = u64::try_from(exceptions.input_log.len())
@@ -194,15 +195,18 @@ impl World {
         // Every sim is a founder with the key of its index (`consistent`), so the keys
         // differ exactly where the uninterrupted run had them differ.
         let lineage = lineage_index(&loaded.sims, &loaded.archive);
+        let pending = pending_index(&loaded.queue);
         let world = World {
             sched,
             state: WorldState {
                 domain: DomainState {
                     world_seed: loaded.world_seed,
                     world_params: loaded.world_params,
+                    death_causes,
                     sims: loaded.sims,
                     archive: loaded.archive,
                     lineage,
+                    pending,
                 },
                 ids: IdCounters::restore(counter(loaded.next_sim_id)?),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
@@ -232,19 +236,37 @@ pub(super) fn lineage_index(
     index
 }
 
-/// True if the saved state is one the core can reach, as far as that shows without a
-/// replay (ADR-0006 section 5). The queue has passed the scheduler's own checks. The
-/// ranges of the ID counters are checked when the world is built from them.
-fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> bool {
+/// The handle of every pending event of a sim, from the queue: the handle is the
+/// insertion number (ADR-0002). The index is not saved, loading builds it again.
+pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), EventHandle> {
+    let mut index = BTreeMap::new();
+    for entry in queue {
+        let slot = match &entry.payload {
+            EventPayload::YearEnd => continue,
+            EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
+            EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
+        };
+        index.insert(slot, EventHandle::from_seq(entry.seq));
+    }
+    index
+}
+
+/// The causes of death of the world if the saved state is one the core can reach, as
+/// far as that shows without a replay (ADR-0006 section 5); `None` if it is not. The
+/// projection holds the causes by key, their codes come from `Start`. The queue has
+/// passed the scheduler's own checks. The ranges of the ID counters are checked when
+/// the world is built from them.
+fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<DeathCause>> {
     let closed = loaded.closed_through.as_secs();
     if closed < SimTime::START.as_secs() - 1 {
-        return false;
+        return None;
     }
     let now = closed + 1;
     let Some(seed) = loaded.world_seed else {
         // Never started: the world is empty. The queue is empty too: an event needs an
         // insertion number below the counter, which stands at 1.
-        return loaded.world_params.is_none()
+        let empty = loaded.world_params.is_none()
+            && loaded.death_causes.is_empty()
             && loaded.sims.is_empty()
             && loaded.archive.is_empty()
             && loaded.next_sim_id == 1
@@ -252,55 +274,74 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> bool {
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
             && exceptions.year_hashes.is_empty();
+        return empty.then(Vec::new);
     };
-    input_log_consistent(loaded, exceptions, seed)
-        && sims_consistent(loaded, now)
-        && queue_consistent(loaded, now)
+    let causes = input_log_consistent(loaded, exceptions, seed)?;
+    let rest = sims_consistent(loaded, now, seed, &causes)
+        && queue_consistent(loaded, now, seed, &causes)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
-        && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes)
+        && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes);
+    rest.then_some(causes)
 }
 
 /// Sequence numbers gapless from 1, stamps that never fall and never lie after the
 /// clock. `Start` first and only first, stamped before the start, with the seed of the
-/// world and the founders as the sims 1 to N; then override blocks that pass their own
-/// check. The parameters of `Start` after every override are those of the world.
-fn input_log_consistent(loaded: &LoadedState, exceptions: &Exceptions, seed: u64) -> bool {
-    let mut params = None;
+/// world, its causes of death and the founders as the sims 1 to N; then override blocks
+/// that pass their own check. The parameters of `Start` after every override are those
+/// of the world. Gives the causes of death of `Start`, or `None` if anything is off.
+fn input_log_consistent(
+    loaded: &LoadedState,
+    exceptions: &Exceptions,
+    seed: u64,
+) -> Option<Vec<DeathCause>> {
+    let mut started: Option<(WorldParams, &Start)> = None;
     let mut last_stamp = None;
     for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
         let in_order = last_stamp.is_none_or(|last| last <= record.t);
         if record.seq.get() != position || !in_order || record.t > loaded.closed_through {
-            return false;
+            return None;
         }
         last_stamp = Some(record.t);
-        match (&record.input, params) {
+        match (&record.input, started) {
             (Input::Start(start), None) => {
                 let unstarted = DomainState::new();
                 let fits = state::start::check_start(&unstarted, record.t, start).is_ok()
                     && start.world_seed == seed
-                    && founders_are_the_first_sims(loaded, start);
+                    && founders_are_the_first_sims(loaded, start)
+                    && causes_are_those_of(loaded, start);
                 if !fits {
-                    return false;
+                    return None;
                 }
-                params = Some(start.world_params);
+                started = Some((start.world_params, start));
             }
-            (Input::ForkOverride(block), Some(before)) => {
+            (Input::ForkOverride(block), Some((before, start))) => {
                 if block.rejection().is_some() {
-                    return false;
+                    return None;
                 }
                 let after = block
                     .changes
                     .iter()
                     .fold(before, |params, change| params.with(*change));
-                params = Some(after);
+                started = Some((after, start));
             }
             // A second `Start`, or another input before the first.
-            (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return false,
+            (Input::Start(_), Some(_)) | (Input::ForkOverride(_), None) => return None,
         }
     }
-    params.is_some() && params == loaded.world_params
+    let (params, start) = started?;
+    (Some(params) == loaded.world_params).then(|| start.death_causes.clone())
+}
+
+/// The causes of death of the projection are those of `Start`, in its order: each by
+/// the key of its code, with its hazard.
+fn causes_are_those_of(loaded: &LoadedState, start: &Start) -> bool {
+    let projected = start.death_causes.iter().map(|cause| ProjectedCause {
+        cause: cause.cause.key(),
+        per_year: cause.per_year,
+    });
+    loaded.death_causes.iter().copied().eq(projected)
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times, sex
@@ -326,25 +367,55 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     loaded.next_sim_id == next_id
 }
 
-/// Every ID below the counter; a departure not before the birth and not after the
-/// first open second. All sims are founders so far: `founders_are_the_first_sims` has
-/// shown that each is in one place only and born before the start. The first rule that
-/// creates sims needs both checks here (ADR-0006 section 5).
-fn sims_consistent(loaded: &LoadedState, now: i64) -> bool {
+/// Every ID below the counter; a departure in a closed second (an event of the first
+/// open second has not run yet) and as the death rule gives it (so never before the
+/// birth: the causes act from the start on). All sims are founders so far:
+/// `founders_are_the_first_sims` has shown that each is in one place only and born
+/// before the start. The first rule that creates sims needs both checks here (ADR-0006
+/// section 5).
+fn sims_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCause]) -> bool {
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
     loaded.sims.keys().all(below_counter)
-        && loaded
-            .archive
+        && loaded.archive.iter().all(|(id, sim)| {
+            below_counter(id) && sim.left.as_secs() < now && died_by_the_rule(sim, seed, causes)
+        })
+}
+
+/// An archived sim died of a cause of the world, in the second its budget for that
+/// cause ran out, and no other cause was due before. Of two causes due in the same
+/// second the one earlier in the list wins: its event was planned first. The causes
+/// act on a founder from the start on.
+fn died_by_the_rule(sim: &ArchivedSim, seed: u64, causes: &[DeathCause]) -> bool {
+    let LeftBy::Death { cause } = sim.left_by;
+    let Some(position) = causes.iter().position(|other| other.cause.key() == cause) else {
+        return false;
+    };
+    let due = |cause: &DeathCause| state::death::due(seed, sim.lineage_key, cause, SimTime::START);
+    due(&causes[position]) == Some(sim.left)
+        && causes
             .iter()
-            .all(|(id, sim)| below_counter(id) && sim.born <= sim.left && sim.left.as_secs() <= now)
+            .enumerate()
+            .all(|(index, other)| match due(other) {
+                None => true,
+                Some(at) => at > sim.left || (at == sim.left && index >= position),
+            })
 }
 
 /// One year end series, due at the next year end; one birthday per living sim, due at
-/// its next anniversary; nothing for a sim that does not live.
-fn queue_consistent(loaded: &LoadedState, now: i64) -> bool {
+/// its next anniversary; per living sim and cause of death one death, due when the
+/// budget for that cause runs out, and none where it never does; nothing for a sim that
+/// does not live.
+fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCause]) -> bool {
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
+    let mut deaths = BTreeSet::new();
+    // Per death: the sim, the insertion number and the place of the cause in the list.
+    let mut planned = Vec::new();
+    let death_due = |person: &Sim, key: u64| {
+        let cause = causes.iter().find(|cause| cause.cause.key() == key)?;
+        state::death::due(seed, person.lineage_key, cause, SimTime::START)
+    };
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
@@ -361,10 +432,34 @@ fn queue_consistent(loaded: &LoadedState, now: i64) -> bool {
                         state::start::next_anniversary_secs(person.born, now) == Some(due)
                     })
             }
+            EventPayload::Death { sim, cause } => {
+                let position = causes.iter().position(|other| other.cause.key() == *cause);
+                planned.push((*sim, entry.seq, position));
+                entry.period.is_none()
+                    && deaths.insert((*sim, *cause))
+                    && loaded
+                        .sims
+                        .get(sim)
+                        .is_some_and(|person| death_due(person, *cause) == Some(entry.time))
+            }
         };
         if !expected {
             return false;
         }
     }
-    year_end_seen && birthdays.len() == loaded.sims.len()
+    // Every death that is due is in the queue: a living sim whose budget has run out
+    // has no event there, the scheduler holds none in the past.
+    let all_deaths_planned = loaded.sims.iter().all(|(id, person)| {
+        causes.iter().all(|cause| {
+            let key = cause.cause.key();
+            death_due(person, key).is_none() || deaths.contains(&(*id, key))
+        })
+    });
+    // The deaths of a sim were planned in the order of the causes: of two due in the same
+    // second the earlier cause runs first, as `died_by_the_rule` expects.
+    planned.sort_unstable();
+    let in_order = planned
+        .windows(2)
+        .all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
+    year_end_seen && birthdays.len() == loaded.sims.len() && all_deaths_planned && in_order
 }

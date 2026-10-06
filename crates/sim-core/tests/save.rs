@@ -8,9 +8,10 @@ use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 use serde::Serialize;
 use sim_core::canonical::YearHash;
-use sim_core::data_id::DataId;
+use sim_core::data_id::{Code, DataId};
+use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
-use sim_core::input::{ForkOverride, Founder, Input, Start};
+use sim_core::input::{DeathCause, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -21,10 +22,10 @@ const Y: i64 = 31_449_600;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540103c2a9cec6d380a0832d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540103c2a9cec6d380a0832d0301ff010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e7900010100000100";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540103c2a9cec6d380a0832d0301ff010101010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000402010100ff0109746573743a74696e7900010100000101020101000100";
-const EMPTY_SAVE: &str = "53494d4147454e540103c2a9cec6d380a0832d03000001010001000000010000";
+const HEADER: &str = "53494d4147454e540104c2a9cec6d380a0832d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff01010000010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000301010100ff0109746573743a74696e790000010100000100";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff01010100010202fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000010002020001000402010100ff0109746573743a74696e790000010100000101020101000100";
+const EMPTY_SAVE: &str = "53494d4147454e540104c2a9cec6d380a0832d0400000001010001000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -44,6 +45,7 @@ fn start(seed: u64, tag: &str, born: &[i64]) -> Input {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
     })
 }
@@ -113,6 +115,7 @@ fn load_error(bytes: &[u8]) -> Option<LoadError> {
 enum Payload {
     YearEnd,
     Birthday { sim: u64 },
+    Death { sim: u64, cause: u64 },
 }
 
 #[derive(Clone, Serialize)]
@@ -122,6 +125,8 @@ enum TestInput {
         founder_tag: String,
         /// The switch of the hereditary diseases, the only world parameter.
         world_params: bool,
+        /// (code, hazard per year)
+        death_causes: Vec<(String, f64)>,
         founders: Vec<TestFounder>,
     },
     ForkOverride {
@@ -153,8 +158,14 @@ const DUMMY: u8 = 1;
 type TestFounder = (i64, u8, (u8, u8));
 /// (born, lineage_key, sex, (maternal, paternal))
 type Living = (i64, u64, u8, (u8, u8));
-/// (born, left, lineage_key, sex, (maternal, paternal))
-type Archived = (i64, i64, u64, u8, (u8, u8));
+/// Why a sim left: it died of the cause with this key.
+#[derive(Clone, Copy, Serialize)]
+enum TestLeftBy {
+    Death { cause: u64 },
+}
+
+/// (born, left, reason, lineage_key, sex, (maternal, paternal))
+type Archived = (i64, i64, TestLeftBy, u64, u8, (u8, u8));
 
 /// A founder as `founder` of the tests builds it.
 fn test_founder(born: i64) -> TestFounder {
@@ -168,7 +179,8 @@ fn living(index: usize, born: i64) -> Living {
 
 /// The same founder after leaving at `left`.
 fn archived(index: usize, born: i64, left: i64) -> Archived {
-    (born, left, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
+    let reason = TestLeftBy::Death { cause: 7 };
+    (born, left, reason, TINY_KEYS[index], FEMALE, (WILD, DUMMY))
 }
 
 /// (time, micro, seq, payload, period)
@@ -186,6 +198,8 @@ struct File {
     world_seed: Option<u64>,
     /// The switch of the hereditary diseases; `None` before the start.
     world_params: Option<bool>,
+    /// (key of the code, hazard per year)
+    death_causes: Vec<(u64, f64)>,
     closed_through: i64,
     next_sim_id: u64,
     queue: Vec<QueueEntry>,
@@ -209,11 +223,12 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 3,
+            core_version: 4,
             data_hash: EMPTY_DATA_HASH,
-            projection_version: 3,
+            projection_version: 4,
             world_seed: Some(0xff),
             world_params: Some(false),
+            death_causes: Vec::new(),
             closed_through: -1,
             next_sim_id: 2,
             queue: vec![
@@ -232,6 +247,7 @@ impl File {
                     world_seed: 0xff,
                     founder_tag: "test:tiny".to_owned(),
                     world_params: false,
+                    death_causes: Vec::new(),
                     founders: vec![test_founder(-1)],
                 },
             )],
@@ -253,7 +269,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 3);
+    assert_eq!(CORE_VERSION, 4);
 }
 
 // ---------------------------------------------------------------------------------
@@ -466,7 +482,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [2, 4] {
+    for version in [3, 5] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -493,9 +509,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 4;
+        f.core_version = 5;
         f.data_hash = 7;
-        f.projection_version = 4;
+        f.projection_version = 5;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -509,11 +525,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 3;
+        f.core_version = 4;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 4);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 5);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -539,7 +555,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [2, 4] {
+    for version in [3, 5] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -566,10 +582,10 @@ fn load_rejects_malformed_bytes() {
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
-    // Behind the header: version, seed (3 bytes), world parameters (2 bytes), clock, sim
-    // counter, queue length, then the first entry with its time (4 bytes), micro step and
-    // insertion number.
-    let payload_at = header + 9 + 4 + 2;
+    // Behind the header: version, seed (3 bytes), world parameters (2 bytes), the number of
+    // causes of death, clock, sim counter, queue length, then the first entry with its
+    // time (4 bytes), micro step and insertion number.
+    let payload_at = header + 10 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -602,6 +618,7 @@ fn load_rejects_non_canonical_bytes() {
                 world_seed: 0xff,
                 founder_tag: "test:tiny".to_owned(),
                 world_params: false,
+                death_causes: Vec::new(),
                 founders: vec![test_founder(-1), test_founder(-1)],
             };
         })
@@ -614,7 +631,7 @@ fn load_rejects_non_canonical_bytes() {
     );
     // The same value as a varint of two bytes: 0x82 0x00 is 2, like 0x02.
     let good = File::tiny().bytes();
-    let at = hex(HEADER).len() + 7;
+    let at = hex(HEADER).len() + 8;
     assert_eq!(good[at], 2, "next_sim_id of the tiny world");
     let mut overlong = good.clone();
     overlong.splice(at..=at, [0x82, 0x00]);
@@ -831,6 +848,405 @@ fn load_checks_the_override_blocks_of_the_input_log() {
     }
 }
 
+// Scenario "mortal" of tools/state_reference.py (see tests/death.rs): she dies of
+// `test:base` in year 1, he of `test:old_age` a little later.
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff010100028bbec9d8c5bd99888b01000000000000e03fded289dba5abffff549a9999999999a93f010307fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010203cbdbe1f0b893cbc91e010101000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f0c746573743a6f6c645f6167659a9999999999a93f02010000010301010100";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540104c2a9cec6d380a0832d0401ff010100028bbec9d8c5bd99888b01000000000000e03fded289dba5abffff549a9999999999a93ffe8ffe3b0301fe97fd59000100018088ff1d0a0002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f0c746573743a6f6c645f6167659a9999999999a93f0201000001030101010200a38de3ed87fedad3f701028cb782a1e6a3a6efb701";
+/// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
+const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
+/// `str_key` of `test:base` and `test:old_age`.
+const BASE: u64 = 0x8b10_65ec_5b12_5f0b;
+const OLD_AGE: u64 = 0x54ff_fd5a_5b62_695e;
+/// When each death is due, in seconds: hers of `test:base` and of `test:old_age`, his
+/// of `test:base` and of `test:old_age`.
+const HER_DEATH: i64 = 45_838_596;
+const HER_OLD_AGE: i64 = 119_167_578;
+const HIS_BASE: i64 = 144_172_832;
+const HIS_DEATH: i64 = 53_688_989;
+const MORTAL_YEAR_HASHES: [u64; 2] = [0xf7a7_6bf0_7db8_c6a3, 0xb7de_991e_6420_9b8c];
+
+fn she(born: i64) -> Living {
+    (born, MORTAL_KEYS[0], FEMALE, (WILD, DUMMY))
+}
+
+fn he(born: i64) -> Living {
+    (born, MORTAL_KEYS[1], MALE, (DUMMY, DUMMY))
+}
+
+/// A living sim in the archive: it left at `left`, dead of the cause with the key `cause`.
+fn dead(sim: Living, left: i64, cause: u64) -> Archived {
+    let (born, key, sex, genes) = sim;
+    (born, left, TestLeftBy::Death { cause }, key, sex, genes)
+}
+
+/// "mortal" right after `Start`: per founder the birthday and the two deaths.
+fn mortal_started() -> File {
+    let mut file = File::tiny();
+    file.death_causes = vec![(BASE, 0.5), (OLD_AGE, 0.05)];
+    file.next_sim_id = 3;
+    file.queue = vec![
+        (Y - 2, 0, 5, Payload::Birthday { sim: 2 }, None),
+        (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
+        (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HER_DEATH, 0, 3, death(1, BASE), None),
+        (HIS_DEATH, 0, 7, death(2, OLD_AGE), None),
+        (HER_OLD_AGE, 0, 4, death(1, OLD_AGE), None),
+        (HIS_BASE, 0, 6, death(2, BASE), None),
+    ];
+    file.next_event_seq = 8;
+    file.sims = vec![(1, she(-1)), (2, he(-2))];
+    file.plan_refs = vec![(3, 0), (2, 0), (1, 0), (2, 0), (3, 0), (2, 0), (3, 0)];
+    file.next_event_id = 4;
+    file.input_log[0].2 = TestInput::Start {
+        world_seed: 0xff,
+        founder_tag: "test:mortal".to_owned(),
+        world_params: false,
+        death_causes: vec![
+            ("test:base".to_owned(), 0.5),
+            ("test:old_age".to_owned(), 0.05),
+        ],
+        founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+    };
+    file
+}
+
+fn death(sim: u64, cause: u64) -> Payload {
+    Payload::Death { sim, cause }
+}
+
+/// "mortal" at the end of year 1: both are in the archive, only the year end series is
+/// left in the queue.
+fn mortal_after_year_1() -> File {
+    let mut file = mortal_started();
+    file.closed_through = 2 * Y - 1;
+    file.queue = vec![(3 * Y - 1, 0, 1, Payload::YearEnd, Some(Y))];
+    file.next_event_seq = 10;
+    file.sims.clear();
+    file.archive = vec![
+        (1, dead(she(-1), HER_DEATH, BASE)),
+        (2, dead(he(-2), HIS_DEATH, OLD_AGE)),
+    ];
+    file.plan_refs = vec![(1, 0)];
+    file.next_event_id = 8;
+    file.year_hashes = vec![(0, MORTAL_YEAR_HASHES[0]), (1, MORTAL_YEAR_HASHES[1])];
+    file
+}
+
+/// "mortal" right after her death of `test:base`: she is in the archive, his events are
+/// pending (his birthday was planned anew by entry 4 at his birthday in year 0).
+fn mortal_after_her_death() -> File {
+    let mut file = mortal_started();
+    file.closed_through = HER_DEATH;
+    file.queue = vec![
+        (HIS_DEATH, 0, 7, death(2, OLD_AGE), None),
+        (2 * Y - 2, 0, 8, Payload::Birthday { sim: 2 }, None),
+        (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HIS_BASE, 0, 6, death(2, BASE), None),
+    ];
+    file.next_event_seq = 10;
+    file.sims = vec![(2, he(-2))];
+    file.archive = vec![(1, dead(she(-1), HER_DEATH, BASE))];
+    file.plan_refs = vec![(3, 0), (4, Y - 2), (1, 0), (3, 0)];
+    file.next_event_id = 7;
+    file.year_hashes = vec![(0, MORTAL_YEAR_HASHES[0])];
+    file
+}
+
+// Scenario "tie" of tools/state_reference.py: both causes are due in the same second.
+/// The lineage key of founder 0 of `test:tie` (tools/rng_reference.py).
+const TIE_KEY: u64 = 0x9515_c6c8_f345_ed70;
+const TIE_DUE: i64 = 51_240_314;
+
+/// "tie" right after `Start`: the woman's birthday, then her two deaths in the order
+/// of the causes, both due in one second.
+fn tie_started() -> File {
+    let mut file = File::tiny();
+    let old_age_per_year = 0.593_419_882_389_541_8;
+    file.death_causes = vec![(BASE, 5.0), (OLD_AGE, old_age_per_year)];
+    file.queue = vec![
+        (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
+        (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (TIE_DUE, 0, 3, death(1, BASE), None),
+        (TIE_DUE, 0, 4, death(1, OLD_AGE), None),
+    ];
+    file.next_event_seq = 5;
+    file.sims = vec![(1, (-1, TIE_KEY, FEMALE, (WILD, DUMMY)))];
+    file.plan_refs = vec![(2, 0), (1, 0), (2, 0), (2, 0)];
+    file.input_log[0].2 = TestInput::Start {
+        founder_tag: "test:tie".to_owned(),
+        world_seed: 0xff,
+        world_params: false,
+        death_causes: vec![
+            ("test:base".to_owned(), 5.0),
+            ("test:old_age".to_owned(), old_age_per_year),
+        ],
+        founders: vec![test_founder(-1)],
+    };
+    file
+}
+
+/// "mortal" at the start of year 1, one second after the year end: nobody has died yet.
+/// The birthdays of year 0 planned the next ones (insertion numbers 8 and 9, by the
+/// entries 4 and 5).
+fn mortal_in_year_1() -> File {
+    let mut file = mortal_started();
+    file.closed_through = Y;
+    file.queue = vec![
+        (HER_DEATH, 0, 3, death(1, BASE), None),
+        (HIS_DEATH, 0, 7, death(2, OLD_AGE), None),
+        (2 * Y - 2, 0, 8, Payload::Birthday { sim: 2 }, None),
+        (2 * Y - 1, 0, 9, Payload::Birthday { sim: 1 }, None),
+        (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (HER_OLD_AGE, 0, 4, death(1, OLD_AGE), None),
+        (HIS_BASE, 0, 6, death(2, BASE), None),
+    ];
+    file.next_event_seq = 10;
+    file.plan_refs = vec![
+        (2, 0),
+        (3, 0),
+        (4, Y - 2),
+        (5, Y - 1),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+    ];
+    file.next_event_id = 6;
+    file.year_hashes = vec![(0, MORTAL_YEAR_HASHES[0])];
+    file
+}
+
+/// The saves of "mortal" from the reference, the test encoder and the core are the same
+/// bytes, and they load.
+#[test]
+fn a_save_keeps_the_deaths_and_the_archive() {
+    assert_eq!(mortal_started().bytes(), hex(MORTAL_SAVE_AFTER_START));
+    assert_eq!(mortal_after_year_1().bytes(), hex(MORTAL_SAVE_AFTER_YEAR_1));
+    for file in [
+        mortal_started(),
+        mortal_in_year_1(),
+        mortal_after_her_death(),
+        mortal_after_year_1(),
+        tie_started(),
+    ] {
+        assert_eq!(load_error(&file.bytes()), None);
+    }
+    // The state in year 1 is the one the core reaches.
+    let mut world = World::new();
+    world
+        .submit(Input::Start(Start {
+            world_seed: 0xff,
+            founder_tag: DataId::new("test:mortal").expect("valid"),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+            },
+            death_causes: vec![
+                DeathCause {
+                    cause: Code::new("test:base").expect("valid"),
+                    per_year: FiniteF64::try_new(0.5).expect("finite"),
+                },
+                DeathCause {
+                    cause: Code::new("test:old_age").expect("valid"),
+                    per_year: FiniteF64::try_new(0.05).expect("finite"),
+                },
+            ],
+            founders: vec![
+                founder(-1),
+                Founder {
+                    born: t(-2),
+                    sex: Sex::Male,
+                    genotype: Genotype {
+                        maternal: Allele::Dummy,
+                        paternal: Allele::Dummy,
+                    },
+                },
+            ],
+        }))
+        .expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, t(Y), &mut |_| false);
+    world.take_log();
+    assert_eq!(
+        world.save(&out.year_hashes).expect("saves"),
+        mortal_in_year_1().bytes()
+    );
+    world.advance_until(&mut out, t(HER_DEATH), &mut |_| false);
+    world.take_log();
+    assert_eq!(
+        world.save(&out.year_hashes).expect("saves"),
+        mortal_after_her_death().bytes()
+    );
+}
+
+/// ADR-0006 section 5 for death: an archived sim died as the rule says, a living sim
+/// has exactly the deaths in the queue that its budgets give, and the causes of the
+/// projection are those of `Start`.
+#[test]
+fn load_checks_the_deaths() {
+    // The clock stands in year 4: her death of old age would have been due by now.
+    let late = |change: fn(&mut File)| {
+        let mut file = mortal_after_year_1();
+        file.closed_through = 5 * Y - 1;
+        file.queue[0].0 = 6 * Y - 1;
+        file.year_hashes = (0..5).map(|year| (year, 7)).collect();
+        change(&mut file);
+        file.bytes()
+    };
+    assert_eq!(load_error(&late(|_| {})), None);
+
+    let cases: [(&str, Vec<u8>); 24] = [
+        // Review finding: a death in the first open second has not run yet.
+        (
+            "a death in the second that is still open",
+            mortal_after_her_death().with(|f| f.closed_through = HER_DEATH - 1),
+        ),
+        // Review finding: of two deaths due in one second the one planned first runs
+        // first; the causes were planned in the order of the list.
+        (
+            "two deaths of one second planned against the order of the causes",
+            tie_started().with(|f| {
+                f.queue[2].3 = death(1, OLD_AGE);
+                f.queue[3].3 = death(1, BASE);
+            }),
+        ),
+        // The archive.
+        (
+            "a death one second after the budget ran out",
+            mortal_after_year_1().with(|f| f.archive[0].1.1 = HER_DEATH + 1),
+        ),
+        (
+            "a death one second before the budget ran out",
+            mortal_after_year_1().with(|f| f.archive[1].1.1 = HIS_DEATH - 1),
+        ),
+        (
+            "a death of the other cause at that time",
+            mortal_after_year_1().with(|f| f.archive[0].1.2 = TestLeftBy::Death { cause: OLD_AGE }),
+        ),
+        (
+            "a death of a cause the world does not have",
+            mortal_after_year_1().with(|f| f.archive[0].1.2 = TestLeftBy::Death { cause: 7 }),
+        ),
+        (
+            "a death of the cause that was due later",
+            late(|f| f.archive[0].1 = dead(she(-1), HER_OLD_AGE, OLD_AGE)),
+        ),
+        (
+            "a death that lies ahead",
+            mortal_in_year_1().with(|f| {
+                f.sims.remove(0);
+                f.archive = vec![(1, dead(she(-1), HER_DEATH, BASE))];
+                f.queue.retain(|entry| {
+                    !matches!(
+                        entry.3,
+                        Payload::Death { sim: 1, .. } | Payload::Birthday { sim: 1 }
+                    )
+                });
+                f.plan_refs = vec![(3, 0), (4, Y - 2), (1, 0), (3, 0)];
+            }),
+        ),
+        (
+            "an archived founder with another sex",
+            mortal_after_year_1().with(|f| f.archive[0].1.4 = MALE),
+        ),
+        (
+            "an archived founder with another genotype",
+            mortal_after_year_1().with(|f| f.archive[0].1.5 = (DUMMY, DUMMY)),
+        ),
+        (
+            "an archived founder with another lineage key",
+            mortal_after_year_1().with(|f| f.archive[0].1.3 = MORTAL_KEYS[1]),
+        ),
+        // The living.
+        (
+            "a living sim whose budget has run out",
+            mortal_after_year_1().with(|f| {
+                f.archive.remove(0);
+                f.sims = vec![(1, she(-1))];
+                f.queue
+                    .insert(0, (2 * Y - 1 + Y, 0, 9, Payload::Birthday { sim: 1 }, None));
+                f.queue.push((HER_OLD_AGE, 0, 4, death(1, OLD_AGE), None));
+                f.plan_refs = vec![(5, Y - 1), (1, 0), (2, 0)];
+            }),
+        ),
+        // The queue.
+        (
+            "a death that is due and not planned",
+            mortal_started().with(|f| {
+                f.queue.remove(5);
+                f.plan_refs.remove(5);
+            }),
+        ),
+        (
+            "a death planned a second late",
+            mortal_started().with(|f| f.queue[3].0 = HER_DEATH + 1),
+        ),
+        (
+            "a death planned a second early",
+            mortal_started().with(|f| f.queue[3].0 = HER_DEATH - 1),
+        ),
+        (
+            "a death of a cause the world does not have",
+            mortal_started().with(|f| f.queue[3].3 = death(1, 7)),
+        ),
+        (
+            "the deaths of two sims swapped",
+            mortal_started().with(|f| {
+                f.queue[3].3 = death(2, BASE);
+                f.queue[6].3 = death(1, BASE);
+            }),
+        ),
+        (
+            "a periodic death",
+            mortal_started().with(|f| f.queue[3].4 = Some(Y)),
+        ),
+        (
+            "a death for a sim in the archive",
+            mortal_after_year_1().with(|f| {
+                f.queue.push((HER_OLD_AGE, 0, 4, death(1, OLD_AGE), None));
+                f.plan_refs.push((2, 0));
+            }),
+        ),
+        // The causes.
+        (
+            "a cause with another hazard than in the start",
+            mortal_started().with(|f| f.death_causes[0].1 = 0.25),
+        ),
+        (
+            "the causes in another order than in the start",
+            mortal_started().with(|f| f.death_causes.reverse()),
+        ),
+        (
+            "a cause less than in the start",
+            mortal_started().with(|f| {
+                f.death_causes.pop();
+            }),
+        ),
+        (
+            "a world that never started with a cause",
+            never_started().with(|f| f.death_causes = vec![(BASE, 0.5)]),
+        ),
+        (
+            "a start with a hazard below the smallest one",
+            File::tiny().with(|f| {
+                f.death_causes = vec![(BASE, 0.0)];
+                if let TestInput::Start { death_causes, .. } = &mut f.input_log[0].2 {
+                    *death_causes = vec![("test:base".to_owned(), 0.0)];
+                }
+            }),
+        ),
+    ];
+    for (name, bytes) in &cases {
+        assert_eq!(load_error(bytes), Some(LoadError::Inconsistent), "{name}");
+    }
+    // A death twice in the queue: the scheduler sees the same insertion number, or the
+    // loader the same sim and cause.
+    let twice = mortal_started().with(|f| {
+        f.queue.insert(4, (HER_DEATH, 0, 8, death(1, BASE), None));
+        f.plan_refs.insert(4, (2, 0));
+        f.next_event_seq = 9;
+    });
+    assert_eq!(load_error(&twice), Some(LoadError::Inconsistent));
+}
+
 /// A started world without sims at `closed_through`, with its year end due at `due`.
 fn empty_started(closed_through: i64, due: i64) -> File {
     let mut file = File::tiny();
@@ -865,16 +1281,9 @@ fn start_with_founders(file: &mut File, born: Vec<i64>) {
         world_seed: 0xff,
         founder_tag: "test:tiny".to_owned(),
         world_params: false,
+        death_causes: Vec::new(),
         founders: born.into_iter().map(test_founder).collect(),
     };
-}
-
-/// The tiny world with its founder archived instead of living.
-fn archive_the_founder(file: &mut File, born: i64, left: i64) {
-    file.sims.clear();
-    file.archive = vec![(1, archived(0, born, left))];
-    file.queue.remove(0);
-    file.plan_refs.remove(0);
 }
 
 /// ADR-0006 section 5: one case per invariant.
@@ -1066,27 +1475,6 @@ fn load_rejects_inconsistent_saves() {
             File::tiny().with(|f| f.sims[0].1.1 += 1),
         ),
         (
-            "an archived founder with another sex",
-            File::tiny().with(|f| {
-                archive_the_founder(f, -1, 0);
-                f.archive[0].1.3 = MALE;
-            }),
-        ),
-        (
-            "an archived founder with another genotype",
-            File::tiny().with(|f| {
-                archive_the_founder(f, -1, 0);
-                f.archive[0].1.4 = (DUMMY, DUMMY);
-            }),
-        ),
-        (
-            "an archived founder with another lineage key",
-            File::tiny().with(|f| {
-                archive_the_founder(f, -1, 0);
-                f.archive[0].1.2 = TINY_KEYS[1];
-            }),
-        ),
-        (
             "a sim without a founder",
             File::tiny().with(|f| start_with_founders(f, Vec::new())),
         ),
@@ -1094,25 +1482,10 @@ fn load_rejects_inconsistent_saves() {
             "a founder without a sim",
             File::tiny().with(|f| start_with_founders(f, vec![-1, -1])),
         ),
-        (
-            "an archived founder who left before birth",
-            File::tiny().with(|f| archive_the_founder(f, -1, -2)),
-        ),
-        (
-            "an archived founder who left after now",
-            File::tiny().with(|f| archive_the_founder(f, -1, 1)),
-        ),
         // The queue.
         (
             "a birthday for a sim that does not live",
             File::tiny().with(|f| f.queue[0].3 = birthday(2)),
-        ),
-        (
-            "a birthday for an archived sim",
-            File::tiny().with(|f| {
-                f.sims.clear();
-                f.archive = vec![(1, archived(0, -1, 0))];
-            }),
         ),
         (
             "a periodic birthday",
@@ -1217,9 +1590,6 @@ fn load_rejects_inconsistent_saves() {
     let one_second_earlier =
         empty_started(2 * Y - 2, 2 * Y - 1).with(|f| f.year_hashes = vec![(0, 7)]);
     assert_eq!(load_error(&one_second_earlier), None);
-    // An archived founder is consistent; no rule archives yet, the format knows it.
-    let archived = File::tiny().with(|f| archive_the_founder(f, -1, 0));
-    assert_eq!(load_error(&archived), None);
     // An exhausted EventId counter stands at 2^53: loadable, the next entry breaks as in
     // the uninterrupted run.
     let exhausted = File::tiny().with(|f| f.next_event_id = limit + 1);

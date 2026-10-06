@@ -34,6 +34,7 @@ fn start_with(born: &[i64]) -> Input {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
     })
 }

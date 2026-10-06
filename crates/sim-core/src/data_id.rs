@@ -59,6 +59,12 @@ impl Code {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// `str_key` of the code: the number it has in keys of random draws, in the queue
+    /// and in the projection (ADR-0003 5.2).
+    pub fn key(&self) -> u64 {
+        str_key(&self.0)
+    }
 }
 
 impl DataId {

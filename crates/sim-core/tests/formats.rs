@@ -10,13 +10,15 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::data_id::{Code, DataId};
+use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, SimId};
 use sim_core::input::{
-    ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode, Start,
+    DeathCause, ForkOverride, Founder, Input, InputRecord, InputRejected, InputStamp, RejectCode,
+    Start,
 };
 use sim_core::lineage::LineageKey;
-use sim_core::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
+use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
@@ -72,6 +74,10 @@ fn sample_input() -> Input {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: vec![DeathCause {
+            cause: Code::new("test:base").expect("valid"),
+            per_year: FiniteF64::try_new(0.02).expect("finite"),
+        }],
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
             sex: Sex::Female,
@@ -81,6 +87,17 @@ fn sample_input() -> Input {
             },
         }],
     })
+}
+
+/// The draw of the death budget of the first founder of `test:fork_no_density`, with an
+/// occasion that shows every hex digit.
+fn sample_draw() -> DrawRef {
+    DrawRef {
+        tag: 4,
+        subject: 0xcfd3_d455_1fb3_63c2,
+        occasion: 0x0123_4567_89ab_cdef,
+        detail: 0,
+    }
 }
 
 /// The override block of a fork that switches the hereditary diseases on.
@@ -125,18 +142,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e736974790001ffa3a08607000001";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f01ffa3a08607000001";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str =
-    "010100ff0114746573743a666f726b5f6e6f5f64656e736974790001ffa3a08607000001";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f01ffa3a08607000001";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}]}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -207,6 +223,62 @@ fn override_form_is_pinned() {
     assert!(from_json::<Input>(&without).is_err());
 }
 
+/// Death (ADR-0001, ADR-0004 section 7): the cause in the input, the entry of a death
+/// and the draw it names as its cause, with all four numbers as hex in JSON.
+#[test]
+fn death_forms_are_pinned() {
+    let cause = DeathCause {
+        cause: Code::new("test:base").expect("valid"),
+        per_year: FiniteF64::try_new(0.02).expect("finite"),
+    };
+    let cause_json = r#"{"cause":"test:base","per_year":0.02}"#;
+    assert_eq!(json(&cause), cause_json);
+    assert_eq!(from_json::<DeathCause>(cause_json).expect("parses"), cause);
+    assert_eq!(
+        postcard_round_trip(&cause),
+        hex("09746573743a626173657b14ae47e17a943f")
+    );
+    for rejected in [
+        r#"{"cause":"test:base"}"#,
+        r#"{"per_year":0.02}"#,
+        r#"{"cause":"test:base","per_year":"0.02"}"#,
+        r#"{"cause":"test:base","per_year":null}"#,
+        r#"{"cause":"test:base","per_year":-0.0}"#,
+        r#"{"cause":"test:base","per_year":1e999}"#,
+        r#"{"cause":"Base","per_year":0.02}"#,
+        r#"{"cause":"test:base","per_year":0.02,"applies":"all"}"#,
+    ] {
+        assert!(from_json::<DeathCause>(rejected).is_err(), "{rejected}");
+    }
+
+    let random = Cause::Random(sample_draw());
+    let random_json = r#"{"random":{"tag":"0000000000000004","subject":"cfd3d4551fb363c2","occasion":"0123456789abcdef","detail":"0000000000000000"}}"#;
+    assert_eq!(json(&random), random_json);
+    assert_eq!(
+        json(&from_json::<Cause>(random_json).expect("parses")),
+        random_json
+    );
+    assert_eq!(
+        postcard_round_trip(&random),
+        hex("0404c2c7cdfdd18af5e9cf01ef9bafcdf8acd1910100")
+    );
+    for rejected in [
+        r#"{"random":{"tag":4,"subject":"cfd3d4551fb363c2","occasion":"0123456789abcdef","detail":"0000000000000000"}}"#,
+        r#"{"random":{"tag":"0000000000000004","subject":"cfd3d4551fb363c2","occasion":"0123456789abcdef"}}"#,
+        r#"{"random":{"tag":"0000000000000004","subject":"cfd3d4551fb363c2","occasion":"0123456789abcdef","detail":"0000000000000000","seed":"0000000000000001"}}"#,
+    ] {
+        assert!(from_json::<Cause>(rejected).is_err(), "{rejected}");
+    }
+
+    let died = LogPayload::Death {
+        cause: Code::new("test:base").expect("valid"),
+    };
+    let died_json = r#"{"core:death":{"cause":"test:base"}}"#;
+    assert_eq!(json(&died), died_json);
+    assert_eq!(from_json::<LogPayload>(died_json).ok(), Some(died.clone()));
+    assert_eq!(postcard_round_trip(&died), hex("0409746573743a62617365"));
+}
+
 #[test]
 fn input_stamp_form_is_pinned() {
     assert_eq!(json(&sample_stamp()), STAMP_JSON);
@@ -270,12 +342,14 @@ fn postcard_forms_are_pinned() {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: Vec::new(),
         founders: Vec::new(),
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
-    // The tag, the switch off (one byte 0), no founders (length 0).
-    expected.extend([3, b'a', b':', b'b', 0, 0]);
+    // The tag, the switch off (one byte 0), no causes of death and no founders (two
+    // lengths 0).
+    expected.extend([3, b'a', b':', b'b', 0, 0, 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 
@@ -568,6 +642,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         world_params: WorldParams {
             hereditary_diseases: false,
         },
+        death_causes: Vec::new(),
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
             sex: Sex::Male,
@@ -609,6 +684,9 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::ParamChanged {
             change: ParamChange::HereditaryDiseases(true),
         },
+        LogPayload::Death {
+            cause: Code::new("test:base").expect("valid"),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -616,7 +694,8 @@ fn all_payloads() -> Vec<LogPayload> {
             LogPayload::Started { .. }
             | LogPayload::FounderAdded { .. }
             | LogPayload::Birthday { .. }
-            | LogPayload::ParamChanged { .. } => {}
+            | LogPayload::ParamChanged { .. }
+            | LogPayload::Death { .. } => {}
         }
     }
     payloads
@@ -631,6 +710,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::NotStarted,
         RejectCode::EmptyOverride,
         RejectCode::OverrideParamTwice,
+        RejectCode::DeathCauseTwice,
+        RejectCode::DeathRateOutOfRange,
     ];
     for code in &codes {
         match code {
@@ -640,7 +721,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::TooManyFounders
             | RejectCode::NotStarted
             | RejectCode::EmptyOverride
-            | RejectCode::OverrideParamTwice => {}
+            | RejectCode::OverrideParamTwice
+            | RejectCode::DeathCauseTwice
+            | RejectCode::DeathRateOutOfRange => {}
         }
     }
     codes
@@ -655,10 +738,15 @@ fn all_causes() -> Vec<Cause> {
         }),
         Cause::Input(input_seq(1)),
         Cause::Rule(Code::new("core:x").expect("valid")),
+        Cause::Random(sample_draw()),
     ];
     for cause in &causes {
         match cause {
-            Cause::Event(_) | Cause::Plan(_) | Cause::Input(_) | Cause::Rule(_) => {}
+            Cause::Event(_)
+            | Cause::Plan(_)
+            | Cause::Input(_)
+            | Cause::Rule(_)
+            | Cause::Random(_) => {}
         }
     }
     causes
