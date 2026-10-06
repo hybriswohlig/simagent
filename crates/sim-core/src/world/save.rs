@@ -367,8 +367,9 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
     loaded.next_sim_id == next_id
 }
 
-/// Every ID below the counter; a departure not after the first open second and as the
-/// death rule gives it (so never before the birth: the causes act from the start on). All sims are founders so far:
+/// Every ID below the counter; a departure in a closed second (an event of the first
+/// open second has not run yet) and as the death rule gives it (so never before the
+/// birth: the causes act from the start on). All sims are founders so far:
 /// `founders_are_the_first_sims` has shown that each is in one place only and born
 /// before the start. The first rule that creates sims needs both checks here (ADR-0006
 /// section 5).
@@ -376,7 +377,7 @@ fn sims_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCau
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
     loaded.sims.keys().all(below_counter)
         && loaded.archive.iter().all(|(id, sim)| {
-            below_counter(id) && sim.left.as_secs() <= now && died_by_the_rule(sim, seed, causes)
+            below_counter(id) && sim.left.as_secs() < now && died_by_the_rule(sim, seed, causes)
         })
 }
 
@@ -409,6 +410,8 @@ fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCa
     let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
     let mut deaths = BTreeSet::new();
+    // Per death: the sim, the insertion number and the place of the cause in the list.
+    let mut planned = Vec::new();
     let death_due = |person: &Sim, key: u64| {
         let cause = causes.iter().find(|cause| cause.cause.key() == key)?;
         state::death::due(seed, person.lineage_key, cause, SimTime::START)
@@ -430,6 +433,8 @@ fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCa
                     })
             }
             EventPayload::Death { sim, cause } => {
+                let position = causes.iter().position(|other| other.cause.key() == *cause);
+                planned.push((*sim, entry.seq, position));
                 entry.period.is_none()
                     && deaths.insert((*sim, *cause))
                     && loaded
@@ -450,5 +455,11 @@ fn queue_consistent(loaded: &LoadedState, now: i64, seed: u64, causes: &[DeathCa
             death_due(person, key).is_none() || deaths.contains(&(*id, key))
         })
     });
-    year_end_seen && birthdays.len() == loaded.sims.len() && all_deaths_planned
+    // The deaths of a sim were planned in the order of the causes: of two due in the same
+    // second the earlier cause runs first, as `died_by_the_rule` expects.
+    planned.sort_unstable();
+    let in_order = planned
+        .windows(2)
+        .all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
+    year_end_seen && birthdays.len() == loaded.sims.len() && all_deaths_planned && in_order
 }
