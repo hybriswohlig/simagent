@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::{Code, DataId};
 use crate::finite::FiniteF64;
-use crate::genome::{Genotype, Sex};
+use crate::genome::{LocusAlleles, Sex};
 use crate::ids::{InputSeq, SimId};
 use crate::params::{ParamChange, WorldParams};
 use crate::time::SimTime;
@@ -139,8 +139,9 @@ impl ForkOverride {
 pub struct Founder {
     pub born: SimTime,
     pub sex: Sex,
-    /// The alleles at the dummy locus of the Durchstich.
-    pub genotype: Genotype,
+    /// The loci with an alternative allele (genetics specification 2.1); every other
+    /// locus of the genome map carries the reference allele in every copy.
+    pub alleles: Vec<LocusAlleles>,
 }
 
 /// One line of the input log: an accepted input with its stamp (ADR-0004 section 4).
@@ -195,6 +196,13 @@ pub enum RejectCode {
     UnknownFounder,
     /// A fertility of `Start` outside its ranges.
     FertilityOutOfRange,
+    /// A founder names a locus the genome map does not have.
+    FounderUnknownLocus,
+    /// A founder names a locus twice.
+    FounderLocusTwice,
+    /// A founder gives a locus more or fewer copies than its chromosome type and sex
+    /// have, or an allele other than 0 and 1.
+    FounderCopies,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

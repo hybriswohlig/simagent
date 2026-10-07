@@ -9,7 +9,7 @@ mod common;
 
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Fertility, ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::log::LogEntry;
@@ -49,10 +49,7 @@ fn founder(secs: i64) -> Founder {
     Founder {
         born: SimTime::from_secs(secs),
         sex: Sex::Female,
-        genotype: Genotype {
-            maternal: Allele::Wild,
-            paternal: Allele::Dummy,
-        },
+        alleles: common::dummy(0, 1),
     }
 }
 
@@ -240,7 +237,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
     );
 }
 
@@ -276,6 +273,66 @@ fn rejected_input_changes_nothing() {
         );
         assert_eq!(fingerprint(&world), before, "{born}");
         assert!(world.take_log().is_empty());
+    }
+}
+
+/// Genetics specification 2.1: the alleles of a founder must fit the genome map. A locus
+/// it does not have, a locus twice, a wrong number of copies for the chromosome type and
+/// sex, or an allele other than 0 and 1 reject `Start` and change nothing. A male founder
+/// has one copy of an X locus, a female none of a Y locus.
+#[test]
+fn founder_alleles_must_fit_the_genome_map() {
+    let dummy = |copies: Vec<u8>| LocusAlleles {
+        locus: DataId::new("core:dummy").expect("valid"),
+        copies,
+    };
+    let with = |sex: Sex, alleles: Vec<LocusAlleles>| {
+        let Input::Start(mut start) = start_with(&[-1]) else {
+            panic!("a start");
+        };
+        start.founders[0].sex = sex;
+        start.founders[0].alleles = alleles;
+        Input::Start(start)
+    };
+    let unknown = LocusAlleles {
+        locus: DataId::new("core:nothing").expect("valid"),
+        copies: vec![0, 1],
+    };
+    for (input, code) in [
+        (
+            with(Sex::Female, vec![unknown]),
+            RejectCode::FounderUnknownLocus,
+        ),
+        (
+            with(Sex::Female, vec![dummy(vec![0, 1]), dummy(vec![1, 1])]),
+            RejectCode::FounderLocusTwice,
+        ),
+        (
+            with(Sex::Male, vec![dummy(vec![1])]),
+            RejectCode::FounderCopies,
+        ),
+        (
+            with(Sex::Male, vec![dummy(vec![1, 1, 1])]),
+            RejectCode::FounderCopies,
+        ),
+        (
+            with(Sex::Female, vec![dummy(vec![0, 2])]),
+            RejectCode::FounderCopies,
+        ),
+    ] {
+        let mut world = World::new(common::data());
+        let before = fingerprint(&world);
+        let rejected = world.submit(input).expect_err("rejected");
+        assert_eq!(rejected.code, code);
+        assert_eq!(fingerprint(&world), before);
+        assert!(world.take_log().is_empty());
+    }
+    // The same founders with fitting alleles start.
+    for input in [
+        with(Sex::Male, vec![dummy(vec![1, 0])]),
+        with(Sex::Female, vec![]),
+    ] {
+        World::new(common::data()).submit(input).expect("accepted");
     }
 }
 

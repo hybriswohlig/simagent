@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use serde::Serialize;
 
 use crate::data_id::Code;
-use crate::genome::{Genotype, Sex};
+use crate::genome::{LocusAlleles, Sex};
 use crate::ids::{PartnershipId, SimId};
 use crate::lineage::LineageKey;
 use crate::state::LeftBy;
@@ -26,7 +26,8 @@ pub struct Person {
     pub sim: SimId,
     pub lineage_key: LineageKey,
     pub sex: Sex,
-    pub genotype: Genotype,
+    /// The loci with an alternative allele, in map order (the form of a founder).
+    pub alleles: Vec<LocusAlleles>,
     pub born: SimTime,
     /// The second of the death, `None` while the sim lives.
     pub died: Option<SimTime>,
@@ -54,7 +55,7 @@ impl crate::world::WorldState {
             sim: *id,
             lineage_key: sim.lineage_key,
             sex: sim.sex,
-            genotype: sim.genotype,
+            alleles: sim.genome.alleles(self.data()),
             born: sim.born,
             died: None,
             cause_of_death: None,
@@ -74,7 +75,7 @@ impl crate::world::WorldState {
                 sim: *id,
                 lineage_key: sim.lineage_key,
                 sex: sim.sex,
-                genotype: sim.genotype,
+                alleles: sim.genome.alleles(self.data()),
                 born: sim.born,
                 died: Some(sim.left),
                 cause_of_death: cause_of(cause),

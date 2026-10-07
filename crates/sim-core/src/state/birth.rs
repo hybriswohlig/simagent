@@ -3,6 +3,7 @@
 //! conception.
 
 use super::{DomainState, Parents, Sim, Slot, conception, death, partnership, start};
+use crate::data::Data;
 use crate::data_id::Code;
 use crate::ids::SimId;
 use crate::log::{Cause, Causes, LogPayload};
@@ -15,7 +16,12 @@ use crate::world::{EventPayload, SimCtx};
 /// `core:gestation` as causes. The child's first birthday comes a year later, its causes
 /// of death and its exposure act from now on. If she is in an open partnership, her
 /// attempts begin again from the second after the birth.
-pub(crate) fn on_birth(domain: &mut DomainState, mother: SimId, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn on_birth(
+    domain: &mut DomainState,
+    data: &Data,
+    mother: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     // The index keeps the handle of this birth until her next conception or her death:
     // handles are never used again, so cancelling it then changes nothing.
     let Some(pregnancy) = domain.pregnancies.remove(&mother) else {
@@ -41,8 +47,12 @@ pub(crate) fn on_birth(domain: &mut DomainState, mother: SimId, ctx: &mut SimCtx
             born: now,
             lineage_key: pregnancy.lineage_key,
             sex: pregnancy.sex,
-            genotype: pregnancy.genotype,
-            exposure: death::first_exposure(pregnancy.genotype, switch_on, now),
+            genome: pregnancy.genome,
+            exposure: death::first_exposure(
+                death::dummy_homozygous(&pregnancy.genome, data),
+                switch_on,
+                now,
+            ),
             conceptions: 0,
             parents: Some(Parents {
                 mother,

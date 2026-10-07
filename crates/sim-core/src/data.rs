@@ -133,6 +133,8 @@ pub struct Data {
     definitions: Definitions,
     genetics: Genetics,
     hash: u64,
+    /// The position of each locus in the map, by its data ID.
+    loci: BTreeMap<DataId, usize>,
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -303,10 +305,15 @@ impl Data {
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map, str_key)?;
         let hash = stable_hash64(&encode(&definitions));
+        let loci = (0..)
+            .zip(&definitions.genome_map.loci)
+            .map(|(index, locus)| (locus.id.clone(), index))
+            .collect();
         Ok(Data {
             definitions,
             genetics,
             hash,
+            loci,
         })
     }
 
@@ -321,6 +328,12 @@ impl Data {
 
     pub const fn genetics(&self) -> Genetics {
         self.genetics
+    }
+
+    /// The locus with this data ID, if the map has it.
+    pub fn locus(&self, id: &DataId) -> Option<&Locus> {
+        let index = *self.loci.get(id)?;
+        self.definitions.genome_map.loci.get(index)
     }
 }
 
@@ -367,6 +380,21 @@ pub(crate) mod testing {
             genome_map: serde_json::from_value(genome_map).expect("genome map"),
         };
         Data::new(definitions).expect("checked")
+    }
+
+    /// The alleles of a founder at `core:dummy`: maternal, paternal; none for two
+    /// reference alleles.
+    pub(crate) fn dummy(
+        maternal: u8,
+        paternal: u8,
+    ) -> alloc::vec::Vec<crate::genome::LocusAlleles> {
+        if (maternal, paternal) == (0, 0) {
+            return alloc::vec::Vec::new();
+        }
+        alloc::vec![crate::genome::LocusAlleles {
+            locus: super::DataId::new("core:dummy").expect("id"),
+            copies: alloc::vec![maternal, paternal],
+        }]
     }
 }
 

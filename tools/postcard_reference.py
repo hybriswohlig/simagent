@@ -45,15 +45,40 @@ def variant(index: int, *fields: bytes) -> bytes:
     return varint(index) + b"".join(fields)
 
 
-# The genome of the Durchstich: enums without fields are their variant index.
-# Sex: female = 0, male = 1. Allele: wild = 0, dummy = 1.
+# Enums without fields are their variant index. Sex: female = 0, male = 1.
 FEMALE, MALE = variant(0), variant(1)
-WILD, DUMMY = variant(0), variant(1)
+
+# The locus `core:dummy` of the walking skeleton (segment 0, slot 0 of the autosomes):
+# 0 the reference allele, 1 the dummy allele. Every other slot holds 0 in these tests.
+WILD, DUMMY = 0, 1
 
 
-def genotype(maternal: bytes, paternal: bytes) -> bytes:
-    """Genotype { maternal: Allele, paternal: Allele }"""
-    return maternal + paternal
+def genotype(maternal: int, paternal: int) -> tuple:
+    """The alleles at `core:dummy`, from the mother and from the father."""
+    return (maternal, paternal)
+
+
+def founder_alleles(genes: tuple) -> bytes:
+    """Vec<LocusAlleles>, LocusAlleles { locus: DataId, copies: Vec<u8> }: only a locus
+    with an alternative allele is listed; a u8 is one raw byte."""
+    if genes == (0, 0):
+        return seq([])
+    return seq([string("core:dummy") + varint(2) + bytes(genes)])
+
+
+def genome(sex: bytes, genes: tuple) -> bytes:
+    """Genome { maternal: Autosomes, paternal: Autosomes, maternal_x: XChromosome,
+    paternal_sex: PaternalSex, mt: Mitochondria }. Autosomes([u64; 3]) is three varints
+    without a length, `core:dummy` bit 0 of the first; XChromosome(u16) a varint; the
+    sex chromosome from the father X(XChromosome) = variant 0, Y(YChromosome(u8)) =
+    variant 1 with one raw byte; Mitochondria(u8) one raw byte."""
+    maternal, paternal = genes
+
+    def autosomes(bit: int) -> bytes:
+        return varint(bit) + varint(0) + varint(0)
+
+    from_father = variant(0, varint(0)) if sex == FEMALE else variant(1, bytes([0]))
+    return autosomes(maternal) + autosomes(paternal) + varint(0) + from_father + bytes([0])
 
 
 def lineage_key(key: int) -> bytes:
@@ -99,9 +124,9 @@ def exposure(value) -> bytes:
     return b"\x01" + signed(before) + (b"\x00" if since is None else b"\x01" + signed(since))
 
 
-def founder(born: int, sex: bytes, genes: bytes) -> bytes:
-    """Founder { born: SimTime, sex: Sex, genotype: Genotype }"""
-    return signed(born) + sex + genes
+def founder(born: int, sex: bytes, genes: tuple) -> bytes:
+    """Founder { born: SimTime, sex: Sex, alleles: Vec<LocusAlleles> }"""
+    return signed(born) + sex + founder_alleles(genes)
 
 
 def couple(woman: int, man: int) -> bytes:
@@ -119,9 +144,14 @@ MATERNAL, PATERNAL = variant(0), variant(1)
 X, Y_CHROMOSOME = variant(0), variant(1)
 
 
-def pregnancy(father: int, key: int, conception: int, sex: bytes, genes: bytes, conceived: int) -> bytes:
-    """Pregnancy { father: SimId, lineage_key, conception: u32, sex, genotype, conceived: SimTime }"""
-    return varint(father) + varint(key) + varint(conception) + sex + genes + signed(conceived)
+def pregnancy(father: int, key: int, conception: int, sex: bytes, genes: tuple, conceived: int) -> bytes:
+    """Pregnancy { father: SimId, lineage_key, conception: u32, sex, genome, conceived: SimTime }"""
+    return varint(father) + varint(key) + varint(conception) + sex + genome(sex, genes) + signed(conceived)
+
+
+def segment_meiosis(segment: int, strand: bytes, crossovers: list) -> bytes:
+    """SegmentMeiosis { segment: u8, start_strand: Strand, crossovers: Vec<FiniteF64> }"""
+    return bytes([segment]) + strand + seq([f64(c) for c in crossovers])
 
 
 def partnership(woman: int, man: int, formed: int, ended) -> bytes:
@@ -149,9 +179,14 @@ SAMPLE_ARRANGE = variant(2, varint(1), varint(2))
 SAMPLE_PARTNERED_PAYLOAD = variant(5, varint(1))
 
 # LogPayload::Conception (variant 6) { lineage_key } and Meiosis (variant 7) { genome_key,
-# start_strand, sex_chromosome }: the keys are plain u64.
+# segments: Vec<SegmentMeiosis>, sex_chromosome }: the keys are plain u64.
 SAMPLE_CONCEPTION_PAYLOAD = variant(6, varint(0x0123456789ABCDEF))
-SAMPLE_MEIOSIS_PAYLOAD = variant(7, varint(0x0123456789ABCDEF), PATERNAL, Y_CHROMOSOME)
+SAMPLE_MEIOSIS_PAYLOAD = variant(
+    7,
+    varint(0x0123456789ABCDEF),
+    seq([segment_meiosis(0, PATERNAL, [0.25, 0.75]), segment_meiosis(8, MATERNAL, [])]),
+    Y_CHROMOSOME,
+)
 
 # Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.
 SAMPLE_RANDOM_CAUSE = variant(
@@ -226,8 +261,10 @@ if __name__ == "__main__":
         ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),
-        ("genotype_wild_dummy", genotype(WILD, DUMMY)),
-        ("genotype_dummy_wild", genotype(DUMMY, WILD)),
+        ("alleles_wild_dummy", founder_alleles(genotype(WILD, DUMMY))),
+        ("alleles_wild_wild", founder_alleles(genotype(WILD, WILD))),
+        ("genome_female_wild_dummy", genome(FEMALE, genotype(WILD, DUMMY))),
+        ("genome_male_dummy_wild", genome(MALE, genotype(DUMMY, WILD))),
         ("sample_lineage_key", SAMPLE_LINEAGE_KEY),
     ]:
         print(f"{name} {data.hex()}")

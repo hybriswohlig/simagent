@@ -4,8 +4,9 @@
 
 use super::PurposeTag;
 
-/// Start strand of a meiosis. subject: genome key of the child; occasion: parent side
-/// (0 mother, 1 father); detail: section of the genome map.
+/// Start strand of a segment in a meiosis. subject: genome key of the child; occasion:
+/// parent side (0 mother, 1 father); detail: the segment (autosomes 0 to 7, the mother's
+/// X 8).
 pub const MEIOSIS_START_STRAND: PurposeTag = PurposeTag::from_pinned_list(1);
 
 /// Which sex chromosome the father passes on. subject: genome key of the child;
@@ -24,6 +25,15 @@ pub const DEATH_BUDGET: PurposeTag = PurposeTag::from_pinned_list(4);
 /// occasion: absolute index of the 28-day round; detail: the candidate.
 pub const PAIRING_RANK: PurposeTag = PurposeTag::from_pinned_list(5);
 
+/// Number of crossovers of a segment in a meiosis (genetics specification 2.3).
+/// subject: genome key of the child; occasion: parent side (0 mother, 1 father); detail:
+/// the segment (autosomes 0 to 7, the mother's X 8).
+pub const CROSSOVER_COUNT: PurposeTag = PurposeTag::from_pinned_list(6);
+
+/// Position of crossover `j` of a segment in a meiosis. subject: genome key of the
+/// child; occasion: parent side; detail: `(segment << 32) | j`.
+pub const CROSSOVER_POSITION: PurposeTag = PurposeTag::from_pinned_list(7);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -31,6 +41,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (CONCEPTION_ATTEMPT, "CONCEPTION_ATTEMPT"),
     (DEATH_BUDGET, "DEATH_BUDGET"),
     (PAIRING_RANK, "PAIRING_RANK"),
+    (CROSSOVER_COUNT, "CROSSOVER_COUNT"),
+    (CROSSOVER_POSITION, "CROSSOVER_POSITION"),
 ];
 
 /// Values of deleted tags; they are never used again.

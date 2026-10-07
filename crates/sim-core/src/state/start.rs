@@ -4,8 +4,10 @@
 use alloc::vec::Vec;
 
 use super::{DomainState, Sim, Slot, death, partnership, years_between};
+use crate::data::Data;
+use crate::genome::{AlleleError, Genome};
 use crate::input::{
-    DeathCause, Fertility, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS,
+    DeathCause, Fertility, Founder, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS,
     MIN_DEATH_RATE_PER_YEAR, RejectCode, Start,
 };
 use crate::lineage::LineageKey;
@@ -16,6 +18,7 @@ use crate::world::{EventPayload, SimCtx};
 
 pub(crate) fn check_start(
     domain: &DomainState,
+    data: &Data,
     closed_through: SimTime,
     start: &Start,
 ) -> Result<(), InputRejected> {
@@ -25,6 +28,7 @@ pub(crate) fn check_start(
         start.founders.len(),
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
+    .or_else(|| alleles_rejection(&start.founders, data))
     .or_else(|| death_causes_rejection(&start.death_causes))
     .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
     .or_else(|| fertility_rejection(&start.fertility));
@@ -57,6 +61,20 @@ fn start_rejection(
         return Some(RejectCode::FounderNotBornBeforeStart);
     }
     None
+}
+
+/// Why the alleles of these founders are rejected, if at all (genetics specification
+/// 2.1): the first founder whose alleles do not fit the genome map names the code.
+fn alleles_rejection(founders: &[Founder], data: &Data) -> Option<RejectCode> {
+    founders.iter().find_map(|founder| {
+        Genome::with_alleles(founder.sex, &founder.alleles, data)
+            .err()
+            .map(|error| match error {
+                AlleleError::UnknownLocus => RejectCode::FounderUnknownLocus,
+                AlleleError::LocusTwice => RejectCode::FounderLocusTwice,
+                AlleleError::Copies => RejectCode::FounderCopies,
+            })
+    })
 }
 
 /// Why these causes of death are rejected, if at all: two with the same key, or a hazard
@@ -100,7 +118,12 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// birthday is planned, then the deaths in the order of the causes; the causes act on a
 /// founder from the start on, a hereditary one only with the dummy allele twice and the
 /// switch on. Then the couples are paired, in list order.
-pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn apply_start(
+    domain: &mut DomainState,
+    data: &Data,
+    start: &Start,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params);
     domain.death_causes.clone_from(&start.death_causes);
@@ -121,6 +144,8 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
     let mut ids = Vec::with_capacity(start.founders.len());
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
+        let genome = Genome::with_alleles(founder.sex, &founder.alleles, data)
+            .unwrap_or_else(|_| panic!("invariant start.founder_alleles"));
         let lineage_key = LineageKey::founder(&start.founder_tag, index);
         domain.lineage.insert(lineage_key);
         let (id, added) = ctx.create_sim(
@@ -133,9 +158,9 @@ pub(crate) fn apply_start(domain: &mut DomainState, start: &Start, ctx: &mut Sim
                 born,
                 lineage_key,
                 sex: founder.sex,
-                genotype: founder.genotype,
+                genome,
                 exposure: death::first_exposure(
-                    founder.genotype,
+                    death::dummy_homozygous(&genome, data),
                     start.world_params.hereditary_diseases,
                     SimTime::START,
                 ),

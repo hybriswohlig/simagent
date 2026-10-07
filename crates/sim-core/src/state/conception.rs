@@ -7,8 +7,9 @@
 use alloc::vec;
 
 use super::{DomainState, Pregnancy, Slot, partnership};
+use crate::data::Data;
 use crate::data_id::Code;
-use crate::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
+use crate::genome::meiosis::Zygote;
 use crate::ids::{EventId, SimId};
 use crate::input::Fertility;
 use crate::lineage::{GenomeKey, LineageKey};
@@ -86,72 +87,6 @@ pub(crate) fn attempt_key(her: LineageKey, him: LineageKey, month: u64) -> DrawK
     }
 }
 
-/// The address of the start strand of the meiosis of one parent (`side` 0 the mother, 1
-/// the father) for a zygote.
-pub(crate) fn strand_key(genome: GenomeKey, side: u64) -> DrawKey {
-    DrawKey {
-        tag: tags::MEIOSIS_START_STRAND,
-        subject: SubjectKey::from(genome),
-        occasion: side,
-        detail: 0,
-    }
-}
-
-/// The address of the sex chromosome the father passes on.
-pub(crate) fn sex_key(genome: GenomeKey) -> DrawKey {
-    DrawKey {
-        tag: tags::SEX_CHROMOSOME,
-        subject: SubjectKey::from(genome),
-        occasion: 1,
-        detail: 0,
-    }
-}
-
-/// What a conception gives: the start strand of each parent's meiosis, the genotype of
-/// the child and the sex chromosome of the father. A pure function of the seed, the
-/// genome key and the genotypes of the parents.
-pub(crate) struct Zygote {
-    pub(crate) strands: [Strand; 2],
-    pub(crate) genotype: Genotype,
-    pub(crate) sex_chromosome: SexChromosome,
-}
-
-impl Zygote {
-    pub(crate) fn of(seed: u64, genome: GenomeKey, mother: Genotype, father: Genotype) -> Zygote {
-        let draws = Draws::new(WorldSeed::new(seed));
-        let strand = |side: u64| match draws.uniform_below(strand_key(genome, side), 2) {
-            0 => Strand::Maternal,
-            _ => Strand::Paternal,
-        };
-        let strands = [strand(0), strand(1)];
-        let passed_on = |parent: Genotype, strand: Strand| -> Allele {
-            match strand {
-                Strand::Maternal => parent.maternal,
-                Strand::Paternal => parent.paternal,
-            }
-        };
-        let sex_chromosome = match draws.uniform_below(sex_key(genome), 2) {
-            0 => SexChromosome::X,
-            _ => SexChromosome::Y,
-        };
-        Zygote {
-            strands,
-            genotype: Genotype {
-                maternal: passed_on(mother, strands[0]),
-                paternal: passed_on(father, strands[1]),
-            },
-            sex_chromosome,
-        }
-    }
-
-    pub(crate) const fn sex(&self) -> Sex {
-        match self.sex_chromosome {
-            SexChromosome::X => Sex::Female,
-            SexChromosome::Y => Sex::Male,
-        }
-    }
-}
-
 /// The month index of a second at or after the start.
 pub(crate) fn month_index(t: SimTime) -> Option<u64> {
     u64::try_from(t.as_secs().div_euclid(MONTH.as_secs())).ok()
@@ -160,7 +95,12 @@ pub(crate) fn month_index(t: SimTime) -> Option<u64> {
 /// An attempt of the monthly series of `woman`: the draw decides. A failed one writes no
 /// entry; it ends the series if the next month start is her `until_years` birthday or
 /// later, so that a pending attempt always lies before it.
-pub(crate) fn on_attempt(domain: &mut DomainState, woman: SimId, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn on_attempt(
+    domain: &mut DomainState,
+    data: &Data,
+    woman: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let fertility = domain
         .fertility
         .unwrap_or_else(|| panic!("invariant conception.before_start"));
@@ -191,13 +131,15 @@ pub(crate) fn on_attempt(domain: &mut DomainState, woman: SimId, ctx: &mut SimCt
         return;
     }
     stop_attempts(domain, woman, ctx);
-    conceive(domain, seed, &fertility, woman, man, draw, ctx);
+    conceive(domain, data, seed, &fertility, woman, man, draw, ctx);
 }
 
 /// She conceives her next child with him now: the entries of the conception and of the
-/// two meioses, and the pregnancy.
+/// two meioses (genetics specification 2.3), and the pregnancy.
+#[expect(clippy::too_many_arguments, reason = "the facts of one conception")]
 fn conceive(
     domain: &mut DomainState,
+    data: &Data,
     seed: u64,
     fertility: &Fertility,
     woman: SimId,
@@ -205,10 +147,10 @@ fn conceive(
     draw: DrawKey,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let Some((his_key, his_genes)) = domain
+    let Some((his_key, his_genome)) = domain
         .sims
         .get(&man)
-        .map(|him| (him.lineage_key, him.genotype))
+        .map(|him| (him.lineage_key, him.genome))
     else {
         panic!("invariant unknown_entity_id: sim {}", man.get());
     };
@@ -220,40 +162,30 @@ fn conceive(
         .checked_add(1)
         .unwrap_or_else(|| panic!("invariant conception.count_range"));
     let child = LineageKey::child(her.lineage_key, his_key, u64::from(number), 0);
-    let zygote = Zygote::of(seed, GenomeKey::of_zygote(child), her.genotype, his_genes);
+    let genome = GenomeKey::of_zygote(child);
+    let draws = Draws::new(WorldSeed::new(seed));
+    let zygote = Zygote::of(&draws, &data.genetics(), genome, &her.genome, &his_genome);
     domain.lineage.insert(child);
     let conception = ctx.emit(
         LogPayload::Conception { lineage_key: child },
         vec![Subject::Sim(woman), Subject::Sim(man)],
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
-    let genome = GenomeKey::of_zygote(child);
-    // The rule of a meiosis, the cause of its entry next to the conception.
+    // ADR-0004 section 7: the causes of a meiosis are the conception and the rule; its
+    // draws follow from the genome key and the side (ADR-0001).
     let rule =
         Code::new("core:meiosis").unwrap_or_else(|_| panic!("invariant conception.rule_code"));
-    let meiosis = |side: u64| {
-        Causes::new(Cause::Event(conception))
-            .with(Cause::Rule(rule.clone()))
-            .with(Cause::Random(DrawRef::from(strand_key(genome, side))))
-    };
-    ctx.emit(
-        LogPayload::Meiosis {
-            genome_key: genome,
-            start_strand: zygote.strands[0],
-            sex_chromosome: SexChromosome::X,
-        },
-        vec![Subject::Sim(woman)],
-        meiosis(0),
-    );
-    ctx.emit(
-        LogPayload::Meiosis {
-            genome_key: genome,
-            start_strand: zygote.strands[1],
-            sex_chromosome: zygote.sex_chromosome,
-        },
-        vec![Subject::Sim(man)],
-        meiosis(1).with(Cause::Random(DrawRef::from(sex_key(genome)))),
-    );
+    for (parent, meiosis) in [(woman, &zygote.mother), (man, &zygote.father)] {
+        ctx.emit(
+            LogPayload::Meiosis {
+                genome_key: genome,
+                segments: meiosis.segments.clone(),
+                sex_chromosome: meiosis.sex_chromosome,
+            },
+            vec![Subject::Sim(parent)],
+            Causes::new(Cause::Event(conception)).with(Cause::Rule(rule.clone())),
+        );
+    }
     let now = ctx.now();
     domain.pregnancies.insert(
         woman,
@@ -261,8 +193,8 @@ fn conceive(
             father: man,
             lineage_key: child,
             conception: number,
-            sex: zygote.sex(),
-            genotype: zygote.genotype,
+            sex: zygote.genome.sex(),
+            genome: zygote.genome,
             conceived: now,
         },
     );

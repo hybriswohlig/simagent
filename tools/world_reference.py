@@ -81,12 +81,14 @@ from postcard_reference import (
     exposure,
     fertility,
     genotype,
+    genome,
     f64,
     founder,
     lineage_key,
     param_change,
     partnership,
     pregnancy,
+    segment_meiosis,
     seq,
     signed,
     string,
@@ -105,6 +107,36 @@ from rng_reference import (
     words,
 )
 
+import meiosis_reference
+
+# The map lengths of data/calibration/genetics.json.
+MAP_LENGTHS = meiosis_reference.load_map_lengths()
+
+
+def founder_genome(sex: bytes, genes: tuple) -> dict:
+    """A founder whose only alternative alleles are at `core:dummy` (segment 0, slot 0)."""
+    maternal = [[0] * 24 for _ in range(8)]
+    paternal = [[0] * 24 for _ in range(8)]
+    maternal[0][0], paternal[0][0] = genes
+    person = {"autosomes_maternal": maternal, "autosomes_paternal": paternal, "x_maternal": [0] * 16, "mt": [0] * 8}
+    if sex == FEMALE:
+        person["x_paternal"] = [0] * 16
+    else:
+        person["paternal_sex"] = {"y": [0] * 8}
+    return person
+
+
+def dummy_alleles(person: dict) -> tuple:
+    """The alleles at `core:dummy`; every other slot must hold the reference allele, as in
+    every scenario of these references, so that `genome` encodes the child exactly."""
+    maternal, paternal = person["autosomes_maternal"], person["autosomes_paternal"]
+    genes = (maternal[0][0], paternal[0][0])
+    others = [bit for copy in (maternal, paternal) for segment in copy for bit in segment]
+    sex_chromosome = next(iter(person["paternal_sex"].values()))
+    assert sum(others) == sum(genes) and not any(person["x_maternal"]) and not any(sex_chromosome) and not any(person["mt"])
+    return genes
+
+
 YEAR = 364 * 86_400
 MONTH = 28 * 86_400
 NEVER_YEARS = 100_000.0
@@ -113,8 +145,8 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
-PROJECTION_VERSION = 8
-CORE_VERSION = 9
+PROJECTION_VERSION = 9
+CORE_VERSION = 10
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -193,6 +225,8 @@ class World:
         self.partnerships = {}
         self.fertility = fertility_
         self.pregnancies = {}
+        # The genome of every sim in the form of tools/meiosis_reference.py.
+        self.genomes = {}
         self.sims = {}
         self.archive = {}
         self.log = []
@@ -255,35 +289,41 @@ class World:
             [plan, random(draw)],
             variant(6, varint(child)),
         )
-        alleles = []
-        for side, parent, person in ((0, woman, her), (1, man, him)):
-            strand_key = (MEIOSIS_START_STRAND, child, side, 0)
-            strand = uniform_below(words(chacha_key(self.seed, *strand_key))[0], 2)
-            genes = person[3]
-            alleles.append(genes[strand : strand + 1])
-            causes = [variant(0, varint(conception)), variant(3, string("core:meiosis")), random(strand_key)]
-            chromosome = X
-            if side == 1:
-                sex_key = (SEX_CHROMOSOME, child, 1, 0)
-                chromosome = [X, Y_CHROMOSOME][uniform_below(words(chacha_key(self.seed, *sex_key))[0], 2)]
-                causes.append(random(sex_key))
-            payload = variant(7, varint(child), [MATERNAL, PATERNAL][strand], chromosome)
-            self._entry(now, [variant(0, varint(parent))], causes, payload)
-        sex = FEMALE if chromosome == X else MALE
-        self.pregnancies[woman] = (man, child, number, sex, alleles[0] + alleles[1], now)
+        # The meiosis of the independent reference (tools/meiosis_reference.py, written
+        # from the genetics specification 2.3 by another model).
+        genome, records = meiosis_reference.child(
+            self.seed, child, self.genomes[woman], self.genomes[man], MAP_LENGTHS
+        )
+        for side, parent in ((0, woman), (1, man)):
+            record = records["mother" if side == 0 else "father"]
+            segments = seq(
+                [
+                    segment_meiosis(s["segment"], [MATERNAL, PATERNAL][s["start_strand"]], s["crossover_positions"])
+                    for s in record["segments"]
+                ]
+            )
+            chromosome = Y_CHROMOSOME if record.get("sex_chromosome") == "y" else X
+            # ADR-0004 section 7: the conception and the rule; the draws follow from the
+            # genome key and the side.
+            causes = [variant(0, varint(conception)), variant(3, string("core:meiosis"))]
+            self._entry(now, [variant(0, varint(parent))], causes, variant(7, varint(child), segments, chromosome))
+        sex = MALE if "y" in genome["paternal_sex"] else FEMALE
+        genes = dummy_alleles(genome)
+        self.pregnancies[woman] = (man, child, number, sex, genes, now, genome)
         months = self.fertility[3]
         payload = variant(4, varint(woman))
         self._schedule(now + months * MONTH, BIRTH, (SIM_SUBJECT, woman), BIRTH_KIND, payload, None, conception, now)
 
     def _birth(self, event: Event, now: int, plan: bytes) -> None:
         mother = event.subject[1]
-        father, key, number, sex, genes, _ = self.pregnancies.pop(mother)
+        father, key, number, sex, genes, _, genome = self.pregnancies.pop(mother)
         child = self.next_sim_id
         self.next_sim_id += 1
         subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
         born = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
         sick = [0, now if self.diseases else None] if genes == HOMOZYGOUS else None
         self.sims[child] = [now, key, sex, genes, sick, 0, (mother, father, number)]
+        self.genomes[child] = genome
         self._plan_birthday(child, now + YEAR, born, now)
         self._plan_deaths(child, 0, born, now)
         if any(p[0] == mother and p[3] is None for p in self.partnerships.values()):
@@ -314,6 +354,7 @@ class World:
             # born, lineage key, sex, genotype, exposure, conceptions
             # born, lineage key, sex, genotype, exposure, conceptions, parents
             self.sims[sim] = [born, key, sex, genes, sick, 0, None]
+            self.genomes[sim] = founder_genome(sex, genes)
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
@@ -452,7 +493,7 @@ class World:
             + signed(born)
             + lineage_key(key)
             + sex
-            + genes
+            + genome(sex, genes)
             + exposure(sick)
             + varint(conceptions)
             + parents_bytes(parents)
@@ -465,7 +506,7 @@ class World:
             + variant(0, varint(cause))
             + lineage_key(key)
             + sex
-            + genes
+            + genome(sex, genes)
             + exposure(sick)
             + varint(conceptions)
             + parents_bytes(parents)
@@ -491,7 +532,7 @@ class World:
             + varint(self.next_insertion)
             + seq(sims)
             + seq([varint(number) + partnership(*value) for number, value in sorted(self.partnerships.items())])
-            + seq([varint(mother) + pregnancy(*value) for mother, value in sorted(self.pregnancies.items())])
+            + seq([varint(mother) + pregnancy(*value[:6]) for mother, value in sorted(self.pregnancies.items())])
             + seq(archive)
         )
 

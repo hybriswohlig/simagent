@@ -21,9 +21,9 @@ const TEN_YEARS: &str = r#"{
     "world_params": {"hereditary_diseases": false},
     "death_causes": [],
     "founders": [
-      {"born": -943488000, "sex": "female", "genotype": {"maternal": "wild", "paternal": "dummy"}},
-      {"born": -794880000, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "wild"}},
-      {"born": -1, "sex": "male", "genotype": {"maternal": "dummy", "paternal": "dummy"}}
+      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:dummy", "copies": [0, 1]}]},
+      {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:dummy", "copies": [1, 0]}]},
+      {"born": -1, "sex": "male", "alleles": [{"locus": "core:dummy", "copies": [1, 1]}]}
     ],
     "couples": [],
     "fertility": {"per_month": 0.0, "from_years": 18, "until_years": 45, "pregnancy_months": 10}
@@ -345,15 +345,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":9"#, r#""core_version":10"#);
+    replace_in(&log, r#""core_version":10"#, r#""core_version":11"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 10, this is 9"
+            "error: fork_foreign_core_version: the parent run is of core version 11, this is 10"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":10"#, r#""core_version":9"#);
+    replace_in(&log, r#""core_version":11"#, r#""core_version":10"#);
     replace_in(&log, "1bdf3636c22d0643", "1bdf3636c22d0644");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -418,7 +418,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":9"#, r#""core_version":10"#),
+        (r#""core_version":10"#, r#""core_version":11"#),
         (
             r#""data_hash":"1bdf3636c22d0643""#,
             r#""data_hash":"1bdf3636c22d0644""#,
