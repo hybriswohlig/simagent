@@ -332,31 +332,27 @@ pub(crate) mod testing {
 
     use super::{Data, Definitions};
 
-    fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
-        let list: alloc::vec::Vec<&mut Value> = match &mut file[entries] {
-            Value::Object(values) => values.values_mut().collect(),
-            Value::Array(loci) => loci.iter_mut().collect(),
-            _ => panic!("entries"),
-        };
-        for entry in list {
-            for name in names {
-                entry.as_object_mut().expect("entry").remove(*name);
+    /// Removes the text of each calibration value and each locus.
+    fn without_text(mut calibration: Value, mut genome_map: Value) -> (Value, Value) {
+        let values = calibration["values"].as_object_mut().expect("values");
+        for value in values.values_mut() {
+            let fields = value.as_object_mut().expect("value");
+            for name in ["source", "as_of", "note"] {
+                fields.remove(name);
             }
         }
-        file
+        let loci = genome_map["loci"].as_array_mut().expect("loci");
+        for locus in loci {
+            locus.as_object_mut().expect("locus").remove("description");
+        }
+        (calibration, genome_map)
     }
 
     pub(crate) fn data() -> Data {
         let read = |text| serde_json::from_str::<Value>(text).expect("json");
-        let calibration = without(
+        let (calibration, genome_map) = without_text(
             read(include_str!("../../../data/calibration/genetics.json")),
-            "values",
-            &["source", "as_of", "note"],
-        );
-        let genome_map = without(
             read(include_str!("../../../data/genetics/genome_map.json")),
-            "loci",
-            &["description"],
         );
         let definitions = Definitions {
             calibration: serde_json::from_value(calibration).expect("calibration"),
