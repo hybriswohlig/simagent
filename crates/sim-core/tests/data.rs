@@ -72,7 +72,7 @@ fn the_hash_follows_every_value() {
 
 #[test]
 fn genome_map_rejects() {
-    let cases: [(Change, &str); 13] = [
+    let cases: [(Change, &str); 19] = [
         (|_, g| g["format_version"] = json!(2), "data.format_version"),
         (|_, g| g["map_version"] = json!(0), "data.map_version"),
         // Positions: slot and segment within the chromosome type.
@@ -136,6 +136,48 @@ fn genome_map_rejects() {
             "data.locus_mark",
         ),
         (|_, g| g["loci"][0]["chromosome"] = json!("w"), "serde"),
+        // X and Y have one segment; the chromosome type comes first in the order.
+        (
+            |_, g| {
+                g["loci"][0]["chromosome"] = json!("x");
+                g["loci"][0]["segment"] = json!(1);
+            },
+            "data.locus_position",
+        ),
+        (
+            |_, g| {
+                g["loci"][0]["chromosome"] = json!("y");
+                g["loci"][0]["segment"] = json!(1);
+            },
+            "data.locus_position",
+        ),
+        (
+            |_, g| {
+                let mut on_x = locus(0);
+                on_x["chromosome"] = json!("x");
+                on_x["segment"] = json!(0);
+                g["loci"] = json!([on_x, locus(5)]);
+            },
+            "data.locus_order",
+        ),
+        (
+            |_, g| g["loci"][0]["mutation"] = json!("to_ref"),
+            "data.locus_mark",
+        ),
+        (
+            |_, g| {
+                g["loci"] = json!([{"id": "test:d", "chromosome": "autosome", "segment": 0,
+                "slot": 0, "action": "dominant", "mark": "small", "mutation": "both"}])
+            },
+            "data.locus_mark",
+        ),
+        (
+            |_, g| {
+                g["loci"] = json!([{"id": "test:d", "chromosome": "autosome", "segment": 0,
+                "slot": 0, "action": "dominant", "mark": "small", "mutation": "to_alt"}])
+            },
+            "data.locus_mark",
+        ),
     ];
     for (change, code) in cases {
         let result = checked(change);
@@ -144,6 +186,22 @@ fn genome_map_rejects() {
     // The cases are no accident of the repository's map: valid variants pass.
     assert_eq!(
         checked(|_, g| g["loci"] = json!([locus(2), locus(3)])),
+        "ok"
+    );
+    assert_eq!(
+        checked(
+            |_, g| g["loci"] = json!([{"id": "test:d", "chromosome": "autosome",
+            "segment": 0, "slot": 0, "action": "dominant", "mark": "large", "mutation": "both"}])
+        ),
+        "ok"
+    );
+    assert_eq!(
+        checked(|_, g| {
+            let mut on_x = locus(0);
+            on_x["chromosome"] = json!("x");
+            on_x["segment"] = json!(0);
+            g["loci"] = json!([locus(5), on_x]);
+        }),
         "ok"
     );
     assert_eq!(
@@ -157,7 +215,7 @@ fn genome_map_rejects() {
 
 #[test]
 fn calibration_rejects() {
-    let cases: [(Change, &str); 7] = [
+    let cases: [(Change, &str); 10] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
         (
             |c, _| {
@@ -188,11 +246,28 @@ fn calibration_rejects() {
             |c, _| c["values"]["core:mutation_rate"]["value"] = json!(-1e-5),
             "data.calibration_range",
         ),
+        (
+            |c, _| c["values"]["core:mutation_rate"]["value"] = json!(1.000_001),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:map_length_autosome_male"]["value"] = json!(0.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:map_length_autosome_male"]["value"] = json!(-1.0),
+            "data.calibration_range",
+        ),
     ];
     for (change, code) in cases {
         let result = checked(change);
         assert!(result.starts_with(code), "{code}: {result}");
     }
+    // A rate may be 1 at most.
+    assert_eq!(
+        checked(|c, _| c["values"]["core:mutation_rate"]["value"] = json!(1.0)),
+        "ok"
+    );
     // The upper limit of a map length is the largest mean of `poisson`.
     assert_eq!(
         checked(|c, _| c["values"]["core:map_length_autosome_male"]["value"] = json!(30.0)),

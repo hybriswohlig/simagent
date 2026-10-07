@@ -8,7 +8,8 @@ use sim_core::data::{Data, Definitions};
 const CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../../data/genetics/genome_map.json");
 
-/// Removes the text fields `names` of the entries under `entries`.
+/// Removes the text fields `names` of the entries under `entries`; each must be there
+/// and not blank, as sim-cli demands.
 fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
     let list: Vec<&mut Value> = match &mut file[entries] {
         Value::Object(values) => values.values_mut().collect(),
@@ -17,7 +18,12 @@ fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
     };
     for entry in list {
         for name in names {
-            entry.as_object_mut().expect("entry").remove(*name);
+            let text = entry.as_object_mut().expect("entry").remove(*name);
+            let filled = text
+                .as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|text| !text.trim().is_empty());
+            assert!(filled, "{name} missing or blank");
         }
     }
     file

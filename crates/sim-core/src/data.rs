@@ -206,7 +206,8 @@ impl Locus {
     }
 }
 
-fn check_map(map: &GenomeMap) -> Result<(), DataError> {
+/// The checks of the genome map; `key` is `str_key` outside the tests.
+fn check_map(map: &GenomeMap, key: impl Fn(&DataId) -> u64) -> Result<(), DataError> {
     if map.format_version != FORMAT_VERSION {
         return Err(DataError::FormatVersion);
     }
@@ -230,7 +231,7 @@ fn check_map(map: &GenomeMap) -> Result<(), DataError> {
             return Err(DataError::LocusMark);
         }
     }
-    if !keys_unique(map.loci.iter().map(|locus| &locus.id), str_key) {
+    if !keys_unique(map.loci.iter().map(|locus| &locus.id), key) {
         return Err(DataError::LocusKey);
     }
     Ok(())
@@ -300,7 +301,7 @@ impl Data {
     /// Checks the definitions and computes their data hash (ADR-0007).
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
         let genetics = read_genetics(&definitions.calibration)?;
-        check_map(&definitions.genome_map)?;
+        check_map(&definitions.genome_map, str_key)?;
         let hash = stable_hash64(&encode(&definitions));
         Ok(Data {
             definitions,
@@ -332,18 +333,25 @@ pub(crate) mod testing {
 
     use super::{Data, Definitions};
 
-    /// Removes the text of each calibration value and each locus.
+    /// Removes the text of each calibration value and each locus; each text must be
+    /// there and not blank, as sim-cli demands.
     fn without_text(mut calibration: Value, mut genome_map: Value) -> (Value, Value) {
+        let take = |entry: &mut Value, name| {
+            let text = entry.as_object_mut().expect("entry").remove(name);
+            let filled = text
+                .as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|t| !t.trim().is_empty());
+            assert!(filled, "text field missing or blank");
+        };
         let values = calibration["values"].as_object_mut().expect("values");
         for value in values.values_mut() {
-            let fields = value.as_object_mut().expect("value");
             for name in ["source", "as_of", "note"] {
-                fields.remove(name);
+                take(value, name);
             }
         }
-        let loci = genome_map["loci"].as_array_mut().expect("loci");
-        for locus in loci {
-            locus.as_object_mut().expect("locus").remove("description");
+        for locus in genome_map["loci"].as_array_mut().expect("loci") {
+            take(locus, "description");
         }
         (calibration, genome_map)
     }
@@ -365,6 +373,19 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_loci_with_one_key_are_rejected() {
+        let map = testing::data().genome_map().clone();
+        assert_eq!(check_map(&map, str_key), Ok(()));
+        let mut two = map.clone();
+        let mut other = two.loci[0].clone();
+        other.id = DataId::new("test:other").expect("id");
+        other.slot = 1;
+        two.loci.push(other);
+        assert_eq!(check_map(&two, str_key), Ok(()));
+        assert_eq!(check_map(&two, |_| 7), Err(DataError::LocusKey));
+    }
 
     #[test]
     fn colliding_keys_are_found() {
