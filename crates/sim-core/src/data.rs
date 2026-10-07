@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::finite::FiniteF64;
+use crate::hash::StableHasher;
 
 /// Format version of both definition files.
 pub const FORMAT_VERSION: u32 = 1;
@@ -164,20 +165,136 @@ impl fmt::Display for DataError {
     }
 }
 
+/// Autosomal segments and slots per segment, slots of X, Y and mt (genetics
+/// specification 2.1, 2.2).
+pub const AUTOSOME_SEGMENTS: u8 = 8;
+pub const AUTOSOME_SLOTS: u8 = 24;
+pub const X_SLOTS: u8 = 16;
+pub const Y_SLOTS: u8 = 8;
+pub const MT_SLOTS: u8 = 8;
+
+/// Largest map length of a segment: the largest mean of `poisson` (ADR-0001 section 3).
+const MAX_MAP_LENGTH: f64 = 30.0;
+
+impl Locus {
+    /// Inside its chromosome type (specification 2.1, 2.2).
+    const fn in_range(&self) -> bool {
+        let (segments, slots) = match self.chromosome {
+            Chromosome::Autosome => (AUTOSOME_SEGMENTS, AUTOSOME_SLOTS),
+            Chromosome::X => (1, X_SLOTS),
+            Chromosome::Y => (1, Y_SLOTS),
+            Chromosome::Mt => (1, MT_SLOTS),
+        };
+        self.segment < segments && self.slot < slots
+    }
+
+    /// The marks of B9: a disease locus mutates only to the alternative allele (3.3), a
+    /// mendelian locus is marked large or disease.
+    const fn marked(&self) -> bool {
+        let disease_ok = !matches!(self.mark, Mark::Disease)
+            || matches!(self.mutation, MutationDirection::ToAlt);
+        let mendelian = matches!(self.action, Action::Recessive | Action::Dominant);
+        disease_ok && (!mendelian || matches!(self.mark, Mark::Large | Mark::Disease))
+    }
+
+    const fn position(&self) -> (Chromosome, u8, u8) {
+        (self.chromosome, self.segment, self.slot)
+    }
+}
+
+fn check_map(map: &GenomeMap) -> Result<(), DataError> {
+    if map.format_version != FORMAT_VERSION {
+        return Err(DataError::FormatVersion);
+    }
+    if map.map_version == 0 {
+        return Err(DataError::MapVersion);
+    }
+    let mut ids = BTreeMap::new();
+    let mut previous = None;
+    for locus in &map.loci {
+        if !locus.in_range() {
+            return Err(DataError::LocusPosition);
+        }
+        if previous.is_some_and(|before| before >= locus.position()) {
+            return Err(DataError::LocusOrder);
+        }
+        previous = Some(locus.position());
+        if ids.insert(locus.id.clone(), ()).is_some() {
+            return Err(DataError::LocusId);
+        }
+        if !locus.marked() {
+            return Err(DataError::LocusMark);
+        }
+    }
+    Ok(())
+}
+
+/// The calibration values the core reads, with their units; nothing else is allowed.
+fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataError> {
+    if calibration.format_version != FORMAT_VERSION {
+        return Err(DataError::FormatVersion);
+    }
+    let value = |key, unit, limit: f64| -> Result<f64, DataError> {
+        let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
+        let entry = calibration
+            .values
+            .get(&id)
+            .ok_or(DataError::CalibrationMissing)?;
+        if entry.unit != unit {
+            return Err(DataError::CalibrationUnit);
+        }
+        let x = entry.value.get();
+        if !(x > 0.0 && x <= limit) {
+            return Err(DataError::CalibrationRange);
+        }
+        Ok(x)
+    };
+    let genetics = Genetics {
+        map_length_autosome_female: Morgans(value(
+            "core:map_length_autosome_female",
+            Unit::Morgan,
+            MAX_MAP_LENGTH,
+        )?),
+        map_length_autosome_male: Morgans(value(
+            "core:map_length_autosome_male",
+            Unit::Morgan,
+            MAX_MAP_LENGTH,
+        )?),
+        map_length_x_female: Morgans(value(
+            "core:map_length_x_female",
+            Unit::Morgan,
+            MAX_MAP_LENGTH,
+        )?),
+        mutation_rate: PerTransmission(value("core:mutation_rate", Unit::PerTransmission, 1.0)?),
+        mutation_rate_disease: PerTransmission(value(
+            "core:mutation_rate_disease",
+            Unit::PerTransmission,
+            1.0,
+        )?),
+    };
+    if calibration.values.len() != 5 {
+        return Err(DataError::CalibrationUnknown);
+    }
+    Ok(genetics)
+}
+
+fn encode<T: Serialize>(value: &T) -> Vec<u8> {
+    postcard::to_allocvec(value).unwrap_or_else(|_| panic!("invariant data.encode"))
+}
+
 impl Data {
     /// Checks the definitions and computes their data hash (ADR-0007).
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
-        let genetics = Genetics {
-            map_length_autosome_female: Morgans(0.0),
-            map_length_autosome_male: Morgans(0.0),
-            map_length_x_female: Morgans(0.0),
-            mutation_rate: PerTransmission(0.0),
-            mutation_rate_disease: PerTransmission(0.0),
-        };
+        let genetics = read_genetics(&definitions.calibration)?;
+        check_map(&definitions.genome_map)?;
+        // In the order of the data IDs: core:calibration_genetics, core:genome_map.
+        let mut hasher = StableHasher::new();
+        hasher.update(&encode(&definitions.calibration));
+        hasher.update(&encode(&definitions.genome_map));
         Ok(Data {
             definitions,
             genetics,
-            hash: 0,
+            hash: hasher.digest(),
         })
     }
 
