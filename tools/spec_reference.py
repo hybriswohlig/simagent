@@ -649,6 +649,122 @@ def section_7():
     mp.mp.dps = saved
 
 
+# ---------------------------------------------------------------------------------------
+# Section 8: criteria catalog (C6). Every statistical criterion uses the tolerance
+# Z_TOL standard errors of its estimator under the specified model; the false alarm rate
+# is two-sided normal, the power is the chance to leave the tolerance under a named wrong
+# model. Normal approximations throughout (n is large).
+
+Z_TOL = mp.mpf(4)
+
+
+def two_sided_false_alarm():
+    return 2 * mp.ncdf(-Z_TOL)
+
+
+def power(center, tol, alt, se_alt):
+    """P(|estimate - center| > tol) when the estimate is N(alt, se_alt^2)."""
+    return mp.ncdf((center - tol - alt) / se_alt) + 1 - mp.ncdf((center + tol - alt) / se_alt)
+
+
+def proportion(p0, n, p_alt):
+    se0 = mp.sqrt(p0 * (1 - p0) / n)
+    tol = Z_TOL * se0
+    return tol, power(p0, tol, p_alt, mp.sqrt(p_alt * (1 - p_alt) / n))
+
+
+def slope(b0, var_x, n, b_alt):
+    """Least-squares slope of y on x with Var(y) = 1 in the model."""
+    se = lambda b: mp.sqrt((1 - b * b * var_x) / (n * var_x))
+    tol = Z_TOL * se(b0)
+    return tol, power(b0, tol, b_alt, se(b_alt))
+
+
+def correlation(rho0, n, rho_alt):
+    """On Fisher's z scale: SE 1 / sqrt(n - 3); tolerance reported on that scale."""
+    se = 1 / mp.sqrt(n - 3)
+    tol = Z_TOL * se
+    return tol, power(mp.atanh(rho0), tol, mp.atanh(rho_alt), se)
+
+
+def log_variance(n, ratio_alt):
+    """ln of the sample variance: SE sqrt(2 / (n - 1)) for normal data."""
+    se = mp.sqrt(mp.mpf(2) / (n - 1))
+    tol = Z_TOL * se
+    return tol, power(0, tol, mp.log(ratio_alt), se)
+
+
+def section_8():
+    put("W8.1a", two_sided_false_alarm(), ("sig", 2))
+    # P2: two carriers, 2000 children, wrong model: one quarter becomes one third.
+    tol, pw = proportion(mp.mpf(1) / 4, 2000, mp.mpf(1) / 3)
+    put("W8.2a", tol, ("fix", 4))
+    put("W8.2b", pw, ("fix", 4))
+    # P3: offspring on midparent, 2000 families, Var(MP) = (1 + r) / 2 with r = 0.2;
+    # wrong model: no regression to the mean (slope 1).
+    tol, pw = slope(mp.mpf("0.8"), mp.mpf("0.6"), 2000, mp.mpf(1))
+    put("W8.3a", tol, ("fix", 4))
+    put("W8.3b", pw, ("fix", 4))
+    # P4: variance of adult z per birth decade, 500 per decade; wrong model: segregation
+    # variance missing, after one generation 0.2 + 0.8 * 0.5 = 0.6 of the variance.
+    tol, pw = log_variance(500, mp.mpf("0.6"))
+    put("W8.4a", tol, ("fix", 4))
+    put("W8.4b", mp.e ** tol, ("fix", 3))
+    put("W8.4c", mp.e ** -tol, ("fix", 3))
+    put("W8.4d", pw, ("fix", 4))
+    # P5: full sibs, 1000 pairs (one pair per family), rho 0.514; wrong model: half the
+    # sibling resemblance (0.257). Strangers: 1000 pairs, rho 0.
+    tol, pw = correlation(mp.mpf("0.514"), 1000, mp.mpf("0.257"))
+    put("W8.5a", tol, ("fix", 4))
+    put("W8.5b", pw, ("fix", 4))
+    # P7: spouses, 1000 couples, cognition 0.4; wrong model: 0.2 (rule 10 of the tests).
+    tol, pw = correlation(mp.mpf("0.4"), 1000, mp.mpf("0.2"))
+    put("W8.7a", tol, ("fix", 4))
+    put("W8.7b", pw, ("fix", 4))
+    tol, pw = correlation(mp.mpf("0.2"), 1000, mp.mpf("0"))
+    put("W8.7c", tol, ("fix", 4))
+    put("W8.7d", pw, ("fix", 4))
+    # P9: red hair, recessive locus with q = 0.15: share of red children with two non-red
+    # parents p^2 under Hardy-Weinberg and random mating on this locus.
+    q = mp.mpf("0.15")
+    put("W8.9a", q * q, ("fix", 4))
+    put("W8.9b", (1 - q) ** 2, ("fix", 4))
+    tol, pw = proportion((1 - q) ** 2, 400, mp.mpf("0.5"))
+    put("W8.9c", tol, ("fix", 4))
+    put("W8.9d", pw, ("fix", 4))
+    # P9: parent and child, polygenic pigment with h2 0.8 and no assortment: rho 0.4;
+    # 1000 pairs (one child per family and one parent at random); wrong model: 0.2.
+    tol, pw = correlation(mp.mpf("0.4"), 1000, mp.mpf("0.2"))
+    put("W8.9e", pw, ("fix", 4))
+    # P15: sons of carrier mothers (X recessive), 1000 sons; wrong model: one quarter.
+    tol, pw = proportion(mp.mpf(1) / 2, 1000, mp.mpf(1) / 4)
+    put("W8.15a", tol, ("fix", 4))
+    put("W8.15b", pw, ("fix", 4))
+    # P16: lifespan on g_L, 20000 births per sex, correlation sqrt(0.2); wrong model: the
+    # genetic factor read with half its sigma (h2 about a quarter): correlation 0.233.
+    tol, pw = correlation(mp.sqrt(mp.mpf("0.2")), 20000, mp.mpf("0.233"))
+    put("W8.16a", mp.sqrt(mp.mpf("0.2")), ("fix", 4))
+    put("W8.16b", tol, ("fix", 4))
+    put("W8.16c", pw, ("fix", 4))
+    # P12: recombination between two loci 0.5 M apart in mothers, 5000 meioses; wrong
+    # model: free recombination (0.5).
+    tol, pw = proportion(haldane(mp.mpf("0.5")), 5000, mp.mpf("0.5"))
+    put("W8.12a", tol, ("fix", 4))
+    put("W8.12b", pw, ("fix", 4))
+    # P13: new mutations in 20000 meioses with Lambda 0.0075: Poisson count; wrong model:
+    # half the rate.
+    lam = mp.mpf("0.0075") * 20000
+    tol = Z_TOL * mp.sqrt(lam)
+    put("W8.13a", lam, ("fix", 0))
+    put("W8.13b", tol, ("fix", 1))
+    put("W8.13c", power(lam, tol, lam / 2, mp.sqrt(lam / 2)), ("fix", 4))
+    # P14: survival to 80 among 20000 births per sex, women model 0.660; wrong model:
+    # the genetic factor missing raises it (no frailty) by several points; take 0.70.
+    tol, pw = proportion(mp.mpf("0.660"), 20000, mp.mpf("0.70"))
+    put("W8.14a", tol, ("fix", 4))
+    put("W8.14b", pw, ("fix", 4))
+
+
 def check(path):
     text = open(path, encoding="utf-8").read()
     found = re.findall(r"(-?\d[\d,/e-]*) \[([WK]\d+\.\d+[a-z])\]", text)
@@ -683,6 +799,7 @@ def main(argv):
     section_4()
     section_5()
     section_6()
+    section_8()
     if "--fast" not in argv:
         section_7()
     args = [a for a in argv[1:] if a != "--fast"]
