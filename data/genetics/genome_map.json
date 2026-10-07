@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "map_version": 1,
+  "loci": [
+    {
+      "id": "core:dummy",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "The mendelian locus of the walking skeleton (step 5); the hereditary diseases of step 9 replace it."
+    }
+  ]
+}
