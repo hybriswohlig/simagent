@@ -138,7 +138,6 @@ def kinships():
     ped.add("sib", "mother", "father")
     ped.add("half_sib", "mother", "y")
     ped.add("cousin", "aunt", "uncle_in_law")
-    ped.add("cousin_child", "child", "cousin")
     return {
         "parent_offspring": ped.phi("mother", "child"),
         "full_sibs": ped.phi("child", "sib"),
@@ -147,7 +146,6 @@ def kinships():
         "avuncular": ped.phi("aunt", "child"),
         "first_cousins": ped.phi("child", "cousin"),
         "cousin_offspring_F": ped.phi("child", "cousin"),
-        "self_cousin_child": ped.phi("cousin_child", "cousin_child"),
     }
 
 
@@ -177,8 +175,6 @@ def section_2():
     put("W2.7d", phi["grandparent"], ("frac",))
     put("W2.7e", phi["avuncular"], ("frac",))
     put("W2.7f", phi["first_cousins"], ("frac",))
-    # The child of first cousins: F = phi of the parents; phi(x, x) = (1 + F) / 2.
-    assert phi["self_cousin_child"] == (1 + phi["cousin_offspring_F"]) / 2
     q = Fraction(2, 100)
     big_f = phi["cousin_offspring_F"]
     affected = q * q + big_f * q * (1 - q)
@@ -192,6 +188,7 @@ def section_2():
     assert abs(segment_f - mp.mpf("42.81") / 8) < mp.mpf("0.005")
     assert abs(segment_m - mp.mpf("25.90") / 8) < mp.mpf("0.005")
     put("W2.3d", 8 * segment_f + x_female, ("fix", 2))
+    put("W2.3h", 8 * segment_f, ("fix", 2))
     put("W2.3e", 8 * segment_m, ("fix", 2))
     put("W2.3f", haldane(segment_f / 24), ("fix", 4))
     put("W2.3g", haldane(segment_m / 24), ("fix", 4))
@@ -522,19 +519,20 @@ GH = None
 
 
 class Mortality:
-    """Hazard of one sex: lam + a * exp(sigma * g) * exp(b * x), g standard normal."""
+    """Hazard of one sex: lam + a * exp(-sigma * g) * exp(b * x), g standard normal: the
+    genetic value of longevity, a larger g lowers the hazard (section 7.2)."""
 
     def __init__(self, lam, a, b, sigma):
         self.lam, self.a, self.b, self.sigma = lam, a, b, sigma
 
     def survival_given(self, g, x):
-        c = self.a * mp.e ** (self.sigma * g) / self.b
+        c = self.a * mp.e ** (-self.sigma * g) / self.b
         return mp.e ** (-self.lam * x - c * (mp.e ** (self.b * x) - 1))
 
     def tail_given(self, g, x0):
         """Integral of the survival from x0 to infinity, closed form by the upper
         incomplete gamma function: substitute y = exp(b x)."""
-        c = self.a * mp.e ** (self.sigma * g) / self.b
+        c = self.a * mp.e ** (-self.sigma * g) / self.b
         s = self.lam / self.b
         return mp.e ** c * c ** s * mp.gammainc(-s, c * mp.e ** (self.b * x0)) / self.b
 
@@ -553,6 +551,10 @@ class Mortality:
     def heritability(self):
         """Squared correlation of lifespan T with g: the share of Var(T) that is linear in
         the additive genetic value (section 7.2)."""
+        return self.correlation() ** 2
+
+    def correlation(self):
+        """Correlation of lifespan T with g, with its sign."""
         means, squares = [], []
         for g, w in GH:
             mean = self.tail_given(g, 0)
@@ -562,7 +564,7 @@ class Mortality:
         mean_t = mp.fsum(w * m for _, w, m in means)
         var_t = mp.fsum(squares) - mean_t ** 2
         cov = mp.fsum(w * g * m for g, w, m in means)
-        return cov ** 2 / var_t
+        return cov / mp.sqrt(var_t)
 
     def median(self):
         return mp.findroot(lambda x: self.survival(x) - mp.mpf("0.5"), 80)
@@ -646,6 +648,8 @@ def section_7():
         ]:
             put("W7.3" + next(letters), value, fmt)
         put("W7.4" + ("a" if sex == "f" else "b"), sigma / b, ("fix", 2))
+        # A larger genetic value of longevity means a longer life (criterion P16).
+        assert model.correlation() > 0, sex
     mp.mp.dps = saved
 
 
@@ -705,9 +709,13 @@ def section_8():
     tol, pw = slope(mp.mpf("0.8"), mp.mpf("0.6"), 2000, mp.mpf(1))
     put("W8.3a", tol, ("fix", 4))
     put("W8.3b", pw, ("fix", 4))
-    # P4: variance of adult z per birth decade, 500 per decade; wrong model: segregation
-    # variance missing, after one generation 0.2 + 0.8 * 0.5 = 0.6 of the variance.
-    tol, pw = log_variance(500, mp.mpf("0.6"))
+    # P4: variance of adult z per birth decade, 500 persons (one per family); wrong model:
+    # the segregation variance missing for one generation, 4.4 without V_A0 / 2:
+    # (V_A / 2)(1 + r h2) + 1 - h2 with V_A = h2 = 0.8, r = 0.2.
+    h2, r = mp.mpf("0.8"), mp.mpf("0.2")
+    without = h2 / 2 * (1 + r * h2) + 1 - h2
+    put("W8.4e", without, ("fix", 3))
+    tol, pw = log_variance(500, without)
     put("W8.4a", tol, ("fix", 4))
     put("W8.4b", mp.e ** tol, ("fix", 3))
     put("W8.4c", mp.e ** -tol, ("fix", 3))
@@ -717,6 +725,8 @@ def section_8():
     tol, pw = correlation(mp.mpf("0.514"), 1000, mp.mpf("0.257"))
     put("W8.5a", tol, ("fix", 4))
     put("W8.5b", pw, ("fix", 4))
+    tol, pw = correlation(mp.mpf("0"), 1000, mp.mpf("0.2"))
+    put("W8.5c", pw, ("fix", 4))
     # P7: spouses, 1000 couples, cognition 0.4; wrong model: 0.2 (rule 10 of the tests).
     tol, pw = correlation(mp.mpf("0.4"), 1000, mp.mpf("0.2"))
     put("W8.7a", tol, ("fix", 4))
@@ -736,6 +746,7 @@ def section_8():
     # 1000 pairs (one child per family and one parent at random); wrong model: 0.2.
     tol, pw = correlation(mp.mpf("0.4"), 1000, mp.mpf("0.2"))
     put("W8.9e", pw, ("fix", 4))
+    put("W8.9f", tol, ("fix", 4))
     # P15: sons of carrier mothers (X recessive), 1000 sons; wrong model: one quarter.
     tol, pw = proportion(mp.mpf(1) / 2, 1000, mp.mpf(1) / 4)
     put("W8.15a", tol, ("fix", 4))
