@@ -164,7 +164,7 @@ fn conceive(
     let child = LineageKey::child(her.lineage_key, his_key, u64::from(number), 0);
     let genome = GenomeKey::of_zygote(child);
     let draws = Draws::new(WorldSeed::new(seed));
-    let zygote = Zygote::of(&draws, &data.genetics(), genome, &her.genome, &his_genome);
+    let zygote = Zygote::of(&draws, data, genome, &her.genome, &his_genome);
     domain.lineage.insert(child);
     let conception = ctx.emit(
         LogPayload::Conception { lineage_key: child },
@@ -181,6 +181,7 @@ fn conceive(
                 genome_key: genome,
                 segments: meiosis.segments.clone(),
                 sex_chromosome: meiosis.sex_chromosome,
+                mutations: meiosis.mutations.clone(),
             },
             vec![Subject::Sim(parent)],
             Causes::new(Cause::Event(conception)).with(Cause::Rule(rule.clone())),

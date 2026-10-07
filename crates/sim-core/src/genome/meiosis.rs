@@ -9,8 +9,12 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use sim_math::dist;
 
-use super::{Autosomes, Genome, PaternalSex, SexChromosome, Strand, XChromosome};
-use crate::data::{AUTOSOME_SEGMENTS, AUTOSOME_SLOTS, Genetics, Morgans, X_SLOTS};
+use super::{Autosomes, Genome, Mitochondria, PaternalSex, SexChromosome, Strand, XChromosome};
+use crate::data::{
+    AUTOSOME_SEGMENTS, AUTOSOME_SLOTS, Chromosome, Data, Genetics, Locus, Mark, Morgans,
+    MutationDirection, X_SLOTS,
+};
+use crate::data_id::DataId;
 use crate::finite::FiniteF64;
 use crate::lineage::GenomeKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, tags};
@@ -32,12 +36,23 @@ pub struct SegmentMeiosis {
     pub crossovers: Vec<FiniteF64>,
 }
 
+/// A new mutation of a meiosis (ADR-0004 section 7): the locus, the old and the new
+/// allele.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mutation {
+    pub locus: DataId,
+    pub old: u8,
+    pub new: u8,
+}
+
 /// What a meiosis of one parent did: the segments in order (autosomes 0 to 7, then the
-/// mother's X) and the sex chromosome passed on.
+/// mother's X), the sex chromosome passed on and the new mutations in their order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Meiosis {
     pub segments: Vec<SegmentMeiosis>,
     pub sex_chromosome: SexChromosome,
+    pub mutations: Vec<Mutation>,
 }
 
 /// A zygote: the genome of the child and the meioses of mother and father.
@@ -76,6 +91,140 @@ pub fn crossover_position_key(genome: GenomeKey, side: u64, segment: u8, j: u32)
 /// The address of the sex chromosome the father passes on.
 pub fn sex_key(genome: GenomeKey) -> DrawKey {
     key(tags::SEX_CHROMOSOME, genome, FATHER, 0)
+}
+
+/// The address of part `part` of the number of new mutations of a side (specification
+/// 2.4: one part while the total rate is at most 30, the largest mean of `poisson`).
+pub fn mutation_count_key(genome: GenomeKey, side: u64, part: u64) -> DrawKey {
+    key(tags::MUTATION_COUNT, genome, side, part)
+}
+
+/// The address of the site of new mutation `j` of a side.
+pub fn mutation_site_key(genome: GenomeKey, side: u64, j: u32) -> DrawKey {
+    key(tags::MUTATION_SITE, genome, side, u64::from(j))
+}
+
+/// The largest mean of `poisson` (ADR-0001 section 3).
+const MAX_POISSON_MEAN: f64 = 30.0;
+
+/// What one side passes on: the autosomes, the sex chromosome and, from the mother, the
+/// mitochondria.
+struct Gamete {
+    autosomes: Autosomes,
+    sex: PaternalSex,
+    mt: Option<Mitochondria>,
+}
+
+impl Gamete {
+    /// The allele the gamete carries at `locus`, `None` if it has no copy there.
+    fn allele(&self, locus: &Locus) -> Option<u8> {
+        match (locus.chromosome, self.sex, self.mt) {
+            (Chromosome::Autosome, _, _) => Some(self.autosomes.allele(locus.segment, locus.slot)),
+            (Chromosome::X, PaternalSex::X(x), _) => Some(x.allele(locus.slot)),
+            (Chromosome::Y, PaternalSex::Y(y), _) => Some(y.allele(locus.slot)),
+            (Chromosome::Mt, _, Some(mt)) => Some(mt.allele(locus.slot)),
+            _ => None,
+        }
+    }
+
+    fn set(&mut self, locus: &Locus, allele: u8) {
+        match (locus.chromosome, &mut self.sex, &mut self.mt) {
+            (Chromosome::Autosome, _, _) => self.autosomes.set(locus.segment, locus.slot, allele),
+            (Chromosome::X, PaternalSex::X(x), _) => x.set(locus.slot, allele),
+            (Chromosome::Y, PaternalSex::Y(y), _) => y.set(locus.slot, allele),
+            (Chromosome::Mt, _, Some(mt)) => mt.set(locus.slot, allele),
+            _ => panic!("invariant meiosis.mutation_locus"),
+        }
+    }
+}
+
+/// The rate of a locus per transmission: the disease rate for a disease locus, else the
+/// standard rate (specification 2.4).
+fn rate(genetics: &Genetics, locus: &Locus) -> f64 {
+    if locus.mark == Mark::Disease {
+        genetics.mutation_rate_disease.0
+    } else {
+        genetics.mutation_rate.0
+    }
+}
+
+/// The rates of `loci` added left to right.
+fn total(genetics: &Genetics, loci: &[&Locus]) -> f64 {
+    loci.iter()
+        .fold(0.0, |sum, locus| sum + rate(genetics, locus))
+}
+
+/// The new mutations of one side (specification 2.4): the eligible loci of the gamete in
+/// map order, a Poisson number of them, each chosen by its rate among those not chosen
+/// yet. Changes the gamete and returns the mutations in their order.
+fn mutate(
+    draws: &Draws,
+    data: &Data,
+    genome: GenomeKey,
+    side: u64,
+    gamete: &mut Gamete,
+) -> Vec<Mutation> {
+    let genetics = data.genetics();
+    let mut eligible: Vec<&Locus> = data
+        .genome_map()
+        .loci
+        .iter()
+        .filter(|locus| {
+            gamete
+                .allele(locus)
+                .is_some_and(|allele| match locus.mutation {
+                    MutationDirection::Both => true,
+                    MutationDirection::ToAlt => allele == 0,
+                    MutationDirection::ToRef => allele == 1,
+                })
+        })
+        .collect();
+    // The count, in parts of at most the largest mean of `poisson`.
+    let mut rest = total(&genetics, &eligible);
+    let mut count = 0_u32;
+    let mut part = 0;
+    loop {
+        let mean = rest.min(MAX_POISSON_MEAN);
+        count = count
+            .checked_add(draws.poisson(mutation_count_key(genome, side, part), mean))
+            .unwrap_or_else(|| panic!("invariant meiosis.mutation_count"));
+        rest -= mean;
+        if rest <= 0.0 {
+            break;
+        }
+        part += 1;
+    }
+    let mut mutations = Vec::new();
+    for j in 0..count {
+        if eligible.is_empty() {
+            break;
+        }
+        let [word] = draws.words::<1>(mutation_site_key(genome, side, j));
+        let threshold = dist::unit(word) * total(&genetics, &eligible);
+        // The first locus at which the running sum exceeds the threshold; the last one
+        // if rounding leaves the threshold at the total.
+        let mut running = 0.0;
+        let mut index = eligible.len() - 1;
+        for (position, locus) in eligible.iter().enumerate() {
+            running += rate(&genetics, locus);
+            if running > threshold {
+                index = position;
+                break;
+            }
+        }
+        let locus = eligible.remove(index);
+        let old = gamete
+            .allele(locus)
+            .unwrap_or_else(|| panic!("invariant meiosis.mutation_locus"));
+        let new = 1 - old;
+        gamete.set(locus, new);
+        mutations.push(Mutation {
+            locus: locus.id.clone(),
+            old,
+            new,
+        });
+    }
+    mutations
 }
 
 /// One segment of `slots` slots and map length `length`: its record and, per slot,
@@ -147,11 +296,12 @@ impl Zygote {
     /// female and the father male; anything else is an invariant break.
     pub fn of(
         seed: &Draws,
-        genetics: &Genetics,
+        data: &Data,
         genome: GenomeKey,
         mother: &Genome,
         father: &Genome,
     ) -> Zygote {
+        let genetics = data.genetics();
         let PaternalSex::X(her_paternal_x) = mother.paternal_sex else {
             panic!("invariant meiosis.mother_sex");
         };
@@ -194,21 +344,38 @@ impl Zygote {
             0 => (PaternalSex::X(father.maternal_x), SexChromosome::X),
             _ => (PaternalSex::Y(his_y), SexChromosome::Y),
         };
+        let mut hers = Gamete {
+            autosomes: maternal,
+            sex: PaternalSex::X(maternal_x),
+            mt: Some(mother.mt),
+        };
+        let her_mutations = mutate(seed, data, genome, MOTHER, &mut hers);
+        let mut his = Gamete {
+            autosomes: paternal,
+            sex: paternal_sex,
+            mt: None,
+        };
+        let his_mutations = mutate(seed, data, genome, FATHER, &mut his);
+        let (PaternalSex::X(maternal_x), Some(mt)) = (hers.sex, hers.mt) else {
+            panic!("invariant meiosis.mother_gamete");
+        };
         Zygote {
             genome: Genome {
-                maternal,
-                paternal,
+                maternal: hers.autosomes,
+                paternal: his.autosomes,
                 maternal_x,
-                paternal_sex,
-                mt: mother.mt,
+                paternal_sex: his.sex,
+                mt,
             },
             mother: Meiosis {
                 segments: her_segments,
                 sex_chromosome: SexChromosome::X,
+                mutations: her_mutations,
             },
             father: Meiosis {
                 segments: his_segments,
                 sex_chromosome,
+                mutations: his_mutations,
             },
         }
     }

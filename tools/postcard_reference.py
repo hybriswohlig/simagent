@@ -149,6 +149,11 @@ def pregnancy(father: int, key: int, conception: int, sex: bytes, genes: tuple, 
     return varint(father) + varint(key) + varint(conception) + sex + genome(sex, genes) + signed(conceived)
 
 
+def mutation(locus: str, old: int, new: int) -> bytes:
+    """Mutation { locus: DataId, old: u8, new: u8 }"""
+    return string(locus) + bytes([old, new])
+
+
 def segment_meiosis(segment: int, strand: bytes, crossovers: list) -> bytes:
     """SegmentMeiosis { segment: u8, start_strand: Strand, crossovers: Vec<FiniteF64> }"""
     return bytes([segment]) + strand + seq([f64(c) for c in crossovers])
@@ -179,13 +184,15 @@ SAMPLE_ARRANGE = variant(2, varint(1), varint(2))
 SAMPLE_PARTNERED_PAYLOAD = variant(5, varint(1))
 
 # LogPayload::Conception (variant 6) { lineage_key } and Meiosis (variant 7) { genome_key,
-# segments: Vec<SegmentMeiosis>, sex_chromosome }: the keys are plain u64.
+# segments: Vec<SegmentMeiosis>, sex_chromosome, mutations: Vec<Mutation> }: the keys are
+# plain u64.
 SAMPLE_CONCEPTION_PAYLOAD = variant(6, varint(0x0123456789ABCDEF))
 SAMPLE_MEIOSIS_PAYLOAD = variant(
     7,
     varint(0x0123456789ABCDEF),
     seq([segment_meiosis(0, PATERNAL, [0.25, 0.75]), segment_meiosis(8, MATERNAL, [])]),
     Y_CHROMOSOME,
+    seq([mutation("core:dummy", 0, 1)]),
 )
 
 # Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.

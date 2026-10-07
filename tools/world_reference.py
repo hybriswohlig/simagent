@@ -87,6 +87,7 @@ from postcard_reference import (
     lineage_key,
     param_change,
     partnership,
+    mutation,
     pregnancy,
     segment_meiosis,
     seq,
@@ -111,6 +112,32 @@ import meiosis_reference
 
 # The map lengths of data/calibration/genetics.json.
 MAP_LENGTHS = meiosis_reference.load_map_lengths()
+
+
+def _definitions():
+    """The genome map of data/genetics/genome_map.json in the form of the meiosis
+    reference, and the mutation rates of data/calibration/genetics.json."""
+    import json
+
+    root = Path(__file__).resolve().parent.parent / "data"
+    loci = json.loads((root / "genetics" / "genome_map.json").read_text())["loci"]
+    values = json.loads((root / "calibration" / "genetics.json").read_text())["values"]
+    genome_map = [
+        {
+            "id": locus["id"],
+            "chromosome": locus["chromosome"],
+            "segment": locus["segment"] if locus["chromosome"] == "autosome" else (8 if locus["chromosome"] == "x" else 0),
+            "slot": locus["slot"],
+            "mark": locus["mark"],
+            "direction": locus["mutation"],
+        }
+        for locus in loci
+    ]
+    rates = {"standard": values["core:mutation_rate"]["value"], "disease": values["core:mutation_rate_disease"]["value"]}
+    return genome_map, rates
+
+
+GENOME_MAP, RATES = _definitions()
 
 
 def founder_genome(sex: bytes, genes: tuple) -> dict:
@@ -146,7 +173,7 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
 PROJECTION_VERSION = 9
-CORE_VERSION = 10
+CORE_VERSION = 11
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -291,8 +318,8 @@ class World:
         )
         # The meiosis of the independent reference (tools/meiosis_reference.py, written
         # from the genetics specification 2.3 by another model).
-        genome, records = meiosis_reference.child(
-            self.seed, child, self.genomes[woman], self.genomes[man], MAP_LENGTHS
+        genome, records = meiosis_reference.child_with_mutation(
+            self.seed, child, self.genomes[woman], self.genomes[man], MAP_LENGTHS, GENOME_MAP, RATES
         )
         for side, parent in ((0, woman), (1, man)):
             record = records["mother" if side == 0 else "father"]
@@ -303,10 +330,12 @@ class World:
                 ]
             )
             chromosome = Y_CHROMOSOME if record.get("sex_chromosome") == "y" else X
+            mutations = seq([mutation(m["locus"], m["old"], m["new"]) for m in record["mutations"]])
             # ADR-0004 section 7: the conception and the rule; the draws follow from the
             # genome key and the side.
             causes = [variant(0, varint(conception)), variant(3, string("core:meiosis"))]
-            self._entry(now, [variant(0, varint(parent))], causes, variant(7, varint(child), segments, chromosome))
+            payload = variant(7, varint(child), segments, chromosome, mutations)
+            self._entry(now, [variant(0, varint(parent))], causes, payload)
         sex = MALE if "y" in genome["paternal_sex"] else FEMALE
         genes = dummy_alleles(genome)
         self.pregnancies[woman] = (man, child, number, sex, genes, now, genome)

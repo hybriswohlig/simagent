@@ -56,7 +56,7 @@ fn genome(person: &Value) -> Genome {
 #[test]
 fn meiosis_matches_the_independent_reference() {
     let vectors: Value = serde_json::from_str(VECTORS).expect("json");
-    let genetics = common::data().genetics();
+    let data = common::data();
     let cases = vectors["cases"].as_array().expect("cases");
     assert_eq!(cases.len(), 6);
     for case in cases {
@@ -65,7 +65,7 @@ fn meiosis_matches_the_independent_reference() {
         let draws = Draws::new(WorldSeed::new(seed));
         let zygote = Zygote::of(
             &draws,
-            &genetics,
+            &data,
             key,
             &genome(&case["mother"]),
             &genome(&case["father"]),
