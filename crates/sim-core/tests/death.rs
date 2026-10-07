@@ -10,6 +10,8 @@
 //! seconds before the start. She dies of `test:base` after about 1.46 years, he of
 //! `test:old_age` after about 1.71 years.
 
+mod common;
+
 use sim_core::canonical::YearHash;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
@@ -20,7 +22,6 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{CensusRow, World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -37,9 +38,9 @@ const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
 const MORTAL_AFTER_START: &str = "0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010000000203cbdbe1f0b893cbc91e0101010100000000000000";
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010000000203cbdbe1f0b893cbc91e01010101000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a00";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010000000203cbdbe1f0b893cbc91e01010101000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a00";
 const MORTAL_AFTER_YEAR_1: &str = "0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e0101010100000000";
-const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e01010101000000000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a0200d2e9e8dabcdf88f9e60102f3b495f792b6ef9cfe01";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e01010101000000000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a0200d2e9e8dabcdf88f9e60102f3b495f792b6ef9cfe01";
 const MORTAL_LOG: [&str; 7] = [
     "0100000102010002",
     "02000100010102010101dded90d1a3f7cbf6b301",
@@ -54,8 +55,8 @@ const MORTAL_YEAR_HASHES: [u64; 2] = [0xe6f2_22fb_cb5a_34d2, 0xfe39_bdb1_2ee5_5a
 /// When she dies of `test:base` and he of `test:old_age`, in seconds.
 const HER_DEATH: i64 = 45_838_596;
 const HIS_DEATH: i64 = 53_688_989;
-const TIE_BASE_FIRST_SAVE: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000144000ded289dba5abffff54901875b14bfde23f00010000000000000000122d0afe8ffe3b020101fe97fd59000100018088ff1d06000000010101f4f5ee30008bbec9d8c5bd99888b01f0da979a8fd9f18a95010000010000000101000501010100ff0108746573743a746965000209746573743a626173650000000000001440000c746573743a6f6c645f616765901875b14bfde23f000101000001000000000000000000122d0a02009aa18391a5f99bbc1902f3cdd0ef8ef6d3e029";
-const TIE_OLD_AGE_FIRST_SAVE: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff01010002ded289dba5abffff54901875b14bfde23f008bbec9d8c5bd99888b01000000000000144000010000000000000000122d0afe8ffe3b020101fe97fd59000100018088ff1d06000000010101f4f5ee3000ded289dba5abffff54f0da979a8fd9f18a95010000010000000101000501010100ff0108746573743a74696500020c746573743a6f6c645f616765901875b14bfde23f0009746573743a626173650000000000001440000101000001000000000000000000122d0a0200d8cfa4eafebdcdd77a02b8a8fbcb95e4ae8cc501";
+const TIE_BASE_FIRST_SAVE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000144000ded289dba5abffff54901875b14bfde23f00010000000000000000122d0afe8ffe3b020101fe97fd59000100018088ff1d06000000010101f4f5ee30008bbec9d8c5bd99888b01f0da979a8fd9f18a95010000010000000101000501010100ff0108746573743a746965000209746573743a626173650000000000001440000c746573743a6f6c645f616765901875b14bfde23f000101000001000000000000000000122d0a02009aa18391a5f99bbc1902f3cdd0ef8ef6d3e029";
+const TIE_OLD_AGE_FIRST_SAVE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff01010002ded289dba5abffff54901875b14bfde23f008bbec9d8c5bd99888b01000000000000144000010000000000000000122d0afe8ffe3b020101fe97fd59000100018088ff1d06000000010101f4f5ee3000ded289dba5abffff54f0da979a8fd9f18a95010000010000000101000501010100ff0108746573743a74696500020c746573743a6f6c645f616765901875b14bfde23f0009746573743a626173650000000000001440000101000001000000000000000000122d0a0200d8cfa4eafebdcdd77a02b8a8fbcb95e4ae8cc501";
 /// The hazard of `test:old_age` for which both causes of "tie" are due in one second.
 const TIE_OLD_AGE_PER_YEAR: f64 = 0.593_419_882_389_541_8;
 
@@ -115,7 +116,7 @@ fn mortal_causes() -> Vec<DeathCause> {
 }
 
 fn mortal() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(
             "test:mortal",
@@ -240,7 +241,7 @@ fn the_death_of_one_sim_leaves_the_others_alone() {
 /// birthday is ever written.
 #[test]
 fn a_death_before_the_first_birthday_cancels_it() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let causes = vec![cause("test:base", 5.0), cause("test:old_age", 0.05)];
     world
         .submit(start("test:mortal", causes, vec![woman(-1), man(-2)]))
@@ -300,7 +301,7 @@ fn save_load_continue_across_the_deaths() {
     ] {
         let part = run(mortal(), stop);
         let bytes = part.world.save(&part.out.year_hashes).expect("saves");
-        let (mut loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (mut loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut out = YearOut {
             census: part.out.census.clone(),
@@ -331,7 +332,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
             TIE_OLD_AGE_FIRST_SAVE,
         ),
     ] {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         world
             .submit(start("test:tie", causes, vec![woman(-1)]))
             .expect("accepted");
@@ -356,7 +357,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
     let base = postcard::to_allocvec(&0x8b10_65ec_5b12_5f0b_u64).expect("encodes");
     let old_age = postcard::to_allocvec(&0x54ff_fd5a_5b62_695e_u64).expect("encodes");
     let bytes = hex(TIE_BASE_FIRST_SAVE);
-    assert!(World::load(&bytes, EMPTY_DATA_HASH).is_ok());
+    assert!(World::load(&bytes, common::data()).is_ok());
     let at: Vec<usize> = (0..bytes.len())
         .filter(|&i| bytes[i..].starts_with(&base))
         .collect();
@@ -365,7 +366,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
     changed.extend(&old_age);
     changed.extend(&bytes[at[1] + base.len()..]);
     assert_eq!(
-        World::load(&changed, EMPTY_DATA_HASH).err(),
+        World::load(&changed, common::data()).err(),
         Some(sim_core::world::LoadError::Inconsistent)
     );
 }
@@ -374,7 +375,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
 /// no event is planned, and the sim has its birthdays.
 #[test]
 fn a_death_that_is_never_due_is_not_planned() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(
             "test:mortal",
@@ -397,7 +398,7 @@ fn a_death_that_is_never_due_is_not_planned() {
 #[test]
 fn a_start_with_bad_causes_of_death_is_rejected() {
     let rejected = |causes: Vec<DeathCause>| {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let before = world.state_hash();
         let result = world.submit(start("test:mortal", causes, vec![woman(-1)]));
         if result.is_err() {

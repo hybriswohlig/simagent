@@ -62,8 +62,11 @@ Usage: .venv/bin/python tools/world_reference.py (prints nothing; the other tool
 """
 
 import math
+from pathlib import Path
 
 import xxhash
+
+import data_reference
 
 from postcard_reference import (
     DUMMY,
@@ -111,12 +114,13 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
 PROJECTION_VERSION = 8
-CORE_VERSION = 8
+CORE_VERSION = 9
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
 FORMAT_VERSION = 1
-EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
+# The data hash of the definitions under data/ (ADR-0007), from their own reference.
+DATA_HASH = data_reference.data_hash(Path(__file__).resolve().parent.parent / "data")
 
 NONE = b"\x00"
 
@@ -502,7 +506,7 @@ class World:
         plans = [varint(event.plan[0]) + signed(event.plan[1]) for event in self.ordered_queue()]
         years = [signed(year) + varint(value) for year, value in enumerate(self.year_hashes)]
         return (
-            header(EMPTY_DATA_HASH)
+            header(DATA_HASH)
             + self.projection()
             + seq(plans)
             + varint(self.next_event_id)
@@ -541,4 +545,4 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
 )
-EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
+EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])

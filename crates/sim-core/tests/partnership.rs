@@ -12,6 +12,8 @@
 //! 0.8 years; at the start of year 1 she is paired with the second man, who dies after
 //! about 4.66 years, she after about 4.88.
 
+mod common;
+
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -23,7 +25,6 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -39,11 +40,11 @@ fn barren() -> Fertility {
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const PARTNERS_SAVE_AFTER_START: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a0104020beab58218000602028bbec9d8c5bd99888b0100fa87ff1d0008010300fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1dfec9806e00070202ded289dba5abffff5400bca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000b03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000c030101aa90d4c3eeedd09bdb010000010000000203f098dcaaccecf99cb00101010101000000000305a7f3f8fdb9ee88cfed0101010000000001010102000000000b030004000300020001000300040002000200050004000601010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0a00";
+const PARTNERS_SAVE_AFTER_START: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a0104020beab58218000602028bbec9d8c5bd99888b0100fa87ff1d0008010300fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1dfec9806e00070202ded289dba5abffff5400bca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000b03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000c030101aa90d4c3eeedd09bdb010000010000000203f098dcaaccecf99cb00101010101000000000305a7f3f8fdb9ee88cfed0101010000000001010102000000000b030004000300020001000300040002000200050004000601010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0a00";
 const PARTNERS_STARTED_ENTRY: &str = "050002000100020102010501";
 const PARTNERS_ARRANGED_ENTRY: &str = "098088ff1d02000100030102020502";
-const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb010000010000000305a7f3f8fdb9ee88cfed01010100000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030100e38c8fdf9988b0a39701";
-const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540108c2a9cec6d380a0832d0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb010000010000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed010101000000000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030500e38c8fdf9988b0a397010282fbbdbff5999cf8e90104cae9c892f3b0b7f3880106fbc2c894a1eaaac58a0108d5b088b7b8f1c8c2de01";
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb010000010000000305a7f3f8fdb9ee88cfed01010100000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030100e38c8fdf9988b0a39701";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb010000010000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed010101000000000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030500e38c8fdf9988b0a397010282fbbdbff5999cf8e90104cae9c892f3b0b7f3880106fbc2c894a1eaaac58a0108d5b088b7b8f1c8c2de01";
 /// When the first man dies, and when the second.
 const FIRST_MAN_DIES: i64 = 25_185_653;
 const SECOND_MAN_DIES: i64 = 146_614_366;
@@ -106,7 +107,7 @@ fn two_women_start(couples: Vec<Couple>) -> Input {
 }
 
 fn partners() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(partners_start(vec![couple(0, 1)]))
         .expect("accepted");
@@ -213,7 +214,7 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
         result.map(|InputRejected { code }| code)
     };
     assert_eq!(
-        rejected(&mut World::new(), arrange(1, 2)),
+        rejected(&mut World::new(common::data()), arrange(1, 2)),
         Some(RejectCode::NotStarted)
     );
     // At the start: she is paired with the first man.
@@ -246,7 +247,7 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
         Some(RejectCode::AlreadyPartnered)
     );
     // The man is the one in a partnership.
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(two_women_start(vec![couple(0, 1)]))
         .expect("accepted");
@@ -274,7 +275,7 @@ fn a_pairing_right_after_a_death() {
     run.advance(FIRST_MAN_DIES);
     run.submit(arrange(1, 3));
     let bytes = run.save();
-    let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+    let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
     assert_eq!(loaded.save(&years).expect("saves"), bytes);
 }
 
@@ -283,10 +284,10 @@ fn a_pairing_right_after_a_death() {
 #[test]
 fn start_couples_are_checked() {
     let code = |couples: Vec<Couple>| {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let result = world.submit(partners_start(couples)).err();
         if result.is_some() {
-            assert_eq!(world.state_hash(), World::new().state_hash());
+            assert_eq!(world.state_hash(), World::new(common::data()).state_hash());
             assert!(world.input_log().is_empty());
         }
         result.map(|InputRejected { code }| code)
@@ -312,7 +313,7 @@ fn start_couples_are_checked() {
         Some(RejectCode::AlreadyPartnered)
     );
     // A man in two couples.
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     assert_eq!(
         world
             .submit(two_women_start(vec![couple(0, 1), couple(3, 1)]))
@@ -367,7 +368,7 @@ fn save_load_continue_across_the_partnerships() {
         }
         part.advance(stop);
         let bytes = part.save();
-        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut rest = Run {
             world: loaded,

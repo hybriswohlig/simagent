@@ -45,7 +45,7 @@ import sys
 from pathlib import Path
 
 from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype
-from world_reference import CORE_VERSION, EMPTY_DATA_HASH, MONTH, YEAR, World, needed_seconds
+from world_reference import CORE_VERSION, DATA_HASH, MONTH, YEAR, World, needed_seconds
 from rng_reference import founder_key
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -121,7 +121,7 @@ def golden(world: World) -> str:
     """The text of tests/golden/<scenario>.json."""
     content = {
         "core_version": CORE_VERSION,
-        "data_hash": f"{EMPTY_DATA_HASH:016x}",
+        "data_hash": f"{DATA_HASH:016x}",
         "year_hashes": [
             {"year": year, "hash": f"{value:016x}"}
             for year, value in enumerate(world.year_hashes)

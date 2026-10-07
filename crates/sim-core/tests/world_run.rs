@@ -12,6 +12,8 @@
 //! - The year end of year k runs at (k + 1) * YEAR - 1, after sim 3's birthday in the
 //!   same second, and counts 3 living sims with 3 * YEAR lived seconds.
 
+mod common;
+
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -65,7 +67,7 @@ fn founder(secs: i64) -> Founder {
 }
 
 fn started(born: &[i64]) -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(born)).expect("accepted");
     world
 }
@@ -362,7 +364,7 @@ fn the_oldest_possible_founder_has_birthdays() {
 /// A `Start` after the clock moved is rejected; it could not plan the first year end.
 #[test]
 fn start_after_advancing_is_rejected() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let mut out = YearOut::default();
     let outcome = world.advance_until(&mut out, SimTime::START, &mut |_| false);
     assert_eq!(outcome, AdvanceOutcome::ReachedLimit);

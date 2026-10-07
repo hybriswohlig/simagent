@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":8,"data_hash":"2d06800538d394c2","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":9,"data_hash":"1bdf3636c22d0643","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":8,"data_hash":"2d06800538d394c2","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"812e417ffb3e56f8"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":9,"data_hash":"1bdf3636c22d0643","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"812e417ffb3e56f8"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540108c2a9cec6d380a0832d0801ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000010000000000000203fe87ff1d01000401010100ff0109746573743a74696e7900000101000001000000000000000000122d0a0100f8adf9d9ffaf90978101"
+        "53494d4147454e540109c38cb491ecc6cdef1b0801ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000010000000000000203fe87ff1d01000401010100ff0109746573743a74696e7900000101000001000000000000000000122d0a0100f8adf9d9ffaf90978101"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -299,7 +299,7 @@ fn a_partnership_at_a_stop_replays() {
     let start: Input =
         serde_json::from_value(serde_json::json!({"start": scenario["start"]})).expect("a start");
     let arrange: Input = serde_json::from_str(ARRANGE).expect("an input");
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     let mut hasher = LogHasher::new();
     let mut out = YearOut::default();
     world.submit(start).expect("accepted");
@@ -394,7 +394,7 @@ fn command_schema_matches_direct_call() {
     let [(start, start_line), (block, block_line)] = &commands[..2] else {
         panic!("a start and an override block");
     };
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     let mut hasher = LogHasher::new();
     let mut out = YearOut::default();
     world.submit(start.clone()).expect("accepted");
@@ -621,16 +621,16 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":8"#, r#""core_version":9"#);
+    replace_in(&log, r#""core_version":9"#, r#""core_version":10"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 9, this is 8"
+        "error: replay_foreign_core_version: the input log is of core version 10, this is 9"
     );
-    replace_in(&log, r#""core_version":9"#, r#""core_version":8"#);
-    replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
+    replace_in(&log, r#""core_version":10"#, r#""core_version":9"#);
+    replace_in(&log, "1bdf3636c22d0643", "1bdf3636c22d0644");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_data_hash: the input log has data hash 2d06800538d394c3, this is 2d06800538d394c2"
+        "error: replay_foreign_data_hash: the input log has data hash 1bdf3636c22d0644, this is 1bdf3636c22d0643"
     );
     assert!(!out.exists(), "a rejected replay writes nothing");
 }
@@ -1090,8 +1090,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 8, "the core version in the header of the save");
-    bytes[9] = 9;
+    assert_eq!(bytes[9], 9, "the core version in the header of the save");
+    bytes[9] = 10;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

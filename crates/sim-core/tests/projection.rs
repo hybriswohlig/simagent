@@ -5,6 +5,8 @@
 //! by hand, xxh3-64 from the C reference library), not from a run of this code.
 //! Scenario "tiny": seed 0xff, one founder born one second before the start.
 
+mod common;
+
 use sim_core::canonical::{YearHash, canonical_bytes};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
@@ -75,7 +77,7 @@ fn start(seed: u64, born: &[i64]) -> Input {
 }
 
 fn started(seed: u64, born: &[i64]) -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start(seed, born)).expect("accepted");
     world
 }
@@ -106,7 +108,7 @@ fn plan(by: u64, planned_at: i64) -> PlanRef {
 /// key of the place in the list.
 #[test]
 fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let dummy_twice = Genotype {
         maternal: Allele::Dummy,
         paternal: Allele::Dummy,
@@ -294,7 +296,7 @@ fn the_state_hash_follows_the_state() {
         "one more founder"
     );
     assert_ne!(base, started(1, &[-1, -5]).state_hash(), "founder order");
-    assert_ne!(base, World::new().state_hash(), "not started");
+    assert_ne!(base, World::new(common::data()).state_hash(), "not started");
     let mut advanced = started(1, &[-5, -1]);
     advanced.advance_until(&mut YearOut::default(), t(0), &mut |_| false);
     assert_ne!(base, advanced.state_hash(), "the clock");
@@ -308,7 +310,7 @@ fn rejected_input_keeps_the_state_hash() {
     let rejected = world.submit(start(9, &[-3])).expect_err("second start");
     assert_eq!(rejected.code, RejectCode::AlreadyStarted);
     assert_eq!((world.state_hash(), world.canonical_bytes()), before);
-    let mut fresh = World::new();
+    let mut fresh = World::new(common::data());
     let before = fresh.state_hash();
     fresh.submit(start(9, &[0])).expect_err("founder not born");
     assert_eq!(fresh.state_hash(), before);

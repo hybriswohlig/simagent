@@ -5,6 +5,8 @@
 //! one second (sim 3) before the start. The dummy trace of step 2 records every planned
 //! birthday: three at the start, then one per birthday.
 
+mod common;
+
 use std::collections::BTreeSet;
 
 use sim_core::data_id::DataId;
@@ -16,7 +18,6 @@ use sim_core::log::log_hash;
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
 use sim_core::trace::{TraceEntry, TraceFilter};
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -37,7 +38,7 @@ fn sim(n: u64) -> SimId {
 }
 
 fn new_world(filter: TraceFilter) -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.set_trace(filter);
     world
         .submit(Input::Start(Start {
@@ -167,7 +168,7 @@ fn a_loaded_world_traces_nothing() {
     world.take_log();
     assert_eq!(world.take_trace().len(), 3);
     let bytes = world.save(&[]).expect("saves");
-    let (mut loaded, _) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+    let (mut loaded, _) = World::load(&bytes, common::data()).expect("loads");
     let mut out = YearOut::default();
     loaded.advance_until(&mut out, SimTime::from_secs(Y), &mut |_| false);
     assert!(loaded.take_trace().is_empty());

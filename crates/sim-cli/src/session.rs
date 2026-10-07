@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use sim_core::input::{Input, InputRecord};
 use sim_core::log::{LogEntry, LogHasher};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
-use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::version::CORE_VERSION;
 use sim_core::world::{World, YearOut};
 
 use crate::error::CliError;
@@ -117,11 +117,11 @@ fn end_of_the_open_year(closed: SimTime) -> SimTime {
     year_start(calendar(closed + second).year + 1) - second
 }
 
-pub fn header() -> LogHeader {
+pub fn header(data_hash: u64) -> LogHeader {
     LogHeader {
         format_version: files::FORMAT_VERSION,
         core_version: CORE_VERSION,
-        data_hash: EMPTY_DATA_HASH,
+        data_hash,
         build_commit: BUILD_COMMIT.to_owned(),
     }
 }
@@ -156,7 +156,7 @@ impl Session {
                 "the output directory already has content",
             ));
         }
-        let mut world = World::new();
+        let mut world = World::new(crate::data::core_data()?);
         if first_t > world.closed_through() {
             world.advance_until(&mut YearOut::default(), first_t, &mut |_| false);
         }
@@ -179,7 +179,7 @@ impl Session {
             compare,
             fork,
         };
-        let mut log = files::json(&header()) + "\n";
+        let mut log = files::json(&header(session.world.data().hash())) + "\n";
         for record in session.world.input_log() {
             log.push_str(&record_line(record));
         }
@@ -196,7 +196,7 @@ impl Session {
     pub fn resume(dir: &Path) -> Result<Session, CliError> {
         let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
         let bytes = files::read(&dir.join(files::SAVE))?;
-        let (world, year_hashes) = World::load(&bytes, EMPTY_DATA_HASH)
+        let (world, year_hashes) = World::load(&bytes, crate::data::core_data()?)
             .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
         // A run that was interrupted while it wrote has lines in its files that the
         // save does not know. The manifest of the last orderly end tells them apart.
@@ -206,7 +206,7 @@ impl Session {
         let describes_the_save = manifest.closed_through == world.closed_through()
             && manifest.year_hashes == year_hashes
             && manifest.core_version == CORE_VERSION
-            && manifest.data_hash == EMPTY_DATA_HASH;
+            && manifest.data_hash == world.data().hash();
         if !describes_the_save {
             return Err(inconsistent(
                 "manifest.json does not describe the save".to_owned(),
@@ -248,7 +248,7 @@ impl Session {
     /// The input log of an orderly run ends with `{"end":t}`. Before a resumed run
     /// writes anything else, the log is open again: header and records, no end line.
     fn reopen_input_log(&self) -> Result<(), CliError> {
-        let mut log = files::json(&header()) + "\n";
+        let mut log = files::json(&header(self.world.data().hash())) + "\n";
         for record in self.world.input_log() {
             log.push_str(&record_line(record));
         }
@@ -451,7 +451,7 @@ impl Session {
         let manifest = Manifest {
             format_version: files::FORMAT_VERSION,
             core_version: CORE_VERSION,
-            data_hash: EMPTY_DATA_HASH,
+            data_hash: self.world.data().hash(),
             build_commit: BUILD_COMMIT.to_owned(),
             world_seed: scenario.start.world_seed,
             closed_through: self.world.closed_through(),

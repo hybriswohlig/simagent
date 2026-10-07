@@ -345,21 +345,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":8"#, r#""core_version":9"#);
+    replace_in(&log, r#""core_version":9"#, r#""core_version":10"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 9, this is 8"
+            "error: fork_foreign_core_version: the parent run is of core version 10, this is 9"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":9"#, r#""core_version":8"#);
-    replace_in(&log, "2d06800538d394c2", "2d06800538d394c3");
+    replace_in(&log, r#""core_version":10"#, r#""core_version":9"#);
+    replace_in(&log, "1bdf3636c22d0643", "1bdf3636c22d0644");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash 2d06800538d394c3, this is 2d06800538d394c2".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash 1bdf3636c22d0644, this is 1bdf3636c22d0643".to_owned())
     );
-    replace_in(&log, "2d06800538d394c3", "2d06800538d394c2");
+    replace_in(&log, "1bdf3636c22d0644", "1bdf3636c22d0643");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -418,10 +418,10 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":8"#, r#""core_version":9"#),
+        (r#""core_version":9"#, r#""core_version":10"#),
         (
-            r#""data_hash":"2d06800538d394c2""#,
-            r#""data_hash":"2d06800538d394c3""#,
+            r#""data_hash":"1bdf3636c22d0643""#,
+            r#""data_hash":"1bdf3636c22d0644""#,
         ),
         (
             r#""world_seed":"0000000000000001""#,

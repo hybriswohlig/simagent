@@ -18,7 +18,11 @@ use sim_core::input::{ForkOverride, Input};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::ParamChange;
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
-use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::version::CORE_VERSION;
+
+/// The data hash of the definitions of the repository, from `tools/data_reference.py`
+/// (ADR-0007).
+const DATA_HASH: u64 = 0x1bdf_3636_c22d_0643;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -48,7 +52,7 @@ fn scenario() -> Scenario {
 }
 
 fn started() -> World {
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     world
         .submit(Input::Start(scenario().start))
         .expect("accepted");
@@ -100,7 +104,7 @@ fn golden_fork_matches() {
         .expect("the golden of the fork");
     let golden_fork: Golden = serde_json::from_str(&text).expect("the golden parses");
     assert_eq!(golden_fork.core_version, CORE_VERSION);
-    assert_eq!(golden_fork.data_hash, EMPTY_DATA_HASH);
+    assert_eq!(golden_fork.data_hash, DATA_HASH);
     let fork = fork_run();
     assert_eq!(fork.out.year_hashes, golden_fork.year_hashes);
     assert_eq!(log_hash(&fork.log), golden_fork.log_hash);
@@ -127,7 +131,7 @@ fn golden_fork_matches() {
 fn golden_run_matches() {
     let golden = golden();
     assert_eq!(golden.core_version, CORE_VERSION);
-    assert_eq!(golden.data_hash, EMPTY_DATA_HASH);
+    assert_eq!(golden.data_hash, DATA_HASH);
     let run = whole_run();
     assert_eq!(run.out.year_hashes, golden.year_hashes);
     assert_eq!(log_hash(&run.log), golden.log_hash);
@@ -151,7 +155,8 @@ fn golden_save_is_reproduced_and_continues() {
         "the save differs from tests/golden/dummy.save"
     );
 
-    let (loaded, years) = World::load(GOLDEN_SAVE, EMPTY_DATA_HASH).expect("the golden loads");
+    let (loaded, years) = World::load(GOLDEN_SAVE, sim_cli::data::core_data().expect("data"))
+        .expect("the golden loads");
     assert_eq!(years, golden.year_hashes[..3]);
     let resumed = YearOut {
         census: Vec::new(),
@@ -354,7 +359,7 @@ fn every_required_kind_is_checked() {
         );
     }
     // A world that never ran: no event fired, every event kind is reported.
-    let idle = World::new();
+    let idle = World::new(sim_cli::data::core_data().expect("data"));
     let events: Vec<String> = event_kinds()
         .into_iter()
         .map(|(name, _, _)| format!("event {name}"))
@@ -369,7 +374,7 @@ fn the_coverage_check_reports_missing_kinds() {
     let mut empty = scenario();
     empty.start.founders.clear();
     empty.start.couples.clear();
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     world.submit(Input::Start(empty.start)).expect("accepted");
     let run = run_to(world, YearOut::default(), Vec::new(), empty.until);
     assert_eq!(

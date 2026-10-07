@@ -2,6 +2,7 @@
 //! its command schema and writes the run directory. It never decides gameplay
 //! (ADR-0000); every number in its files comes from the core.
 
+pub mod data;
 pub mod error;
 pub mod files;
 pub mod session;
@@ -13,7 +14,7 @@ use clap::{Arg, ArgAction, ArgGroup, Command};
 use sim_core::input::{ForkOverride, Input, InputRecord};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
-use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::version::CORE_VERSION;
 use sim_core::world::World;
 
 use crate::error::CliError;
@@ -126,7 +127,7 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
 /// core's view of the state; the CLI only writes it.
 fn export_run(dir: &Path) -> Result<(), CliError> {
     let bytes = files::read(&dir.join(files::SAVE))?;
-    let (world, _) = World::load(&bytes, EMPTY_DATA_HASH)
+    let (world, _) = World::load(&bytes, data::core_data()?)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
     let pedigree = files::json(&world.state().pedigree()) + "\n";
     files::replace(&dir.join(files::PEDIGREE), pedigree.as_bytes())
@@ -229,9 +230,10 @@ fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogE
         );
         return Err(CliError::new(source.foreign_core_version, detail));
     }
-    if header.data_hash != EMPTY_DATA_HASH {
+    let data_hash = data::core_data()?.hash();
+    if header.data_hash != data_hash {
         let detail = format!(
-            "{subject} has data hash {:016x}, this is {EMPTY_DATA_HASH:016x}",
+            "{subject} has data hash {:016x}, this is {data_hash:016x}",
             header.data_hash
         );
         return Err(CliError::new(source.foreign_data_hash, detail));
@@ -357,7 +359,7 @@ fn fork_run(
         return Err(CliError::new("manifest_invalid", detail));
     }
     let describes_the_run = manifest.core_version == CORE_VERSION
-        && manifest.data_hash == EMPTY_DATA_HASH
+        && manifest.data_hash == data::core_data()?.hash()
         && manifest.world_seed == scenario.start.world_seed;
     if !describes_the_run {
         return Err(CliError::new(
