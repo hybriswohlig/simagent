@@ -68,13 +68,11 @@ pub(crate) fn due(
     }
 }
 
-/// The dummy allele twice (C5): dose 2 at the locus `core:dummy` of the genome map.
+/// The dummy allele twice (C5): dose 2 at the locus `core:dummy` of the genome map. A map
+/// without that locus has nobody with the dummy allele twice.
 pub(crate) fn dummy_homozygous(genome: &Genome, data: &Data) -> bool {
     let id = DataId::new("core:dummy").unwrap_or_else(|_| panic!("invariant death.dummy_id"));
-    let locus = data
-        .locus(&id)
-        .unwrap_or_else(|| panic!("invariant data.dummy_locus"));
-    genome.dose(locus) == 2
+    data.locus(&id).is_some_and(|locus| genome.dose(locus) == 2)
 }
 
 /// The exposure a sim starts with at `origin` (the start for a founder, the birth for a

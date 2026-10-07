@@ -327,6 +327,49 @@ fn founder_alleles_must_fit_the_genome_map() {
         assert_eq!(fingerprint(&world), before);
         assert!(world.take_log().is_empty());
     }
+    // Copies per chromosome type and sex, on a map with an X, a Y and an mt locus: a man
+    // has one X copy, a woman two and no Y copy (also not an empty list); mt has one.
+    let (calibration, _) = common::files();
+    let loci = serde_json::json!([
+        {"id": "test:x", "chromosome": "x", "segment": 0, "slot": 0, "action": "additive",
+         "mark": "small", "mutation": "both"},
+        {"id": "test:y", "chromosome": "y", "segment": 0, "slot": 0, "action": "additive",
+         "mark": "small", "mutation": "both"},
+        {"id": "test:mt", "chromosome": "mt", "segment": 0, "slot": 0, "action": "additive",
+         "mark": "small", "mutation": "both"},
+    ]);
+    let genome_map = serde_json::json!({"format_version": 1, "map_version": 1, "loci": loci});
+    let data = sim_core::data::Data::new(
+        common::definitions(calibration, genome_map).expect("definitions"),
+    )
+    .expect("checked");
+    let on = |id: &str, copies: Vec<u8>| LocusAlleles {
+        locus: DataId::new(id).expect("valid"),
+        copies,
+    };
+    for (sex, alleles, fits) in [
+        (Sex::Male, on("test:x", vec![1]), true),
+        (Sex::Male, on("test:x", vec![1, 0]), false),
+        (Sex::Female, on("test:x", vec![1, 0]), true),
+        (Sex::Female, on("test:x", vec![1]), false),
+        (Sex::Male, on("test:y", vec![1]), true),
+        (Sex::Male, on("test:y", vec![]), false),
+        (Sex::Female, on("test:y", vec![]), false),
+        (Sex::Female, on("test:y", vec![1]), false),
+        (Sex::Female, on("test:mt", vec![1]), true),
+        (Sex::Male, on("test:mt", vec![1, 1]), false),
+    ] {
+        let mut world = World::new(data.clone());
+        let result = world.submit(with(sex, vec![alleles.clone()]));
+        match fits {
+            true => assert!(result.is_ok(), "{sex:?} {alleles:?}"),
+            false => assert_eq!(
+                result.expect_err("rejected").code,
+                RejectCode::FounderCopies,
+                "{sex:?} {alleles:?}"
+            ),
+        }
+    }
     // The same founders with fitting alleles start.
     for input in [
         with(Sex::Male, vec![dummy(vec![1, 0])]),

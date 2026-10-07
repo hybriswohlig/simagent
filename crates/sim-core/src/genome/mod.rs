@@ -244,7 +244,10 @@ impl Genome {
             if !seen.insert(&entry.locus) {
                 return Err(AlleleError::LocusTwice);
             }
-            let fits = entry.copies.len() == genome.copies(locus).len()
+            // A locus this person has no copy of (a Y locus of a woman) cannot be listed.
+            let has = genome.copies(locus).len();
+            let fits = has > 0
+                && entry.copies.len() == has
                 && entry.copies.iter().all(|allele| *allele <= 1);
             if !fits {
                 return Err(AlleleError::Copies);
