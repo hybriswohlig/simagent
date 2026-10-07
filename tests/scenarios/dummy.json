@@ -17,17 +17,17 @@
       {
         "born": -943488000,
         "sex": "female",
-        "genotype": { "maternal": "dummy", "paternal": "dummy" }
+        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
       },
       {
         "born": -794880000,
         "sex": "male",
-        "genotype": { "maternal": "dummy", "paternal": "wild" }
+        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
       },
       {
         "born": -1,
         "sex": "male",
-        "genotype": { "maternal": "dummy", "paternal": "dummy" }
+        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
       }
     ],
     "couples": [{ "woman": 0, "man": 1 }],
