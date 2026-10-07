@@ -35,6 +35,9 @@ reject 11 partners_of_wrong_sex
 reject 12 already_partnered
 reject 13 unknown_founder
 reject 14 fertility_out_of_range
+reject 15 founder_unknown_locus
+reject 16 founder_locus_twice
+reject 17 founder_copies
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
@@ -48,8 +51,8 @@ load 7 inconsistent
 trace 0 core:birthday_planned
 sex 0 female
 sex 1 male
-allele 0 wild
-allele 1 dummy
+paternal_sex 0 x
+paternal_sex 1 y
 param 0 core:hereditary_diseases
 applies_to 0 everyone
 applies_to 1 dummy_homozygous
