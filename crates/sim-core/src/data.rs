@@ -9,8 +9,9 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::data_id::str_key;
 use crate::finite::FiniteF64;
-use crate::hash::StableHasher;
+use crate::hash::stable_hash64;
 
 /// Format version of both definition files.
 pub const FORMAT_VERSION: u32 = 1;
@@ -100,8 +101,9 @@ pub enum MutationDirection {
     ToRef,
 }
 
-/// The definitions of one world, before the check.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The definitions of one world, before the check. Its postcard bytes are what the data
+/// hash covers (ADR-0007 section 3): the sets in the order of their data IDs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Definitions {
     pub calibration: GeneticsCalibration,
     pub genome_map: GenomeMap,
@@ -141,6 +143,7 @@ pub enum DataError {
     LocusPosition,
     LocusOrder,
     LocusId,
+    LocusKey,
     LocusMark,
     CalibrationMissing,
     CalibrationUnknown,
@@ -156,6 +159,7 @@ impl fmt::Display for DataError {
             DataError::LocusPosition => "data.locus_position",
             DataError::LocusOrder => "data.locus_order",
             DataError::LocusId => "data.locus_id",
+            DataError::LocusKey => "data.locus_key",
             DataError::LocusMark => "data.locus_mark",
             DataError::CalibrationMissing => "data.calibration_missing",
             DataError::CalibrationUnknown => "data.calibration_unknown",
@@ -226,7 +230,17 @@ fn check_map(map: &GenomeMap) -> Result<(), DataError> {
             return Err(DataError::LocusMark);
         }
     }
+    if !keys_unique(map.loci.iter().map(|locus| &locus.id), str_key) {
+        return Err(DataError::LocusKey);
+    }
     Ok(())
+}
+
+/// No two IDs share a key (ADR-0004 section 2: a collision is a load error); `key` is
+/// `str_key` outside the tests.
+fn keys_unique<'a>(ids: impl Iterator<Item = &'a DataId>, key: impl Fn(&DataId) -> u64) -> bool {
+    let mut seen = BTreeMap::new();
+    ids.into_iter().all(|id| seen.insert(key(id), ()).is_none())
 }
 
 /// The calibration values the core reads, with their units; nothing else is allowed.
@@ -287,14 +301,11 @@ impl Data {
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map)?;
-        // In the order of the data IDs: core:calibration_genetics, core:genome_map.
-        let mut hasher = StableHasher::new();
-        hasher.update(&encode(&definitions.calibration));
-        hasher.update(&encode(&definitions.genome_map));
+        let hash = stable_hash64(&encode(&definitions));
         Ok(Data {
             definitions,
             genetics,
-            hash: hasher.digest(),
+            hash,
         })
     }
 
@@ -312,44 +323,61 @@ impl Data {
     }
 }
 
-/// The definitions of the repository, read the way sim-cli reads them: the text fields
-/// removed, the rest into the core types (ADR-0007 section 2).
+/// The definitions of the repository, read the way sim-cli reads them (ADR-0007 section
+/// 2): the text fields of each calibration value and each locus removed, the rest into
+/// the core types.
 #[cfg(test)]
 pub(crate) mod testing {
     use serde_json::Value;
 
     use super::{Data, Definitions};
 
-    fn without_text(mut value: Value) -> Value {
-        strip(&mut value);
-        value
-    }
-
-    fn strip(value: &mut Value) {
-        match value {
-            Value::Object(fields) => {
-                for name in ["source", "as_of", "note", "description"] {
-                    fields.remove(name);
-                }
-                fields.values_mut().for_each(strip);
+    fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
+        let list: alloc::vec::Vec<&mut Value> = match &mut file[entries] {
+            Value::Object(values) => values.values_mut().collect(),
+            Value::Array(loci) => loci.iter_mut().collect(),
+            _ => panic!("entries"),
+        };
+        for entry in list {
+            for name in names {
+                entry.as_object_mut().expect("entry").remove(*name);
             }
-            Value::Array(items) => items.iter_mut().for_each(strip),
-            _ => {}
         }
+        file
     }
 
     pub(crate) fn data() -> Data {
-        let read = |text| without_text(serde_json::from_str(text).expect("json"));
+        let read = |text| serde_json::from_str::<Value>(text).expect("json");
+        let calibration = without(
+            read(include_str!("../../../data/calibration/genetics.json")),
+            "values",
+            &["source", "as_of", "note"],
+        );
+        let genome_map = without(
+            read(include_str!("../../../data/genetics/genome_map.json")),
+            "loci",
+            &["description"],
+        );
         let definitions = Definitions {
-            calibration: serde_json::from_value(read(include_str!(
-                "../../../data/calibration/genetics.json"
-            )))
-            .expect("calibration"),
-            genome_map: serde_json::from_value(read(include_str!(
-                "../../../data/genetics/genome_map.json"
-            )))
-            .expect("genome map"),
+            calibration: serde_json::from_value(calibration).expect("calibration"),
+            genome_map: serde_json::from_value(genome_map).expect("genome map"),
         };
         Data::new(definitions).expect("checked")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colliding_keys_are_found() {
+        let ids = [
+            DataId::new("test:a").expect("id"),
+            DataId::new("test:b").expect("id"),
+        ];
+        assert!(keys_unique(ids.iter(), str_key));
+        assert!(!keys_unique(ids.iter(), |_| 7));
+        assert!(keys_unique(ids[..1].iter(), |_| 7));
     }
 }

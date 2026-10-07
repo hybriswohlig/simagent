@@ -92,7 +92,21 @@ mod tests {
 
     #[test]
     fn the_base_game_loads() {
-        assert!(core_data().is_ok());
+        // The pinned data hash of the core tests, from tools/data_reference.py: the
+        // core sees the same bytes from both readers.
+        assert_eq!(core_data().expect("data").hash(), 0x1bdf_3636_c22d_0643);
+    }
+
+    #[test]
+    fn text_does_not_change_the_hash() {
+        let noted = CALIBRATION.replacen("rounded to 0.01 M", "rounded to a hundredth", 1);
+        assert_ne!(noted, CALIBRATION);
+        let described = GENOME_MAP.replacen("walking skeleton", "Durchstich", 1);
+        assert_ne!(described, GENOME_MAP);
+        let hash = |calibration: &str, genome_map: &str| {
+            data_from(calibration, genome_map).expect("data").hash()
+        };
+        assert_eq!(hash(&noted, &described), hash(CALIBRATION, GENOME_MAP));
     }
 
     #[test]

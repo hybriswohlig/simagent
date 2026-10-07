@@ -1,5 +1,6 @@
-//! The definitions of the repository for the tests, read the way sim-cli reads them: the
-//! text fields removed, the rest into the core types (ADR-0007 section 2).
+//! The definitions of the repository for the tests, read the way sim-cli reads them
+//! (ADR-0007 section 2): the text fields of each calibration value and each locus
+//! removed, the rest into the core types.
 
 use serde_json::Value;
 use sim_core::data::{Data, Definitions};
@@ -7,27 +8,28 @@ use sim_core::data::{Data, Definitions};
 const CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../../data/genetics/genome_map.json");
 
-fn strip(value: &mut Value) {
-    match value {
-        Value::Object(fields) => {
-            for name in ["source", "as_of", "note", "description"] {
-                fields.remove(name);
-            }
-            fields.values_mut().for_each(strip);
+/// Removes the text fields `names` of the entries under `entries`.
+fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
+    let list: Vec<&mut Value> = match &mut file[entries] {
+        Value::Object(values) => values.values_mut().collect(),
+        Value::Array(loci) => loci.iter_mut().collect(),
+        _ => panic!("entries"),
+    };
+    for entry in list {
+        for name in names {
+            entry.as_object_mut().expect("entry").remove(*name);
         }
-        Value::Array(items) => items.iter_mut().for_each(strip),
-        _ => {}
     }
+    file
 }
 
 /// The two files as JSON values without their text.
 pub fn files() -> (Value, Value) {
-    let read = |text: &str| {
-        let mut value: Value = serde_json::from_str(text).expect("json");
-        strip(&mut value);
-        value
-    };
-    (read(CALIBRATION), read(GENOME_MAP))
+    let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
+    (
+        without(read(CALIBRATION), "values", &["source", "as_of", "note"]),
+        without(read(GENOME_MAP), "loci", &["description"]),
+    )
 }
 
 /// Definitions from two JSON values; `Err` if serde rejects one.
