@@ -67,7 +67,7 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
 
 
 PROJECTION_VERSION = 8
-CORE_VERSION = 8
+CORE_VERSION = 9
 
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)
@@ -173,7 +173,7 @@ PAIR_AFTER_START = (
 )
 
 # Save file of ADR-0006: header, projection, exceptions.
-EMPTY_DATA_HASH = xxhash.xxh3_64_intdigest(b"", seed=0)
+DATA_HASH = world_reference.DATA_HASH
 
 
 def header(data_hash: int) -> bytes:
@@ -208,7 +208,7 @@ TINY_INPUT_LOG = seq(
 # planned by the founder's entry 2, the year end series by `core:started`, entry 1), the
 # next EventId is 3, no year hashes yet.
 TINY_SAVE_AFTER_START = (
-    header(EMPTY_DATA_HASH)
+    header(DATA_HASH)
     + TINY_AFTER_START
     + seq([plan_ref(2, 0), plan_ref(1, 0)])
     + varint(3)
@@ -233,7 +233,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
 )
-EMPTY_SAVE = header(EMPTY_DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
+EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
 
 # The log of "tiny" up to the end of year 0 (ADR-0004 section 7). An entry is
@@ -268,7 +268,7 @@ TINY_OVERRIDDEN = projection(
     diseases=True,
 )
 TINY_SAVE_OVERRIDDEN = (
-    header(EMPTY_DATA_HASH)
+    header(DATA_HASH)
     + TINY_OVERRIDDEN
     + seq([plan_ref(2, 0), plan_ref(1, 0)])
     + varint(4)
@@ -297,7 +297,7 @@ TINY_SAVE_OVERRIDDEN = (
 # EventId is 4; one year hash.
 TINY_YEAR_0_HASH = xxhash.xxh3_64_intdigest(TINY_YEAR_0, seed=0)
 TINY_SAVE_AFTER_YEAR_0 = (
-    header(EMPTY_DATA_HASH)
+    header(DATA_HASH)
     + TINY_AFTER_YEAR_0
     + seq([plan_ref(3, YEAR - 1), plan_ref(1, 0)])
     + varint(4)
@@ -675,8 +675,8 @@ if __name__ == "__main__":
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
-    print(f"empty_data_hash {EMPTY_DATA_HASH:016x}")
-    print(f"header {header(EMPTY_DATA_HASH).hex()}")
+    print(f"data_hash {DATA_HASH:016x}")
+    print(f"header {header(DATA_HASH).hex()}")
     print(f"tiny_save_after_start {TINY_SAVE_AFTER_START.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
     print(f"tiny_log_hash {digest(b''.join(TINY_LOG))}")
