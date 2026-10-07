@@ -13,6 +13,8 @@
 //! start. The disease needs about 3.21 years of exposure to kill him, `test:base` about
 //! 19.6 years.
 
+mod common;
+
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -20,7 +22,6 @@ use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, I
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -87,7 +88,7 @@ fn founder(born: i64, sex: Sex, maternal: Allele) -> Founder {
 
 /// "sick" with the switch `on` at the start and the causes in this order.
 fn sick(on: bool, death_causes: Vec<DeathCause>) -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(Input::Start(Start {
             world_seed: 0xff,
@@ -376,7 +377,7 @@ fn save_load_continue_across_the_switch() {
             .collect();
         let part = drive(true, &before, stop);
         let bytes = part.save();
-        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut rest = Run {
             world: loaded,

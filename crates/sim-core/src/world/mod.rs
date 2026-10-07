@@ -15,6 +15,7 @@ pub use crate::state::census::CensusRow;
 use alloc::vec::Vec;
 
 use crate::canonical::{self, YearHash};
+use crate::data::Data;
 use crate::ids::{Counter, InputSeq, SimId};
 use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
@@ -22,7 +23,6 @@ use crate::params::WorldParams;
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
 use crate::trace::{TraceBuffer, TraceEntry, TraceFilter};
-use crate::version::EMPTY_DATA_HASH;
 use ctx::{IdCounters, LogBuffer};
 
 /// The input log: the only replay source (ADR-0004 section 6). It lives outside the
@@ -44,8 +44,8 @@ pub struct World {
     sched: Scheduler<EventPayload, PlanRef>,
     state: WorldState,
     inputs: InputLog,
-    /// The data hash of the loaded definitions (ADR-0004); part of a save's header.
-    data_hash: u64,
+    /// The checked definitions (ADR-0007); their hash is part of a save's header.
+    data: Data,
 }
 
 /// The handler side of the scheduler: the domain state plus the counters and the log
@@ -58,14 +58,8 @@ pub struct WorldState {
     trace: TraceBuffer,
 }
 
-impl Default for World {
-    fn default() -> World {
-        World::new()
-    }
-}
-
 impl World {
-    pub fn new() -> World {
+    pub fn new(data: Data) -> World {
         World {
             sched: Scheduler::new(),
             state: WorldState {
@@ -78,8 +72,13 @@ impl World {
                 next_seq: Counter::new(),
                 records: Vec::new(),
             },
-            data_hash: EMPTY_DATA_HASH,
+            data,
         }
+    }
+
+    /// The definitions of this world (ADR-0007).
+    pub const fn data(&self) -> &Data {
+        &self.data
     }
 
     /// The last closed second (ADR-0002); `-1` before the first advance.
@@ -297,6 +296,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::testing;
     use crate::data_id::DataId;
     use crate::finite::FiniteF64;
     use crate::genome::{Allele, Genotype, Sex};
@@ -369,7 +369,7 @@ mod tests {
     /// birthday is a single event with the founder's creation entry as its `by`.
     #[test]
     fn start_plans_the_year_end_series_and_first_birthdays() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[-5, -1])).expect("accepted");
         let snapshot = world.sched.snapshot();
         assert_eq!(snapshot.next_seq, 4);
@@ -422,7 +422,7 @@ mod tests {
         .expect("valid snapshot");
         let mut world = World {
             sched: moved,
-            ..World::new()
+            ..World::new(testing::data())
         };
         let rejected = world.submit(start(&[-1])).expect_err("rejected");
         assert_eq!(rejected.code, RejectCode::ClockNotAtStart);
@@ -458,7 +458,7 @@ mod tests {
         .expect("valid snapshot");
         let mut world = World {
             sched: queue,
-            ..World::new()
+            ..World::new(testing::data())
         };
         let mut out = YearOut::default();
         world.advance_until(&mut out, SimTime::from_secs(5), &mut |_| false);
@@ -472,7 +472,7 @@ mod tests {
     /// place in the list of `Start`.
     #[test]
     fn start_records_the_lineage_keys_of_the_founders() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         assert!(!world.state.domain.lineage.contains(key(0)));
         world.submit(start(&[-5, -4, -3])).expect("accepted");
         for index in 0..3 {
@@ -484,11 +484,11 @@ mod tests {
     /// The index is not saved: a loaded world has built it again.
     #[test]
     fn a_loaded_world_knows_its_lineage_keys() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[-5, -4])).expect("accepted");
         world.take_log();
         let bytes = world.save(&[]).expect("saves");
-        let (loaded, _) = World::load(&bytes, world.data_hash).expect("loads");
+        let (loaded, _) = World::load(&bytes, testing::data()).expect("loads");
         for index in 0..2 {
             assert!(loaded.state.domain.lineage.contains(key(index)), "{index}");
         }
@@ -528,7 +528,7 @@ mod tests {
     /// rule archives yet, so the state is built by hand.
     #[test]
     fn an_archived_sim_stays_resolvable() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[-5])).expect("accepted");
         let gone = SimId::try_from(2).expect("valid");
         assert_eq!(world.state.born(gone), None);
@@ -548,7 +548,7 @@ mod tests {
     /// parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[-5])).expect("accepted");
         let before = world.canonical_bytes();
         assert_eq!(before.last(), Some(&0), "an empty archive");
@@ -569,14 +569,14 @@ mod tests {
     /// input log. No input can follow `Start` yet, so only this test sees it.
     #[test]
     fn a_loaded_world_numbers_the_next_input() {
-        let unstarted = World::new().save(&[]).expect("saves");
-        let (loaded, _) = World::load(&unstarted, EMPTY_DATA_HASH).expect("loads");
+        let unstarted = World::new(testing::data()).save(&[]).expect("saves");
+        let (loaded, _) = World::load(&unstarted, testing::data()).expect("loads");
         assert_eq!(loaded.inputs.next_seq.peek(), 1);
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[-5])).expect("accepted");
         world.take_log();
         let bytes = world.save(&[]).expect("saves");
-        let (loaded, _) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, _) = World::load(&bytes, testing::data()).expect("loads");
         assert_eq!(loaded.inputs.next_seq.peek(), 2);
         assert_eq!(loaded.state.log.next_event(), 3);
         assert_eq!(loaded.state.ids.next_sim(), 2);
@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn event_id_shift_keeps_state_hash() {
         let run = |first_event: u64| {
-            let mut world = World::new();
+            let mut world = World::new(testing::data());
             world.state.log = LogBuffer::starting_at(first_event);
             world.submit(start(&[-5, -1])).expect("accepted");
             let mut out = YearOut::default();
@@ -619,7 +619,7 @@ mod tests {
     /// ADR-0004 section 4: a rejected input takes no sequence number.
     #[test]
     fn a_rejected_input_keeps_the_sequence_number() {
-        let mut world = World::new();
+        let mut world = World::new(testing::data());
         world.submit(start(&[0])).expect_err("founder not born");
         assert_eq!(world.inputs.next_seq.peek(), 1);
         world.submit(start(&[-1])).expect("accepted");

@@ -12,6 +12,8 @@
 //! 0.8 years; at the start of year 1 she is paired with the second man, who dies after
 //! about 4.66 years, she after about 4.88.
 
+mod common;
+
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -23,7 +25,6 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -106,7 +107,7 @@ fn two_women_start(couples: Vec<Couple>) -> Input {
 }
 
 fn partners() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(partners_start(vec![couple(0, 1)]))
         .expect("accepted");
@@ -213,7 +214,7 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
         result.map(|InputRejected { code }| code)
     };
     assert_eq!(
-        rejected(&mut World::new(), arrange(1, 2)),
+        rejected(&mut World::new(common::data()), arrange(1, 2)),
         Some(RejectCode::NotStarted)
     );
     // At the start: she is paired with the first man.
@@ -246,7 +247,7 @@ fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
         Some(RejectCode::AlreadyPartnered)
     );
     // The man is the one in a partnership.
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(two_women_start(vec![couple(0, 1)]))
         .expect("accepted");
@@ -274,7 +275,7 @@ fn a_pairing_right_after_a_death() {
     run.advance(FIRST_MAN_DIES);
     run.submit(arrange(1, 3));
     let bytes = run.save();
-    let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+    let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
     assert_eq!(loaded.save(&years).expect("saves"), bytes);
 }
 
@@ -283,10 +284,10 @@ fn a_pairing_right_after_a_death() {
 #[test]
 fn start_couples_are_checked() {
     let code = |couples: Vec<Couple>| {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let result = world.submit(partners_start(couples)).err();
         if result.is_some() {
-            assert_eq!(world.state_hash(), World::new().state_hash());
+            assert_eq!(world.state_hash(), World::new(common::data()).state_hash());
             assert!(world.input_log().is_empty());
         }
         result.map(|InputRejected { code }| code)
@@ -312,7 +313,7 @@ fn start_couples_are_checked() {
         Some(RejectCode::AlreadyPartnered)
     );
     // A man in two couples.
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     assert_eq!(
         world
             .submit(two_women_start(vec![couple(0, 1), couple(3, 1)]))
@@ -367,7 +368,7 @@ fn save_load_continue_across_the_partnerships() {
         }
         part.advance(stop);
         let bytes = part.save();
-        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut rest = Run {
             world: loaded,

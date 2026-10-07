@@ -13,6 +13,8 @@
 //! the child in month 15; the girl tries from her 18th birthday (month 78), conceives in
 //! month 85 and has her child in month 95; the third couple never tries.
 
+mod common;
+
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -23,7 +25,6 @@ use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
@@ -111,7 +112,7 @@ fn clan_start(death_causes: Vec<DeathCause>, fertility: Fertility) -> Input {
 }
 
 fn clan() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(clan_start(
             vec![cause("test:base", 0.02)],
@@ -206,7 +207,7 @@ fn the_girl_tries_from_her_18th_birthday_on() {
 /// before they begin. By the end of year 3 all seven have died.
 #[test]
 fn a_child_is_born_after_the_death_of_its_father() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(clan_start(
             vec![cause("test:base", 0.02), cause("test:fever", 0.5)],
@@ -229,7 +230,7 @@ fn a_child_is_born_after_the_death_of_its_father() {
 /// longer known, also not to a loaded world.
 #[test]
 fn her_death_ends_the_pregnancy() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(clan_start(
             vec![cause("test:base", 0.02), cause("test:blight", 0.1)],
@@ -248,7 +249,7 @@ fn her_death_ends_the_pregnancy() {
     assert!(run.world.state().knows_lineage_key(child));
     run.advance(HER_BLIGHT);
     assert!(!run.world.state().knows_lineage_key(child));
-    let (loaded, _) = World::load(&run.save(), EMPTY_DATA_HASH).expect("loads");
+    let (loaded, _) = World::load(&run.save(), common::data()).expect("loads");
     assert!(!loaded.state().knows_lineage_key(child));
     run.advance(Y - 1);
     assert_eq!(run.save(), hex(CLAN_BLIGHT_SAVE_AFTER_YEAR_0));
@@ -266,14 +267,14 @@ fn a_child_is_exposed_from_its_birth() {
             unreachable!("a start")
         };
         start.world_params.hereditary_diseases = true;
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         world.submit(Input::Start(start)).expect("accepted");
         Run::new(world)
     };
     let mut run = on();
     run.advance(15 * MONTH);
     assert_eq!(run.save(), hex(CLAN_ON_SAVE_AFTER_BIRTH));
-    let (loaded, years) = World::load(&run.save(), EMPTY_DATA_HASH).expect("loads");
+    let (loaded, years) = World::load(&run.save(), common::data()).expect("loads");
     let mut rest = Run {
         world: loaded,
         out: YearOut {
@@ -319,12 +320,12 @@ fn a_birth_brings_the_child_into_the_world() {
 #[test]
 fn a_start_with_a_fertility_out_of_range_is_rejected() {
     let code = |fertility: Fertility| {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let result = world
             .submit(clan_start(vec![cause("test:base", 0.02)], fertility))
             .err();
         if result.is_some() {
-            assert_eq!(world.state_hash(), World::new().state_hash());
+            assert_eq!(world.state_hash(), World::new(common::data()).state_hash());
             assert!(world.input_log().is_empty());
         }
         result.map(|InputRejected { code }| code)
@@ -352,7 +353,7 @@ fn a_start_with_a_fertility_out_of_range_is_rejected() {
             "{rejected:?}"
         );
     }
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let Input::Start(mut start) =
         clan_start(vec![cause("test:base", 0.02)], fertility(2.0, 18, 45, 10))
     else {
@@ -380,12 +381,12 @@ fn the_last_attempt_before_the_end_of_fertility_ends_the_series() {
     start.founders.truncate(2);
     start.founders[0].born = SimTime::from_secs(3 * MONTH - 45 * Y);
     start.couples.truncate(1);
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(Input::Start(start)).expect("accepted");
     let mut run = Run::new(world);
     let loads = |run: &Run| {
         let bytes = run.save();
-        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes);
     };
     run.advance(MONTH);
@@ -420,7 +421,7 @@ fn save_load_continue_across_conceptions() {
         let mut part = Run::new(clan());
         part.advance(stop);
         let bytes = part.save();
-        let (loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut rest = Run {
             world: loaded,

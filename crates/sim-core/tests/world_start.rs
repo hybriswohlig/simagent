@@ -5,6 +5,8 @@
 //! the start (YEAR = 31 449 600 s, DAY = 86 400 s). Expected values are derived by hand
 //! from the ADRs. Logs are compared as JSON lines because `EventId` cannot be compared.
 
+mod common;
+
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -99,7 +101,7 @@ fn fingerprint(world: &World) -> String {
 
 #[test]
 fn a_new_world_has_closed_nothing() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     assert_eq!(world.closed_through(), SimTime::from_secs(-1));
     assert!(world.take_log().is_empty());
     assert!(world.input_log().is_empty());
@@ -113,7 +115,7 @@ fn a_new_world_has_closed_nothing() {
 /// the position in the input log, from 1.
 #[test]
 fn start_is_stamped_minus_one_seq_one() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let stamp = world.submit(start_with(&BORN)).expect("accepted");
     assert_eq!(
         serde_json::to_string(&stamp).expect("json"),
@@ -127,7 +129,7 @@ fn start_is_stamped_minus_one_seq_one() {
 /// section 4, values from tools/rng_reference.py).
 #[test]
 fn start_writes_started_then_one_founder_added_each() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&BORN)).expect("accepted");
     let expected = [
         r#"{"id":1,"t":0,"subjects":[],"causes":[{"input":1}],"payload":{"core:started":{"founders":3}}}"#,
@@ -140,7 +142,7 @@ fn start_writes_started_then_one_founder_added_each() {
 
 #[test]
 fn start_records_seed_and_founders() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&BORN)).expect("accepted");
     let state = world.state();
     assert_eq!(state.world_seed(), Some(SEED));
@@ -168,9 +170,9 @@ fn start_records_seed_and_founders() {
 /// Lever test: the number of founders in the input shows in the state.
 #[test]
 fn more_founders_give_more_sims() {
-    let mut small = World::new();
+    let mut small = World::new(common::data());
     small.submit(start_with(&BORN)).expect("accepted");
-    let mut large = World::new();
+    let mut large = World::new(common::data());
     large
         .submit(start_with(&[-5, -4, -3, -2, -1]))
         .expect("accepted");
@@ -190,7 +192,7 @@ fn start_sets_the_world_parameters() {
         start.world_params = WorldParams {
             hereditary_diseases: on,
         };
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         world.submit(Input::Start(start)).expect("accepted");
         world
     };
@@ -209,7 +211,7 @@ fn start_sets_the_world_parameters() {
 
 #[test]
 fn a_start_without_founders_writes_only_started() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&[])).expect("accepted");
     assert_eq!(
         lines(&world.take_log()),
@@ -225,7 +227,7 @@ fn a_start_without_founders_writes_only_started() {
 /// ADR-0004 section 6: the log buffer is handed over, the core keeps nothing.
 #[test]
 fn take_log_hands_the_buffer_over() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&BORN)).expect("accepted");
     assert_eq!(world.take_log().len(), 4);
     assert!(world.take_log().is_empty());
@@ -234,7 +236,7 @@ fn take_log_hands_the_buffer_over() {
 /// ADR-0004 section 4: one line `{"t":…,"seq":…,"input":{…}}` per accepted input.
 #[test]
 fn the_input_log_keeps_the_stamped_input() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
@@ -246,7 +248,7 @@ fn the_input_log_keeps_the_stamped_input() {
 /// an `Err` with a reason code, no invariant break, and changes nothing.
 #[test]
 fn rejected_input_changes_nothing() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&BORN)).expect("accepted");
     world.take_log();
     let before = fingerprint(&world);
@@ -262,7 +264,7 @@ fn rejected_input_changes_nothing() {
 
     // ADR-0002: founders have negative birth times.
     for born in [0, 1, 31_449_600] {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let before = fingerprint(&world);
         let rejected = world
             .submit(start_with(&[-1, born]))
@@ -282,7 +284,7 @@ fn rejected_input_changes_nothing() {
 /// as the cause. It is stamped like every input and acts in the second after its stamp.
 #[test]
 fn an_override_block_changes_the_world_parameters() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     assert_eq!(world.state().world_params(), None);
     world.submit(start_with(&[-1])).expect("accepted");
     world.take_log();
@@ -335,7 +337,7 @@ fn an_override_block_changes_the_world_parameters() {
 /// parameter twice it is rejected with its code and changes nothing.
 #[test]
 fn a_rejected_override_block_changes_nothing() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let before = fingerprint(&world);
     let rejected = world
         .submit(override_block(&[true]))
@@ -371,7 +373,7 @@ fn a_rejected_override_block_changes_nothing() {
 /// ADR-0004 section 4: a rejected input takes no sequence number.
 #[test]
 fn a_rejected_first_start_takes_no_sequence_number() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start_with(&[0])).expect_err("rejected");
     let stamp = world.submit(start_with(&BORN)).expect("accepted");
     assert_eq!(

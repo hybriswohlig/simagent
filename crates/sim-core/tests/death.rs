@@ -10,6 +10,8 @@
 //! seconds before the start. She dies of `test:base` after about 1.46 years, he of
 //! `test:old_age` after about 1.71 years.
 
+mod common;
+
 use sim_core::canonical::YearHash;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
@@ -20,7 +22,6 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::version::EMPTY_DATA_HASH;
 use sim_core::world::{CensusRow, World, YearOut};
 
 /// A fertility under which nobody ever conceives.
@@ -115,7 +116,7 @@ fn mortal_causes() -> Vec<DeathCause> {
 }
 
 fn mortal() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(
             "test:mortal",
@@ -240,7 +241,7 @@ fn the_death_of_one_sim_leaves_the_others_alone() {
 /// birthday is ever written.
 #[test]
 fn a_death_before_the_first_birthday_cancels_it() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let causes = vec![cause("test:base", 5.0), cause("test:old_age", 0.05)];
     world
         .submit(start("test:mortal", causes, vec![woman(-1), man(-2)]))
@@ -300,7 +301,7 @@ fn save_load_continue_across_the_deaths() {
     ] {
         let part = run(mortal(), stop);
         let bytes = part.world.save(&part.out.year_hashes).expect("saves");
-        let (mut loaded, years) = World::load(&bytes, EMPTY_DATA_HASH).expect("loads");
+        let (mut loaded, years) = World::load(&bytes, common::data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
         let mut out = YearOut {
             census: part.out.census.clone(),
@@ -331,7 +332,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
             TIE_OLD_AGE_FIRST_SAVE,
         ),
     ] {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         world
             .submit(start("test:tie", causes, vec![woman(-1)]))
             .expect("accepted");
@@ -356,7 +357,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
     let base = postcard::to_allocvec(&0x8b10_65ec_5b12_5f0b_u64).expect("encodes");
     let old_age = postcard::to_allocvec(&0x54ff_fd5a_5b62_695e_u64).expect("encodes");
     let bytes = hex(TIE_BASE_FIRST_SAVE);
-    assert!(World::load(&bytes, EMPTY_DATA_HASH).is_ok());
+    assert!(World::load(&bytes, common::data()).is_ok());
     let at: Vec<usize> = (0..bytes.len())
         .filter(|&i| bytes[i..].starts_with(&base))
         .collect();
@@ -365,7 +366,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
     changed.extend(&old_age);
     changed.extend(&bytes[at[1] + base.len()..]);
     assert_eq!(
-        World::load(&changed, EMPTY_DATA_HASH).err(),
+        World::load(&changed, common::data()).err(),
         Some(sim_core::world::LoadError::Inconsistent)
     );
 }
@@ -374,7 +375,7 @@ fn of_two_causes_due_together_the_first_in_the_list_wins() {
 /// no event is planned, and the sim has its birthdays.
 #[test]
 fn a_death_that_is_never_due_is_not_planned() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(
             "test:mortal",
@@ -397,7 +398,7 @@ fn a_death_that_is_never_due_is_not_planned() {
 #[test]
 fn a_start_with_bad_causes_of_death_is_rejected() {
     let rejected = |causes: Vec<DeathCause>| {
-        let mut world = World::new();
+        let mut world = World::new(common::data());
         let before = world.state_hash();
         let result = world.submit(start("test:mortal", causes, vec![woman(-1)]));
         if result.is_err() {

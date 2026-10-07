@@ -12,6 +12,8 @@
 //! (ADR-0000). Over random seeds (6) holds with a probability above 0.999 (ADR-0001: a
 //! Monte Carlo estimate on a simplified model gives a failure rate of 2.5e-4).
 
+mod common;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
@@ -54,7 +56,7 @@ fn scenario() -> (Input, i64) {
 /// The parent run, or with `fork` the fork at year 5 with the switch on.
 fn run(fork: bool) -> Run {
     let (start, until) = scenario();
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start).expect("accepted");
     let mut run = Run {
         log: world.take_log(),
@@ -224,7 +226,7 @@ fn fork_point_hash_equals_parent() {
 fn fork_without_override_equals_original() {
     let parent = run(false);
     let (start, until) = scenario();
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start).expect("accepted");
     let mut fork = Run {
         log: world.take_log(),
@@ -389,7 +391,7 @@ fn draw_keys_unique_in_log() {
 #[test]
 fn yearly_balance_log_matches_state() {
     let (start, until) = scenario();
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world.submit(start).expect("accepted");
     let mut run = Run {
         log: world.take_log(),

@@ -299,7 +299,7 @@ fn a_partnership_at_a_stop_replays() {
     let start: Input =
         serde_json::from_value(serde_json::json!({"start": scenario["start"]})).expect("a start");
     let arrange: Input = serde_json::from_str(ARRANGE).expect("an input");
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     let mut hasher = LogHasher::new();
     let mut out = YearOut::default();
     world.submit(start).expect("accepted");
@@ -394,7 +394,7 @@ fn command_schema_matches_direct_call() {
     let [(start, start_line), (block, block_line)] = &commands[..2] else {
         panic!("a start and an override block");
     };
-    let mut world = World::new();
+    let mut world = World::new(sim_cli::data::core_data().expect("data"));
     let mut hasher = LogHasher::new();
     let mut out = YearOut::default();
     world.submit(start.clone()).expect("accepted");

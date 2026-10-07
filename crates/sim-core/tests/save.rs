@@ -4,10 +4,13 @@
 //! encoder of this test (`File`), written from ADR-0006 and independent of the core's
 //! types; it must produce the reference bytes for the valid case.
 
+mod common;
+
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 use serde::Serialize;
 use sim_core::canonical::YearHash;
+use sim_core::data::Data;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Allele, Genotype, Sex};
@@ -15,9 +18,12 @@ use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, I
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
-use sim_core::version::{CORE_VERSION, EMPTY_DATA_HASH};
+use sim_core::version::CORE_VERSION;
 use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
 
+/// The data hash of the definitions of the repository, from `tools/data_reference.py`
+/// (ADR-0007).
+const DATA_HASH: u64 = 0x1bdf_3636_c22d_0643;
 const Y: i64 = 31_449_600;
 const MONTH: i64 = 2_419_200;
 const DAY: i64 = 86_400;
@@ -68,7 +74,7 @@ fn founder(secs: i64) -> Founder {
 
 /// Scenario "tiny" of the reference tool, with the log taken.
 fn tiny() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(0xff, "test:tiny", &[-1]))
         .expect("accepted");
@@ -77,7 +83,7 @@ fn tiny() -> World {
 }
 
 fn three_founders() -> World {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     let born = [-943_488_000, -794_880_000, -1];
     world
         .submit(start(1, "test:save", &born))
@@ -92,7 +98,7 @@ fn lines(log: &[LogEntry]) -> Vec<String> {
 }
 
 fn load(bytes: &[u8]) -> Result<(World, Vec<YearHash>), LoadError> {
-    World::load(bytes, EMPTY_DATA_HASH)
+    World::load(bytes, common::data())
 }
 
 /// `None` if the bytes load, and then they must also be what the loaded world saves:
@@ -302,7 +308,7 @@ impl File {
             magic: *b"SIMAGENT",
             format_version: 1,
             core_version: 8,
-            data_hash: EMPTY_DATA_HASH,
+            data_hash: DATA_HASH,
             projection_version: 8,
             world_seed: Some(0xff),
             world_params: Some(false),
@@ -369,14 +375,17 @@ fn saved_projection_is_the_canonical_bytes() {
     assert_eq!(bytes[..header.len()], header[..]);
     let projection = world.canonical_bytes();
     assert_eq!(bytes[header.len()..][..projection.len()], projection[..]);
-    assert_eq!(World::new().save(&[]).expect("saves"), hex(EMPTY_SAVE));
+    assert_eq!(
+        World::new(common::data()).save(&[]).expect("saves"),
+        hex(EMPTY_SAVE)
+    );
 }
 
 /// ADR-0003 `save_load_save_is_byte_identical`.
 #[test]
 fn save_load_save_is_byte_identical() {
     // Never started.
-    let bytes = World::new().save(&[]).expect("saves");
+    let bytes = World::new(common::data()).save(&[]).expect("saves");
     let (loaded, years) = load(&bytes).expect("loads");
     assert_eq!(loaded.save(&years).expect("saves"), bytes);
     // Right after Start.
@@ -462,7 +471,7 @@ fn save_load_continue_equals_uninterrupted() {
 /// ADR-0006 test 4, ADR-0004 section 6: saving needs an empty log buffer.
 #[test]
 fn save_with_pending_log_is_rejected() {
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(start(0xff, "test:tiny", &[-1]))
         .expect("accepted");
@@ -513,7 +522,7 @@ fn save_rejects_wrong_year_hashes() {
     assert_eq!(world.save(&[hash(0)]), Err(SaveError::YearHashesMismatch));
     assert!(world.save(&out.year_hashes).is_ok());
     // A world that never started has no year ends, however far its clock went.
-    let mut idle = World::new();
+    let mut idle = World::new(common::data());
     idle.advance_until(&mut YearOut::default(), t(3 * Y), &mut |_| false);
     assert_eq!(idle.save(&[hash(0)]), Err(SaveError::YearHashesMismatch));
     assert!(idle.save(&[]).is_ok());
@@ -572,20 +581,27 @@ fn load_rejects_foreign_core_version() {
     }
 }
 
-/// ADR-0003 `load_rejects_foreign_data_hash`.
+/// ADR-0003 `load_rejects_foreign_data_hash`, with the definitions of ADR-0007.
 #[test]
 fn load_rejects_foreign_data_hash() {
     let bytes = File::tiny().bytes();
-    assert!(World::load(&bytes, EMPTY_DATA_HASH).is_ok());
-    assert_eq!(
-        World::load(&bytes, EMPTY_DATA_HASH + 1).err(),
-        Some(LoadError::ForeignDataHash)
-    );
+    assert!(World::load(&bytes, common::data()).is_ok());
     let other = File::tiny().with(|f| f.data_hash = 7);
     assert_eq!(load_error(&other), Some(LoadError::ForeignDataHash));
-    // A world loaded with other data keeps that data hash when it is saved again.
-    let (loaded, years) = World::load(&other, 7).expect("loads with its data hash");
-    assert_eq!(loaded.save(&years).expect("saves"), other);
+    // Other definitions: one calibration value changed. A world made with them saves
+    // their hash, loads with them and is rejected with the repository's.
+    let (mut calibration, genome_map) = common::files();
+    calibration["values"]["core:mutation_rate"]["value"] = serde_json::json!(4e-5);
+    let changed = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+        .expect("checked");
+    assert_ne!(changed.hash(), common::data().hash());
+    let saved = World::new(changed.clone()).save(&[]).expect("saves");
+    let (loaded, years) = World::load(&saved, changed).expect("loads with its data");
+    assert_eq!(loaded.save(&years).expect("saves"), saved);
+    assert_eq!(
+        World::load(&saved, common::data()).err(),
+        Some(LoadError::ForeignDataHash)
+    );
 }
 
 /// The checks run in the order of the table: the first mismatch names the error.
@@ -1145,7 +1161,7 @@ fn a_save_keeps_the_deaths_and_the_archive() {
         assert_eq!(load_error(&file.bytes()), None);
     }
     // The state in year 1 is the one the core reaches.
-    let mut world = World::new();
+    let mut world = World::new(common::data());
     world
         .submit(Input::Start(Start {
             world_seed: 0xff,

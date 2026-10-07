@@ -1,6 +1,7 @@
 //! Saving and loading (ADR-0006): header, the canonical projection, the saved
 //! exceptions. The bytes are uncompressed and fully deterministic.
 
+use crate::data::Data;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -129,16 +130,17 @@ impl World {
             input_log: self.inputs.records.clone(),
             year_hashes: year_hashes.to_vec(),
         };
-        let mut bytes = header_bytes(self.data_hash);
+        let mut bytes = header_bytes(self.data.hash());
         bytes.extend(canonical::canonical_bytes(&self.state, &self.sched));
         bytes.extend(encode(&exceptions));
         Ok(bytes)
     }
 
-    /// Rebuilds a world from a save. `data_hash` is the data hash of the definitions
-    /// the caller has loaded. Reads field by field; the first violation in the order of
-    /// ADR-0006 section 4 names the error.
-    pub fn load(bytes: &[u8], data_hash: u64) -> Result<(World, Vec<YearHash>), LoadError> {
+    /// Rebuilds a world from a save with the definitions the caller has loaded; the
+    /// save must carry their data hash (ADR-0007). Reads field by field; the first
+    /// violation in the order of ADR-0006 section 4 names the error.
+    pub fn load(bytes: &[u8], data: Data) -> Result<(World, Vec<YearHash>), LoadError> {
+        let data_hash = data.hash();
         let rest = bytes.strip_prefix(&MAGIC).ok_or(LoadError::BadMagic)?;
         let (format_version, rest) = take::<u32>(rest)?;
         if format_version != FORMAT_VERSION {
@@ -230,7 +232,7 @@ impl World {
                 next_seq: counter(next_input)?,
                 records: exceptions.input_log,
             },
-            data_hash,
+            data,
         };
         Ok((world, exceptions.year_hashes))
     }
