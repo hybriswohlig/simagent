@@ -389,6 +389,21 @@ fn hair_skin_and_age_follow_the_specification() {
                 + m.freckle_pigment * -0.5)
                 + m.mc1r_freckle * 1.0);
             assert_eq!(at(BodyParamKey::FreckleDensity), freckles);
+            // Every copy of MC1R adds its term: none and two copies as well.
+            for copies in [0_u8, 2] {
+                let other = BodyInputs {
+                    mc1r: copies,
+                    ..inputs
+                };
+                let expected = l(((m.freckle_offset + m.freckle_slope * -0.4)
+                    + m.freckle_pigment * -0.5)
+                    + m.mc1r_freckle * f64::from(copies));
+                assert_eq!(
+                    value(&data, &other, BodyParamKey::FreckleDensity),
+                    expected,
+                    "{copies}"
+                );
+            }
             assert_eq!(at(BodyParamKey::EyebrowDensity), l(0.6));
             let beard = l(((b - theta) - m.beard_lag) / m.beard_tempo);
             let (density, coverage) = if male {
