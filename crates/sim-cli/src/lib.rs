@@ -5,6 +5,7 @@
 pub mod data;
 pub mod error;
 pub mod files;
+pub mod repro;
 pub mod session;
 
 use std::ffi::OsString;
@@ -79,6 +80,11 @@ fn command() -> Command {
         .subcommand(run)
         .subcommand(fork)
         .subcommand(export)
+        .subcommand(
+            Command::new("repro")
+                .about("Replays a repro package; succeeds once the failure is gone (ADR-0016)")
+                .arg(Arg::new("file").value_name("REPRO_JSON").required(true)),
+        )
 }
 
 /// Runs the program with these arguments. A usage error ends the process through clap.
@@ -99,6 +105,10 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
                 override_file,
                 Path::new(text("out")),
             );
+        }
+        Some(("repro", repro)) => {
+            let file = repro.get_one::<String>("file").map_or("", String::as_str);
+            return repro::check(Path::new(file));
         }
         Some(("export", export)) => {
             let dir = export.get_one::<String>("run").map_or("", String::as_str);
