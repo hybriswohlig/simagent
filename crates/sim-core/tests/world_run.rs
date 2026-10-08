@@ -46,6 +46,7 @@ fn start_with(born: &[i64]) -> Input {
         founder_tag: DataId::new("test:world_run").expect("valid"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),

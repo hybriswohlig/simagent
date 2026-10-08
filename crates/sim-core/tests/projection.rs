@@ -31,14 +31,14 @@ fn barren() -> Fertility {
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0901ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
-const PAIR_AFTER_START: &str = "0901ff01010000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b90100000000010000000000000000000201aca1aef0de91d89d860101010000010000000100000100000000000000";
-const TINY_OVERRIDDEN: &str = "0901ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const TINY_AFTER_START: &str = "0901ff0101000000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const PAIR_AFTER_START: &str = "0901ff0101000000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b90100000000010000000000000000000201aca1aef0de91d89d860101010000010000000100000100000000000000";
+const TINY_OVERRIDDEN: &str = "0901ff0101010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
 const TINY_OVERRIDE_ENTRY: &str = "030000010202030001";
-const TINY_AFTER_START_HASH: u64 = 0xd8c2_de8c_8f8b_d9b5;
-const TINY_YEAR_0_HASH: u64 = 0xbd1b_4b05_4968_1def;
-const TINY_AFTER_YEAR_0: &str = "0901ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0x6b6a_9b1f_f213_947b;
+const TINY_AFTER_START_HASH: u64 = 0x81be_44d4_4202_1560;
+const TINY_YEAR_0_HASH: u64 = 0x42e5_a00e_a5ed_f84d;
+const TINY_AFTER_YEAR_0: &str = "0901ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0x95ea_251f_b08f_2e15;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -65,6 +65,7 @@ fn start(seed: u64, born: &[i64]) -> Input {
         founder_tag: DataId::new("test:tiny").expect("valid"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
@@ -112,6 +113,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
             founder_tag: DataId::new("test:pair").expect("valid"),
             world_params: WorldParams {
                 hereditary_diseases: false,
+                nutrition: Vec::new(),
             },
             death_causes: Vec::new(),
             founders: vec![
@@ -127,7 +129,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0xafcc_a18e_81a8_fbdf);
+    assert_eq!(world.state_hash(), 0x0083_9cc6_92bf_4dde);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -142,7 +144,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0xbd31_ce48_4e53_d63c);
+    assert_eq!(world.state_hash(), 0xda98_5123_e4a8_747f);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -180,7 +182,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"bd1b4b0549681def"}"#
+        r#"{"year":0,"hash":"42e5a00ea5edf84d"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

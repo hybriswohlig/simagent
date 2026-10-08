@@ -4,7 +4,8 @@
     "world_seed": "0000000000000001",
     "founder_tag": "test:fork_no_density",
     "world_params": {
-      "hereditary_diseases": false
+      "hereditary_diseases": false,
+      "nutrition": []
     },
     "death_causes": [
       {

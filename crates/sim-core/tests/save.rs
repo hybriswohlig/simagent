@@ -29,11 +29,11 @@ const MONTH: i64 = 2_419_200;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e54010fd6c1f0b488c792f8c301";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000301010100ff0109746573743a74696e790000010100010a636f72653a64756d6d79020001000000000000000000122d0a00";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000402010100ff0109746573743a74696e790000010100010a636f72653a64756d6d79020001000000000000000000122d0a01020101000100";
+const HEADER: &str = "53494d4147454e540110d6c1f0b488c792f8c301";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff0101000000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000301010100ff0109746573743a74696e79000000010100010a636f72653a64756d6d79020001000000000000000000122d0a00";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff0101010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000402010100ff0109746573743a74696e79000000010100010a636f72653a64756d6d79020001000000000000000000122d0a01020101000100";
 const EMPTY_SAVE: &str =
-    "53494d4147454e54010fd6c1f0b488c792f8c301090000000001010100010000000000010000";
+    "53494d4147454e540110d6c1f0b488c792f8c301090000000001010100010000000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -52,6 +52,7 @@ fn start(seed: u64, tag: &str, born: &[i64]) -> Input {
         founder_tag: DataId::new(tag).expect("valid"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
@@ -127,13 +128,22 @@ enum Payload {
     Birth { mother: u64 },
 }
 
+/// `WorldParams` as postcard writes it: the switch, then the nutrition years.
+type TestParams = (bool, Vec<(i64, f64)>);
+
+/// The world parameters with the switch `on` and no nutrition year.
+fn params(on: bool) -> TestParams {
+    (on, Vec::new())
+}
+
 #[derive(Clone, Serialize)]
 enum TestInput {
     Start {
         world_seed: u64,
         founder_tag: String,
-        /// The switch of the hereditary diseases, the only world parameter.
-        world_params: bool,
+        /// The world parameters: the switch of the hereditary diseases and the nutrition
+        /// index as (year, index) pairs (ADR-0013).
+        world_params: TestParams,
         /// (code, hazard per year, on whom it acts)
         death_causes: Vec<(String, f64, TestAppliesTo)>,
         founders: Vec<TestFounder>,
@@ -322,8 +332,8 @@ struct File {
     // Projection (ADR-0003 5.2).
     projection_version: u32,
     world_seed: Option<u64>,
-    /// The switch of the hereditary diseases; `None` before the start.
-    world_params: Option<bool>,
+    /// The world parameters; `None` before the start.
+    world_params: Option<TestParams>,
     /// (key of the code, hazard per year, on whom it acts)
     death_causes: Vec<(u64, f64, TestAppliesTo)>,
     fertility: Option<TestFertility>,
@@ -354,11 +364,11 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 15,
+            core_version: 16,
             data_hash: DATA_HASH,
             projection_version: 9,
             world_seed: Some(0xff),
-            world_params: Some(false),
+            world_params: Some(params(false)),
             death_causes: Vec::new(),
             fertility: Some(BARREN),
             closed_through: -1,
@@ -381,7 +391,7 @@ impl File {
                 TestInput::Start {
                     world_seed: 0xff,
                     founder_tag: "test:tiny".to_owned(),
-                    world_params: false,
+                    world_params: params(false),
                     death_causes: Vec::new(),
                     founders: vec![test_founder(-1)],
                     couples: Vec::new(),
@@ -406,7 +416,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 15);
+    assert_eq!(CORE_VERSION, 16);
 }
 
 // ---------------------------------------------------------------------------------
@@ -622,7 +632,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [14, 16] {
+    for version in [15, 17] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -656,7 +666,7 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 16;
+        f.core_version = 17;
         f.data_hash = 7;
         f.projection_version = 10;
     };
@@ -672,7 +682,7 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 15;
+        f.core_version = 16;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
@@ -729,11 +739,11 @@ fn load_rejects_malformed_bytes() {
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
     // An unknown event variant: index 2 where 0 and 1 exist.
     let mut unknown = good.clone();
-    // Behind the header: version, seed (3 bytes), world parameters (2 bytes), the number of
-    // causes of death, the fertility (12 bytes), clock, sim counter, partnership counter,
-    // queue length, then the first entry with its time (4 bytes), micro step and
-    // insertion number.
-    let payload_at = header + 23 + 4 + 2;
+    // Behind the header: version, seed (3 bytes), world parameters (3 bytes: the switch
+    // and no nutrition year), the number of causes of death, the fertility (12 bytes),
+    // clock, sim counter, partnership counter, queue length, then the first entry with
+    // its time (4 bytes), micro step and insertion number.
+    let payload_at = header + 24 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [1, 1],
@@ -765,7 +775,7 @@ fn load_rejects_non_canonical_bytes() {
             f.input_log[0].2 = TestInput::Start {
                 world_seed: 0xff,
                 founder_tag: "test:tiny".to_owned(),
-                world_params: false,
+                world_params: params(false),
                 death_causes: Vec::new(),
                 founders: vec![test_founder(-1), test_founder(-1)],
                 couples: Vec::new(),
@@ -781,9 +791,10 @@ fn load_rejects_non_canonical_bytes() {
     );
     // The same value as a varint of two bytes: 0x82 0x00 is 2, like 0x02.
     let good = File::tiny().bytes();
-    // Behind the header: version, seed (3 bytes), world parameters (2 bytes), the number
-    // of causes of death, the fertility (12 bytes), clock.
-    let at = hex(HEADER).len() + 20;
+    // Behind the header: version, seed (3 bytes), world parameters (3 bytes: the switch
+    // and no nutrition year), the number of causes of death, the fertility (12 bytes),
+    // clock.
+    let at = hex(HEADER).len() + 21;
     assert_eq!(good[at], 2, "next_sim_id of the tiny world");
     let mut overlong = good.clone();
     overlong.splice(at..=at, [0x82, 0x00]);
@@ -851,7 +862,7 @@ fn load_rejects_an_invalid_queue() {
 /// EventId is 4, and the input log has a second record.
 fn overridden() -> File {
     let mut file = File::tiny();
-    file.world_params = Some(true);
+    file.world_params = Some(params(true));
     file.next_event_id = 4;
     file.input_log.push((-1, 2, override_block(true)));
     file
@@ -875,7 +886,8 @@ fn a_save_keeps_the_override_and_the_world_parameters() {
     assert_eq!(
         loaded.state().world_params(),
         Some(WorldParams {
-            hereditary_diseases: true
+            hereditary_diseases: true,
+            nutrition: Vec::new(),
         })
     );
     assert_eq!(loaded.input_log(), world.input_log());
@@ -898,7 +910,7 @@ fn load_checks_the_override_blocks_of_the_input_log() {
     let two = |change: fn(&mut File)| {
         let mut file = overridden();
         file.closed_through = 4;
-        file.world_params = Some(false);
+        file.world_params = Some(params(false));
         file.next_event_id = 5;
         file.input_log.push((3, 3, override_block(false)));
         change(&mut file);
@@ -909,7 +921,7 @@ fn load_checks_the_override_blocks_of_the_input_log() {
     let cases: [(&str, Vec<u8>); 15] = [
         (
             "a world that never started with world parameters",
-            never_started().with(|f| f.world_params = Some(false)),
+            never_started().with(|f| f.world_params = Some(params(false))),
         ),
         (
             "a started world without world parameters",
@@ -924,15 +936,15 @@ fn load_checks_the_override_blocks_of_the_input_log() {
         ),
         (
             "world parameters that are not those of the start",
-            File::tiny().with(|f| f.world_params = Some(true)),
+            File::tiny().with(|f| f.world_params = Some(params(true))),
         ),
         (
             "world parameters before the override of the log",
-            overridden().with(|f| f.world_params = Some(false)),
+            overridden().with(|f| f.world_params = Some(params(false))),
         ),
         (
             "world parameters of the first of two blocks",
-            two(|f| f.world_params = Some(true)),
+            two(|f| f.world_params = Some(params(true))),
         ),
         (
             // The parameters are those of the start that follows: only the order is wrong.
@@ -941,7 +953,7 @@ fn load_checks_the_override_blocks_of_the_input_log() {
                 f.input_log.swap(0, 1);
                 f.input_log[0].1 = 1;
                 f.input_log[1].1 = 2;
-                f.world_params = Some(false);
+                f.world_params = Some(params(false));
             }),
         ),
         (
@@ -957,7 +969,7 @@ fn load_checks_the_override_blocks_of_the_input_log() {
                 f.input_log[1].2 = TestInput::ForkOverride {
                     changes: Vec::new(),
                 };
-                f.world_params = Some(false);
+                f.world_params = Some(params(false));
             }),
         ),
         (
@@ -1004,8 +1016,8 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs): she dies of
 // `test:base` in year 1, he of `test:old_age` a little later.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b30100000000010000000000000000000203cbdbe1f0b893cbc91e010100000100000001000001000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a00";
-const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b30100000000010000000000000000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e010100000100000001000001000000000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a0200eddcb5c9bcb2a0d3f90102c3cec993a8dec18279";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b30100000000010000000000000000000203cbdbe1f0b893cbc91e010100000100000001000001000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c00000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a00";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b30100000000010000000000000000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e010100000100000001000001000000000101000801010100ff010b746573743a6d6f7274616c00000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a0200d2d1f1bc8af991e2b10102e9edc3cbdcf0deac1b";
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
 const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
 /// `str_key` of `test:base` and `test:old_age`.
@@ -1017,7 +1029,7 @@ const HER_DEATH: i64 = 45_838_596;
 const HER_OLD_AGE: i64 = 119_167_578;
 const HIS_BASE: i64 = 144_172_832;
 const HIS_DEATH: i64 = 53_688_989;
-const MORTAL_YEAR_HASHES: [u64; 2] = [0xf9a6_8193_c92d_6e6d, 0x7905_06f2_8272_6743];
+const MORTAL_YEAR_HASHES: [u64; 2] = [0xb1c4_47c8_a79c_68d2, 0x1b59_7b85_c970_f6e9];
 
 fn she(born: i64) -> Living {
     (
@@ -1081,7 +1093,7 @@ fn mortal_started() -> File {
     file.input_log[0].2 = TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:mortal".to_owned(),
-        world_params: false,
+        world_params: params(false),
         death_causes: vec![
             ("test:base".to_owned(), 0.5, Everyone),
             ("test:old_age".to_owned(), 0.05, Everyone),
@@ -1172,7 +1184,7 @@ fn tie_started() -> File {
     file.input_log[0].2 = TestInput::Start {
         founder_tag: "test:tie".to_owned(),
         world_seed: 0xff,
-        world_params: false,
+        world_params: params(false),
         death_causes: vec![
             ("test:base".to_owned(), 5.0, Everyone),
             ("test:old_age".to_owned(), old_age_per_year, Everyone),
@@ -1237,6 +1249,7 @@ fn a_save_keeps_the_deaths_and_the_archive() {
             founder_tag: DataId::new("test:mortal").expect("valid"),
             world_params: WorldParams {
                 hereditary_diseases: false,
+                nutrition: Vec::new(),
             },
             death_causes: vec![
                 DeathCause {
@@ -1451,9 +1464,9 @@ fn load_checks_the_deaths() {
 // Scenario "sick" of tools/state_reference.py: `test:base` with 0.02 per year for everyone,
 // `test:dummy_disease` with 0.3 per year for the homozygous only, while the switch is on.
 // She has one dummy allele, he has two.
-const SWITCHED_ON_SAVE: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c01010000010000000100000100018088ff1d00000000000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0afe87ff1d02010100010100e8daa5bf87d5aaf3be01";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000000010000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c0101000001000000010000010001000000030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a0400bfc180c7f08acfe9b10102abb398b5c6c7c3a8e3010487f3ffbbe5c6edf3810106f7bdd7b59fddb796c101";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001c6ceaf60000000000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0ac4ceaf6002010100000500bfc180c7f08acfe9b10102abb398b5c6c7c3a8e3010487f3ffbbe5c6edf3810106b0819091d684a5eae20108bca19190a0f6c0b7f001";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c01010000010000000100000100018088ff1d00000000000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b00000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0afe87ff1d0201010001010087f697d5f5ea97a48401";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000000010000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c0101000001000000010000010001000000030bfe9ffc77010002000c01010100ff0109746573743a7369636b01000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a040094fdb0e6b392b699b90102f2c1edc288bf8ea2a70104e0eae497cefe94ee6906e0dcd6e7f4e6f4ca0d";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001c6ceaf60000000000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b01000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0ac4ceaf600201010000050094fdb0e6b392b699b90102f2c1edc288bf8ea2a70104e0eae497cefe94ee69068bb4e095ce9aca8d2908bad9bdc58ebcfea7ad01";
 /// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
 const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
 /// The `str_key` of `test:dummy_disease`.
@@ -1467,7 +1480,7 @@ fn sick_start(on: bool) -> TestInput {
     TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:sick".to_owned(),
-        world_params: on,
+        world_params: params(on),
         death_causes: vec![
             ("test:base".to_owned(), 0.02, Everyone),
             ("test:dummy_disease".to_owned(), 0.3, DummyHomozygous),
@@ -1510,7 +1523,7 @@ fn sick_he(exposure: TestExposure) -> Living {
 /// all that was planned before.
 fn sick_switched_on() -> File {
     let mut file = File::tiny();
-    file.world_params = Some(true);
+    file.world_params = Some(params(true));
     file.death_causes = vec![(BASE, 0.02, Everyone), (DISEASE, 0.3, DummyHomozygous)];
     file.closed_through = Y - 1;
     file.next_sim_id = 3;
@@ -1527,7 +1540,7 @@ fn sick_switched_on() -> File {
     file.plan_refs = vec![(4, Y - 2), (5, Y - 1), (1, 0), (6, Y), (3, 0), (2, 0)];
     file.next_event_id = 7;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0xbee6_aaa8_77e9_6d68)];
+    file.year_hashes = vec![(0, 0x8448_5f57_5aa5_fb07)];
     file
 }
 
@@ -1548,10 +1561,10 @@ fn sick_on_after_year_3() -> File {
     file.next_event_id = 12;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0xb1d3_3c57_08e0_20bf),
-        (1, 0xe351_0e3c_66a6_19ab),
-        (2, 0x81e7_b636_577f_f987),
-        (3, 0xc12c_dee9_f6b5_def7),
+        (0, 0xb932_d893_3ccc_3e94),
+        (1, 0xa744_39f8_885b_60f2),
+        (2, 0x69dc_53f4_e2f9_3560),
+        (3, 0x0d95_d337_4cf5_ae60),
     ];
     file
 }
@@ -1560,7 +1573,7 @@ fn sick_on_after_year_3() -> File {
 /// disease was due: he lives with the budget used up, at the end of year 4.
 fn sick_off_at_due() -> File {
     let mut file = sick_switched_on();
-    file.world_params = Some(false);
+    file.world_params = Some(params(false));
     file.closed_through = 5 * Y - 1;
     file.queue = vec![
         (6 * Y - 2, 0, 15, Payload::Birthday { sim: 2 }, None),
@@ -1578,11 +1591,11 @@ fn sick_off_at_due() -> File {
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0xb1d3_3c57_08e0_20bf),
-        (1, 0xe351_0e3c_66a6_19ab),
-        (2, 0x81e7_b636_577f_f987),
-        (3, 0xe2d4_9425_6224_00b0),
-        (4, 0xf06f_03b2_0204_50bc),
+        (0, 0xb932_d893_3ccc_3e94),
+        (1, 0xa744_39f8_885b_60f2),
+        (2, 0x69dc_53f4_e2f9_3560),
+        (3, 0x291b_28d4_e2b8_1a0b),
+        (4, 0xad4f_f9e0_e8af_6cba),
     ];
     file
 }
@@ -1708,8 +1721,8 @@ fn load_checks_the_exposure() {
 // Scenario "partners" of tools/state_reference.py: the causes of "mortal", a woman and two
 // men. `Start` pairs her with the first man; he dies first, and at the start of year 1
 // `ArrangePartnership` pairs her with the second.
-const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb0100000000010000000000000000000305a7f3f8fdb9ee88cfed010101000000000000010000000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d0202010301009ae1b8c0ffaacaab0c";
-const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb0100000000010000000000000000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed0101010000000000000100000000000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d0202010305009ae1b8c0ffaacaab0c0294ccf3dde8a9c0beb50104a6f7a3f7cfb88fec3f06f9b3c2a0e180e0ae3108b5d1deb8eac3c1c9d901";
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb0100000000010000000000000000000305a7f3f8fdb9ee88cfed010101000000000000010000000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e65727300000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d02020103010098b8b8e18b8492a9fd01";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb0100000000010000000000000000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed0101010000000000000100000000000101001202010100ff010d746573743a706172746e65727300000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d02020103050098b8b8e18b8492a9fd01028cd5cdbeeceefec3aa0104b782ffaacabd8d83bd0106fcadd4d9adabd5b271089085c08dd395d4c2ea01";
 /// The lineage keys of the founders 0 to 2 of `test:partners` (tools/rng_reference.py).
 const PARTNERS_KEYS: [u64; 3] = [
     0xdb37_436e_e875_082a,
@@ -1724,7 +1737,7 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
     TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:partners".to_owned(),
-        world_params: false,
+        world_params: params(false),
         death_causes: vec![
             ("test:base".to_owned(), 0.5, Everyone),
             ("test:old_age".to_owned(), 0.05, Everyone),
@@ -1821,7 +1834,7 @@ fn partners_arranged() -> File {
         (-1, 1, partners_start(vec![(0, 1)])),
         (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
     ];
-    file.year_hashes = vec![(0, 0xc57_2957_f80e_309a)];
+    file.year_hashes = vec![(0, 0xfd52_4820_bc2e_1c18)];
     file
 }
 
@@ -1842,11 +1855,11 @@ fn partners_after_year_4() -> File {
     file.plan_refs = vec![(1, 0)];
     file.next_event_id = 18;
     file.year_hashes = vec![
-        (0, 0xc57_2957_f80e_309a),
-        (1, 0xb57d_014e_8bbc_e614),
-        (2, 0x3fd8_3dc4_fee8_fba6),
-        (3, 0x315d_8006_1410_99f9),
-        (4, 0xd993_061e_a717_a8b5),
+        (0, 0xfd52_4820_bc2e_1c18),
+        (1, 0xaa87_fb76_c7d3_6a8c),
+        (2, 0xbd06_35ec_a55f_c137),
+        (3, 0x7165_555a_db35_16fc),
+        (4, 0xea85_50ad_31b0_0290),
     ];
     file
 }
@@ -1981,7 +1994,7 @@ fn load_checks_the_partnerships() {
 
 // Scenario "clan" of tools/state_reference.py: three founder couples and a fertility of
 // 0.25 per month; the first woman conceives in month 5.
-const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80c8c40b07040ffe87ff1d000100018088ff1d8088ff1d00100101008088ff1d00110102008088ff1d00120103008088ff1d00130104008088ff1d00140105008088ff1d001501060080d8cd22001604010080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100170601ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000003010102000002030400000305060000010102f3c89ad6cdbbe183cd0100000100000100000000000080c8c40b000f01000b000c000d000e000f0010001180c8c40b09000600040007000500020003001401010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a00";
+const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80c8c40b07040ffe87ff1d000100018088ff1d8088ff1d00100101008088ff1d00110102008088ff1d00120103008088ff1d00130104008088ff1d00140105008088ff1d001501060080d8cd22001604010080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100170601ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000003010102000002030400000305060000010102f3c89ad6cdbbe183cd0100000100000100000000000080c8c40b000f01000b000c000d000e000f0010001180c8c40b09000600040007000500020003001401010100ff0109746573743a636c616e00000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a00";
 /// The lineage keys of the founders 0 to 5 of `test:clan` (tools/rng_reference.py).
 const CLAN_KEYS: [u64; 6] = [
     0xd0a1_58c1_6220_f6dd,
@@ -2008,7 +2021,7 @@ fn clan_start() -> TestInput {
     TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:clan".to_owned(),
-        world_params: false,
+        world_params: params(false),
         death_causes: vec![("test:base".to_owned(), 0.02, Everyone)],
         founders: vec![
             founder(20, FEMALE, Alleles(WILD, DUMMY)),
@@ -2160,7 +2173,7 @@ fn a_save_keeps_the_pregnancy() {
     assert_eq!(load_error(&clan_conceived().bytes()), None);
 }
 
-const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e54010fd6c1f0b488c792f8c3010901ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80d8cd220804118080f524001f03010180a8a702fe8ffe3b000100018088ff1d8090fe3b00170101008090fe3b00180102008090fe3b00190103008090fe3b001a0104008090fe3b001b0105008090fe3b001c01060080e0cc40001d01070080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b01009889dff403001e02078bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100200701ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000780d8cd22f3c89ad6cdbbe183cd0100010000010000000000000100000001010200030101020000020304000003050600000000111a80d8cd220100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd220900060004001a80d8cd2207000500020003001b01010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a0100ddb0c9caaa95c7d4da01";
+const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e540110d6c1f0b488c792f8c3010901ff01010000018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80d8cd220804118080f524001f03010180a8a702fe8ffe3b000100018088ff1d8090fe3b00170101008090fe3b00180102008090fe3b00190103008090fe3b001a0104008090fe3b001b0105008090fe3b001c01060080e0cc40001d01070080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b01009889dff403001e02078bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100200701ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000780d8cd22f3c89ad6cdbbe183cd0100010000010000000000000100000001010200030101020000020304000003050600000000111a80d8cd220100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd220900060004001a80d8cd2207000500020003001b01010100ff0109746573743a636c616e00000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a0100f19cfedf9ba0ffb9e901";
 /// When the child (sim 7) dies of `test:base`.
 const CHILD_DEATH: i64 = 525_066_828;
 
@@ -2231,7 +2244,7 @@ fn clan_born() -> File {
     ));
     file.pregnancies.clear();
     file.next_event_id = 27;
-    file.year_hashes = vec![(0, 0xdaa9_1caa_a952_585d)];
+    file.year_hashes = vec![(0, 0xe973_fd01_bbff_8e71)];
     file
 }
 
@@ -2548,7 +2561,7 @@ fn start_with_founders(file: &mut File, born: Vec<i64>) {
     file.input_log[0].2 = TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:tiny".to_owned(),
-        world_params: false,
+        world_params: params(false),
         death_causes: Vec::new(),
         founders: born.into_iter().map(test_founder).collect(),
         couples: Vec::new(),
