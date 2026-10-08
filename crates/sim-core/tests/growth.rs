@@ -156,3 +156,28 @@ fn the_timing_moves_the_spurt() {
         );
     }
 }
+
+/// ADR-0010 section 2: with the largest rates the checks allow and an early timing, the
+/// denominator of Preece-Baines overflows long before 130 years; the curve is then its
+/// limit `h1`, never NaN or infinite.
+#[test]
+fn the_curve_stays_finite_to_130_years() {
+    let (mut calibration, genome_map) = common::files();
+    for (key, value) in [
+        ("core:growth_s0_male", 9.0),
+        ("core:growth_s1_male", 10.0),
+        ("core:growth_theta_male", 0.5),
+    ] {
+        calibration["values"][key]["value"] = serde_json::json!(value);
+    }
+    let data = sim_core::data::Data::new(
+        common::definitions(calibration, genome_map).expect("definitions"),
+    )
+    .expect("checked");
+    let curve = data.genetics().growth(Sex::Male);
+    for t in [3_i64, 50, 80, 130] {
+        let height = mean_height(&curve, YEAR * t, curve.theta);
+        assert!(height.is_finite(), "{t}: {height}");
+    }
+    assert_eq!(mean_height(&curve, YEAR * 130, curve.theta), curve.h1);
+}
