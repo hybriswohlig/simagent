@@ -108,15 +108,20 @@ Mutation (2.4), one side, after that side's recombination (2.3)
   slots are absent from the map, so they are absent from E and do not mutate
   (2.1).
 - Lambda is the sum of the rates in E, added left to right as Python floats.
-- m = poisson_reference(word, Lambda) with MUTATION_COUNT, detail 0. Subject
-  is the child's genome_key. Occasion is the side, 0 mother, 1 father.
+- m is the sum of the draws poisson(min(30, Lambda - 30*c)) with
+  MUTATION_COUNT, detail c, for c = 0, 1, ... while Lambda - 30*c > 0, and
+  always at least the draw for c = 0. Lambda = 0 still draws poisson(0) once,
+  at detail 0. 30 is the largest mean poisson accepts (ADR-0001 section 3).
+  Subject is the child's genome_key. Occasion is the side, 0 mother, 1 father.
+  For Lambda <= 30 this is one draw poisson(Lambda) at detail 0.
 - For j = 0 .. m-1, while E is not empty: u = unit(word) with MUTATION_SITE,
   same subject and occasion, detail j. total is the rates of the loci still
   in E, added left to right. threshold = u * total. Walk that list in order,
   adding rates left to right, and take the first locus whose running sum is
-  strictly greater than threshold. Flip its allele (0 becomes 1, 1 becomes 0)
-  and remove it from E. When m is longer than E, stop once E is empty, and do
-  not draw a site for the remaining j.
+  strictly greater than threshold. If none is (rounding: the running sum never
+  passes the threshold), take the last locus of the remaining list. Flip its
+  allele (0 becomes 1, 1 becomes 0) and remove it from E. When m is longer
+  than E, stop once E is empty, and do not draw a site for the remaining j.
 - The side records the mutations in the order they were chosen:
   {"locus": id, "old": a, "new": b}.
 
@@ -147,7 +152,19 @@ direction (both, to_ref, to_alt)[i % 3], so every disease locus is to_alt
 (section 3.3). Rates are standard 0.05 and disease 0.02, high so that
 mutations occur in the six cases. Those cases use the same seeds, genome keys
 and parental alleles as --vectors. The child is the genome after mutation of
-both sides. The printed object is {"genome_map", "rates", "cases"}.
+both sides. The printed object is {"genome_map", "rates", "cases", "parts"}.
+The first three keys are the six cases above.
+
+Parts (--mutation-vectors, key "parts"), a rule of this file, not of the
+specification: {"genome_map", "rates", "cases"}. Forty autosomal loci.
+Construction index i lies on segment i % 8 and slot i // 8. The list is sorted
+by segment, then slot, and the ids "test:p00" .. "test:p39" are numbered in
+that order. Every mark is "small" and every direction is "both". Rates are
+standard 0.9 and disease 0.02. Every locus is eligible on every gamete, so
+each side's Lambda is the left-to-right sum of forty standard rates and the
+count takes two parts, min(30, Lambda) and Lambda - 30. The cases are the
+first three VECTOR_CASES pairs, with the same parents as --vectors and the
+same record format as "cases".
 
 Self-check (--self-check-mutation): 20000 maternal meioses, seed 1, genome_key
 0 .. 19999, the test rates, and the test map with every direction set to both.
@@ -158,11 +175,17 @@ the left-to-right rate sum of the autosomal, X and mt loci. Y is not on that
 haplotype (2.3). The mean number of recorded mutations must lie within 0.02
 of that Lambda.
 
+Self-check (--self-check-parts): 4000 maternal meioses, seed 1, genome_key
+0 .. 3999, the parts map and the contrast mother. The mean of m (the Poisson
+count, before the list E runs out) must lie within 4 standard errors of 36.
+The standard error is sqrt(36 / 4000).
+
 Usage:
   python3 tools/meiosis_reference.py --vectors
   python3 tools/meiosis_reference.py --self-check
   python3 tools/meiosis_reference.py --mutation-vectors
   python3 tools/meiosis_reference.py --self-check-mutation
+  python3 tools/meiosis_reference.py --self-check-parts
 """
 
 import argparse
@@ -242,6 +265,13 @@ MUTATION_SELF_CHECK_N = 20000
 # Loci on the mother haplotype of the test map: 24 minus the 2 Y loci.
 MOTHER_HAPLOTYPE_LOCI = 22
 MOTHER_DISEASE_LOCI = 7
+
+# Parts map: 40 autosomal loci, five slots on each of the eight segments.
+PARTS_LOCI = 40
+PARTS_RATES = {"standard": 0.9, "disease": 0.02}
+PARTS_SELF_CHECK_N = 4000
+PARTS_REFERENCE_MEAN = 36.0
+PARTS_STANDARD_ERRORS = 4.0
 
 
 def u64(name, value):
@@ -579,6 +609,40 @@ def build_test_genome_map():
     return genome_map
 
 
+def build_parts_genome_map():
+    """40 autosomal loci, ids test:p00 .. test:p39, in map order.
+
+    Construction index i is segment i % 8 and slot i // 8. The loci are then
+    sorted by segment and slot, and the ids are numbered in that order. Every
+    mark is small and every direction is both.
+    """
+    positions = sorted(
+        (index % AUTOSOME_SEGMENTS, index // AUTOSOME_SEGMENTS) for index in range(PARTS_LOCI)
+    )
+    if len(set(positions)) != PARTS_LOCI:
+        raise RuntimeError("parts map positions are not unique")
+    genome_map = []
+    for number, (segment, slot) in enumerate(positions):
+        genome_map.append(
+            {
+                "id": f"test:p{number:02d}",
+                "chromosome": "autosome",
+                "segment": segment,
+                "slot": slot,
+                "mark": "small",
+                "direction": "both",
+            }
+        )
+    if [locus["id"] for locus in genome_map] != [f"test:p{i:02d}" for i in range(PARTS_LOCI)]:
+        raise RuntimeError("parts locus ids are not test:p00 .. test:p39")
+    ordered = loci_in_map_order(genome_map)
+    if [(locus["segment"], locus["slot"]) for locus in ordered] != positions:
+        raise RuntimeError("the parts map is not in map order")
+    if [locus["id"] for locus in ordered] != [locus["id"] for locus in genome_map]:
+        raise RuntimeError("parts ids are not numbered in map order")
+    return genome_map
+
+
 def map_order_key(locus):
     """Autosomes by segment then slot, then X, Y, mt by slot (spec 2.4)."""
     chromosome = locus["chromosome"]
@@ -745,7 +809,13 @@ def eligible_loci(genome_map, gamete):
 
 
 def choose_index(remaining, rates, draw):
-    """First locus whose running rate sum is strictly above draw * total."""
+    """First locus whose running rate sum is strictly above draw * total.
+
+    If rounding leaves every running sum at or below the threshold, spec 2.4
+    takes the last locus of the remaining list.
+    """
+    if not remaining:
+        raise ValueError("mutation site draw with an empty list")
     total = rate_sum(remaining, rates)
     threshold = draw * total
     running = 0.0
@@ -753,10 +823,33 @@ def choose_index(remaining, rates, draw):
         running += locus_rate(locus, rates)
         if running > threshold:
             return index
-    raise RuntimeError(
-        "mutation site draw did not select a locus "
-        f"(u={draw!r}, total={total!r}, remaining={len(remaining)})"
-    )
+    return len(remaining) - 1
+
+
+def mutation_parts(lam):
+    """Poisson means min(30, Lambda - 30*c) for spec 2.4, at least c = 0.
+
+    The parts are Python floats. Callers pass the left-to-right rate sum, so a
+    Lambda of 40 * 0.9 is the repeated sum of the float 0.9, not the real
+    product 36, and the second part is that sum minus 30.
+    """
+    if type(lam) is not float or not math.isfinite(lam) or lam < 0.0:
+        raise ValueError(f"Lambda {lam!r} is not a finite sum of rates at least 0")
+    parts = []
+    detail = 0
+    while detail == 0 or lam - 30.0 * detail > 0.0:
+        parts.append(min(30.0, lam - 30.0 * detail))
+        detail += 1
+    return parts
+
+
+def mutation_draw_count(seed, genome_key, side, lam):
+    """m, the sum of the MUTATION_COUNT draws in spec 2.4."""
+    count = 0
+    for detail, part in enumerate(mutation_parts(lam)):
+        word = first_word(seed, MUTATION_COUNT, genome_key, side, detail)
+        count += poisson_count(word, part)
+    return count
 
 
 def mutate(seed, genome_key, side, gamete, genome_map, rates):
@@ -768,10 +861,7 @@ def mutate(seed, genome_key, side, gamete, genome_map, rates):
     gamete = copy_gamete(gamete)
     eligible = eligible_loci(genome_map, gamete)
     lam = rate_sum(eligible, rates)
-    if not 0.0 <= lam <= 30.0:
-        raise ValueError(f"Lambda {lam} is outside the poisson domain [0, 30]")
-    count_word = first_word(seed, MUTATION_COUNT, genome_key, side, 0)
-    count = poisson_count(count_word, lam)
+    count = mutation_draw_count(seed, genome_key, side, lam)
     mutations = []
     for detail in range(count):
         if not eligible:
@@ -817,6 +907,7 @@ def child_with_mutation(seed, genome_key, mother, father, map_lengths, genome_ma
 
 
 TEST_GENOME_MAP = build_test_genome_map()
+PARTS_GENOME_MAP = build_parts_genome_map()
 
 
 def map_directions_both(genome_map):
@@ -858,7 +949,33 @@ def mutation_vector_cases(map_lengths=None, genome_map=None, rates=None):
                 "records": records,
             }
         )
-    return {"genome_map": genome_map, "rates": rates, "cases": cases}
+    parts_cases = []
+    for case_index, (seed, genome_key) in enumerate(VECTOR_CASES[:3]):
+        mother = vector_mother(case_index)
+        father = vector_father(case_index)
+        genome, records = child_with_mutation(
+            seed, genome_key, mother, father, map_lengths, PARTS_GENOME_MAP, PARTS_RATES
+        )
+        parts_cases.append(
+            {
+                "seed": seed,
+                "genome_key": f"{genome_key:016x}",
+                "mother": mother,
+                "father": father,
+                "child": genome,
+                "records": records,
+            }
+        )
+    return {
+        "genome_map": genome_map,
+        "rates": rates,
+        "cases": cases,
+        "parts": {
+            "genome_map": PARTS_GENOME_MAP,
+            "rates": PARTS_RATES,
+            "cases": parts_cases,
+        },
+    }
 
 
 def self_check_mutation(map_lengths=None):
@@ -920,6 +1037,75 @@ def self_check_mutation(map_lengths=None):
     print("within 0.02 of Lambda")
 
 
+def self_check_parts(map_lengths=None):
+    """Mean of m on the parts map, within 4 Poisson standard errors of 36."""
+    if map_lengths is None:
+        map_lengths = load_map_lengths()
+    genome_map = PARTS_GENOME_MAP
+    rates = PARTS_RATES
+    parent = contrast_mother()
+    total = 0
+    lam = None
+    parts = None
+    for genome_key in range(PARTS_SELF_CHECK_N):
+        gamete, _record = meiosis(
+            SELF_CHECK_SEED, genome_key, SIDE_MOTHER, parent, map_lengths
+        )
+        eligible = eligible_loci(genome_map, gamete)
+        if len(eligible) != PARTS_LOCI:
+            raise SystemExit(
+                f"self-check parts failed: genome_key {genome_key} left "
+                f"{len(eligible)} loci eligible, not {PARTS_LOCI}"
+            )
+        observed_lambda = rate_sum(eligible, rates)
+        observed_parts = mutation_parts(observed_lambda)
+        if lam is None:
+            lam = observed_lambda
+            parts = observed_parts
+        elif observed_lambda != lam or observed_parts != parts:
+            raise SystemExit(
+                f"self-check parts failed: Lambda changed from {lam!r} to {observed_lambda!r}"
+            )
+        count = mutation_draw_count(SELF_CHECK_SEED, genome_key, SIDE_MOTHER, lam)
+        _mutated, mutations = mutate(
+            SELF_CHECK_SEED, genome_key, SIDE_MOTHER, gamete, genome_map, rates
+        )
+        placed = min(count, len(eligible))
+        if len(mutations) != placed:
+            raise SystemExit(
+                f"self-check parts failed: genome_key {genome_key} recorded "
+                f"{len(mutations)} mutations, not min(m, |E|) = {placed}"
+            )
+        total += count
+    if lam is None or parts is None:
+        raise SystemExit("self-check parts failed: no meioses")
+    if len(parts) != 2 or parts[0] != 30.0:
+        raise SystemExit(
+            f"self-check parts failed: expected two parts starting at 30, found {parts!r}"
+        )
+    mean = total / PARTS_SELF_CHECK_N
+    standard_error = math.sqrt(PARTS_REFERENCE_MEAN / PARTS_SELF_CHECK_N)
+    limit = PARTS_STANDARD_ERRORS * standard_error
+    difference = abs(mean - PARTS_REFERENCE_MEAN)
+    print(f"n {PARTS_SELF_CHECK_N}")
+    print(f"seed {SELF_CHECK_SEED}")
+    print(f"side {SIDE_MOTHER}")
+    print(f"eligible {PARTS_LOCI}")
+    print(f"lambda {lam!r}")
+    print(f"parts {parts!r}")
+    print(f"reference {PARTS_REFERENCE_MEAN!r}")
+    print(f"mean {mean!r}")
+    print(f"standard_error {standard_error!r}")
+    print(f"abs_diff {difference!r}")
+    print(f"limit {limit!r}")
+    if difference > limit:
+        raise SystemExit(
+            f"self-check parts failed: mean {mean} differs from {PARTS_REFERENCE_MEAN} "
+            f"by {difference}, more than {PARTS_STANDARD_ERRORS:g} standard errors ({limit})"
+        )
+    print(f"within {PARTS_STANDARD_ERRORS:g} standard errors of 36")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Independent meiosis and mutation reference (spec 2.1 to 2.4)."
@@ -929,12 +1115,17 @@ def main():
     parser.add_argument(
         "--mutation-vectors",
         action="store_true",
-        help="print the test map, rates and six cases after mutation",
+        help="print the test map, rates, six cases, and the parts vector set",
     )
     parser.add_argument(
         "--self-check-mutation",
         action="store_true",
         help="mean mutation count against Lambda on 20000 meioses",
+    )
+    parser.add_argument(
+        "--self-check-parts",
+        action="store_true",
+        help="mean Poisson count within 4 standard errors of 36 on 4000 meioses",
     )
     args = parser.parse_args()
     selected = (
@@ -942,11 +1133,12 @@ def main():
         args.self_check,
         args.mutation_vectors,
         args.self_check_mutation,
+        args.self_check_parts,
     )
     if sum(selected) != 1:
         parser.error(
             "pass exactly one of --vectors, --self-check, "
-            "--mutation-vectors or --self-check-mutation"
+            "--mutation-vectors, --self-check-mutation or --self-check-parts"
         )
     if args.vectors:
         json.dump({"cases": vector_cases()}, sys.stdout, indent=1)
@@ -956,8 +1148,10 @@ def main():
     elif args.mutation_vectors:
         json.dump(mutation_vector_cases(), sys.stdout, indent=1)
         sys.stdout.write("\n")
-    else:
+    elif args.self_check_mutation:
         self_check_mutation()
+    else:
+        self_check_parts()
 
 
 if __name__ == "__main__":
