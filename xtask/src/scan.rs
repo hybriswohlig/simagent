@@ -415,15 +415,70 @@ pub const BODY_DIR: &str = "crates/sim-core/src/body_contract/";
 /// `canonical.rs` and every rule outside the contract module stay without them.
 pub const BODY_NAMES: [&str; 3] = ["BodyParams", "BodyEvaluation", "body_params"];
 
+/// The new names that a file of `BODY_DIR` gives one of `names`: `... name as New` in a
+/// `use` and `type New = ... name ...`, in code only.
+fn aliases_of(source: &str, names: &[String]) -> Vec<String> {
+    let code = mask_non_code(source);
+    let words: Vec<&str> = code
+        .split(|c: char| !is_identifier_char(c))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut aliases = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let named = |w: &&str| names.iter().any(|name| name == w);
+        // `Name as New`.
+        if named(word)
+            && words.get(i + 1) == Some(&"as")
+            && let Some(new) = words.get(i + 2)
+        {
+            aliases.push((*new).to_string());
+        }
+        // `type New = ...;` naming a body name before the end of the statement.
+        if *word == "type"
+            && let Some(new) = words.get(i + 1)
+        {
+            let statement = code
+                .split(&format!("type {new}"))
+                .nth(1)
+                .and_then(|rest| rest.split(';').next())
+                .unwrap_or_default();
+            if names
+                .iter()
+                .any(|name| mentions_identifier(statement, name))
+            {
+                aliases.push((*new).to_string());
+            }
+        }
+    }
+    aliases
+}
+
 /// Every file of `sim-core/src` (path relative to the workspace root, source) outside
-/// `BODY_DIR` that names one of `BODY_NAMES`.
+/// `BODY_DIR` that names one of `BODY_NAMES`, or a new name a file of `BODY_DIR` gives one
+/// of them by `as` or a type alias.
 pub fn body_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let mut names: Vec<String> = BODY_NAMES.iter().map(|name| name.to_string()).collect();
+    loop {
+        let before = names.len();
+        for (path, source) in core_sources {
+            if path.starts_with(BODY_DIR) {
+                for alias in aliases_of(source, &names) {
+                    if !names.contains(&alias) {
+                        names.push(alias);
+                    }
+                }
+            }
+        }
+        if names.len() == before {
+            break;
+        }
+    }
     let mut findings = Vec::new();
     for (path, source) in core_sources {
         if path.starts_with(BODY_DIR) {
             continue;
         }
-        for name in BODY_NAMES {
+        for name in &names {
             if mentions_identifier(source, name) {
                 findings.push(format!(
                     "{path}: names {name} (the body values are no state; only {BODY_DIR} names them, ADR-0005, ADR-0015)"
@@ -1218,6 +1273,42 @@ struct Often { fn_count: u8 }
                 vec![format!(
                     "{path}: names {name} (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
                 )]
+            );
+        }
+        // A rule outside state/ too.
+        assert_eq!(
+            body_findings(&core(&[(
+                "crates/sim-core/src/world/mod.rs",
+                "fn f() { let _ = crate::body_contract::body_params; }",
+            )])),
+            vec![
+                "crates/sim-core/src/world/mod.rs: names body_params (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                    .to_string()
+            ]
+        );
+        // A new name given in the contract module is the old name: by `as` and by a type
+        // alias, also an alias of an alias.
+        for (alias_source, used) in [
+            ("pub use generated::BodyParams as Shape;", "Shape"),
+            ("pub type Shape = generated::BodyParams;", "Shape"),
+            (
+                "pub type Shape = BodyEvaluation;\npub use self::Shape as Form;",
+                "Form",
+            ),
+        ] {
+            let aliased = core(&[
+                ("crates/sim-core/src/body_contract/mod.rs", alias_source),
+                (
+                    "crates/sim-core/src/state/mod.rs",
+                    &format!("pub(crate) struct Sim {{ body: crate::body_contract::{used} }}"),
+                ),
+            ]);
+            assert_eq!(
+                body_findings(&aliased),
+                vec![format!(
+                    "crates/sim-core/src/state/mod.rs: names {used} (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                )],
+                "{alias_source}"
             );
         }
         // Longer names and comments are not the names.
