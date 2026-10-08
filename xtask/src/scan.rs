@@ -407,6 +407,33 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
     findings
 }
 
+/// The directory whose files may name the body values of a moment (ADR-0005 section 1,
+/// ADR-0015 section 5); the census and the presentation join with their paths.
+pub const BODY_DIR: &str = "crates/sim-core/src/body_contract/";
+
+/// The names that only `BODY_DIR` may use: the body values are no state, so `state/`,
+/// `canonical.rs` and every rule outside the contract module stay without them.
+pub const BODY_NAMES: [&str; 3] = ["BodyParams", "BodyEvaluation", "body_params"];
+
+/// Every file of `sim-core/src` (path relative to the workspace root, source) outside
+/// `BODY_DIR` that names one of `BODY_NAMES`.
+pub fn body_findings(core_sources: &[(String, String)]) -> Vec<String> {
+    let mut findings = Vec::new();
+    for (path, source) in core_sources {
+        if path.starts_with(BODY_DIR) {
+            continue;
+        }
+        for name in BODY_NAMES {
+            if mentions_identifier(source, name) {
+                findings.push(format!(
+                    "{path}: names {name} (the body values are no state; only {BODY_DIR} names them, ADR-0005, ADR-0015)"
+                ));
+            }
+        }
+    }
+    findings
+}
+
 /// The only file that names the generator type, and how often: its import and the one
 /// generator that `key_words` builds and drops.
 pub const GENERATOR_FILE: &str = "crates/sim-core/src/rng/mod.rs";
@@ -1148,6 +1175,58 @@ struct Often { fn_count: u8 }
                     .to_string()
             ]
         );
+    }
+
+    #[test]
+    fn a_clean_core_has_no_body_findings() {
+        let mapped = core(&[
+            (
+                "crates/sim-core/src/body_contract/mapping.rs",
+                "pub fn body_params(b: &BodyData) -> BodyEvaluation { todo() }",
+            ),
+            (
+                "crates/sim-core/src/body_contract/mod.rs",
+                "pub use generated::BodyParams;",
+            ),
+        ]);
+        assert_eq!(body_findings(&mapped), Vec::<String>::new());
+    }
+
+    /// ADR-0005 canary: the body values in the state, in the projection or in a rule are
+    /// found, in every form of the three names.
+    #[test]
+    fn scan_rejects_body_params_in_state() {
+        for (path, source, name) in [
+            (
+                "crates/sim-core/src/state/mod.rs",
+                "pub(crate) struct Sim { body: BodyParams }",
+                "BodyParams",
+            ),
+            (
+                "crates/sim-core/src/canonical.rs",
+                "fn f(e: &crate::body_contract::BodyEvaluation) {}",
+                "BodyEvaluation",
+            ),
+            (
+                "crates/sim-core/src/state/partnership.rs",
+                "let tall = body_params(&body, &inputs).params.height_cm();",
+                "body_params",
+            ),
+        ] {
+            assert_eq!(
+                body_findings(&core(&[(path, source)])),
+                vec![format!(
+                    "{path}: names {name} (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                )]
+            );
+        }
+        // Longer names and comments are not the names.
+        let near = core(&[(
+            "crates/sim-core/src/state/mod.rs",
+            "// BodyParams are no state
+fn body_params_of_sim() {}",
+        )]);
+        assert_eq!(body_findings(&near), Vec::<String>::new());
     }
 
     #[test]
