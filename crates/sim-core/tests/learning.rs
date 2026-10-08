@@ -32,7 +32,8 @@ fn p8_level_strictly_increasing_in_talent() {
 }
 
 /// W11.5a: on the plateau one standard deviation of talent raises the level by
-/// `e^0.25 − 1` = 0.2840254166877414, about 28.4 percent.
+/// `e^0.25 − 1` = 0.2840254166877414, about 28.4 percent. `exp` is within 1 ulp (2.2e-16
+/// at 1.28), the 16 digits within 1e-16 of `e^0.25 − 1`, so 1e-15 holds.
 #[test]
 fn w11_5a_one_sd_raises_the_plateau_by_28_4_percent() {
     let base = level(0.0, PLATEAU_HOURS, &SPEC);

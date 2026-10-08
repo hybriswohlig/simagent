@@ -1,6 +1,8 @@
 //! The learning function (genetics specification 11.5): the level after `h` hours of
 //! practice for the talent `z`, `L(z, h) = e^(κ·z) · (1 − e^(−h / τ(z)))` with the time
-//! constant `τ(z) = τ_0 · e^(−ν·z)`. A pure function; the parameters come from the caller.
+//! constant `τ(z) = τ_0 · e^(−ν·z)`. A higher talent has the higher plateau `e^(κ·z)` and
+//! the shorter time constant, so at every practice time the level is strictly increasing
+//! in the talent (P8, 8.2). A pure function; the parameters come from the caller.
 
 /// The parameters of the learning function (genetics specification 11.5).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -13,8 +15,33 @@ pub struct LearningParams {
     pub tau0: f64,
 }
 
-/// The level after `hours` of practice for the talent `z` (genetics specification 11.5).
+/// The level after `hours` of practice for the talent `z` (genetics specification 11.5):
+/// exactly +0 without practice, rising towards the plateau `e^(κ·z)`.
+///
+/// An invalid input breaks an invariant (`invariant learning.<name>`), NaN always: `z` not
+/// finite, `hours` negative or not finite, `kappa` or `tau0` not positive and finite, `nu`
+/// negative or not finite. `0.0 - x` instead of `-x` keeps a zero positive.
 pub fn level(z: f64, hours: f64, params: &LearningParams) -> f64 {
-    let _ = (z, hours, params);
-    f64::NAN
+    let LearningParams { kappa, nu, tau0 } = *params;
+    if !z.is_finite() {
+        panic!("invariant learning.z");
+    }
+    let valid_hours = hours >= 0.0 && hours.is_finite();
+    if !valid_hours {
+        panic!("invariant learning.hours");
+    }
+    let valid_kappa = kappa > 0.0 && kappa.is_finite();
+    if !valid_kappa {
+        panic!("invariant learning.kappa");
+    }
+    let valid_nu = nu >= 0.0 && nu.is_finite();
+    if !valid_nu {
+        panic!("invariant learning.nu");
+    }
+    let valid_tau0 = tau0 > 0.0 && tau0.is_finite();
+    if !valid_tau0 {
+        panic!("invariant learning.tau0");
+    }
+    let tau = tau0 * sim_math::exp(0.0 - nu * z);
+    sim_math::exp(kappa * z) * (1.0 - sim_math::exp(0.0 - hours / tau))
 }
