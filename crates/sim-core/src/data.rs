@@ -77,6 +77,8 @@ pub enum Unit {
     CentimeterPerYearSquared,
     StandardDeviation,
     Ratio,
+    Logit,
+    Stage,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -214,6 +216,85 @@ pub struct Genetics {
     /// The half width `w` of the puberty progress around `θ_i` in years (ADR-0014).
     pub puberty_half_width: f64,
     pub height_loss: HeightLoss,
+    pub body: BodyModel,
+    /// The weight `w` of the biological age (genetics specification 7.4, ADR-0015).
+    pub bio_age_weight: f64,
+}
+
+/// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
+/// section 1), one field per calibration value `core:body_<field>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BodyModel {
+    pub pigment_skin_offset: f64,
+    pub pigment_skin_slope: f64,
+    pub pigment_hair_slope: f64,
+    pub pigment_hair_residual: f64,
+    pub pigment_hair_darkening: f64,
+    pub pigment_hair_darkening_age: f64,
+    pub pigment_iris_offset: f64,
+    pub pigment_iris_slope: f64,
+    pub pigment_iris_darkening: f64,
+    pub pigment_iris_darkening_age: f64,
+    pub pigment_skin_pheo_offset: f64,
+    pub pigment_skin_pheo_slope: f64,
+    pub pigment_hair_pheo_offset: f64,
+    pub pigment_hair_pheo_slope: f64,
+    pub mc1r_hair_eu: f64,
+    pub mc1r_skin_eu: f64,
+    pub mc1r_hair_pheo: f64,
+    pub mc1r_skin_pheo: f64,
+    pub mc1r_freckle: f64,
+    pub herc2_iris: f64,
+    pub development_androgen_lag: f64,
+    pub development_estrogen_lead: f64,
+    pub development_breast_lead: f64,
+    pub development_tempo: f64,
+    pub development_androgen_offset: f64,
+    pub development_estrogen_offset: f64,
+    pub development_estrogen_men: f64,
+    pub development_androgen_women: f64,
+    pub curl_offset: f64,
+    pub curl_slope: f64,
+    pub freckle_offset: f64,
+    pub freckle_slope: f64,
+    pub freckle_pigment: f64,
+    pub beard_lag: f64,
+    pub beard_tempo: f64,
+    pub beard_offset: f64,
+    pub beard_androgen: f64,
+    pub body_hair_lag: f64,
+    pub body_hair_tempo: f64,
+    pub body_hair_androgen: f64,
+    pub body_hair_women: f64,
+    pub bald_men_stage: f64,
+    pub bald_men_center: f64,
+    pub bald_men_slope: f64,
+    pub bald_men_androgen: f64,
+    pub bald_men_tempo: f64,
+    pub bald_women_stage: f64,
+    pub bald_women_center: f64,
+    pub bald_women_slope: f64,
+    pub bald_women_tempo: f64,
+    pub hair_density_offset: f64,
+    pub hair_density_loss: f64,
+    pub hair_density_center: f64,
+    pub hair_density_tempo: f64,
+    pub grey_center: f64,
+    pub grey_slope: f64,
+    pub grey_tempo: f64,
+    pub wrinkles_center: f64,
+    pub wrinkles_slope: f64,
+    pub wrinkles_tempo: f64,
+    pub laxity_center: f64,
+    pub laxity_slope: f64,
+    pub laxity_tempo: f64,
+    pub spots_center: f64,
+    pub spots_skin: f64,
+    pub spots_pigment: f64,
+    pub spots_tempo: f64,
+    pub stoop_center: f64,
+    pub stoop_skin: f64,
+    pub stoop_tempo: f64,
 }
 
 /// The loss of height in old age (genetics specification 5.3, ADR-0014): from the
@@ -283,6 +364,9 @@ const MAX_THETA_SD: f64 = 5.0;
 const MAX_PUBERTY_REACH: f64 = 10.0;
 /// Upper limit of an age in the calibration (ADR-0014), the oldest age of the contract.
 const MAX_AGE: f64 = 130.0;
+/// Limits of a logit and of a stage of the body mapping (ADR-0015 section 1).
+const MAX_LOGIT: f64 = 20.0;
+const MAX_STAGE: f64 = 7.0;
 /// Limits of a sex difference (ADR-0014 section 1).
 const MAX_SHIFT: f64 = 10.0;
 const MAX_VARIANCE_RATIO: f64 = 10.0;
@@ -650,6 +734,135 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         return Err(DataError::CalibrationRange);
     }
     let puberty_half_width = value("core:puberty_half_width", Unit::Year, MAX_PUBERTY_REACH)?;
+    // A logit may be 0 or negative (ADR-0015 section 1).
+    let signed = |key, unit, limit: f64| -> Result<f64, DataError> {
+        let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
+        let entry = calibration
+            .values
+            .get(&id)
+            .ok_or(DataError::CalibrationMissing)?;
+        if entry.unit != unit {
+            return Err(DataError::CalibrationUnit);
+        }
+        let x = entry.value.get();
+        if !(-limit..=limit).contains(&x) {
+            return Err(DataError::CalibrationRange);
+        }
+        Ok(x)
+    };
+    let body = BodyModel {
+        pigment_skin_offset: signed("core:body_pigment_skin_offset", Unit::Logit, MAX_LOGIT)?,
+        pigment_skin_slope: signed("core:body_pigment_skin_slope", Unit::Logit, MAX_LOGIT)?,
+        pigment_hair_slope: signed("core:body_pigment_hair_slope", Unit::Logit, MAX_LOGIT)?,
+        pigment_hair_residual: signed("core:body_pigment_hair_residual", Unit::Logit, MAX_LOGIT)?,
+        pigment_hair_darkening: signed("core:body_pigment_hair_darkening", Unit::Logit, MAX_LOGIT)?,
+        pigment_hair_darkening_age: value(
+            "core:body_pigment_hair_darkening_age",
+            Unit::Year,
+            MAX_AGE,
+        )?,
+        pigment_iris_offset: signed("core:body_pigment_iris_offset", Unit::Logit, MAX_LOGIT)?,
+        pigment_iris_slope: signed("core:body_pigment_iris_slope", Unit::Logit, MAX_LOGIT)?,
+        pigment_iris_darkening: signed("core:body_pigment_iris_darkening", Unit::Logit, MAX_LOGIT)?,
+        pigment_iris_darkening_age: value(
+            "core:body_pigment_iris_darkening_age",
+            Unit::Year,
+            MAX_AGE,
+        )?,
+        pigment_skin_pheo_offset: signed(
+            "core:body_pigment_skin_pheo_offset",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        pigment_skin_pheo_slope: signed(
+            "core:body_pigment_skin_pheo_slope",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        pigment_hair_pheo_offset: signed(
+            "core:body_pigment_hair_pheo_offset",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        pigment_hair_pheo_slope: signed(
+            "core:body_pigment_hair_pheo_slope",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        mc1r_hair_eu: value("core:body_mc1r_hair_eu", Unit::Fraction, 1.0)?,
+        mc1r_skin_eu: value("core:body_mc1r_skin_eu", Unit::Fraction, 1.0)?,
+        mc1r_hair_pheo: value("core:body_mc1r_hair_pheo", Unit::Fraction, 1.0)?,
+        mc1r_skin_pheo: value("core:body_mc1r_skin_pheo", Unit::Fraction, 1.0)?,
+        mc1r_freckle: signed("core:body_mc1r_freckle", Unit::Logit, MAX_LOGIT)?,
+        herc2_iris: value("core:body_herc2_iris", Unit::Fraction, 1.0)?,
+        development_androgen_lag: value("core:body_development_androgen_lag", Unit::Year, MAX_AGE)?,
+        development_estrogen_lead: value(
+            "core:body_development_estrogen_lead",
+            Unit::Year,
+            MAX_AGE,
+        )?,
+        development_breast_lead: value("core:body_development_breast_lead", Unit::Year, MAX_AGE)?,
+        development_tempo: value("core:body_development_tempo", Unit::Year, MAX_AGE)?,
+        development_androgen_offset: signed(
+            "core:body_development_androgen_offset",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        development_estrogen_offset: signed(
+            "core:body_development_estrogen_offset",
+            Unit::Logit,
+            MAX_LOGIT,
+        )?,
+        development_estrogen_men: value("core:body_development_estrogen_men", Unit::Fraction, 1.0)?,
+        development_androgen_women: value(
+            "core:body_development_androgen_women",
+            Unit::Fraction,
+            1.0,
+        )?,
+        curl_offset: signed("core:body_curl_offset", Unit::Logit, MAX_LOGIT)?,
+        curl_slope: signed("core:body_curl_slope", Unit::Logit, MAX_LOGIT)?,
+        freckle_offset: signed("core:body_freckle_offset", Unit::Logit, MAX_LOGIT)?,
+        freckle_slope: signed("core:body_freckle_slope", Unit::Logit, MAX_LOGIT)?,
+        freckle_pigment: signed("core:body_freckle_pigment", Unit::Logit, MAX_LOGIT)?,
+        beard_lag: value("core:body_beard_lag", Unit::Year, MAX_AGE)?,
+        beard_tempo: value("core:body_beard_tempo", Unit::Year, MAX_AGE)?,
+        beard_offset: signed("core:body_beard_offset", Unit::Logit, MAX_LOGIT)?,
+        beard_androgen: signed("core:body_beard_androgen", Unit::Logit, MAX_LOGIT)?,
+        body_hair_lag: value("core:body_body_hair_lag", Unit::Year, MAX_AGE)?,
+        body_hair_tempo: value("core:body_body_hair_tempo", Unit::Year, MAX_AGE)?,
+        body_hair_androgen: signed("core:body_body_hair_androgen", Unit::Logit, MAX_LOGIT)?,
+        body_hair_women: value("core:body_body_hair_women", Unit::Fraction, 1.0)?,
+        bald_men_stage: value("core:body_bald_men_stage", Unit::Stage, MAX_STAGE)?,
+        bald_men_center: value("core:body_bald_men_center", Unit::Year, MAX_AGE)?,
+        bald_men_slope: value("core:body_bald_men_slope", Unit::Year, MAX_AGE)?,
+        bald_men_androgen: value("core:body_bald_men_androgen", Unit::Year, MAX_AGE)?,
+        bald_men_tempo: value("core:body_bald_men_tempo", Unit::Year, MAX_AGE)?,
+        bald_women_stage: value("core:body_bald_women_stage", Unit::Stage, MAX_STAGE)?,
+        bald_women_center: value("core:body_bald_women_center", Unit::Year, MAX_AGE)?,
+        bald_women_slope: value("core:body_bald_women_slope", Unit::Year, MAX_AGE)?,
+        bald_women_tempo: value("core:body_bald_women_tempo", Unit::Year, MAX_AGE)?,
+        hair_density_offset: signed("core:body_hair_density_offset", Unit::Logit, MAX_LOGIT)?,
+        hair_density_loss: value("core:body_hair_density_loss", Unit::Fraction, 1.0)?,
+        hair_density_center: value("core:body_hair_density_center", Unit::Year, MAX_AGE)?,
+        hair_density_tempo: value("core:body_hair_density_tempo", Unit::Year, MAX_AGE)?,
+        grey_center: value("core:body_grey_center", Unit::Year, MAX_AGE)?,
+        grey_slope: value("core:body_grey_slope", Unit::Year, MAX_AGE)?,
+        grey_tempo: value("core:body_grey_tempo", Unit::Year, MAX_AGE)?,
+        wrinkles_center: value("core:body_wrinkles_center", Unit::Year, MAX_AGE)?,
+        wrinkles_slope: value("core:body_wrinkles_slope", Unit::Year, MAX_AGE)?,
+        wrinkles_tempo: value("core:body_wrinkles_tempo", Unit::Year, MAX_AGE)?,
+        laxity_center: value("core:body_laxity_center", Unit::Year, MAX_AGE)?,
+        laxity_slope: value("core:body_laxity_slope", Unit::Year, MAX_AGE)?,
+        laxity_tempo: value("core:body_laxity_tempo", Unit::Year, MAX_AGE)?,
+        spots_center: value("core:body_spots_center", Unit::Year, MAX_AGE)?,
+        spots_skin: value("core:body_spots_skin", Unit::Year, MAX_AGE)?,
+        spots_pigment: value("core:body_spots_pigment", Unit::Year, MAX_AGE)?,
+        spots_tempo: value("core:body_spots_tempo", Unit::Year, MAX_AGE)?,
+        stoop_center: value("core:body_stoop_center", Unit::Year, MAX_AGE)?,
+        stoop_skin: value("core:body_stoop_skin", Unit::Year, MAX_AGE)?,
+        stoop_tempo: value("core:body_stoop_tempo", Unit::Year, MAX_AGE)?,
+    };
+    let bio_age_weight = value("core:bio_age_weight", Unit::Fraction, 1.0)?;
     let height_loss = HeightLoss {
         onset: value("core:height_loss_onset", Unit::Year, MAX_AGE)?,
         male: value("core:height_loss_male", Unit::CentimeterPerYearSquared, 1.0)?,
@@ -718,8 +931,10 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         nutrition,
         puberty_half_width,
         height_loss,
+        body,
+        bio_age_weight,
     };
-    if calibration.values.len() != 38 {
+    if calibration.values.len() != 109 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
