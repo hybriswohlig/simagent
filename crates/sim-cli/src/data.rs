@@ -124,7 +124,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0xd5cc_b8c5_cd8b_30f4);
+        assert_eq!(core_data().expect("data").hash(), 0x8098_8ce4_5d94_0fd1);
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn traits_have_their_text() {
         let data = data_from(TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x1644_7a40_212e_298c);
+        assert_eq!(data.hash(), 0x82cc_1902_af53_8272);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",

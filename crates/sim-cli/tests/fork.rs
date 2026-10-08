@@ -345,21 +345,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":13"#, r#""core_version":14"#);
+    replace_in(&log, r#""core_version":14"#, r#""core_version":15"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 14, this is 13"
+            "error: fork_foreign_core_version: the parent run is of core version 15, this is 14"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":14"#, r#""core_version":13"#);
-    replace_in(&log, "d5ccb8c5cd8b30f4", "d5ccb8c5cd8b30f5");
+    replace_in(&log, r#""core_version":15"#, r#""core_version":14"#);
+    replace_in(&log, "80988ce45d940fd1", "80988ce45d940fd2");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash d5ccb8c5cd8b30f5, this is d5ccb8c5cd8b30f4".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash 80988ce45d940fd2, this is 80988ce45d940fd1".to_owned())
     );
-    replace_in(&log, "d5ccb8c5cd8b30f5", "d5ccb8c5cd8b30f4");
+    replace_in(&log, "80988ce45d940fd2", "80988ce45d940fd1");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -418,10 +418,10 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":13"#, r#""core_version":14"#),
+        (r#""core_version":14"#, r#""core_version":15"#),
         (
-            r#""data_hash":"d5ccb8c5cd8b30f4""#,
-            r#""data_hash":"d5ccb8c5cd8b30f5""#,
+            r#""data_hash":"80988ce45d940fd1""#,
+            r#""data_hash":"80988ce45d940fd2""#,
         ),
         (
             r#""world_seed":"0000000000000001""#,
