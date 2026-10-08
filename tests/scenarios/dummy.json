@@ -3,7 +3,7 @@
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:dummy",
-    "world_params": { "hereditary_diseases": false },
+    "world_params": { "hereditary_diseases": false, "nutrition": [] },
     "death_causes": [
       { "cause": "test:base", "per_year": 0.04, "applies_to": "everyone" },
       { "cause": "test:old_age", "per_year": 0.02, "applies_to": "everyone" },

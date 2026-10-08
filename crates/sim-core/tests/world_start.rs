@@ -13,7 +13,7 @@ use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Fertility, ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::log::LogEntry;
-use sim_core::params::{ParamChange, WorldParams};
+use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::time::SimTime;
 use sim_core::world::World;
 
@@ -36,6 +36,7 @@ fn start_with(born: &[i64]) -> Input {
         founder_tag: DataId::new("test:world_start").expect("valid"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
@@ -55,9 +56,11 @@ fn founder(secs: i64) -> Founder {
 
 const OFF: WorldParams = WorldParams {
     hereditary_diseases: false,
+    nutrition: Vec::new(),
 };
 const ON: WorldParams = WorldParams {
     hereditary_diseases: true,
+    nutrition: Vec::new(),
 };
 
 /// An override block that sets the switch of the hereditary diseases, once per value.
@@ -188,6 +191,7 @@ fn start_sets_the_world_parameters() {
         };
         start.world_params = WorldParams {
             hereditary_diseases: on,
+            nutrition: Vec::new(),
         };
         let mut world = World::new(common::data());
         world.submit(Input::Start(start)).expect("accepted");
@@ -237,7 +241,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false},"death_causes":[],"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[],"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
     );
 }
 
@@ -482,4 +486,150 @@ fn a_rejected_first_start_takes_no_sequence_number() {
         r#"{"t":-1,"seq":1}"#
     );
     assert_eq!(world.input_log().len(), 1);
+}
+
+fn fed(year: i64, index: f64) -> NutritionYear {
+    NutritionYear {
+        year,
+        index: FiniteF64::try_new(index).expect("finite"),
+    }
+}
+
+/// `start_with(&BORN)` with the nutrition index of these years.
+fn start_fed(years: &[(i64, f64)]) -> Input {
+    let Input::Start(mut start) = start_with(&BORN) else {
+        unreachable!("a start")
+    };
+    start.world_params.nutrition = years.iter().map(|&(y, n)| fed(y, n)).collect();
+    Input::Start(start)
+}
+
+fn nutrition_block(years: &[(i64, f64)]) -> Input {
+    Input::ForkOverride(ForkOverride {
+        changes: years
+            .iter()
+            .map(|&(y, n)| ParamChange::NutritionYear(fed(y, n)))
+            .collect(),
+    })
+}
+
+/// ADR-0013 section 1: the years of the nutrition index rise strictly, `N` lies in
+/// [0, 1] (both ends allowed, decided by Grok 4.7), and every year has a first and a
+/// last second in the range of time (−1 000 000 to 999 999); years before the start
+/// are allowed.
+#[test]
+fn the_nutrition_index_of_the_start_is_checked() {
+    for (years, code) in [
+        (&[(3, 0.7), (3, 0.5)][..], RejectCode::NutritionOrder),
+        (&[(4, 0.7), (3, 0.7)][..], RejectCode::NutritionOrder),
+        (&[(3, -0.1)][..], RejectCode::NutritionOutOfRange),
+        (&[(3, 1.000_001)][..], RejectCode::NutritionOutOfRange),
+        (&[(1_000_000, 0.7)][..], RejectCode::NutritionOutOfRange),
+        (&[(-1_000_001, 0.7)][..], RejectCode::NutritionOutOfRange),
+    ] {
+        let mut world = World::new(common::data());
+        let before = fingerprint(&world);
+        let rejected = world.submit(start_fed(years)).expect_err("rejected");
+        assert_eq!(rejected, InputRejected { code }, "{years:?}");
+        assert_eq!(fingerprint(&world), before, "{years:?}");
+    }
+    let years = [(-1_000_000, 0.0), (-30, 0.5), (2, 1.0), (999_999, 0.7)];
+    let mut world = World::new(common::data());
+    world.submit(start_fed(&years)).expect("accepted");
+    let params = world.state().world_params().expect("started");
+    assert_eq!(params.nutrition, years.map(|(y, n)| fed(y, n)));
+}
+
+/// ADR-0013 section 2: an override sets the index of a year, inserted or replaced in the
+/// order of the years, one `core:param_changed` per change.
+#[test]
+fn an_override_sets_the_nutrition_index_of_a_year() {
+    let mut world = World::new(common::data());
+    world.submit(start_fed(&[(5, 0.9)])).expect("accepted");
+    world.take_log();
+    let hash = world.state_hash();
+    world
+        .submit(nutrition_block(&[(3, 0.7), (5, 0.8)]))
+        .expect("accepted");
+    let params = world.state().world_params().expect("started");
+    assert_eq!(params.nutrition, [fed(3, 0.7), fed(5, 0.8)]);
+    assert!(!params.hereditary_diseases);
+    assert_eq!(
+        lines(&world.take_log()),
+        [
+            r#"{"id":5,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":3,"index":0.7}}}}}"#,
+            r#"{"id":6,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":5,"index":0.8}}}}}"#
+        ]
+    );
+    assert_ne!(world.state_hash(), hash, "the index is state");
+    // The switch and a year in one block are two parameters.
+    let mixed = Input::ForkOverride(ForkOverride {
+        changes: vec![
+            ParamChange::HereditaryDiseases(true),
+            ParamChange::NutritionYear(fed(4, 0.0)),
+        ],
+    });
+    world.submit(mixed).expect("accepted");
+    let params = world.state().world_params().expect("started");
+    assert!(params.hereditary_diseases);
+    assert_eq!(params.nutrition, [fed(3, 0.7), fed(4, 0.0), fed(5, 0.8)]);
+}
+
+/// ADR-0013 section 2: the year is the parameter (twice in a block is rejected), the
+/// range is that of the start, and an override sets no year before the year of the
+/// second after its stamp.
+#[test]
+fn a_rejected_nutrition_override_changes_nothing() {
+    let mut world = World::new(common::data());
+    world.submit(start_fed(&[])).expect("accepted");
+    let mut out = sim_core::world::YearOut::default();
+    let last_of_year_1 = sim_core::time::year_start(2) - sim_core::time::SimDuration::from_secs(1);
+    world.advance_until(&mut out, last_of_year_1, &mut |_| false);
+    world.take_log();
+    let before = fingerprint(&world);
+    for (years, code) in [
+        (&[(3, 0.7), (3, 0.7)][..], RejectCode::OverrideParamTwice),
+        (
+            &[(3, 0.7), (4, 0.5), (3, 0.9)][..],
+            RejectCode::OverrideParamTwice,
+        ),
+        (&[(3, 1.5)][..], RejectCode::NutritionOutOfRange),
+        (&[(1_000_000, 0.5)][..], RejectCode::NutritionOutOfRange),
+        (&[(1, 0.7)][..], RejectCode::NutritionYearPast),
+        (&[(3, 0.7), (1, 0.7)][..], RejectCode::NutritionYearPast),
+    ] {
+        let rejected = world.submit(nutrition_block(years)).expect_err("rejected");
+        assert_eq!(rejected, InputRejected { code }, "{years:?}");
+        assert_eq!(fingerprint(&world), before, "{years:?}");
+        assert!(world.take_log().is_empty());
+    }
+    // The stamp is the last second of year 1; the override acts from year 2 on.
+    world
+        .submit(nutrition_block(&[(2, 0.7), (3, 0.7)]))
+        .expect("accepted");
+    let params = world.state().world_params().expect("started");
+    assert_eq!(params.nutrition, [fed(2, 0.7), fed(3, 0.7)]);
+}
+
+/// ADR-0013 section 2: the fork year is the year of the second after the stamp. Stamped
+/// two seconds before year 2 the block acts in year 1 and may set it; one second later
+/// it acts in year 2, and year 1 is past.
+#[test]
+fn the_fork_year_is_the_year_of_the_next_second() {
+    let second = sim_core::time::SimDuration::from_secs(1);
+    let at = |stamp: SimTime| {
+        let mut world = World::new(common::data());
+        world.submit(start_fed(&[])).expect("accepted");
+        let mut out = sim_core::world::YearOut::default();
+        world.advance_until(&mut out, stamp, &mut |_| false);
+        world.submit(nutrition_block(&[(1, 0.7)]))
+    };
+    let year_2 = sim_core::time::year_start(2);
+    assert!(at(year_2 - second - second).is_ok());
+    assert_eq!(
+        at(year_2 - second).expect_err("past"),
+        InputRejected {
+            code: RejectCode::NutritionYearPast
+        }
+    );
 }

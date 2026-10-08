@@ -38,6 +38,9 @@ reject 14 fertility_out_of_range
 reject 15 founder_unknown_locus
 reject 16 founder_locus_twice
 reject 17 founder_copies
+reject 18 nutrition_order
+reject 19 nutrition_out_of_range
+reject 20 nutrition_year_past
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
@@ -54,6 +57,7 @@ sex 1 male
 paternal_sex 0 x
 paternal_sex 1 y
 param 0 core:hereditary_diseases
+param 1 core:nutrition_year
 applies_to 0 everyone
 applies_to 1 dummy_homozygous
 strand 0 maternal

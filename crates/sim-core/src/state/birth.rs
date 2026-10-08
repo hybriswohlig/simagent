@@ -29,6 +29,7 @@ pub(crate) fn on_birth(
     };
     let switch_on = domain
         .world_params
+        .as_ref()
         .unwrap_or_else(|| panic!("invariant birth.before_start"))
         .hereditary_diseases;
     let now = ctx.now();

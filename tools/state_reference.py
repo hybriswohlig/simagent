@@ -67,8 +67,9 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 9
-CORE_VERSION = 11
+PROJECTION_VERSION = world_reference.PROJECTION_VERSION
+# The version of the model, so that the two references never drift apart.
+CORE_VERSION = world_reference.CORE_VERSION
 
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)

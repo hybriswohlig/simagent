@@ -27,7 +27,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 9;
+pub const PROJECTION_VERSION: u32 = 10;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -108,7 +108,7 @@ pub fn canonical_projection<'a>(
     CanonicalState {
         projection_version: PROJECTION_VERSION,
         world_seed: domain.world_seed,
-        world_params: domain.world_params,
+        world_params: domain.world_params.clone(),
         death_causes: domain
             .death_causes
             .iter()

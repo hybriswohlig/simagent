@@ -172,8 +172,8 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
-PROJECTION_VERSION = 9
-CORE_VERSION = 15
+PROJECTION_VERSION = 10
+CORE_VERSION = 16
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)

@@ -12,6 +12,7 @@ use crate::input::{
 };
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
+use crate::params::NutritionYear;
 use crate::time::{SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
@@ -31,7 +32,8 @@ pub(crate) fn check_start(
     .or_else(|| alleles_rejection(&start.founders, data))
     .or_else(|| death_causes_rejection(&start.death_causes))
     .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
-    .or_else(|| fertility_rejection(&start.fertility));
+    .or_else(|| fertility_rejection(&start.fertility))
+    .or_else(|| nutrition_rejection(&start.world_params.nutrition));
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -61,6 +63,21 @@ fn start_rejection(
         return Some(RejectCode::FounderNotBornBeforeStart);
     }
     None
+}
+
+/// Why the nutrition index of `Start` is rejected, if at all (ADR-0013 section 1): its
+/// years do not rise strictly, or a year or an index is out of range.
+fn nutrition_rejection(nutrition: &[NutritionYear]) -> Option<RejectCode> {
+    if nutrition.windows(2).any(|pair| match pair {
+        [before, after] => before.year >= after.year,
+        _ => false,
+    }) {
+        return Some(RejectCode::NutritionOrder);
+    }
+    nutrition
+        .iter()
+        .any(|entry| !entry.in_range())
+        .then_some(RejectCode::NutritionOutOfRange)
 }
 
 /// Why the alleles of these founders are rejected, if at all (genetics specification
@@ -125,7 +142,7 @@ pub(crate) fn apply_start(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     domain.world_seed = Some(start.world_seed);
-    domain.world_params = Some(start.world_params);
+    domain.world_params = Some(start.world_params.clone());
     domain.death_causes.clone_from(&start.death_causes);
     domain.fertility = Some(start.fertility);
     let founders = founder_count(start.founders.len())
