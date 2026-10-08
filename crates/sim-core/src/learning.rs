@@ -20,7 +20,10 @@ pub struct LearningParams {
 ///
 /// An invalid input breaks an invariant (`invariant learning.<name>`), NaN always: `z` not
 /// finite, `hours` negative or not finite, `kappa` or `tau0` not positive and finite, `nu`
-/// negative or not finite. `0.0 - x` instead of `-x` keeps a zero positive.
+/// negative or not finite. A talent so large that the plateau overflows (with the values
+/// of 11.5 above about 2800 standard deviations) breaks `invariant learning.range` once it
+/// practises. An underflowing time constant gives the plateau, the limit of the formula.
+/// `0.0 - x` instead of `-x` keeps a zero positive.
 pub fn level(z: f64, hours: f64, params: &LearningParams) -> f64 {
     let LearningParams { kappa, nu, tau0 } = *params;
     if !z.is_finite() {
@@ -42,6 +45,15 @@ pub fn level(z: f64, hours: f64, params: &LearningParams) -> f64 {
     if !valid_tau0 {
         panic!("invariant learning.tau0");
     }
+    // Without practice the level is 0 whatever the talent: an overflowing plateau or an
+    // underflowing time constant must not turn it into NaN (`∞ · 0`, `0 / 0`).
+    if hours == 0.0 {
+        return 0.0;
+    }
     let tau = tau0 * sim_math::exp(0.0 - nu * z);
-    sim_math::exp(kappa * z) * (1.0 - sim_math::exp(0.0 - hours / tau))
+    let level = sim_math::exp(kappa * z) * (1.0 - sim_math::exp(0.0 - hours / tau));
+    if !level.is_finite() {
+        panic!("invariant learning.range");
+    }
+    level
 }

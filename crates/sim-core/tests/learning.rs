@@ -173,3 +173,22 @@ fn a_negative_nu_breaks_the_invariant() {
 fn a_tau0_of_zero_breaks_the_invariant() {
     level(0.0, 1000.0, &LearningParams { tau0: 0.0, ..SPEC });
 }
+
+/// Finite inputs at the edge of `f64` (review of PR #69): without practice still exactly
+/// +0; an underflowing time constant gives the plateau; an overflowing plateau breaks
+/// `invariant learning.range`.
+#[test]
+fn edges_of_the_numbers() {
+    assert_eq!(level(3000.0, 0.0, &SPEC).to_bits(), 0);
+    let fast = LearningParams { nu: 400.0, ..SPEC };
+    assert_eq!(level(2.0, 0.0, &fast).to_bits(), 0);
+    assert_eq!(
+        level(2.0, 1.0, &fast).to_bits(),
+        sim_math::exp(0.5).to_bits(),
+        "tau underflows to 0: the plateau"
+    );
+    breaks(
+        move || level(3000.0, 1.0, &SPEC),
+        "invariant learning.range",
+    );
+}
