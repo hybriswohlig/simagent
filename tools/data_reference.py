@@ -16,7 +16,7 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
   Calibrated { value: f64, unit: Unit }
   PhenotypeWeights { trait: DataId, h2_child: Calibrated, c2_child: Calibrated,
                      h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
-  Unit: morgan, per_transmission, fraction
+  Unit: morgan, per_transmission, fraction, centimeter, year, per_year (ADR-0010)
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -39,7 +39,7 @@ from pathlib import Path
 import xxhash
 
 TEXT_FIELDS = ("source", "as_of", "note", "description")
-UNITS = ["morgan", "per_transmission", "fraction"]
+UNITS = ["morgan", "per_transmission", "fraction", "centimeter", "year", "per_year"]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]

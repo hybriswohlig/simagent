@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xd5cc_b8c5_cd8b_30f4;
+const DATA_HASH: u64 = 0x8098_8ce4_5d94_0fd1;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x1644_7a40_212e_298c);
+    assert_eq!(data.hash(), 0x82cc_1902_af53_8272);
 }
 
 #[test]
@@ -736,6 +736,63 @@ fn phenotype_weights_reject() {
     for change in valid {
         assert_eq!(checked(change), "ok");
     }
+}
+
+/// ADR-0010 section 2: the values of the mean growth curve.
+#[test]
+fn growth_values_reject() {
+    let set = |c: &mut Value, key: &str, value: f64| c["values"][key]["value"] = json!(value);
+    let cases: [(Change, &str); 9] = [
+        (
+            |c, _| c["values"]["core:growth_theta_male"]["unit"] = json!("centimeter"),
+            "data.calibration_unit",
+        ),
+        // The medians rise, and by less in the second year than in the first.
+        (
+            |c, _| c["values"]["core:length_12_months_female"]["value"] = json!(49.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:length_24_months_male"]["value"] = json!(75.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:length_24_months_male"]["value"] = json!(101.7),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:growth_height_theta_female"]["value"] = json!(167.3),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:growth_s0_male"]["value"] = json!(0.9655),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:growth_theta_male"]["value"] = json!(30.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_adult_male"]["value"] = json!(300.5),
+            "data.calibration_range",
+        ),
+        // Above 10 per year an exponent of the curve could underflow and the height
+        // become infinite (ADR-0010 section 2).
+        (
+            |c, _| c["values"]["core:growth_s1_male"]["value"] = json!(10.5),
+            "data.calibration_range",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    // The limits themselves are allowed, and a second year of growth just below the first.
+    let (mut c, g) = common::files();
+    set(&mut c, "core:growth_theta_female", 30.0);
+    set(&mut c, "core:growth_s1_female", 10.0);
+    set(&mut c, "core:length_24_months_male", 101.6);
+    assert!(Data::new(common::definitions(c, g).expect("definitions")).is_ok());
 }
 
 #[test]

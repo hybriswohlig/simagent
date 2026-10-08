@@ -57,6 +57,9 @@ pub enum Unit {
     Morgan,
     PerTransmission,
     Fraction,
+    Centimeter,
+    Year,
+    PerYear,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -188,7 +191,42 @@ pub struct Genetics {
     pub map_length_x_female: Morgans,
     pub mutation_rate: PerTransmission,
     pub mutation_rate_disease: PerTransmission,
+    pub growth_male: GrowthCurve,
+    pub growth_female: GrowthCurve,
 }
+
+impl Genetics {
+    /// The mean growth curve of one sex (genetics specification 5.1).
+    pub const fn growth(&self, sex: crate::genome::Sex) -> GrowthCurve {
+        match sex {
+            crate::genome::Sex::Male => self.growth_male,
+            crate::genome::Sex::Female => self.growth_female,
+        }
+    }
+}
+
+/// The values of the mean growth curve of one sex (ADR-0010): adult height `h1` (cm),
+/// Preece-Baines `theta` (years), `h_theta` (cm), `s0` and `s1` (per year), the WHO
+/// medians at birth, 12 and 24 months (cm), and the infancy term's `b` and `c` derived
+/// from them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrowthCurve {
+    pub h1: f64,
+    pub theta: f64,
+    pub h_theta: f64,
+    pub s0: f64,
+    pub s1: f64,
+    pub l0: f64,
+    pub l12: f64,
+    pub l24: f64,
+    pub b: f64,
+    pub c: f64,
+}
+
+/// Upper limits of the growth values (ADR-0010 section 2).
+const MAX_HEIGHT: f64 = 300.0;
+const MAX_THETA: f64 = 30.0;
+const MAX_RATE_PER_YEAR: f64 = 10.0;
 
 /// Checked definitions with their data hash. Only `Data::new` makes one.
 #[derive(Clone, Debug, PartialEq)]
@@ -550,11 +588,63 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             Unit::PerTransmission,
             1.0,
         )?),
+        growth_male: growth([
+            value("core:height_adult_male", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:growth_theta_male", Unit::Year, MAX_THETA)?,
+            value(
+                "core:growth_height_theta_male",
+                Unit::Centimeter,
+                MAX_HEIGHT,
+            )?,
+            value("core:growth_s0_male", Unit::PerYear, MAX_RATE_PER_YEAR)?,
+            value("core:growth_s1_male", Unit::PerYear, MAX_RATE_PER_YEAR)?,
+            value("core:length_birth_male", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:length_12_months_male", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:length_24_months_male", Unit::Centimeter, MAX_HEIGHT)?,
+        ])?,
+        growth_female: growth([
+            value("core:height_adult_female", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:growth_theta_female", Unit::Year, MAX_THETA)?,
+            value(
+                "core:growth_height_theta_female",
+                Unit::Centimeter,
+                MAX_HEIGHT,
+            )?,
+            value("core:growth_s0_female", Unit::PerYear, MAX_RATE_PER_YEAR)?,
+            value("core:growth_s1_female", Unit::PerYear, MAX_RATE_PER_YEAR)?,
+            value("core:length_birth_female", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:length_12_months_female", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:length_24_months_female", Unit::Centimeter, MAX_HEIGHT)?,
+        ])?,
     };
-    if calibration.values.len() != 5 {
+    if calibration.values.len() != 21 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
+}
+
+/// The mean growth curve of one sex from its eight values in the order of
+/// `GrowthCurve` (ADR-0010): their order, and `b` and `c` of the infancy term from the
+/// three medians.
+fn growth(values: [f64; 8]) -> Result<GrowthCurve, DataError> {
+    let [h1, theta, h_theta, s0, s1, l0, l12, l24] = values;
+    let ordered = l0 < l12 && l12 < l24 && l24 - l12 < l12 - l0;
+    if !ordered || h_theta >= h1 || s0 >= s1 {
+        return Err(DataError::CalibrationRange);
+    }
+    let q = (l24 - l12) / (l12 - l0);
+    Ok(GrowthCurve {
+        h1,
+        theta,
+        h_theta,
+        s0,
+        s1,
+        l0,
+        l12,
+        l24,
+        b: (l12 - l0) / (1.0 - q),
+        c: -sim_math::ln(q),
+    })
 }
 
 /// The phenotype weights (ADR-0009 section 2): each row names a trait of the map, the rows

@@ -35,6 +35,118 @@
       "source": "game value at the low end of real per-gene rates",
       "as_of": "2026-10-07",
       "note": "docs/genetik-spezifikation.md 2.4 and 3.3 (K2.4b): keeps rare disease alleles from coming mostly from new mutations"
+    },
+    "core:height_adult_male": {
+      "value": 180.7,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, men",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1a); the end of the mean growth curve (ADR-0010)"
+    },
+    "core:growth_theta_male": {
+      "value": 14.02,
+      "unit": "year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2a), boys"
+    },
+    "core:growth_height_theta_male": {
+      "value": 167.4,
+      "unit": "centimeter",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2b), boys"
+    },
+    "core:growth_s0_male": {
+      "value": 0.1058,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2c), boys"
+    },
+    "core:growth_s1_male": {
+      "value": 0.9655,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2d), boys"
+    },
+    "core:length_birth_male": {
+      "value": 49.8842,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, birth",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_12_months_male": {
+      "value": 75.7488,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, 12 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_24_months_male": {
+      "value": 87.8161,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, 24 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:height_adult_female": {
+      "value": 167.3,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, women",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1c); the end of the mean growth curve (ADR-0010)"
+    },
+    "core:growth_theta_female": {
+      "value": 12.3,
+      "unit": "year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2l), girls"
+    },
+    "core:growth_height_theta_female": {
+      "value": 156.7,
+      "unit": "centimeter",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2m), girls"
+    },
+    "core:growth_s0_female": {
+      "value": 0.1341,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2n), girls"
+    },
+    "core:growth_s1_female": {
+      "value": 1.044,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2o), girls"
+    },
+    "core:length_birth_female": {
+      "value": 49.1477,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, birth",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_12_months_female": {
+      "value": 74.015,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, 12 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_24_months_female": {
+      "value": 86.4153,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, 24 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
     }
   },
   "traits": []

@@ -19,6 +19,7 @@ pub mod data;
 pub mod data_id;
 pub mod finite;
 pub mod genome;
+pub mod growth;
 pub mod hash;
 pub mod hex_u64;
 pub mod ids;
