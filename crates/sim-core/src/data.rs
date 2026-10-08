@@ -413,6 +413,8 @@ pub enum DataError {
     CalibrationUnknown,
     CalibrationUnit,
     CalibrationRange,
+    /// The definitions lack a trait or a locus of the body mapping (ADR-0015 section 2).
+    BodyTraits,
 }
 
 impl fmt::Display for DataError {
@@ -439,6 +441,7 @@ impl fmt::Display for DataError {
             DataError::CalibrationUnknown => "data.calibration_unknown",
             DataError::CalibrationUnit => "data.calibration_unit",
             DataError::CalibrationRange => "data.calibration_range",
+            DataError::BodyTraits => "data.body_traits",
         })
     }
 }
