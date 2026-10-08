@@ -374,6 +374,16 @@ fn puberty_progress_is_a_smoothstep_around_theta() {
             at(years)
         );
     }
+    // Another half width moves both ends: with w = 1 the rise runs from 12 to 14, and at
+    // 12.5 years u = 0.25.
+    let half_year = SimDuration::from_secs(YEAR.as_secs() / 2);
+    let narrow = |at: SimDuration| sim_core::growth::puberty_progress(at, theta, 1.0);
+    assert_eq!(
+        narrow(YEAR * 12 + half_year).to_bits(),
+        0.15625_f64.to_bits()
+    );
+    assert_eq!(narrow(YEAR * 12), 0.0);
+    assert_eq!(narrow(YEAR * 14), 1.0);
     // Between the quarter years it rises.
     let mut previous = -1.0;
     for q in 40..=64_i64 {
