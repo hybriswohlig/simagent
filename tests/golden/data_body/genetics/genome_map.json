@@ -1,0 +1,1074 @@
+{
+  "format_version": 2,
+  "map_version": 2,
+  "traits": [
+    {
+      "id": "core:androgen",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:bald",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:beard",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:beard_coverage",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:body_fat",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:body_hair",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:breast",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:brow",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:chest_depth",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:curl",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:estrogen",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_01",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_02",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_03",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_04",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_05",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_06",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_07",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_08",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_09",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_10",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_11",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:face_12",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:fat_distribution",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:freckle",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:grey",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:hair_darkness",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:hair_density",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:head_size",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:height",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:hip_width",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:leg_ratio",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:muscle",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:pigment",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": true,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:puberty",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:shoulder_width",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    },
+    {
+      "id": "core:skin_age",
+      "sigma_ref": 0.7071067811865476,
+      "exclusive": false,
+      "includes": [],
+      "description": "A trait of the body mapping with one own locus (ADR-0015 fixture)."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:dummy",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "The mendelian locus of the walking skeleton (step 5); the hereditary diseases of step 9 replace it."
+    },
+    {
+      "id": "core:height_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:height."
+    },
+    {
+      "id": "core:puberty_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:puberty."
+    },
+    {
+      "id": "core:leg_ratio_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:leg_ratio",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:leg_ratio."
+    },
+    {
+      "id": "core:head_size_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:head_size",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:head_size."
+    },
+    {
+      "id": "core:body_fat_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:body_fat",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:body_fat."
+    },
+    {
+      "id": "core:fat_distribution_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:fat_distribution",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:fat_distribution."
+    },
+    {
+      "id": "core:muscle_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:muscle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:muscle."
+    },
+    {
+      "id": "core:shoulder_width_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:shoulder_width",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:shoulder_width."
+    },
+    {
+      "id": "core:chest_depth_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:chest_depth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:chest_depth."
+    },
+    {
+      "id": "core:hip_width_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hip_width",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:hip_width."
+    },
+    {
+      "id": "core:face_01_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_01",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_01."
+    },
+    {
+      "id": "core:face_02_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_02",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_02."
+    },
+    {
+      "id": "core:face_03_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_03",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_03."
+    },
+    {
+      "id": "core:face_04_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_04",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_04."
+    },
+    {
+      "id": "core:face_05_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_05",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_05."
+    },
+    {
+      "id": "core:face_06_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_06",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_06."
+    },
+    {
+      "id": "core:face_07_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_07",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_07."
+    },
+    {
+      "id": "core:face_08_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_08",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_08."
+    },
+    {
+      "id": "core:face_09_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_09",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_09."
+    },
+    {
+      "id": "core:face_10_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 19,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_10",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_10."
+    },
+    {
+      "id": "core:face_11_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_11",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_11."
+    },
+    {
+      "id": "core:face_12_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_12",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:face_12."
+    },
+    {
+      "id": "core:pigment_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:pigment."
+    },
+    {
+      "id": "core:hair_darkness_locus",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_darkness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:hair_darkness."
+    },
+    {
+      "id": "core:androgen_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:androgen."
+    },
+    {
+      "id": "core:estrogen_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:estrogen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:estrogen."
+    },
+    {
+      "id": "core:breast_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:breast",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:breast."
+    },
+    {
+      "id": "core:curl_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:curl",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:curl."
+    },
+    {
+      "id": "core:freckle_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:freckle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:freckle."
+    },
+    {
+      "id": "core:brow_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:brow",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:brow."
+    },
+    {
+      "id": "core:beard_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:beard",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:beard."
+    },
+    {
+      "id": "core:beard_coverage_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:beard_coverage",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:beard_coverage."
+    },
+    {
+      "id": "core:body_hair_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:body_hair",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:body_hair."
+    },
+    {
+      "id": "core:bald_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:bald",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:bald."
+    },
+    {
+      "id": "core:hair_density_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_density",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:hair_density."
+    },
+    {
+      "id": "core:grey_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:grey",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:grey."
+    },
+    {
+      "id": "core:skin_age_locus",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:skin_age",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of core:skin_age."
+    },
+    {
+      "id": "core:mc1r",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 13,
+      "action": "recessive",
+      "mark": "large",
+      "mutation": "both",
+      "description": "A large recessive pigment locus (genetics specification 10.4)."
+    },
+    {
+      "id": "core:herc2",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 14,
+      "action": "recessive",
+      "mark": "large",
+      "mutation": "both",
+      "description": "A large recessive pigment locus (genetics specification 10.4)."
+    }
+  ]
+}
