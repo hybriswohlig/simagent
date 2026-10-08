@@ -7,7 +7,7 @@ mod common;
 
 use serde_json::{Value, json};
 use sim_core::body_contract::{
-    BODY_TRAITS, BodyData, BodyInputs, BodyParamKey, BodyTraits, CLAMPED_KEYS, body_params,
+    BodyData, BodyInputs, BodyParamKey, BodyTraits, CLAMPED_KEYS, body_params,
 };
 use sim_core::data::{Data, DataError};
 use sim_core::finite::FiniteF64;
@@ -114,7 +114,7 @@ fn body_data_rejects() {
     for change in cases {
         assert_eq!(rejected(change), Some(DataError::BodyTraits));
     }
-    assert_eq!(BODY_TRAITS.len(), 37);
+    assert_eq!(sim_core::body_contract::body_traits().len(), 37);
 }
 
 /// ADR-0005 section 1: only `z` and `cm` are clamped, and those are exactly the parameters

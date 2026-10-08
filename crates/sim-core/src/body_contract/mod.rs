@@ -8,8 +8,8 @@ mod mapping;
 
 pub use generated::{BodyParamKey, BodyParamSpec, BodyParams, CONTRACT_VERSION, SOURCE_HASH};
 pub use mapping::{
-    BODY_TRAITS, BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, HERC2, MC1R,
-    body_params,
+    BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,
+    herc2, mc1r,
 };
 
 /// Why the contract does not accept a value for a parameter.

@@ -17,49 +17,57 @@ use crate::time::{SimDuration, SimTime, YEAR};
 
 /// The traits the mapping reads (ADR-0015 section 2): target height and timing, the z
 /// parameters, then the traits of pigment, development, hair and skin.
-pub const BODY_TRAITS: [&str; 37] = [
-    "core:height",
-    "core:puberty",
-    "core:leg_ratio",
-    "core:head_size",
-    "core:body_fat",
-    "core:fat_distribution",
-    "core:muscle",
-    "core:shoulder_width",
-    "core:chest_depth",
-    "core:hip_width",
-    "core:face_01",
-    "core:face_02",
-    "core:face_03",
-    "core:face_04",
-    "core:face_05",
-    "core:face_06",
-    "core:face_07",
-    "core:face_08",
-    "core:face_09",
-    "core:face_10",
-    "core:face_11",
-    "core:face_12",
-    "core:pigment",
-    "core:hair_darkness",
-    "core:androgen",
-    "core:estrogen",
-    "core:breast",
-    "core:curl",
-    "core:freckle",
-    "core:brow",
-    "core:beard",
-    "core:beard_coverage",
-    "core:body_hair",
-    "core:bald",
-    "core:hair_density",
-    "core:grey",
-    "core:skin_age",
-];
+pub fn body_traits() -> [DataId; 37] {
+    [
+        "core:height",
+        "core:puberty",
+        "core:leg_ratio",
+        "core:head_size",
+        "core:body_fat",
+        "core:fat_distribution",
+        "core:muscle",
+        "core:shoulder_width",
+        "core:chest_depth",
+        "core:hip_width",
+        "core:face_01",
+        "core:face_02",
+        "core:face_03",
+        "core:face_04",
+        "core:face_05",
+        "core:face_06",
+        "core:face_07",
+        "core:face_08",
+        "core:face_09",
+        "core:face_10",
+        "core:face_11",
+        "core:face_12",
+        "core:pigment",
+        "core:hair_darkness",
+        "core:androgen",
+        "core:estrogen",
+        "core:breast",
+        "core:curl",
+        "core:freckle",
+        "core:brow",
+        "core:beard",
+        "core:beard_coverage",
+        "core:body_hair",
+        "core:bald",
+        "core:hair_density",
+        "core:grey",
+        "core:skin_age",
+    ]
+    .map(|t| DataId::new(t).unwrap_or_else(|_| panic!("invariant body.trait_id")))
+}
 
 /// The two large recessive pigment loci (genetics specification 10.4).
-pub const MC1R: &str = "core:mc1r";
-pub const HERC2: &str = "core:herc2";
+pub fn mc1r() -> DataId {
+    DataId::new("core:mc1r").unwrap_or_else(|_| panic!("invariant body.locus_id"))
+}
+
+pub fn herc2() -> DataId {
+    DataId::new("core:herc2").unwrap_or_else(|_| panic!("invariant body.locus_id"))
+}
 
 /// The parameters with the units `z` and `cm`, the only ones that are clamped (ADR-0005
 /// section 1).
@@ -90,10 +98,6 @@ pub const CLAMPED_KEYS: [BodyParamKey; 21] = [
 /// The calendar age up to which `x = min(b, 25)` follows the age (10.1, 7.4).
 const MATURE_YEARS: i64 = 25;
 
-fn id(text: &str) -> DataId {
-    DataId::new(text).unwrap_or_else(|_| panic!("invariant body.trait_id"))
-}
-
 /// Definitions checked for the mapping (ADR-0015 section 2). Only `BodyData::new` makes one.
 #[derive(Clone, Copy, Debug)]
 pub struct BodyData<'a> {
@@ -101,21 +105,20 @@ pub struct BodyData<'a> {
 }
 
 impl<'a> BodyData<'a> {
-    /// Every trait of `BODY_TRAITS` stands in the map with a phenotype row whose child and
+    /// Every trait of `body_traits` stands in the map with a phenotype row whose child and
     /// adult weights are bitwise equal, and both pigment loci stand in the map as recessive
     /// loci on an autosome; else `data.body_traits`.
     pub fn new(data: &'a Data) -> Result<BodyData<'a>, DataError> {
-        let traits_ok = BODY_TRAITS.iter().all(|t| {
-            data.phenotype_weights(&id(t)).is_some_and(
-                |[h2_child, c2_child, h2_adult, c2_adult]| {
+        let traits_ok = body_traits().iter().all(|t| {
+            data.phenotype_weights(t)
+                .is_some_and(|[h2_child, c2_child, h2_adult, c2_adult]| {
                     h2_child.to_bits() == h2_adult.to_bits()
                         && c2_child.to_bits() == c2_adult.to_bits()
-                },
-            )
+                })
         });
-        let loci_ok = [MC1R, HERC2].iter().all(|name| {
+        let loci_ok = [mc1r(), herc2()].iter().all(|name| {
             data.genome_map().loci.iter().any(|locus| {
-                locus.id == id(name)
+                locus.id == *name
                     && matches!(locus.action, Action::Recessive)
                     && locus.chromosome == Chromosome::Autosome
             })
@@ -164,7 +167,7 @@ pub struct BodyTraits {
 }
 
 impl BodyTraits {
-    /// The phenotypes in the order of `BODY_TRAITS`.
+    /// The phenotypes in the order of `body_traits`.
     pub fn from_values(values: [f64; 37]) -> BodyTraits {
         let [
             height,
@@ -270,16 +273,16 @@ impl<'a> BodyInputs<'a> {
         bio_age: f64,
     ) -> BodyInputs<'a> {
         let data = body.data();
-        let values = BODY_TRAITS.map(|t| {
-            phenotype(draws, data, genome, own, parents, &id(t), SimDuration::ZERO)
+        let values = body_traits().map(|t| {
+            phenotype(draws, data, genome, own, parents, &t, SimDuration::ZERO)
                 .unwrap_or_else(|| panic!("invariant body.phenotype"))
         });
-        let dose = |name: &str| {
+        let dose = |name: DataId| {
             let locus = data
                 .genome_map()
                 .loci
                 .iter()
-                .find(|locus| locus.id == id(name))
+                .find(|locus| locus.id == name)
                 .unwrap_or_else(|| panic!("invariant body.locus"));
             genome.dose(locus)
         };
@@ -290,8 +293,8 @@ impl<'a> BodyInputs<'a> {
             born,
             nutrition,
             z: BodyTraits::from_values(values),
-            mc1r: dose(MC1R),
-            herc2: dose(HERC2),
+            mc1r: dose(mc1r()),
+            herc2: dose(herc2()),
         }
     }
 }
