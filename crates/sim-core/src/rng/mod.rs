@@ -160,14 +160,14 @@ impl Draws {
 
     /// Uniform in [0, 1) (one word).
     pub fn unit(&self, key: DrawKey) -> f64 {
-        let _ = key;
-        0.0
+        let [w] = self.words(key);
+        dist::unit(w)
     }
 
-    /// Standard Gumbel (one word).
+    /// Standard Gumbel, location 0 and scale 1, always finite (one word).
     pub fn gumbel(&self, key: DrawKey) -> f64 {
-        let _ = key;
-        0.0
+        let [w] = self.words(key);
+        dist::gumbel(w)
     }
 
     /// Uniform on `0..n`, `n >= 1` (one word).

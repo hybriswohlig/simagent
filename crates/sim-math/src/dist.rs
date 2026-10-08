@@ -32,16 +32,20 @@ pub fn unit_open0(w: u64) -> f64 {
     scaled((w >> 11) + 1)
 }
 
-/// Uniform strictly inside (0, 1).
+/// Uniform strictly inside (0, 1): `(2 (w >> 12) + 1) * 2^-53`, the odd multiples of
+/// 2^-53 from 2^-53 (w = 0) to 1 - 2^-53 (w = `u64::MAX`), exact. Neither `ln(u)` nor
+/// `ln(1 - u)` ever sees 0.
 pub fn unit_open(w: u64) -> f64 {
-    let _ = w;
-    0.0
+    scaled(2 * (w >> 12) + 1)
 }
 
-/// Standard Gumbel by inversion.
+/// Standard Gumbel (location 0, scale 1) by inversion: `0.0 - ln(0.0 - ln(u))` with
+/// `u = unit_open(w)`. One word, no rejection, always finite: from -ln(53 ln 2) =
+/// -3.6037789929704575... at w = 0 to -ln(-ln(1 - 2^-53)) = 36.736800569677101... at
+/// w = `u64::MAX` (mpmath, 60 digits). The KAT bound against the reference is 2^-45
+/// absolute (xtask, ADR-0003 section 3.3).
 pub fn gumbel(w: u64) -> f64 {
-    let _ = w;
-    0.0
+    0.0 - ln(0.0 - ln(unit_open(w)))
 }
 
 /// Uniform on `0..n` for `n >= 1`: the upper 64 bits of `w * n`. The bias is at most

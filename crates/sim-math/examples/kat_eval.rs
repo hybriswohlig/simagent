@@ -27,6 +27,7 @@ fn main() {
             ("normal", [w0, w1, mean, sd]) => {
                 dist::normal(bits(w0), bits(w1), float(mean), float(sd))
             }
+            ("gumbel", [w]) => dist::gumbel(bits(w)),
             _ => panic!("{name} has no class P rows with {} inputs", fields.len()),
         };
         if result.is_nan() {
