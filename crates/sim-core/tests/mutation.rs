@@ -10,25 +10,6 @@ use sim_core::genome::{Genome, LocusAlleles, Sex};
 use sim_core::lineage::GenomeKey;
 use sim_core::rng::{Draws, WorldSeed};
 
-/// A genome map of `n` autosomal loci (segments in turn, slots from 0), all small, with
-/// the mutation direction `direction`, and the standard rate `rate`.
-fn data(n: u64, direction: &str, rate: f64) -> Data {
-    let (mut calibration, _) = common::files();
-    calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
-    let mut loci: Vec<(u64, u64)> = (0..n).map(|i| (i % 8, i / 8)).collect();
-    loci.sort_unstable();
-    let loci: Vec<Value> = loci
-        .iter()
-        .map(|(segment, slot)| {
-            json!({"id": format!("test:l{segment}_{slot}"), "chromosome": "autosome",
-                "segment": segment, "slot": slot, "action": "additive", "mark": "small",
-                "mutation": direction})
-        })
-        .collect();
-    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
-    Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
-}
-
 /// A founder with every listed locus at `allele` in both copies.
 fn parent(data: &Data, sex: Sex, allele: u8) -> Genome {
     let alleles: Vec<LocusAlleles> = data
@@ -63,7 +44,7 @@ fn mean_mutations(data: &Data, mother: &Genome, father: &Genome, n: u64) -> f64 
 /// part of 30.
 #[test]
 fn a_total_rate_above_30_is_drawn_in_parts() {
-    let data = data(150, "both", 0.3);
+    let data = common::autosomal_map(150, "both", 0.3);
     let (mother, father) = (parent(&data, Sex::Female, 0), parent(&data, Sex::Male, 0));
     let mean = mean_mutations(&data, &mother, &father, 2000);
     assert!((mean - 45.0).abs() < 0.43, "{mean}");
@@ -75,7 +56,7 @@ fn a_total_rate_above_30_is_drawn_in_parts() {
 #[test]
 fn a_locus_mutates_only_in_its_direction() {
     for (direction, allele) in [("to_alt", 1), ("to_ref", 0)] {
-        let data = data(40, direction, 0.5);
+        let data = common::autosomal_map(40, direction, 0.5);
         let (mother, father) = (
             parent(&data, Sex::Female, allele),
             parent(&data, Sex::Male, allele),
