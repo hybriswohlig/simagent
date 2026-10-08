@@ -90,6 +90,31 @@ def u8(value: int) -> bytes:
     return bytes([value])
 
 
+CALIBRATED_TEXT = ("source", "as_of", "note")
+
+
+def filled(entry, names) -> None:
+    """Each text field is there and not blank, as the core readers demand (ADR-0007)."""
+    for name in names:
+        text = entry.get(name)
+        assert isinstance(text, str) and text.strip(), f"text field {name} missing or blank"
+
+
+def check_text(calibration, genome_map) -> None:
+    """The text fields of every calibration value, every number of a phenotype row and of a
+    sex difference (ADR-0009, ADR-0014), and of every trait and locus (ADR-0008)."""
+    for entry in calibration["values"].values():
+        filled(entry, CALIBRATED_TEXT)
+    for row in calibration["traits"]:
+        for weight in WEIGHTS:
+            filled(row[weight], CALIBRATED_TEXT)
+    for row in calibration["sex_differences"]:
+        for number in SEX_DIFFERENCE:
+            filled(row[number], CALIBRATED_TEXT)
+    for entry in genome_map["traits"] + genome_map["loci"]:
+        filled(entry, ("description",))
+
+
 def strip(value):
     """The file without its text fields, which every place that has them must fill."""
     if isinstance(value, dict):
@@ -166,8 +191,10 @@ def genome_map_bytes(doc) -> bytes:
 
 
 def data_hash(data_dir: Path) -> int:
-    calibration = strip(json.loads((data_dir / "calibration" / "genetics.json").read_text()))
-    genome_map = strip(json.loads((data_dir / "genetics" / "genome_map.json").read_text()))
+    calibration = json.loads((data_dir / "calibration" / "genetics.json").read_text())
+    genome_map = json.loads((data_dir / "genetics" / "genome_map.json").read_text())
+    check_text(calibration, genome_map)
+    calibration, genome_map = strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(calibration_bytes(calibration) + genome_map_bytes(genome_map), seed=0)
 
 
