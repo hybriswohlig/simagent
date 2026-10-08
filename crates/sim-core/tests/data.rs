@@ -886,8 +886,8 @@ fn individual_curve_values_reject() {
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
-        (|c, _| c["format_version"] = json!(1), "data.format_version"),
-        (|c, _| c["format_version"] = json!(3), "data.format_version"),
+        (|c, _| c["format_version"] = json!(2), "data.format_version"),
+        (|c, _| c["format_version"] = json!(4), "data.format_version"),
         (
             |c, _| {
                 c["values"]

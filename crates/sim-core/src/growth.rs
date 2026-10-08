@@ -3,7 +3,8 @@
 //! between, the timing moving the spurt; the individual curve scales it and moves its
 //! timing by the phenotypes (ADR-0012). Pure functions, no state.
 
-use crate::data::{GrowthCurve, NutritionLoss};
+use crate::data::{GrowthCurve, HeightLoss, NutritionLoss};
+use crate::genome::Sex;
 use crate::params::NutritionYear;
 use crate::time::{SimDuration, SimTime, year_start};
 
@@ -131,4 +132,32 @@ pub fn nutrition_loss(
         deficit += (1.0 - index) * weighted;
     }
     loss.per_deficit_year * deficit
+}
+
+/// The progress of puberty `P` at the calendar age `age` (genetics specification 6.2,
+/// ADR-0014 section 2): 0 up to `θ_i − w`, 1 from `θ_i + w` on, a smoothstep in between.
+pub fn puberty_progress(age: SimDuration, theta: f64, half_width: f64) -> f64 {
+    let u = (age.as_years() - (theta - half_width)) / (2.0 * half_width);
+    if u <= 0.0 {
+        0.0
+    } else if u >= 1.0 {
+        1.0
+    } else {
+        3.0 * (u * u) - 2.0 * ((u * u) * u)
+    }
+}
+
+/// The loss of height in cm at the biological age `bio_age` (genetics specification 5.3,
+/// ADR-0014 section 2): `a · (b − onset) · (b − onset)` after the onset, else 0.
+pub fn height_loss(loss: &HeightLoss, sex: Sex, bio_age: f64) -> f64 {
+    let factor = match sex {
+        Sex::Male => loss.male,
+        Sex::Female => loss.female,
+    };
+    let over = bio_age - loss.onset;
+    if over > 0.0 {
+        factor * over * over
+    } else {
+        0.0
+    }
 }

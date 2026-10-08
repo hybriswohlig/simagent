@@ -43,8 +43,9 @@ fn rejected(detail: &str) -> CliError {
     CliError::new("data_rejected", detail)
 }
 
-/// The calibration values, and each of the four weights of each phenotype row, with their
-/// text fields (ADR-0009 section 2); `None` unless both lists are there.
+/// The calibration values, each of the four weights of each phenotype row and the two
+/// numbers of each sex difference, with their text fields (ADR-0009 section 2, ADR-0014);
+/// `None` unless all three lists are there.
 fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
     let mut all = Vec::new();
     let mut lists = 0;
@@ -52,23 +53,30 @@ fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
         if name == "values" {
             all.extend(list.as_object_mut()?.values_mut());
             lists += 1;
-        } else if name == "traits" {
+        } else if name == "traits" || name == "sex_differences" {
+            let numbers: &[&str] = if name == "traits" {
+                &WEIGHTS
+            } else {
+                &SEX_DIFFERENCE
+            };
             for row in list.as_array_mut()? {
                 let row = row.as_object_mut()?;
-                for (field, weight) in row.iter_mut() {
-                    if WEIGHTS.contains(&field.as_str()) {
-                        all.push(weight);
+                for (field, number) in row.iter_mut() {
+                    if numbers.contains(&field.as_str()) {
+                        all.push(number);
                     }
                 }
             }
             lists += 1;
         }
     }
-    (lists == 2).then_some(all)
+    (lists == 3).then_some(all)
 }
 
 /// The four weights of a phenotype row.
 const WEIGHTS: [&str; 4] = ["h2_child", "c2_child", "h2_adult", "c2_adult"];
+/// The two numbers of a sex difference.
+const SEX_DIFFERENCE: [&str; 2] = ["shift", "variance_ratio"];
 
 /// The traits and the loci of the genome map, each with its text field `description`
 /// (ADR-0008 section 1); `None` unless both lists are there.
