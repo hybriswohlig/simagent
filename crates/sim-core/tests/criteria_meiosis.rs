@@ -202,10 +202,10 @@ fn four_standard_errors(p: f64, n: u64) -> f64 {
 
 /// W11.3d (11.3, 2.3): the father passes his Y with `p_Y` = 1.05 / 2.05 = 21/41, from the
 /// sex ratio at birth of 7.5. Unit: meiosis, independent per child (8.1, ADR-0001), 20 000
-/// of them; tolerance 4 standard errors, 0.0141 at this size. Twin: the ratio inverted
-/// (1 / 1.05), a draw in which true means X, with 20/41 (0.0244 away, power 0.998 at this
-/// size); its share follows the calibration, 20/41 within 4 standard errors. The fair coin
-/// of steps 5 to 8 (1/2) lies 0.0122 away, which this size does not separate reliably
+/// of them; tolerance 4 standard errors, 0.0141 at this size. Twin: the calibration loads
+/// the inverted ratio 1 / 1.05, true still means Y, so `p_Y` = 20/41 (0.0244 away, power
+/// 0.998 at this size); its share follows the calibration, 20/41 within 4 standard errors.
+/// The fair coin of steps 5 to 8 (1/2) lies 0.0122 away, which this size does not separate reliably
 /// (power 0.29); it gives another sex to most children, which the vectors of the
 /// independent reference catch exactly (`tests/meiosis.rs`, `tests/mutation.rs`).
 #[test]
