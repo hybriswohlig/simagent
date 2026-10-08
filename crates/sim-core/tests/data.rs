@@ -742,7 +742,7 @@ fn phenotype_weights_reject() {
 #[test]
 fn growth_values_reject() {
     let set = |c: &mut Value, key: &str, value: f64| c["values"][key]["value"] = json!(value);
-    let cases: [(Change, &str); 8] = [
+    let cases: [(Change, &str); 9] = [
         (
             |c, _| c["values"]["core:growth_theta_male"]["unit"] = json!("centimeter"),
             "data.calibration_unit",
@@ -774,6 +774,12 @@ fn growth_values_reject() {
         ),
         (
             |c, _| c["values"]["core:height_adult_male"]["value"] = json!(300.5),
+            "data.calibration_range",
+        ),
+        // Above 10 per year an exponent of the curve could underflow and the height
+        // become infinite (ADR-0010 section 2).
+        (
+            |c, _| c["values"]["core:growth_s1_male"]["value"] = json!(10.5),
             "data.calibration_range",
         ),
     ];
