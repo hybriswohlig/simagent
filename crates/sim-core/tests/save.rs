@@ -939,15 +939,21 @@ fn a_save_keeps_the_nutrition_years() {
     assert_eq!(load_error(&set(0)), None);
     assert_eq!(load_error(&set(-1)), Some(LoadError::Inconsistent));
     // A block stamped at the last second of time has no second to act in: the load
-    // rejects it instead of panicking, with a nutrition year or without.
-    for changes in [
-        vec![TestChange::HereditaryDiseases(true)],
-        vec![TestChange::NutritionYear(999_999, 0.7)],
+    // rejects it instead of panicking, with a nutrition year or without, even when the
+    // projection agrees with it.
+    for (changes, params) in [
+        (vec![TestChange::HereditaryDiseases(true)], params(true)),
+        (
+            vec![TestChange::NutritionYear(999_999, 0.7)],
+            (false, vec![(999_999, 0.7)]),
+        ),
     ] {
         let last = File::tiny().with(|f| {
             f.closed_through = sim_core::time::MAX_ABS_SECS;
             f.queue = Vec::new();
             f.plan_refs = Vec::new();
+            f.world_params = Some(params);
+            f.next_event_id = 3;
             f.input_log.push((
                 sim_core::time::MAX_ABS_SECS,
                 2,
