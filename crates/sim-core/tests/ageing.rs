@@ -30,6 +30,9 @@ fn bio_age_follows_the_specification() {
             "{delta}"
         );
     }
+    // Another weight: the rate reads it.
+    let other = 25.0 + (75.0 - 25.0) * sim_math::exp(0.25 * 6.0 / 50.0);
+    assert_eq!(bio_age(75.0, 6.0, 0.25).to_bits(), other.to_bits());
     // Continuous at 25 and never falling for Δ from −30 to 30, on a grid of a tenth of a
     // year up to 130 years.
     for delta in [-30.0, -6.48, 0.0, 6.13, 30.0] {
