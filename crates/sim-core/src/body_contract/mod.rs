@@ -4,8 +4,13 @@
 //! saved.
 
 mod generated;
+mod mapping;
 
 pub use generated::{BodyParamKey, BodyParamSpec, BodyParams, CONTRACT_VERSION, SOURCE_HASH};
+pub use mapping::{
+    BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,
+    herc2, mc1r,
+};
 
 /// Why the contract does not accept a value for a parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

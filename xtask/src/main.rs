@@ -886,6 +886,8 @@ mod tests {
 
     /// The hand-written part of the contract module.
     const CONTRACT_MODULE_FILE: &str = "crates/sim-core/src/body_contract/mod.rs";
+    /// The mapping onto the contract (ADR-0015), hand-written in the same module.
+    const CONTRACT_MAPPING_FILE: &str = "crates/sim-core/src/body_contract/mapping.rs";
 
     /// A copy of the files that the step contract check reads, below `target/`, with the
     /// text of `file` changed by `change`.
@@ -898,6 +900,7 @@ mod tests {
             BODY_HASHES_FILE,
             codegen::GENERATED_FILE,
             CONTRACT_MODULE_FILE,
+            CONTRACT_MAPPING_FILE,
             "Cargo.toml",
         ] {
             let mut text = read(&root.join(path)).expect(path);
@@ -1187,8 +1190,9 @@ mod tests {
                     .to_string()
             )
         );
-        // Without the hand-written file the name is free.
+        // Without the hand-written files the name is free.
         std::fs::remove_file(copy.join(CONTRACT_MODULE_FILE)).expect("removed");
+        std::fs::remove_file(copy.join(CONTRACT_MAPPING_FILE)).expect("removed");
         assert_eq!(taken_names(&copy), Ok(Vec::new()));
         assert!(generated_types(&copy, &renamed).is_ok());
     }
