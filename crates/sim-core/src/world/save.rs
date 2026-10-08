@@ -729,7 +729,7 @@ fn conception_fits(
     let zygote = sexes.then(|| {
         Zygote::of(
             &Draws::new(WorldSeed::new(rules.seed)),
-            &rules.data.genetics(),
+            rules.data,
             GenomeKey::of_zygote(key),
             &her.genome,
             &him.genome,

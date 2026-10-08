@@ -16,7 +16,7 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sim_core::genome::meiosis::SegmentMeiosis;
+use sim_core::genome::meiosis::{Mutation, SegmentMeiosis};
 use sim_core::genome::{LocusAlleles, Sex, SexChromosome};
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{ForkOverride, Input};
@@ -81,8 +81,9 @@ fn homozygous(alleles: &[LocusAlleles]) -> bool {
     alleles.len() == 1 && alleles[0].copies == [1, 1]
 }
 
-/// What one meiosis recorded: its segments and the sex chromosome passed on.
-type MeiosisRecord = (Vec<SegmentMeiosis>, SexChromosome);
+/// What one meiosis recorded: its segments, the sex chromosome passed on and the new
+/// mutations.
+type MeiosisRecord = (Vec<SegmentMeiosis>, SexChromosome, Vec<Mutation>);
 
 /// A conception as both runs can compare it: by lineage keys, never by SimId.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,7 +93,7 @@ struct Conception {
     child: LineageKey,
     at: SimTime,
     /// The meioses of mother and father: segments with start strand and crossovers,
-    /// and the sex chromosome passed on.
+    /// the sex chromosome passed on and the new mutations.
     genome: Vec<MeiosisRecord>,
 }
 
@@ -187,10 +188,11 @@ fn project(run: &Run) -> Projection {
                 genome_key,
                 segments,
                 sex_chromosome,
+                mutations,
             } => strands
                 .entry(genome_key.get())
                 .or_insert_with(Vec::new)
-                .push((segments.clone(), *sex_chromosome)),
+                .push((segments.clone(), *sex_chromosome, mutations.clone())),
             _ => {}
         }
     }

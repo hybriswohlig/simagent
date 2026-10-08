@@ -47,6 +47,7 @@ pub fn definitions(calibration: Value, genome_map: Value) -> Result<Definitions,
 }
 
 /// The checked definitions of the repository.
+#[allow(dead_code, reason = "some test crates build their own definitions")]
 pub fn data() -> Data {
     let (calibration, genome_map) = files();
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")

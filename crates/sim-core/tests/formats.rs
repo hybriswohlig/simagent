@@ -13,7 +13,7 @@ mod common;
 
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
-use sim_core::genome::meiosis::SegmentMeiosis;
+use sim_core::genome::meiosis::{Mutation, SegmentMeiosis};
 use sim_core::genome::{
     Genome, LocusAlleles, PaternalSex, Sex, SexChromosome, Strand, XChromosome, YChromosome,
 };
@@ -277,6 +277,11 @@ fn sample_meiosis() -> LogPayload {
             },
         ],
         sex_chromosome: SexChromosome::Y,
+        mutations: vec![Mutation {
+            locus: DataId::new("core:dummy").expect("valid"),
+            old: 0,
+            new: 1,
+        }],
     }
 }
 
@@ -318,7 +323,7 @@ fn conception_forms_are_pinned() {
         postcard_round_trip(&sample_conception()),
         hex("06ef9bafcdf8acd19101")
     );
-    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[0.25,0.75]},{"segment":8,"start_strand":"maternal","crossovers":[]}],"sex_chromosome":"y"}}"#;
+    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[0.25,0.75]},{"segment":8,"start_strand":"maternal","crossovers":[]}],"sex_chromosome":"y","mutations":[{"locus":"core:dummy","old":0,"new":1}]}}"#;
     assert_eq!(json(&sample_meiosis()), meiosis_json);
     assert_eq!(
         from_json::<LogPayload>(meiosis_json).ok(),
@@ -326,7 +331,9 @@ fn conception_forms_are_pinned() {
     );
     assert_eq!(
         postcard_round_trip(&sample_meiosis()),
-        hex("07ef9bafcdf8acd1910102000102000000000000d03f000000000000e83f08000001")
+        hex(
+            "07ef9bafcdf8acd1910102000102000000000000d03f000000000000e83f08000001010a636f72653a64756d6d790001"
+        )
     );
     let birth = LogPayload::Birth {
         lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),

@@ -34,6 +34,15 @@ pub const CROSSOVER_COUNT: PurposeTag = PurposeTag::from_pinned_list(6);
 /// child; occasion: parent side; detail: `(segment << 32) | j`.
 pub const CROSSOVER_POSITION: PurposeTag = PurposeTag::from_pinned_list(7);
 
+/// Number of new mutations of a side in a meiosis (genetics specification 2.4).
+/// subject: genome key of the child; occasion: parent side; detail: the part of the count
+/// (0 while the total rate is at most 30).
+pub const MUTATION_COUNT: PurposeTag = PurposeTag::from_pinned_list(8);
+
+/// Site of new mutation `j` of a side in a meiosis. subject: genome key of the child;
+/// occasion: parent side; detail: `j`.
+pub const MUTATION_SITE: PurposeTag = PurposeTag::from_pinned_list(9);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -43,6 +52,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (PAIRING_RANK, "PAIRING_RANK"),
     (CROSSOVER_COUNT, "CROSSOVER_COUNT"),
     (CROSSOVER_POSITION, "CROSSOVER_POSITION"),
+    (MUTATION_COUNT, "MUTATION_COUNT"),
+    (MUTATION_SITE, "MUTATION_SITE"),
 ];
 
 /// Values of deleted tags; they are never used again.

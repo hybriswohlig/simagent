@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::Code;
 use crate::genome::SexChromosome;
-use crate::genome::meiosis::SegmentMeiosis;
+use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
 use crate::ids::{EventId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
@@ -153,14 +153,16 @@ pub enum LogPayload {
     /// A woman and a man (the subjects) conceived the child with this lineage key.
     #[serde(rename = "core:conception")]
     Conception { lineage_key: LineageKey },
-    /// One meiosis of a conception (ADR-0004 section 7, genetics specification 2.3);
-    /// subject the parent. Per segment the start strand and the crossover positions, and
-    /// the sex chromosome passed on (always X from the mother).
+    /// One meiosis of a conception (ADR-0004 section 7, genetics specification 2.3 and
+    /// 2.4); subject the parent. Per segment the start strand and the crossover
+    /// positions, the sex chromosome passed on (always X from the mother) and the new
+    /// mutations in their order.
     #[serde(rename = "core:meiosis")]
     Meiosis {
         genome_key: GenomeKey,
         segments: Vec<SegmentMeiosis>,
         sex_chromosome: SexChromosome,
+        mutations: Vec<Mutation>,
     },
     /// The child with this lineage key was born (creation entry of a SimId; subjects the
     /// child, the mother and the father).

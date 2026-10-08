@@ -68,7 +68,7 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
 
 
 PROJECTION_VERSION = 9
-CORE_VERSION = 10
+CORE_VERSION = 11
 
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)
