@@ -184,7 +184,11 @@ fn mutate(
     let mut count = 0_u32;
     let mut part = 0;
     loop {
-        let mean = rest.min(MAX_POISSON_MEAN);
+        let mean = if rest < MAX_POISSON_MEAN {
+            rest
+        } else {
+            MAX_POISSON_MEAN
+        };
         count = count
             .checked_add(draws.poisson(mutation_count_key(genome, side, part), mean))
             .unwrap_or_else(|| panic!("invariant meiosis.mutation_count"));
