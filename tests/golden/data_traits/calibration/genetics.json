@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "values": {
+    "core:map_length_autosome_female": {
+      "value": 5.35,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: female autosomal map 4281 cM, over 8 segments",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2a), rounded to 0.01 M"
+    },
+    "core:map_length_autosome_male": {
+      "value": 3.24,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: male autosomal map 2590 cM, over 8 segments",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2b), rounded to 0.01 M"
+    },
+    "core:map_length_x_female": {
+      "value": 1.79,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: X chromosome 179 cM in women",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2c); the X of a man does not recombine in the model"
+    },
+    "core:mutation_rate": {
+      "value": 5e-5,
+      "unit": "per_transmission",
+      "source": "game value; real loss-of-function rates per gene about 1e-6 to 1e-4 (Kong A et al. 2012, Nature 488:471; Jobling MA 2012, Investig Genet 3:5)",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.4 (K2.4a, C7): high enough that new mutations show in a run of 200 years"
+    },
+    "core:mutation_rate_disease": {
+      "value": 1e-6,
+      "unit": "per_transmission",
+      "source": "game value at the low end of real per-gene rates",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.4 and 3.3 (K2.4b): keeps rare disease alleles from coming mostly from new mutations"
+    }
+  }
+}
