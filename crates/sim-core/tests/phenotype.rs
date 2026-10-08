@@ -306,3 +306,56 @@ fn the_weights_move_with_the_age_and_are_held() {
     );
     assert_eq!(swap.to_bits(), held.to_bits());
 }
+
+/// ADR-0014 section 2, specification 6.2: women keep `z`; men get
+/// `z · (1 + (√VR − 1) · P) + d · P`. The fixture gives mood d = −0.4 and VR = 1.21
+/// (√ 1.1), face none. Before puberty (P = 0) nobody differs, after it (P = 1) a man has
+/// `1.1 · z − 0.4`, at P = ½ `z · 1.05 − 0.2`.
+#[test]
+fn men_differ_by_puberty() {
+    let data = fixture();
+    let mood = id("test:mood");
+    assert_eq!(data.sex_difference(&mood), Some((-0.4, 1.21)));
+    assert_eq!(data.sex_difference(&id("test:face")), None);
+    let expression = sim_core::phenotype::sex_expression;
+    for z in [-2.0, 0.0, 0.7] {
+        assert_eq!(expression(&data, &mood, Sex::Female, z, 1.0), z);
+        assert_eq!(expression(&data, &mood, Sex::Male, z, 0.0), z);
+        let root = sim_math::sqrt(1.21);
+        let after = z * (1.0 + (root - 1.0) * 1.0) + -0.4 * 1.0;
+        let half = z * (1.0 + (root - 1.0) * 0.5) + -0.4 * 0.5;
+        assert_eq!(
+            expression(&data, &mood, Sex::Male, z, 1.0).to_bits(),
+            after.to_bits()
+        );
+        assert_eq!(
+            expression(&data, &mood, Sex::Male, z, 0.5).to_bits(),
+            half.to_bits()
+        );
+        assert!((after - (1.1 * z - 0.4)).abs() < 1e-12, "{z}");
+        // A trait without a sex difference: the same for both.
+        let face = id("test:face");
+        assert_eq!(expression(&data, &face, Sex::Male, z, 1.0), z);
+    }
+}
+
+/// ADR-0014: the expression reads the values of the calibration: with mood d = 0.93 and
+/// VR = 1.44 (√ 1.2) a man after puberty has `1.2 · z + 0.93`.
+#[test]
+fn the_sex_difference_reads_the_calibration() {
+    let (mut calibration, genome_map) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    calibration["sex_differences"][0]["shift"]["value"] = serde_json::json!(0.93);
+    calibration["sex_differences"][0]["variance_ratio"]["value"] = serde_json::json!(1.44);
+    let data =
+        Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("ok");
+    let mood = id("test:mood");
+    for z in [-1.5, 0.0, 2.0] {
+        let after = sim_core::phenotype::sex_expression(&data, &mood, Sex::Male, z, 1.0);
+        let expected = z * (1.0 + (sim_math::sqrt(1.44) - 1.0) * 1.0) + 0.93 * 1.0;
+        assert_eq!(after.to_bits(), expected.to_bits(), "{z}");
+        assert!((after - (1.2 * z + 0.93)).abs() < 1e-12, "{z}");
+    }
+}

@@ -12,12 +12,15 @@ pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight byt
 endian; an enum variant with data is its index followed by the data; ADR-0008):
 
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
-                        traits: Vec<PhenotypeWeights> }
+                        traits: Vec<PhenotypeWeights>,
+                        sex_differences: Vec<SexDifference> }   (ADR-0014)
+  SexDifference { trait: DataId, shift: Calibrated, variance_ratio: Calibrated }
   Calibrated { value: f64, unit: Unit }
   PhenotypeWeights { trait: DataId, h2_child: Calibrated, c2_child: Calibrated,
                      h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
   Unit: morgan, per_transmission, fraction, centimeter, year, per_year (ADR-0010),
-        centimeter_per_year (ADR-0012)
+        centimeter_per_year (ADR-0012), centimeter_per_year_squared,
+        standard_deviation, ratio (ADR-0014)
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -48,8 +51,12 @@ UNITS = [
     "year",
     "per_year",
     "centimeter_per_year",
+    "centimeter_per_year_squared",
+    "standard_deviation",
+    "ratio",
 ]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
+SEX_DIFFERENCE = ("shift", "variance_ratio")
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -83,6 +90,31 @@ def u8(value: int) -> bytes:
     return bytes([value])
 
 
+CALIBRATED_TEXT = ("source", "as_of", "note")
+
+
+def filled(entry, names) -> None:
+    """Each text field is there and not blank, as the core readers demand (ADR-0007)."""
+    for name in names:
+        text = entry.get(name)
+        assert isinstance(text, str) and text.strip(), f"text field {name} missing or blank"
+
+
+def check_text(calibration, genome_map) -> None:
+    """The text fields of every calibration value, every number of a phenotype row and of a
+    sex difference (ADR-0009, ADR-0014), and of every trait and locus (ADR-0008)."""
+    for entry in calibration["values"].values():
+        filled(entry, CALIBRATED_TEXT)
+    for row in calibration["traits"]:
+        for weight in WEIGHTS:
+            filled(row[weight], CALIBRATED_TEXT)
+    for row in calibration["sex_differences"]:
+        for number in SEX_DIFFERENCE:
+            filled(row[number], CALIBRATED_TEXT)
+    for entry in genome_map["traits"] + genome_map["loci"]:
+        filled(entry, ("description",))
+
+
 def strip(value):
     """The file without its text fields, which every place that has them must fill."""
     if isinstance(value, dict):
@@ -106,6 +138,11 @@ def calibration_bytes(doc) -> bytes:
         out += string(row["trait"])
         for weight in WEIGHTS:
             out += calibrated_bytes(row[weight])
+    out += varint(len(doc["sex_differences"]))
+    for row in doc["sex_differences"]:
+        out += string(row["trait"])
+        for number in SEX_DIFFERENCE:
+            out += calibrated_bytes(row[number])
     return out
 
 
@@ -154,8 +191,10 @@ def genome_map_bytes(doc) -> bytes:
 
 
 def data_hash(data_dir: Path) -> int:
-    calibration = strip(json.loads((data_dir / "calibration" / "genetics.json").read_text()))
-    genome_map = strip(json.loads((data_dir / "genetics" / "genome_map.json").read_text()))
+    calibration = json.loads((data_dir / "calibration" / "genetics.json").read_text())
+    genome_map = json.loads((data_dir / "genetics" / "genome_map.json").read_text())
+    check_text(calibration, genome_map)
+    calibration, genome_map = strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(calibration_bytes(calibration) + genome_map_bytes(genome_map), seed=0)
 
 

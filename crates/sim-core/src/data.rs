@@ -15,7 +15,7 @@ use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 
 /// Format version of the calibration file (ADR-0009 section 2).
-pub const CALIBRATION_FORMAT_VERSION: u32 = 2;
+pub const CALIBRATION_FORMAT_VERSION: u32 = 3;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -27,6 +27,19 @@ pub struct GeneticsCalibration {
     pub format_version: u32,
     pub values: BTreeMap<DataId, Calibrated>,
     pub traits: Vec<PhenotypeWeights>,
+    pub sex_differences: Vec<SexDifference>,
+}
+
+/// The sex difference of one trait with a phenotype (ADR-0014 section 1, genetics
+/// specification 6.2): the shift `d_t` of men in standard deviations of women and the
+/// variance ratio `VR_t` of men to women.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SexDifference {
+    #[serde(rename = "trait")]
+    pub target: DataId,
+    pub shift: Calibrated,
+    pub variance_ratio: Calibrated,
 }
 
 /// The weights of the phenotype of one trait (ADR-0009 section 1, genetics specification
@@ -61,6 +74,9 @@ pub enum Unit {
     Year,
     PerYear,
     CentimeterPerYear,
+    CentimeterPerYearSquared,
+    StandardDeviation,
+    Ratio,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -195,6 +211,19 @@ pub struct Genetics {
     pub growth_male: GrowthCurve,
     pub growth_female: GrowthCurve,
     pub nutrition: NutritionLoss,
+    /// The half width `w` of the puberty progress around `θ_i` in years (ADR-0014).
+    pub puberty_half_width: f64,
+    pub height_loss: HeightLoss,
+}
+
+/// The loss of height in old age (genetics specification 5.3, ADR-0014): from the
+/// biological age `onset` on, `a · (b − onset)²` cm with the factor of the sex in cm per
+/// year².
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeightLoss {
+    pub onset: f64,
+    pub male: f64,
+    pub female: f64,
 }
 
 /// The loss of height from nutrition (genetics specification 5.4, ADR-0013 section 3): `k`
@@ -249,8 +278,14 @@ const MAX_HEIGHT: f64 = 300.0;
 const MAX_THETA: f64 = 30.0;
 const MAX_RATE_PER_YEAR: f64 = 10.0;
 const MAX_THETA_SD: f64 = 5.0;
-/// Upper limit of the reach of the puberty window (ADR-0013 section 3).
+/// Upper limit of the reach of the puberty window (ADR-0013 section 3) and of the half
+/// width of the puberty progress (ADR-0014).
 const MAX_PUBERTY_REACH: f64 = 10.0;
+/// Upper limit of an age in the calibration (ADR-0014), the oldest age of the contract.
+const MAX_AGE: f64 = 130.0;
+/// Limits of a sex difference (ADR-0014 section 1).
+const MAX_SHIFT: f64 = 10.0;
+const MAX_VARIANCE_RATIO: f64 = 10.0;
 
 /// Checked definitions with their data hash. Only `Data::new` makes one.
 #[derive(Clone, Debug, PartialEq)]
@@ -266,6 +301,8 @@ pub struct Data {
     /// For each trait with a phenotype its weights: h2 and c2 of the child, then of the
     /// adult (ADR-0009 section 1).
     phenotypes: BTreeMap<DataId, [f64; 4]>,
+    /// For each trait with a sex difference its shift and variance ratio (ADR-0014).
+    sex_differences: BTreeMap<DataId, (f64, f64)>,
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -612,6 +649,16 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
     if nutrition.age_infant >= nutrition.age_child {
         return Err(DataError::CalibrationRange);
     }
+    let puberty_half_width = value("core:puberty_half_width", Unit::Year, MAX_PUBERTY_REACH)?;
+    let height_loss = HeightLoss {
+        onset: value("core:height_loss_onset", Unit::Year, MAX_AGE)?,
+        male: value("core:height_loss_male", Unit::CentimeterPerYearSquared, 1.0)?,
+        female: value(
+            "core:height_loss_female",
+            Unit::CentimeterPerYearSquared,
+            1.0,
+        )?,
+    };
     let genetics = Genetics {
         map_length_autosome_female: Morgans(value(
             "core:map_length_autosome_female",
@@ -669,8 +716,10 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             gamma,
         ])?,
         nutrition,
+        puberty_half_width,
+        height_loss,
     };
-    if calibration.values.len() != 34 {
+    if calibration.values.len() != 38 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
@@ -759,6 +808,35 @@ fn check_weights_of_traits(rows: &[PhenotypeWeights], map: &GenomeMap) -> Result
     Ok(())
 }
 
+/// The sex differences (ADR-0014 section 1): each row names a trait with a phenotype row,
+/// the rows stand in ascending order, the shift is in standard deviations from −10 to 10
+/// and the variance ratio a ratio above 0 and at most 10.
+fn check_sex_differences(
+    rows: &[SexDifference],
+    phenotypes: &[PhenotypeWeights],
+) -> Result<(), DataError> {
+    for pair in rows.windows(2) {
+        if let [before, after] = pair
+            && before.target >= after.target
+        {
+            return Err(DataError::CalibrationUnknown);
+        }
+    }
+    for row in rows {
+        if !phenotypes.iter().any(|p| p.target == row.target) {
+            return Err(DataError::CalibrationUnknown);
+        }
+        if row.shift.unit != Unit::StandardDeviation || row.variance_ratio.unit != Unit::Ratio {
+            return Err(DataError::CalibrationUnit);
+        }
+        let (d, vr) = (row.shift.value.get(), row.variance_ratio.value.get());
+        if !((-MAX_SHIFT..=MAX_SHIFT).contains(&d) && vr > 0.0 && vr <= MAX_VARIANCE_RATIO) {
+            return Err(DataError::CalibrationRange);
+        }
+    }
+    Ok(())
+}
+
 fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     postcard::to_allocvec(value).unwrap_or_else(|_| panic!("invariant data.encode"))
 }
@@ -769,6 +847,10 @@ impl Data {
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map, str_key)?;
         check_weights_of_traits(&definitions.calibration.traits, &definitions.genome_map)?;
+        check_sex_differences(
+            &definitions.calibration.sex_differences,
+            &definitions.calibration.traits,
+        )?;
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
             .zip(&definitions.genome_map.loci)
@@ -789,6 +871,15 @@ impl Data {
                 (row.target.clone(), weights.map(|w| w.value.get()))
             })
             .collect();
+        let sex_differences = definitions
+            .calibration
+            .sex_differences
+            .iter()
+            .map(|row| {
+                let pair = (row.shift.value.get(), row.variance_ratio.value.get());
+                (row.target.clone(), pair)
+            })
+            .collect();
         Ok(Data {
             definitions,
             genetics,
@@ -796,6 +887,7 @@ impl Data {
             loci,
             traits,
             phenotypes,
+            sex_differences,
         })
     }
 
@@ -803,6 +895,12 @@ impl Data {
     /// and c2 of the child, then of the adult.
     pub(crate) fn phenotype_weights(&self, id: &DataId) -> Option<[f64; 4]> {
         self.phenotypes.get(id).copied()
+    }
+
+    /// The shift and the variance ratio of a trait with a sex difference (ADR-0014);
+    /// `None` for a trait without one, which has none.
+    pub fn sex_difference(&self, id: &DataId) -> Option<(f64, f64)> {
+        self.sex_differences.get(id).copied()
     }
 
     /// The terms of a trait in the order of its fold and its `sigma_ref`, if the map has
@@ -862,6 +960,16 @@ pub(crate) mod testing {
             for weight in ["h2_child", "c2_child", "h2_adult", "c2_adult"] {
                 for name in ["source", "as_of", "note"] {
                     take(&mut row[weight], name);
+                }
+            }
+        }
+        for row in calibration["sex_differences"]
+            .as_array_mut()
+            .expect("sex_differences")
+        {
+            for number in ["shift", "variance_ratio"] {
+                for name in ["source", "as_of", "note"] {
+                    take(&mut row[number], name);
                 }
             }
         }

@@ -4,7 +4,7 @@
 
 use crate::data::Data;
 use crate::data_id::{DataId, str_key};
-use crate::genome::Genome;
+use crate::genome::{Genome, Sex};
 use crate::lineage::LineageKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, tags};
 use crate::time::SimDuration;
@@ -90,6 +90,21 @@ pub fn phenotype(
         ((sim_math::sqrt(held(h2)) * g) + (sim_math::sqrt(held(c2)) * c))
             + (sim_math::sqrt(held(e2)) * e),
     )
+}
+
+/// The expression of a trait in standard deviations of women (genetics specification 6.2,
+/// ADR-0014 section 2): women `z`, men `z · (1 + (√VR − 1) · P) + d · P` with the
+/// puberty progress `P`; a trait without a sex difference is `z` for both.
+pub fn sex_expression(data: &Data, t: &DataId, sex: Sex, z: f64, progress: f64) -> f64 {
+    let Some((shift, variance_ratio)) = data.sex_difference(t) else {
+        return z;
+    };
+    match sex {
+        Sex::Female => z,
+        Sex::Male => {
+            z * (1.0 + (sim_math::sqrt(variance_ratio) - 1.0) * progress) + shift * progress
+        }
+    }
 }
 
 #[cfg(test)]

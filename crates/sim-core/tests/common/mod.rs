@@ -29,18 +29,27 @@ fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
     file
 }
 
-/// Removes the text of each of the four weights of each phenotype row (ADR-0009).
+/// Removes the text of each of the four weights of each phenotype row (ADR-0009) and of
+/// the two numbers of each sex difference (ADR-0014).
 fn without_weights(mut calibration: Value) -> Value {
-    let rows = calibration["traits"].as_array_mut().expect("traits");
-    for row in rows.iter_mut() {
-        for weight in ["h2_child", "c2_child", "h2_adult", "c2_adult"] {
-            for name in ["source", "as_of", "note"] {
-                let text = row[weight].as_object_mut().expect("weight").remove(name);
-                let filled = text
-                    .as_ref()
-                    .and_then(Value::as_str)
-                    .is_some_and(|text| !text.trim().is_empty());
-                assert!(filled, "{name} missing or blank");
+    for (list, numbers) in [
+        (
+            "traits",
+            &["h2_child", "c2_child", "h2_adult", "c2_adult"][..],
+        ),
+        ("sex_differences", &["shift", "variance_ratio"][..]),
+    ] {
+        let rows = calibration[list].as_array_mut().expect("list");
+        for row in rows.iter_mut() {
+            for number in numbers {
+                for name in ["source", "as_of", "note"] {
+                    let text = row[*number].as_object_mut().expect("number").remove(name);
+                    let filled = text
+                        .as_ref()
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| !text.trim().is_empty());
+                    assert!(filled, "{name} missing or blank");
+                }
             }
         }
     }

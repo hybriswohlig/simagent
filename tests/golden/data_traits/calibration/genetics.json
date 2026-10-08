@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 3,
   "values": {
     "core:map_length_autosome_female": {
       "value": 5.35,
@@ -238,6 +238,34 @@
       "source": "play value of the specification",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.4, the puberty window ends this many years after theta_i (ADR-0013)"
+    },
+    "core:puberty_half_width": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011): the sex differences of 6.2 rise over four years around theta_i",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.2; half width of the smoothstep of the puberty progress P (ADR-0014)"
+    },
+    "core:height_loss_onset": {
+      "value": 30.0,
+      "unit": "year",
+      "source": "Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977 (Baltimore Longitudinal Study of Aging): height loss begins at about 30 years",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3; bio_age from which height is lost (ADR-0014)"
+    },
+    "core:height_loss_male": {
+      "value": 0.001875,
+      "unit": "centimeter_per_year_squared",
+      "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 3 cm lost from 30 to 70 in men",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3; 3/1600, so 3 cm at bio_age 70 and 4.69 cm at 80 (ADR-0014)"
+    },
+    "core:height_loss_female": {
+      "value": 0.003125,
+      "unit": "centimeter_per_year_squared",
+      "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 5 cm lost from 30 to 70 in women",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3; 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
     }
   },
   "traits": [
@@ -301,6 +329,25 @@
         "source": "fixture",
         "as_of": "2026-10-08",
         "note": "test fixture"
+      }
+    }
+  ],
+  "sex_differences": [
+    {
+      "trait": "test:mood",
+      "shift": {
+        "value": -0.4,
+        "unit": "standard_deviation",
+        "source": "test fixture",
+        "as_of": "2026-10-08",
+        "note": "a shift of men below women, as neuroticism in genetics specification 6.2"
+      },
+      "variance_ratio": {
+        "value": 1.21,
+        "unit": "ratio",
+        "source": "test fixture",
+        "as_of": "2026-10-08",
+        "note": "square root 1.1, so a man after puberty has 1.1 z - 0.4"
       }
     }
   ]

@@ -345,21 +345,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":17"#, r#""core_version":18"#);
+    replace_in(&log, r#""core_version":18"#, r#""core_version":19"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 18, this is 17"
+            "error: fork_foreign_core_version: the parent run is of core version 19, this is 18"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":18"#, r#""core_version":17"#);
-    replace_in(&log, "7148a8c950b147b5", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":19"#, r#""core_version":18"#);
+    replace_in(&log, "2a8a508a04b16d5d", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is 7148a8c950b147b5".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is 2a8a508a04b16d5d".to_owned())
     );
-    replace_in(&log, "c3f04a38869c20d7", "7148a8c950b147b5");
+    replace_in(&log, "c3f04a38869c20d7", "2a8a508a04b16d5d");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -418,9 +418,9 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":17"#, r#""core_version":18"#),
+        (r#""core_version":18"#, r#""core_version":19"#),
         (
-            r#""data_hash":"7148a8c950b147b5""#,
+            r#""data_hash":"2a8a508a04b16d5d""#,
             r#""data_hash":"c3f04a38869c20d7""#,
         ),
         (

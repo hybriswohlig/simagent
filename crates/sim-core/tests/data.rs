@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0x7148_a8c9_50b1_47b5;
+const DATA_HASH: u64 = 0x2a8a_508a_04b1_6d5d;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0xc38e_3c79_c127_8689);
+    assert_eq!(data.hash(), 0xa91c_dfa4_4aa2_4b49);
 }
 
 #[test]
@@ -886,8 +886,8 @@ fn individual_curve_values_reject() {
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
-        (|c, _| c["format_version"] = json!(1), "data.format_version"),
-        (|c, _| c["format_version"] = json!(3), "data.format_version"),
+        (|c, _| c["format_version"] = json!(2), "data.format_version"),
+        (|c, _| c["format_version"] = json!(4), "data.format_version"),
         (
             |c, _| {
                 c["values"]
@@ -1027,5 +1027,149 @@ fn nutrition_values_reject() {
             c["values"]["core:nutrition_puberty_after"]["value"] = json!(10.0);
         }),
         "ok"
+    );
+}
+
+/// A change of the two files that captures values.
+type BoxedChange = Box<dyn FnOnce(&mut Value, &mut Value)>;
+
+/// The check of the fixture with traits (`tests/golden/data_traits`) changed by `change`.
+fn checked_traits(change: impl FnOnce(&mut Value, &mut Value)) -> String {
+    let (mut calibration, mut genome_map) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    change(&mut calibration, &mut genome_map);
+    match common::definitions(calibration, genome_map) {
+        Err(serde) => format!("serde: {serde}"),
+        Ok(definitions) => match Data::new(definitions) {
+            Ok(_) => "ok".to_owned(),
+            Err(error) => error.to_string(),
+        },
+    }
+}
+
+/// ADR-0014 section 1: the list of sex differences and the values of puberty and age.
+#[test]
+fn sex_difference_values_reject() {
+    let row = |t: &str, d: f64, vr: f64| {
+        json!({
+            "trait": t,
+            "shift": {"value": d, "unit": "standard_deviation"},
+            "variance_ratio": {"value": vr, "unit": "ratio"}
+        })
+    };
+    let cases: [(BoxedChange, &str); 9] = [
+        // A trait without a phenotype row, one not in the map, two in the wrong order.
+        (
+            Box::new(move |c, _| c["sex_differences"] = json!([row("test:growth", 0.1, 1.0)])),
+            "data.calibration_unknown",
+        ),
+        (
+            Box::new(move |c, _| c["sex_differences"] = json!([row("test:none", 0.1, 1.0)])),
+            "data.calibration_unknown",
+        ),
+        (
+            Box::new(move |c, _| {
+                c["sex_differences"] =
+                    json!([row("test:mood", 0.1, 1.0), row("test:face", 0.1, 1.0)]);
+            }),
+            "data.calibration_unknown",
+        ),
+        (
+            Box::new(|c, _| c["sex_differences"][0]["shift"]["unit"] = json!("ratio")),
+            "data.calibration_unit",
+        ),
+        (
+            Box::new(|c, _| {
+                c["sex_differences"][0]["variance_ratio"]["unit"] = json!("standard_deviation");
+            }),
+            "data.calibration_unit",
+        ),
+        (
+            Box::new(|c, _| c["sex_differences"][0]["shift"]["value"] = json!(-10.5)),
+            "data.calibration_range",
+        ),
+        (
+            Box::new(|c, _| c["sex_differences"][0]["variance_ratio"]["value"] = json!(0.0)),
+            "data.calibration_range",
+        ),
+        (
+            Box::new(|c, _| c["sex_differences"][0]["variance_ratio"]["value"] = json!(10.5)),
+            "data.calibration_range",
+        ),
+        (
+            Box::new(|c, _| {
+                c["sex_differences"]
+                    .as_array_mut()
+                    .expect("list")
+                    .push(json!({"trait": "test:mood", "shift": 1}));
+            }),
+            "serde",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked_traits(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    // The ends are allowed: a shift of ±10 and 0, a variance ratio of 10.
+    for (d, vr) in [(-10.0, 10.0), (10.0, 0.01), (0.0, 1.0)] {
+        assert_eq!(
+            checked_traits(move |c, _| {
+                c["sex_differences"][0]["shift"]["value"] = json!(d);
+                c["sex_differences"][0]["variance_ratio"]["value"] = json!(vr);
+            }),
+            "ok",
+            "{d} {vr}"
+        );
+    }
+    // The values of puberty and age.
+    let values: [(Change, &str); 6] = [
+        (
+            |c, _| c["values"]["core:puberty_half_width"]["value"] = json!(10.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_loss_onset"]["value"] = json!(130.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_loss_male"]["value"] = json!(1.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_loss_female"]["value"] = json!(0.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_loss_male"]["unit"] = json!("centimeter_per_year"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:puberty_half_width"]["unit"] = json!("ratio"),
+            "data.calibration_unit",
+        ),
+    ];
+    for (change, code) in values {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    for key in [
+        "core:puberty_half_width",
+        "core:height_loss_onset",
+        "core:height_loss_male",
+        "core:height_loss_female",
+    ] {
+        let (mut c, g) = common::files();
+        c["values"].as_object_mut().expect("values").remove(key);
+        let result = Data::new(common::definitions(c, g).expect("definitions"));
+        assert_eq!(result.err(), Some(DataError::CalibrationMissing), "{key}");
+    }
+    // A calibration without the list is no calibration (ADR-0014: format 3).
+    assert!(
+        checked(|c, _| {
+            c.as_object_mut().expect("file").remove("sex_differences");
+        })
+        .starts_with("serde")
     );
 }
