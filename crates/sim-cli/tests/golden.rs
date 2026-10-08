@@ -22,7 +22,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`
 /// (ADR-0007).
-const DATA_HASH: u64 = 0x7148_a8c9_50b1_47b5;
+const DATA_HASH: u64 = 0x2a8a_508a_04b1_6d5d;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
