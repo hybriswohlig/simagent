@@ -24,7 +24,7 @@ use sim_core::input::{
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
-use sim_core::params::{ParamChange, WorldParams};
+use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
@@ -88,6 +88,7 @@ fn sample_input() -> Input {
         founder_tag: data_id("test:fork_no_density"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: vec![DeathCause {
             cause: Code::new("test:base").expect("valid"),
@@ -170,17 +171,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -225,9 +226,41 @@ fn override_form_is_pinned() {
     assert_eq!(postcard_round_trip(&off), [0, 0]);
     let params = WorldParams {
         hereditary_diseases: true,
+        nutrition: Vec::new(),
     };
-    assert_eq!(json(&params), r#"{"hereditary_diseases":true}"#);
-    assert_eq!(postcard_round_trip(&params), [1]);
+    assert_eq!(
+        json(&params),
+        r#"{"hereditary_diseases":true,"nutrition":[]}"#
+    );
+    assert_eq!(postcard_round_trip(&params), [1, 0]);
+    // ADR-0013: a year as a zigzag varint (3 is 6) and the index as eight bytes (0.7 is
+    // 0x3fe6666666666666), in a sequence and as variant 1 of a change.
+    let year = NutritionYear {
+        year: 3,
+        index: FiniteF64::try_new(0.7).expect("finite"),
+    };
+    let point_seven = [0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xe6, 0x3f];
+    let fed = WorldParams {
+        hereditary_diseases: false,
+        nutrition: vec![year],
+    };
+    assert_eq!(
+        json(&fed),
+        r#"{"hereditary_diseases":false,"nutrition":[{"year":3,"index":0.7}]}"#
+    );
+    assert_eq!(
+        postcard_round_trip(&fed),
+        [[0, 1, 6].as_slice(), &point_seven].concat()
+    );
+    let change = ParamChange::NutritionYear(year);
+    assert_eq!(
+        json(&change),
+        r#"{"core:nutrition_year":{"year":3,"index":0.7}}"#
+    );
+    assert_eq!(
+        postcard_round_trip(&change),
+        [[1, 6].as_slice(), &point_seven].concat()
+    );
     for rejected in [
         r#"{"fork_override":{}}"#,
         r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}],"extra":0}}"#,
@@ -240,13 +273,20 @@ fn override_form_is_pinned() {
     }
     for rejected in [
         "{}",
-        r#"{"hereditary_diseases":1}"#,
-        r#"{"hereditary_diseases":true,"x":0}"#,
+        r#"{"hereditary_diseases":1,"nutrition":[]}"#,
+        r#"{"hereditary_diseases":true}"#,
+        r#"{"hereditary_diseases":true,"nutrition":[],"x":0}"#,
+        r#"{"hereditary_diseases":true,"nutrition":[{"year":3}]}"#,
+        r#"{"hereditary_diseases":true,"nutrition":[{"year":3,"index":0.7,"x":0}]}"#,
+        r#"{"hereditary_diseases":true,"nutrition":[{"year":3.5,"index":0.7}]}"#,
     ] {
         assert!(from_json::<WorldParams>(rejected).is_err(), "{rejected}");
     }
     // A start without world parameters is no start: nothing is filled in.
-    let without = INPUT_JSON.replace(r#""world_params":{"hereditary_diseases":false},"#, "");
+    let without = INPUT_JSON.replace(
+        r#""world_params":{"hereditary_diseases":false,"nutrition":[]},"#,
+        "",
+    );
     assert_ne!(without, INPUT_JSON);
     assert!(from_json::<Input>(&without).is_err());
 }
@@ -569,6 +609,7 @@ fn postcard_forms_are_pinned() {
         founder_tag: data_id("a:b"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: Vec::new(),
@@ -577,10 +618,10 @@ fn postcard_forms_are_pinned() {
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
-    // The tag, the switch off (one byte 0), no causes of death, no founders and no
-    // couples (three lengths 0), then the fertility: eight bytes of 0.0 and the
-    // varints 18, 45 and 10.
-    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0]);
+    // The tag, the switch off (one byte 0), no nutrition years, no causes of death, no
+    // founders and no couples (four lengths 0), then the fertility: eight bytes of 0.0
+    // and the varints 18, 45 and 10.
+    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0, 0]);
     expected.extend([0; 8]);
     expected.extend([18, 45, 10]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
@@ -874,6 +915,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         founder_tag: data_id("test:fork_no_density"),
         world_params: WorldParams {
             hereditary_diseases: false,
+            nutrition: Vec::new(),
         },
         death_causes: Vec::new(),
         founders: vec![Founder {
@@ -965,6 +1007,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::FounderUnknownLocus,
         RejectCode::FounderLocusTwice,
         RejectCode::FounderCopies,
+        RejectCode::NutritionOrder,
+        RejectCode::NutritionOutOfRange,
+        RejectCode::NutritionYearPast,
     ];
     for code in &codes {
         match code {
@@ -985,7 +1030,10 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::FertilityOutOfRange
             | RejectCode::FounderUnknownLocus
             | RejectCode::FounderLocusTwice
-            | RejectCode::FounderCopies => {}
+            | RejectCode::FounderCopies
+            | RejectCode::NutritionOrder
+            | RejectCode::NutritionOutOfRange
+            | RejectCode::NutritionYearPast => {}
         }
     }
     codes
@@ -1178,10 +1226,16 @@ fn log_codes_are_stable() {
     }
     actual.extend(from_father.iter().map(|c| line("paternal_sex", c)));
     // The world parameters an override block can name.
-    let params = [ParamChange::HereditaryDiseases(true)];
+    let params = [
+        ParamChange::HereditaryDiseases(true),
+        ParamChange::NutritionYear(NutritionYear {
+            year: 3,
+            index: FiniteF64::try_new(0.7).expect("finite"),
+        }),
+    ];
     for param in &params {
         match param {
-            ParamChange::HereditaryDiseases(_) => {}
+            ParamChange::HereditaryDiseases(_) | ParamChange::NutritionYear(_) => {}
         }
     }
     actual.extend(params.iter().map(|p| line("param", p)));
