@@ -312,3 +312,21 @@ fn p14_p16_fail_without_the_genetic_factor() {
         "P14 passes without the factor: {to_80}"
     );
 }
+
+#[test]
+#[should_panic(expected = "invariant mortality.gompertz")]
+fn a_gompertz_slope_of_zero_breaks_the_invariant() {
+    senescence_age(0.0, 1.0, Gompertz { a: 1e-5, b: 0.0 }, 1.0);
+}
+
+#[test]
+#[should_panic(expected = "invariant mortality.gompertz")]
+fn an_offset_without_slope_breaks_the_invariant() {
+    age_offset(Some(1.0), SIGMA_G, 0.0);
+}
+
+#[test]
+#[should_panic(expected = "invariant mortality.gompertz")]
+fn an_offset_with_a_negative_slope_breaks_the_invariant() {
+    age_offset(Some(1.0), SIGMA_G, -0.1);
+}
