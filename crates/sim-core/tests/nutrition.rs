@@ -129,6 +129,9 @@ fn the_puberty_window_follows_theta() {
     assert_eq!(at(13, 11.0), 0.0);
     // θ = 11.5: the window [9.5, 12.5) holds half of age 9 to 10.
     assert!((at(9, 11.5) - 0.1875).abs() < 1e-9, "{}", at(9, 11.5));
+    // The window reaches one year past θ: age 12 to 13 for θ = 12, not age 13 to 14.
+    assert!((at(12, 12.0) - 0.375).abs() < 1e-9, "{}", at(12, 12.0));
+    assert_eq!(at(13, 12.0), 0.0);
 }
 
 /// 5.4: below 5 years only the age windows count, even if the puberty window would start
@@ -141,6 +144,15 @@ fn below_five_only_the_age_windows_count() {
     assert!((at(5) - 0.375).abs() < 1e-9, "{}", at(5));
     // Age 2 to 3 in the second window: 5 · 0.3 · 0.5.
     assert!((at(2) - 0.75).abs() < 1e-9, "{}", at(2));
+}
+
+/// A year long before the birth, at the edge of time, costs nothing and is skipped without
+/// a time difference out of range; so is a year after the age reached.
+#[test]
+fn years_outside_the_life_cost_nothing() {
+    let born = year_start(10);
+    let years = [year(-1_000_000, 0.0), year(999_999, 0.0)];
+    assert_eq!(loss(&years, born, adult(), THETA), 0.0);
 }
 
 /// Several years add up in the order of the list; years before the birth cost nothing.

@@ -94,8 +94,9 @@ fn overlap(lo: f64, hi: f64, from: f64, to: f64) -> f64 {
 
 /// The loss of height in cm from nutrition up to `age` of a person born at `born` with the
 /// pubertal timing `theta` (`θ_i`, ADR-0012) (genetics specification 5.4, ADR-0013 section
-/// 4): `k · ∫ ω(a) · (1 − N(born + a)) da`, the integral exact over the years below 1, in
-/// the order of the list. `years` are the checked years of the world parameters.
+/// 4): `k · ∫ ω(a) · (1 − N(born + a)) da`, exact over the listed years (a year with 1
+/// adds 0), in the order of the list. `years` are the checked years of the world
+/// parameters; a year outside the life is skipped before any time is subtracted.
 pub fn nutrition_loss(
     years: &[NutritionYear],
     loss: &NutritionLoss,
@@ -109,9 +110,6 @@ pub fn nutrition_loss(
     let mut deficit = 0.0;
     for entry in years {
         let index = entry.index.get();
-        if index >= 1.0 {
-            continue;
-        }
         let from = year_start(entry.year).max(born);
         let to = year_start(entry.year + 1).min(until);
         if to <= from {
