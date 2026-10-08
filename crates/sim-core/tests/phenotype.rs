@@ -212,3 +212,97 @@ fn full_siblings_share_the_shared_environment() {
         shared_environment(&draws, &t, first, both)
     );
 }
+
+/// A map with two traits of one locus each and their rows: `test:cog` with the
+/// cognition weights of table 4.2 (h2 0.5 to 0.75, c2 0.25 to 0.05), and `test:swap`
+/// whose weights trade places (h2 1 to 0, c2 0 to 1), so that `e2` rounds around 0.
+fn moving() -> Data {
+    let (mut calibration, mut genome_map) = common::files();
+    let trait_ = |t: &str| serde_json::json!({"id": t, "sigma_ref": 1.0, "exclusive": false, "includes": []});
+    let additive = |id: &str, slot: u64, t: &str| {
+        serde_json::json!({"id": id, "chromosome": "autosome", "segment": 7, "slot": slot,
+            "action": {"additive": {"effect": 0.5, "d_ref": 1.0,
+                "loads": [{"trait": t, "weight": 1.0}]}},
+            "mark": "small", "mutation": "both"})
+    };
+    genome_map["traits"] = serde_json::json!([trait_("test:cog"), trait_("test:swap")]);
+    let dummy = genome_map["loci"][0].clone();
+    genome_map["loci"] = serde_json::json!([
+        dummy,
+        additive("test:k", 0, "test:cog"),
+        additive("test:w", 1, "test:swap"),
+    ]);
+    let fraction = |value: f64| serde_json::json!({"value": value, "unit": "fraction"});
+    let row = |t: &str, w: [f64; 4]| {
+        serde_json::json!({"trait": t, "h2_child": fraction(w[0]), "c2_child": fraction(w[1]),
+            "h2_adult": fraction(w[2]), "c2_adult": fraction(w[3])})
+    };
+    calibration["traits"] = serde_json::json!([
+        row("test:cog", [0.5, 0.25, 0.75, 0.05]),
+        row("test:swap", [1.0, 0.0, 0.0, 1.0]),
+    ]);
+    Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// The heritability moves with the age (table 4.2, cognition): at 12 years `s` is 1/2
+/// exactly, here written as the literal; at 30 it is near the adult end. And where the
+/// weights trade places, rounding puts `e2` just below 0 at some age: the phenotype holds
+/// it at 0 instead of taking the root of a negative number.
+#[test]
+fn the_weights_move_with_the_age_and_are_held() {
+    let data = moving();
+    let draws = Draws::new(WorldSeed::new(0x5eed_0000_0000_0044));
+    let alleles = [LocusAlleles {
+        locus: id("test:k"),
+        copies: vec![1, 1],
+    }];
+    let genome = Genome::with_alleles(Sex::Female, &alleles, &data).expect("fits");
+    let own = founder(7);
+    let at = |t: &str, age: SimDuration| {
+        phenotype(&draws, &data, &genome, own, None, &id(t), age).expect("a phenotype")
+    };
+    let (g, shared, own_env) = (
+        genome
+            .genetic_value(&id("test:cog"), &data)
+            .expect("a trait"),
+        c(&draws, "test:cog", own, own),
+        e(&draws, "test:cog", own),
+    );
+    // At 12: h2 = 0.5 + 0.25 · 0.5, c2 = 0.25 + (−0.2) · 0.5, e2 the rest.
+    let h2 = 0.5 + (0.75 - 0.5) * 0.5;
+    let c2 = 0.25 + (0.05 - 0.25) * 0.5;
+    let e2 = (1.0 - h2) - c2;
+    let twelve =
+        ((sim_math::sqrt(h2) * g) + (sim_math::sqrt(c2) * shared)) + (sim_math::sqrt(e2) * own_env);
+    assert_eq!(at("test:cog", YEAR * 12).to_bits(), twelve.to_bits());
+    let thirty = by_hand([0.5, 0.25, 0.75, 0.05], 30.0, g, shared, own_env);
+    assert_eq!(at("test:cog", YEAR * 30).to_bits(), thirty.to_bits());
+    assert_ne!(thirty.to_bits(), twelve.to_bits());
+    // Where e2 rounds below 0: find such an age by the arithmetic of section 4, then the
+    // phenotype must be the held value, not NaN.
+    let negative = (0..5000_i64)
+        .map(|day| SimDuration::from_secs(day * 86_400))
+        .find(|age| {
+            let s = 1.0 / (1.0 + sim_math::exp((12.0 - age.as_years()) / 2.0));
+            let e2 = (1.0 - (1.0 + (0.0 - 1.0) * s)) - (0.0 + (1.0 - 0.0) * s);
+            e2 < 0.0
+        })
+        .expect("an age where e2 rounds below 0");
+    let swap = at("test:swap", negative);
+    assert!(swap.is_finite(), "{swap}");
+    let (g, shared, own_env) = (
+        genome
+            .genetic_value(&id("test:swap"), &data)
+            .expect("a trait"),
+        c(&draws, "test:swap", own, own),
+        e(&draws, "test:swap", own),
+    );
+    let held = by_hand(
+        [1.0, 0.0, 0.0, 1.0],
+        negative.as_years(),
+        g,
+        shared,
+        own_env,
+    );
+    assert_eq!(swap.to_bits(), held.to_bits());
+}
