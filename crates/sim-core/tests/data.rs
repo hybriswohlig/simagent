@@ -795,6 +795,78 @@ fn growth_values_reject() {
     assert!(Data::new(common::definitions(c, g).expect("definitions")).is_ok());
 }
 
+/// ADR-0012 section 2: the spreads, `γ` and the corner of the individual curve.
+#[test]
+fn individual_curve_values_reject() {
+    let set = |c: &mut Value, key: &str, value: f64| c["values"][key]["value"] = json!(value);
+    let cases: [(Change, &str); 9] = [
+        (
+            |c, _| c["values"]["core:growth_gamma"]["unit"] = json!("per_year"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:height_sd_male"]["unit"] = json!("year"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:growth_theta_sd_female"]["unit"] = json!("centimeter"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:height_sd_male"]["value"] = json!(0.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:height_sd_female"]["value"] = json!(300.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:growth_theta_sd_female"]["value"] = json!(5.01),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:growth_gamma"]["value"] = json!(300.5),
+            "data.calibration_range",
+        ),
+        // The corner `z_h = z_p = −6`: 167.3 − 6 · 27 − 6 · 0.89 = −0.04 cm for women.
+        (
+            |c, _| c["values"]["core:height_sd_female"]["value"] = json!(27.0),
+            "data.calibration_range",
+        ),
+        // 180.7 − 6 · 7.01 − 6 · 0.81 · 28.6 = −0.356 cm for men.
+        (
+            |c, _| c["values"]["core:growth_gamma"]["value"] = json!(28.6),
+            "data.calibration_range",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    for key in [
+        "core:height_sd_male",
+        "core:height_sd_female",
+        "core:growth_theta_sd_male",
+        "core:growth_theta_sd_female",
+        "core:growth_gamma",
+    ] {
+        let (mut c, g) = common::files();
+        c["values"].as_object_mut().expect("values").remove(key);
+        let result = Data::new(common::definitions(c, g).expect("definitions"));
+        assert_eq!(result.err(), Some(DataError::CalibrationMissing), "{key}");
+    }
+    // The limits are allowed, and a corner just above 0: 167.3 − 6 · 26.9 − 6 · 0.89 =
+    // 0.56 cm; with 5 years 180.7 − 6 · 7.01 − 6 · 5 = 108.64 cm.
+    let (mut c, g) = common::files();
+    set(&mut c, "core:height_sd_female", 26.9);
+    set(&mut c, "core:growth_theta_sd_male", 5.0);
+    let data = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    let female = data.genetics().growth(sim_core::genome::Sex::Female);
+    assert_eq!(female.sd, 26.9);
+    let corner = sim_core::growth::IndividualCurve::new(female, -6.0, -6.0);
+    assert!((corner.target - 0.56).abs() < 1e-9, "{}", corner.target);
+}
+
 #[test]
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
