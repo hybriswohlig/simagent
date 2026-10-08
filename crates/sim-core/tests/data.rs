@@ -1263,6 +1263,34 @@ fn body_values_are_those_of_the_specification() {
     assert_eq!(common::data().genetics().bio_age_weight, 0.5);
 }
 
+/// Genetics specification 2.3, 7.5 and 11.3 (W11.3d), ADR-0017 section 4: the sex ratio
+/// at birth is the calibration value `core:sex_ratio_at_birth`, 1.05 sons per daughter, unit
+/// `ratio`; above 0 and at most 10, the upper end allowed, a value beyond, another unit
+/// and a missing value rejected.
+#[test]
+fn the_sex_ratio_at_birth_is_a_calibration_value() {
+    const KEY: &str = "core:sex_ratio_at_birth";
+    let (calibration, _) = common::files();
+    assert_eq!(calibration["values"][KEY]["value"].as_f64(), Some(1.05));
+    assert_eq!(calibration["values"][KEY]["unit"].as_str(), Some("ratio"));
+    for (value, result) in [
+        (10.0, "ok"),
+        (1e-9, "ok"),
+        (10.5, "data.calibration_range"),
+        (0.0, "data.calibration_range"),
+        (-1.05, "data.calibration_range"),
+    ] {
+        let got = checked(|c, _| c["values"][KEY]["value"] = json!(value));
+        assert!(got.starts_with(result), "{value}: {got}");
+    }
+    let got = checked(|c, _| c["values"][KEY]["unit"] = json!("fraction"));
+    assert!(got.starts_with("data.calibration_unit"), "{got}");
+    let (mut c, g) = common::files();
+    c["values"].as_object_mut().expect("values").remove(KEY);
+    let result = Data::new(common::definitions(c, g).expect("definitions"));
+    assert_eq!(result.err(), Some(DataError::CalibrationMissing));
+}
+
 /// ADR-0015 section 1: `logit` from −20 to 20 (0 and negatives allowed), `stage` above 0 up
 /// to 7; each end allowed, a value beyond rejected; a missing value rejected.
 #[test]

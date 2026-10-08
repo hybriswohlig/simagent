@@ -1,6 +1,7 @@
 //! The criteria of phase 1 that the meiosis alone decides (genetics specification 8.3):
 //! P12 recombination, P13 new mutations, P15 X-linked, and the exact properties of the
-//! meiosis (the tables of mt and Y, every new mutation in the meiosis entry). Their unit is the meiosis, whose
+//! meiosis (the tables of mt and Y, every new mutation in the meiosis entry); with them the
+//! share of sons of 11.3 (W11.3d). Their unit is the meiosis, whose
 //! draws are independent per child (8.1, ADR-0001), so the tests draw meioses directly
 //! from fixed parents. Expected values and tolerances come from the specification; the
 //! tolerance is 4 standard errors at the actual sample size. Each test also runs on a
@@ -20,6 +21,7 @@ use sim_core::rng::{Draws, WorldSeed};
 const SEED_P12: u64 = 0x5eed_0000_0000_0012;
 const SEED_P13: u64 = 0x5eed_0000_0000_0013;
 const SEED_P15: u64 = 0x5eed_0000_0000_0015;
+const SEED_W11_3D: u64 = 0x5eed_0000_0000_113d;
 /// For the exact properties, which hold under every seed.
 const SEED_EXACT: u64 = 0x5eed_0000_0000_0e8a;
 
@@ -171,6 +173,72 @@ fn p15_sons_of_carrier_mothers_have_it_with_one_half() {
         daughters > 0 && sons > 0,
         "{daughters} daughters, {sons} sons"
     );
+}
+
+/// The repository's definitions with the sex ratio at birth `ratio` (sons per daughter).
+fn sex_ratio(ratio: f64) -> Data {
+    let (mut calibration, genome_map) = common::files();
+    calibration["values"]["core:sex_ratio_at_birth"]["value"] = json!(ratio);
+    Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// The share of sons among the children with the genome keys `keys` of a mother and a
+/// father without alternative alleles, under `data`; the zygotes are counted, not kept.
+fn share_of_sons(data: &Data, keys: core::ops::Range<u64>) -> f64 {
+    let draws = Draws::new(WorldSeed::new(SEED_W11_3D));
+    let mother = genome([0; 3], [0; 3], 0, json!({"x": 0}));
+    let father = genome([0; 3], [0; 3], 0, json!({"y": 0}));
+    let n = f64::from(u32::try_from(keys.end - keys.start).expect("small"));
+    let sons = keys
+        .filter(|k| is_son(&Zygote::of(&draws, data, key(*k), &mother, &father)))
+        .count();
+    f64::from(u32::try_from(sons).expect("small")) / n
+}
+
+/// Four standard errors of a share `p` over `n` independent units (8.1).
+fn four_standard_errors(p: f64, n: u64) -> f64 {
+    4.0 * sim_math::sqrt(p * (1.0 - p) / f64::from(u32::try_from(n).expect("small")))
+}
+
+/// W11.3d (11.3, 2.3): the father passes his Y with `p_Y` = 1.05 / 2.05 = 21/41, from the
+/// sex ratio at birth of 7.5. Unit: meiosis, independent per child (8.1, ADR-0001), 20 000
+/// of them; tolerance 4 standard errors, 0.0141 at this size. Twin: the ratio inverted
+/// (1 / 1.05), a draw in which true means X, with 20/41 (0.0244 away, power 0.998 at this
+/// size); its share follows the calibration, 20/41 within 4 standard errors. The fair coin
+/// of steps 5 to 8 (1/2) lies 0.0122 away, which this size does not separate reliably
+/// (power 0.29); it gives another sex to most children, which the vectors of the
+/// independent reference catch exactly (`tests/meiosis.rs`, `tests/mutation.rs`).
+#[test]
+fn w11_3d_sons_at_the_sex_ratio_of_birth() {
+    const N: u64 = 20_000;
+    let p_y = 21.0 / 41.0;
+    let ours = share_of_sons(&common::data(), 0..N);
+    assert!((ours - p_y).abs() <= four_standard_errors(p_y, N), "{ours}");
+    let inverted = share_of_sons(&sex_ratio(1.0 / 1.05), N..2 * N);
+    assert!(
+        (inverted - p_y).abs() > four_standard_errors(p_y, N),
+        "{inverted}"
+    );
+    let q = 20.0 / 41.0;
+    assert!(
+        (inverted - q).abs() <= four_standard_errors(q, N),
+        "{inverted}"
+    );
+}
+
+/// W11.3d (11.3, ADR-0017 section 4): the draw reads `core:sex_ratio_at_birth`, `p_Y` =
+/// `r / (1 + r)`: with the ratio 3 the share of sons is 3/4, with 1/3 it is 1/4, each
+/// within 4 standard errors of 5000 meioses (0.0245; 21/41 lies more than 0.23 away).
+#[test]
+fn w11_3d_the_sex_draw_reads_the_calibration() {
+    const N: u64 = 5000;
+    for (ratio, share, keys) in [(3.0, 0.75, 2 * N..3 * N), (1.0 / 3.0, 0.25, 3 * N..4 * N)] {
+        let ours = share_of_sons(&sex_ratio(ratio), keys);
+        assert!(
+            (ours - share).abs() <= four_standard_errors(share, N),
+            "{ratio}: {ours}"
+        );
+    }
 }
 
 /// Exact (8.3, 2.6): mt comes from the mother to every child and never from the father;
