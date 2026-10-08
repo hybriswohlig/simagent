@@ -122,7 +122,9 @@ fn genome(person: &Value) -> Genome {
 
 /// The test map of the reference in the form of the genome map: X, Y and mt loci sit in
 /// segment 0 of their type (the reference numbers the mother's X 8 as in the draw
-/// details), every locus acts additively, the direction is its mutation.
+/// details), every locus is recessive (a small mark becomes large: only "disease or
+/// not" decides the rate, and format 2 has no small mendelian locus), the direction is
+/// its mutation.
 fn reference_data(vectors: &Value) -> Data {
     let loci: Vec<Value> = vectors["genome_map"]
         .as_array()
@@ -130,9 +132,14 @@ fn reference_data(vectors: &Value) -> Data {
         .iter()
         .map(|locus| {
             let autosome = locus["chromosome"] == "autosome";
+            let mark = if locus["mark"] == "small" {
+                json!("large")
+            } else {
+                locus["mark"].clone()
+            };
             json!({"id": locus["id"], "chromosome": locus["chromosome"],
                 "segment": if autosome { locus["segment"].clone() } else { json!(0) },
-                "slot": locus["slot"], "action": "additive", "mark": locus["mark"],
+                "slot": locus["slot"], "action": "recessive", "mark": mark,
                 "mutation": locus["direction"]})
         })
         .collect();
@@ -140,7 +147,7 @@ fn reference_data(vectors: &Value) -> Data {
     calibration["values"]["core:mutation_rate"]["value"] = vectors["rates"]["standard"].clone();
     calibration["values"]["core:mutation_rate_disease"]["value"] =
         vectors["rates"]["disease"].clone();
-    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
+    let genome_map = json!({"format_version": 2, "map_version": 1, "traits": [], "loci": loci});
     Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 

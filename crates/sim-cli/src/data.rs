@@ -10,7 +10,8 @@ use crate::error::CliError;
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
 
-/// The text fields of a calibration value and of a locus (ADR-0007 section 2).
+/// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
+/// ADR-0008 section 1).
 const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];
 const LOCUS_TEXT: [&str; 1] = ["description"];
 
@@ -34,7 +35,7 @@ pub fn data_from(calibration: &str, genome_map: &str) -> Result<Data, CliError> 
         genome_map: read(
             genome_map,
             "genetics/genome_map.json",
-            |file| entries(file, "loci", Value::as_array_mut).map(|loci| loci.iter_mut().collect()),
+            map_entries,
             &LOCUS_TEXT,
         )?,
     };
@@ -43,6 +44,20 @@ pub fn data_from(calibration: &str, genome_map: &str) -> Result<Data, CliError> 
 
 fn rejected(detail: &str) -> CliError {
     CliError::new("data_rejected", detail)
+}
+
+/// The traits and the loci of the genome map, each with its text field `description`
+/// (ADR-0008 section 1); `None` unless both lists are there.
+fn map_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
+    let mut all = Vec::new();
+    let mut lists = 0;
+    for (name, list) in file.as_object_mut()? {
+        if name == "traits" || name == "loci" {
+            all.extend(list.as_array_mut()?.iter_mut());
+            lists += 1;
+        }
+    }
+    (lists == 2).then_some(all)
 }
 
 /// The field `name` of the file as an object or array, through `as_mut`.
@@ -94,7 +109,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0x1bdf_3636_c22d_0643);
+        assert_eq!(core_data().expect("data").hash(), 0x0941_b68f_f721_7c6f);
     }
 
     #[test]
@@ -129,8 +144,8 @@ mod tests {
     fn unknown_fields_and_text_in_the_wrong_place_are_rejected() {
         // A text field where the file has none stays and meets deny_unknown_fields.
         let misplaced = GENOME_MAP.replacen(
-            "\"map_version\": 1,",
-            "\"map_version\": 1, \"note\": \"x\",",
+            "\"map_version\": 2,",
+            "\"map_version\": 2, \"note\": \"x\",",
             1,
         );
         assert_ne!(misplaced, GENOME_MAP);
@@ -143,6 +158,35 @@ mod tests {
         assert!(
             code(data_from(CALIBRATION, &typo))
                 .starts_with("genetics/genome_map.json: unknown field `slots`")
+        );
+    }
+
+    const TRAITS_MAP: &str =
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json");
+
+    /// Traits have their text too (ADR-0008 section 1): removed before the core reads
+    /// them, so the hash is the one of the independent reference; a trait without it, and
+    /// a map without the list of traits, are rejected.
+    #[test]
+    fn traits_have_their_text() {
+        let data = data_from(CALIBRATION, TRAITS_MAP).expect("data");
+        assert_eq!(data.hash(), 0x5fa6_062e_bcc9_9a2a);
+        assert_eq!(data.genome_map().traits.len(), 4);
+        let blank = TRAITS_MAP.replacen(
+            "\"description\": \"An exclusive trait.\"",
+            "\"description\": \" \"",
+            1,
+        );
+        assert_ne!(blank, TRAITS_MAP);
+        assert_eq!(
+            code(data_from(CALIBRATION, &blank)),
+            "genetics/genome_map.json: description missing or blank"
+        );
+        let without = GENOME_MAP.replacen("\"traits\": [],", "", 1);
+        assert_ne!(without, GENOME_MAP);
+        assert_eq!(
+            code(data_from(CALIBRATION, &without)),
+            "genetics/genome_map.json: no entries"
         );
     }
 }

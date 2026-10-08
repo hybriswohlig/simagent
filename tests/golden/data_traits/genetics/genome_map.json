@@ -1,0 +1,86 @@
+{
+  "format_version": 2,
+  "map_version": 7,
+  "traits": [
+    {
+      "id": "test:face",
+      "sigma_ref": 1.5,
+      "exclusive": false,
+      "includes": [{"trait": "test:growth", "weight": 0.25}],
+      "description": "A face axis: its own locus plus the growth factor with weight 0.25."
+    },
+    {
+      "id": "test:growth",
+      "sigma_ref": 2.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "A factor with two loci, one of them loading on two traits."
+    },
+    {
+      "id": "test:mood",
+      "sigma_ref": 3.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "A second factor of the locus with two loads."
+    },
+    {
+      "id": "test:pigment",
+      "sigma_ref": 0.75,
+      "exclusive": true,
+      "includes": [],
+      "description": "An exclusive trait."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:dummy",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "As in the base game."
+    },
+    {
+      "id": "test:g1",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 0,
+      "action": {"additive": {"effect": 0.5, "d_ref": 1.25, "loads": [{"trait": "test:growth", "weight": 1.0}, {"trait": "test:mood", "weight": -0.5}]}},
+      "mark": "small",
+      "mutation": "both",
+      "description": "Loads on two traits."
+    },
+    {
+      "id": "test:f1",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 4,
+      "action": {"additive": {"effect": 0.75, "d_ref": 1.0, "loads": [{"trait": "test:face", "weight": 1.0}]}},
+      "mark": "small",
+      "mutation": "both",
+      "description": "The own locus of the face axis."
+    },
+    {
+      "id": "test:g2",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 7,
+      "action": {"threshold": {"effect": 0.125, "d_ref": 0.5, "loads": [{"trait": "test:growth", "weight": 2.0}]}},
+      "mark": "small",
+      "mutation": "both",
+      "description": "A threshold locus."
+    },
+    {
+      "id": "test:p1",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 23,
+      "action": {"additive": {"effect": 1.0, "d_ref": 0.0, "loads": [{"trait": "test:pigment", "weight": 1.0}]}},
+      "mark": "large",
+      "mutation": "to_alt",
+      "description": "Loads on the exclusive trait only."
+    }
+  ]
+}

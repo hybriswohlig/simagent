@@ -235,7 +235,8 @@ fn passed_on(meiosis: &Meiosis, segment: u8, slot: u8, slots: u8) -> Strand {
 }
 
 /// A map with loci on every chromosome type at the standard rate `rate`: 150 autosomal
-/// loci, every slot of X, Y and mt; all of direction both.
+/// loci, every slot of X, Y and mt; all of direction both, recessive and large (only the
+/// mark decides the rate, and an additive locus would need a trait, ADR-0008).
 fn every_chromosome(rate: f64) -> Data {
     let (mut calibration, _) = common::files();
     calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
@@ -243,7 +244,7 @@ fn every_chromosome(rate: f64) -> Data {
     places.sort_unstable();
     let locus = |id: String, chromosome: &str, segment: u64, slot: u64| {
         json!({"id": id, "chromosome": chromosome, "segment": segment, "slot": slot,
-            "action": "additive", "mark": "small", "mutation": "both"})
+            "action": "recessive", "mark": "large", "mutation": "both"})
     };
     let mut loci: Vec<Value> = places
         .iter()
@@ -259,7 +260,7 @@ fn every_chromosome(rate: f64) -> Data {
     loci.extend((0..16).map(|slot| locus(format!("test:x{slot}"), "x", 0, slot)));
     loci.extend((0..8).map(|slot| locus(format!("test:y{slot}"), "y", 0, slot)));
     loci.extend((0..8).map(|slot| locus(format!("test:mt{slot}"), "mt", 0, slot)));
-    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
+    let genome_map = json!({"format_version": 2, "map_version": 1, "traits": [], "loci": loci});
     Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 

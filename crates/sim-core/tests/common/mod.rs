@@ -1,6 +1,6 @@
 //! The definitions of the repository for the tests, read the way sim-cli reads them
-//! (ADR-0007 section 2): the text fields of each calibration value and each locus
-//! removed, the rest into the core types.
+//! (ADR-0007 section 2, ADR-0008 section 1): the text fields of each calibration value,
+//! each trait and each locus removed, the rest into the core types.
 
 use serde_json::{Value, json};
 use sim_core::data::{Data, Definitions};
@@ -29,12 +29,21 @@ fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
     file
 }
 
-/// The two files as JSON values without their text.
+/// The two files of the repository as JSON values without their text.
 pub fn files() -> (Value, Value) {
+    files_from(CALIBRATION, GENOME_MAP)
+}
+
+/// Two definition files as JSON values without their text.
+pub fn files_from(calibration: &str, genome_map: &str) -> (Value, Value) {
     let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
     (
-        without(read(CALIBRATION), "values", &["source", "as_of", "note"]),
-        without(read(GENOME_MAP), "loci", &["description"]),
+        without(read(calibration), "values", &["source", "as_of", "note"]),
+        without(
+            without(read(genome_map), "traits", &["description"]),
+            "loci",
+            &["description"],
+        ),
     )
 }
 
@@ -67,8 +76,10 @@ pub fn dummy(maternal: u8, paternal: u8) -> Vec<sim_core::genome::LocusAlleles> 
     }]
 }
 
-/// A genome map of `n` autosomal loci (segments in turn, slots from 0), all small, with
-/// the mutation direction `direction`, and the standard rate `rate`.
+/// A genome map of `n` autosomal loci (segments in turn, slots from 0), with the
+/// mutation direction `direction`, and the standard rate `rate`. The loci are recessive
+/// and large: only the mark decides the rate (disease or not), and an additive locus
+/// would need a trait (ADR-0008).
 #[allow(dead_code, reason = "not every test crate needs a map of many loci")]
 pub fn autosomal_map(n: u64, direction: &str, rate: f64) -> Data {
     let (mut calibration, _) = files();
@@ -79,10 +90,10 @@ pub fn autosomal_map(n: u64, direction: &str, rate: f64) -> Data {
         .iter()
         .map(|(segment, slot)| {
             json!({"id": format!("test:l{segment}_{slot}"), "chromosome": "autosome",
-                "segment": segment, "slot": slot, "action": "additive", "mark": "small",
+                "segment": segment, "slot": slot, "action": "recessive", "mark": "large",
                 "mutation": direction})
         })
         .collect();
-    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
+    let genome_map = json!({"format_version": 2, "map_version": 1, "traits": [], "loci": loci});
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
