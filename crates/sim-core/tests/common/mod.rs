@@ -2,7 +2,7 @@
 //! (ADR-0007 section 2): the text fields of each calibration value and each locus
 //! removed, the rest into the core types.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use sim_core::data::{Data, Definitions};
 
 const CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
@@ -65,4 +65,24 @@ pub fn dummy(maternal: u8, paternal: u8) -> Vec<sim_core::genome::LocusAlleles> 
         locus: sim_core::data_id::DataId::new("core:dummy").expect("id"),
         copies: vec![maternal, paternal],
     }]
+}
+
+/// A genome map of `n` autosomal loci (segments in turn, slots from 0), all small, with
+/// the mutation direction `direction`, and the standard rate `rate`.
+#[allow(dead_code, reason = "not every test crate needs a map of many loci")]
+pub fn autosomal_map(n: u64, direction: &str, rate: f64) -> Data {
+    let (mut calibration, _) = files();
+    calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
+    let mut loci: Vec<(u64, u64)> = (0..n).map(|i| (i % 8, i / 8)).collect();
+    loci.sort_unstable();
+    let loci: Vec<Value> = loci
+        .iter()
+        .map(|(segment, slot)| {
+            json!({"id": format!("test:l{segment}_{slot}"), "chromosome": "autosome",
+                "segment": segment, "slot": slot, "action": "additive", "mark": "small",
+                "mutation": direction})
+        })
+        .collect();
+    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
+    Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
