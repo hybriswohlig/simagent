@@ -303,3 +303,35 @@ fn the_individual_curve_follows_the_specification() {
         assert!((adult - 1.0).abs() < 0.001, "{sex:?} {adult}");
     }
 }
+
+/// ADR-0012 section 3: with the widest values the checks allow (`σ_θ` 5 years, the largest
+/// rates, an early and a late mean timing), every height of the four corners up to 130
+/// years is finite.
+#[test]
+fn the_individual_curve_stays_finite_with_the_widest_values() {
+    for theta in [0.5, 30.0] {
+        let (mut calibration, genome_map) = common::files();
+        for (key, value) in [
+            ("core:growth_s0_male", 9.0),
+            ("core:growth_s1_male", 10.0),
+            ("core:growth_theta_male", theta),
+            ("core:growth_theta_sd_male", 5.0),
+        ] {
+            calibration["values"][key]["value"] = serde_json::json!(value);
+        }
+        let data = sim_core::data::Data::new(
+            common::definitions(calibration, genome_map).expect("definitions"),
+        )
+        .expect("checked");
+        let curve = data.genetics().growth(Sex::Male);
+        for (z_h, z_p) in [(-6.0, -6.0), (6.0, 6.0), (-6.0, 6.0), (6.0, -6.0)] {
+            let individual = IndividualCurve::new(curve, z_h, z_p);
+            assert!(individual.target > 0.0, "{theta} {z_h} {z_p}");
+            for q in 0..=520_i64 {
+                let at = SimDuration::from_secs(q * YEAR.as_secs() / 4);
+                let height = individual.height(at);
+                assert!(height.is_finite(), "{theta} {z_h} {z_p} {q}/4: {height}");
+            }
+        }
+    }
+}
