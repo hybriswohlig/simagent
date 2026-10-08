@@ -201,6 +201,9 @@ pub struct Data {
     /// For each trait its terms in the order of the fold and its `sigma_ref` (ADR-0008
     /// section 3).
     traits: BTreeMap<DataId, (Vec<Term>, f64)>,
+    /// For each trait with a phenotype its weights: h2 and c2 of the child, then of the
+    /// adult (ADR-0009 section 1).
+    phenotypes: BTreeMap<DataId, [f64; 4]>,
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -611,13 +614,29 @@ impl Data {
             .iter()
             .map(|t| (t.id.clone(), (terms(map, t), t.sigma_ref.get())))
             .collect();
+        let phenotypes = definitions
+            .calibration
+            .traits
+            .iter()
+            .map(|row| {
+                let weights = [&row.h2_child, &row.c2_child, &row.h2_adult, &row.c2_adult];
+                (row.target.clone(), weights.map(|w| w.value.get()))
+            })
+            .collect();
         Ok(Data {
             definitions,
             genetics,
             hash,
             loci,
             traits,
+            phenotypes,
         })
+    }
+
+    /// The phenotype weights of a trait, if it has a phenotype (ADR-0009 section 1): h2
+    /// and c2 of the child, then of the adult.
+    pub(crate) fn phenotype_weights(&self, id: &DataId) -> Option<[f64; 4]> {
+        self.phenotypes.get(id).copied()
     }
 
     /// The terms of a trait in the order of its fold and its `sigma_ref`, if the map has

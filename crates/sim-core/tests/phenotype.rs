@@ -32,11 +32,15 @@ fn fixture() -> Data {
 }
 
 fn woman(data: &Data) -> Genome {
-    let alleles = [("test:g1", [1, 1]), ("test:f1", [1, 0]), ("test:p1", [0, 1])]
-        .map(|(locus, copies)| LocusAlleles {
-            locus: id(locus),
-            copies: copies.to_vec(),
-        });
+    let alleles = [
+        ("test:g1", [1, 1]),
+        ("test:f1", [1, 0]),
+        ("test:p1", [0, 1]),
+    ]
+    .map(|(locus, copies)| LocusAlleles {
+        locus: id(locus),
+        copies: copies.to_vec(),
+    });
     Genome::with_alleles(Sex::Female, &alleles, data).expect("fits")
 }
 
@@ -103,27 +107,67 @@ fn phenotype_follows_the_specification() {
     };
     let g = |t: &str| genome.genetic_value(&id(t), &data).expect("a trait");
     // At 12 years s is exactly 1/2; as a child and as an adult the weights move.
-    for (age, x) in [(YEAR * 12, 12.0), (SimDuration::from_secs(0), 0.0), (YEAR * 30, 30.0)] {
-        let mood = by_hand(MOOD, x, g("test:mood"), c(&draws, "test:mood", mother, father),
-            e(&draws, "test:mood", own));
-        assert_eq!(value("test:mood", age).to_bits(), mood.to_bits(), "mood at {x}");
-        let face = by_hand(FACE, x, g("test:face"), c(&draws, "test:face", mother, father),
-            e(&draws, "test:face", own));
-        assert_eq!(value("test:face", age).to_bits(), face.to_bits(), "face at {x}");
+    for (age, x) in [
+        (YEAR * 12, 12.0),
+        (SimDuration::from_secs(0), 0.0),
+        (YEAR * 30, 30.0),
+    ] {
+        let mood = by_hand(
+            MOOD,
+            x,
+            g("test:mood"),
+            c(&draws, "test:mood", mother, father),
+            e(&draws, "test:mood", own),
+        );
+        assert_eq!(
+            value("test:mood", age).to_bits(),
+            mood.to_bits(),
+            "mood at {x}"
+        );
+        let face = by_hand(
+            FACE,
+            x,
+            g("test:face"),
+            c(&draws, "test:face", mother, father),
+            e(&draws, "test:face", own),
+        );
+        assert_eq!(
+            value("test:face", age).to_bits(),
+            face.to_bits(),
+            "face at {x}"
+        );
     }
     // A part of a year counts as such: 12 years and a half.
     let half = YEAR * 12 + SimDuration::from_secs(YEAR.as_secs() / 2);
-    let mood = by_hand(MOOD, 12.5, g("test:mood"), c(&draws, "test:mood", mother, father),
-        e(&draws, "test:mood", own));
+    let mood = by_hand(
+        MOOD,
+        12.5,
+        g("test:mood"),
+        c(&draws, "test:mood", mother, father),
+        e(&draws, "test:mood", own),
+    );
     assert_eq!(value("test:mood", half).to_bits(), mood.to_bits());
     // A trait without a row has a genetic value but no phenotype; an unknown one neither.
     let none = |t: &str| phenotype(&draws, &data, &genome, own, parents, &id(t), YEAR);
     assert_eq!(none("test:growth"), None);
     assert_eq!(none("test:other"), None);
     // Without parents in the run the person is its own mother and father.
-    let alone = phenotype(&draws, &data, &genome, own, None, &id("test:mood"), YEAR * 40);
-    let expected = by_hand(MOOD, 40.0, g("test:mood"), c(&draws, "test:mood", own, own),
-        e(&draws, "test:mood", own));
+    let alone = phenotype(
+        &draws,
+        &data,
+        &genome,
+        own,
+        None,
+        &id("test:mood"),
+        YEAR * 40,
+    );
+    let expected = by_hand(
+        MOOD,
+        40.0,
+        g("test:mood"),
+        c(&draws, "test:mood", own, own),
+        e(&draws, "test:mood", own),
+    );
     assert_eq!(alone.map(f64::to_bits), Some(expected.to_bits()));
 }
 
@@ -136,7 +180,10 @@ fn full_siblings_share_the_shared_environment() {
     let t = id("test:mood");
     let (mother, father, other_father) = (founder(1), founder(2), founder(4));
     let both = Some(Parents { mother, father });
-    let half = Some(Parents { mother, father: other_father });
+    let half = Some(Parents {
+        mother,
+        father: other_father,
+    });
     let (first, second) = (founder(10), founder(11));
     assert_eq!(
         shared_environment(&draws, &t, first, both),

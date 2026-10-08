@@ -43,6 +43,15 @@ pub const MUTATION_COUNT: PurposeTag = PurposeTag::from_pinned_list(8);
 /// occasion: parent side; detail: `j`.
 pub const MUTATION_SITE: PurposeTag = PurposeTag::from_pinned_list(9);
 
+/// Shared childhood environment `C_t` of a trait (genetics specification 4.2, ADR-0009).
+/// subject: lineage key of the mother; occasion: `str_key` of the trait; detail: lineage
+/// key of the father. Without parents in the run, the person's own key for both.
+pub const ENV_SHARED: PurposeTag = PurposeTag::from_pinned_list(10);
+
+/// Individual environment `E_t` of a trait (genetics specification 4.2, ADR-0009).
+/// subject: the person's lineage key; occasion: `str_key` of the trait; detail: 0.
+pub const ENV_INDIVIDUAL: PurposeTag = PurposeTag::from_pinned_list(11);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -54,6 +63,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (CROSSOVER_POSITION, "CROSSOVER_POSITION"),
     (MUTATION_COUNT, "MUTATION_COUNT"),
     (MUTATION_SITE, "MUTATION_SITE"),
+    (ENV_SHARED, "ENV_SHARED"),
+    (ENV_INDIVIDUAL, "ENV_INDIVIDUAL"),
 ];
 
 /// Values of deleted tags; they are never used again.
