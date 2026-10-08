@@ -163,17 +163,12 @@ fn reference_data(vectors: &Value) -> Data {
     Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 
-/// Specification 2.4 against the independent reference (`tools/meiosis_reference.py
-/// --mutation-vectors`, written from the specification by another model): child genome
-/// and the mutations of both sides, in their order.
-#[test]
-fn mutation_matches_the_independent_reference() {
-    let vectors: Value = serde_json::from_str(VECTORS).expect("json");
-    let data = reference_data(&vectors);
-    let cases = vectors["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 6);
+/// Compares the core with every case of a vector set of the reference: child genome and
+/// the mutations of both sides, in their order. Returns the number of mutations.
+fn compare(set: &Value) -> usize {
+    let data = reference_data(set);
     let mut seen = 0;
-    for case in cases {
+    for case in set["cases"].as_array().expect("cases") {
         let seed = case["seed"].as_u64().expect("seed");
         let key: GenomeKey = serde_json::from_value(case["genome_key"].clone()).expect("key");
         let zygote = Zygote::of(
@@ -195,5 +190,25 @@ fn mutation_matches_the_independent_reference() {
             seen += ours.len();
         }
     }
-    assert_eq!(seen, 11, "the vectors hold eleven mutations");
+    seen
+}
+
+/// Specification 2.4 against the independent reference (`tools/meiosis_reference.py
+/// --mutation-vectors`, written from the specification by another model): child genome
+/// and the mutations of both sides, in their order.
+#[test]
+fn mutation_matches_the_independent_reference() {
+    let vectors: Value = serde_json::from_str(VECTORS).expect("json");
+    assert_eq!(vectors["cases"].as_array().expect("cases").len(), 6);
+    assert_eq!(compare(&vectors), 11, "the vectors hold eleven mutations");
+}
+
+/// The count in parts against the same reference: 40 loci at rate 0.9 give a total of 36
+/// on each side, drawn as 30 at detail 0 and 6 at detail 1 (2.4).
+#[test]
+fn the_count_in_parts_matches_the_independent_reference() {
+    let vectors: Value = serde_json::from_str(VECTORS).expect("json");
+    let parts = &vectors["parts"];
+    assert_eq!(parts["cases"].as_array().expect("cases").len(), 3);
+    assert_eq!(compare(parts), 231, "the parts hold 231 mutations");
 }
