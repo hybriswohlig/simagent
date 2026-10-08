@@ -666,8 +666,9 @@ fn replay_reports_first_divergent_year() {
             arg(&out),
         ]),
         format!(
-            "error: replay_diverged: year 3 has hash {}, the manifest says 0123456789abcdef",
-            year(3)
+            "error: replay_diverged: year 3 has hash {}, the manifest says 0123456789abcdef (repro package: {})",
+            year(3),
+            arg(&out.join("repro.json"))
         )
     );
     // The replay ended there (ADR-0003 1.4): the years 0 to 3 are written, nothing later.
@@ -1133,5 +1134,107 @@ proptest! {
         let text = serde_json::to_string(&value).expect("writes");
         let back: f64 = serde_json::from_str(&text).expect("reads");
         prop_assert_eq!(back.to_bits(), value.to_bits(), "{}", text);
+    }
+}
+
+/// ADR-0016 `a_diverged_replay_writes_a_repro_package`: a replay that differs from its
+/// manifest leaves `repro.json`; `simagent repro` reproduces the difference, and a package
+/// with the true hashes passes. No body value is read, so the clamp at 6 plays no part.
+#[test]
+fn a_diverged_replay_writes_a_repro_package() {
+    let dir = scratch("repro_diverged");
+    let original = run_scenario(&dir, TEN_YEARS, "original");
+    let manifest_path = original.join("manifest.json");
+    let manifest: Value = serde_json::from_str(&text(&manifest_path)).expect("json");
+    let year = |n: usize| {
+        manifest["year_hashes"][n]["hash"]
+            .as_str()
+            .expect("hex")
+            .to_owned()
+    };
+    let (true_2, true_3) = (year(2), year(3));
+    replace_in(&manifest_path, &true_3, "0123456789abcdef");
+    let out = dir.join("out");
+    let log = original.join("input.ndjson");
+    let _ = error_of(&[
+        "run",
+        "--replay",
+        arg(&log),
+        "--manifest",
+        arg(&manifest_path),
+        "--out",
+        arg(&out),
+    ]);
+    let package_path = out.join("repro.json");
+    let package: Value = serde_json::from_str(&text(&package_path)).expect("json");
+    assert_eq!(package["format_version"], 1);
+    assert_eq!(package["kind"], "replay_diverged");
+    assert_eq!(package["core_version"], manifest["core_version"]);
+    assert_eq!(package["data_hash"], manifest["data_hash"]);
+    assert_eq!(package["world_seed"], manifest["world_seed"]);
+    // The last closed year is the one that differs, with the hash the run produced.
+    assert_eq!(package["checkpoint"]["year"], 3);
+    assert_eq!(package["checkpoint"]["hash"], true_3.as_str());
+    assert_eq!(package["expected"][2]["hash"], true_2.as_str());
+    assert_eq!(package["at"]["year"], 3);
+    assert_eq!(package["invariant"], Value::Null);
+    assert_eq!(package["expected"].as_array().expect("list").len(), 4);
+    assert_eq!(package["expected"][3]["hash"], "0123456789abcdef");
+    // The inputs are those of the run.
+    let records = text(&log).lines().count() - 2;
+    assert_eq!(
+        package["input_log"].as_array().expect("list").len(),
+        records
+    );
+    // The one command reproduces it; with the true hash the package passes.
+    assert!(
+        error_of(&["repro", arg(&package_path)])
+            .starts_with("error: repro_reproduced: year 3 has hash"),
+    );
+    replace_in(
+        &package_path,
+        "\"hash\":\"0123456789abcdef\"",
+        &format!("\"hash\":\"{true_3}\""),
+    );
+    must(&["repro", arg(&package_path)]);
+    // A package whose replay stops before the year that differed does not pass: fewer
+    // year hashes than expected.
+    let stopped = dir.join("stopped.json");
+    let mut short: Value = serde_json::from_str(&text(&package_path)).expect("json");
+    let end_of_2 = short["at"]["t"].as_i64().expect("t") - 364 * 86_400;
+    short["at"]["t"] = Value::from(end_of_2);
+    short["at"]["year"] = Value::from(2);
+    fs::write(&stopped, short.to_string()).expect("writes");
+    assert!(
+        error_of(&["repro", arg(&stopped)])
+            .starts_with("error: repro_reproduced: the replay has 3 year hashes")
+    );
+    // A diverged replay without its expected hashes is no package.
+    let mut bare: Value = serde_json::from_str(&text(&package_path)).expect("json");
+    bare.as_object_mut().expect("object").remove("expected");
+    fs::write(&stopped, bare.to_string()).expect("writes");
+    assert!(error_of(&["repro", arg(&stopped)]).starts_with("error: repro_invalid:"));
+    // An unknown field is no package.
+    replace_in(
+        &package_path,
+        "\"format_version\":1",
+        "\"format_version\":1,\"x\":0",
+    );
+    assert!(error_of(&["repro", arg(&package_path)]).starts_with("error: repro_invalid:"));
+}
+
+/// ADR-0016 `repro_packages_pass`: every package under `tests/repro/` is a regression
+/// test; `simagent repro` must pass for each (none so far).
+#[test]
+fn repro_packages_pass() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/repro");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries {
+        let path = entry.expect("entry").path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            must(&["repro", arg(&path)]);
+        }
     }
 }

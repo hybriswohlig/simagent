@@ -157,12 +157,18 @@ impl Session {
             ));
         }
         let mut world = World::new(crate::data::core_data()?);
+        let mut before = YearOut::default();
+        // A break-off before the first input writes the package into `dir` too.
         if first_t > world.closed_through() {
-            world.advance_until(&mut YearOut::default(), first_t, &mut |_| false);
+            crate::repro::guarded(&mut world, &mut before, dir, None, |world, out| {
+                world.advance_until(out, first_t, &mut |_| false);
+            })?;
         }
-        world
-            .submit(first)
-            .map_err(|error| rejected(files::code(&error.code)))?;
+        let pending = first.clone();
+        crate::repro::guarded(&mut world, &mut before, dir, Some(&pending), |world, _| {
+            world.submit(first)
+        })?
+        .map_err(|error| rejected(files::code(&error.code)))?;
         fs::create_dir_all(dir).map_err(|error| CliError::io(dir, &error))?;
         let fork = match &compare {
             Compare::Fork { info, .. } => Some(info.clone()),
@@ -259,10 +265,17 @@ impl Session {
     /// them are applied before anything is written: a rejected one ends the run with its
     /// code, and the files stay as they were.
     pub fn submit_at_stop(&mut self, inputs: Vec<Input>) -> Result<(), CliError> {
+        let dir = self.dir.clone();
         for input in inputs {
-            self.world
-                .submit(input)
-                .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
+            let pending = input.clone();
+            crate::repro::guarded(
+                &mut self.world,
+                &mut self.out,
+                &dir,
+                Some(&pending),
+                |world, _| world.submit(input),
+            )?
+            .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
         }
         self.reopen_input_log()?;
         self.drain()
@@ -301,9 +314,16 @@ impl Session {
     /// Applies one input of a replay and compares its stamp with the recorded one.
     pub fn replay_input(&mut self, record: InputRecord) -> Result<(), CliError> {
         let (t, seq) = (record.t, record.seq.get());
-        self.world
-            .submit(record.input)
-            .map_err(|rejected| replay_rejected(t, seq, &files::code(&rejected.code)))?;
+        let dir = self.dir.clone();
+        let pending = record.input.clone();
+        crate::repro::guarded(
+            &mut self.world,
+            &mut self.out,
+            &dir,
+            Some(&pending),
+            |world, _| world.submit(record.input),
+        )?
+        .map_err(|rejected| replay_rejected(t, seq, &files::code(&rejected.code)))?;
         if let Some(applied) = self.world.input_log().last() {
             files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
         }
@@ -317,9 +337,16 @@ impl Session {
         input: Input,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<(), CliError> {
-        self.world
-            .submit(input)
-            .map_err(|error| rejected(files::code(&error.code)))?;
+        let dir = self.dir.clone();
+        let pending = input.clone();
+        crate::repro::guarded(
+            &mut self.world,
+            &mut self.out,
+            &dir,
+            Some(&pending),
+            |world, _| world.submit(input),
+        )?
+        .map_err(|error| rejected(files::code(&error.code)))?;
         if let Some(applied) = self.world.input_log().last() {
             files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
         }
@@ -338,8 +365,10 @@ impl Session {
             } else {
                 limit
             };
-            self.world
-                .advance_until(&mut self.out, step, &mut |_| false);
+            let dir = self.dir.clone();
+            crate::repro::guarded(&mut self.world, &mut self.out, &dir, None, |world, out| {
+                world.advance_until(out, step, &mut |_| false);
+            })?;
             self.drain()?;
             self.compare_with_the_manifest()?;
         }
@@ -392,13 +421,26 @@ impl Session {
         let wanted = expected.year_hashes.iter().skip(from);
         for (got, want) in produced.iter().zip(wanted) {
             if got != want {
-                return Err(CliError::new(
-                    code,
-                    format!(
-                        "year {} has hash {:016x}, {whose} says {:016x}",
-                        got.year, got.hash, want.hash
-                    ),
-                ));
+                let detail = format!(
+                    "year {} has hash {:016x}, {whose} says {:016x}",
+                    got.year, got.hash, want.hash
+                );
+                // A diverged replay leaves a repro package (ADR-0016); a fork does not.
+                if let Compare::Replay(manifest) = &self.compare {
+                    let up_to = manifest
+                        .year_hashes
+                        .iter()
+                        .take_while(|hash| hash.year <= got.year)
+                        .copied()
+                        .collect();
+                    let path =
+                        crate::repro::diverged(&self.world, &self.out, up_to, &detail, &self.dir)?;
+                    return Err(CliError::new(
+                        code,
+                        format!("{detail} (repro package: {})", path.display()),
+                    ));
+                }
+                return Err(CliError::new(code, detail));
             }
         }
         self.years_compared = self.out.year_hashes.len();

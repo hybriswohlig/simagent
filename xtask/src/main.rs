@@ -57,9 +57,16 @@ fn main() -> ExitCode {
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
+        Some("repro") => {
+            let file = std::env::args().nth(2).unwrap_or_default();
+            return report(
+                "repro",
+                workspace_root().and_then(|root| repro_to_test(&root, Path::new(&file)).map(drop)),
+            );
+        }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)"
             );
             return ExitCode::from(2);
         }
@@ -852,6 +859,33 @@ fn rust_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Directory of the repro packages that are regression tests (ADR-0016 section 4).
+const REPRO_DIR: &str = "tests/repro";
+
+/// ADR-0016 section 4: copies the repro package `file` to
+/// `tests/repro/<kind>-<year>-<hash>.json`, where `repro_packages_pass` runs it; gives
+/// the new path.
+fn repro_to_test(root: &Path, file: &Path) -> Result<PathBuf> {
+    let text = read(file)?;
+    let package: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("{}: not JSON: {error}", file.display()))?;
+    let kind = package["kind"]
+        .as_str()
+        .ok_or_else(|| format!("{}: no kind, not a repro package", file.display()))?;
+    let year = package["at"]["year"]
+        .as_i64()
+        .ok_or_else(|| format!("{}: no year, not a repro package", file.display()))?;
+    let hash = sim_core::hash::stable_hash64(text.as_bytes());
+    let dir = root.join(REPRO_DIR);
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let target = dir.join(format!("{kind}-{year}-{hash:016x}.json"));
+    std::fs::write(&target, &text)
+        .map_err(|error| format!("cannot write {}: {error}", target.display()))?;
+    println!("{}", relative(root, &target));
+    Ok(target)
+}
+
 fn read(path: &Path) -> Result<String> {
     std::fs::read_to_string(path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))
@@ -1196,6 +1230,30 @@ mod tests {
         std::fs::remove_file(copy.join(CONTRACT_MAPPING_FILE)).expect("removed");
         assert_eq!(taken_names(&copy), Ok(Vec::new()));
         assert!(generated_types(&copy, &renamed).is_ok());
+    }
+
+    /// ADR-0016 section 4: the package lands under `tests/repro/` with a name of its kind,
+    /// its year and the hash of its text; a file that is no package is refused.
+    #[test]
+    fn a_repro_package_becomes_a_test() {
+        let root = workspace_root()
+            .expect("the workspace root")
+            .join("target")
+            .join("repro-tests");
+        std::fs::create_dir_all(&root).expect("directory");
+        let file = root.join("repro.json");
+        let text = "{\"kind\":\"invariant\",\"at\":{\"t\":5,\"year\":0}}\n";
+        std::fs::write(&file, text).expect("written");
+        let target = repro_to_test(&root, &file).expect("copied");
+        let hash = sim_core::hash::stable_hash64(text.as_bytes());
+        assert_eq!(
+            target,
+            root.join("tests/repro")
+                .join(format!("invariant-0-{hash:016x}.json"))
+        );
+        assert_eq!(read(&target).expect("read"), text);
+        std::fs::write(&file, "[]").expect("written");
+        assert!(repro_to_test(&root, &file).is_err());
     }
 
     /// ADR-0005 `contract_check_passes_on_repo`, the whole step.
