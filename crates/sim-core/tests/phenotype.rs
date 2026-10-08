@@ -338,3 +338,24 @@ fn men_differ_by_puberty() {
         assert_eq!(expression(&data, &face, Sex::Male, z, 1.0), z);
     }
 }
+
+/// ADR-0014: the expression reads the values of the calibration: with mood d = 0.93 and
+/// VR = 1.44 (√ 1.2) a man after puberty has `1.2 · z + 0.93`.
+#[test]
+fn the_sex_difference_reads_the_calibration() {
+    let (mut calibration, genome_map) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    calibration["sex_differences"][0]["shift"]["value"] = serde_json::json!(0.93);
+    calibration["sex_differences"][0]["variance_ratio"]["value"] = serde_json::json!(1.44);
+    let data =
+        Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("ok");
+    let mood = id("test:mood");
+    for z in [-1.5, 0.0, 2.0] {
+        let after = sim_core::phenotype::sex_expression(&data, &mood, Sex::Male, z, 1.0);
+        let expected = z * (1.0 + (sim_math::sqrt(1.44) - 1.0) * 1.0) + 0.93 * 1.0;
+        assert_eq!(after.to_bits(), expected.to_bits(), "{z}");
+        assert!((after - (1.2 * z + 0.93)).abs() < 1e-12, "{z}");
+    }
+}

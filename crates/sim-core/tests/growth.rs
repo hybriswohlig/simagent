@@ -374,9 +374,17 @@ fn puberty_progress_is_a_smoothstep_around_theta() {
             at(years)
         );
     }
+    // Another timing moves the curve: θ = 11.5 gives ½ at 11.5 years and u = 0.25 at 10.5.
+    let half_year = SimDuration::from_secs(YEAR.as_secs() / 2);
+    let early = |at: SimDuration| sim_core::growth::puberty_progress(at, 11.5, w);
+    assert_eq!(early(YEAR * 11 + half_year), 0.5);
+    assert_eq!(
+        early(YEAR * 10 + half_year).to_bits(),
+        0.15625_f64.to_bits()
+    );
+    assert_eq!(early(YEAR * 9 + half_year), 0.0);
     // Another half width moves both ends: with w = 1 the rise runs from 12 to 14, and at
     // 12.5 years u = 0.25.
-    let half_year = SimDuration::from_secs(YEAR.as_secs() / 2);
     let narrow = |at: SimDuration| sim_core::growth::puberty_progress(at, theta, 1.0);
     assert_eq!(
         narrow(YEAR * 12 + half_year).to_bits(),
@@ -419,8 +427,39 @@ fn height_loss_meets_sorkin() {
         let eighty = sim_core::growth::height_loss(&loss, sex, 80.0);
         assert!((seventy - at_70).abs() < 1e-12, "{sex:?} {seventy}");
         assert!((eighty - at_80).abs() < 1e-12, "{sex:?} {eighty}");
+        // At a fractional age the bits are those of `(a · (b − 30)) · (b − 30)`; at 61.1 the
+        // other grouping `a · ((b − 30) · (b − 30))` gives other bits for both factors.
+        let a = match sex {
+            Sex::Male => 0.001_875,
+            Sex::Female => 0.003_125,
+        };
+        let expected: f64 = a * (61.1 - 30.0) * (61.1 - 30.0);
+        let at = sim_core::growth::height_loss(&loss, sex, 61.1);
+        assert_eq!(at.to_bits(), expected.to_bits(), "{sex:?} {at}");
+        let regrouped: f64 = a * ((61.1 - 30.0) * (61.1 - 30.0));
+        assert_ne!(
+            expected.to_bits(),
+            regrouped.to_bits(),
+            "{sex:?} the order shows"
+        );
         // Faster with age: the decade from 70 to 80 costs more than the one before.
         let sixty = sim_core::growth::height_loss(&loss, sex, 60.0);
         assert!(eighty - seventy > seventy - sixty, "{sex:?}");
+    }
+}
+
+/// ADR-0014: the loss reads its calibration: with the onset 40 and the factors 0.002 and
+/// 0.004, nothing up to 40, 0.2 and 0.4 cm at 50.
+#[test]
+fn height_loss_reads_its_values() {
+    let loss = sim_core::data::HeightLoss {
+        onset: 40.0,
+        male: 0.002,
+        female: 0.004,
+    };
+    for (sex, at_50) in [(Sex::Male, 0.2), (Sex::Female, 0.4)] {
+        assert_eq!(sim_core::growth::height_loss(&loss, sex, 40.0), 0.0);
+        let at = sim_core::growth::height_loss(&loss, sex, 50.0);
+        assert!((at - at_50).abs() < 1e-12, "{sex:?} {at}");
     }
 }
