@@ -346,3 +346,71 @@ fn the_individual_curve_stays_finite_with_the_widest_values() {
         }
     }
 }
+
+/// ADR-0014 section 2, decided by Grok 4.7: the puberty progress is a smoothstep from
+/// `θ_i − 2` to `θ_i + 2` (the half width 2 of the calibration): 0 before, 1 after, ½ at
+/// `θ_i`, `3u² − 2u³` with `u = (x − θ_i + 2) / 4` in between, so 0.15625 one year
+/// before and 0.84375 one year after.
+#[test]
+fn puberty_progress_is_a_smoothstep_around_theta() {
+    let w = common::data().genetics().puberty_half_width;
+    assert_eq!(w, 2.0);
+    let theta = 13.0;
+    let at = |years: i64| sim_core::growth::puberty_progress(YEAR * years, theta, w);
+    for (years, p) in [
+        (0, 0.0),
+        (10, 0.0),
+        (11, 0.0),
+        (12, 0.15625),
+        (13, 0.5),
+        (14, 0.84375),
+        (15, 1.0),
+        (40, 1.0),
+    ] {
+        assert_eq!(
+            at(years).to_bits(),
+            f64::to_bits(p),
+            "{years}: {}",
+            at(years)
+        );
+    }
+    // Between the quarter years it rises.
+    let mut previous = -1.0;
+    for q in 40..=64_i64 {
+        let p = sim_core::growth::puberty_progress(
+            SimDuration::from_secs(q * YEAR.as_secs() / 4),
+            theta,
+            w,
+        );
+        assert!(p >= previous, "{q}/4: {p}");
+        previous = p;
+    }
+}
+
+/// ADR-0014 section 2, decided by Grok 4.7 on Sorkin et al. (1999): the loss of height in
+/// old age is `a · (b − 30)²`, 3/1600 cm per year² for men and 5/1600 for women: nothing up
+/// to 30, 3 and 5 cm at 70, 4.6875 and 7.8125 cm at 80.
+#[test]
+fn height_loss_meets_sorkin() {
+    let loss = common::data().genetics().height_loss;
+    assert_eq!(
+        [loss.onset, loss.male, loss.female],
+        [30.0, 0.001_875, 0.003_125]
+    );
+    for (sex, at_70, at_80) in [(Sex::Male, 3.0, 4.6875), (Sex::Female, 5.0, 7.8125)] {
+        for b in [0.0, 20.0, 30.0] {
+            assert_eq!(
+                sim_core::growth::height_loss(&loss, sex, b),
+                0.0,
+                "{sex:?} {b}"
+            );
+        }
+        let seventy = sim_core::growth::height_loss(&loss, sex, 70.0);
+        let eighty = sim_core::growth::height_loss(&loss, sex, 80.0);
+        assert!((seventy - at_70).abs() < 1e-12, "{sex:?} {seventy}");
+        assert!((eighty - at_80).abs() < 1e-12, "{sex:?} {eighty}");
+        // Faster with age: the decade from 70 to 80 costs more than the one before.
+        let sixty = sim_core::growth::height_loss(&loss, sex, 60.0);
+        assert!(eighty - seventy > seventy - sixty, "{sex:?}");
+    }
+}
