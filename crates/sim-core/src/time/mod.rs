@@ -204,6 +204,25 @@ impl Mul<i64> for SimDuration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
+
+    /// The error has a stable code; serde reports it for a time out of range (serde_json
+    /// may add a position after it).
+    #[test]
+    fn time_out_of_range_has_a_stable_code() {
+        assert_eq!(TimeOutOfRange.to_string(), "time.out_of_range");
+        let too_late = (MAX_ABS_SECS + 1).to_string();
+        let error = serde_json::from_str::<SimTime>(&too_late).expect_err("out of range");
+        assert!(
+            error.to_string().starts_with("time.out_of_range"),
+            "{error}"
+        );
+        let error = serde_json::from_str::<SimDuration>(&too_late).expect_err("out of range");
+        assert!(
+            error.to_string().starts_with("time.out_of_range"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn the_calendar_units_add_up() {

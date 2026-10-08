@@ -15,6 +15,7 @@ enum Ev {
     General { id: u64 },
     Chain { id: u64, left: u16 },
     Tick { id: u64, remaining: u16 },
+    StartTicks { id: u64 },
     Census,
 }
 
@@ -23,7 +24,9 @@ impl Payload for Ev {
         match self {
             Ev::Birth { .. } => EventClass::BIRTH,
             Ev::Death { .. } => EventClass::DEATH,
-            Ev::General { .. } | Ev::Chain { .. } | Ev::Tick { .. } => EventClass::GENERAL,
+            Ev::General { .. } | Ev::Chain { .. } | Ev::Tick { .. } | Ev::StartTicks { .. } => {
+                EventClass::GENERAL
+            }
             Ev::Census => EventClass::OBSERVER,
         }
     }
@@ -33,7 +36,8 @@ impl Payload for Ev {
             | Ev::Death { id }
             | Ev::General { id }
             | Ev::Chain { id, .. }
-            | Ev::Tick { id, .. } => EventSubject::sim(*id),
+            | Ev::Tick { id, .. }
+            | Ev::StartTicks { id } => EventSubject::sim(*id),
             Ev::Census => EventSubject::WORLD,
         }
     }
@@ -45,6 +49,7 @@ impl Payload for Ev {
             Ev::Chain { .. } => 4,
             Ev::Tick { .. } => 5,
             Ev::Census => 6,
+            Ev::StartTicks { .. } => 7,
         })
     }
 }
@@ -79,6 +84,9 @@ impl Handler<Ev, ()> for World {
             }
             Ev::Tick { remaining: 0, .. } => {
                 assert!(ctx.cancel(ev.handle), "the next occurrence is pending");
+            }
+            Ev::StartTicks { id } => {
+                ctx.schedule_periodic(ctx.now(), secs(5), Ev::Tick { id, remaining: 9 }, ());
             }
             _ => {}
         }
@@ -120,7 +128,8 @@ fn ids(world: &World) -> Vec<u64> {
             | Ev::Death { id }
             | Ev::General { id }
             | Ev::Chain { id, .. }
-            | Ev::Tick { id, .. } => *id,
+            | Ev::Tick { id, .. }
+            | Ev::StartTicks { id } => *id,
             Ev::Census => 0,
         })
         .collect()
@@ -334,6 +343,26 @@ fn periodic_series_keeps_its_handle_until_cancelled_in_its_handler() {
     assert!(sched.input_ctx().cancel(handle));
     run_until(&mut sched, &mut world, &mut census, 100);
     assert_eq!(world.fired.len(), 3);
+}
+
+/// ADR-0002: a series planned in a handler for its own second starts in the next micro
+/// step; its next occurrence lies in a later second and so has micro step 0, before a
+/// death of that second.
+#[test]
+fn the_next_occurrence_of_a_series_has_micro_step_zero() {
+    let mut sched = Scheduler::new();
+    input(&mut sched, 10, Ev::StartTicks { id: 1 });
+    input(&mut sched, 15, Ev::Death { id: 2 });
+    let (mut world, mut census) = (World::default(), Census::new());
+    run_until(&mut sched, &mut world, &mut census, 15);
+    let order: Vec<(i64, u16, u64)> = world
+        .fired
+        .iter()
+        .zip(ids(&world))
+        .map(|((time, micro, _), id)| (*time, *micro, id))
+        .collect();
+    assert_eq!(order, vec![(10, 0, 1), (10, 1, 1), (15, 0, 1), (15, 0, 2)]);
+    assert!(matches!(world.fired[2].2, Ev::Tick { .. }));
 }
 
 #[test]

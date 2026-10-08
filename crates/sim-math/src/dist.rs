@@ -223,6 +223,19 @@ mod tests {
     /// the largest. For lambda <= 30 the sum saturates before k = 90, so the largest
     /// word ends there instead of breaking the invariant. At 2.5, 4 and 7 the rounded sum
     /// stays some ulp below the largest u: only the exit `g == f` ends the draw there.
+    /// The smallest `k` with `u < F(k)`, strictly: `u` equal to `F(0) = e^-λ` gives 1. For
+    /// `λ` up to ln 2, `e^-λ` lies in [1/2, 1), a multiple of 2^-53 that a word hits.
+    #[test]
+    fn poisson_needs_u_below_the_sum() {
+        let lambda = 0.5;
+        let f0 = exp(0.0 - lambda);
+        let fraction = f0.to_bits() & ((1_u64 << 52) - 1);
+        let w = ((1_u64 << 52) | fraction) << 11;
+        assert_eq!(unit(w).to_bits(), f0.to_bits());
+        assert_eq!(poisson(w, lambda), 1, "u = F(0)");
+        assert_eq!(poisson(w - (1 << 11), lambda), 0, "u just below F(0)");
+    }
+
     #[test]
     fn poisson_ends_at_the_upper_edge() {
         assert_eq!(poisson(u64::MAX, 0.0), 0);
