@@ -2,7 +2,8 @@
 """Independent reference for meiosis and mutation, from the specification alone.
 
 Sources: docs/genetik-spezifikation.md section 2 (2.1 layout, 2.2 map, 2.3
-meiosis, 2.4 mutation, 2.5 Wirkungsweisen) and the addressed draws of
+meiosis, 2.4 mutation, 2.5 Wirkungsweisen), the sex of 11.3 and the draw table
+of 11.7 (from step 9), and the addressed draws of
 docs/adr/0001-zufall-und-gabeln.md sections 2 and 3. The Rust core was not read
 (docs/vorbereitung-phase-0.md B13). Randomness goes only through
 tools/rng_reference.py. Section 2.5 names how a locus acts on a trait. Mutation
@@ -28,10 +29,17 @@ Map lengths (2.2), in Morgan, passed in as map_lengths
 The father's X does not recombine. Y and mt never recombine. The CLI reads the
 three values from data/calibration/genetics.json.
 
+Sex ratio at birth (2.3, 7.5, 11.3), passed in as sex_ratio
+- r, sons per daughter (calibration core:sex_ratio_at_birth, 1.05). The
+  probability that the father passes his Y is p_Y = r / (1 + r), evaluated as
+  a Python float (11.3: 1.05 / 2.05 = 21/41, W11.3d). The CLI reads r from
+  data/calibration/genetics.json. Only the father's meiosis reads it.
+
 Draws (2.3, ADR-0001 sections 2 and 3)
 - key = chacha_key(seed, tag, subject, occasion, detail); the distribution uses
   words(key) from the start, so only words[0].
-- uniform_below(words[0], n), unit(words[0]), and poisson_reference(words[0], L).
+- uniform_below(words[0], n), unit(words[0]), bernoulli(words[0], p) (true
+  when unit(words[0]) < p), and poisson_reference(words[0], L).
   A None from poisson_reference is an error (the reference itself returns the
   exact count, or asserts).
 - Subject of every meiosis draw: the child's genome_key.
@@ -60,8 +68,9 @@ X), in segment order:
    same as (start XOR that number) mod 2.
 
 Sex chromosomes and mt (2.3)
-- The father draws SEX_CHROMOSOME: uniform_below(word, 2), 0 transmits his X
-  (x_maternal) unchanged, 1 transmits his Y unchanged. No further draws.
+- The father draws SEX_CHROMOSOME: bernoulli(word, p_Y) (11.7). True transmits
+  his Y unchanged, false his X (x_maternal) unchanged. No further draws. Until
+  step 9 this draw was uniform_below(word, 2) with 0 for the X (2.3).
 - The mother transmits an X by steps 1 to 4 (segment 8).
 - mt is copied from the mother. No draw.
 - No draws for the father's X, for Y beyond the sex-chromosome choice, or for mt.
@@ -75,15 +84,16 @@ Genome dict
   mother's X reads x_paternal if present, otherwise paternal_sex["x"].
 - "mt": 8 ints.
 
-meiosis(seed, genome_key, side, parent, map_lengths) returns (gamete, record).
+meiosis(seed, genome_key, side, parent, map_lengths, sex_ratio=None) returns
+(gamete, record). The father's meiosis needs sex_ratio, the mother's ignores it.
 The gamete is {"autosomes": 8 lists of 24, "sex": {"x": ...} or {"y": ...},
 "mt": 8 ints for a mother and None for a father}.
 The record is {"segments": [{"segment", "start_strand", "crossover_positions"},
 ...]} in segment order (0..7, and for the mother 8). The father's record also
 has "sex_chromosome": "x" or "y".
 
-child(seed, genome_key, mother, father, map_lengths) runs both meioses with the
-same seed and genome_key. The child genome takes autosomes and X and mt from
+child(seed, genome_key, mother, father, map_lengths, sex_ratio) runs both
+meioses with the same seed and genome_key. The child genome takes autosomes and X and mt from
 the mother and the paternal autosomes and paternal_sex from the father.
 Returns (child genome, {"mother": record, "father": record}).
 
@@ -127,8 +137,8 @@ Mutation (2.4), one side, after that side's recombination (2.3)
 
 mutate(seed, genome_key, side, gamete, genome_map, rates) returns
 (gamete, mutations). The returned gamete is a copy with those alleles flipped.
-child_with_mutation(seed, genome_key, mother, father, map_lengths, genome_map,
-rates) runs both meioses, then mutates each side. The child genome is built
+child_with_mutation(seed, genome_key, mother, father, map_lengths, sex_ratio,
+genome_map, rates) runs both meioses, then mutates each side. The child genome is built
 from the mutated gametes, the same way child() builds it. Each record keeps
 the meiosis segments (and the father's sex_chromosome) and adds "mutations".
 
@@ -197,7 +207,7 @@ from pathlib import Path
 import mpmath
 import xxhash
 
-from rng_reference import chacha_key, poisson_reference, uniform_below, unit, words
+from rng_reference import bernoulli, chacha_key, poisson_reference, uniform_below, unit, words
 
 # poisson_reference sums the distribution at 60 decimal digits (ADR-0001 section 3).
 mpmath.mp.dps = 60
@@ -320,6 +330,24 @@ def load_map_lengths(path=None):
     }
 
 
+def load_sex_ratio(path=None):
+    """r, sons per daughter, from data/calibration/genetics.json (spec 2.3, 11.3)."""
+    if path is None:
+        path = Path(__file__).resolve().parent.parent / "data" / "calibration" / "genetics.json"
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return raw["values"]["core:sex_ratio_at_birth"]["value"]
+
+
+def son_probability(sex_ratio):
+    """p_Y = r / (1 + r) as a Python float (spec 11.3, W11.3d)."""
+    if sex_ratio is None:
+        raise ValueError("the father's meiosis needs the sex ratio at birth")
+    r = float(sex_ratio)
+    if not r > 0.0:
+        raise ValueError(f"sex ratio {r} must be above 0")
+    return r / (1.0 + r)
+
+
 def first_word(seed, tag, subject, occasion, detail):
     key = chacha_key(seed, tag, subject, occasion, detail)
     return words(key)[0]
@@ -389,8 +417,9 @@ def mother_x_copies(parent):
     return maternal, paternal
 
 
-def meiosis(seed, genome_key, side, parent, map_lengths):
-    """One parent's gamete and the draw record (spec 2.3). side 0 mother, 1 father."""
+def meiosis(seed, genome_key, side, parent, map_lengths, sex_ratio=None):
+    """One parent's gamete and the draw record (spec 2.3). side 0 mother, 1 father.
+    The father's sex chromosome reads sex_ratio (11.3)."""
     seed = u64("seed", seed)
     genome_key = u64("genome_key", genome_key)
     if side not in (SIDE_MOTHER, SIDE_FATHER):
@@ -436,13 +465,12 @@ def meiosis(seed, genome_key, side, parent, map_lengths):
             raise ValueError("father is missing paternal_sex.y")
         y_copy = alleles(sex_parent["y"], Y_SLOTS, "paternal_sex.y")
         choice_word = first_word(seed, SEX_CHROMOSOME, genome_key, SIDE_FATHER, 0)
-        choice = uniform_below(choice_word, 2)
-        if choice == 0:
-            sex = {"x": list(x_maternal)}
-            sex_name = "x"
-        else:
+        if bernoulli(choice_word, son_probability(sex_ratio)):
             sex = {"y": list(y_copy)}
             sex_name = "y"
+        else:
+            sex = {"x": list(x_maternal)}
+            sex_name = "x"
         mt = None
         record = {"segments": segments, "sex_chromosome": sex_name}
 
@@ -450,10 +478,12 @@ def meiosis(seed, genome_key, side, parent, map_lengths):
     return gamete, record
 
 
-def child(seed, genome_key, mother, father, map_lengths):
+def child(seed, genome_key, mother, father, map_lengths, sex_ratio):
     """Both gametes at one conception. Returns (child genome, both records)."""
     mother_gamete, mother_record = meiosis(seed, genome_key, SIDE_MOTHER, mother, map_lengths)
-    father_gamete, father_record = meiosis(seed, genome_key, SIDE_FATHER, father, map_lengths)
+    father_gamete, father_record = meiosis(
+        seed, genome_key, SIDE_FATHER, father, map_lengths, sex_ratio
+    )
     if "x" not in mother_gamete["sex"] or mother_gamete["mt"] is None:
         raise RuntimeError("the mother's gamete is missing X or mt")
     genome = {
@@ -503,14 +533,16 @@ def vector_father(case_index):
     }
 
 
-def vector_cases(map_lengths=None):
+def vector_cases(map_lengths=None, sex_ratio=None):
     if map_lengths is None:
         map_lengths = load_map_lengths()
+    if sex_ratio is None:
+        sex_ratio = load_sex_ratio()
     cases = []
     for case_index, (seed, genome_key) in enumerate(VECTOR_CASES):
         mother = vector_mother(case_index)
         father = vector_father(case_index)
-        genome, records = child(seed, genome_key, mother, father, map_lengths)
+        genome, records = child(seed, genome_key, mother, father, map_lengths, sex_ratio)
         cases.append(
             {
                 "seed": seed,
@@ -876,10 +908,12 @@ def mutate(seed, genome_key, side, gamete, genome_map, rates):
     return gamete, mutations
 
 
-def child_with_mutation(seed, genome_key, mother, father, map_lengths, genome_map, rates):
+def child_with_mutation(seed, genome_key, mother, father, map_lengths, sex_ratio, genome_map, rates):
     """Both meioses, then mutation of each side. Returns (child genome, both records)."""
     mother_gamete, mother_record = meiosis(seed, genome_key, SIDE_MOTHER, mother, map_lengths)
-    father_gamete, father_record = meiosis(seed, genome_key, SIDE_FATHER, father, map_lengths)
+    father_gamete, father_record = meiosis(
+        seed, genome_key, SIDE_FATHER, father, map_lengths, sex_ratio
+    )
     mother_gamete, mother_mutations = mutate(
         seed, genome_key, SIDE_MOTHER, mother_gamete, genome_map, rates
     )
@@ -925,9 +959,11 @@ def map_directions_both(genome_map):
     ]
 
 
-def mutation_vector_cases(map_lengths=None, genome_map=None, rates=None):
+def mutation_vector_cases(map_lengths=None, genome_map=None, rates=None, sex_ratio=None):
     if map_lengths is None:
         map_lengths = load_map_lengths()
+    if sex_ratio is None:
+        sex_ratio = load_sex_ratio()
     if genome_map is None:
         genome_map = TEST_GENOME_MAP
     if rates is None:
@@ -937,7 +973,7 @@ def mutation_vector_cases(map_lengths=None, genome_map=None, rates=None):
         mother = vector_mother(case_index)
         father = vector_father(case_index)
         genome, records = child_with_mutation(
-            seed, genome_key, mother, father, map_lengths, genome_map, rates
+            seed, genome_key, mother, father, map_lengths, sex_ratio, genome_map, rates
         )
         cases.append(
             {
@@ -954,7 +990,7 @@ def mutation_vector_cases(map_lengths=None, genome_map=None, rates=None):
         mother = vector_mother(case_index)
         father = vector_father(case_index)
         genome, records = child_with_mutation(
-            seed, genome_key, mother, father, map_lengths, PARTS_GENOME_MAP, PARTS_RATES
+            seed, genome_key, mother, father, map_lengths, sex_ratio, PARTS_GENOME_MAP, PARTS_RATES
         )
         parts_cases.append(
             {

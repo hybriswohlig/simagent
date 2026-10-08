@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xbeee_a5b3_dd6a_1fe9;
+const DATA_HASH: u64 = 0xce40_b4c9_64ff_15c8;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0xefd3_7114_1c32_ac86);
+    assert_eq!(data.hash(), 0x5d5c_2402_cbc8_8dac);
 }
 
 #[test]
@@ -1261,6 +1261,34 @@ fn body_values_are_those_of_the_specification() {
     assert_eq!(model.pigment_skin_offset, -1.2);
     assert_eq!(model.stoop_tempo, 6.0);
     assert_eq!(common::data().genetics().bio_age_weight, 0.5);
+}
+
+/// Genetics specification 2.3, 7.5 and 11.3 (W11.3d), ADR-0017 section 4: the sex ratio
+/// at birth is the calibration value `core:sex_ratio_at_birth`, 1.05 sons per daughter, unit
+/// `ratio`; above 0 and at most 10, the upper end allowed, a value beyond, another unit
+/// and a missing value rejected.
+#[test]
+fn the_sex_ratio_at_birth_is_a_calibration_value() {
+    const KEY: &str = "core:sex_ratio_at_birth";
+    let (calibration, _) = common::files();
+    assert_eq!(calibration["values"][KEY]["value"].as_f64(), Some(1.05));
+    assert_eq!(calibration["values"][KEY]["unit"].as_str(), Some("ratio"));
+    for (value, result) in [
+        (10.0, "ok"),
+        (1e-9, "ok"),
+        (10.5, "data.calibration_range"),
+        (0.0, "data.calibration_range"),
+        (-1.05, "data.calibration_range"),
+    ] {
+        let got = checked(|c, _| c["values"][KEY]["value"] = json!(value));
+        assert!(got.starts_with(result), "{value}: {got}");
+    }
+    let got = checked(|c, _| c["values"][KEY]["unit"] = json!("fraction"));
+    assert!(got.starts_with("data.calibration_unit"), "{got}");
+    let (mut c, g) = common::files();
+    c["values"].as_object_mut().expect("values").remove(KEY);
+    let result = Data::new(common::definitions(c, g).expect("definitions"));
+    assert_eq!(result.err(), Some(DataError::CalibrationMissing));
 }
 
 /// ADR-0015 section 1: `logit` from −20 to 20 (0 and negatives allowed), `stage` above 0 up
