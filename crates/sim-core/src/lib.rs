@@ -26,6 +26,7 @@ pub mod hex_u64;
 pub mod ids;
 pub mod input;
 pub mod kinship;
+pub mod learning;
 pub mod lineage;
 pub mod log;
 pub mod params;
