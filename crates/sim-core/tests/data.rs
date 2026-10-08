@@ -595,7 +595,7 @@ fn row(t: &str, weights: [f64; 4]) -> Value {
 /// ADR-0009 section 2: the phenotype weights of the calibration.
 #[test]
 fn phenotype_weights_reject() {
-    let cases: [(Change, &str); 9] = [
+    let cases: [(Change, &str); 11] = [
         (
             |c, g| {
                 with_traits(g);
@@ -659,6 +659,23 @@ fn phenotype_weights_reject() {
             },
             "data.calibration_range",
         ),
+        // The edges of 0 to 1: the next number above 1 and the next below 0.
+        (
+            |c, g| {
+                with_traits(g);
+                let above = f64::from_bits(1.0_f64.to_bits() + 1);
+                c["traits"] = json!([row("test:a", [above, 0.0, 0.5, 0.1])]);
+            },
+            "data.calibration_range",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                let below = -f64::from_bits(1);
+                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, below])]);
+            },
+            "data.calibration_range",
+        ),
         // The weights are calibration values with a unit: a bare number is no value.
         (
             |c, g| {
@@ -674,18 +691,32 @@ fn phenotype_weights_reject() {
         assert!(result.starts_with(code), "{code}: {result}");
     }
     // A trait with a phenotype keeps the bound of its genetic value at most 2^1022
-    // (ADR-0009 section 2); without a row only finiteness counts (ADR-0008).
-    let huge = |c: &mut Value, g: &mut Value, with_row: bool| {
-        with_traits(g);
-        g["loci"][1]["action"]["additive"]["effect"] = json!(1e308);
+    // (ADR-0009 section 2); without a row only finiteness counts (ADR-0008). With d_ref 1,
+    // weight 1 and sigma_ref 1 the bound is the effect itself.
+    let limit = f64::from_bits(2045_u64 << 52);
+    let just_above = f64::from_bits((2045_u64 << 52) + 1);
+    let bounded = |effect: f64, with_row: bool| {
+        let (mut c, mut g) = common::files();
+        with_traits(&mut g);
+        g["traits"][0]["sigma_ref"] = json!(1.0);
+        g["loci"][1]["action"]["additive"]["effect"] = json!(effect);
         if with_row {
             c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1])]);
         }
+        match Data::new(common::definitions(c, g).expect("definitions")) {
+            Ok(_) => "ok".to_owned(),
+            Err(error) => error.to_string(),
+        }
     };
-    assert!(checked(|c, g| huge(c, g, true)).starts_with("data.trait_bounds"));
-    assert_eq!(checked(|c, g| huge(c, g, false)), "ok");
+    assert_eq!(bounded(limit, true), "ok");
+    assert_eq!(bounded(just_above, true), "data.trait_bounds");
+    assert_eq!(bounded(just_above, false), "ok");
     // Valid: c2 = 0, h2 + c2 = 1 exactly, a trait without a row, both traits with rows.
-    let valid: [Change; 3] = [
+    let valid: [Change; 4] = [
+        |c, g| {
+            with_traits(g);
+            c["traits"] = json!([row("test:a", [1.0, 0.0, 1.0, 0.0])]);
+        },
         |c, g| {
             with_traits(g);
             c["traits"] = json!([row("test:a", [0.6, 0.0, 0.6, 0.0])]);
@@ -709,9 +740,10 @@ fn phenotype_weights_reject() {
 
 #[test]
 fn calibration_rejects() {
-    let cases: [(Change, &str); 11] = [
+    let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
         (|c, _| c["format_version"] = json!(1), "data.format_version"),
+        (|c, _| c["format_version"] = json!(3), "data.format_version"),
         (
             |c, _| {
                 c["values"]

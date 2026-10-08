@@ -207,6 +207,27 @@ mod tests {
             code(data_from(&unsourced, TRAITS_MAP)),
             "calibration/genetics.json: source missing or blank"
         );
+        // Text on the row instead of on a weight, and an unknown field on a weight.
+        let on_row = TRAITS_CALIBRATION.replacen(
+            "\"trait\": \"test:face\",",
+            "\"trait\": \"test:face\", \"note\": \"x\",",
+            1,
+        );
+        assert_ne!(on_row, TRAITS_CALIBRATION);
+        assert!(
+            code(data_from(&on_row, TRAITS_MAP))
+                .starts_with("calibration/genetics.json: unknown field `note`")
+        );
+        let unknown = TRAITS_CALIBRATION.replacen(
+            "\"unit\": \"fraction\",",
+            "\"unit\": \"fraction\", \"x\": 1,",
+            1,
+        );
+        assert_ne!(unknown, TRAITS_CALIBRATION);
+        assert!(
+            code(data_from(&unknown, TRAITS_MAP))
+                .starts_with("calibration/genetics.json: unknown field `x`")
+        );
         let without = GENOME_MAP.replacen("\"traits\": [],", "", 1);
         assert_ne!(without, GENOME_MAP);
         assert_eq!(
