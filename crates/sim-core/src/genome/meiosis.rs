@@ -154,6 +154,21 @@ fn total(genetics: &Genetics, loci: &[&Locus]) -> f64 {
         .fold(0.0, |sum, locus| sum + rate(genetics, locus))
 }
 
+/// The position in a list of rates that a site draw `u` chooses (specification 2.4): the
+/// first at which the running sum is greater than `u` times the total, both added left to
+/// right; the last one if rounding leaves the threshold at the total.
+fn site(u: f64, rates: &[f64]) -> usize {
+    let threshold = u * rates.iter().fold(0.0, |sum, rate| sum + rate);
+    let mut running = 0.0;
+    for (position, rate) in rates.iter().enumerate() {
+        running += rate;
+        if running > threshold {
+            return position;
+        }
+    }
+    rates.len() - 1
+}
+
 /// The new mutations of one side (specification 2.4): the eligible loci of the gamete in
 /// map order, a Poisson number of them, each chosen by its rate among those not chosen
 /// yet. Changes the gamete and returns the mutations in their order.
@@ -204,19 +219,11 @@ fn mutate(
             break;
         }
         let [word] = draws.words::<1>(mutation_site_key(genome, side, j));
-        let threshold = dist::unit(word) * total(&genetics, &eligible);
-        // The first locus at which the running sum exceeds the threshold; the last one
-        // if rounding leaves the threshold at the total.
-        let mut running = 0.0;
-        let mut index = eligible.len() - 1;
-        for (position, locus) in eligible.iter().enumerate() {
-            running += rate(&genetics, locus);
-            if running > threshold {
-                index = position;
-                break;
-            }
-        }
-        let locus = eligible.remove(index);
+        let rates: Vec<f64> = eligible
+            .iter()
+            .map(|locus| rate(&genetics, locus))
+            .collect();
+        let locus = eligible.remove(site(dist::unit(word), &rates));
         let old = gamete
             .allele(locus)
             .unwrap_or_else(|| panic!("invariant meiosis.mutation_locus"));
@@ -382,5 +389,34 @@ impl Zygote {
                 mutations: his_mutations,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::site;
+
+    /// A threshold exactly on a running sum does not choose that locus: the sum must be
+    /// greater (2.4). With rates 1 and 1, `u` = 1/2 puts the threshold at 1.
+    #[test]
+    fn a_site_on_a_running_sum_goes_to_the_next_locus() {
+        assert_eq!(site(0.5, &[1.0, 1.0]), 1);
+        assert_eq!(site(0.0, &[1.0, 1.0]), 0);
+        assert_eq!(site(0.25, &[0.5, 0.25, 0.25]), 0);
+        assert_eq!(site(0.5, &[0.5, 0.25, 0.25]), 1);
+    }
+
+    /// With normal rates `u · total` stays below the total (`u` is at most 1 - 2^-53), so
+    /// the last running sum is always greater. Subnormal rates, which the checks of the
+    /// definitions accept, can round the threshold up to the total: then no running sum
+    /// is greater, and the last locus is chosen.
+    #[test]
+    fn rounding_to_the_total_chooses_the_last_locus() {
+        let largest = 1.0 - f64::EPSILON / 2.0;
+        assert!(largest * 3.0 < 3.0);
+        assert_eq!(site(largest, &[1.0, 1.0, 1.0]), 2);
+        let tiny = f64::from_bits(1);
+        assert_eq!(largest * (tiny + tiny), tiny + tiny);
+        assert_eq!(site(largest, &[tiny, tiny]), 1);
     }
 }
