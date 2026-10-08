@@ -50,7 +50,7 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
 mod tests {
     use super::*;
     use crate::data_id::DataId;
-    use crate::genome::{Allele, Genotype, Sex};
+    use crate::genome::{Genome, Sex};
     use crate::ids::SimId;
     use crate::lineage::LineageKey;
     use crate::state::{ArchivedSim, LeftBy, Sim};
@@ -59,11 +59,6 @@ mod tests {
     fn sim(n: u64) -> SimId {
         SimId::try_from(n).expect("valid")
     }
-
-    const GENOTYPE: Genotype = Genotype {
-        maternal: Allele::Wild,
-        paternal: Allele::Wild,
-    };
 
     fn key(n: u64) -> LineageKey {
         LineageKey::founder(&DataId::new("test:census").expect("valid"), n)
@@ -75,7 +70,7 @@ mod tests {
             born,
             lineage_key: key(n),
             sex: Sex::Female,
-            genotype: GENOTYPE,
+            genome: Genome::reference(Sex::Female),
             exposure: None,
             conceptions: 0,
             parents: None,
@@ -89,7 +84,7 @@ mod tests {
             left_by: LeftBy::Death { cause: 7 },
             lineage_key: key(n),
             sex: Sex::Male,
-            genotype: GENOTYPE,
+            genome: Genome::reference(Sex::Male),
             exposure: None,
             conceptions: 0,
             parents: None,

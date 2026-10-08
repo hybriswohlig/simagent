@@ -13,7 +13,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{ArchivedSim, DomainState, Exposure, LeftBy, Slot, partnership};
-use crate::genome::Genotype;
+use crate::data::Data;
+use crate::data_id::DataId;
+use crate::genome::Genome;
 use crate::ids::{EventId, SimId};
 use crate::input::{AppliesTo, DeathCause};
 use crate::lineage::LineageKey;
@@ -66,14 +68,21 @@ pub(crate) fn due(
     }
 }
 
+/// The dummy allele twice (C5): dose 2 at the locus `core:dummy` of the genome map. A map
+/// without that locus has nobody with the dummy allele twice.
+pub(crate) fn dummy_homozygous(genome: &Genome, data: &Data) -> bool {
+    let id = DataId::new("core:dummy").unwrap_or_else(|_| panic!("invariant death.dummy_id"));
+    data.locus(&id).is_some_and(|locus| genome.dose(locus) == 2)
+}
+
 /// The exposure a sim starts with at `origin` (the start for a founder, the birth for a
 /// child): one for the dummy allele twice, running from then on if the switch is on.
 pub(crate) fn first_exposure(
-    genotype: Genotype,
+    homozygous: bool,
     switch_on: bool,
     origin: SimTime,
 ) -> Option<Exposure> {
-    genotype.dummy_homozygous().then_some(Exposure {
+    homozygous.then_some(Exposure {
         before: SimDuration::ZERO,
         since: switch_on.then_some(origin),
     })
@@ -210,7 +219,7 @@ pub(crate) fn on_death(domain: &mut DomainState, sim: SimId, cause: u64, ctx: &m
             left_by: LeftBy::Death { cause },
             lineage_key: person.lineage_key,
             sex: person.sex,
-            genotype: person.genotype,
+            genome: person.genome,
             exposure: person.exposure,
             conceptions: person.conceptions,
             parents: person.parents,

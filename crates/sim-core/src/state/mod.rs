@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::genome::{Genotype, Sex};
+use crate::genome::{Genome, Sex};
 use crate::ids::{PartnershipId, SimId};
 use crate::input::DeathCause;
 use crate::input::Fertility;
@@ -29,7 +29,7 @@ pub(crate) struct Sim {
     /// Who this is in every fork (ADR-0001 section 4); the ID is only a counter.
     pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
-    pub(crate) genotype: Genotype,
+    pub(crate) genome: Genome,
     /// `Some` exactly for a sim with the dummy allele twice.
     pub(crate) exposure: Option<Exposure>,
     /// How often she conceived (ADR-0001 section 4: the conception number of the next
@@ -48,14 +48,14 @@ pub(crate) struct Parents {
 }
 
 /// A running pregnancy, fixed at conception (B18): the father, the child's lineage key,
-/// the mother's conception number, sex and genotype.
+/// the mother's conception number, sex and genome.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Pregnancy {
     pub(crate) father: SimId,
     pub(crate) lineage_key: LineageKey,
     pub(crate) conception: u32,
     pub(crate) sex: Sex,
-    pub(crate) genotype: Genotype,
+    pub(crate) genome: Genome,
     pub(crate) conceived: SimTime,
 }
 
@@ -96,7 +96,7 @@ pub(crate) struct ArchivedSim {
     pub(crate) left_by: LeftBy,
     pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
-    pub(crate) genotype: Genotype,
+    pub(crate) genome: Genome,
     /// The exposure as it was at the death: it shows whether the switch was on.
     pub(crate) exposure: Option<Exposure>,
     pub(crate) conceptions: u32,

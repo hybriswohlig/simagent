@@ -9,9 +9,14 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+mod common;
+
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
+use sim_core::genome::meiosis::SegmentMeiosis;
+use sim_core::genome::{
+    Genome, LocusAlleles, PaternalSex, Sex, SexChromosome, Strand, XChromosome, YChromosome,
+};
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
     AppliesTo, ArrangePartnership, Couple, DeathCause, Fertility, ForkOverride, Founder, Input,
@@ -92,10 +97,7 @@ fn sample_input() -> Input {
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
             sex: Sex::Female,
-            genotype: Genotype {
-                maternal: Allele::Wild,
-                paternal: Allele::Dummy,
-            },
+            alleles: common::dummy(0, 1),
         }],
         couples: Vec::new(),
         fertility: Fertility {
@@ -168,17 +170,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001009a9999999999a93f122d0a";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a08607000001009a9999999999a93f122d0a";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","genotype":{"maternal":"wild","paternal":"dummy"}}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -256,11 +258,24 @@ fn sample_conception() -> LogPayload {
     }
 }
 
-/// The meiosis of a father who passes on his paternal strand and a Y.
+/// A meiosis with two segments, the first starting on the paternal strand with two
+/// crossovers, and a Y passed on (tools/postcard_reference.py).
 fn sample_meiosis() -> LogPayload {
+    let position = |x: f64| FiniteF64::try_new(x).expect("finite");
     LogPayload::Meiosis {
         genome_key: GenomeKey::of_zygote(lineage_key_of(0x0123_4567_89ab_cdef)),
-        start_strand: Strand::Paternal,
+        segments: vec![
+            SegmentMeiosis {
+                segment: 0,
+                start_strand: Strand::Paternal,
+                crossovers: vec![position(0.25), position(0.75)],
+            },
+            SegmentMeiosis {
+                segment: 8,
+                start_strand: Strand::Maternal,
+                crossovers: Vec::new(),
+            },
+        ],
         sex_chromosome: SexChromosome::Y,
     }
 }
@@ -303,7 +318,7 @@ fn conception_forms_are_pinned() {
         postcard_round_trip(&sample_conception()),
         hex("06ef9bafcdf8acd19101")
     );
-    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal","sex_chromosome":"y"}}"#;
+    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[0.25,0.75]},{"segment":8,"start_strand":"maternal","crossovers":[]}],"sex_chromosome":"y"}}"#;
     assert_eq!(json(&sample_meiosis()), meiosis_json);
     assert_eq!(
         from_json::<LogPayload>(meiosis_json).ok(),
@@ -311,7 +326,7 @@ fn conception_forms_are_pinned() {
     );
     assert_eq!(
         postcard_round_trip(&sample_meiosis()),
-        hex("07ef9bafcdf8acd191010101")
+        hex("07ef9bafcdf8acd1910102000102000000000000d03f000000000000e83f08000001")
     );
     let birth = LogPayload::Birth {
         lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),
@@ -336,9 +351,11 @@ fn conception_forms_are_pinned() {
         assert!(from_json::<Fertility>(rejected).is_err(), "{rejected}");
     }
     for rejected in [
-        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"Paternal","sex_chromosome":"y"}}"#,
-        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal","sex_chromosome":"Y"}}"#,
-        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","start_strand":"paternal"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"Paternal","crossovers":[]}],"sex_chromosome":"y"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[],"sex_chromosome":"Y"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[]}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal"}],"sex_chromosome":"y"}}"#,
+        r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[],"mutations":[]}],"sex_chromosome":"y"}}"#,
         r#"{"core:conception":{"lineage_key":81985529216486895}}"#,
     ] {
         assert!(from_json::<LogPayload>(rejected).is_err(), "{rejected}");
@@ -562,8 +579,8 @@ fn postcard_forms_are_pinned() {
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 
-/// The genome of the Durchstich: in JSON the names, in postcard the variant index
-/// (tools/postcard_reference.py).
+/// The forms of sex, alleles and genome (genetics specification 2.1): in JSON the names,
+/// in postcard as tools/postcard_reference.py encodes them.
 #[test]
 fn genome_forms_are_pinned() {
     for (sex, name, index) in [
@@ -574,45 +591,42 @@ fn genome_forms_are_pinned() {
         assert_eq!(from_json::<Sex>(name).expect("parses"), sex);
         assert_eq!(postcard_round_trip(&sex), [index]);
     }
-    for (allele, name, index) in [
-        (Allele::Wild, "\"wild\"", 0_u8),
-        (Allele::Dummy, "\"dummy\"", 1),
-    ] {
-        assert_eq!(json(&allele), name);
-        assert_eq!(from_json::<Allele>(name).expect("parses"), allele);
-        assert_eq!(postcard_round_trip(&allele), [index]);
-    }
-    let mixed = Genotype {
-        maternal: Allele::Wild,
-        paternal: Allele::Dummy,
+    let dummy = |copies: Vec<u8>| LocusAlleles {
+        locus: DataId::new("core:dummy").expect("valid"),
+        copies,
     };
-    let mixed_json = r#"{"maternal":"wild","paternal":"dummy"}"#;
-    assert_eq!(json(&mixed), mixed_json);
-    assert_eq!(from_json::<Genotype>(mixed_json).expect("parses"), mixed);
-    assert_eq!(postcard_round_trip(&mixed), hex("0001"));
-    let other = Genotype {
-        maternal: Allele::Dummy,
-        paternal: Allele::Wild,
-    };
-    assert_eq!(postcard_round_trip(&other), hex("0100"));
-
+    let alleles = vec![dummy(vec![0, 1])];
+    let alleles_json = r#"[{"locus":"core:dummy","copies":[0,1]}]"#;
+    assert_eq!(json(&alleles), alleles_json);
+    assert_eq!(
+        from_json::<Vec<LocusAlleles>>(alleles_json).expect("parses"),
+        alleles
+    );
+    assert_eq!(
+        postcard_round_trip(&alleles),
+        hex("010a636f72653a64756d6d79020001")
+    );
+    assert_eq!(postcard_round_trip(&Vec::<LocusAlleles>::new()), hex("00"));
+    let data = common::data();
+    let female = Genome::with_alleles(Sex::Female, &alleles, &data).expect("fits");
+    assert_eq!(postcard_round_trip(&female), hex("00000001000000000000"));
+    let male = Genome::with_alleles(Sex::Male, &[dummy(vec![1, 0])], &data).expect("fits");
+    assert_eq!(postcard_round_trip(&male), hex("01000000000000010000"));
     for rejected in ["\"Female\"", "\"other\"", "0", "null"] {
         assert!(from_json::<Sex>(rejected).is_err(), "{rejected}");
-        assert!(from_json::<Allele>(rejected).is_err(), "{rejected}");
     }
     for rejected in [
-        r#"{"maternal":"wild"}"#,
-        r#"{"paternal":"wild"}"#,
-        r#"{"maternal":"wild","paternal":"dummy","third":"wild"}"#,
-        r#"{"maternal":"wild","paternal":"recessive"}"#,
-        r#"{"maternal":"wild","maternal":"wild","paternal":"dummy"}"#,
+        r#"{"locus":"core:dummy"}"#,
+        r#"{"copies":[0,1]}"#,
+        r#"{"locus":"core:dummy","copies":[0,1],"third":0}"#,
+        r#"{"locus":"dummy","copies":[0,1]}"#,
+        r#"{"locus":"core:dummy","copies":[0,256]}"#,
     ] {
-        assert!(from_json::<Genotype>(rejected).is_err(), "{rejected}");
+        assert!(from_json::<LocusAlleles>(rejected).is_err(), "{rejected}");
     }
     // A variant index that does not exist.
     assert!(postcard::from_bytes::<Sex>(&[2]).is_err());
-    assert!(postcard::from_bytes::<Allele>(&[2]).is_err());
-    assert!(postcard::from_bytes::<Genotype>(&[0, 2]).is_err());
+    assert!(postcard::from_bytes::<Genome>(&hex("00000000000000020000")).is_err());
 }
 
 /// A lineage key is a full-range u64 (ADR-0004 section 3): 16 hex digits in JSON, the
@@ -750,9 +764,10 @@ fn formats_roundtrip_rejects_unknown_fields_and_variants() {
     let cases = [
         INPUT_JSON.replace(r#""founders""#, r#""extra":1,"founders""#),
         INPUT_JSON.replace(r#"{"born""#, r#"{"age":1,"born""#),
-        // No silent defaults: a founder without sex or genotype is no founder.
+        // No silent defaults: a founder without sex or alleles is no founder.
         INPUT_JSON.replace(r#","sex":"female""#, ""),
-        INPUT_JSON.replace(r#","genotype":{"maternal":"wild","paternal":"dummy"}"#, ""),
+        INPUT_JSON.replace(r#","alleles":[{"locus":"core:dummy","copies":[0,1]}]"#, ""),
+        INPUT_JSON.replace(r#""copies":[0,1]"#, r#""copies":[0,1],"note":"x""#),
         INPUT_JSON.replace(r#""sex":"female""#, r#""sex":"unknown""#),
         INPUT_JSON.replace(r#"{"start""#, r#"{"begin""#),
         r#"{"start":{"world_seed":"00000000000000ff","founders":[]}}"#.to_owned(),
@@ -857,10 +872,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
             sex: Sex::Male,
-            genotype: Genotype {
-                maternal: Allele::Dummy,
-                paternal: Allele::Dummy,
-            },
+            alleles: common::dummy(1, 1),
         }],
         couples: Vec::new(),
         fertility: barren(),
@@ -943,6 +955,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::AlreadyPartnered,
         RejectCode::UnknownFounder,
         RejectCode::FertilityOutOfRange,
+        RejectCode::FounderUnknownLocus,
+        RejectCode::FounderLocusTwice,
+        RejectCode::FounderCopies,
     ];
     for code in &codes {
         match code {
@@ -960,7 +975,10 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::PartnersOfWrongSex
             | RejectCode::AlreadyPartnered
             | RejectCode::UnknownFounder
-            | RejectCode::FertilityOutOfRange => {}
+            | RejectCode::FertilityOutOfRange
+            | RejectCode::FounderUnknownLocus
+            | RejectCode::FounderLocusTwice
+            | RejectCode::FounderCopies => {}
         }
     }
     codes
@@ -1044,7 +1062,7 @@ fn formats_roundtrip_rejects_an_unknown_field_everywhere() {
     let stamp = r#"{"t":0,"seq":1}"#;
     let rejected = r#"{"code":"already_started"}"#;
     let plan = r#"{"by":1,"planned_at":0}"#;
-    let founder = r#"{"born":0,"sex":"male","genotype":{"maternal":"dummy","paternal":"dummy"}}"#;
+    let founder = r#"{"born":0,"sex":"male","alleles":[]}"#;
     let extend = |text: &str| text.replace('}', fields);
     assert!(from_json::<InputStamp>(stamp).is_ok());
     assert!(from_json::<InputStamp>(&extend(stamp)).is_err());
@@ -1134,21 +1152,24 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(traces.iter().map(|t| line("trace", t)));
-    // The genome of the Durchstich: part of inputs and saves.
+    // The sex and the sex chromosome from the father: part of inputs and saves.
     let sexes = [Sex::Female, Sex::Male];
     for sex in &sexes {
         match sex {
             Sex::Female | Sex::Male => {}
         }
     }
-    let alleles = [Allele::Wild, Allele::Dummy];
-    for allele in &alleles {
-        match allele {
-            Allele::Wild | Allele::Dummy => {}
+    actual.extend(sexes.iter().map(|s| line("sex", s)));
+    let from_father = [
+        PaternalSex::X(XChromosome::default()),
+        PaternalSex::Y(YChromosome::default()),
+    ];
+    for chromosome in &from_father {
+        match chromosome {
+            PaternalSex::X(_) | PaternalSex::Y(_) => {}
         }
     }
-    actual.extend(sexes.iter().map(|s| line("sex", s)));
-    actual.extend(alleles.iter().map(|a| line("allele", a)));
+    actual.extend(from_father.iter().map(|c| line("paternal_sex", c)));
     // The world parameters an override block can name.
     let params = [ParamChange::HereditaryDiseases(true)];
     for param in &params {

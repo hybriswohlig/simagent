@@ -29,6 +29,7 @@ from postcard_reference import (
     exposure,
     fertility,
     founder,
+    genome,
     genotype,
     lineage_key,
     param_change,
@@ -66,18 +67,18 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 8
-CORE_VERSION = 9
+PROJECTION_VERSION = 9
+CORE_VERSION = 10
 
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)
 
 
-def sim_state(born: int, key: int, sex: bytes, genes: bytes, sick=None) -> bytes:
-    """Sim { born, lineage_key, sex, genotype, exposure, conceptions, parents }: the
+def sim_state(born: int, key: int, sex: bytes, genes: tuple, sick=None) -> bytes:
+    """Sim { born, lineage_key, sex, genome, exposure, conceptions, parents }: the
     exposure is None but for a sim with the dummy allele twice (C5); no conceptions yet;
     a founder has no parents."""
-    return signed(born) + lineage_key(key) + sex + genes + exposure(sick) + varint(0) + NONE
+    return signed(born) + lineage_key(key) + sex + genome(sex, genes) + exposure(sick) + varint(0) + NONE
 
 
 TINY_KEY = founder_key("test:tiny", 0)
@@ -703,6 +704,8 @@ if __name__ == "__main__":
     print(f"sick_on_his_death_entry {SICK_ON.log[-1].hex()}")
     print(f"sick_off_save_after_start {SICK_OFF_SAVE_AFTER_START.hex()}")
     print(f"switched_on_save {SWITCHED_ON_SAVE.hex()}")
+    for name, run in [("sick_on", SICK_ON), ("sick_off", SICK_OFF), ("switched_on", SWITCHED_ON), ("disease_first", DISEASE_FIRST), ("on_off_on", ON_OFF_ON), ("off_at_due", OFF_AT_DUE)]:
+        print(f"{name}_year_hashes {[format(value, '016x') for value in run.year_hashes]}")
     print(f"disease_first_save {DISEASE_FIRST_SAVE.hex()}")
     print(f"on_off_on_save {ON_OFF_ON_SAVE.hex()}")
     print(f"off_at_due_save {OFF_AT_DUE_SAVE.hex()}")

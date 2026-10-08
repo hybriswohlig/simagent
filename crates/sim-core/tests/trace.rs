@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::genome::Sex;
 use sim_core::ids::SimId;
 use sim_core::input::{Fertility, Founder, Input, Start};
 use sim_core::log::log_hash;
@@ -53,10 +53,7 @@ fn new_world(filter: TraceFilter) -> World {
                 .map(|secs| Founder {
                     born: SimTime::from_secs(secs),
                     sex: Sex::Female,
-                    genotype: Genotype {
-                        maternal: Allele::Wild,
-                        paternal: Allele::Dummy,
-                    },
+                    alleles: common::dummy(0, 1),
                 })
                 .collect(),
             couples: Vec::new(),

@@ -44,8 +44,6 @@ pub struct World {
     sched: Scheduler<EventPayload, PlanRef>,
     state: WorldState,
     inputs: InputLog,
-    /// The checked definitions (ADR-0007); their hash is part of a save's header.
-    data: Data,
 }
 
 /// The handler side of the scheduler: the domain state plus the counters and the log
@@ -56,6 +54,9 @@ pub struct WorldState {
     log: LogBuffer,
     /// Output like the log, and no state: not hashed, not saved (ADR-0004 section 6).
     trace: TraceBuffer,
+    /// The checked definitions (ADR-0007): no state either, only their hash is part of a
+    /// save's header.
+    data: Data,
 }
 
 impl World {
@@ -67,18 +68,18 @@ impl World {
                 ids: IdCounters::new(),
                 log: LogBuffer::new(),
                 trace: TraceBuffer::default(),
+                data,
             },
             inputs: InputLog {
                 next_seq: Counter::new(),
                 records: Vec::new(),
             },
-            data,
         }
     }
 
     /// The definitions of this world (ADR-0007).
     pub const fn data(&self) -> &Data {
-        &self.data
+        &self.state.data
     }
 
     /// The last closed second (ADR-0002); `-1` before the first advance.
@@ -90,7 +91,7 @@ impl World {
     /// nothing and takes no position in the input log.
     pub fn submit(&mut self, input: Input) -> Result<InputStamp, InputRejected> {
         let t = self.sched.closed_through();
-        check(&self.state.domain, t, &input)?;
+        check(&self.state.domain, &self.state.data, t, &input)?;
         let seq = self.inputs.next_seq.allocate_input();
         let mut ctx = self.sched.input_ctx();
         self.state.apply(&input, seq, &mut ctx);
@@ -157,11 +158,12 @@ impl World {
 /// Pure function of state and input (ADR-0004 section 4).
 fn check(
     domain: &DomainState,
+    data: &Data,
     closed_through: SimTime,
     input: &Input,
 ) -> Result<(), InputRejected> {
     match input {
-        Input::Start(start) => state::start::check_start(domain, closed_through, start),
+        Input::Start(start) => state::start::check_start(domain, data, closed_through, start),
         Input::ForkOverride(block) => state::params::check_override(domain, block),
         Input::ArrangePartnership(pair) => state::partnership::check_arrange(domain, pair),
     }
@@ -177,7 +179,9 @@ impl WorldState {
             Cause::Input(seq),
         );
         match input {
-            Input::Start(start) => state::start::apply_start(&mut self.domain, start, &mut ctx),
+            Input::Start(start) => {
+                state::start::apply_start(&mut self.domain, &self.data, start, &mut ctx);
+            }
             Input::ForkOverride(block) => {
                 state::params::apply_override(&mut self.domain, block, &mut ctx);
             }
@@ -189,6 +193,11 @@ impl WorldState {
 
     pub(crate) fn domain(&self) -> &DomainState {
         &self.domain
+    }
+
+    /// The definitions of the world (ADR-0007).
+    pub const fn data(&self) -> &Data {
+        &self.data
     }
 
     pub(crate) fn next_sim_id(&self) -> u64 {
@@ -259,10 +268,10 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::death::on_death(&mut self.domain, sim, cause, &mut ctx);
             }
             EventPayload::ConceptionAttempt { woman } => {
-                state::conception::on_attempt(&mut self.domain, woman, &mut ctx);
+                state::conception::on_attempt(&mut self.domain, &self.data, woman, &mut ctx);
             }
             EventPayload::Birth { mother } => {
-                state::birth::on_birth(&mut self.domain, mother, &mut ctx);
+                state::birth::on_birth(&mut self.domain, &self.data, mother, &mut ctx);
             }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
@@ -299,7 +308,7 @@ mod tests {
     use crate::data::testing;
     use crate::data_id::DataId;
     use crate::finite::FiniteF64;
-    use crate::genome::{Allele, Genotype, Sex};
+    use crate::genome::Sex;
     use crate::input::{Fertility, Founder, RejectCode, Start};
     use crate::lineage::LineageKey;
     use crate::params::WorldParams;
@@ -314,11 +323,6 @@ mod tests {
             pregnancy_months: 10,
         }
     }
-
-    const MIXED: Genotype = Genotype {
-        maternal: Allele::Dummy,
-        paternal: Allele::Wild,
-    };
 
     fn tag() -> DataId {
         DataId::new("test:world").expect("valid")
@@ -337,7 +341,7 @@ mod tests {
                 .map(|&secs| Founder {
                     born: SimTime::from_secs(secs),
                     sex: Sex::Female,
-                    genotype: MIXED,
+                    alleles: testing::dummy(1, 0),
                 })
                 .collect(),
             couples: Vec::new(),
@@ -357,7 +361,7 @@ mod tests {
             left_by: state::LeftBy::Death { cause: 7 },
             lineage_key: LineageKey::founder(&tag(), 1),
             sex: Sex::Male,
-            genotype: MIXED,
+            genome: crate::genome::Genome::reference(Sex::Male),
             exposure: None,
             conceptions: 0,
             parents: None,
@@ -507,7 +511,7 @@ mod tests {
                 born: SimTime::from_secs(-5),
                 lineage_key: key(0),
                 sex: Sex::Female,
-                genotype: MIXED,
+                genome: crate::genome::Genome::reference(Sex::Female),
                 exposure: None,
                 conceptions: 0,
                 parents: None,
@@ -544,7 +548,8 @@ mod tests {
     /// key 2, then born -9 (zigzag 17), left -2 (zigzag 3), the reason (death, variant 0,
     /// of the cause with the key 7), the lineage key of founder 1
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
-    /// the alleles dummy (1) and wild (0), no exposure (0), no conception (0) and no
+    /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
+    /// the Y as variant 1 with 0, mt 0), no exposure (0), no conception (0) and no
     /// parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
@@ -561,7 +566,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 1, 0, 0, 0, 0]);
+        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

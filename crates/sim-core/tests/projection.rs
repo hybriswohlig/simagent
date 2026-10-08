@@ -10,7 +10,7 @@ mod common;
 use sim_core::canonical::{YearHash, canonical_bytes};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::genome::Sex;
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{Fertility, ForkOverride, Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogHasher, PlanRef, log_hash};
@@ -31,14 +31,14 @@ fn barren() -> Fertility {
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0801ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000000000000";
-const PAIR_AFTER_START: &str = "0801ff01010000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b9010000010000000201aca1aef0de91d89d86010101010100000000000000";
-const TINY_OVERRIDDEN: &str = "0801ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000001000000000000";
+const TINY_AFTER_START: &str = "0901ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const PAIR_AFTER_START: &str = "0901ff01010000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b90100000000010000000000000000000201aca1aef0de91d89d860101010000010000000100000100000000000000";
+const TINY_OVERRIDDEN: &str = "0901ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
 const TINY_OVERRIDE_ENTRY: &str = "030000010202030001";
-const TINY_AFTER_START_HASH: u64 = 0xd969_5958_a0c9_f683;
-const TINY_YEAR_0_HASH: u64 = 0x812e_417f_fb3e_56f8;
-const TINY_AFTER_YEAR_0: &str = "0801ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e000001000000000000";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0xb45b_4758_1a88_e579;
+const TINY_AFTER_START_HASH: u64 = 0xd8c2_de8c_8f8b_d9b5;
+const TINY_YEAR_0_HASH: u64 = 0xbd1b_4b05_4968_1def;
+const TINY_AFTER_YEAR_0: &str = "0901ff01010000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0x6b6a_9b1f_f213_947b;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -55,10 +55,7 @@ fn founder(secs: i64) -> Founder {
     Founder {
         born: SimTime::from_secs(secs),
         sex: Sex::Female,
-        genotype: Genotype {
-            maternal: Allele::Wild,
-            paternal: Allele::Dummy,
-        },
+        alleles: common::dummy(0, 1),
     }
 }
 
@@ -104,15 +101,11 @@ fn plan(by: u64, planned_at: i64) -> PlanRef {
 
 /// Scenario "pair" of the reference tool: a woman born two seconds before the start with
 /// the alleles wild and dummy, a man born one second before it with dummy twice. The
-/// projection keeps for each what `Start` gave: the sex, both alleles and the lineage
+/// projection keeps for each what `Start` gave: the sex, the genome and the lineage
 /// key of the place in the list.
 #[test]
-fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
+fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
     let mut world = World::new(common::data());
-    let dummy_twice = Genotype {
-        maternal: Allele::Dummy,
-        paternal: Allele::Dummy,
-    };
     world
         .submit(Input::Start(Start {
             world_seed: 0xff,
@@ -126,7 +119,7 @@ fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
                 Founder {
                     born: SimTime::from_secs(-1),
                     sex: Sex::Male,
-                    genotype: dummy_twice,
+                    alleles: common::dummy(1, 1),
                 },
             ],
             couples: Vec::new(),
@@ -134,7 +127,7 @@ fn the_projection_keeps_sex_genotype_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0x392f_80ef_9e49_cb3d);
+    assert_eq!(world.state_hash(), 0xafcc_a18e_81a8_fbdf);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -149,7 +142,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0x8c8e_02cf_e079_9aa5);
+    assert_eq!(world.state_hash(), 0xbd31_ce48_4e53_d63c);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -187,7 +180,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"812e417ffb3e56f8"}"#
+        r#"{"year":0,"hash":"bd1b4b0549681def"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

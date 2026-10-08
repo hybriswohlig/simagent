@@ -13,7 +13,8 @@ use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{
     self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
 };
-use crate::genome::{Genotype, Sex};
+use crate::genome::meiosis::Zygote;
+use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, SimId};
 use crate::input::{AppliesTo, DeathCause, Fertility, Input, InputRecord, Start};
 use crate::lineage::GenomeKey;
@@ -21,7 +22,7 @@ use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
 use crate::params::WorldParams;
 use crate::rng::{Draws, WorldSeed};
-use crate::state::conception::{self, Zygote};
+use crate::state::conception;
 use crate::state::{
     self, ArchivedSim, DomainState, Exposure, LeftBy, Parents, Pregnancy, Sim, Slot,
 };
@@ -130,7 +131,7 @@ impl World {
             input_log: self.inputs.records.clone(),
             year_hashes: year_hashes.to_vec(),
         };
-        let mut bytes = header_bytes(self.data.hash());
+        let mut bytes = header_bytes(self.state.data.hash());
         bytes.extend(canonical::canonical_bytes(&self.state, &self.sched));
         bytes.extend(encode(&exceptions));
         Ok(bytes)
@@ -195,7 +196,8 @@ impl World {
             entries,
         })
         .map_err(|_| LoadError::InvalidQueue)?;
-        let death_causes = consistent(&loaded, &exceptions).ok_or(LoadError::Inconsistent)?;
+        let death_causes =
+            consistent(&loaded, &exceptions, &data).ok_or(LoadError::Inconsistent)?;
         // `consistent` has checked the ranges of the three counters.
         let counter = |next: u64| Counter::from_next(next).ok_or(LoadError::Inconsistent);
         let next_input = u64::try_from(exceptions.input_log.len())
@@ -227,12 +229,12 @@ impl World {
                 ),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
                 trace: TraceBuffer::default(),
+                data,
             },
             inputs: InputLog {
                 next_seq: counter(next_input)?,
                 records: exceptions.input_log,
             },
-            data,
         };
         Ok((world, exceptions.year_hashes))
     }
@@ -287,7 +289,11 @@ pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), Eve
 /// projection holds the causes by key, their codes come from `Start`. The queue has
 /// passed the scheduler's own checks. The ranges of the ID counters are checked when
 /// the world is built from them.
-fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<DeathCause>> {
+fn consistent(
+    loaded: &LoadedState,
+    exceptions: &Exceptions,
+    data: &Data,
+) -> Option<Vec<DeathCause>> {
     let closed = loaded.closed_through.as_secs();
     if closed < SimTime::START.as_secs() - 1 {
         return None;
@@ -311,9 +317,10 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions) -> Option<Vec<Death
             && exceptions.year_hashes.is_empty();
         return empty.then(Vec::new);
     };
-    let history = input_log_consistent(loaded, exceptions, seed)?;
+    let history = input_log_consistent(loaded, exceptions, seed, data)?;
     let rules = Rules {
         seed,
+        data,
         causes: &history.causes,
         switch: &history.switch,
         fertility: history.fertility,
@@ -361,6 +368,7 @@ fn input_log_consistent(
     loaded: &LoadedState,
     exceptions: &Exceptions,
     seed: u64,
+    data: &Data,
 ) -> Option<InputHistory> {
     let mut started: Option<(WorldParams, &Start)> = None;
     let mut switch = Vec::new();
@@ -375,10 +383,10 @@ fn input_log_consistent(
         match (&record.input, started) {
             (Input::Start(start), None) => {
                 let unstarted = DomainState::new();
-                let fits = state::start::check_start(&unstarted, record.t, start).is_ok()
+                let fits = state::start::check_start(&unstarted, data, record.t, start).is_ok()
                     && start.world_seed == seed
                     && loaded.fertility == Some(start.fertility)
-                    && founders_are_the_first_sims(loaded, start)
+                    && founders_are_the_first_sims(loaded, start, data)
                     && causes_are_those_of(loaded, start);
                 if !fits {
                     return None;
@@ -478,6 +486,7 @@ type SwitchHistory = Vec<(i64, bool)>;
 /// after its stamp). All sims are founders so far: the causes act from the start on.
 struct Rules<'a> {
     seed: u64,
+    data: &'a Data,
     causes: &'a [DeathCause],
     switch: &'a [(i64, bool)],
     fertility: Fertility,
@@ -524,13 +533,13 @@ impl Rules<'_> {
     /// second of the death.
     fn exposure_consistent(
         &self,
-        genotype: Genotype,
+        genome: &Genome,
         lineage_key: LineageKey,
         exposure: Option<Exposure>,
         origin: i64,
         at: i64,
     ) -> bool {
-        match (genotype.dummy_homozygous(), exposure) {
+        match (state::death::dummy_homozygous(genome, self.data), exposure) {
             (false, None) => true,
             (true, Some(exposure)) => {
                 let held = (
@@ -564,8 +573,8 @@ fn causes_are_those_of(loaded: &LoadedState, start: &Start) -> bool {
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times, sex
-/// and genotype from `Start`, the lineage key of their place in its list and no parents.
-fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
+/// and genome from `Start`, the lineage key of their place in its list and no parents.
+fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data) -> bool {
     (1_u64..)
         .zip((0_u64..).zip(&start.founders))
         .all(|(number, (index, founder))| {
@@ -576,19 +585,16 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start) -> bool {
                 return false;
             };
             let lineage_key = LineageKey::founder(&start.founder_tag, index);
+            let Ok(genome) = Genome::with_alleles(founder.sex, &founder.alleles, data) else {
+                return false;
+            };
             (
                 found.born,
                 found.lineage_key,
                 found.sex,
-                found.genotype,
+                found.genome,
                 found.parents,
-            ) == (
-                founder.born,
-                lineage_key,
-                founder.sex,
-                founder.genotype,
-                None,
-            )
+            ) == (founder.born, lineage_key, founder.sex, genome, None)
         })
 }
 
@@ -600,7 +606,7 @@ fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let origin = |born: SimTime| state::death::origin(born).as_secs();
     loaded.sims.values().all(|sim| {
         rules.exposure_consistent(
-            sim.genotype,
+            &sim.genome,
             sim.lineage_key,
             sim.exposure,
             origin(sim.born),
@@ -610,7 +616,7 @@ fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         let left = sim.left.as_secs();
         left < now
             && rules.exposure_consistent(
-                sim.genotype,
+                &sim.genome,
                 sim.lineage_key,
                 sim.exposure,
                 origin(sim.born),
@@ -625,7 +631,7 @@ struct Facts {
     born: SimTime,
     lineage_key: LineageKey,
     sex: Sex,
-    genotype: Genotype,
+    genome: Genome,
     parents: Option<Parents>,
 }
 
@@ -637,14 +643,14 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
             born: sim.born,
             lineage_key: sim.lineage_key,
             sex: sim.sex,
-            genotype: sim.genotype,
+            genome: sim.genome,
             parents: sim.parents,
         }),
         (None, Some(sim)) => Some(Facts {
             born: sim.born,
             lineage_key: sim.lineage_key,
             sex: sim.sex,
-            genotype: sim.genotype,
+            genome: sim.genome,
             parents: sim.parents,
         }),
         (None, None) | (Some(_), Some(_)) => None,
@@ -718,19 +724,24 @@ fn conception_fits(
         u64::from(parents.conception),
         0,
     );
-    let zygote = Zygote::of(
-        rules.seed,
-        GenomeKey::of_zygote(key),
-        her.genotype,
-        him.genotype,
-    );
+    // The meiosis needs a woman and a man; a save that pairs others is no conception.
+    let sexes = (her.genome.sex(), him.genome.sex()) == (Sex::Female, Sex::Male);
+    let zygote = sexes.then(|| {
+        Zygote::of(
+            &Draws::new(WorldSeed::new(rules.seed)),
+            &rules.data.genetics(),
+            GenomeKey::of_zygote(key),
+            &her.genome,
+            &him.genome,
+        )
+    });
     paired
         && at_a_month_start
         && of_age
         && drawn
         && child.lineage_key == key
-        && child.genotype == zygote.genotype
-        && child.sex == zygote.sex()
+        && zygote
+            .is_some_and(|zygote| child.genome == zygote.genome && child.sex == zygote.genome.sex())
 }
 
 /// Each pregnancy is one the conception rule gives, of a living mother, conceived in a
@@ -749,7 +760,7 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
             born: pregnancy.conceived,
             lineage_key: pregnancy.lineage_key,
             sex: pregnancy.sex,
-            genotype: pregnancy.genotype,
+            genome: pregnancy.genome,
             parents: Some(parents),
         };
         pregnancy.conception.checked_add(1) == Some(her.conceptions)

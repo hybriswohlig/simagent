@@ -16,7 +16,8 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sim_core::genome::{Allele, Genotype, Sex, SexChromosome, Strand};
+use sim_core::genome::meiosis::SegmentMeiosis;
+use sim_core::genome::{LocusAlleles, Sex, SexChromosome};
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{ForkOverride, Input};
 use sim_core::lineage::LineageKey;
@@ -75,10 +76,13 @@ fn run(fork: bool) -> Run {
     run
 }
 
-const HOMOZYGOUS: Genotype = Genotype {
-    maternal: Allele::Dummy,
-    paternal: Allele::Dummy,
-};
+/// The dummy allele twice: the only alternative alleles of this scenario.
+fn homozygous(alleles: &[LocusAlleles]) -> bool {
+    alleles.len() == 1 && alleles[0].copies == [1, 1]
+}
+
+/// What one meiosis recorded: its segments and the sex chromosome passed on.
+type MeiosisRecord = (Vec<SegmentMeiosis>, SexChromosome);
 
 /// A conception as both runs can compare it: by lineage keys, never by SimId.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,8 +91,9 @@ struct Conception {
     father: LineageKey,
     child: LineageKey,
     at: SimTime,
-    /// The start strands of mother and father and the father's sex chromosome.
-    genome: (Strand, Strand, SexChromosome),
+    /// The meioses of mother and father: segments with start strand and crossovers,
+    /// and the sex chromosome passed on.
+    genome: Vec<MeiosisRecord>,
 }
 
 /// What a run says about one born lineage key (ADR-0001): parent keys, genome, the
@@ -99,17 +104,22 @@ struct Member {
     /// The keys of mother and father, `None` for a founder.
     parents: Option<(LineageKey, LineageKey)>,
     sex: Sex,
-    genotype: Genotype,
+    alleles: Vec<LocusAlleles>,
     born: SimTime,
     died: Option<SimTime>,
 }
 
 /// Everything of a member but its death.
-type Origin = (Option<(LineageKey, LineageKey)>, Sex, Genotype, SimTime);
+type Origin = (
+    Option<(LineageKey, LineageKey)>,
+    Sex,
+    Vec<LocusAlleles>,
+    SimTime,
+);
 
 impl Member {
     fn origin(&self) -> Origin {
-        (self.parents, self.sex, self.genotype, self.born)
+        (self.parents, self.sex, self.alleles.clone(), self.born)
     }
 }
 
@@ -144,7 +154,7 @@ fn project(run: &Run) -> Projection {
             let member = Member {
                 parents,
                 sex: person.sex,
-                genotype: person.genotype,
+                alleles: person.alleles.clone(),
                 born: person.born,
                 died: person.died,
             };
@@ -169,25 +179,25 @@ fn project(run: &Run) -> Projection {
                     father: sim(&entry.subjects[1]),
                     child: *lineage_key,
                     at: entry.t,
-                    genome: (Strand::Maternal, Strand::Maternal, SexChromosome::X),
+                    genome: Vec::new(),
                 };
                 conceptions.insert(*lineage_key, conception);
             }
             LogPayload::Meiosis {
                 genome_key,
-                start_strand,
+                segments,
                 sex_chromosome,
             } => strands
                 .entry(genome_key.get())
                 .or_insert_with(Vec::new)
-                .push((*start_strand, *sex_chromosome)),
+                .push((segments.clone(), *sex_chromosome)),
             _ => {}
         }
     }
     for conception in conceptions.values_mut() {
         let meioses = &strands[&conception.child.get()];
         assert_eq!(meioses.len(), 2, "two meioses per conception (ADR-0004)");
-        conception.genome = (meioses[0].0, meioses[1].0, meioses[1].1);
+        conception.genome.clone_from(meioses);
     }
     // The pedigree and the log agree: every born child has the parents of its
     // conception and is born ten months after it; a founder was never conceived.
@@ -285,7 +295,7 @@ fn fork_projection_by_lineage_key() {
         let Some(theirs) = parent.members.get(key) else {
             continue;
         };
-        if ours.genotype == HOMOZYGOUS {
+        if homozygous(&ours.alleles) {
             let not_later = match (ours.died, theirs.died) {
                 (_, None) => true,
                 (Some(ours), Some(theirs)) => ours <= theirs,
@@ -313,7 +323,7 @@ fn fork_projection_by_lineage_key() {
     };
     assert_eq!(parent.couples, fork.couples);
     assert_eq!(parent.couples.len(), 16);
-    let homozygous = |key: &LineageKey| parent.members[key].genotype == HOMOZYGOUS;
+    let homozygous = |key: &LineageKey| homozygous(&parent.members[key].alleles);
     let (mut mixed, mut fewer, mut after) = (0, 0, 0);
     for &couple in &parent.couples {
         let (theirs, ours) = (of(&parent, couple), of(&fork, couple));
@@ -345,8 +355,8 @@ fn fork_projection_by_lineage_key() {
 }
 
 /// `draw_keys_unique_in_log`: every draw key is the cause of at most one log entry, in
-/// the parent run and in the fork. Every death, conception and meiosis names its draw,
-/// so the check covers every entry that draws.
+/// the parent run and in the fork. Every death and conception names its draw, so the
+/// check covers every entry that cites one.
 #[test]
 fn draw_keys_unique_in_log() {
     for fork in [false, true] {
@@ -364,11 +374,11 @@ fn draw_keys_unique_in_log() {
                     _ => None,
                 })
                 .collect();
+            // A meiosis names no draw: its draws follow from the genome key and the
+            // side (ADR-0004 section 7), and the entry holds what they gave.
             if matches!(
                 entry.payload,
-                LogPayload::Death { .. }
-                    | LogPayload::Conception { .. }
-                    | LogPayload::Meiosis { .. }
+                LogPayload::Death { .. } | LogPayload::Conception { .. }
             ) {
                 assert!(
                     !draws.is_empty(),

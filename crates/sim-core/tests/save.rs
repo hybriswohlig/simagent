@@ -13,7 +13,7 @@ use sim_core::canonical::YearHash;
 use sim_core::data::Data;
 use sim_core::data_id::{Code, DataId};
 use sim_core::finite::FiniteF64;
-use sim_core::genome::{Allele, Genotype, Sex};
+use sim_core::genome::Sex;
 use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
@@ -29,11 +29,11 @@ const MONTH: i64 = 2_419_200;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e540109c38cb491ecc6cdef1b";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100000000000002020001000301010100ff0109746573743a74696e7900000101000001000000000000000000122d0a00";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e00000100000000000002020001000402010100ff0109746573743a74696e7900000101000001000000000000000000122d0a01020101000100";
+const HEADER: &str = "53494d4147454e54010ac38cb491ecc6cdef1b";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff01010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000301010100ff0109746573743a74696e790000010100010a636f72653a64756d6d79020001000000000000000000122d0a00";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff01010100010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e000000000100000000000000000000000002020001000402010100ff0109746573743a74696e790000010100010a636f72653a64756d6d79020001000000000000000000122d0a01020101000100";
 const EMPTY_SAVE: &str =
-    "53494d4147454e540109c38cb491ecc6cdef1b080000000001010100010000000000010000";
+    "53494d4147454e54010ac38cb491ecc6cdef1b090000000001010100010000000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -65,10 +65,7 @@ fn founder(secs: i64) -> Founder {
     Founder {
         born: SimTime::from_secs(secs),
         sex: Sex::Female,
-        genotype: Genotype {
-            maternal: Allele::Wild,
-            paternal: Allele::Dummy,
-        },
+        alleles: common::dummy(0, 1),
     }
 }
 
@@ -191,19 +188,62 @@ const MALE: u8 = 1;
 const WILD: u8 = 0;
 const DUMMY: u8 = 1;
 
-/// (born, sex, (maternal, paternal))
-type TestFounder = (i64, u8, (u8, u8));
+/// The alleles of a founder at `core:dummy`, maternal and paternal, written as the
+/// input log lists them: no entry for two reference alleles, else the locus with both
+/// copies (tools/postcard_reference.py).
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Alleles(u8, u8);
+
+impl Serialize for Alleles {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let listed: Vec<(&str, Vec<u8>)> = if (self.0, self.1) == (0, 0) {
+            Vec::new()
+        } else {
+            vec![("core:dummy", vec![self.0, self.1])]
+        };
+        listed.serialize(serializer)
+    }
+}
+
+/// The sex chromosome from the father: X = variant 0 with 16 slots, Y = variant 1 with 8.
+#[derive(Serialize)]
+enum FromFather {
+    X(u16),
+    Y(u8),
+}
+
+/// A genome whose only alternative alleles are at `core:dummy`: the sex, then the alleles
+/// maternal and paternal. Written as the core writes `Genome`: three words per autosome
+/// copy (`core:dummy` is bit 0 of the first), the X, the sex chromosome from the father,
+/// the mitochondria (tools/postcard_reference.py).
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Genes(u8, u8, u8);
+
+impl Serialize for Genes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let from_father = if self.0 == FEMALE {
+            FromFather::X(0)
+        } else {
+            FromFather::Y(0)
+        };
+        let words = |bit: u8| [u64::from(bit), 0, 0];
+        (words(self.1), words(self.2), 0_u16, from_father, 0_u8).serialize(serializer)
+    }
+}
+
+/// (born, sex, alleles)
+type TestFounder = (i64, u8, Alleles);
 /// (before, since): how long the hereditary causes acted in closed periods, and since
 /// when they act now.
 type TestExposure = (i64, Option<i64>);
 /// (mother, father, conception)
 type TestParents = (u64, u64, u32);
-/// (born, lineage_key, sex, (maternal, paternal), exposure, conceptions, parents)
+/// (born, lineage_key, sex, genome, exposure, conceptions, parents)
 type Living = (
     i64,
     u64,
     u8,
-    (u8, u8),
+    Genes,
     Option<TestExposure>,
     u32,
     Option<TestParents>,
@@ -214,15 +254,14 @@ enum TestLeftBy {
     Death { cause: u64 },
 }
 
-/// (born, left, reason, lineage_key, sex, (maternal, paternal), exposure, conceptions,
-/// parents)
+/// (born, left, reason, lineage_key, sex, genome, exposure, conceptions, parents)
 type Archived = (
     i64,
     i64,
     TestLeftBy,
     u64,
     u8,
-    (u8, u8),
+    Genes,
     Option<TestExposure>,
     u32,
     Option<TestParents>,
@@ -230,12 +269,20 @@ type Archived = (
 
 /// A founder as `founder` of the tests builds it.
 fn test_founder(born: i64) -> TestFounder {
-    (born, FEMALE, (WILD, DUMMY))
+    (born, FEMALE, Alleles(WILD, DUMMY))
 }
 
 /// The founder at `index` of the list of `test:tiny` as a living sim.
 fn living(index: usize, born: i64) -> Living {
-    (born, TINY_KEYS[index], FEMALE, (WILD, DUMMY), None, 0, None)
+    (
+        born,
+        TINY_KEYS[index],
+        FEMALE,
+        Genes(FEMALE, WILD, DUMMY),
+        None,
+        0,
+        None,
+    )
 }
 
 /// The same founder after leaving at `left`.
@@ -247,7 +294,7 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
         reason,
         TINY_KEYS[index],
         FEMALE,
-        (WILD, DUMMY),
+        Genes(FEMALE, WILD, DUMMY),
         None,
         0,
         None,
@@ -262,8 +309,8 @@ type TestPartnership = (u64, u64, i64, Option<i64>);
 type TestFertility = (f64, u32, u32, u32);
 /// The fertility under which nobody ever conceives.
 const BARREN: TestFertility = (0.0, 18, 45, 10);
-/// (father, lineage_key, conception, sex, (maternal, paternal), conceived)
-type TestPregnancy = (u64, u64, u32, u8, (u8, u8), i64);
+/// (father, lineage_key, conception, sex, genome, conceived)
+type TestPregnancy = (u64, u64, u32, u8, Genes, i64);
 
 #[derive(Clone, Serialize)]
 struct File {
@@ -307,9 +354,9 @@ impl File {
         File {
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 9,
+            core_version: 10,
             data_hash: DATA_HASH,
-            projection_version: 8,
+            projection_version: 9,
             world_seed: Some(0xff),
             world_params: Some(false),
             death_causes: Vec::new(),
@@ -359,7 +406,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 9);
+    assert_eq!(CORE_VERSION, 10);
 }
 
 // ---------------------------------------------------------------------------------
@@ -575,7 +622,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [8, 10] {
+    for version in [9, 11] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -609,9 +656,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 10;
+        f.core_version = 11;
         f.data_hash = 7;
-        f.projection_version = 9;
+        f.projection_version = 10;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -625,11 +672,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 9;
+        f.core_version = 10;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 9);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 10);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -655,7 +702,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [7, 9] {
+    for version in [8, 10] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -957,8 +1004,8 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs): she dies of
 // `test:base` in year 1, he of `test:old_age` a little later.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b3010000010000000203cbdbe1f0b893cbc91e01010101000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a00";
-const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b3010000010000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e01010101000000000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100000103010101000000000000000000122d0a0200d2e9e8dabcdf88f9e60102f3b495f792b6ef9cfe01";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1d88c4db2b000302018bbec9d8c5bd99888b0100baea993300070202ded289dba5abffff5400b4e9d27100040201ded289dba5abffff5400c09cbf8901000602028bbec9d8c5bd99888b010008020101dded90d1a3f7cbf6b30100000000010000000000000000000203cbdbe1f0b893cbc91e010100000100000001000001000000000000000703000200010002000300020003000401010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a00";
+const MORTAL_SAVE_AFTER_YEAR_1: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe8ffe3b030101fe97fd59000100018088ff1d0a00000002010188c4db2b008bbec9d8c5bd99888b01dded90d1a3f7cbf6b30100000000010000000000000000000203baea993300ded289dba5abffff54cbdbe1f0b893cbc91e010100000100000001000001000000000101000801010100ff010b746573743a6d6f7274616c000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a0200eddcb5c9bcb2a0d3f90102c3cec993a8dec18279";
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
 const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
 /// `str_key` of `test:base` and `test:old_age`.
@@ -970,10 +1017,18 @@ const HER_DEATH: i64 = 45_838_596;
 const HER_OLD_AGE: i64 = 119_167_578;
 const HIS_BASE: i64 = 144_172_832;
 const HIS_DEATH: i64 = 53_688_989;
-const MORTAL_YEAR_HASHES: [u64; 2] = [0xe6f2_22fb_cb5a_34d2, 0xfe39_bdb1_2ee5_5a73];
+const MORTAL_YEAR_HASHES: [u64; 2] = [0xf9a6_8193_c92d_6e6d, 0x7905_06f2_8272_6743];
 
 fn she(born: i64) -> Living {
-    (born, MORTAL_KEYS[0], FEMALE, (WILD, DUMMY), None, 0, None)
+    (
+        born,
+        MORTAL_KEYS[0],
+        FEMALE,
+        Genes(FEMALE, WILD, DUMMY),
+        None,
+        0,
+        None,
+    )
 }
 
 fn he(born: i64) -> Living {
@@ -982,7 +1037,7 @@ fn he(born: i64) -> Living {
         born,
         MORTAL_KEYS[1],
         MALE,
-        (DUMMY, DUMMY),
+        Genes(MALE, DUMMY, DUMMY),
         Some((0, None)),
         0,
         None,
@@ -1031,7 +1086,10 @@ fn mortal_started() -> File {
             ("test:base".to_owned(), 0.5, Everyone),
             ("test:old_age".to_owned(), 0.05, Everyone),
         ],
-        founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+        founders: vec![
+            (-1, FEMALE, Alleles(WILD, DUMMY)),
+            (-2, MALE, Alleles(DUMMY, DUMMY)),
+        ],
         couples: Vec::new(),
         fertility: BARREN,
     };
@@ -1098,7 +1156,18 @@ fn tie_started() -> File {
         (TIE_DUE, 0, 4, death(1, OLD_AGE), None),
     ];
     file.next_event_seq = 5;
-    file.sims = vec![(1, (-1, TIE_KEY, FEMALE, (WILD, DUMMY), None, 0, None))];
+    file.sims = vec![(
+        1,
+        (
+            -1,
+            TIE_KEY,
+            FEMALE,
+            Genes(FEMALE, WILD, DUMMY),
+            None,
+            0,
+            None,
+        ),
+    )];
     file.plan_refs = vec![(2, 0), (1, 0), (2, 0), (2, 0)];
     file.input_log[0].2 = TestInput::Start {
         founder_tag: "test:tie".to_owned(),
@@ -1186,10 +1255,7 @@ fn a_save_keeps_the_deaths_and_the_archive() {
                 Founder {
                     born: t(-2),
                     sex: Sex::Male,
-                    genotype: Genotype {
-                        maternal: Allele::Dummy,
-                        paternal: Allele::Dummy,
-                    },
+                    alleles: common::dummy(1, 1),
                 },
             ],
             couples: Vec::new(),
@@ -1283,7 +1349,8 @@ fn load_checks_the_deaths() {
         ),
         (
             "an archived founder with another genotype",
-            mortal_after_year_1().with(|f| f.archive[0].1.5 = (DUMMY, DUMMY)),
+            mortal_after_year_1()
+                .with(|f| f.archive[0].1.5 = Genes(f.archive[0].1.4, DUMMY, DUMMY)),
         ),
         (
             "an archived founder with another lineage key",
@@ -1384,9 +1451,9 @@ fn load_checks_the_deaths() {
 // Scenario "sick" of tools/state_reference.py: `test:base` with 0.02 per year for everyone,
 // `test:dummy_disease` with 0.3 per year for the homozygous only, while the switch is on.
 // She has one dummy allele, he has two.
-const SWITCHED_ON_SAVE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab010000010000000203fba99785c4c1bc5c0101010100018088ff1d00000000000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101000000000000000000122d0afe87ff1d02010100010100e89bd4f8b4bfe28540";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab010000010000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010101010001000000030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101000000000000000000122d0a040089f583baa3cddefb5a02b18baaceeca59d9d45048dbfb9dbe78393cf0f06b4cabdcbf29addb01a";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab010000010000000203fba99785c4c1bc5c01010101c6ceaf60000000000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100000103010101000000000000000000122d0ac4ceaf600201010000050089f583baa3cddefb5a02b18baaceeca59d9d45048dbfb9dbe78393cf0f06f8cfc4cd9ffb9cb05508a5a0e1dadfa3b38fbc01";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c01010000010000000100000100018088ff1d00000000000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b000209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0afe87ff1d02010100010100e8daa5bf87d5aaf3be01";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010101028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000000010000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c0101000001000000010000010001000000030bfe9ffc77010002000c01010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0a0400bfc180c7f08acfe9b10102abb398b5c6c7c3a8e3010487f3ffbbe5c6edf3810106f7bdd7b59fddb796c101";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100028bbec9d8c5bd99888b017b14ae47e17a943f00dd90d4c2cac3a7bbf401333333333333d33f01010000000000000000122d0afea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001c6ceaf60000000000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b010209746573743a626173657b14ae47e17a943f0012746573743a64756d6d795f64697365617365333333333333d33f01020100010a636f72653a64756d6d790200010301010a636f72653a64756d6d79020101000000000000000000122d0ac4ceaf6002010100000500bfc180c7f08acfe9b10102abb398b5c6c7c3a8e3010487f3ffbbe5c6edf3810106b0819091d684a5eae20108bca19190a0f6c0b7f001";
 /// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
 const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
 /// The `str_key` of `test:dummy_disease`.
@@ -1405,14 +1472,25 @@ fn sick_start(on: bool) -> TestInput {
             ("test:base".to_owned(), 0.02, Everyone),
             ("test:dummy_disease".to_owned(), 0.3, DummyHomozygous),
         ],
-        founders: vec![(-1, FEMALE, (WILD, DUMMY)), (-2, MALE, (DUMMY, DUMMY))],
+        founders: vec![
+            (-1, FEMALE, Alleles(WILD, DUMMY)),
+            (-2, MALE, Alleles(DUMMY, DUMMY)),
+        ],
         couples: Vec::new(),
         fertility: BARREN,
     }
 }
 
 fn sick_she() -> Living {
-    (-1, SICK_KEYS[0], FEMALE, (WILD, DUMMY), None, 0, None)
+    (
+        -1,
+        SICK_KEYS[0],
+        FEMALE,
+        Genes(FEMALE, WILD, DUMMY),
+        None,
+        0,
+        None,
+    )
 }
 
 fn sick_he(exposure: TestExposure) -> Living {
@@ -1420,7 +1498,7 @@ fn sick_he(exposure: TestExposure) -> Living {
         -2,
         SICK_KEYS[1],
         MALE,
-        (DUMMY, DUMMY),
+        Genes(MALE, DUMMY, DUMMY),
         Some(exposure),
         0,
         None,
@@ -1449,7 +1527,7 @@ fn sick_switched_on() -> File {
     file.plan_refs = vec![(4, Y - 2), (5, Y - 1), (1, 0), (6, Y), (3, 0), (2, 0)];
     file.next_event_id = 7;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0x400b_89fb_4f15_0de8)];
+    file.year_hashes = vec![(0, 0xbee6_aaa8_77e9_6d68)];
     file
 }
 
@@ -1470,10 +1548,10 @@ fn sick_on_after_year_3() -> File {
     file.next_event_id = 12;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0x5af7_7a6a_3740_fa89),
-        (1, 0x453a_752e_c9ca_85b1),
-        (2, 0x0f9e_4c1e_7b6e_5f8d),
-        (3, 0x1a61_74d7_296f_6534),
+        (0, 0xb1d3_3c57_08e0_20bf),
+        (1, 0xe351_0e3c_66a6_19ab),
+        (2, 0x81e7_b636_577f_f987),
+        (3, 0xc12c_dee9_f6b5_def7),
     ];
     file
 }
@@ -1500,11 +1578,11 @@ fn sick_off_at_due() -> File {
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0x5af7_7a6a_3740_fa89),
-        (1, 0x453a_752e_c9ca_85b1),
-        (2, 0x0f9e_4c1e_7b6e_5f8d),
-        (3, 0x5560_73d9_f9b1_27f8),
-        (4, 0xbc1e_cd1d_fb58_5025),
+        (0, 0xb1d3_3c57_08e0_20bf),
+        (1, 0xe351_0e3c_66a6_19ab),
+        (2, 0x81e7_b636_577f_f987),
+        (3, 0xe2d4_9425_6224_00b0),
+        (4, 0xf06f_03b2_0204_50bc),
     ];
     file
 }
@@ -1630,8 +1708,8 @@ fn load_checks_the_exposure() {
 // Scenario "partners" of tools/state_reference.py: the causes of "mortal", a woman and two
 // men. `Start` pairs her with the first man; he dies first, and at the start of year 1
 // `ArrangePartnership` pairs her with the second.
-const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb010000010000000305a7f3f8fdb9ee88cfed01010100000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030100e38c8fdf9988b0a39701";
-const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb010000010000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb00101010101000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed010101000000000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100000103010101050101000100010000000000000000122d0afe87ff1d020201030500e38c8fdf9988b0a397010282fbbdbff5999cf8e90104cae9c892f3b0b7f3880106fbc2c894a1eaaac58a0108d5b088b7b8f1c8c2de01";
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afe87ff1d040308fa8ffe3b000c010300fe8ffe3b000d010100fe8ffe3b000100018088ff1dbca1e98b01000902038bbec9d8c5bd99888b01008adcac9201000302018bbec9d8c5bd99888b0100a2f7e1d00100040201ded289dba5abffff54008090ef9b04000e03010180a8a702daa4c38f0a000a0203ded289dba5abffff54000f020101aa90d4c3eeedd09bdb0100000000010000000000000000000305a7f3f8fdb9ee88cfed010101000000000000010000000000020101020001eab582180201038088ff1d0000010203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000807fa87ff1d08fe87ff1d0100040002000200098088ff1d04000a02010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d0202010301009ae1b8c0ffaacaab0c";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100028bbec9d8c5bd99888b01000000000000e03f00ded289dba5abffff549a9999999999a93f00010000000000000000122d0afea7fb9501040301feaffab301000100018088ff1d1500020101020001eab582180201038088ff1d01bca1e98b01000301018adcac9201008bbec9d8c5bd99888b01aa90d4c3eeedd09bdb0100000000010000000000000000000203eab58218008bbec9d8c5bd99888b01f098dcaaccecf99cb001010100000100000001000001000000000305bca1e98b01008bbec9d8c5bd99888b01a7f3f8fdb9ee88cfed0101010000000000000100000000000101001202010100ff010d746573743a706172746e657273000209746573743a62617365000000000000e03f000c746573743a6f6c645f6167659a9999999999a93f00030100010a636f72653a64756d6d790200010301010a636f72653a64756d6d790201010501010a636f72653a64756d6d790201000100010000000000000000122d0afe87ff1d0202010305009ae1b8c0ffaacaab0c0294ccf3dde8a9c0beb50104a6f7a3f7cfb88fec3f06f9b3c2a0e180e0ae3108b5d1deb8eac3c1c9d901";
 /// The lineage keys of the founders 0 to 2 of `test:partners` (tools/rng_reference.py).
 const PARTNERS_KEYS: [u64; 3] = [
     0xdb37_436e_e875_082a,
@@ -1652,9 +1730,9 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
             ("test:old_age".to_owned(), 0.05, Everyone),
         ],
         founders: vec![
-            (-1, FEMALE, (WILD, DUMMY)),
-            (-2, MALE, (DUMMY, DUMMY)),
-            (-3, MALE, (DUMMY, WILD)),
+            (-1, FEMALE, Alleles(WILD, DUMMY)),
+            (-2, MALE, Alleles(DUMMY, DUMMY)),
+            (-3, MALE, Alleles(DUMMY, WILD)),
         ],
         couples,
         fertility: BARREN,
@@ -1664,17 +1742,33 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
 /// The founder at `index` of "partners" as a living sim.
 fn partner(index: usize) -> Living {
     [
-        (-1, PARTNERS_KEYS[0], FEMALE, (WILD, DUMMY), None, 0, None),
+        (
+            -1,
+            PARTNERS_KEYS[0],
+            FEMALE,
+            Genes(FEMALE, WILD, DUMMY),
+            None,
+            0,
+            None,
+        ),
         (
             -2,
             PARTNERS_KEYS[1],
             MALE,
-            (DUMMY, DUMMY),
+            Genes(MALE, DUMMY, DUMMY),
             Some((0, None)),
             0,
             None,
         ),
-        (-3, PARTNERS_KEYS[2], MALE, (DUMMY, WILD), None, 0, None),
+        (
+            -3,
+            PARTNERS_KEYS[2],
+            MALE,
+            Genes(MALE, DUMMY, WILD),
+            None,
+            0,
+            None,
+        ),
     ][index]
 }
 
@@ -1727,7 +1821,7 @@ fn partners_arranged() -> File {
         (-1, 1, partners_start(vec![(0, 1)])),
         (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
     ];
-    file.year_hashes = vec![(0, 0x9746_c041_9be3_c663)];
+    file.year_hashes = vec![(0, 0xc57_2957_f80e_309a)];
     file
 }
 
@@ -1748,11 +1842,11 @@ fn partners_after_year_4() -> File {
     file.plan_refs = vec![(1, 0)];
     file.next_event_id = 18;
     file.year_hashes = vec![
-        (0, 0x9746_c041_9be3_c663),
-        (1, 0xe9f0_70cf_57ef_7d82),
-        (2, 0x88e6_dd87_3252_34ca),
-        (3, 0x8a8a_ab52_1292_217b),
-        (4, 0xde85_238b_86e2_1855),
+        (0, 0xc57_2957_f80e_309a),
+        (1, 0xb57d_014e_8bbc_e614),
+        (2, 0x3fd8_3dc4_fee8_fba6),
+        (3, 0x315d_8006_1410_99f9),
+        (4, 0xd993_061e_a717_a8b5),
     ];
     file
 }
@@ -1887,7 +1981,7 @@ fn load_checks_the_partnerships() {
 
 // Scenario "clan" of tools/state_reference.py: three founder couples and a fertility of
 // 0.25 per month; the first woman conceives in month 5.
-const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80c8c40b07040ffe87ff1d000100018088ff1d8088ff1d00100101008088ff1d00110102008088ff1d00120103008088ff1d00130104008088ff1d00140105008088ff1d001501060080d8cd22001604010080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100170601ff9fedd704dded83919698d6d0d00100000100010002ffafeb9305f6eb9bebea9bd7c53e01010000000003ffdff4e70285b2a2a3e3ecdafac401000101010000000004ffefe38307f9a4bfd6bdf093fea70101000000000005ffefd4e30afacbdcacb9abf1870300000000000006ffefd4e30af1c5c4b2d9a691fded0101000000000003010102000002030400000305060000010102f3c89ad6cdbbe183cd010000010180c8c40b000f01000b000c000d000e000f0010001180c8c40b09000600040007000500020003001401010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a00";
+const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80c8c40b07040ffe87ff1d000100018088ff1d8088ff1d00100101008088ff1d00110102008088ff1d00120103008088ff1d00130104008088ff1d00140105008088ff1d001501060080d8cd22001604010080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100170601ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000003010102000002030400000305060000010102f3c89ad6cdbbe183cd0100000100000100000000000080c8c40b000f01000b000c000d000e000f0010001180c8c40b09000600040007000500020003001401010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a00";
 /// The lineage keys of the founders 0 to 5 of `test:clan` (tools/rng_reference.py).
 const CLAN_KEYS: [u64; 6] = [
     0xd0a1_58c1_6220_f6dd,
@@ -1910,19 +2004,19 @@ const CLAN_DEATHS: [i64; 6] = [
 const CLAN_FERTILITY: TestFertility = (0.25, 18, 45, 10);
 
 fn clan_start() -> TestInput {
-    let founder = |years: i64, sex: u8, genes: (u8, u8)| (-years * Y, sex, genes);
+    let founder = |years: i64, sex: u8, genes: Alleles| (-years * Y, sex, genes);
     TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:clan".to_owned(),
         world_params: false,
         death_causes: vec![("test:base".to_owned(), 0.02, Everyone)],
         founders: vec![
-            founder(20, FEMALE, (WILD, DUMMY)),
-            founder(22, MALE, (DUMMY, WILD)),
-            founder(12, FEMALE, (DUMMY, DUMMY)),
-            founder(30, MALE, (WILD, WILD)),
-            founder(46, FEMALE, (WILD, WILD)),
-            founder(46, MALE, (WILD, WILD)),
+            founder(20, FEMALE, Alleles(WILD, DUMMY)),
+            founder(22, MALE, Alleles(DUMMY, WILD)),
+            founder(12, FEMALE, Alleles(DUMMY, DUMMY)),
+            founder(30, MALE, Alleles(WILD, WILD)),
+            founder(46, FEMALE, Alleles(WILD, WILD)),
+            founder(46, MALE, Alleles(WILD, WILD)),
         ],
         couples: vec![(0, 1), (2, 3), (4, 5)],
         fertility: CLAN_FERTILITY,
@@ -1931,20 +2025,20 @@ fn clan_start() -> TestInput {
 
 /// The founders of "clan" as living sims: the girl has the dummy allele twice.
 fn clan_sims() -> Vec<(u64, Living)> {
-    let sim = |n: usize, years: i64, sex: u8, genes: (u8, u8)| {
-        let exposure = (genes == (DUMMY, DUMMY)).then_some((0, None));
+    let sim = |n: usize, years: i64, sex: u8, genes: Genes| {
+        let exposure = (genes == Genes(sex, DUMMY, DUMMY)).then_some((0, None));
         (
             u64::try_from(n).expect("a small place") + 1,
             (-years * Y, CLAN_KEYS[n], sex, genes, exposure, 0, None),
         )
     };
     vec![
-        sim(0, 20, FEMALE, (WILD, DUMMY)),
-        sim(1, 22, MALE, (DUMMY, WILD)),
-        sim(2, 12, FEMALE, (DUMMY, DUMMY)),
-        sim(3, 30, MALE, (WILD, WILD)),
-        sim(4, 46, FEMALE, (WILD, WILD)),
-        sim(5, 46, MALE, (WILD, WILD)),
+        sim(0, 20, FEMALE, Genes(FEMALE, WILD, DUMMY)),
+        sim(1, 22, MALE, Genes(MALE, DUMMY, WILD)),
+        sim(2, 12, FEMALE, Genes(FEMALE, DUMMY, DUMMY)),
+        sim(3, 30, MALE, Genes(MALE, WILD, WILD)),
+        sim(4, 46, FEMALE, Genes(FEMALE, WILD, WILD)),
+        sim(5, 46, MALE, Genes(MALE, WILD, WILD)),
     ]
 }
 
@@ -1989,7 +2083,17 @@ fn clan_conceived() -> File {
         (2, (3, 4, 0, None)),
         (3, (5, 6, 0, None)),
     ];
-    file.pregnancies = vec![(1, (2, CLAN_CHILD, 0, FEMALE, (DUMMY, DUMMY), 5 * MONTH))];
+    file.pregnancies = vec![(
+        1,
+        (
+            2,
+            CLAN_CHILD,
+            0,
+            FEMALE,
+            Genes(FEMALE, DUMMY, DUMMY),
+            5 * MONTH,
+        ),
+    )];
     file.plan_refs = vec![
         (1, 0),
         (11, 0),
@@ -2056,7 +2160,7 @@ fn a_save_keeps_the_pregnancy() {
     assert_eq!(load_error(&clan_conceived().bytes()), None);
 }
 
-const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e540109c38cb491ecc6cdef1b0801ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80d8cd220804118080f524001f03010180a8a702fe8ffe3b000100018088ff1d8090fe3b00170101008090fe3b00180102008090fe3b00190103008090fe3b001a0104008090fe3b001b0105008090fe3b001c01060080e0cc40001d01070080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b01009889dff403001e02078bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100200701ff9fedd704dded83919698d6d0d00100000100010002ffafeb9305f6eb9bebea9bd7c53e01010000000003ffdff4e70285b2a2a3e3ecdafac401000101010000000004ffefe38307f9a4bfd6bdf093fea70101000000000005ffefd4e30afacbdcacb9abf1870300000000000006ffefd4e30af1c5c4b2d9a691fded010100000000000780d8cd22f3c89ad6cdbbe183cd010001010100000001010200030101020000020304000003050600000000111a80d8cd220100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd220900060004001a80d8cd2207000500020003001b01010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd704000001ffafeb9305010100ffdff4e702000101ffefe38307010000ffefd4e30a000000ffefd4e30a01000003000102030405000000000000d03f122d0a0100c78ac2a49b9687ec08";
+const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e54010ac38cb491ecc6cdef1b0901ff010100018bbec9d8c5bd99888b017b14ae47e17a943f0001000000000000d03f122d0a80d8cd220804118080f524001f03010180a8a702fe8ffe3b000100018088ff1d8090fe3b00170101008090fe3b00180102008090fe3b00190103008090fe3b001a0104008090fe3b001b0105008090fe3b001c01060080e0cc40001d01070080b0fab301000f03030180a8a7029cc382bd02000b02058bbec9d8c5bd99888b0100d8c1a7c503000702038bbec9d8c5bd99888b01009889dff403001e02078bbec9d8c5bd99888b0100e49ff1f30e000d02068bbec9d8c5bd99888b0100d8ba9ccb15000902048bbec9d8c5bd99888b0100da91aac119000302018bbec9d8c5bd99888b0100cabfeff02e000502028bbec9d8c5bd99888b0100200701ff9fedd704dded83919698d6d0d001000000000100000000000000010002ffafeb9305f6eb9bebea9bd7c53e010100000000000001000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000010000000004ffefe38307f9a4bfd6bdf093fea701010000000000000001000000000005ffefd4e30afacbdcacb9abf18703000000000000000000000000000006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000780d8cd22f3c89ad6cdbbe183cd0100010000010000000000000100000001010200030101020000020304000003050600000000111a80d8cd220100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd220900060004001a80d8cd2207000500020003001b01010100ff0109746573743a636c616e000109746573743a626173657b14ae47e17a943f0006ff9fedd70400010a636f72653a64756d6d79020001ffafeb930501010a636f72653a64756d6d79020100ffdff4e70200010a636f72653a64756d6d79020101ffefe383070100ffefd4e30a0000ffefd4e30a010003000102030405000000000000d03f122d0a0100ddb0c9caaa95c7d4da01";
 /// When the child (sim 7) dies of `test:base`.
 const CHILD_DEATH: i64 = 525_066_828;
 
@@ -2119,7 +2223,7 @@ fn clan_born() -> File {
             15 * MONTH,
             CLAN_CHILD,
             FEMALE,
-            (DUMMY, DUMMY),
+            Genes(FEMALE, DUMMY, DUMMY),
             Some((0, None)),
             0,
             Some((1, 2, 0)),
@@ -2127,7 +2231,7 @@ fn clan_born() -> File {
     ));
     file.pregnancies.clear();
     file.next_event_id = 27;
-    file.year_hashes = vec![(0, 0x08d8_1cb1_b490_8547)];
+    file.year_hashes = vec![(0, 0xdaa9_1caa_a952_585d)];
     file
 }
 
@@ -2153,7 +2257,14 @@ fn load_checks_the_born() {
                 // The draw of month 12 succeeds (tools/rng_reference.py).
                 f.pregnancies = vec![(
                     1,
-                    (2, 0xe6f8_1c92_e297_9324, 1, MALE, (WILD, WILD), 12 * MONTH),
+                    (
+                        2,
+                        0xe6f8_1c92_e297_9324,
+                        1,
+                        MALE,
+                        Genes(MALE, WILD, WILD),
+                        12 * MONTH,
+                    ),
                 )];
                 f.sims[0].1.5 = 2;
                 take_event(f, 0);
@@ -2169,7 +2280,7 @@ fn load_checks_the_born() {
         (
             "a child with another genotype",
             clan_born().with(|f| {
-                f.sims[6].1.3 = (DUMMY, WILD);
+                f.sims[6].1.3 = Genes(f.sims[6].1.2, DUMMY, WILD);
                 f.sims[6].1.4 = None;
             }),
         ),
@@ -2246,21 +2357,44 @@ fn load_checks_conceptions_and_pregnancies() {
         (
             "a pregnancy as a conception before her latest, with its own child",
             clan_conceived().with(|f| {
-                f.pregnancies[0].1 = (2, 0xe6f8_1c92_e297_9324, 1, MALE, (WILD, WILD), 5 * MONTH);
+                f.pregnancies[0].1 = (
+                    2,
+                    0xe6f8_1c92_e297_9324,
+                    1,
+                    MALE,
+                    Genes(MALE, WILD, WILD),
+                    5 * MONTH,
+                );
             }),
         ),
         (
             "a pregnancy by a man she is not paired with",
             clan_conceived().with(|f| {
-                f.pregnancies[0].1 = (4, 0x4645_df5a_e961_ca02, 0, FEMALE, (WILD, WILD), MONTH);
+                f.pregnancies[0].1 = (
+                    4,
+                    0x4645_df5a_e961_ca02,
+                    0,
+                    FEMALE,
+                    Genes(FEMALE, WILD, WILD),
+                    MONTH,
+                );
                 moved_birth(f, 11 * MONTH);
             }),
         ),
         (
             "a pregnancy of the girl before her 18th birthday",
             clan_conceived().with(|f| {
-                f.pregnancies
-                    .push((3, (4, 0x0d0d_06d7_b21d_4bc0, 0, FEMALE, (DUMMY, WILD), 0)));
+                f.pregnancies.push((
+                    3,
+                    (
+                        4,
+                        0x0d0d_06d7_b21d_4bc0,
+                        0,
+                        FEMALE,
+                        Genes(FEMALE, DUMMY, WILD),
+                        0,
+                    ),
+                ));
                 f.sims[2].1.5 = 1;
                 take_event(f, 8);
                 let seq = f.next_event_seq;
@@ -2300,7 +2434,8 @@ fn load_checks_conceptions_and_pregnancies() {
         ),
         (
             "a pregnancy with another genotype",
-            clan_conceived().with(|f| f.pregnancies[0].1.4 = (WILD, DUMMY)),
+            clan_conceived()
+                .with(|f| f.pregnancies[0].1.4 = Genes(f.pregnancies[0].1.3, WILD, DUMMY)),
         ),
         (
             "a pregnancy with another sex",
@@ -2603,11 +2738,11 @@ fn load_rejects_inconsistent_saves() {
         ),
         (
             "a founder with another allele from the mother",
-            File::tiny().with(|f| f.sims[0].1.3.0 = DUMMY),
+            File::tiny().with(|f| f.sims[0].1.3.1 = DUMMY),
         ),
         (
             "a founder with another allele from the father",
-            File::tiny().with(|f| f.sims[0].1.3.1 = WILD),
+            File::tiny().with(|f| f.sims[0].1.3.2 = WILD),
         ),
         (
             "a founder with the lineage key of another place in the list",
