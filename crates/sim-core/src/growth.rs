@@ -86,9 +86,18 @@ impl IndividualCurve {
     }
 }
 
+/// `min` and `max` as ADR-0003 writes them: on equality `b` comes back.
+fn min(a: f64, b: f64) -> f64 {
+    if a < b { a } else { b }
+}
+
+fn max(a: f64, b: f64) -> f64 {
+    if a > b { a } else { b }
+}
+
 /// The length in years of `[lo, hi)` within `[from, to)`, or 0.
 fn overlap(lo: f64, hi: f64, from: f64, to: f64) -> f64 {
-    let length = hi.min(to) - lo.max(from);
+    let length = min(hi, to) - max(lo, from);
     if length > 0.0 { length } else { 0.0 }
 }
 
@@ -105,7 +114,7 @@ pub fn nutrition_loss(
     theta: f64,
 ) -> f64 {
     let until = born + age;
-    let puberty_from = loss.age_child.max(theta - loss.puberty_before);
+    let puberty_from = max(loss.age_child, theta - loss.puberty_before);
     let puberty_to = theta + loss.puberty_after;
     let mut deficit = 0.0;
     for entry in years {

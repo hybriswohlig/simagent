@@ -165,3 +165,66 @@ fn years_add_up() {
     let at = loss(&years, born, adult(), THETA);
     assert!((at - 3.25).abs() < 1e-9, "{at}");
 }
+
+/// The integral reads every value of the calibration (ADR-0013 section 3): with k 4, the
+/// weights 0.8, 0.25 and 0.5, the windows ending at 1.5 and 4 years and the puberty
+/// window from θ − 1 to θ + 0.5, a deficit of 0.5 costs (by hand):
+/// - age 1 to 2: 4 · 0.5 · (0.8 · 0.5 + 0.25 · 0.5) = 1.05 cm;
+/// - age 9 to 10, θ = 10: 4 · 0.5 · 0.5 · 1 = 1 cm; age 10 to 11: 4 · 0.5 · 0.5 · 0.5 = 0.5;
+/// - age 2 to 3, θ = 3: the puberty window [2, 3.5) is cut to [4, 3.5), so only the child
+///   window counts: 4 · 0.5 · 0.25 = 0.5 cm;
+/// - age 4 to 5, θ = 4.5: the puberty window starts at the end of the child window, 4, not
+///   at 3.5: 4 · 0.5 · 0.5 · 1 = 1 cm.
+#[test]
+fn the_loss_reads_the_calibration() {
+    let (mut calibration, genome_map) = common::files();
+    for (key, value) in [
+        ("core:nutrition_loss", 4.0),
+        ("core:nutrition_weight_infant", 0.8),
+        ("core:nutrition_weight_child", 0.25),
+        ("core:nutrition_weight_puberty", 0.5),
+        ("core:nutrition_age_infant", 1.5),
+        ("core:nutrition_age_child", 4.0),
+        ("core:nutrition_puberty_before", 1.0),
+        ("core:nutrition_puberty_after", 0.5),
+    ] {
+        calibration["values"][key]["value"] = serde_json::json!(value);
+    }
+    let data = sim_core::data::Data::new(
+        common::definitions(calibration, genome_map).expect("definitions"),
+    )
+    .expect("checked");
+    let n = data.genetics().nutrition;
+    let born = year_start(0);
+    let at = |shock_year: i64, theta: f64| {
+        nutrition_loss(&[year(shock_year, 0.5)], &n, born, adult(), theta)
+    };
+    for (shock_year, theta, cm) in [
+        (1, 10.0, 1.05),
+        (9, 10.0, 1.0),
+        (10, 10.0, 0.5),
+        (2, 3.0, 0.5),
+        (4, 4.5, 1.0),
+    ] {
+        let loss = at(shock_year, theta);
+        assert!((loss - cm).abs() < 1e-9, "{shock_year} {theta}: {loss}");
+    }
+}
+
+/// ADR-0013 section 4: the years add up in the order of the list, the windows of a year
+/// in the order infant, child, puberty; the expected bits write that order out. Summed
+/// from the last year on, the bits would differ.
+#[test]
+fn the_loss_adds_up_in_the_order_of_the_list() {
+    let born = year_start(0);
+    let years = [year(0, 0.9), year(1, 0.7), year(2, 0.35)];
+    // Years 0 and 1 lie in the first window (weight 1), year 2 in the second (0.5).
+    let first: f64 = (1.0 - 0.9) * ((1.0 * 1.0 + 0.5 * 0.0) + 0.25 * 0.0);
+    let second: f64 = (1.0 - 0.7) * ((1.0 * 1.0 + 0.5 * 0.0) + 0.25 * 0.0);
+    let third: f64 = (1.0 - 0.35) * ((1.0 * 0.0 + 0.5 * 1.0) + 0.25 * 0.0);
+    let expected = 5.0 * (((0.0 + first) + second) + third);
+    let reversed = 5.0 * (((0.0 + third) + second) + first);
+    assert_ne!(expected.to_bits(), reversed.to_bits(), "the order shows");
+    let at = loss(&years, born, adult(), THETA);
+    assert_eq!(at.to_bits(), expected.to_bits(), "{at} {expected}");
+}
