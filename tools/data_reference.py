@@ -20,7 +20,7 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
                      h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
   Unit: morgan, per_transmission, fraction, centimeter, year, per_year (ADR-0010),
         centimeter_per_year (ADR-0012), centimeter_per_year_squared,
-        standard_deviation, ratio (ADR-0014)
+        standard_deviation, ratio (ADR-0014), logit, stage (ADR-0015)
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -54,6 +54,8 @@ UNITS = [
     "centimeter_per_year_squared",
     "standard_deviation",
     "ratio",
+    "logit",
+    "stage",
 ]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
 SEX_DIFFERENCE = ("shift", "variance_ratio")

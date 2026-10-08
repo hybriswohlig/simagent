@@ -266,6 +266,503 @@
       "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 5 cm lost from 30 to 70 in women",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.3; 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
+    },
+    "core:body_pigment_skin_offset": {
+      "value": -1.2,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_s = offset + slope * z_pig (ADR-0015)"
+    },
+    "core:body_pigment_skin_slope": {
+      "value": 1.15,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_s (ADR-0015)"
+    },
+    "core:body_pigment_hair_slope": {
+      "value": 1.2,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h = slope * z_pig + residual * z_hair - darkening * (1 - S(0, age, b)) (ADR-0015)"
+    },
+    "core:body_pigment_hair_residual": {
+      "value": 0.55,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_hair_darkening": {
+      "value": 1.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_hair_darkening_age": {
+      "value": 12.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_iris_offset": {
+      "value": 0.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i = offset + slope * z_pig - darkening * (1 - S(0, age, b)) (ADR-0015)"
+    },
+    "core:body_pigment_iris_slope": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_iris_darkening": {
+      "value": 1.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_iris_darkening_age": {
+      "value": 3.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_skin_pheo_offset": {
+      "value": -1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin = L(offset + slope * z_pig) (ADR-0015)"
+    },
+    "core:body_pigment_skin_pheo_slope": {
+      "value": -0.25,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin (ADR-0015)"
+    },
+    "core:body_pigment_hair_pheo_offset": {
+      "value": -2.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin = L(offset + slope * z_pig) (ADR-0015)"
+    },
+    "core:body_pigment_hair_pheo_slope": {
+      "value": -0.35,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin (ADR-0015)"
+    },
+    "core:body_mc1r_hair_eu": {
+      "value": 0.3,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_eumelanin times this at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_skin_eu": {
+      "value": 0.55,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_eumelanin times this at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_hair_pheo": {
+      "value": 0.8,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_skin_pheo": {
+      "value": 0.45,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_freckle": {
+      "value": 1.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4, 10.6: freckle logit per copy (ADR-0015)"
+    },
+    "core:body_herc2_iris": {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: iris_melanin times this at two copies (ADR-0015)"
+    },
+    "core:body_development_androgen_lag": {
+      "value": 0.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_a = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_development_estrogen_lead": {
+      "value": 0.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_e = L((b - theta_i + lead) / tempo) (ADR-0015)"
+    },
+    "core:body_development_breast_lead": {
+      "value": 0.2,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_b = L((b - theta_i + lead) / tempo) (ADR-0015)"
+    },
+    "core:body_development_tempo": {
+      "value": 1.15,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: tempo of s_a, s_e, s_b (ADR-0015)"
+    },
+    "core:body_development_androgen_offset": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: amplitude L(offset + z_and) (ADR-0015)"
+    },
+    "core:body_development_estrogen_offset": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: amplitude L(offset + z_est) (ADR-0015)"
+    },
+    "core:body_development_estrogen_men": {
+      "value": 0.1,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: estrogenic_development of men, share (ADR-0015)"
+    },
+    "core:body_development_androgen_women": {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: androgenic_development of women, share (ADR-0015)"
+    },
+    "core:body_curl_offset": {
+      "value": -1.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_curl = L(offset + slope * z_curl) (ADR-0015)"
+    },
+    "core:body_curl_slope": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_curl (ADR-0015)"
+    },
+    "core:body_freckle_offset": {
+      "value": -1.6,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density = L(offset + slope * z_freckle + pigment * z_pig + mc1r * n) (ADR-0015)"
+    },
+    "core:body_freckle_slope": {
+      "value": 1.1,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density (ADR-0015)"
+    },
+    "core:body_freckle_pigment": {
+      "value": -0.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density (ADR-0015)"
+    },
+    "core:body_beard_lag": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_beard_tempo": {
+      "value": 1.8,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g of the beard (ADR-0015)"
+    },
+    "core:body_beard_offset": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: beard_density = g * L(offset + z_beard + androgen * z_and) (ADR-0015)"
+    },
+    "core:body_beard_androgen": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: beard_density (ADR-0015)"
+    },
+    "core:body_body_hair_lag": {
+      "value": 2.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_body_hair_tempo": {
+      "value": 1.6,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g of the body hair (ADR-0015)"
+    },
+    "core:body_body_hair_androgen": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: body_hair = g * L(z_body + androgen * z_and) (ADR-0015)"
+    },
+    "core:body_body_hair_women": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: body_hair of women, share (ADR-0015)"
+    },
+    "core:body_bald_men_stage": {
+      "value": 7.0,
+      "unit": "stage",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: men: stage * L((b - (center - slope * z_bald - androgen * z_and)) / tempo) (ADR-0015)"
+    },
+    "core:body_bald_men_center": {
+      "value": 64.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men (ADR-0015)"
+    },
+    "core:body_bald_men_slope": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men, years per z_bald (ADR-0015)"
+    },
+    "core:body_bald_men_androgen": {
+      "value": 3.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men, years per z_and (ADR-0015)"
+    },
+    "core:body_bald_men_tempo": {
+      "value": 10.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men (ADR-0015)"
+    },
+    "core:body_bald_women_stage": {
+      "value": 2.5,
+      "unit": "stage",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: women: stage * L((b - (center - slope * z_bald)) / tempo) (ADR-0015)"
+    },
+    "core:body_bald_women_center": {
+      "value": 78.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women (ADR-0015)"
+    },
+    "core:body_bald_women_slope": {
+      "value": 6.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women, years per z_bald (ADR-0015)"
+    },
+    "core:body_bald_women_tempo": {
+      "value": 12.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women (ADR-0015)"
+    },
+    "core:body_hair_density_offset": {
+      "value": 2.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density = L(offset + z_den) * (1 - loss * L((b - center) / tempo)) (ADR-0015)"
+    },
+    "core:body_hair_density_loss": {
+      "value": 0.3,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_hair_density_center": {
+      "value": 60.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_hair_density_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_grey_center": {
+      "value": 55.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction = L((b - (center - slope * z_grey)) / tempo) (ADR-0015)"
+    },
+    "core:body_grey_slope": {
+      "value": 7.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction, years per z_grey (ADR-0015)"
+    },
+    "core:body_grey_tempo": {
+      "value": 7.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction (ADR-0015)"
+    },
+    "core:body_wrinkles_center": {
+      "value": 55.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles = L((b - center + slope * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_wrinkles_slope": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles, years per z_skin (ADR-0015)"
+    },
+    "core:body_wrinkles_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles (ADR-0015)"
+    },
+    "core:body_laxity_center": {
+      "value": 62.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity = L((b - center + slope * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_laxity_slope": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity, years per z_skin (ADR-0015)"
+    },
+    "core:body_laxity_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity (ADR-0015)"
+    },
+    "core:body_spots_center": {
+      "value": 60.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots = L((b - center + skin * z_skin - pigment * z_pig) / tempo) (ADR-0015)"
+    },
+    "core:body_spots_skin": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots, years per z_skin (ADR-0015)"
+    },
+    "core:body_spots_pigment": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots, years per z_pig (ADR-0015)"
+    },
+    "core:body_spots_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots (ADR-0015)"
+    },
+    "core:body_stoop_center": {
+      "value": 78.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop = L((b - center + skin * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_stoop_skin": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop, years per z_skin (ADR-0015)"
+    },
+    "core:body_stoop_tempo": {
+      "value": 6.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop (ADR-0015)"
+    },
+    "core:bio_age_weight": {
+      "value": 0.5,
+      "unit": "fraction",
+      "source": "weight of the biological age from proposal C4 (docs/vorbereitung-phase-0.md), adopted in docs/genetik-spezifikation.md 7.4",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 7.4 (K7.4a): rate e^(w * Delta / 50) after 25 (ADR-0015)"
     }
   },
   "traits": [
