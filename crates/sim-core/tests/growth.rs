@@ -124,3 +124,35 @@ fn the_blend_is_a_smoothstep() {
         );
     }
 }
+
+/// 5.2: a year earlier or later moves the spurt, not the childhood, and barely the adult:
+/// against the mean curve, one year early at 12 years +4.7 cm (boys, [W5.3a]) and +4.9
+/// (girls, [W5.3d]), one year late -2.6 ([W5.3b]) and -4.4 ([W5.3e]), one year early at 18
+/// still 0.3 ([W5.3c]) and 0.0 ([W5.3f]).
+#[test]
+fn the_timing_moves_the_spurt() {
+    for (sex, early_12, late_12, early_18) in
+        [(Sex::Male, 4.7, -2.6, 0.3), (Sex::Female, 4.9, -4.4, 0.0)]
+    {
+        let curve = common::data().genetics().growth(sex);
+        let shift = |t: i64, by: f64| {
+            mean_height(&curve, YEAR * t, curve.theta + by)
+                - mean_height(&curve, YEAR * t, curve.theta)
+        };
+        assert!(
+            (shift(12, -1.0) - early_12).abs() <= 0.05,
+            "{sex:?} {}",
+            shift(12, -1.0)
+        );
+        assert!(
+            (shift(12, 1.0) - late_12).abs() <= 0.05,
+            "{sex:?} {}",
+            shift(12, 1.0)
+        );
+        assert!(
+            (shift(18, -1.0) - early_18).abs() <= 0.05,
+            "{sex:?} {}",
+            shift(18, -1.0)
+        );
+    }
+}
