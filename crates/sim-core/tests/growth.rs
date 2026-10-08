@@ -6,7 +6,7 @@
 mod common;
 
 use sim_core::genome::Sex;
-use sim_core::growth::mean_height;
+use sim_core::growth::{CURVE_INPUT_BOUND, IndividualCurve, mean_height};
 use sim_core::time::{SimDuration, YEAR};
 
 /// WHO Child Growth Standards (2006), length/height-for-age medians at 3 and 5 years
@@ -180,4 +180,169 @@ fn the_curve_stays_finite_to_130_years() {
         assert!(height.is_finite(), "{t}: {height}");
     }
     assert_eq!(mean_height(&curve, YEAR * 130, curve.theta), curve.h1);
+}
+
+/// ADR-0012 section 1: `z_h` and `z_p` are held at ±6 each for itself, only as inputs of
+/// the curve; exactly ±6 is not held.
+#[test]
+fn the_inputs_are_held_at_six() {
+    assert_eq!(CURVE_INPUT_BOUND, 6.0);
+    for sex in [Sex::Male, Sex::Female] {
+        let curve = common::data().genetics().growth(sex);
+        let new = |z_h, z_p| IndividualCurve::new(curve, z_h, z_p);
+        for (z_h, z_p, held_h, held_p) in [
+            (7.0, 0.0, 6.0, 0.0),
+            (-7.0, 0.0, -6.0, 0.0),
+            (0.0, 7.0, 0.0, 6.0),
+            (1.5, -1e300, 1.5, -6.0),
+            (8.0, -9.0, 6.0, -6.0),
+        ] {
+            let outside = new(z_h, z_p);
+            let held = new(held_h, held_p);
+            assert!(outside.clamped, "{sex:?} {z_h} {z_p}");
+            assert!(!held.clamped, "{sex:?} {held_h} {held_p}");
+            assert_eq!(outside.theta.to_bits(), held.theta.to_bits());
+            assert_eq!(outside.target.to_bits(), held.target.to_bits());
+            assert_eq!(outside.kappa.to_bits(), held.kappa.to_bits());
+            for t in [0, 2, 12, 40] {
+                assert_eq!(
+                    outside.height(YEAR * t).to_bits(),
+                    held.height(YEAR * t).to_bits()
+                );
+            }
+        }
+        for (z_h, z_p) in [(6.0, 6.0), (-6.0, -6.0), (0.0, 0.0), (5.999, -5.999)] {
+            assert!(!new(z_h, z_p).clamped, "{sex:?} {z_h} {z_p}");
+        }
+    }
+}
+
+/// ADR-0012 sections 2 and 3: at the four corners of the bounds, for both sexes, `θ_i`
+/// and `h1_i` as the formula gives them with the values of the specification
+/// (`θ ± 6 · σ_θ`, `h1 ± 6 · σ ± 6 · γ · σ_θ`, 5.2 and 6.1), and every height on a grid
+/// of a quarter year up to 130 years finite and above 0; up to 25 years it rises (5.2).
+#[test]
+fn the_individual_curve_is_finite_and_positive_at_the_bounds() {
+    // (sex, z_h, z_p, θ_i, h1_i): boys θ 14.02, σ_θ 0.81, h1 180.7, σ 7.01; girls 12.30,
+    // 0.89, 167.3, 6.67; γ 1.
+    let corners = [
+        (Sex::Male, -6.0, -6.0, 9.16, 133.78),
+        (Sex::Male, 6.0, 6.0, 18.88, 227.62),
+        (Sex::Male, -6.0, 6.0, 18.88, 143.5),
+        (Sex::Male, 6.0, -6.0, 9.16, 217.9),
+        (Sex::Female, -6.0, -6.0, 6.96, 121.94),
+        (Sex::Female, 6.0, 6.0, 17.64, 212.66),
+        (Sex::Female, -6.0, 6.0, 17.64, 132.62),
+        (Sex::Female, 6.0, -6.0, 6.96, 201.98),
+    ];
+    for (sex, z_h, z_p, theta, target) in corners {
+        let curve = common::data().genetics().growth(sex);
+        let individual = IndividualCurve::new(curve, z_h, z_p);
+        assert!(
+            (individual.theta - theta).abs() < 1e-9,
+            "{sex:?} {z_h} {z_p}"
+        );
+        assert!(
+            (individual.target - target).abs() < 1e-9,
+            "{sex:?} {z_h} {z_p}"
+        );
+        assert!(
+            (individual.kappa - target / curve.h1).abs() < 1e-12,
+            "{sex:?} {z_h} {z_p}"
+        );
+        let mut previous = f64::NEG_INFINITY;
+        for q in 0..=520_i64 {
+            let at = SimDuration::from_secs(q * YEAR.as_secs() / 4);
+            let height = individual.height(at);
+            assert!(
+                height.is_finite() && height > 0.0,
+                "{sex:?} {z_h} {z_p} {q}/4"
+            );
+            if q <= 100 {
+                assert!(height > previous, "{sex:?} {z_h} {z_p} {q}/4");
+            }
+            previous = height;
+        }
+        assert!(
+            (individual.height(YEAR * 130) - target).abs() < 1e-9,
+            "{sex:?} {z_h} {z_p}"
+        );
+    }
+}
+
+/// ADR-0012 section 3, specification 5.2: with `z = 0` the individual curve is the mean
+/// curve, `κ` scales every height, one year earlier or later maturity moves the spurt at
+/// 12 years as in 5.2 (the height divided by `κ` against the mean curve: [W5.3a],
+/// [W5.3b], [W5.3d], [W5.3e]), and one year later maturity makes the adult `γ` = 1 cm
+/// taller.
+#[test]
+fn the_individual_curve_follows_the_specification() {
+    for (sex, sd, theta_sd, early_12, late_12) in [
+        (Sex::Male, 7.01, 0.81, 4.7, -2.6),
+        (Sex::Female, 6.67, 0.89, 4.9, -4.4),
+    ] {
+        let curve = common::data().genetics().growth(sex);
+        let mean = IndividualCurve::new(curve, 0.0, 0.0);
+        assert_eq!(mean.kappa, 1.0);
+        for k in 0..=60_i64 {
+            let at = SimDuration::from_secs(k * YEAR.as_secs() / 2);
+            assert_eq!(
+                mean.height(at).to_bits(),
+                mean_height(&curve, at, curve.theta).to_bits(),
+                "{sex:?} {k}/2"
+            );
+        }
+        let tall = IndividualCurve::new(curve, 1.0, 0.0);
+        assert!((tall.target - (curve.h1 + sd)).abs() < 1e-9, "{sex:?}");
+        for t in [0, 5, 12, 30] {
+            let expected = (curve.h1 + sd) / curve.h1 * mean_height(&curve, YEAR * t, curve.theta);
+            assert!(
+                (tall.height(YEAR * t) - expected).abs() < 1e-9,
+                "{sex:?} {t}"
+            );
+        }
+        for (z_p, moved) in [(-1.0 / theta_sd, early_12), (1.0 / theta_sd, late_12)] {
+            let individual = IndividualCurve::new(curve, 0.0, z_p);
+            let at_12 = individual.height(YEAR * 12) / individual.kappa
+                - mean_height(&curve, YEAR * 12, curve.theta);
+            assert!((at_12 - moved).abs() <= 0.05, "{sex:?} {z_p}: {at_12}");
+        }
+        let late = IndividualCurve::new(curve, 0.0, 1.0 / theta_sd);
+        assert!((late.theta - (curve.theta + 1.0)).abs() < 1e-9, "{sex:?}");
+        assert!((late.target - (curve.h1 + 1.0)).abs() < 1e-9, "{sex:?}");
+        let adult = late.height(YEAR * 40) - mean.height(YEAR * 40);
+        assert!((adult - 1.0).abs() < 0.001, "{sex:?} {adult}");
+    }
+}
+
+/// ADR-0012 section 3: with the widest values the checks allow (`σ_θ` 5 years, the largest
+/// rates, an early and a late mean timing), every height of the four corners up to 130
+/// years is finite.
+#[test]
+fn the_individual_curve_stays_finite_with_the_widest_values() {
+    for theta in [0.5, 30.0] {
+        let (mut calibration, genome_map) = common::files();
+        for (key, value) in [
+            ("core:growth_s0_male", 9.0),
+            ("core:growth_s1_male", 10.0),
+            ("core:growth_theta_male", theta),
+            ("core:growth_theta_sd_male", 5.0),
+        ] {
+            calibration["values"][key]["value"] = serde_json::json!(value);
+        }
+        let data = sim_core::data::Data::new(
+            common::definitions(calibration, genome_map).expect("definitions"),
+        )
+        .expect("checked");
+        let curve = data.genetics().growth(Sex::Male);
+        for (z_h, z_p) in [(-6.0, -6.0), (6.0, 6.0), (-6.0, 6.0), (6.0, -6.0)] {
+            let individual = IndividualCurve::new(curve, z_h, z_p);
+            assert!(individual.target > 0.0, "{theta} {z_h} {z_p}");
+            for q in 0..=520_i64 {
+                let at = SimDuration::from_secs(q * YEAR.as_secs() / 4);
+                let height = individual.height(at);
+                assert!(height.is_finite(), "{theta} {z_h} {z_p} {q}/4: {height}");
+            }
+        }
+    }
 }

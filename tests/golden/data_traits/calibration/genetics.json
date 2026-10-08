@@ -147,6 +147,41 @@
       "source": "WHO Child Growth Standards (2006), length-for-age median, girls, 24 months",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:height_sd_male": {
+      "value": 7.01,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, men, standard deviation",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1b); the spread of the target height of the individual growth curve (ADR-0012)"
+    },
+    "core:height_sd_female": {
+      "value": 6.67,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, women, standard deviation",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1d); the spread of the target height of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_theta_sd_male": {
+      "value": 0.81,
+      "unit": "year",
+      "source": "Cole TJ (2020), Ann Hum Biol 47:181-198, ALSPAC: standard deviation of the timing of the pubertal growth spurt, boys",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2a); the spread of the timing of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_theta_sd_female": {
+      "value": 0.89,
+      "unit": "year",
+      "source": "Cole TJ (2020), Ann Hum Biol 47:181-198, ALSPAC: standard deviation of the timing of the pubertal growth spurt, girls",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2b); the spread of the timing of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_gamma": {
+      "value": 1.0,
+      "unit": "centimeter_per_year",
+      "source": "play value of the specification between Sovio U et al. (2009), PLoS Genet 5:e1000409 (near 0, Finland) and Haegg U, Taranger J (1991), Ann Hum Biol 18:47-56 (late-maturing boys taller, Sweden)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2c, HANDOFF 4: early maturity against longer growth); adult centimeters per year of later timing (ADR-0012)"
     }
   },
   "traits": [
