@@ -14,8 +14,8 @@ use crate::data_id::str_key;
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 
-/// Format version of the calibration file.
-pub const CALIBRATION_FORMAT_VERSION: u32 = 1;
+/// Format version of the calibration file (ADR-0009 section 2).
+pub const CALIBRATION_FORMAT_VERSION: u32 = 2;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -26,6 +26,20 @@ pub const MAP_FORMAT_VERSION: u32 = 2;
 pub struct GeneticsCalibration {
     pub format_version: u32,
     pub values: BTreeMap<DataId, Calibrated>,
+    pub traits: Vec<PhenotypeWeights>,
+}
+
+/// The weights of the phenotype of one trait (ADR-0009 section 1, genetics specification
+/// 4.2): heritability and shared environment for the child and the adult.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhenotypeWeights {
+    #[serde(rename = "trait")]
+    pub target: DataId,
+    pub h2_child: Calibrated,
+    pub c2_child: Calibrated,
+    pub h2_adult: Calibrated,
+    pub c2_adult: Calibrated,
 }
 
 /// One calibration value with its unit; source, date and note stay in the file.
@@ -42,6 +56,7 @@ pub struct Calibrated {
 pub enum Unit {
     Morgan,
     PerTransmission,
+    Fraction,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -534,6 +549,37 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
     Ok(genetics)
 }
 
+/// The phenotype weights (ADR-0009 section 2): each row names a trait of the map, the rows
+/// stand in ascending order, every weight is a fraction from 0 to 1, and heritability
+/// plus shared environment is at most 1 for the child and for the adult.
+fn check_weights_of_traits(rows: &[PhenotypeWeights], traits: &[Trait]) -> Result<(), DataError> {
+    for pair in rows.windows(2) {
+        if let [before, after] = pair
+            && before.target >= after.target
+        {
+            return Err(DataError::CalibrationUnknown);
+        }
+    }
+    for row in rows {
+        if find(traits, &row.target).is_none() {
+            return Err(DataError::CalibrationUnknown);
+        }
+        let all = [&row.h2_child, &row.c2_child, &row.h2_adult, &row.c2_adult];
+        if all.iter().any(|weight| weight.unit != Unit::Fraction) {
+            return Err(DataError::CalibrationUnit);
+        }
+        let in_range = all
+            .iter()
+            .all(|weight| (0.0..=1.0).contains(&weight.value.get()));
+        let child = row.h2_child.value.get() + row.c2_child.value.get();
+        let adult = row.h2_adult.value.get() + row.c2_adult.value.get();
+        if !in_range || child > 1.0 || adult > 1.0 {
+            return Err(DataError::CalibrationRange);
+        }
+    }
+    Ok(())
+}
+
 fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     postcard::to_allocvec(value).unwrap_or_else(|_| panic!("invariant data.encode"))
 }
@@ -543,6 +589,10 @@ impl Data {
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map, str_key)?;
+        check_weights_of_traits(
+            &definitions.calibration.traits,
+            &definitions.genome_map.traits,
+        )?;
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
             .zip(&definitions.genome_map.loci)
@@ -614,6 +664,13 @@ pub(crate) mod testing {
         for value in values.values_mut() {
             for name in ["source", "as_of", "note"] {
                 take(value, name);
+            }
+        }
+        for row in calibration["traits"].as_array_mut().expect("traits") {
+            for weight in ["h2_child", "c2_child", "h2_adult", "c2_adult"] {
+                for name in ["source", "as_of", "note"] {
+                    take(&mut row[weight], name);
+                }
             }
         }
         for list in ["traits", "loci"] {

@@ -26,10 +26,7 @@ pub fn data_from(calibration: &str, genome_map: &str) -> Result<Data, CliError> 
         calibration: read(
             calibration,
             "calibration/genetics.json",
-            |file| {
-                entries(file, "values", Value::as_object_mut)
-                    .map(|values| values.values_mut().collect())
-            },
+            calibration_entries,
             &CALIBRATION_TEXT,
         )?,
         genome_map: read(
@@ -46,6 +43,33 @@ fn rejected(detail: &str) -> CliError {
     CliError::new("data_rejected", detail)
 }
 
+/// The calibration values, and each of the four weights of each phenotype row, with their
+/// text fields (ADR-0009 section 2); `None` unless both lists are there.
+fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
+    let mut all = Vec::new();
+    let mut lists = 0;
+    for (name, list) in file.as_object_mut()? {
+        if name == "values" {
+            all.extend(list.as_object_mut()?.values_mut());
+            lists += 1;
+        } else if name == "traits" {
+            for row in list.as_array_mut()? {
+                let row = row.as_object_mut()?;
+                for (field, weight) in row.iter_mut() {
+                    if WEIGHTS.contains(&field.as_str()) {
+                        all.push(weight);
+                    }
+                }
+            }
+            lists += 1;
+        }
+    }
+    (lists == 2).then_some(all)
+}
+
+/// The four weights of a phenotype row.
+const WEIGHTS: [&str; 4] = ["h2_child", "c2_child", "h2_adult", "c2_adult"];
+
 /// The traits and the loci of the genome map, each with its text field `description`
 /// (ADR-0008 section 1); `None` unless both lists are there.
 fn map_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
@@ -58,15 +82,6 @@ fn map_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
         }
     }
     (lists == 2).then_some(all)
-}
-
-/// The field `name` of the file as an object or array, through `as_mut`.
-fn entries<'a, T>(
-    file: &'a mut Value,
-    name: &str,
-    as_mut: impl FnOnce(&'a mut Value) -> Option<&'a mut T>,
-) -> Option<&'a mut T> {
-    file.get_mut(name).and_then(as_mut)
 }
 
 /// Reads one file: JSON, every entry with each text field present and not blank, the
@@ -109,7 +124,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0x0941_b68f_f721_7c6f);
+        assert_eq!(core_data().expect("data").hash(), 0xd5cc_b8c5_cd8b_30f4);
     }
 
     #[test]
@@ -163,14 +178,16 @@ mod tests {
 
     const TRAITS_MAP: &str =
         include_str!("../../../tests/golden/data_traits/genetics/genome_map.json");
+    const TRAITS_CALIBRATION: &str =
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json");
 
     /// Traits have their text too (ADR-0008 section 1): removed before the core reads
     /// them, so the hash is the one of the independent reference; a trait without it, and
     /// a map without the list of traits, are rejected.
     #[test]
     fn traits_have_their_text() {
-        let data = data_from(CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x5fa6_062e_bcc9_9a2a);
+        let data = data_from(TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
+        assert_eq!(data.hash(), 0x1644_7a40_212e_298c);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",
@@ -179,8 +196,16 @@ mod tests {
         );
         assert_ne!(blank, TRAITS_MAP);
         assert_eq!(
-            code(data_from(CALIBRATION, &blank)),
+            code(data_from(TRAITS_CALIBRATION, &blank)),
             "genetics/genome_map.json: description missing or blank"
+        );
+        // The weights of a phenotype row have their text too (ADR-0009 section 2).
+        let unsourced =
+            TRAITS_CALIBRATION.replacen("\"source\": \"fixture: a face axis\"", "\"x\": 1", 1);
+        assert_ne!(unsourced, TRAITS_CALIBRATION);
+        assert_eq!(
+            code(data_from(&unsourced, TRAITS_MAP)),
+            "calibration/genetics.json: source missing or blank"
         );
         let without = GENOME_MAP.replacen("\"traits\": [],", "", 1);
         assert_ne!(without, GENOME_MAP);

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0x0941_b68f_f721_7c6f;
+const DATA_HASH: u64 = 0xd5cc_b8c5_cd8b_30f4;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x5fa6_062e_bcc9_9a2a);
+    assert_eq!(data.hash(), 0x1644_7a40_212e_298c);
 }
 
 #[test]
@@ -606,16 +606,20 @@ fn phenotype_weights_reject() {
         (
             |c, g| {
                 with_traits(g);
-                c["traits"] = json!([row("test:b", [0.5, 0.1, 0.5, 0.1]),
-                    row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+                c["traits"] = json!([
+                    row("test:b", [0.5, 0.1, 0.5, 0.1]),
+                    row("test:a", [0.5, 0.1, 0.5, 0.1])
+                ]);
             },
             "data.calibration_unknown",
         ),
         (
             |c, g| {
                 with_traits(g);
-                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1]),
-                    row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+                c["traits"] = json!([
+                    row("test:a", [0.5, 0.1, 0.5, 0.1]),
+                    row("test:a", [0.5, 0.1, 0.5, 0.1])
+                ]);
             },
             "data.calibration_unknown",
         ),
@@ -681,8 +685,10 @@ fn phenotype_weights_reject() {
         },
         |c, g| {
             with_traits(g);
-            c["traits"] = json!([row("test:a", [0.5, 0.25, 0.75, 0.05]),
-                row("test:b", [0.4, 0.1, 0.4, 0.0])]);
+            c["traits"] = json!([
+                row("test:a", [0.5, 0.25, 0.75, 0.05]),
+                row("test:b", [0.4, 0.1, 0.4, 0.0])
+            ]);
         },
     ];
     for change in valid {
