@@ -12,12 +12,15 @@ pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight byt
 endian; an enum variant with data is its index followed by the data; ADR-0008):
 
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
-                        traits: Vec<PhenotypeWeights> }
+                        traits: Vec<PhenotypeWeights>,
+                        sex_differences: Vec<SexDifference> }   (ADR-0014)
+  SexDifference { trait: DataId, shift: Calibrated, variance_ratio: Calibrated }
   Calibrated { value: f64, unit: Unit }
   PhenotypeWeights { trait: DataId, h2_child: Calibrated, c2_child: Calibrated,
                      h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
   Unit: morgan, per_transmission, fraction, centimeter, year, per_year (ADR-0010),
-        centimeter_per_year (ADR-0012)
+        centimeter_per_year (ADR-0012), centimeter_per_year_squared,
+        standard_deviation, ratio (ADR-0014)
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -48,8 +51,12 @@ UNITS = [
     "year",
     "per_year",
     "centimeter_per_year",
+    "centimeter_per_year_squared",
+    "standard_deviation",
+    "ratio",
 ]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
+SEX_DIFFERENCE = ("shift", "variance_ratio")
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -106,6 +113,11 @@ def calibration_bytes(doc) -> bytes:
         out += string(row["trait"])
         for weight in WEIGHTS:
             out += calibrated_bytes(row[weight])
+    out += varint(len(doc["sex_differences"]))
+    for row in doc["sex_differences"]:
+        out += string(row["trait"])
+        for number in SEX_DIFFERENCE:
+            out += calibrated_bytes(row[number])
     return out
 
 
