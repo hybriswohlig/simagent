@@ -91,14 +91,24 @@ def flag(on: bool) -> bytes:
     return b"\x01" if on else b"\x00"
 
 
-def world_params(hereditary_diseases: bool) -> bytes:
-    """WorldParams { hereditary_diseases: bool }"""
-    return flag(hereditary_diseases)
+def nutrition_year(year: int, index: float) -> bytes:
+    """NutritionYear { year: i64, index: f64 } (ADR-0013)"""
+    return signed(year) + f64(index)
+
+
+def world_params(hereditary_diseases: bool, nutrition=()) -> bytes:
+    """WorldParams { hereditary_diseases: bool, nutrition: [NutritionYear] } (ADR-0013)"""
+    return flag(hereditary_diseases) + seq([nutrition_year(y, n) for y, n in nutrition])
 
 
 def param_change(hereditary_diseases: bool) -> bytes:
     """ParamChange::HereditaryDiseases(bool), variant 0"""
     return variant(0, flag(hereditary_diseases))
+
+
+def param_change_nutrition(year: int, index: float) -> bytes:
+    """ParamChange::NutritionYear(NutritionYear), variant 1 (ADR-0013)"""
+    return variant(1, nutrition_year(year, index))
 
 
 def f64(value: float) -> bytes:
