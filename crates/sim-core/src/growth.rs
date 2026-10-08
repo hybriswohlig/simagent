@@ -3,8 +3,9 @@
 //! between, the timing moving the spurt; the individual curve scales it and moves its
 //! timing by the phenotypes (ADR-0012). Pure functions, no state.
 
-use crate::data::GrowthCurve;
-use crate::time::SimDuration;
+use crate::data::{GrowthCurve, NutritionLoss};
+use crate::params::NutritionYear;
+use crate::time::{SimDuration, SimTime, year_start};
 
 /// The infancy term `I(t) = L0 + B · (1 − e^(−c·t))`.
 fn infancy(curve: &GrowthCurve, t: f64) -> f64 {
@@ -83,4 +84,51 @@ impl IndividualCurve {
     pub fn height(&self, age: SimDuration) -> f64 {
         self.kappa * mean_height(&self.curve, age, self.theta)
     }
+}
+
+/// `min` and `max` as ADR-0003 writes them: on equality `b` comes back.
+fn min(a: f64, b: f64) -> f64 {
+    if a < b { a } else { b }
+}
+
+fn max(a: f64, b: f64) -> f64 {
+    if a > b { a } else { b }
+}
+
+/// The length in years of `[lo, hi)` within `[from, to)`, or 0.
+fn overlap(lo: f64, hi: f64, from: f64, to: f64) -> f64 {
+    let length = min(hi, to) - max(lo, from);
+    if length > 0.0 { length } else { 0.0 }
+}
+
+/// The loss of height in cm from nutrition up to `age` of a person born at `born` with the
+/// pubertal timing `theta` (`θ_i`, ADR-0012) (genetics specification 5.4, ADR-0013 section
+/// 4): `k · ∫ ω(a) · (1 − N(born + a)) da`, exact over the listed years (a year with 1
+/// adds 0), in the order of the list. `years` are the checked years of the world
+/// parameters; a year outside the life is skipped before any time is subtracted.
+pub fn nutrition_loss(
+    years: &[NutritionYear],
+    loss: &NutritionLoss,
+    born: SimTime,
+    age: SimDuration,
+    theta: f64,
+) -> f64 {
+    let until = born + age;
+    let puberty_from = max(loss.age_child, theta - loss.puberty_before);
+    let puberty_to = theta + loss.puberty_after;
+    let mut deficit = 0.0;
+    for entry in years {
+        let index = entry.index.get();
+        let from = year_start(entry.year).max(born);
+        let to = year_start(entry.year + 1).min(until);
+        if to <= from {
+            continue;
+        }
+        let (a0, a1) = ((from - born).as_years(), (to - born).as_years());
+        let weighted = (loss.weight_infant * overlap(a0, a1, 0.0, loss.age_infant)
+            + loss.weight_child * overlap(a0, a1, loss.age_infant, loss.age_child))
+            + loss.weight_puberty * overlap(a0, a1, puberty_from, puberty_to);
+        deficit += (1.0 - index) * weighted;
+    }
+    loss.per_deficit_year * deficit
 }
