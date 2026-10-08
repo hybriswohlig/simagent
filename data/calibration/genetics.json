@@ -763,6 +763,13 @@
       "source": "weight of the biological age from proposal C4 (docs/vorbereitung-phase-0.md), adopted in docs/genetik-spezifikation.md 7.4",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 7.4 (K7.4a): rate e^(w * Delta / 50) after 25 (ADR-0015)"
+    },
+    "core:sex_ratio_at_birth": {
+      "value": 1.05,
+      "unit": "ratio",
+      "source": "Chao F et al. (2019), PNAS 116:9303-9311; Destatis, Lebendgeborene nach Geschlecht: Europe 1.058, Germany 2021 to 2025 1.055; game value 1.05",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 2.3, 7.5 and 11.3 (W11.3d): sons per daughter; the father passes his Y with r / (1 + r) = 1.05 / 2.05 = 21/41 (ADR-0017 section 4)"
     }
   },
   "traits": [],
