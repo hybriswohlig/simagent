@@ -67,7 +67,7 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
     return signed(time) + varint(0) + varint(insertion) + payload + period_bytes
 
 
-PROJECTION_VERSION = 9
+PROJECTION_VERSION = world_reference.PROJECTION_VERSION
 # The version of the model, so that the two references never drift apart.
 CORE_VERSION = world_reference.CORE_VERSION
 

@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":16,"data_hash":"c3f04a38869c20d6","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"42e5a00ea5edf84d"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":16,"data_hash":"c3f04a38869c20d6","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"e5f704bed88f0564"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540110d6c1f0b488c792f8c3010901ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000000010000000000000000000000000203fe87ff1d01000401010100ff0109746573743a74696e79000000010100010a636f72653a64756d6d79020001000000000000000000122d0a0100cdf0b7afea81e8f242"
+        "53494d4147454e540110d6c1f0b488c792f8c3010a01ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000000010000000000000000000000000203fe87ff1d01000401010100ff0109746573743a74696e79000000010100010a636f72653a64756d6d79020001000000000000000000122d0a0100e48abcc4ed97c1fbe501"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
