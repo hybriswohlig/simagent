@@ -29,6 +29,24 @@ fn without(mut file: Value, entries: &str, names: &[&str]) -> Value {
     file
 }
 
+/// Removes the text of each of the four weights of each phenotype row (ADR-0009).
+fn without_weights(mut calibration: Value) -> Value {
+    let rows = calibration["traits"].as_array_mut().expect("traits");
+    for row in rows.iter_mut() {
+        for weight in ["h2_child", "c2_child", "h2_adult", "c2_adult"] {
+            for name in ["source", "as_of", "note"] {
+                let text = row[weight].as_object_mut().expect("weight").remove(name);
+                let filled = text
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.trim().is_empty());
+                assert!(filled, "{name} missing or blank");
+            }
+        }
+    }
+    calibration
+}
+
 /// The two files of the repository as JSON values without their text.
 pub fn files() -> (Value, Value) {
     files_from(CALIBRATION, GENOME_MAP)
@@ -38,7 +56,11 @@ pub fn files() -> (Value, Value) {
 pub fn files_from(calibration: &str, genome_map: &str) -> (Value, Value) {
     let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
     (
-        without(read(calibration), "values", &["source", "as_of", "note"]),
+        without_weights(without(
+            read(calibration),
+            "values",
+            &["source", "as_of", "note"],
+        )),
         without(
             without(read(genome_map), "traits", &["description"]),
             "loci",

@@ -11,9 +11,12 @@ index as varint, strings and sequences with a varint length, maps as a varint le
 pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight bytes little
 endian; an enum variant with data is its index followed by the data; ADR-0008):
 
-  GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated> }
+  GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
+                        traits: Vec<PhenotypeWeights> }
   Calibrated { value: f64, unit: Unit }
-  Unit: morgan, per_transmission
+  PhenotypeWeights { trait: DataId, h2_child: Calibrated, c2_child: Calibrated,
+                     h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
+  Unit: morgan, per_transmission, fraction
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -36,7 +39,8 @@ from pathlib import Path
 import xxhash
 
 TEXT_FIELDS = ("source", "as_of", "note", "description")
-UNITS = ["morgan", "per_transmission"]
+UNITS = ["morgan", "per_transmission", "fraction"]
+WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -79,12 +83,20 @@ def strip(value):
     return value
 
 
+def calibrated_bytes(entry) -> bytes:
+    return f64(float(entry["value"])) + varint(UNITS.index(entry["unit"]))
+
+
 def calibration_bytes(doc) -> bytes:
     values = doc["values"]
     out = varint(doc["format_version"]) + varint(len(values))
     for key in sorted(values):
-        entry = values[key]
-        out += string(key) + f64(float(entry["value"])) + varint(UNITS.index(entry["unit"]))
+        out += string(key) + calibrated_bytes(values[key])
+    out += varint(len(doc["traits"]))
+    for row in doc["traits"]:
+        out += string(row["trait"])
+        for weight in WEIGHTS:
+            out += calibrated_bytes(row[weight])
     return out
 
 

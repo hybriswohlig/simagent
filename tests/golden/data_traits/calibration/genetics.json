@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "values": {
     "core:map_length_autosome_female": {
       "value": 5.35,
@@ -36,5 +36,69 @@
       "as_of": "2026-10-07",
       "note": "docs/genetik-spezifikation.md 2.4 and 3.3 (K2.4b): keeps rare disease alleles from coming mostly from new mutations"
     }
-  }
+  },
+  "traits": [
+    {
+      "trait": "test:face",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "fixture: a face axis",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      }
+    },
+    {
+      "trait": "test:mood",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "fixture: an age dependent trait",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "fixture",
+        "as_of": "2026-10-08",
+        "note": "test fixture"
+      }
+    }
+  ]
 }
