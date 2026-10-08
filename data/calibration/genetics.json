@@ -244,28 +244,28 @@
       "unit": "year",
       "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011): the sex differences of 6.2 rise over four years around theta_i",
       "as_of": "2026-10-08",
-      "note": "docs/genetik-spezifikation.md 6.2; half width of the smoothstep of the puberty progress P (ADR-0014)"
+      "note": "docs/genetik-spezifikation.md 6.2 (K6.2a); half width of the smoothstep of the puberty progress P (ADR-0014)"
     },
     "core:height_loss_onset": {
       "value": 30.0,
       "unit": "year",
       "source": "Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977 (Baltimore Longitudinal Study of Aging): height loss begins at about 30 years",
       "as_of": "2026-10-08",
-      "note": "docs/genetik-spezifikation.md 5.3; bio_age from which height is lost (ADR-0014)"
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3c); bio_age from which height is lost (ADR-0014)"
     },
     "core:height_loss_male": {
       "value": 0.001875,
       "unit": "centimeter_per_year_squared",
       "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 3 cm lost from 30 to 70 in men",
       "as_of": "2026-10-08",
-      "note": "docs/genetik-spezifikation.md 5.3; 3/1600, so 3 cm at bio_age 70 and 4.69 cm at 80 (ADR-0014)"
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3a); 3/1600, so 3 cm at bio_age 70 and 4.69 cm at 80 (ADR-0014)"
     },
     "core:height_loss_female": {
       "value": 0.003125,
       "unit": "centimeter_per_year_squared",
       "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 5 cm lost from 30 to 70 in women",
       "as_of": "2026-10-08",
-      "note": "docs/genetik-spezifikation.md 5.3; 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3b); 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
     }
   },
   "traits": [],
