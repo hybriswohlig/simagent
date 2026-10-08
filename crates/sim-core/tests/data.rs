@@ -265,7 +265,7 @@ fn genome_map_rejects() {
 /// ADR-0008 section 5: traits, weights and loads.
 #[test]
 fn traits_and_weights_reject() {
-    let cases: [(Change, &str); 30] = [
+    let cases: [(Change, &str); 32] = [
         (
             |_, g| {
                 with_traits(g);
@@ -490,6 +490,27 @@ fn traits_and_weights_reject() {
             },
             "data.trait_bounds",
         ),
+        // Each term finite, their sum not: the bound folds the magnitudes of all terms.
+        (
+            |_, g| {
+                with_traits(g);
+                let huge = json!({"effect": 1e308, "d_ref": 1.0, "loads": [on("test:a", 1.0)]});
+                g["loci"][1]["action"]["additive"] = huge.clone();
+                g["loci"][2]["action"]["additive"] = huge;
+            },
+            "data.trait_bounds",
+        ),
+        // A threshold locus is weighted like an additive one: autosomes only.
+        (
+            |_, g| {
+                with_traits(g);
+                let weights = g["loci"][2]["action"]["additive"].clone();
+                g["loci"][2]["action"] = json!({"threshold": weights});
+                g["loci"][2]["chromosome"] = json!("x");
+                g["loci"][2]["segment"] = json!(0);
+            },
+            "data.locus_additive",
+        ),
         // A term that is 0 at every dose: the product underflows.
         (
             |_, g| {
@@ -534,6 +555,18 @@ fn traits_and_weights_reject() {
     for change in valid {
         assert_eq!(checked(change), "ok");
     }
+    // An include whose weight makes its terms underflow to 0 is allowed: the rule that a
+    // term must not vanish holds for loads (ADR-0008 section 3), and 0 is finite.
+    assert_eq!(
+        checked(|_, g| {
+            with_traits(g);
+            g["loci"][2]["action"]["additive"]["effect"] = json!(1e-200);
+            g["loci"][2]["action"]["additive"]["d_ref"] = json!(0.0);
+            g["loci"][2]["action"]["additive"]["loads"] = json!([on("test:b", 1.0)]);
+            g["traits"][0]["includes"] = json!([on("test:b", 1e-200)]);
+        }),
+        "ok"
+    );
     // A trait that only includes others is used; two includes in ascending order may
     // share a locus.
     assert_eq!(

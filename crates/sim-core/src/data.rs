@@ -449,13 +449,18 @@ pub(crate) fn terms(map: &GenomeMap, t: &Trait) -> Vec<Term> {
 }
 
 /// The genetic value of `t` is finite for every genome (ADR-0008 section 3): every term
-/// is finite at the doses 0, 1 and 2 and not 0 at one of them, the fold of their largest
-/// magnitudes is finite and stays finite divided by `sigma_ref`.
+/// is finite at the doses 0, 1 and 2, every term of a load is not 0 at one of them, and
+/// the fold of their largest magnitudes is finite and stays finite divided by
+/// `sigma_ref`.
 fn check_bounds(map: &GenomeMap, t: &Trait) -> Result<(), DataError> {
+    // The terms of the trait's own loads come first (see `terms`); only they must not
+    // vanish. An include term of 0 adds nothing and is finite.
+    let direct = terms_on(map, &t.id, None).count();
     let mut largest = 0.0;
-    for term in terms(map, t) {
+    for (position, term) in terms(map, t).into_iter().enumerate() {
         let at = [0.0, 1.0, 2.0].map(|dose| term.coefficient * (dose - term.d_ref));
-        if !at.iter().all(|c| c.is_finite()) || at.iter().all(|c| *c == 0.0) {
+        let vanishes = position < direct && at.iter().all(|c| *c == 0.0);
+        if !at.iter().all(|c| c.is_finite()) || vanishes {
             return Err(DataError::TraitBounds);
         }
         largest += at.iter().fold(
@@ -678,6 +683,23 @@ mod tests {
         }];
         assert_eq!(check_map(&map, str_key), Ok(()));
         assert_eq!(check_map(&map, |_| 7), Err(DataError::TraitKey));
+        // Two traits with one key, apart from every locus.
+        let mut second = map.traits[0].clone();
+        second.id = id("test:u");
+        map.traits.push(second);
+        let mut other = map.loci[0].clone();
+        other.id = id("test:b");
+        other.slot = 1;
+        if let Action::Additive(weights) = &mut other.action {
+            weights.loads[0].target = id("test:u");
+        }
+        map.loci.push(other);
+        assert_eq!(check_map(&map, str_key), Ok(()));
+        let traits_collide = |x: &DataId| match x.as_str() {
+            "test:t" | "test:u" => 7,
+            _ => str_key(x),
+        };
+        assert_eq!(check_map(&map, traits_collide), Err(DataError::TraitKey));
     }
 
     #[test]
