@@ -271,11 +271,16 @@ fn the_individual_curve_is_finite_and_positive_at_the_bounds() {
 }
 
 /// ADR-0012 section 3, specification 5.2: with `z = 0` the individual curve is the mean
-/// curve, `κ` scales every height, and one year later maturity makes the adult `γ` = 1 cm
+/// curve, `κ` scales every height, one year earlier or later maturity moves the spurt at
+/// 12 years as in 5.2 (the height divided by `κ` against the mean curve: [W5.3a],
+/// [W5.3b], [W5.3d], [W5.3e]), and one year later maturity makes the adult `γ` = 1 cm
 /// taller.
 #[test]
 fn the_individual_curve_follows_the_specification() {
-    for (sex, sd, theta_sd) in [(Sex::Male, 7.01, 0.81), (Sex::Female, 6.67, 0.89)] {
+    for (sex, sd, theta_sd, early_12, late_12) in [
+        (Sex::Male, 7.01, 0.81, 4.7, -2.6),
+        (Sex::Female, 6.67, 0.89, 4.9, -4.4),
+    ] {
         let curve = common::data().genetics().growth(sex);
         let mean = IndividualCurve::new(curve, 0.0, 0.0);
         assert_eq!(mean.kappa, 1.0);
@@ -295,6 +300,12 @@ fn the_individual_curve_follows_the_specification() {
                 (tall.height(YEAR * t) - expected).abs() < 1e-9,
                 "{sex:?} {t}"
             );
+        }
+        for (z_p, moved) in [(-1.0 / theta_sd, early_12), (1.0 / theta_sd, late_12)] {
+            let individual = IndividualCurve::new(curve, 0.0, z_p);
+            let at_12 = individual.height(YEAR * 12) / individual.kappa
+                - mean_height(&curve, YEAR * 12, curve.theta);
+            assert!((at_12 - moved).abs() <= 0.05, "{sex:?} {z_p}: {at_12}");
         }
         let late = IndividualCurve::new(curve, 0.0, 1.0 / theta_sd);
         assert!((late.theta - (curve.theta + 1.0)).abs() < 1e-9, "{sex:?}");

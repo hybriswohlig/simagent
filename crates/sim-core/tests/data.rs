@@ -799,7 +799,7 @@ fn growth_values_reject() {
 #[test]
 fn individual_curve_values_reject() {
     let set = |c: &mut Value, key: &str, value: f64| c["values"][key]["value"] = json!(value);
-    let cases: [(Change, &str); 9] = [
+    let cases: [(Change, &str); 8] = [
         (
             |c, _| c["values"]["core:growth_gamma"]["unit"] = json!("per_year"),
             "data.calibration_unit",
@@ -822,10 +822,6 @@ fn individual_curve_values_reject() {
         ),
         (
             |c, _| c["values"]["core:growth_theta_sd_female"]["value"] = json!(5.01),
-            "data.calibration_range",
-        ),
-        (
-            |c, _| c["values"]["core:growth_gamma"]["value"] = json!(300.5),
             "data.calibration_range",
         ),
         // The corner `z_h = z_p = −6`: 167.3 − 6 · 27 − 6 · 0.89 = −0.04 cm for women.
@@ -855,6 +851,25 @@ fn individual_curve_values_reject() {
         let result = Data::new(common::definitions(c, g).expect("definitions"));
         assert_eq!(result.err(), Some(DataError::CalibrationMissing), "{key}");
     }
+    // The upper limit of `γ` on its own: with timing spreads of 0.01 years the corners
+    // stay above 0 (180.7 − 6 · 7.01 − 6 · 0.01 · 300 = 120.64 cm), so 300 is allowed and
+    // 300.5 is out of range.
+    let narrow = |gamma: f64| {
+        checked(move |c, _| {
+            c["values"]["core:growth_theta_sd_male"]["value"] = json!(0.01);
+            c["values"]["core:growth_theta_sd_female"]["value"] = json!(0.01);
+            c["values"]["core:growth_gamma"]["value"] = json!(gamma);
+        })
+    };
+    assert_eq!(narrow(300.0), "ok");
+    assert!(narrow(300.5).starts_with("data.calibration_range"));
+    // A corner of exactly 0 is rejected: (180 − 6 · 29) + 1 · ((θ − 6 · 1) − θ) = 0 cm.
+    let zero = checked(|c, _| {
+        c["values"]["core:height_adult_male"]["value"] = json!(180.0);
+        c["values"]["core:height_sd_male"]["value"] = json!(29.0);
+        c["values"]["core:growth_theta_sd_male"]["value"] = json!(1.0);
+    });
+    assert!(zero.starts_with("data.calibration_range"), "{zero}");
     // The limits are allowed, and a corner just above 0: 167.3 − 6 · 26.9 − 6 · 0.89 =
     // 0.56 cm; with 5 years 180.7 − 6 · 7.01 − 6 · 5 = 108.64 cm.
     let (mut c, g) = common::files();
