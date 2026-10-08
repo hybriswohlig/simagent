@@ -585,10 +585,116 @@ fn traits_and_weights_reject() {
     );
 }
 
+/// A row of phenotype weights (ADR-0009 section 1), without its text.
+fn row(t: &str, weights: [f64; 4]) -> Value {
+    let fraction = |value: f64| json!({"value": value, "unit": "fraction"});
+    json!({"trait": t, "h2_child": fraction(weights[0]), "c2_child": fraction(weights[1]),
+        "h2_adult": fraction(weights[2]), "c2_adult": fraction(weights[3])})
+}
+
+/// ADR-0009 section 2: the phenotype weights of the calibration.
+#[test]
+fn phenotype_weights_reject() {
+    let cases: [(Change, &str); 9] = [
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:c", [0.5, 0.1, 0.5, 0.1])]);
+            },
+            "data.calibration_unknown",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:b", [0.5, 0.1, 0.5, 0.1]),
+                    row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+            },
+            "data.calibration_unknown",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1]),
+                    row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+            },
+            "data.calibration_unknown",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+                c["traits"][0]["c2_adult"]["unit"] = json!("morgan");
+            },
+            "data.calibration_unit",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [1.5, 0.0, 0.5, 0.1])]);
+            },
+            "data.calibration_range",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.5, -0.125, 0.5, 0.1])]);
+            },
+            "data.calibration_range",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.8, 0.25, 0.5, 0.1])]);
+            },
+            "data.calibration_range",
+        ),
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.75, 0.375])]);
+            },
+            "data.calibration_range",
+        ),
+        // The weights are calibration values with a unit: a bare number is no value.
+        (
+            |c, g| {
+                with_traits(g);
+                c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+                c["traits"][0]["h2_child"] = json!(0.5);
+            },
+            "serde",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    // Valid: c2 = 0, h2 + c2 = 1 exactly, a trait without a row, both traits with rows.
+    let valid: [Change; 3] = [
+        |c, g| {
+            with_traits(g);
+            c["traits"] = json!([row("test:a", [0.6, 0.0, 0.6, 0.0])]);
+        },
+        |c, g| {
+            with_traits(g);
+            c["traits"] = json!([row("test:b", [0.75, 0.25, 0.5, 0.5])]);
+        },
+        |c, g| {
+            with_traits(g);
+            c["traits"] = json!([row("test:a", [0.5, 0.25, 0.75, 0.05]),
+                row("test:b", [0.4, 0.1, 0.4, 0.0])]);
+        },
+    ];
+    for change in valid {
+        assert_eq!(checked(change), "ok");
+    }
+}
+
 #[test]
 fn calibration_rejects() {
-    let cases: [(Change, &str); 10] = [
+    let cases: [(Change, &str); 11] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
+        (|c, _| c["format_version"] = json!(1), "data.format_version"),
         (
             |c, _| {
                 c["values"]
