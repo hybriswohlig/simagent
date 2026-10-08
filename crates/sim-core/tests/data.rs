@@ -1306,3 +1306,199 @@ fn body_values_reject() {
     let result = Data::new(common::definitions(c, g).expect("definitions"));
     assert_eq!(result.err(), Some(DataError::CalibrationMissing));
 }
+
+/// ADR-0015 section 1: every key reaches its own field of `BodyModel`. Each field holds
+/// the value of the table; then every value moves by its own step (`0.001 · (i + 1)`
+/// down, inside every range), and each field follows its key.
+#[test]
+fn every_body_value_reaches_its_field() {
+    type Field = fn(&sim_core::data::BodyModel) -> f64;
+    let fields: [(&str, Field, f64); 70] = [
+        (
+            "core:body_pigment_skin_offset",
+            |m| m.pigment_skin_offset,
+            -1.2,
+        ),
+        (
+            "core:body_pigment_skin_slope",
+            |m| m.pigment_skin_slope,
+            1.15,
+        ),
+        (
+            "core:body_pigment_hair_slope",
+            |m| m.pigment_hair_slope,
+            1.2,
+        ),
+        (
+            "core:body_pigment_hair_residual",
+            |m| m.pigment_hair_residual,
+            0.55,
+        ),
+        (
+            "core:body_pigment_hair_darkening",
+            |m| m.pigment_hair_darkening,
+            1.0,
+        ),
+        (
+            "core:body_pigment_hair_darkening_age",
+            |m| m.pigment_hair_darkening_age,
+            12.0,
+        ),
+        (
+            "core:body_pigment_iris_offset",
+            |m| m.pigment_iris_offset,
+            0.5,
+        ),
+        (
+            "core:body_pigment_iris_slope",
+            |m| m.pigment_iris_slope,
+            1.5,
+        ),
+        (
+            "core:body_pigment_iris_darkening",
+            |m| m.pigment_iris_darkening,
+            1.4,
+        ),
+        (
+            "core:body_pigment_iris_darkening_age",
+            |m| m.pigment_iris_darkening_age,
+            3.0,
+        ),
+        (
+            "core:body_pigment_skin_pheo_offset",
+            |m| m.pigment_skin_pheo_offset,
+            -1.5,
+        ),
+        (
+            "core:body_pigment_skin_pheo_slope",
+            |m| m.pigment_skin_pheo_slope,
+            -0.25,
+        ),
+        (
+            "core:body_pigment_hair_pheo_offset",
+            |m| m.pigment_hair_pheo_offset,
+            -2.0,
+        ),
+        (
+            "core:body_pigment_hair_pheo_slope",
+            |m| m.pigment_hair_pheo_slope,
+            -0.35,
+        ),
+        ("core:body_mc1r_hair_eu", |m| m.mc1r_hair_eu, 0.3),
+        ("core:body_mc1r_skin_eu", |m| m.mc1r_skin_eu, 0.55),
+        ("core:body_mc1r_hair_pheo", |m| m.mc1r_hair_pheo, 0.8),
+        ("core:body_mc1r_skin_pheo", |m| m.mc1r_skin_pheo, 0.45),
+        ("core:body_mc1r_freckle", |m| m.mc1r_freckle, 1.0),
+        ("core:body_herc2_iris", |m| m.herc2_iris, 0.15),
+        (
+            "core:body_development_androgen_lag",
+            |m| m.development_androgen_lag,
+            0.5,
+        ),
+        (
+            "core:body_development_estrogen_lead",
+            |m| m.development_estrogen_lead,
+            0.5,
+        ),
+        (
+            "core:body_development_breast_lead",
+            |m| m.development_breast_lead,
+            0.2,
+        ),
+        ("core:body_development_tempo", |m| m.development_tempo, 1.15),
+        (
+            "core:body_development_androgen_offset",
+            |m| m.development_androgen_offset,
+            1.5,
+        ),
+        (
+            "core:body_development_estrogen_offset",
+            |m| m.development_estrogen_offset,
+            1.5,
+        ),
+        (
+            "core:body_development_estrogen_men",
+            |m| m.development_estrogen_men,
+            0.1,
+        ),
+        (
+            "core:body_development_androgen_women",
+            |m| m.development_androgen_women,
+            0.15,
+        ),
+        ("core:body_curl_offset", |m| m.curl_offset, -1.4),
+        ("core:body_curl_slope", |m| m.curl_slope, 1.5),
+        ("core:body_freckle_offset", |m| m.freckle_offset, -1.6),
+        ("core:body_freckle_slope", |m| m.freckle_slope, 1.1),
+        ("core:body_freckle_pigment", |m| m.freckle_pigment, -0.5),
+        ("core:body_beard_lag", |m| m.beard_lag, 4.0),
+        ("core:body_beard_tempo", |m| m.beard_tempo, 1.8),
+        ("core:body_beard_offset", |m| m.beard_offset, 0.4),
+        ("core:body_beard_androgen", |m| m.beard_androgen, 0.4),
+        ("core:body_body_hair_lag", |m| m.body_hair_lag, 2.5),
+        ("core:body_body_hair_tempo", |m| m.body_hair_tempo, 1.6),
+        (
+            "core:body_body_hair_androgen",
+            |m| m.body_hair_androgen,
+            0.4,
+        ),
+        ("core:body_body_hair_women", |m| m.body_hair_women, 0.2),
+        ("core:body_bald_men_stage", |m| m.bald_men_stage, 7.0),
+        ("core:body_bald_men_center", |m| m.bald_men_center, 64.0),
+        ("core:body_bald_men_slope", |m| m.bald_men_slope, 8.0),
+        ("core:body_bald_men_androgen", |m| m.bald_men_androgen, 3.0),
+        ("core:body_bald_men_tempo", |m| m.bald_men_tempo, 10.0),
+        ("core:body_bald_women_stage", |m| m.bald_women_stage, 2.5),
+        ("core:body_bald_women_center", |m| m.bald_women_center, 78.0),
+        ("core:body_bald_women_slope", |m| m.bald_women_slope, 6.0),
+        ("core:body_bald_women_tempo", |m| m.bald_women_tempo, 12.0),
+        (
+            "core:body_hair_density_offset",
+            |m| m.hair_density_offset,
+            2.0,
+        ),
+        ("core:body_hair_density_loss", |m| m.hair_density_loss, 0.3),
+        (
+            "core:body_hair_density_center",
+            |m| m.hair_density_center,
+            60.0,
+        ),
+        (
+            "core:body_hair_density_tempo",
+            |m| m.hair_density_tempo,
+            8.0,
+        ),
+        ("core:body_grey_center", |m| m.grey_center, 55.0),
+        ("core:body_grey_slope", |m| m.grey_slope, 7.0),
+        ("core:body_grey_tempo", |m| m.grey_tempo, 7.0),
+        ("core:body_wrinkles_center", |m| m.wrinkles_center, 55.0),
+        ("core:body_wrinkles_slope", |m| m.wrinkles_slope, 5.0),
+        ("core:body_wrinkles_tempo", |m| m.wrinkles_tempo, 8.0),
+        ("core:body_laxity_center", |m| m.laxity_center, 62.0),
+        ("core:body_laxity_slope", |m| m.laxity_slope, 5.0),
+        ("core:body_laxity_tempo", |m| m.laxity_tempo, 8.0),
+        ("core:body_spots_center", |m| m.spots_center, 60.0),
+        ("core:body_spots_skin", |m| m.spots_skin, 4.0),
+        ("core:body_spots_pigment", |m| m.spots_pigment, 2.0),
+        ("core:body_spots_tempo", |m| m.spots_tempo, 8.0),
+        ("core:body_stoop_center", |m| m.stoop_center, 78.0),
+        ("core:body_stoop_skin", |m| m.stoop_skin, 4.0),
+        ("core:body_stoop_tempo", |m| m.stoop_tempo, 6.0),
+    ];
+    let model = common::data().genetics().body;
+    for (key, get, value) in fields {
+        assert_eq!(get(&model), value, "{key}");
+    }
+    let (mut c, g) = common::files();
+    let mut moved = Vec::new();
+    for (step, (key, _, value)) in (1..).zip(fields) {
+        let new = value - 0.001 * f64::from(step);
+        c["values"][key]["value"] = json!(new);
+        moved.push(new);
+    }
+    let data = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    let model = data.genetics().body;
+    for ((key, get, _), new) in fields.into_iter().zip(moved) {
+        assert_eq!(get(&model), new, "{key}");
+    }
+}
