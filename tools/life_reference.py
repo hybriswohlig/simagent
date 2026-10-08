@@ -21,10 +21,18 @@ the first fits, ADR-0011, as R6 and R7):
 
 - `c` and `m` of the entry rate `e(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
   (the former search curve of 11.2, R7): among persons who reach 50, the median age at
-  the first partnership is 23.5 (women) and 26 (men), and the men's share without any partnership by 50 is 0.10. The
-  women's share is only reported: the first fit showed that both shares cannot be 0.10
-  with the medians (1.05 boys per girl). Four parameters for three targets leave one
-  direction free; the women's share picks the point in it, with a tenth of the weight.
+  the first partnership is 23.5 (women) and 26 (men), and the men's share without any
+  partnership by 50 is 0.10. The women's share is only reported: the first fit showed
+  that both shares cannot be 0.10 with the medians (1.05 boys per girl). Four parameters
+  for three targets leave one direction free; the women's share picks the point in it,
+  with a tenth of the weight.
+- Exploratory switch `--female` (cfg["market"] = "female", not a decision): the classic
+  female-dominant market of demographic microsimulation. Only single women search, with
+  `s_f(a)` (same form) times `rho`; their candidates are up to 12 single men of the
+  round's snapshot; utility and choice as in 11.2. It fits `c`, `m`, `rho`, `alpha`,
+  `lambda_sep`, `w_K`, `w_H` to the women's median and never share, the births under 18,
+  the births, the separations and the correlations; the men's values are emergent, and
+  the report scans `w_a`.
 - `rho`, a factor on `e(a)` for both sexes from the 16th until before the 18th birthday
   (Grok, R6b): the share of live births to mothers under 18 among all live births after
   the burn-in is 0.0024 (band 0.001 to 0.005); `rho` stays in (0, 1].
@@ -428,13 +436,14 @@ def simulate(par, seed, cfg):
     split = (burn + cohort_end) // 2
     n0 = cfg["founders"]
     lam_sep = par["lam"]
-    w_k, w_h, w_a = par["w_K"], par["w_H"], W_AGE
+    w_k, w_h, w_a = par["w_K"], par["w_H"], par.get("w_a", W_AGE)
+    female_market = cfg.get("market", "r7") == "female"
     market_age = round(cfg.get("market_age", MARKET_AGE) * MONTHS)
     rule = cfg.get("fertility") or PubertyFertility()
     chance = rule.chance
     fert_until = math.ceil(rule.last_age * MONTHS)
     tabs = (search_table(par["c_f"], par["m_f"], market_age, par["rho"]),
-            search_table(par["c_m"], par["m_m"], market_age, par["rho"]))
+            search_table(par.get("c_m", 0.0), par.get("m_m", 30.0), market_age, par["rho"]))
     tab_len = len(tabs[0])
     cum = []
     acc = 0.0
@@ -697,36 +706,49 @@ def simulate(par, seed, cfg):
         for p in adult_at.pop(t, ()):
             if death[p] > t and partner_of[p] < 0:
                 singles[sex[p]].add(p)
-        # Market round (Grok, R7): single persons not on the market enter it with e(a);
-        # then everyone on the market searches with q; the candidates are the persons of
-        # the other sex on the market at the start of the round.
-        ss = salt(TAG_SEARCH, t)
-        for sx in (FEMALE, MALE):
-            tab = tabs[sx]
-            mk = market[sx]
-            for p in sorted(singles[sx]):
-                if p in mk:
-                    continue
+        if female_market:
+            # Exploratory variant (not a decision): only single women search, with s_f(a)
+            # times rho from 16 until before 18; the candidates are the single men of
+            # the round's snapshot.
+            held = (sorted(singles[FEMALE]), sorted(singles[MALE]))
+            ss = salt(TAG_SEARCH, t)
+            tab = tabs[FEMALE]
+            seekers = []
+            for p in held[FEMALE]:
                 am = t - birth[p]
-                if am >= tab_len:
-                    continue
-                e = tab[am]
-                if e <= 0.0:
-                    continue
-                x = ss ^ key[p]
-                x = ((x ^ (x >> 30)) * F1) & M64
-                x = ((x ^ (x >> 27)) * F2) & M64
-                x ^= x >> 31
-                if ((x >> 11) + 0.5) * U53 < e:
-                    mk.add(p)
-        held = (sorted(market[FEMALE]), sorted(market[MALE]))
-        if t >= burn:
-            stats_market[0] += 1
-            stats_market[1] += len(held[FEMALE])
-            stats_market[2] += len(held[MALE])
-        qs = salt(TAG_QSEARCH, t)
-        seekers = [p for sx in (FEMALE, MALE) for p in held[sx]
-                   if unit(mix(qs ^ key[p])) < Q_SEARCH]
+                if am < tab_len and tab[am] > 0.0 and unit(mix(ss ^ key[p])) < tab[am]:
+                    seekers.append(p)
+        else:
+            # Market round (Grok, R7): single persons not on the market enter it with e(a);
+            # then everyone on the market searches with q; the candidates are the persons of
+            # the other sex on the market at the start of the round.
+            ss = salt(TAG_SEARCH, t)
+            for sx in (FEMALE, MALE):
+                tab = tabs[sx]
+                mk = market[sx]
+                for p in sorted(singles[sx]):
+                    if p in mk:
+                        continue
+                    am = t - birth[p]
+                    if am >= tab_len:
+                        continue
+                    e = tab[am]
+                    if e <= 0.0:
+                        continue
+                    x = ss ^ key[p]
+                    x = ((x ^ (x >> 30)) * F1) & M64
+                    x = ((x ^ (x >> 27)) * F2) & M64
+                    x ^= x >> 31
+                    if ((x >> 11) + 0.5) * U53 < e:
+                        mk.add(p)
+            held = (sorted(market[FEMALE]), sorted(market[MALE]))
+            if t >= burn:
+                stats_market[0] += 1
+                stats_market[1] += len(held[FEMALE])
+                stats_market[2] += len(held[MALE])
+            qs = salt(TAG_QSEARCH, t)
+            seekers = [p for sx in (FEMALE, MALE) for p in held[sx]
+                       if unit(mix(qs ^ key[p])) < Q_SEARCH]
         if seekers:
             os_ = salt(TAG_ORDER, town, t)
             seekers.sort(key=lambda p: mix(os_ ^ key[p]))
@@ -966,8 +988,8 @@ def measure(agg, par):
     m["cands_mean"] = nc / ns
     m["cands_none"] = n0 / ns
     nr, mf, mm = agg["market"]
-    m["market_f"] = mf / nr
-    m["market_m"] = mm / nr
+    m["market_f"] = mf / nr if nr else math.nan
+    m["market_m"] = mm / nr if nr else math.nan
     m["births"] = births_rb(agg, par["alpha"])
     nr, br = agg["births_real"]
     m["births_real"] = br / nr
@@ -1156,11 +1178,11 @@ def log(msg):
 
 def describe(label, x, alpha, lam, m):
     p = params(x, alpha, lam)
-    log("  %-6s c_f %.5f m_f %6.3f c_m %.5f m_m %6.3f rho %.4f w_K %.4f w_H %.4f "
-        "alpha %.4f lam %.5f" % ((label,) + tuple(p[k] for k in XNAMES + ("alpha", "lam"))))
-    log("         med_f %6.3f med_m %6.3f never_m %.4f u18 %.5f births %.4f sep %.4f "
-        "r_K %.4f r_H %.4f | never_f %.4f gap %.3f" % tuple(
-            [value(m, k) for k in REPORTED] + [value(m, "never_f"), value(m, "gap")]))
+    log("  %-6s %s alpha %.4f lam %.5f" % (label, " ".join(
+        "%s %.5g" % (k, p[k]) for k in XNAMES), alpha, lam))
+    log("         %s | never_f %.4f gap %.3f med_m %.3f never_m %.4f" % (" ".join(
+        "%s %.5g" % (k, value(m, k)) for k in REPORTED), value(m, "never_f"),
+        value(m, "gap"), value(m, "med_m"), value(m, "never_m")))
 
 
 def seeds_of(k, towns):
@@ -1333,6 +1355,28 @@ X0 = [math.log(0.014), 27.0, math.log(0.012), 27.5, math.log(0.12), math.log(1.5
       math.log(0.6)]
 ALPHA0, LAM0 = 0.25, 0.0086
 SMALL_FOUNDERS, SMALL_TOWNS = 100, 96  # the extra check run on small towns (R7)
+WA_SCAN = (0.02, 0.05, 0.1, 0.2)  # w_a values of the scan of the female market
+
+# The exploratory female-dominant market (`--female`, cfg["market"] = "female"): only
+# women search; the outer fit has c and m of s_f, rho, w_K and w_H for the women's
+# median and never share, the births under 18 and the two correlations. The men's
+# median and never share are emergent there.
+FEMALE_MODE = {
+    "XNAMES": ("c_f", "m_f", "rho", "w_K", "w_H"),
+    "LOGX": (True, False, True, True, True),
+    "RHO_INDEX": 2,
+    "SCALE": (0.15, 1.5, 0.5, 0.25, 0.25),
+    "TSCALE": (0.48, 0.020, 0.0008, 0.021, 0.021),
+    "OUTER": ("med_f", "never_f", "u18", "r_K", "r_H"),
+    "REPORTED": ("med_f", "never_f", "u18", "births", "sep", "r_K", "r_H"),
+    "X0": [math.log(0.0106), 27.2, math.log(0.12), math.log(0.5), math.log(0.2)],
+}
+
+
+def set_mode(mode):
+    """Rebinds the fit's globals to a mode table (main process only; the towns read
+    only their parameters and cfg)."""
+    globals().update(mode)
 FIT_DATE = "2026-10-08"
 NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "alpha", "lam", "w_K", "w_H")
 MEANING = {
@@ -1342,6 +1386,9 @@ MEANING = {
     "alpha": "tilt of the wish distribution", "lam": "separation rate lambda_sep per year",
     "w_K": "similarity weight w_K (cognition)", "w_H": "similarity weight w_H (height z_h)",
 }
+FEMALE_MODE["MEANING"] = dict(MEANING, c_f="height c of s_f(a), women, per month",
+                              m_f="center m of s_f(a), women, years",
+                              rho="factor on s_f(a) from 16 until before 18")
 LABELS = {
     "med_f": "median age at first partnership, women",
     "never_f": "share without partnership by 50, women",
@@ -1356,7 +1403,7 @@ LABELS = {
     "r_K": "partner correlation z_K, first partnerships",
     "r_H": "partner correlation z_h, first partnerships",
 }
-EXTRA = ("never_f", "gap", "first_birth", "tfr", "births_real", "sep_real",
+EXTRA = ("never_f", "med_m", "never_m", "gap", "first_birth", "tfr", "births_real", "sep_real",
          "drift_med_f", "drift_med_m", "drift_never_f", "drift_never_m", "drift_births")
 
 
@@ -1374,7 +1421,7 @@ def german(x):
     return repr(x).replace(".", ",")
 
 
-def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
+def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_scan=None):
     agg, m, outs = chk
     m.update(derived(m))
     se = jackknife(outs, par, REPORTED + EXTRA)
@@ -1387,7 +1434,8 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
         "standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
     log("  %-6s %12s %10s  %s" % ("value", "fitted", "MC SE", "meaning"))
     for k in NAMES:
-        log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
+        if k in se_par:
+            log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
     log("  wish P_0..P_4 = %s, mean %.4f (limit 3.0)" % (
         ", ".join("%.4f" % p for p in wish_probs(par["alpha"])), wish_mean(par["alpha"])))
     log("")
@@ -1409,8 +1457,13 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
                                                        se[k], dev))
     missed = [k for k, v, s in zip(OUTER, fitted["model"], fitted["model_se"])
               if k != "never_f" and abs(v) > 3 * s]
-    log("  share without partnership by 50, women (report only, not a target): model %.4f, "
-        "check %.4f +- %.4f" % (model["never_f"], value(m, "never_f"), se["never_f"]))
+    if "never_f" not in REPORTED:
+        log("  share without partnership by 50, women (report only, not a target): model "
+            "%.4f, check %.4f +- %.4f" % (model["never_f"], value(m, "never_f"),
+                                          se["never_f"]))
+    for k in ("med_m", "never_m"):
+        if k not in REPORTED:
+            log("  %s (emergent, not fitted): %.4f +- %.4f" % (LABELS[k], value(m, k), se[k]))
     if fitted["clipped"] >= 3:
         log("  NOT CONVERGED: %d of the last 5 steps were shortened to the trust radius; the "
             "search was still moving." % fitted["clipped"])
@@ -1456,8 +1509,16 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
     log("  w_K scan at the fitted point (%d towns each): %s" % (
         cfg["settle_towns"], "; ".join("w_K %g r_K %.3f" % (w, value(ms, "r_K"))
                                        for w, ms in zip(WK_SCAN, scan))))
-    log("  persons on the market per round, mean: women %.1f, men %.1f" % (
-        m["market_f"], m["market_m"]))
+    if m["market_f"] == m["market_f"]:
+        log("  persons on the market per round, mean: women %.1f, men %.1f" % (
+            m["market_f"], m["market_m"]))
+    if wa_scan:
+        log("  w_a scan at the fitted point (%d towns each):" % cfg["settle_towns"])
+        for w, ms in zip(WA_SCAN, wa_scan):
+            log("    w_a %-5g gap mean %.3f SD %.2f, r_K %.3f, r_H %.3f, men's median %.3f, "
+                "men's never share %.4f" % (w, value(ms, "gap"), ms["gap_sd"], value(ms, "r_K"),
+                                            value(ms, "r_H"), value(ms, "med_m"),
+                                            value(ms, "never_m")))
     log("  mean age of mothers at first birth (women reaching 50): %.2f +- %.2f (report)" % (
         m["first_birth"], se["first_birth"]))
     tfr = m["tfr"]
@@ -1470,11 +1531,13 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
     sse = jackknife(souts, par, REPORTED + EXTRA)
     log("Town size: the fitted values on %d towns of %d founders (the check run has %d):" % (
         len(souts), SMALL_FOUNDERS, cfg["founders"]))
-    for k in REPORTED + ("never_f", "gap", "first_birth", "tfr"):
+    for k in REPORTED + tuple(k for k in ("never_f", "med_m", "never_m", "gap", "first_birth",
+                                           "tfr") if k not in REPORTED):
         log("  %-44s %9.4f +- %.4f (check run %.4f)" % (
             LABELS.get(k, k), value(sm, k), sse.get(k, math.nan), value(m, k)))
-    log("  candidates per searcher %.2f (check run %.2f); on the market per round: women "
-        "%.2f, men %.2f" % (sm["cands_mean"], m["cands_mean"], sm["market_f"], sm["market_m"]))
+    log("  candidates per searcher %.2f (check run %.2f)" % (sm["cands_mean"], m["cands_mean"]))
+    if sm["market_f"] == sm["market_f"]:
+        log("  on the market per round: women %.2f, men %.2f" % (sm["market_f"], sm["market_m"]))
     log("")
     log("Founders and burn-in (check run): change from the cohorts born in the first half of "
         "years %d-%d to the second half (0 expected):" % (cfg["burn_in"], cfg["years"] - 50))
@@ -1498,11 +1561,10 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
         "ln rho, ln w_K, ln w_H):" % ", ".join(OUTER))
     for row in fitted["jac"]:
         log("  " + " ".join("%9.4f" % (v / s) for v, s in zip(row, SCALE)))
-    rounded = {k: sig(par[k], se_par[k]) for k in NAMES}
+    rounded = {k: sig(par[k], se_par[k]) for k in NAMES if k in se_par}
     log("")
     log("Values for the specification (German decimals):")
-    log("  c Frauen %s, m Frauen %s, c Männer %s, m Männer %s, rho %s, alpha %s, "
-        "lambda_sep %s, w_K %s, w_H %s" % tuple(german(rounded[k]) for k in NAMES))
+    log("  " + ", ".join("%s %s" % (k, german(v)) for k, v in rounded.items()))
     source = ("tools/life_reference.py: closed towns of %d founders over %d years (burn-in %d), "
               "local regression over %d runs of %d towns, checked on %d new towns" % (
                   cfg["founders"], cfg["years"], cfg["burn_in"], len(runs), cfg["towns"], n_chk))
@@ -1528,6 +1590,8 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
     )
     snippet = {}
     for name, k, unit_, note in entries:
+        if k not in rounded:
+            continue
         snippet[name] = {"value": rounded[k], "unit": unit_, "source": source,
                          "as_of": FIT_DATE,
                          "note": "%s; Monte Carlo standard error %.2g" % (note, se_par[k])}
@@ -1541,6 +1605,9 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
 
 def main(argv):
     quick = "--quick" in argv
+    female = "--female" in argv
+    if female:
+        set_mode(FEMALE_MODE)
     jobs = min(os.cpu_count() or 1, 12)
     if "--jobs" in argv:
         jobs = int(argv[argv.index("--jobs") + 1])
@@ -1550,6 +1617,9 @@ def main(argv):
         "run; %d jobs" % ("QUICK smoke test, imprecise" if quick else "full fit",
                           cfg["founders"], cfg["years"], cfg["burn_in"], cfg["towns"], jobs))
     sim_cfg = {k: cfg[k] for k in ("founders", "years", "burn_in")}
+    sim_cfg["market"] = "female" if female else "r7"
+    if female:
+        log("EXPLORATORY: the female-dominant market (only women search), not a decision.")
     runner = Runner(sim_cfg, jobs)
     try:
         fitted = fit(runner, X0[:], ALPHA0, LAM0, cfg)
@@ -1567,8 +1637,12 @@ def main(argv):
     small_towns = SMALL_TOWNS if not quick else 8
     small, = runner.evaluate([par], list(range(CHECK_SEED0 + 5000,
                                                CHECK_SEED0 + 5000 + small_towns)), small_cfg)
+    wa_scan = None
+    if female:
+        wa_scan = [r[1] for r in runner.evaluate(
+            [dict(par, w_a=w) for w in WA_SCAN], seeds_of(cfg["iters"] + 4, cfg["settle_towns"]))]
     reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan], small,
-                         time.time() - t0, runner.towns)
+                         time.time() - t0, runner.towns, wa_scan)
     status = 0
     if not reached:
         log("NOT REACHED: a target misses by more than 4 standard errors in the check run.")
