@@ -16,8 +16,8 @@ print the same digits. The output is a table of the fitted values with the targe
 reach and their Monte Carlo standard errors, the checks, and a JSON snippet for
 data/calibration/demography.json.
 
-What the tool fits (targets from the specification and Grok's decision of 2026-10-08 on
-the first fit, ADR-0011):
+What the tool fits (targets from the specification and Grok's decisions of 2026-10-08 on
+the first two fits, ADR-0011, the second as R6):
 
 - `c` and `m` of the search curve `s(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
   (11.2): among persons who reach 50, the median age at the first partnership is 23.5
@@ -25,8 +25,9 @@ the first fit, ADR-0011):
   women's share is only reported: the first fit showed that both shares cannot be 0.10
   with the medians (1.05 boys per girl). Four parameters for three targets leave one
   direction free; the women's share picks the point in it, with a tenth of the weight.
-- `w_a` of the age term (11.2, no longer fixed): the mean age gap man minus woman over all
-  partnerships is 3.0. If it stays outside 2.5 to 4, the tool stops.
+- `rho`, a factor on `s(a)` for both sexes from the 16th until before the 18th birthday
+  (Grok, R6b): the share of live births to mothers under 18 among all live births after
+  the burn-in is 0.0024 (band 0.001 to 0.005); `rho` stays in (0, 1].
 - `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
   live births on average, twins counting two. A wish mean above 3.0 stops the tool.
 - `lambda_sep` per year (ADR-0018 section 3): one third of all partnerships end by
@@ -43,12 +44,13 @@ The model, exactly as written in spec 7 and 11 unless stated:
   longevity value N(0, 1) held at +-6; one Exp(1) budget per cause, death age in closed
   form. Founders start at their age with fresh budgets (7.1). Hereditary diseases are
   left out (they add a small hazard to few carriers and would need the genome).
-- Market (11.2) at every month start, after that month's births and conception attempts:
-  the single persons of at least 16 are held; each searches with `s(a)`; searchers choose
-  in the order of a random rank; the candidates are the singles of the other sex from the
-  held list in the order of a random rank per searcher, skipping those with
-  `phi >= 1/8` to the searcher, at most 12; utility
-  `-w_K (dz_K)^2 - w_H (dz_h)^2 - w_a (da - 2.5)^2 - 16 ln(10) phi + Gumbel`; the
+- Market (11.2 with Grok's R6a) at every month start, after that month's births and
+  conception attempts: the single persons of at least 16 are held; each searches with
+  `s(a)`; searchers choose in the order of a random rank; the candidates are only the
+  searchers of the other sex of this round (two-sided participation), in the order of a
+  random rank per searcher, skipping those with `phi >= 1/8` to the searcher, at most 12;
+  utility `-w_K (dz_K)^2 - w_H (dz_h)^2 - 0.02 (da - 2.5)^2 - 16 ln(10) phi + Gumbel`
+  (`w_a` = 0.02 fixed again, R6c); the
   largest wins; a pair forms if the chosen one is still single, else nothing; no counter
   check; whoever was paired in the round no longer searches. A new partnership tries to
   conceive from the next month start on (ADR-0018 section 1).
@@ -68,10 +70,9 @@ The model, exactly as written in spec 7 and 11 unless stated:
 - Two rules stay replaceable: the conception chance (`cfg["fertility"]`, an object with
   `chance` and `last_age`) and the market's minimum age (`cfg["market_age"]`, default 16
   since Grok's decision; it was 18).
-- Checks: the mean age gap (2.5 to 4); the share of live births to mothers under 18
-  among all live births after the burn-in, 0.001 to 0.005 (Germany about 0.0024; Grok's
-  decision, replacing the check on first partnerships in the year after 18); the mean
-  age of mothers at first birth and the total fertility rate are reported.
+- Checks: the mean age gap over all partnerships, 2.5 to 4 (only checked and reported,
+  R6c); the share of births to mothers under 18 within 0.001 to 0.005; the mean age of
+  mothers at first birth and the total fertility rate are reported.
 - Separation (ADR-0018 section 3): an Exp(1) budget per partnership drawn at its start;
   while both live it ends after `budget / lambda_sep` years.
 
@@ -147,7 +148,9 @@ MONTHS = 13  # sim months per sim year (11.1, ADR-0002)
 MARKET_AGE = 16  # years, the default of cfg["market_age"] (Grok, 2026-10-08; was 18)
 WIDTH = 7.0  # K11.2b
 K_CAND = 12  # K11.2f
-MU_AGE = 2.5  # K11.2g; the weight w_a of the age term is fitted (Grok, 2026-10-08)
+MU_AGE = 2.5  # K11.2g
+W_AGE = 0.02  # K11.2h, fixed again (Grok, R6c)
+MINOR_UNTIL = 18  # years: rho multiplies s(a) from the market age until before 18 (R6b)
 KIN_PENALTY = 16.0 * math.log(10.0)  # 11.2
 PAUSE = 12  # K11.3a, months
 PREGNANCY = 10  # K11.3c, months
@@ -174,7 +177,7 @@ GAP_BAND = (2.5, 4.0)  # 11.2
 
 TARGET = {
     "med_f": 23.5, "med_m": 26.0, "never_m": 0.10,  # K11.2c, K11.2d, K11.2e (men only)
-    "gap": 3.0,  # mean age gap, man minus woman, all partnerships (Grok, 2026-10-08)
+    "u18": 0.0024,  # share of live births to mothers under 18 (Grok, R6b; Germany 2025)
     "r_K": 0.4, "r_H": 0.2,  # K4.2f, K4.2c
     "births": 2.20,  # K11.3e
     "sep": 1.0 / 3.0,  # ADR-0018 section 3
@@ -312,12 +315,15 @@ class Kinship:
 # ---------------------------------------------------------------------------------------
 # Parameters
 
-def search_table(c, m, market_age):
-    """s(a) on whole months of age; 0 below the market age (11.2)."""
+def search_table(c, m, market_age, rho):
+    """s(a) on whole months of age; 0 below the market age (11.2), times rho from the
+    market age until before the 18th birthday (Grok, R6b)."""
     out = [0.0] * (131 * MONTHS)
     for k in range(market_age, len(out)):
         x = (k / MONTHS - m) / WIDTH
         out[k] = min(1.0, c * math.exp(-0.5 * x * x))
+        if k < MINOR_UNTIL * MONTHS:
+            out[k] *= rho
     return out
 
 
@@ -419,13 +425,13 @@ def simulate(par, seed, cfg):
     split = (burn + cohort_end) // 2
     n0 = cfg["founders"]
     lam_sep = par["lam"]
-    w_k, w_h, w_a = par["w_K"], par["w_H"], par["w_a"]
+    w_k, w_h, w_a = par["w_K"], par["w_H"], W_AGE
     market_age = round(cfg.get("market_age", MARKET_AGE) * MONTHS)
     rule = cfg.get("fertility") or PubertyFertility()
     chance = rule.chance
     fert_until = math.ceil(rule.last_age * MONTHS)
-    tabs = (search_table(par["c_f"], par["m_f"], market_age),
-            search_table(par["c_m"], par["m_m"], market_age))
+    tabs = (search_table(par["c_f"], par["m_f"], market_age, par["rho"]),
+            search_table(par["c_m"], par["m_m"], market_age, par["rho"]))
     tab_len = len(tabs[0])
     cum = []
     acc = 0.0
@@ -486,6 +492,7 @@ def simulate(par, seed, cfg):
     stats_gap_first = [0, 0.0]
     gap_hist = [0] * 201  # whole years from -100 to 100, man minus woman
     stats_corr = [0] + [0.0] * 10  # n, then K: sx, sy, sxx, syy, sxy, then H likewise
+    stats_cands = [0, 0, 0]  # searchers after the burn-in, their candidates, without any
     sep_d = []
     sep_real = [0, 0, 0]  # separations, deaths, still open at the end
 
@@ -703,6 +710,10 @@ def simulate(par, seed, cfg):
                 if ((x >> 11) + 0.5) * U53 < s:
                     seekers.append(p)
         if seekers:
+            # Two-sided participation (Grok, R6a): the candidates are the participants of
+            # the other sex of this round, in the order of the held list.
+            participants = ([p for p in seekers if sex[p] == FEMALE],
+                            [p for p in seekers if sex[p] == MALE])
             os_ = salt(TAG_ORDER, town, t)
             seekers.sort(key=lambda p: mix(os_ ^ key[p]))
             paired = set()
@@ -711,7 +722,7 @@ def simulate(par, seed, cfg):
             for i in seekers:
                 if i in paired:
                     continue
-                pool = held[1 - sex[i]]
+                pool = participants[1 - sex[i]]
                 if not pool:
                     continue
                 rs = salt(TAG_RANK, key[i], t)
@@ -721,6 +732,10 @@ def simulate(par, seed, cfg):
                 if len(cands) < K_CAND and len(ranked) < len(pool):
                     ranked = sorted(pool, key=lambda j: mix(rs ^ key[j]))
                     cands = [j for j in ranked if q_kin[row + slot[j]] < EIGHTH][:K_CAND]
+                if t >= burn:
+                    stats_cands[0] += 1
+                    stats_cands[1] += len(cands)
+                    stats_cands[2] += not cands
                 if not cands:
                     continue
                 ns = salt(TAG_NOISE, key[i], t)
@@ -766,6 +781,7 @@ def simulate(par, seed, cfg):
         "gap_first": stats_gap_first,
         "gap_hist": gap_hist,
         "corr": stats_corr,
+        "cands": stats_cands,
         "sep_d": sep_d,
         "sep_real": sep_real,
         "asfr_births": [0] * 60,
@@ -931,6 +947,9 @@ def measure(agg, par):
     m["r_K"] = correlation(agg["corr"], 1)
     m["r_H"] = correlation(agg["corr"], 6)
     m["n_first"] = agg["corr"][0]
+    ns, nc, n0 = agg["cands"]
+    m["cands_mean"] = nc / ns
+    m["cands_none"] = n0 / ns
     m["births"] = births_rb(agg, par["alpha"])
     nr, br = agg["births_real"]
     m["births_real"] = br / nr
@@ -969,8 +988,8 @@ def measure(agg, par):
 
 # The residuals of the outer fit; never_f last, only to choose among the solutions of the
 # others (small weight in TSCALE).
-OUTER = ("med_f", "med_m", "never_m", "gap", "r_K", "r_H", "never_f")
-REPORTED = ("med_f", "med_m", "never_m", "gap", "births", "sep", "r_K", "r_H")
+OUTER = ("med_f", "med_m", "never_m", "u18", "r_K", "r_H", "never_f")
+REPORTED = ("med_f", "med_m", "never_m", "u18", "births", "sep", "r_K", "r_H")
 
 
 def value(m, k):
@@ -1031,22 +1050,30 @@ class WishTooHigh(Exception):
     pass
 
 
-def inner(agg):
-    """alpha and lambda_sep solved exactly on one sample; stops when the births target
-    needs a wish mean above 3.0 (11.3)."""
+ALPHA_MAX = root(lambda a: wish_mean(a) - WISH_MAX_MEAN, -5.0, 5.0)  # wish mean 3.0
+
+
+def inner(agg, strict=False):
+    """alpha and lambda_sep solved exactly on one sample. If the births target needs a
+    wish mean above 3.0 (11.3), the search holds alpha at that limit; at the fitted point
+    (`strict`) the tool stops."""
     alpha = root(lambda a: births_rb(agg, a)[0] - TARGET["births"], -5.0, 5.0)
     lam = root(lambda x: sep_rb(agg, x)[0] - TARGET["sep"], 1e-7, 1.0)
-    if alpha is None or wish_mean(alpha) > WISH_MAX_MEAN:
-        raise WishTooHigh(alpha)
+    if alpha is None or alpha > ALPHA_MAX:
+        if strict:
+            raise WishTooHigh(alpha)
+        alpha = ALPHA_MAX if alpha is None or alpha > ALPHA_MAX else alpha
     return alpha, lam
 
 
-XNAMES = ("c_f", "m_f", "c_m", "m_m", "w_a", "w_K", "w_H")  # the outer parameters
+XNAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "w_K", "w_H")  # the outer parameters
 LOGX = (True, False, True, False, True, True, True)  # fitted as logarithms
+RHO_INDEX = 4  # ln rho stays at most 0 (rho in (0, 1], R6b)
 
 
 def params(x, alpha, lam):
     par = {k: (math.exp(v) if lg else v) for k, v, lg in zip(XNAMES, x, LOGX)}
+    par["rho"] = min(1.0, par["rho"])
     par["alpha"] = alpha
     par["lam"] = lam
     return par
@@ -1096,11 +1123,11 @@ def solve_linear(a, b):
     return [m[i][n] / m[i][i] for i in range(n)]
 
 
-SCALE = (0.25, 1.5, 0.25, 1.5, 0.25, 0.25, 0.25)  # trust-region unit of x (ln or years)
+SCALE = (0.1, 1.5, 0.1, 1.5, 0.5, 0.25, 0.25)  # trust-region unit of x (ln or years)
 # Per-town standard deviations of the outer residuals (development runs). They weight the
 # residuals in the least-squares step, which matters only where not all can be met;
 # never_f gets ten times its own, so it only picks among the solutions of the others.
-TSCALE = (0.48, 0.165, 0.0069, 0.21, 0.021, 0.021, 0.20)
+TSCALE = (0.48, 0.165, 0.0069, 0.0008, 0.021, 0.021, 0.20)
 RHO0, RHO_MIN, RHO_DECAY = 2.0, 1.0, 0.85  # trust radius in SCALE units and its schedule
 MU, MU_FINAL = 0.05, 0.01  # Levenberg-Marquardt regularization in SCALE units
 
@@ -1111,11 +1138,11 @@ def log(msg):
 
 def describe(label, x, alpha, lam, m):
     p = params(x, alpha, lam)
-    log("  %-6s c_f %.5f m_f %6.3f c_m %.5f m_m %6.3f w_a %.4f w_K %.4f w_H %.4f "
+    log("  %-6s c_f %.5f m_f %6.3f c_m %.5f m_m %6.3f rho %.4f w_K %.4f w_H %.4f "
         "alpha %.4f lam %.5f" % ((label,) + tuple(p[k] for k in XNAMES + ("alpha", "lam"))))
-    log("         med_f %6.3f med_m %6.3f never_m %.4f gap %.3f births %.4f sep %.4f "
-        "r_K %.4f r_H %.4f | never_f %.4f u18 %.4f" % tuple(
-            [value(m, k) for k in REPORTED] + [value(m, "never_f"), m["u18"]]))
+    log("         med_f %6.3f med_m %6.3f never_m %.4f u18 %.5f births %.4f sep %.4f "
+        "r_K %.4f r_H %.4f | never_f %.4f gap %.3f" % tuple(
+            [value(m, k) for k in REPORTED] + [value(m, "never_f"), value(m, "gap")]))
 
 
 def seeds_of(k, towns):
@@ -1216,6 +1243,7 @@ def fit(runner, x, alpha, lam, cfg):
         for sgn in (1.0, -1.0):
             xi = x[:]
             xi[i] += sgn * SCALE[i]
+            xi[RHO_INDEX] = min(0.0, xi[RHO_INDEX])
             xs.append(xi)
     res = runner.evaluate([params(xi, alpha, lam) for xi in xs], seeds_of(1, towns))
     for xi, r in zip(xs, res):
@@ -1228,6 +1256,7 @@ def fit(runner, x, alpha, lam, cfg):
         d, short = lm_step(a, jac, MU, rho)
         clipped.append(short)
         xc = [c + s * v for c, s, v in zip(xc, SCALE, d)]
+        xc[RHO_INDEX] = min(0.0, xc[RHO_INDEX])
         alpha, lam = inner(runs[-1][3])
         res = runner.evaluate([params(xc, alpha, lam)], seeds_of(k + 1, towns))[0]
         record(xc, alpha, lam, res, "it %d" % k)
@@ -1235,6 +1264,7 @@ def fit(runner, x, alpha, lam, cfg):
     d, short = lm_step(a, jac, MU_FINAL, RHO_MIN)
     clipped.append(short)
     x_fit = [c + s * v for c, s, v in zip(xc, SCALE, d)]
+    x_fit[RHO_INDEX] = min(0.0, x_fit[RHO_INDEX])
     model = [a[t] + sum(jac[t][i] * d[i] for i in range(nx)) for t in range(nout)]
     # Standard errors of the fitted point from the intercept variances (delta method on
     # the weighted least-squares step).
@@ -1247,7 +1277,7 @@ def fit(runner, x, alpha, lam, cfg):
     res = runner.evaluate([params(x_fit, alpha, lam)],
                           seeds_of(cfg["iters"] + 2, cfg["settle_towns"]))[0]
     describe("settle", x_fit, alpha, lam, res[1])
-    alpha, lam = inner(res[0])
+    alpha, lam = inner(res[0], strict=True)
     fitted = {"x": x_fit, "alpha": alpha, "lam": lam, "model": model, "se_x": se_x,
               "model_se": [math.sqrt(v) for v in var_a], "jac": jac, "neff": neff,
               "pooled": res[0], "runs": runs, "clipped": sum(clipped[-5:])}
@@ -1275,21 +1305,21 @@ def fit_errors(fitted, par):
 
 FULL = {"founders": 1000, "years": 300, "burn_in": 100, "towns": 12, "iters": 24,
         "settle_towns": 24, "check_towns": 48}
-QUICK = {"founders": 400, "years": 200, "burn_in": 80, "towns": 4, "iters": 3,
+QUICK = {"founders": 1000, "years": 200, "burn_in": 80, "towns": 4, "iters": 3,
          "settle_towns": 4, "check_towns": 4}
 FIT_SEED0, CHECK_SEED0 = 1, 900001
-W_SCAN = (0.02, 0.08, 0.3, 1.0, 3.0)  # w_a values of the gap scan in the report
+WK_SCAN = (2.0, 10.0, 50.0, 250.0)  # w_K values of the correlation scan in the report
 # Start of the fit, from development runs; the result does not depend on it beyond its
 # standard error.
-X0 = [math.log(0.00127), 28.8, math.log(0.00966), 28.66, math.log(0.08), math.log(0.546),
-      math.log(0.224)]
-ALPHA0, LAM0 = 0.30, 0.0086
+X0 = [math.log(0.024), 27.0, math.log(0.024), 29.5, math.log(0.06), math.log(4.0),
+      math.log(1.2)]
+ALPHA0, LAM0 = 0.25, 0.0086
 FIT_DATE = "2026-10-08"
-NAMES = ("c_f", "m_f", "c_m", "m_m", "w_a", "alpha", "lam", "w_K", "w_H")
+NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "alpha", "lam", "w_K", "w_H")
 MEANING = {
     "c_f": "height c of s(a), women, per month", "m_f": "center m of s(a), women, years",
     "c_m": "height c of s(a), men, per month", "m_m": "center m of s(a), men, years",
-    "w_a": "weight w_a of the age term around mu_a = 2.5",
+    "rho": "factor on s(a) from 16 until before 18, both sexes",
     "alpha": "tilt of the wish distribution", "lam": "separation rate lambda_sep per year",
     "w_K": "similarity weight w_K (cognition)", "w_H": "similarity weight w_H (height z_h)",
 }
@@ -1298,13 +1328,13 @@ LABELS = {
     "never_f": "share without partnership by 50, women",
     "med_m": "median age at first partnership, men",
     "never_m": "share without partnership by 50, men",
-    "gap": "mean age gap man minus woman, all partnerships",
+    "u18": "share of live births to mothers under 18",
     "births": "mean live births, women reaching 50",
     "sep": "share of partnerships ending by separation",
     "r_K": "partner correlation z_K, first partnerships",
     "r_H": "partner correlation z_h, first partnerships",
 }
-EXTRA = ("never_f", "u18", "first_birth", "tfr", "births_real", "sep_real",
+EXTRA = ("never_f", "gap", "first_birth", "tfr", "births_real", "sep_real",
          "drift_med_f", "drift_med_m", "drift_never_f", "drift_never_m", "drift_births")
 
 
@@ -1385,20 +1415,8 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
     g = m["gap"][0]
     ok = GAP_BAND[0] <= g <= GAP_BAND[1]
     checks.append(ok)
-    log("  mean age gap man minus woman, all partnerships: %.3f +- %.3f (2.5 to 4) %s" % (
-        g, se["gap"], "ok" if ok else "FAILED"))
-    inside = [w for w, ms in zip(W_SCAN, scan)
-              if GAP_BAND[0] <= value(ms, "gap") <= GAP_BAND[1]]
-    log("    w_a scan at the fitted search curves and weights (%d towns each): %s" % (
-        cfg["settle_towns"], "; ".join("w_a %g gap %.3f r_K %.3f r_H %.3f" % (
-            w, value(ms, "gap"), value(ms, "r_K"), value(ms, "r_H"))
-            for w, ms in zip(W_SCAN, scan))))
-    best = max(zip(W_SCAN, scan), key=lambda t: value(t[1], "gap"))
-    log("    largest gap of the scan %.3f at w_a %g (target %.1f)" % (
-        value(best[1], "gap"), best[0], TARGET["gap"]))
-    if not inside:
-        checks.append(False)
-        log("    no w_a of the scan puts the gap inside 2.5 to 4 at these search curves: STOP")
+    log("  mean age gap man minus woman, all partnerships, w_a = %g: %.3f +- %.3f (2.5 to 4) "
+        "%s" % (W_AGE, g, se["gap"], "ok" if ok else "FINDING"))
     log("    in first partnerships %.3f; SD %.2f; median in [%d, %d) years; woman older in "
         "%.3f; |gap| of 10 years or more in %.3f" % (
             m["gap_first"], m["gap_sd"], m["gap_median_bin"], m["gap_median_bin"] + 1,
@@ -1406,9 +1424,16 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
     u18 = m["u18"]
     ok = U18_BAND[0] <= u18 <= U18_BAND[1]
     checks.append(ok)
-    log("  share of live births to mothers under 18, years %d-%d: %.5f +- %.5f (0.001 to "
-        "0.005; Germany 2025 about 0.0024) %s" % (
+    log("  share of live births to mothers under 18, years %d-%d: %.5f +- %.5f (fitted via "
+        "rho to 0.0024; band 0.001 to 0.005) %s" % (
             cfg["burn_in"], cfg["years"], u18, se["u18"], "ok" if ok else "FINDING"))
+    if par["rho"] >= 1.0:
+        log("    rho is at its bound 1: the share cannot rise further by rho")
+    log("  candidates per searcher (two-sided market, after the burn-in): mean %.2f, none in "
+        "%.3f of searches" % (m["cands_mean"], m["cands_none"]))
+    log("  w_K scan at the fitted point (%d towns each): %s" % (
+        cfg["settle_towns"], "; ".join("w_K %g r_K %.3f" % (w, value(ms, "r_K"))
+                                       for w, ms in zip(WK_SCAN, scan))))
     log("  mean age of mothers at first birth (women reaching 50): %.2f +- %.2f (report)" % (
         m["first_birth"], se["first_birth"]))
     tfr = m["tfr"]
@@ -1435,13 +1460,13 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
         log("    %3d %7d %6.2f %6.3f %6.3f" % (t // MONTHS, alive, mean_age, young, old))
     log("")
     log("Jacobian of the final local model: rows (%s) per unit of (ln c_f, m_f, ln c_m, m_m, "
-        "ln w_a, ln w_K, ln w_H):" % ", ".join(OUTER))
+        "ln rho, ln w_K, ln w_H):" % ", ".join(OUTER))
     for row in fitted["jac"]:
         log("  " + " ".join("%9.4f" % (v / s) for v, s in zip(row, SCALE)))
     rounded = {k: sig(par[k], se_par[k]) for k in NAMES}
     log("")
     log("Values for the specification (German decimals):")
-    log("  c Frauen %s, m Frauen %s, c Männer %s, m Männer %s, w_a %s, alpha %s, "
+    log("  c Frauen %s, m Frauen %s, c Männer %s, m Männer %s, rho %s, alpha %s, "
         "lambda_sep %s, w_K %s, w_H %s" % tuple(german(rounded[k]) for k in NAMES))
     source = ("tools/life_reference.py: closed towns of %d founders over %d years (burn-in %d), "
               "local regression over %d runs of %d towns, checked on %d new towns" % (
@@ -1456,8 +1481,8 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
          "docs/genetik-spezifikation.md 11.2, c of s(a) for men, per market round"),
         ("core:market_search_center_male", "m_m", "year",
          "docs/genetik-spezifikation.md 11.2, m of s(a) for men"),
-        ("core:pairing_weight_age", "w_a", "logit",
-         "docs/genetik-spezifikation.md 11.2, w_a, utility per squared year of (gap - mu_a)"),
+        ("core:market_search_factor_minor", "rho", "fraction",
+         "Grok R6b, factor on s(a) for both sexes from the 16th until before the 18th birthday"),
         ("core:pairing_weight_cognition", "w_K", "logit",
          "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference"),
         ("core:pairing_weight_height", "w_H", "logit",
@@ -1501,8 +1526,8 @@ def main(argv):
     se_par = fit_errors(fitted, par)
     check_seeds = list(range(CHECK_SEED0, CHECK_SEED0 + cfg["check_towns"]))
     chk, = runner.evaluate([par], check_seeds)
-    scan_pars = [dict(par, w_a=w) for w in W_SCAN]
-    scan = runner.evaluate(scan_pars, seeds_of(cfg["iters"] + 3, cfg["settle_towns"]))
+    scan = runner.evaluate([dict(par, w_K=w) for w in WK_SCAN],
+                           seeds_of(cfg["iters"] + 3, cfg["settle_towns"]))
     reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan],
                          time.time() - t0, runner.towns)
     status = 0
