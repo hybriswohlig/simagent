@@ -16,7 +16,7 @@ use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
-use sim_core::params::{ParamChange, WorldParams};
+use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::time::SimTime;
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
@@ -181,6 +181,8 @@ fn barren() -> Fertility {
 #[derive(Clone, Serialize)]
 enum TestChange {
     HereditaryDiseases(bool),
+    /// (year, index), variant 1 (ADR-0013).
+    NutritionYear(i64, f64),
 }
 
 /// An override block that sets the switch of the hereditary diseases.
@@ -892,6 +894,50 @@ fn a_save_keeps_the_override_and_the_world_parameters() {
     );
     assert_eq!(loaded.input_log(), world.input_log());
     assert_eq!(loaded.state_hash(), world.state_hash());
+}
+
+/// ADR-0013: the nutrition years an override set are kept by a save and checked by the
+/// load against the input log; a projection with a year the log never set is rejected.
+#[test]
+fn a_save_keeps_the_nutrition_years() {
+    let mut world = tiny();
+    let fed = |year, index| {
+        ParamChange::NutritionYear(NutritionYear {
+            year,
+            index: FiniteF64::try_new(index).expect("finite"),
+        })
+    };
+    world
+        .submit(Input::ForkOverride(ForkOverride {
+            changes: vec![fed(3, 0.7), fed(1, 0.0)],
+        }))
+        .expect("accepted");
+    world.take_log();
+    let bytes = world.save(&[]).expect("saves");
+    assert_eq!(load_error(&bytes), None);
+    let (loaded, _) = load(&bytes).expect("loads");
+    assert_eq!(loaded.state().world_params(), world.state().world_params());
+    assert_eq!(loaded.input_log(), world.input_log());
+    assert_eq!(loaded.state_hash(), world.state_hash());
+    let unexplained = File::tiny().with(|f| f.world_params = Some((false, vec![(3, 0.7)])));
+    assert_eq!(load_error(&unexplained), Some(LoadError::Inconsistent));
+    // A block of the input log that sets a year before its fork year: stamped at -1 it acts
+    // from year 0 on, so year -1 is past, even if the projection agrees with it.
+    let set = |year: i64| {
+        File::tiny().with(|f| {
+            f.world_params = Some((false, vec![(year, 0.7)]));
+            f.next_event_id = 3;
+            f.input_log.push((
+                -1,
+                2,
+                TestInput::ForkOverride {
+                    changes: vec![TestChange::NutritionYear(year, 0.7)],
+                },
+            ));
+        })
+    };
+    assert_eq!(load_error(&set(0)), None);
+    assert_eq!(load_error(&set(-1)), Some(LoadError::Inconsistent));
 }
 
 /// ADR-0006 section 5 for the override block: the world parameters are those of `Start`
