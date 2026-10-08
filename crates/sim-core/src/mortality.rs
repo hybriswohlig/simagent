@@ -30,13 +30,7 @@ pub fn held_longevity(g: f64) -> f64 {
     if !g.is_finite() {
         panic!("invariant mortality.longevity");
     }
-    if g > LONGEVITY_INPUT_BOUND {
-        LONGEVITY_INPUT_BOUND
-    } else if g < 0.0 - LONGEVITY_INPUT_BOUND {
-        0.0 - LONGEVITY_INPUT_BOUND
-    } else {
-        g
-    }
+    g.clamp(0.0 - LONGEVITY_INPUT_BOUND, LONGEVITY_INPUT_BOUND)
 }
 
 /// `σ_g · ĝ`, 0 without a trait of longevity (11.1).
