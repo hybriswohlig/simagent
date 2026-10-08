@@ -367,3 +367,121 @@ fn body_clamp_rate_negative_twin() {
         }
     }
 }
+
+/// A few people of the extreme set (b) for the named tests of ADR-0005 section 8.
+fn some_people(data: &Data) -> Vec<(Sex, BodyTraits, u8, u8)> {
+    let loci = data.genome_map().loci.len();
+    let mut people = Vec::new();
+    for sex in [Sex::Female, Sex::Male] {
+        for (all, env, mc1r, herc2) in [(false, -6.0, 0, 2), (true, 6.0, 2, 0), (true, 0.5, 1, 1)] {
+            let genome = genome(data, sex, &vec![all; 2 * loci]);
+            people.push((
+                sex,
+                traits(data, &genome, &[env; 37], &[-env; 37]),
+                mc1r,
+                herc2,
+            ));
+        }
+    }
+    people
+}
+
+fn adult(sex: Sex, z: BodyTraits, mc1r: u8, herc2: u8, b: f64) -> BodyInputs<'static> {
+    BodyInputs {
+        sex,
+        age: YEAR * 30,
+        bio_age: b,
+        born: year_start(0),
+        nutrition: &[],
+        z,
+        mc1r,
+        herc2,
+    }
+}
+
+#[test]
+fn body_params_pure() {
+    let data = fixture();
+    let body = BodyData::new(&data).expect("body");
+    for (sex, z, mc1r, herc2) in some_people(&data) {
+        let inputs = adult(sex, z, mc1r, herc2, 47.5);
+        let first = values(&body_params(&body, &inputs));
+        let again = values(&body_params(&body, &inputs));
+        assert_eq!(first.to_string(), again.to_string());
+    }
+}
+
+#[test]
+fn bounded_units_never_clamped() {
+    let data = fixture();
+    let body = BodyData::new(&data).expect("body");
+    for (sex, z, mc1r, herc2) in some_people(&data) {
+        for b in [0.0, 13.0, 60.0, 125.0] {
+            let evaluation = body_params(&body, &adult(sex, z, mc1r, herc2, b));
+            assert!(
+                evaluation
+                    .clamped
+                    .iter()
+                    .all(|key| CLAMPED_KEYS.contains(key))
+            );
+        }
+    }
+}
+
+/// Form ages never fall with the biological age and equal it from 25 on (up to 130).
+#[test]
+fn form_age_monotone_and_mature() {
+    let data = fixture();
+    let body = BodyData::new(&data).expect("body");
+    for (sex, z, mc1r, herc2) in some_people(&data) {
+        let mut previous = -1.0;
+        for step in 0..=270_u32 {
+            let b = f64::from(step) / 2.0;
+            let all = values(&body_params(&body, &adult(sex, z, mc1r, herc2, b)));
+            let form = all["body_form_age"].as_f64().expect("number");
+            assert_eq!(all["face_form_age"].as_f64(), Some(form));
+            assert!(form >= previous, "{b}");
+            if (25.0..=130.0).contains(&b) {
+                assert_eq!(form, b);
+            }
+            previous = form;
+        }
+    }
+}
+
+#[test]
+fn face_axes_age_invariant() {
+    let data = fixture();
+    let body = BodyData::new(&data).expect("body");
+    for (sex, z, mc1r, herc2) in some_people(&data) {
+        let young = values(&body_params(&body, &adult(sex, z, mc1r, herc2, 1.0)));
+        let old = values(&body_params(&body, &adult(sex, z, mc1r, herc2, 99.0)));
+        for i in 1..=12 {
+            let axis = format!("face_axis_{i:02}");
+            assert_eq!(young[&axis], old[&axis], "{axis}");
+        }
+    }
+}
+
+/// Nutrition of a year after the current one changes nothing (ADR-0005 section 1).
+#[test]
+fn body_params_ignore_future_nutrition() {
+    let data = fixture();
+    let body = BodyData::new(&data).expect("body");
+    let past = years(&[(3, 0.6)]);
+    let future = years(&[(3, 0.6), (31, 0.0), (40, 0.2)]);
+    for (sex, z, mc1r, herc2) in some_people(&data) {
+        let with_past = BodyInputs {
+            nutrition: &past,
+            ..adult(sex, z, mc1r, herc2, 30.0)
+        };
+        let with_future = BodyInputs {
+            nutrition: &future,
+            ..with_past
+        };
+        assert_eq!(
+            body_params(&body, &with_past),
+            body_params(&body, &with_future)
+        );
+    }
+}
