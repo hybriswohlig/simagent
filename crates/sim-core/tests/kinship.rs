@@ -10,10 +10,13 @@ use sim_core::ids::SimId;
 use sim_core::kinship::{Kin, KinshipCache, phi};
 use sim_core::time::SimTime;
 
-/// Name, second of birth, mother and father. Parents come before their children. The
-/// six founders share their second of birth, and so do the twins `child` and `sib`:
-/// there the tie rule decides who counts as younger.
-const FAMILY: [(&str, i64, Option<(&str, &str)>); 17] = [
+/// Name, second of birth, mother and father.
+type Person = (&'static str, i64, Option<(&'static str, &'static str)>);
+
+/// Parents come before their children. The six founders share their second of birth,
+/// and so do the twins `child` and `sib`: there the tie rule decides who counts as
+/// younger.
+const FAMILY: [Person; 17] = [
     ("gm", 0, None),
     ("gf", 0, None),
     ("gm2", 0, None),
@@ -166,12 +169,11 @@ fn w2_7_founders_unrelated() {
     assert_phi(&tree, "child", "uncle_in_law", 0.0);
 }
 
-/// Double first cousins (two sisters with two brothers, not in the table): `child` is the
-/// younger of the two, so `φ(child, dc) = (φ(mother, dc) + φ(father, dc)) / 2`. The mother
-/// is the sister of the aunt and unrelated to the uncle: `φ(mother, dc) = (φ(mother, aunt)
-/// + φ(mother, uncle)) / 2 = (1/4 + 0) / 2 = 1/8`; the same for the father, the brother of
-/// the uncle: `(0 + 1/4) / 2 = 1/8`. So `φ = (1/8 + 1/8) / 2 = 1/8`, twice the 1/16 of
-/// single first cousins (two pairs of common grandparents instead of one).
+/// Double first cousins (two sisters with two brothers, not in the table): the younger
+/// one is `double_cousin`, and its parents are the aunt (the mother's sister) and the
+/// uncle (the father's brother) of `child`, each related to `child` by 1/8 [W2.7e]. So
+/// `φ = (1/8 + 1/8) / 2 = 1/8`, twice the 1/16 of single first cousins: two pairs of
+/// common grandparents instead of one.
 #[test]
 fn w2_7_double_first_cousins_one_eighth() {
     let tree = Tree::family(ascending);
@@ -223,6 +225,20 @@ fn w2_7_cache_equals_no_cache() {
     assert_eq!(backward, fresh);
     assert_eq!(deepest_first, fresh);
     assert!(fresh.iter().any(|&bits| bits != 0), "all zero");
+}
+
+/// A pair the cache holds, in either order, is answered from the cache alone: the lookup
+/// is never called again.
+#[test]
+fn w2_7_cached_pair_needs_no_lookup() {
+    let tree = Tree::family(ascending);
+    let (child, cousin) = (tree.id("child"), tree.id("cousin"));
+    let mut cache = KinshipCache::new();
+    assert!(cache.phi(child, cousin, tree.lookup()).to_bits() == 0.0625_f64.to_bits());
+    let again = cache.phi(cousin, child, |sim: SimId| -> Kin {
+        panic!("lookup of {sim:?}")
+    });
+    assert!(again.to_bits() == 0.0625_f64.to_bits());
 }
 
 /// The IDs only break ties: with the IDs in the opposite order (children now below their
@@ -290,29 +306,18 @@ fn w2_7a_deep_line_keeps_the_stack() {
     assert!(cache.phi(child, parent, lookup).to_bits() == 0.25_f64.to_bits());
 }
 
-/// The recursion needs every parent older than its child (2.7: `x` is the younger one).
-/// A lookup that breaks this, here a mother born after her child, is an invariant break
-/// and not a wrong value: with such data the recursion could run in a circle.
-#[test]
-#[should_panic(expected = "invariant kinship.parent_not_older")]
-fn w2_7_parent_younger_than_child_is_an_invariant_break() {
+/// φ of a child born in second 10 and its father born in second 0, whose mother is born
+/// in second `mother_born`. The child is the younger one, so the recursion expands it.
+fn phi_with_mother_born(mother_born: i64) -> f64 {
     let id = |n: u64| SimId::try_from(n).expect("id");
     let (mother, father, child) = (id(1), id(2), id(3));
+    let founder = |born: i64| Kin {
+        born: SimTime::from_secs(born),
+        parents: None,
+    };
     let kin = BTreeMap::from([
-        (
-            mother,
-            Kin {
-                born: SimTime::from_secs(50),
-                parents: None,
-            },
-        ),
-        (
-            father,
-            Kin {
-                born: SimTime::from_secs(0),
-                parents: None,
-            },
-        ),
+        (mother, founder(mother_born)),
+        (father, founder(0)),
         (
             child,
             Kin {
@@ -321,5 +326,28 @@ fn w2_7_parent_younger_than_child_is_an_invariant_break() {
             },
         ),
     ]);
-    let _ = phi(child, father, |sim| kin[&sim]);
+    phi(child, father, |sim| kin[&sim])
+}
+
+/// The recursion needs every parent older than its child (2.7: `x` is the younger one).
+/// A lookup that breaks this, here a mother born after her child, is an invariant break
+/// and not a wrong value: with such data the recursion could run in a circle.
+#[test]
+#[should_panic(expected = "invariant kinship.parent_not_older")]
+fn w2_7_parent_younger_than_child_is_an_invariant_break() {
+    let _ = phi_with_mother_born(50);
+}
+
+/// The boundary: a mother born in the same second as her child is not older either.
+#[test]
+#[should_panic(expected = "invariant kinship.parent_not_older")]
+fn w2_7_parent_born_with_its_child_is_an_invariant_break() {
+    let _ = phi_with_mother_born(10);
+}
+
+/// The twin of the two above: a mother born one second before her child is fine, and
+/// the father of the child is related to it as a parent.
+#[test]
+fn w2_7a_parent_born_just_before_its_child() {
+    assert!(phi_with_mother_born(9).to_bits() == 0.25_f64.to_bits());
 }
