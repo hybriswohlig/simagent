@@ -17,15 +17,15 @@ reach and their Monte Carlo standard errors, the checks, and a JSON snippet for
 data/calibration/demography.json.
 
 What the tool fits (targets from the specification and Grok's decisions of 2026-10-08 on
-the first two fits, ADR-0011, the second as R6):
+the first fits, ADR-0011, as R6 and R7):
 
-- `c` and `m` of the search curve `s(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
-  (11.2): among persons who reach 50, the median age at the first partnership is 23.5
-  (women) and 26 (men), and the men's share without any partnership by 50 is 0.10. The
+- `c` and `m` of the entry rate `e(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
+  (the former search curve of 11.2, R7): among persons who reach 50, the median age at
+  the first partnership is 23.5 (women) and 26 (men), and the men's share without any partnership by 50 is 0.10. The
   women's share is only reported: the first fit showed that both shares cannot be 0.10
   with the medians (1.05 boys per girl). Four parameters for three targets leave one
   direction free; the women's share picks the point in it, with a tenth of the weight.
-- `rho`, a factor on `s(a)` for both sexes from the 16th until before the 18th birthday
+- `rho`, a factor on `e(a)` for both sexes from the 16th until before the 18th birthday
   (Grok, R6b): the share of live births to mothers under 18 among all live births after
   the burn-in is 0.0024 (band 0.001 to 0.005); `rho` stays in (0, 1].
 - `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
@@ -44,16 +44,18 @@ The model, exactly as written in spec 7 and 11 unless stated:
   longevity value N(0, 1) held at +-6; one Exp(1) budget per cause, death age in closed
   form. Founders start at their age with fresh budgets (7.1). Hereditary diseases are
   left out (they add a small hazard to few carriers and would need the genome).
-- Market (11.2 with Grok's R6a) at every month start, after that month's births and
-  conception attempts: the single persons of at least 16 are held; each searches with
-  `s(a)`; searchers choose in the order of a random rank; the candidates are only the
-  searchers of the other sex of this round (two-sided participation), in the order of a
-  random rank per searcher, skipping those with `phi >= 1/8` to the searcher, at most 12;
-  utility `-w_K (dz_K)^2 - w_H (dz_h)^2 - 0.02 (da - 2.5)^2 - 16 ln(10) phi + Gumbel`
-  (`w_a` = 0.02 fixed again, R6c); the
-  largest wins; a pair forms if the chosen one is still single, else nothing; no counter
-  check; whoever was paired in the round no longer searches. A new partnership tries to
-  conceive from the next month start on (ADR-0018 section 1).
+- Market as a state (11.2 with Grok's R7) at every month start, after that month's births
+  and conception attempts: a single person of at least 16 who is not on the market enters
+  it with `e(a)` (times `rho` from 16 until before 18); separated and widowed persons are
+  single again and off the market, and re-enter by the same rule. Then everyone on the
+  market (the round's snapshot, entrants of this round included) searches with q = 0.25;
+  searchers choose in the order of a random rank; the candidates are the persons of the
+  other sex on the market in the snapshot, in the order of a random rank per searcher,
+  skipping those with `phi >= 1/8`, at most 12; utility `-w_K (dz_K)^2 - w_H (dz_h)^2 -
+  0.02 (da - 2.5)^2 - 16 ln(10) phi + Gumbel` (`w_a` fixed, R6c); the largest wins; a
+  pair forms if the chosen one is still single, else nothing; no counter check; whoever
+  was paired in the round no longer searches. Pairing takes both off the market. A new
+  partnership tries to conceive from the next month start on (ADR-0018 section 1).
 - Kinship `phi` by the recursion of 2.7 over the simulated pedigree, founders unrelated;
   kept as an exact fixed-point matrix over the living (values are dyadic, scale 2^62).
 - Fertility (11.3 with the curve of 5.6, decided by Dario, commit a96418f): a woman in an
@@ -150,7 +152,8 @@ WIDTH = 7.0  # K11.2b
 K_CAND = 12  # K11.2f
 MU_AGE = 2.5  # K11.2g
 W_AGE = 0.02  # K11.2h, fixed again (Grok, R6c)
-MINOR_UNTIL = 18  # years: rho multiplies s(a) from the market age until before 18 (R6b)
+Q_SEARCH = 0.25  # search probability per round of a person on the market (Grok, R7)
+MINOR_UNTIL = 18  # years: rho multiplies e(a) from the market age until before 18 (R6b)
 KIN_PENALTY = 16.0 * math.log(10.0)  # 11.2
 PAUSE = 12  # K11.3a, months
 PREGNANCY = 10  # K11.3c, months
@@ -201,7 +204,7 @@ U53 = 2.0 ** -53
 
 (TAG_FOUNDER, TAG_CHILD, TAG_SEX, TAG_G, TAG_ZK, TAG_ZH, TAG_SEN, TAG_ACC, TAG_WISH,
  TAG_SEARCH, TAG_ORDER, TAG_RANK, TAG_NOISE, TAG_CONCEIVE, TAG_TWIN, TAG_SEP, TAG_AGE,
- TAG_PAIR0, TAG_PRIOR, TAG_ZP, TAG_MENARCHE) = range(1, 22)
+ TAG_PAIR0, TAG_PRIOR, TAG_ZP, TAG_MENARCHE, TAG_QSEARCH) = range(1, 23)
 
 
 def mix(x):
@@ -316,7 +319,7 @@ class Kinship:
 # Parameters
 
 def search_table(c, m, market_age, rho):
-    """s(a) on whole months of age; 0 below the market age (11.2), times rho from the
+    """e(a) on whole months of age; 0 below the market age (11.2), times rho from the
     market age until before the 18th birthday (Grok, R6b)."""
     out = [0.0] * (131 * MONTHS)
     for k in range(market_age, len(out)):
@@ -451,6 +454,7 @@ def simulate(par, seed, cfg):
     births_at = {}
     adult_at = {}
     singles = (set(), set())
+    market = (set(), set())  # on the market (R7): entered and not yet partnered
     fert = set()
 
     def person(sx, born, k, gk, mo, fa, x0):
@@ -493,6 +497,7 @@ def simulate(par, seed, cfg):
     gap_hist = [0] * 201  # whole years from -100 to 100, man minus woman
     stats_corr = [0] + [0.0] * 10  # n, then K: sx, sy, sxx, syy, sxy, then H likewise
     stats_cands = [0, 0, 0]  # searchers after the burn-in, their candidates, without any
+    stats_market = [0, 0, 0]  # rounds after the burn-in, persons on the market (F, M)
     sep_d = []
     sep_real = [0, 0, 0]  # separations, deaths, still open at the end
 
@@ -509,6 +514,7 @@ def simulate(par, seed, cfg):
             npart[p] += 1
             partner_of[p] = q
             singles[sex[p]].discard(p)
+            market[sex[p]].discard(p)
         d = min(death[w], death[m])
         t_sep = t + MONTHS * b / lam_sep if lam_sep > 0.0 else math.inf
         if t_sep < d and t_sep < t_end:
@@ -615,6 +621,7 @@ def simulate(par, seed, cfg):
             _, kind, x = heapq.heappop(heap)
             if kind == 0:
                 singles[sex[x]].discard(x)
+                market[sex[x]].discard(x)
                 if sex[x] == FEMALE:
                     fert.discard(x)
                 q = partner_of[x]
@@ -690,30 +697,37 @@ def simulate(par, seed, cfg):
         for p in adult_at.pop(t, ()):
             if death[p] > t and partner_of[p] < 0:
                 singles[sex[p]].add(p)
-        # Market round.
-        held = (sorted(singles[FEMALE]), sorted(singles[MALE]))
+        # Market round (Grok, R7): single persons not on the market enter it with e(a);
+        # then everyone on the market searches with q; the candidates are the persons of
+        # the other sex on the market at the start of the round.
         ss = salt(TAG_SEARCH, t)
-        seekers = []
         for sx in (FEMALE, MALE):
             tab = tabs[sx]
-            for p in held[sx]:
+            mk = market[sx]
+            for p in sorted(singles[sx]):
+                if p in mk:
+                    continue
                 am = t - birth[p]
                 if am >= tab_len:
                     continue
-                s = tab[am]
-                if s <= 0.0:
+                e = tab[am]
+                if e <= 0.0:
                     continue
                 x = ss ^ key[p]
                 x = ((x ^ (x >> 30)) * F1) & M64
                 x = ((x ^ (x >> 27)) * F2) & M64
                 x ^= x >> 31
-                if ((x >> 11) + 0.5) * U53 < s:
-                    seekers.append(p)
+                if ((x >> 11) + 0.5) * U53 < e:
+                    mk.add(p)
+        held = (sorted(market[FEMALE]), sorted(market[MALE]))
+        if t >= burn:
+            stats_market[0] += 1
+            stats_market[1] += len(held[FEMALE])
+            stats_market[2] += len(held[MALE])
+        qs = salt(TAG_QSEARCH, t)
+        seekers = [p for sx in (FEMALE, MALE) for p in held[sx]
+                   if unit(mix(qs ^ key[p])) < Q_SEARCH]
         if seekers:
-            # Two-sided participation (Grok, R6a): the candidates are the participants of
-            # the other sex of this round, in the order of the held list.
-            participants = ([p for p in seekers if sex[p] == FEMALE],
-                            [p for p in seekers if sex[p] == MALE])
             os_ = salt(TAG_ORDER, town, t)
             seekers.sort(key=lambda p: mix(os_ ^ key[p]))
             paired = set()
@@ -722,7 +736,7 @@ def simulate(par, seed, cfg):
             for i in seekers:
                 if i in paired:
                     continue
-                pool = participants[1 - sex[i]]
+                pool = held[1 - sex[i]]
                 if not pool:
                     continue
                 rs = salt(TAG_RANK, key[i], t)
@@ -782,6 +796,7 @@ def simulate(par, seed, cfg):
         "gap_hist": gap_hist,
         "corr": stats_corr,
         "cands": stats_cands,
+        "market": stats_market,
         "sep_d": sep_d,
         "sep_real": sep_real,
         "asfr_births": [0] * 60,
@@ -950,6 +965,9 @@ def measure(agg, par):
     ns, nc, n0 = agg["cands"]
     m["cands_mean"] = nc / ns
     m["cands_none"] = n0 / ns
+    nr, mf, mm = agg["market"]
+    m["market_f"] = mf / nr
+    m["market_m"] = mm / nr
     m["births"] = births_rb(agg, par["alpha"])
     nr, br = agg["births_real"]
     m["births_real"] = br / nr
@@ -1093,8 +1111,8 @@ class Runner:
         self.pool = ProcessPoolExecutor(max_workers=jobs) if jobs > 1 else None
         self.towns = 0
 
-    def evaluate(self, pars, seeds):
-        tasks = [(p, s, self.cfg) for p in pars for s in seeds]
+    def evaluate(self, pars, seeds, cfg=None):
+        tasks = [(p, s, cfg or self.cfg) for p in pars for s in seeds]
         if self.pool:
             outs = list(self.pool.map(run_town, tasks))
         else:
@@ -1123,7 +1141,7 @@ def solve_linear(a, b):
     return [m[i][n] / m[i][i] for i in range(n)]
 
 
-SCALE = (0.1, 1.5, 0.1, 1.5, 0.5, 0.25, 0.25)  # trust-region unit of x (ln or years)
+SCALE = (0.15, 1.5, 0.15, 1.5, 0.5, 0.25, 0.25)  # trust-region unit of x (ln or years)
 # Per-town standard deviations of the outer residuals (development runs). They weight the
 # residuals in the least-squares step, which matters only where not all can be met;
 # never_f gets ten times its own, so it only picks among the solutions of the others.
@@ -1311,15 +1329,16 @@ FIT_SEED0, CHECK_SEED0 = 1, 900001
 WK_SCAN = (2.0, 10.0, 50.0, 250.0)  # w_K values of the correlation scan in the report
 # Start of the fit, from development runs; the result does not depend on it beyond its
 # standard error.
-X0 = [math.log(0.024), 27.0, math.log(0.024), 29.5, math.log(0.06), math.log(4.0),
-      math.log(1.2)]
+X0 = [math.log(0.014), 27.0, math.log(0.012), 27.5, math.log(0.12), math.log(1.5),
+      math.log(0.6)]
 ALPHA0, LAM0 = 0.25, 0.0086
+SMALL_FOUNDERS, SMALL_TOWNS = 100, 96  # the extra check run on small towns (R7)
 FIT_DATE = "2026-10-08"
 NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "alpha", "lam", "w_K", "w_H")
 MEANING = {
-    "c_f": "height c of s(a), women, per month", "m_f": "center m of s(a), women, years",
-    "c_m": "height c of s(a), men, per month", "m_m": "center m of s(a), men, years",
-    "rho": "factor on s(a) from 16 until before 18, both sexes",
+    "c_f": "height c of e(a), women, per month", "m_f": "center m of e(a), women, years",
+    "c_m": "height c of e(a), men, per month", "m_m": "center m of e(a), men, years",
+    "rho": "factor on e(a) from 16 until before 18, both sexes",
     "alpha": "tilt of the wish distribution", "lam": "separation rate lambda_sep per year",
     "w_K": "similarity weight w_K (cognition)", "w_H": "similarity weight w_H (height z_h)",
 }
@@ -1329,6 +1348,9 @@ LABELS = {
     "med_m": "median age at first partnership, men",
     "never_m": "share without partnership by 50, men",
     "u18": "share of live births to mothers under 18",
+    "gap": "mean age gap man minus woman, all partnerships",
+    "first_birth": "mean age of mothers at first birth",
+    "tfr": "total fertility rate",
     "births": "mean live births, women reaching 50",
     "sep": "share of partnerships ending by separation",
     "r_K": "partner correlation z_K, first partnerships",
@@ -1352,7 +1374,7 @@ def german(x):
     return repr(x).replace(".", ",")
 
 
-def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
+def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run):
     agg, m, outs = chk
     m.update(derived(m))
     se = jackknife(outs, par, REPORTED + EXTRA)
@@ -1429,17 +1451,30 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
             cfg["burn_in"], cfg["years"], u18, se["u18"], "ok" if ok else "FINDING"))
     if par["rho"] >= 1.0:
         log("    rho is at its bound 1: the share cannot rise further by rho")
-    log("  candidates per searcher (two-sided market, after the burn-in): mean %.2f, none in "
+    log("  candidates per searcher (after the burn-in): mean %.2f, none in "
         "%.3f of searches" % (m["cands_mean"], m["cands_none"]))
     log("  w_K scan at the fitted point (%d towns each): %s" % (
         cfg["settle_towns"], "; ".join("w_K %g r_K %.3f" % (w, value(ms, "r_K"))
                                        for w, ms in zip(WK_SCAN, scan))))
+    log("  persons on the market per round, mean: women %.1f, men %.1f" % (
+        m["market_f"], m["market_m"]))
     log("  mean age of mothers at first birth (women reaching 50): %.2f +- %.2f (report)" % (
         m["first_birth"], se["first_birth"]))
     tfr = m["tfr"]
     log("  total fertility rate, years %d-%d: %.3f +- %.3f (2.1 to 2.3: %s)" % (
         cfg["burn_in"], cfg["years"], tfr, se["tfr"],
         "inside" if 2.1 <= tfr <= 2.3 else "REPORT ITEM"))
+    log("")
+    sagg, sm, souts = small
+    sm.update(derived(sm))
+    sse = jackknife(souts, par, REPORTED + EXTRA)
+    log("Town size: the fitted values on %d towns of %d founders (the check run has %d):" % (
+        len(souts), SMALL_FOUNDERS, cfg["founders"]))
+    for k in REPORTED + ("never_f", "gap", "first_birth", "tfr"):
+        log("  %-44s %9.4f +- %.4f (check run %.4f)" % (
+            LABELS.get(k, k), value(sm, k), sse.get(k, math.nan), value(m, k)))
+    log("  candidates per searcher %.2f (check run %.2f); on the market per round: women "
+        "%.2f, men %.2f" % (sm["cands_mean"], m["cands_mean"], sm["market_f"], sm["market_m"]))
     log("")
     log("Founders and burn-in (check run): change from the cohorts born in the first half of "
         "years %d-%d to the second half (0 expected):" % (cfg["burn_in"], cfg["years"] - 50))
@@ -1473,16 +1508,16 @@ def report(cfg, par, se_par, fitted, chk, scan, runtime, towns_run):
                   cfg["founders"], cfg["years"], cfg["burn_in"], len(runs), cfg["towns"], n_chk))
     # Units from the closed list of tools/data_reference.py (ADR-0010 to ADR-0015).
     entries = (
-        ("core:market_search_height_female", "c_f", "fraction",
-         "docs/genetik-spezifikation.md 11.2, c of s(a) for women, per market round"),
-        ("core:market_search_center_female", "m_f", "year",
-         "docs/genetik-spezifikation.md 11.2, m of s(a) for women"),
-        ("core:market_search_height_male", "c_m", "fraction",
-         "docs/genetik-spezifikation.md 11.2, c of s(a) for men, per market round"),
-        ("core:market_search_center_male", "m_m", "year",
-         "docs/genetik-spezifikation.md 11.2, m of s(a) for men"),
-        ("core:market_search_factor_minor", "rho", "fraction",
-         "Grok R6b, factor on s(a) for both sexes from the 16th until before the 18th birthday"),
+        ("core:market_entry_height_female", "c_f", "fraction",
+         "Grok R7, c of the entry rate e(a) for women, per market round"),
+        ("core:market_entry_center_female", "m_f", "year",
+         "Grok R7, m of the entry rate e(a) for women"),
+        ("core:market_entry_height_male", "c_m", "fraction",
+         "Grok R7, c of the entry rate e(a) for men, per market round"),
+        ("core:market_entry_center_male", "m_m", "year",
+         "Grok R7, m of the entry rate e(a) for men"),
+        ("core:market_entry_factor_minor", "rho", "fraction",
+         "Grok R6b, factor on e(a) for both sexes from the 16th until before the 18th birthday"),
         ("core:pairing_weight_cognition", "w_K", "logit",
          "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference"),
         ("core:pairing_weight_height", "w_H", "logit",
@@ -1528,7 +1563,11 @@ def main(argv):
     chk, = runner.evaluate([par], check_seeds)
     scan = runner.evaluate([dict(par, w_K=w) for w in WK_SCAN],
                            seeds_of(cfg["iters"] + 3, cfg["settle_towns"]))
-    reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan],
+    small_cfg = dict(sim_cfg, founders=SMALL_FOUNDERS)
+    small_towns = SMALL_TOWNS if not quick else 8
+    small, = runner.evaluate([par], list(range(CHECK_SEED0 + 5000,
+                                               CHECK_SEED0 + 5000 + small_towns)), small_cfg)
+    reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan], small,
                          time.time() - t0, runner.towns)
     status = 0
     if not reached:
