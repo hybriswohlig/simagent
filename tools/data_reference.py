@@ -8,16 +8,20 @@ concatenation (ADR-0003 StableHasher, ADR-0004 section 2).
 
 Layout of the core types (postcard: structs as their fields in order, enums as the variant
 index as varint, strings and sequences with a varint length, maps as a varint length and the
-pairs in key order, u8 as one raw byte, u32 as varint, f64 as eight bytes little endian):
+pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight bytes little
+endian; an enum variant with data is its index followed by the data; ADR-0008):
 
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated> }
   Calibrated { value: f64, unit: Unit }
   Unit: morgan, per_transmission
-  GenomeMap { format_version: u32, map_version: u32, loci: Vec<Locus> }
+  GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
+  Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
+  Load { trait: DataId, weight: f64 }
   Locus { id: DataId, chromosome: Chromosome, segment: u8, slot: u8, action: Action,
           mark: Mark, mutation: MutationDirection }
   Chromosome: autosome, x, y, mt
-  Action: additive, recessive, dominant, threshold
+  Action: additive(Weights), recessive, dominant, threshold(Weights)
+  Weights { effect: f64, d_ref: f64, loads: Vec<Load> }
   Mark: small, large, disease
   MutationDirection: both, to_alt, to_ref
 
@@ -84,13 +88,45 @@ def calibration_bytes(doc) -> bytes:
     return out
 
 
+def boolean(value: bool) -> bytes:
+    assert isinstance(value, bool)
+    return bytes([1 if value else 0])
+
+
+def loads_bytes(loads) -> bytes:
+    out = varint(len(loads))
+    for load in loads:
+        out += string(load["trait"]) + f64(float(load["weight"]))
+    return out
+
+
+def action_bytes(action) -> bytes:
+    """A unit variant is a string in the file, a variant with weights an object."""
+    if isinstance(action, str):
+        assert action in ("recessive", "dominant"), action
+        return varint(ACTIONS.index(action))
+    [(name, weights)] = action.items()
+    assert name in ("additive", "threshold"), name
+    return (
+        varint(ACTIONS.index(name))
+        + f64(float(weights["effect"]))
+        + f64(float(weights["d_ref"]))
+        + loads_bytes(weights["loads"])
+    )
+
+
 def genome_map_bytes(doc) -> bytes:
-    out = varint(doc["format_version"]) + varint(doc["map_version"]) + varint(len(doc["loci"]))
+    out = varint(doc["format_version"]) + varint(doc["map_version"])
+    out += varint(len(doc["traits"]))
+    for entry in doc["traits"]:
+        out += string(entry["id"]) + f64(float(entry["sigma_ref"]))
+        out += boolean(entry["exclusive"]) + loads_bytes(entry["includes"])
+    out += varint(len(doc["loci"]))
     for locus in doc["loci"]:
         out += string(locus["id"])
         out += varint(CHROMOSOMES.index(locus["chromosome"]))
         out += u8(locus["segment"]) + u8(locus["slot"])
-        out += varint(ACTIONS.index(locus["action"]))
+        out += action_bytes(locus["action"])
         out += varint(MARKS.index(locus["mark"]))
         out += varint(DIRECTIONS.index(locus["mutation"]))
     return out
