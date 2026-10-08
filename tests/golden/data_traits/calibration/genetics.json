@@ -46,28 +46,28 @@
     "core:growth_theta_male": {
       "value": 14.02,
       "unit": "year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2a), boys"
     },
     "core:growth_height_theta_male": {
       "value": 167.4,
       "unit": "centimeter",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2b), boys"
     },
     "core:growth_s0_male": {
       "value": 0.1058,
       "unit": "per_year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2c), boys"
     },
     "core:growth_s1_male": {
       "value": 0.9655,
       "unit": "per_year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2d), boys"
     },
@@ -102,28 +102,28 @@
     "core:growth_theta_female": {
       "value": 12.3,
       "unit": "year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2l), girls"
     },
     "core:growth_height_theta_female": {
       "value": 156.7,
       "unit": "centimeter",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2m), girls"
     },
     "core:growth_s0_female": {
       "value": 0.1341,
       "unit": "per_year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2n), girls"
     },
     "core:growth_s1_female": {
       "value": 1.044,
       "unit": "per_year",
-      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 decimals as the reference uses them",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.1 (W5.2o), girls"
     },
