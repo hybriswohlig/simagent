@@ -59,10 +59,6 @@ impl EventSubject {
     pub const fn kind_code(self) -> u8 {
         self.kind
     }
-
-    pub const fn id(self) -> u64 {
-        self.id
-    }
 }
 
 /// Fixed code per payload variant.
