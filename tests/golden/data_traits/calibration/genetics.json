@@ -182,6 +182,62 @@
       "source": "play value of the specification between Sovio U et al. (2009), PLoS Genet 5:e1000409 (near 0, Finland) and Haegg U, Taranger J (1991), Ann Hum Biol 18:47-56 (late-maturing boys taller, Sweden)",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 5.2 (K5.2c, HANDOFF 4: early maturity against longer growth); adult centimeters per year of later timing (ADR-0012)"
+    },
+    "core:nutrition_loss": {
+      "value": 5.0,
+      "unit": "centimeter_per_year",
+      "source": "play value of the specification below the proposal of C1 (2 to 3 cm for 0.7): Portrait F et al. (2017), Econ Hum Biol 27:339-348; Goergens T, Meng X, Vaithianathan R (2012), J Dev Econ 97:99-111 (1 to 2 cm after correcting for selective survival)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4 (K5.4a); cm of adult height per year of full deficit in the first window (ADR-0013)"
+    },
+    "core:nutrition_weight_infant": {
+      "value": 1.0,
+      "unit": "fraction",
+      "source": "play value of the specification: the first two years of life are the most sensitive window (Portrait 2017; Kesternich I et al. (2014), Rev Econ Stat 96:103-118)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window below core:nutrition_age_infant (ADR-0013)"
+    },
+    "core:nutrition_weight_child": {
+      "value": 0.5,
+      "unit": "fraction",
+      "source": "play value of the specification for early childhood after the first two years",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window from core:nutrition_age_infant to core:nutrition_age_child (ADR-0013)"
+    },
+    "core:nutrition_weight_puberty": {
+      "value": 0.25,
+      "unit": "fraction",
+      "source": "play value of the specification for the pubertal growth spurt",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window around theta_i, not below core:nutrition_age_child (ADR-0013)"
+    },
+    "core:nutrition_age_infant": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, end of the first window in years of age (ADR-0013)"
+    },
+    "core:nutrition_age_child": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, end of the second window in years of age (ADR-0013)"
+    },
+    "core:nutrition_puberty_before": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, the puberty window starts this many years before theta_i (ADR-0013)"
+    },
+    "core:nutrition_puberty_after": {
+      "value": 1.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, the puberty window ends this many years after theta_i (ADR-0013)"
     }
   },
   "traits": [

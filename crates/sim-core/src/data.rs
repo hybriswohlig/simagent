@@ -598,8 +598,16 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         weight_puberty: value("core:nutrition_weight_puberty", Unit::Fraction, 1.0)?,
         age_infant: value("core:nutrition_age_infant", Unit::Year, MAX_THETA)?,
         age_child: value("core:nutrition_age_child", Unit::Year, MAX_THETA)?,
-        puberty_before: value("core:nutrition_puberty_before", Unit::Year, MAX_PUBERTY_REACH)?,
-        puberty_after: value("core:nutrition_puberty_after", Unit::Year, MAX_PUBERTY_REACH)?,
+        puberty_before: value(
+            "core:nutrition_puberty_before",
+            Unit::Year,
+            MAX_PUBERTY_REACH,
+        )?,
+        puberty_after: value(
+            "core:nutrition_puberty_after",
+            Unit::Year,
+            MAX_PUBERTY_REACH,
+        )?,
     };
     if nutrition.age_infant >= nutrition.age_child {
         return Err(DataError::CalibrationRange);
