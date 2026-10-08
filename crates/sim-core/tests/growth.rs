@@ -33,7 +33,11 @@ fn the_infancy_term_passes_the_who_medians() {
         let curve = common::data().genetics().growth(sex);
         // [W5.2f], [W5.2q] to 3 decimals; [W5.2g], [W5.2r] to 1 decimal.
         assert!((curve.c - c).abs() <= 0.0005, "{sex:?} c {}", curve.c);
-        assert!((curve.l0 + curve.b - top).abs() <= 0.05, "{sex:?} {}", curve.l0 + curve.b);
+        assert!(
+            (curve.l0 + curve.b - top).abs() <= 0.05,
+            "{sex:?} {}",
+            curve.l0 + curve.b
+        );
         // Exactly through the medians at birth, 12 and 24 months (5.1).
         assert_eq!(mean(sex, 0), curve.l0);
         assert!((mean(sex, 1) - curve.l12).abs() < 1e-9, "{sex:?} 12 months");
@@ -46,8 +50,14 @@ fn the_mean_curve_meets_the_values_of_the_specification() {
     // Against the WHO medians at 3 and 5 years: [W5.2j], [W5.2k], [W5.2u], [W5.2v].
     let expected = [(-0.7, 1.7), (-1.5, 1.5)];
     for ((sex, who_3, who_5), (at_3, at_5)) in WHO_3_5.into_iter().zip(expected) {
-        assert!((mean(sex, 3) - who_3 - at_3).abs() <= 0.05, "{sex:?} 3 years");
-        assert!((mean(sex, 5) - who_5 - at_5).abs() <= 0.05, "{sex:?} 5 years");
+        assert!(
+            (mean(sex, 3) - who_3 - at_3).abs() <= 0.05,
+            "{sex:?} 3 years"
+        );
+        assert!(
+            (mean(sex, 5) - who_5 - at_5).abs() <= 0.05,
+            "{sex:?} 5 years"
+        );
     }
     // The sexes: 0.4 cm apart at 8 years [W6.1g], girls taller at 12 [W6.1h].
     let apart = |t| mean(Sex::Male, t) - mean(Sex::Female, t);
@@ -79,8 +89,38 @@ fn the_curve_rises_for_every_timing() {
         }
         let near = |d: i64| mean_height(&curve, days(d), curve.theta);
         for joint in [2 * 364, 3 * 364] {
-            assert!((near(joint) - near(joint - 1)).abs() < 0.05, "{sex:?} {joint}");
-            assert!((near(joint + 1) - near(joint)).abs() < 0.05, "{sex:?} {joint}");
+            assert!(
+                (near(joint) - near(joint - 1)).abs() < 0.05,
+                "{sex:?} {joint}"
+            );
+            assert!(
+                (near(joint + 1) - near(joint)).abs() < 0.05,
+                "{sex:?} {joint}"
+            );
         }
+    }
+}
+
+/// 5.1: between 2 and 3 years the curve blends with `w = 3u² − 2u³`, `u = t − 2`. At 2¼
+/// years `w` is 0.15625 (a straight blend would give 0.25); the expected value writes out
+/// the infancy term, Preece-Baines and the blend.
+#[test]
+fn the_blend_is_a_smoothstep() {
+    for sex in [Sex::Male, Sex::Female] {
+        let curve = common::data().genetics().growth(sex);
+        let t = 2.25;
+        let infancy = curve.l0 + curve.b * (1.0 - sim_math::exp(-curve.c * t));
+        let pb = curve.h1
+            - 2.0 * (curve.h1 - curve.h_theta)
+                / (sim_math::exp(curve.s0 * (t - curve.theta))
+                    + sim_math::exp(curve.s1 * (t - curve.theta)));
+        let w = 0.156_25;
+        let expected = (1.0 - w) * infancy + w * pb;
+        let at = mean_height(&curve, days(2 * 364 + 91), curve.theta);
+        assert!((at - expected).abs() < 1e-9, "{sex:?} {at} {expected}");
+        assert!(
+            (at - (0.75 * infancy + 0.25 * pb)).abs() > 0.01,
+            "{sex:?} not straight"
+        );
     }
 }
