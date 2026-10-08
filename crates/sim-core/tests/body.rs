@@ -227,6 +227,14 @@ fn z_parameters_are_their_phenotypes() {
     assert!(!evaluation.is_clamped(BodyParamKey::FaceAxis11));
     assert_eq!(evaluation.params.muscle_z(), 4.0);
     assert_eq!(evaluation.params.face_axis_12(), -4.0);
+    // Exactly at the ends is inside: clamped means truly outside (ADR-0005).
+    let ends = BodyTraits {
+        muscle: 4.0,
+        leg_ratio: -4.0,
+        ..BodyTraits::default()
+    };
+    let evaluation = body_params(&body, &person(Sex::Female, 33, ends));
+    assert!(evaluation.clamped.is_empty(), "{:?}", evaluation.clamped);
 }
 
 /// 10.4: pigment from the logits, darkening in childhood, MC1R and HERC2 at two copies.
