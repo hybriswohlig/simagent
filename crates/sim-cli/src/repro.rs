@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sim_core::canonical::YearHash;
-use sim_core::input::InputRecord;
+use sim_core::ids::InputSeq;
+use sim_core::input::{Input, InputRecord};
 use sim_core::time::{SimDuration, SimTime, calendar};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{World, YearOut};
@@ -92,8 +93,10 @@ fn open_second(world: &World) -> At {
     }
 }
 
-/// Writes the package into `dir` and gives its path.
+/// Writes the package into `dir` (created if need be: the start can break off before the
+/// run directory exists) and gives its path.
 pub fn write(dir: &Path, package: &Package) -> Result<PathBuf, CliError> {
+    std::fs::create_dir_all(dir).map_err(|error| CliError::io(dir, &error))?;
     let path = dir.join(REPRO);
     files::write(&path, (files::json(package) + "\n").as_bytes())?;
     Ok(path)
@@ -101,11 +104,14 @@ pub fn write(dir: &Path, package: &Package) -> Result<PathBuf, CliError> {
 
 /// Runs `step` on the world; a break-off of the core writes the package into `dir` and
 /// gives the error `core_invariant` or `core_panic` that names its path (ADR-0016). The
-/// world is not used after a break-off.
+/// world is not used after a break-off. `pending` is the input `step` submits, if any: the
+/// world records an input only after it applied it, so a break-off while applying it
+/// would leave it out of the package; it goes in with the stamp it would have had.
 pub fn guarded<T>(
     world: &mut World,
     out: &mut YearOut,
     dir: &Path,
+    pending: Option<&Input>,
     step: impl FnOnce(&mut World, &mut YearOut) -> T,
 ) -> Result<T, CliError> {
     match catch_unwind(AssertUnwindSafe(|| step(world, out))) {
@@ -118,13 +124,25 @@ pub fn guarded<T>(
             } else {
                 Kind::Panic
             };
+            let mut input_log = world.input_log().to_vec();
+            if let Some(input) = pending {
+                let next = u64::try_from(input_log.len())
+                    .ok()
+                    .and_then(|len| InputSeq::try_from(len + 1).ok())
+                    .unwrap_or_else(|| panic!("invariant cli.input_count"));
+                input_log.push(InputRecord {
+                    t: world.closed_through(),
+                    seq: next,
+                    input: input.clone(),
+                });
+            }
             let package = Package {
                 format_version: files::FORMAT_VERSION,
                 kind,
                 core_version: CORE_VERSION,
                 data_hash: world.data().hash(),
                 world_seed: world.state().world_seed().unwrap_or_default(),
-                input_log: world.input_log().to_vec(),
+                input_log,
                 checkpoint: out.year_hashes.last().copied(),
                 at: open_second(world),
                 invariant,
@@ -153,13 +171,7 @@ pub fn diverged(
     detail: &str,
     dir: &Path,
 ) -> Result<PathBuf, CliError> {
-    let checkpoint = out
-        .year_hashes
-        .iter()
-        .zip(&expected)
-        .take_while(|(got, want)| got == want)
-        .last()
-        .map(|(got, _)| *got);
+    let checkpoint = out.year_hashes.last().copied();
     let t = world.closed_through();
     let package = Package {
         format_version: files::FORMAT_VERSION,
@@ -225,23 +237,40 @@ pub fn check(file: &Path) -> Result<(), CliError> {
         }
         Ok(())
     }));
-    match run {
-        Err(payload) => Err(reproduced(message(payload.as_ref()))),
-        Ok(Err(error)) => Err(error),
-        Ok(Ok(())) => match &package.expected {
-            None => Ok(()),
-            Some(expected) => {
-                for (got, want) in out.year_hashes.iter().zip(expected) {
-                    if got != want {
-                        return Err(reproduced(format!(
-                            "year {} has hash {:016x}, the package says {:016x}",
-                            got.year, got.hash, want.hash
-                        )));
-                    }
+    match (run, package.kind, &package.expected) {
+        (Err(payload), _, _) => Err(reproduced(message(payload.as_ref()))),
+        (Ok(Err(error)), _, _) => Err(error),
+        (Ok(Ok(())), Kind::Invariant | Kind::Panic, None) => Ok(()),
+        (Ok(Ok(())), Kind::ReplayDiverged, Some(expected)) => {
+            // Every year up to the one of the package, no fewer and no more.
+            let produced: Vec<YearHash> = out
+                .year_hashes
+                .iter()
+                .filter(|hash| hash.year <= package.at.year)
+                .copied()
+                .collect();
+            for (got, want) in produced.iter().zip(expected) {
+                if got != want {
+                    return Err(reproduced(format!(
+                        "year {} has hash {:016x}, the package says {:016x}",
+                        got.year, got.hash, want.hash
+                    )));
                 }
-                Ok(())
             }
-        },
+            if produced.len() != expected.len() {
+                return Err(reproduced(format!(
+                    "the replay has {} year hashes up to year {}, the package {}",
+                    produced.len(),
+                    package.at.year,
+                    expected.len()
+                )));
+            }
+            Ok(())
+        }
+        (Ok(Ok(())), _, _) => Err(CliError::new(
+            "repro_invalid",
+            "expected year hashes belong to a diverged replay, and only there",
+        )),
     }
 }
 
@@ -258,7 +287,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("dir");
         let mut world = World::new(crate::data::core_data().expect("data"));
         let mut out = YearOut::default();
-        let error = guarded(&mut world, &mut out, &dir, |_, _| {
+        let error = guarded(&mut world, &mut out, &dir, None, |_, _| {
             panic!("invariant test.repro: sim 1");
         })
         .expect_err("broke off");
@@ -283,11 +312,26 @@ mod tests {
             world.closed_through() + SimDuration::from_secs(1)
         );
         // Any other message is a panic of the core.
-        let error = guarded(&mut world, &mut out, &dir, |_, _| {
+        let error = guarded(&mut world, &mut out, &dir, None, |_, _| {
             panic!("index out of bounds")
         })
         .expect_err("broke off");
         assert_eq!(error.code, "core_panic");
+        // An input that breaks off while it is applied goes into the package.
+        let input = Input::ArrangePartnership(sim_core::input::ArrangePartnership {
+            woman: sim_core::ids::SimId::try_from(1).expect("id"),
+            man: sim_core::ids::SimId::try_from(2).expect("id"),
+        });
+        let _ = guarded(&mut world, &mut out, &dir, Some(&input), |_, _| {
+            panic!("invariant test.apply")
+        });
+        let package: Package =
+            files::parse_strict(files::read_text(&path).expect("read").trim_end())
+                .expect("package");
+        assert_eq!(package.input_log.len(), 1);
+        assert_eq!(package.input_log[0].input, input);
+        assert_eq!(package.input_log[0].seq.get(), 1);
+        assert_eq!(package.input_log[0].t, world.closed_through());
         std::fs::remove_dir_all(&dir).expect("removed");
     }
 

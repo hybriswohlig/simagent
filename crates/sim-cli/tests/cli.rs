@@ -1172,8 +1172,10 @@ fn a_diverged_replay_writes_a_repro_package() {
     assert_eq!(package["core_version"], manifest["core_version"]);
     assert_eq!(package["data_hash"], manifest["data_hash"]);
     assert_eq!(package["world_seed"], manifest["world_seed"]);
-    assert_eq!(package["checkpoint"]["year"], 2);
-    assert_eq!(package["checkpoint"]["hash"], true_2.as_str());
+    // The last closed year is the one that differs, with the hash the run produced.
+    assert_eq!(package["checkpoint"]["year"], 3);
+    assert_eq!(package["checkpoint"]["hash"], true_3.as_str());
+    assert_eq!(package["expected"][2]["hash"], true_2.as_str());
     assert_eq!(package["at"]["year"], 3);
     assert_eq!(package["invariant"], Value::Null);
     assert_eq!(package["expected"].as_array().expect("list").len(), 4);
@@ -1195,6 +1197,23 @@ fn a_diverged_replay_writes_a_repro_package() {
         &format!("\"hash\":\"{true_3}\""),
     );
     must(&["repro", arg(&package_path)]);
+    // A package whose replay stops before the year that differed does not pass: fewer
+    // year hashes than expected.
+    let stopped = dir.join("stopped.json");
+    let mut short: Value = serde_json::from_str(&text(&package_path)).expect("json");
+    let end_of_2 = short["at"]["t"].as_i64().expect("t") - 364 * 86_400;
+    short["at"]["t"] = Value::from(end_of_2);
+    short["at"]["year"] = Value::from(2);
+    fs::write(&stopped, short.to_string()).expect("writes");
+    assert!(
+        error_of(&["repro", arg(&stopped)])
+            .starts_with("error: repro_reproduced: the replay has 3 year hashes")
+    );
+    // A diverged replay without its expected hashes is no package.
+    let mut bare: Value = serde_json::from_str(&text(&package_path)).expect("json");
+    bare.as_object_mut().expect("object").remove("expected");
+    fs::write(&stopped, bare.to_string()).expect("writes");
+    assert!(error_of(&["repro", arg(&stopped)]).starts_with("error: repro_invalid:"));
     // An unknown field is no package.
     replace_in(
         &package_path,

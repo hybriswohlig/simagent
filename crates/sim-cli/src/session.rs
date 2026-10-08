@@ -157,12 +157,18 @@ impl Session {
             ));
         }
         let mut world = World::new(crate::data::core_data()?);
+        let mut before = YearOut::default();
+        // A break-off before the first input writes the package into `dir` too.
         if first_t > world.closed_through() {
-            world.advance_until(&mut YearOut::default(), first_t, &mut |_| false);
+            crate::repro::guarded(&mut world, &mut before, dir, None, |world, out| {
+                world.advance_until(out, first_t, &mut |_| false);
+            })?;
         }
-        world
-            .submit(first)
-            .map_err(|error| rejected(files::code(&error.code)))?;
+        let pending = first.clone();
+        crate::repro::guarded(&mut world, &mut before, dir, Some(&pending), |world, _| {
+            world.submit(first)
+        })?
+        .map_err(|error| rejected(files::code(&error.code)))?;
         fs::create_dir_all(dir).map_err(|error| CliError::io(dir, &error))?;
         let fork = match &compare {
             Compare::Fork { info, .. } => Some(info.clone()),
@@ -261,9 +267,14 @@ impl Session {
     pub fn submit_at_stop(&mut self, inputs: Vec<Input>) -> Result<(), CliError> {
         let dir = self.dir.clone();
         for input in inputs {
-            crate::repro::guarded(&mut self.world, &mut self.out, &dir, |world, _| {
-                world.submit(input)
-            })?
+            let pending = input.clone();
+            crate::repro::guarded(
+                &mut self.world,
+                &mut self.out,
+                &dir,
+                Some(&pending),
+                |world, _| world.submit(input),
+            )?
             .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
         }
         self.reopen_input_log()?;
@@ -304,9 +315,14 @@ impl Session {
     pub fn replay_input(&mut self, record: InputRecord) -> Result<(), CliError> {
         let (t, seq) = (record.t, record.seq.get());
         let dir = self.dir.clone();
-        crate::repro::guarded(&mut self.world, &mut self.out, &dir, |world, _| {
-            world.submit(record.input)
-        })?
+        let pending = record.input.clone();
+        crate::repro::guarded(
+            &mut self.world,
+            &mut self.out,
+            &dir,
+            Some(&pending),
+            |world, _| world.submit(record.input),
+        )?
         .map_err(|rejected| replay_rejected(t, seq, &files::code(&rejected.code)))?;
         if let Some(applied) = self.world.input_log().last() {
             files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
@@ -322,9 +338,14 @@ impl Session {
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<(), CliError> {
         let dir = self.dir.clone();
-        crate::repro::guarded(&mut self.world, &mut self.out, &dir, |world, _| {
-            world.submit(input)
-        })?
+        let pending = input.clone();
+        crate::repro::guarded(
+            &mut self.world,
+            &mut self.out,
+            &dir,
+            Some(&pending),
+            |world, _| world.submit(input),
+        )?
         .map_err(|error| rejected(files::code(&error.code)))?;
         if let Some(applied) = self.world.input_log().last() {
             files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
@@ -345,7 +366,7 @@ impl Session {
                 limit
             };
             let dir = self.dir.clone();
-            crate::repro::guarded(&mut self.world, &mut self.out, &dir, |world, out| {
+            crate::repro::guarded(&mut self.world, &mut self.out, &dir, None, |world, out| {
                 world.advance_until(out, step, &mut |_| false);
             })?;
             self.drain()?;
