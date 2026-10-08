@@ -183,6 +183,9 @@ pub struct Data {
     hash: u64,
     /// The position of each locus in the map, by its data ID.
     loci: BTreeMap<DataId, usize>,
+    /// For each trait its terms in the order of the fold and its `sigma_ref` (ADR-0008
+    /// section 3).
+    traits: BTreeMap<DataId, (Vec<Term>, f64)>,
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -545,12 +548,26 @@ impl Data {
             .zip(&definitions.genome_map.loci)
             .map(|(index, locus)| (locus.id.clone(), index))
             .collect();
+        let map = &definitions.genome_map;
+        let traits = map
+            .traits
+            .iter()
+            .map(|t| (t.id.clone(), (terms(map, t), t.sigma_ref.get())))
+            .collect();
         Ok(Data {
             definitions,
             genetics,
             hash,
             loci,
+            traits,
         })
+    }
+
+    /// The terms of a trait in the order of its fold and its `sigma_ref`, if the map has
+    /// the trait (ADR-0008 section 3).
+    pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64)> {
+        let (terms, sigma) = self.traits.get(id)?;
+        Some((terms, *sigma))
     }
 
     /// The data hash (ADR-0007 section 3).
