@@ -949,3 +949,83 @@ fn calibration_rejects() {
         "data.calibration_range"
     );
 }
+
+/// ADR-0013 section 3: `k` and the windows of the nutrition loss.
+#[test]
+fn nutrition_values_reject() {
+    let cases: [(Change, &str); 10] = [
+        (
+            |c, _| c["values"]["core:nutrition_loss"]["unit"] = json!("centimeter"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_weight_child"]["unit"] = json!("year"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_age_infant"]["unit"] = json!("fraction"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_loss"]["value"] = json!(300.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_weight_puberty"]["value"] = json!(1.01),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_weight_infant"]["value"] = json!(0.0),
+            "data.calibration_range",
+        ),
+        // The first window ends before the second.
+        (
+            |c, _| c["values"]["core:nutrition_age_infant"]["value"] = json!(5.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_age_child"]["value"] = json!(30.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_puberty_before"]["value"] = json!(10.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:nutrition_puberty_after"]["value"] = json!(10.5),
+            "data.calibration_range",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    for key in [
+        "core:nutrition_loss",
+        "core:nutrition_weight_infant",
+        "core:nutrition_weight_child",
+        "core:nutrition_weight_puberty",
+        "core:nutrition_age_infant",
+        "core:nutrition_age_child",
+        "core:nutrition_puberty_before",
+        "core:nutrition_puberty_after",
+    ] {
+        let (mut c, g) = common::files();
+        c["values"].as_object_mut().expect("values").remove(key);
+        let result = Data::new(common::definitions(c, g).expect("definitions"));
+        assert_eq!(result.err(), Some(DataError::CalibrationMissing), "{key}");
+    }
+    // The limits are allowed: k 300, weights 1, the windows up to 30 and 10 years, and a
+    // first window just shorter than the second.
+    assert_eq!(
+        checked(|c, _| {
+            c["values"]["core:nutrition_loss"]["value"] = json!(300.0);
+            c["values"]["core:nutrition_weight_puberty"]["value"] = json!(1.0);
+            c["values"]["core:nutrition_age_infant"]["value"] = json!(29.9);
+            c["values"]["core:nutrition_age_child"]["value"] = json!(30.0);
+            c["values"]["core:nutrition_puberty_before"]["value"] = json!(10.0);
+            c["values"]["core:nutrition_puberty_after"]["value"] = json!(10.0);
+        }),
+        "ok"
+    );
+}
