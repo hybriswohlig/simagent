@@ -80,7 +80,7 @@ fn genetic_value_follows_the_specification() {
 }
 
 /// A map in which the order of the fold decides the bits: own loci of `test:t` with
-/// terms `1e17`, `-1e17` and `1` in map order; `test:t2` with its own locus (term `1e17`)
+/// terms `1e17`, `-1e17` and `1` in map order, their IDs in the opposite order; `test:t2` with its own locus (term `1e17`)
 /// and the includes `test:s1` (term `1`) and `test:s2` (term `-1e17`), whose loci stand
 /// in the map in the other order.
 fn ordered() -> Data {
@@ -101,9 +101,10 @@ fn ordered() -> Data {
     let dummy = genome_map["loci"][0].clone();
     genome_map["loci"] = json!([
         dummy,
-        additive("test:a", 0, json!([on("test:t", 1e17)])),
+        // Map order against the order of the IDs: c, b, a.
+        additive("test:c", 0, json!([on("test:t", 1e17)])),
         additive("test:b", 1, json!([on("test:t", -1e17)])),
-        additive("test:c", 2, json!([on("test:t", 1.0)])),
+        additive("test:a", 2, json!([on("test:t", 1.0)])),
         additive("test:d", 3, json!([on("test:t2", 1e17)])),
         additive("test:e", 4, json!([on("test:s2", -1e17)])),
         additive("test:f", 5, json!([on("test:s1", 1.0)])),
@@ -120,7 +121,8 @@ fn the_fold_runs_in_the_order_of_the_specification() {
     let loci = ["test:a", "test:b", "test:c", "test:d", "test:e", "test:f"];
     let doses: Vec<(&str, u8)> = loci.iter().map(|locus| (*locus, 1)).collect();
     let genome = woman(&data, &doses);
-    // Map order: (1e17 − 1e17) + 1 = 1; in reverse, (1 − 1e17) + 1e17 would be 0.
+    // Map order (c, b, a): (1e17 − 1e17) + 1 = 1; in the order of the IDs (a, b, c) or in
+    // reverse, (1 − 1e17) + 1e17 would be 0.
     assert_eq!(genome.genetic_value(&id("test:t"), &data), Some(1.0));
     assert_ne!((1.0 - 1e17) + 1e17, 1.0);
     // Own locus first, then test:s1 (1), then test:s2 (−1e17): (1e17 + 1) − 1e17 = 0.
