@@ -1173,3 +1173,136 @@ fn sex_difference_values_reject() {
         .starts_with("serde")
     );
 }
+
+/// ADR-0015 section 1: every number of specification section 10 is a calibration value with
+/// its unit, and the weight of 7.4.
+#[test]
+fn body_values_are_those_of_the_specification() {
+    let expected: [(&str, f64, &str); 71] = [
+        ("core:body_pigment_skin_offset", -1.2, "logit"),
+        ("core:body_pigment_skin_slope", 1.15, "logit"),
+        ("core:body_pigment_hair_slope", 1.2, "logit"),
+        ("core:body_pigment_hair_residual", 0.55, "logit"),
+        ("core:body_pigment_hair_darkening", 1.0, "logit"),
+        ("core:body_pigment_hair_darkening_age", 12.0, "year"),
+        ("core:body_pigment_iris_offset", 0.5, "logit"),
+        ("core:body_pigment_iris_slope", 1.5, "logit"),
+        ("core:body_pigment_iris_darkening", 1.4, "logit"),
+        ("core:body_pigment_iris_darkening_age", 3.0, "year"),
+        ("core:body_pigment_skin_pheo_offset", -1.5, "logit"),
+        ("core:body_pigment_skin_pheo_slope", -0.25, "logit"),
+        ("core:body_pigment_hair_pheo_offset", -2.0, "logit"),
+        ("core:body_pigment_hair_pheo_slope", -0.35, "logit"),
+        ("core:body_mc1r_hair_eu", 0.3, "fraction"),
+        ("core:body_mc1r_skin_eu", 0.55, "fraction"),
+        ("core:body_mc1r_hair_pheo", 0.8, "fraction"),
+        ("core:body_mc1r_skin_pheo", 0.45, "fraction"),
+        ("core:body_mc1r_freckle", 1.0, "logit"),
+        ("core:body_herc2_iris", 0.15, "fraction"),
+        ("core:body_development_androgen_lag", 0.5, "year"),
+        ("core:body_development_estrogen_lead", 0.5, "year"),
+        ("core:body_development_breast_lead", 0.2, "year"),
+        ("core:body_development_tempo", 1.15, "year"),
+        ("core:body_development_androgen_offset", 1.5, "logit"),
+        ("core:body_development_estrogen_offset", 1.5, "logit"),
+        ("core:body_development_estrogen_men", 0.1, "fraction"),
+        ("core:body_development_androgen_women", 0.15, "fraction"),
+        ("core:body_curl_offset", -1.4, "logit"),
+        ("core:body_curl_slope", 1.5, "logit"),
+        ("core:body_freckle_offset", -1.6, "logit"),
+        ("core:body_freckle_slope", 1.1, "logit"),
+        ("core:body_freckle_pigment", -0.5, "logit"),
+        ("core:body_beard_lag", 4.0, "year"),
+        ("core:body_beard_tempo", 1.8, "year"),
+        ("core:body_beard_offset", 0.4, "logit"),
+        ("core:body_beard_androgen", 0.4, "logit"),
+        ("core:body_body_hair_lag", 2.5, "year"),
+        ("core:body_body_hair_tempo", 1.6, "year"),
+        ("core:body_body_hair_androgen", 0.4, "logit"),
+        ("core:body_body_hair_women", 0.2, "fraction"),
+        ("core:body_bald_men_stage", 7.0, "stage"),
+        ("core:body_bald_men_center", 64.0, "year"),
+        ("core:body_bald_men_slope", 8.0, "year"),
+        ("core:body_bald_men_androgen", 3.0, "year"),
+        ("core:body_bald_men_tempo", 10.0, "year"),
+        ("core:body_bald_women_stage", 2.5, "stage"),
+        ("core:body_bald_women_center", 78.0, "year"),
+        ("core:body_bald_women_slope", 6.0, "year"),
+        ("core:body_bald_women_tempo", 12.0, "year"),
+        ("core:body_hair_density_offset", 2.0, "logit"),
+        ("core:body_hair_density_loss", 0.3, "fraction"),
+        ("core:body_hair_density_center", 60.0, "year"),
+        ("core:body_hair_density_tempo", 8.0, "year"),
+        ("core:body_grey_center", 55.0, "year"),
+        ("core:body_grey_slope", 7.0, "year"),
+        ("core:body_grey_tempo", 7.0, "year"),
+        ("core:body_wrinkles_center", 55.0, "year"),
+        ("core:body_wrinkles_slope", 5.0, "year"),
+        ("core:body_wrinkles_tempo", 8.0, "year"),
+        ("core:body_laxity_center", 62.0, "year"),
+        ("core:body_laxity_slope", 5.0, "year"),
+        ("core:body_laxity_tempo", 8.0, "year"),
+        ("core:body_spots_center", 60.0, "year"),
+        ("core:body_spots_skin", 4.0, "year"),
+        ("core:body_spots_pigment", 2.0, "year"),
+        ("core:body_spots_tempo", 8.0, "year"),
+        ("core:body_stoop_center", 78.0, "year"),
+        ("core:body_stoop_skin", 4.0, "year"),
+        ("core:body_stoop_tempo", 6.0, "year"),
+        ("core:bio_age_weight", 0.5, "fraction"),
+    ];
+    let (calibration, _) = common::files();
+    for (key, value, unit) in expected {
+        let entry = &calibration["values"][key];
+        assert_eq!(entry["value"].as_f64(), Some(value), "{key}");
+        assert_eq!(entry["unit"].as_str(), Some(unit), "{key}");
+    }
+    let model = common::data().genetics().body;
+    assert_eq!(model.pigment_skin_offset, -1.2);
+    assert_eq!(model.stoop_tempo, 6.0);
+    assert_eq!(common::data().genetics().bio_age_weight, 0.5);
+}
+
+/// ADR-0015 section 1: `logit` from −20 to 20 (0 and negatives allowed), `stage` above 0 up
+/// to 7; each end allowed, a value beyond rejected; a missing value rejected.
+#[test]
+fn body_values_reject() {
+    for (key, value, result) in [
+        ("core:body_pigment_skin_offset", -20.0, "ok"),
+        ("core:body_pigment_skin_offset", 20.0, "ok"),
+        ("core:body_pigment_skin_offset", 0.0, "ok"),
+        (
+            "core:body_pigment_skin_offset",
+            -20.5,
+            "data.calibration_range",
+        ),
+        ("core:body_curl_slope", 20.5, "data.calibration_range"),
+        ("core:body_bald_men_stage", 7.0, "ok"),
+        ("core:body_bald_men_stage", 7.5, "data.calibration_range"),
+        ("core:body_bald_women_stage", 0.0, "data.calibration_range"),
+        ("core:body_grey_center", 130.0, "ok"),
+        ("core:body_grey_center", 130.5, "data.calibration_range"),
+        ("core:body_beard_tempo", 0.0, "data.calibration_range"),
+        ("core:body_mc1r_hair_eu", 1.0, "ok"),
+        ("core:body_mc1r_hair_eu", 1.01, "data.calibration_range"),
+        ("core:bio_age_weight", 0.0, "data.calibration_range"),
+    ] {
+        let got = checked(|c, _| c["values"][key]["value"] = json!(value));
+        assert!(got.starts_with(result), "{key} {value}: {got}");
+    }
+    for (key, unit) in [
+        ("core:body_pigment_skin_offset", "year"),
+        ("core:body_bald_men_stage", "fraction"),
+        ("core:body_grey_center", "logit"),
+    ] {
+        let got = checked(|c, _| c["values"][key]["unit"] = json!(unit));
+        assert!(got.starts_with("data.calibration_unit"), "{key}: {got}");
+    }
+    let (mut c, g) = common::files();
+    c["values"]
+        .as_object_mut()
+        .expect("values")
+        .remove("core:body_stoop_tempo");
+    let result = Data::new(common::definitions(c, g).expect("definitions"));
+    assert_eq!(result.err(), Some(DataError::CalibrationMissing));
+}
