@@ -158,6 +158,18 @@ impl Draws {
         key_words(chacha_key(self.seed, key))
     }
 
+    /// Uniform in [0, 1) (one word).
+    pub fn unit(&self, key: DrawKey) -> f64 {
+        let _ = key;
+        0.0
+    }
+
+    /// Standard Gumbel (one word).
+    pub fn gumbel(&self, key: DrawKey) -> f64 {
+        let _ = key;
+        0.0
+    }
+
     /// Uniform on `0..n`, `n >= 1` (one word).
     pub fn uniform_below(&self, key: DrawKey, n: u64) -> u64 {
         let [w] = self.words(key);
@@ -463,6 +475,67 @@ mod tests {
             );
             assert!(draws.exponential(key, 2.0) > 0.0, "{key:?}");
             assert_ne!(draws.normal(key, 1.0, 3.0), 1.0, "{key:?}");
+        }
+    }
+
+    /// ADR-0001 sections 1 and 3: `unit` and `gumbel` take the first word of the key.
+    /// The bits of `unit` and of the gumbel reference are from tools/rng_reference.py
+    /// (lines `chain`); `gumbel` may lie 2^-45 from its reference (the KAT bound) and is
+    /// bit for bit the function of sim-math on the first word.
+    #[test]
+    fn unit_and_gumbel_take_the_first_word() {
+        let base = str_key(&DataId::new("test:base").expect("valid"));
+        // seed, [tag, subject, occasion, detail], bits of unit and of the gumbel reference
+        let cases = [
+            (
+                0,
+                [1, 0, 0, 0],
+                0x3fdd_ca57_e37f_b4bc,
+                0x3fd1_2b6e_b20f_a893_u64,
+            ),
+            (
+                1,
+                [1, 0, 0, 0],
+                0x3fe2_ff73_b34c_e6fa,
+                0x3fe4_d6c9_fae0_b4d4,
+            ),
+            (
+                0,
+                [2, 0, 0, 0],
+                0x3fdd_6968_bcfe_2ba0,
+                0x3fd0_1ba0_6bc6_5568,
+            ),
+            (
+                0x0123_4567_89ab_cdef,
+                [3, 0xfedc_ba98_7654_3210, 7, (5 << 32) | 9],
+                0x3fd0_86f1_6960_9242,
+                0xbfd3_63f0_6a14_5239,
+            ),
+            (
+                0x5eed,
+                [4, 0, base, 0],
+                0x3fd7_1b91_4d19_eff4,
+                0xbf92_fd66_ef22_b604,
+            ),
+        ];
+        let bound = f64::from_bits(0x3d20_0000_0000_0000);
+        for (seed, [tag, subject, occasion, detail], unit_bits, gumbel_bits) in cases {
+            let draws = Draws::new(WorldSeed::new(seed));
+            let key = DrawKey {
+                tag: pinned(tag).expect("a pinned tag"),
+                subject: SubjectKey(subject),
+                occasion,
+                detail,
+            };
+            assert_eq!(draws.unit(key).to_bits(), unit_bits, "{key:?}");
+            let gumbel = draws.gumbel(key);
+            let reference = f64::from_bits(gumbel_bits);
+            assert!(
+                (gumbel - reference).abs() <= bound,
+                "{key:?}: {gumbel} against {reference}"
+            );
+            let [w] = draws.words::<1>(key);
+            assert_eq!(gumbel.to_bits(), dist::gumbel(w).to_bits(), "{key:?}");
         }
     }
 

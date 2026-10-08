@@ -38,7 +38,7 @@ const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 
 /// Every known-answer file with its header line. Readers skip that line, so a file
 /// without it would lose its first row unnoticed.
-pub const HEADERS: [(&str, &str); 16] = [
+pub const HEADERS: [(&str, &str); 18] = [
     ("ceil", HEADER),
     ("exp", HEADER),
     ("ln", HEADER),
@@ -51,8 +51,10 @@ pub const HEADERS: [(&str, &str); 16] = [
     // The distributions (ADR-0001 section 3); several inputs are joined by `;`.
     ("unit", HEADER),
     ("unit_open0", HEADER),
+    ("unit_open", HEADER),
     ("exponential", HEADER),
     ("normal", HEADER),
+    ("gumbel", HEADER),
     ("uniform_below", "w,n,expected,class"),
     ("bernoulli", "w,p_bits,expected,class"),
     ("poisson", "w,lambda_bits,expected,class"),
@@ -501,6 +503,46 @@ mod tests {
         // An exact row may have any parameters.
         let exact = file(&[&format!("{scaled},3ff0000000000000,E,3ff0000000000000")]);
         assert_eq!(violations("normal", &exact), Vec::<String>::new());
+    }
+
+    /// ADR-0001 section 3: `gumbel` may differ from its reference by 2^-45 absolute, at
+    /// any word (it has no parameters). Near its zero a relative bound would allow
+    /// nothing; at its upper end, in [32, 64), 2^-45 is 4 ulp.
+    #[test]
+    fn the_absolute_bound_of_gumbel() {
+        let row = |expected: &str, reference: &str| {
+            file(&[&format!("0000000000000000,{expected},P,{reference}")])
+        };
+        for (within, reference) in [
+            ("0000000000000000", "0000000000000000"),
+            ("3d20000000000000", "0000000000000000"),
+            ("bd20000000000000", "0000000000000000"),
+            ("0000000000000000", "bcafffffffffffff"),
+            ("40425e4f7b2737fe", "40425e4f7b2737fa"),
+            ("40425e4f7b2737f6", "40425e4f7b2737fa"),
+        ] {
+            assert_eq!(
+                violations("gumbel", &row(within, reference)),
+                Vec::<String>::new(),
+                "{within} against {reference}"
+            );
+        }
+        for (beyond, reference) in [
+            ("3d20000000000001", "0000000000000000"),
+            ("bd20000000000001", "0000000000000000"),
+            ("40425e4f7b2737ff", "40425e4f7b2737fa"),
+            ("40425e4f7b2737f5", "40425e4f7b2737fa"),
+            ("7ff0000000000000", "7ff0000000000000"),
+            ("fff0000000000000", "c00cd48a14a68f37"),
+        ] {
+            assert_eq!(
+                violations("gumbel", &row(beyond, reference)),
+                vec![format!(
+                    "gumbel.csv:3: {beyond} is further than 2^-45 absolute from the reference {reference}"
+                )],
+                "{beyond} against {reference}"
+            );
+        }
     }
 
     /// ADR-0003 section 3.3: without a fixed bound a function has no class P row.
