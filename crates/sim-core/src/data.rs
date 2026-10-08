@@ -60,6 +60,7 @@ pub enum Unit {
     Centimeter,
     Year,
     PerYear,
+    CentimeterPerYear,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -205,10 +206,11 @@ impl Genetics {
     }
 }
 
-/// The values of the mean growth curve of one sex (ADR-0010): adult height `h1` (cm),
+/// The values of the growth curve of one sex (ADR-0010): adult height `h1` (cm),
 /// Preece-Baines `theta` (years), `h_theta` (cm), `s0` and `s1` (per year), the WHO
 /// medians at birth, 12 and 24 months (cm), and the infancy term's `b` and `c` derived
-/// from them.
+/// from them; for the individual curve (ADR-0012) the spread of adult height `sd` (cm),
+/// of the timing `theta_sd` (years) and the trade-off `gamma` (cm per year).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GrowthCurve {
     pub h1: f64,
@@ -221,12 +223,16 @@ pub struct GrowthCurve {
     pub l24: f64,
     pub b: f64,
     pub c: f64,
+    pub sd: f64,
+    pub theta_sd: f64,
+    pub gamma: f64,
 }
 
-/// Upper limits of the growth values (ADR-0010 section 2).
+/// Upper limits of the growth values (ADR-0010 section 2, ADR-0012 section 2).
 const MAX_HEIGHT: f64 = 300.0;
 const MAX_THETA: f64 = 30.0;
 const MAX_RATE_PER_YEAR: f64 = 10.0;
+const MAX_THETA_SD: f64 = 5.0;
 
 /// Checked definitions with their data hash. Only `Data::new` makes one.
 #[derive(Clone, Debug, PartialEq)]
@@ -566,6 +572,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         }
         Ok(x)
     };
+    let gamma = value("core:growth_gamma", Unit::CentimeterPerYear, MAX_HEIGHT)?;
     let genetics = Genetics {
         map_length_autosome_female: Morgans(value(
             "core:map_length_autosome_female",
@@ -601,6 +608,9 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             value("core:length_birth_male", Unit::Centimeter, MAX_HEIGHT)?,
             value("core:length_12_months_male", Unit::Centimeter, MAX_HEIGHT)?,
             value("core:length_24_months_male", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:height_sd_male", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:growth_theta_sd_male", Unit::Year, MAX_THETA_SD)?,
+            gamma,
         ])?,
         growth_female: growth([
             value("core:height_adult_female", Unit::Centimeter, MAX_HEIGHT)?,
@@ -615,9 +625,12 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             value("core:length_birth_female", Unit::Centimeter, MAX_HEIGHT)?,
             value("core:length_12_months_female", Unit::Centimeter, MAX_HEIGHT)?,
             value("core:length_24_months_female", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:height_sd_female", Unit::Centimeter, MAX_HEIGHT)?,
+            value("core:growth_theta_sd_female", Unit::Year, MAX_THETA_SD)?,
+            gamma,
         ])?,
     };
-    if calibration.values.len() != 21 {
+    if calibration.values.len() != 26 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
@@ -625,15 +638,28 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
 
 /// The mean growth curve of one sex from its eight values in the order of
 /// `GrowthCurve` (ADR-0010): their order, and `b` and `c` of the infancy term from the
-/// three medians.
-fn growth(values: [f64; 8]) -> Result<GrowthCurve, DataError> {
-    let [h1, theta, h_theta, s0, s1, l0, l12, l24] = values;
+/// three medians; the target height at the lower corner of the bounds is above 0
+/// (ADR-0012 section 2).
+fn growth(values: [f64; 11]) -> Result<GrowthCurve, DataError> {
+    let [
+        h1,
+        theta,
+        h_theta,
+        s0,
+        s1,
+        l0,
+        l12,
+        l24,
+        sd,
+        theta_sd,
+        gamma,
+    ] = values;
     let ordered = l0 < l12 && l12 < l24 && l24 - l12 < l12 - l0;
     if !ordered || h_theta >= h1 || s0 >= s1 {
         return Err(DataError::CalibrationRange);
     }
     let q = (l24 - l12) / (l12 - l0);
-    Ok(GrowthCurve {
+    let curve = GrowthCurve {
         h1,
         theta,
         h_theta,
@@ -644,7 +670,17 @@ fn growth(values: [f64; 8]) -> Result<GrowthCurve, DataError> {
         l24,
         b: (l12 - l0) / (1.0 - q),
         c: -sim_math::ln(q),
-    })
+        sd,
+        theta_sd,
+        gamma,
+    };
+    let bound = crate::growth::CURVE_INPUT_BOUND;
+    let corner = crate::growth::IndividualCurve::new(curve, -bound, -bound);
+    if corner.target > 0.0 {
+        Ok(curve)
+    } else {
+        Err(DataError::CalibrationRange)
+    }
 }
 
 /// The phenotype weights (ADR-0009 section 2): each row names a trait of the map, the rows
