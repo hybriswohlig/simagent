@@ -212,6 +212,22 @@ impl Genome {
         self.copies(locus).iter().sum()
     }
 
+    /// The genetic value `G_t` of trait `t` (genetics specification 4.1, ADR-0008
+    /// section 3): the terms folded from 0 in their order, divided by `sigma_ref`. `None`
+    /// if the map has no such trait.
+    pub fn genetic_value(&self, t: &DataId, data: &Data) -> Option<f64> {
+        let (terms, sigma) = data.trait_terms(t)?;
+        let raw = terms.iter().fold(0.0, |sum, term| {
+            let locus = data
+                .genome_map()
+                .loci
+                .get(term.locus)
+                .unwrap_or_else(|| panic!("invariant genome.term_locus"));
+            sum + term.coefficient * (f64::from(self.dose(locus)) - term.d_ref)
+        });
+        Some(raw / sigma)
+    }
+
     fn set_copies(&mut self, locus: &Locus, copies: &[u8]) {
         let (segment, slot) = (locus.segment, locus.slot);
         match (locus.chromosome, &mut self.paternal_sex, copies) {

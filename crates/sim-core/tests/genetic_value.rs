@@ -50,7 +50,12 @@ fn genetic_value_follows_the_specification() {
     let data = fixture();
     let genome = woman(
         &data,
-        &[("test:g1", 2), ("test:g2", 0), ("test:f1", 2), ("test:p1", 1)],
+        &[
+            ("test:g1", 2),
+            ("test:g2", 0),
+            ("test:f1", 2),
+            ("test:p1", 1),
+        ],
     );
     let value = |t: &str| genome.genetic_value(&id(t), &data).expect("a trait");
     // Growth: (1 · 0.5) · (2 − 1.25) + (2 · 0.125) · (0 − 0.5) = 0.375 − 0.125, over 2.
@@ -85,9 +90,7 @@ fn ordered() -> Data {
             "mark": "small", "mutation": "both"})
     };
     let on = |t: &str, weight: f64| json!({"trait": t, "weight": weight});
-    let trait_ = |id: &str, includes: Value| {
-        json!({"id": id, "sigma_ref": 1.0, "exclusive": false, "includes": includes})
-    };
+    let trait_ = |id: &str, includes: Value| json!({"id": id, "sigma_ref": 1.0, "exclusive": false, "includes": includes});
     let (calibration, mut genome_map) = common::files();
     genome_map["traits"] = json!([
         trait_("test:s1", json!([])),
@@ -126,4 +129,48 @@ fn the_fold_runs_in_the_order_of_the_specification() {
     assert_eq!(genome.genetic_value(&id("test:t2"), &data), Some(0.0));
     assert_eq!((1e17 + 1.0) - 1e17, 0.0);
     assert_eq!((1e17 - 1e17) + 1.0, 1.0);
+}
+
+/// The parentheses of ADR-0008 section 3 decide the bits: `(λ · β) · (d − d_ref)` for an
+/// own locus, `((w · λ) · β) · (d − d_ref)` through an include, one division at the end.
+/// With these values `λ · (β · (d − d_ref))`, `(w · (λ · β))`, the difference distributed,
+/// a division per term and `w` times the folded raw value of the included trait each give
+/// other bits.
+#[test]
+fn the_parentheses_of_the_specification_decide_the_bits() {
+    let (calibration, mut genome_map) = common::files();
+    genome_map["traits"] = json!([
+        {"id": "test:u", "sigma_ref": 1.7, "exclusive": false,
+         "includes": [{"trait": "test:v", "weight": 0.15}]},
+        {"id": "test:v", "sigma_ref": 1.0, "exclusive": false, "includes": []},
+    ]);
+    let dummy = genome_map["loci"][0].clone();
+    let additive = |id: &str, slot: u64, effect: f64, d_ref: f64, t: &str, weight: f64| {
+        json!({"id": id, "chromosome": "autosome", "segment": 6, "slot": slot,
+            "action": {"additive": {"effect": effect, "d_ref": d_ref,
+                "loads": [{"trait": t, "weight": weight}]}},
+            "mark": "small", "mutation": "both"})
+    };
+    genome_map["loci"] = json!([
+        dummy,
+        additive("test:y", 0, 0.4, 0.65, "test:u", 0.85),
+        additive("test:x", 1, 1.7, 1.7, "test:v", 1.7),
+    ]);
+    let data = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+        .expect("checked");
+    let genome = woman(&data, &[("test:y", 2), ("test:x", 1)]);
+    let expected = ((0.0 + (0.85 * 0.4) * (2.0 - 0.65)) + ((0.15 * 1.7) * 1.7) * (1.0 - 1.7)) / 1.7;
+    assert_eq!(genome.genetic_value(&id("test:u"), &data), Some(expected));
+    let alternatives = [
+        ((0.0 + (0.85 * 0.4) * (2.0 - 0.65)) + (0.15 * (1.7 * 1.7)) * (1.0 - 1.7)) / 1.7,
+        ((0.0 + 0.85 * (0.4 * (2.0 - 0.65))) + ((0.15 * 1.7) * 1.7) * (1.0 - 1.7)) / 1.7,
+        ((0.0 + ((0.85 * 0.4) * 2.0 - (0.85 * 0.4) * 0.65))
+            + (((0.15 * 1.7) * 1.7) * 1.0 - ((0.15 * 1.7) * 1.7) * 1.7))
+            / 1.7,
+        ((0.85 * 0.4) * (2.0 - 0.65)) / 1.7 + (((0.15 * 1.7) * 1.7) * (1.0 - 1.7)) / 1.7,
+        ((0.85 * 0.4) * (2.0 - 0.65) + 0.15 * ((1.7 * 1.7) * (1.0 - 1.7))) / 1.7,
+    ];
+    for other in alternatives {
+        assert_ne!(other, expected);
+    }
 }
