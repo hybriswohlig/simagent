@@ -503,6 +503,33 @@ def section_6():
 
 
 # ---------------------------------------------------------------------------------------
+# Section 11: life course (step 9). Partner choice, fertility and twins, the bound of the
+# genetic value of longevity, the learning function.
+
+G_L_BOUND = 6
+WISH_SHAPE = [Fraction(10, 100), Fraction(15, 100), Fraction(40, 100), Fraction(25, 100), Fraction(10, 100)]
+TWINS_MZ = Fraction(4, 1000)
+TWINS_DZ = Fraction(10, 1000)
+
+
+def section_11():
+    # The penalty 16 ln(10) phi is ln(10) for first cousins (phi = 1/16), so a cousin is
+    # chosen a tenth as often as an equally fitting stranger; the odds ratio is e^penalty.
+    put("W11.2a", 16 * mp.log(10) / 16, ("fix", 3))
+    put("W11.2b", mp.exp(16 * mp.log(10) / 32), ("fix", 3))
+    put("W11.2c", mp.exp(16 * mp.log(10) / 64), ("fix", 3))
+    assert sum(WISH_SHAPE) == 1
+    put("W11.3a", sum(n * p for n, p in enumerate(WISH_SHAPE)), ("fix", 2))
+    twin_births = TWINS_MZ + TWINS_DZ
+    put("W11.3b", 100 * twin_births, ("fix", 1))
+    put("W11.3c", 100 * 2 * twin_births / (1 + twin_births), ("fix", 2))
+    put("W11.3d", Fraction(105, 205), ("frac",))
+    # Share of the reference population beyond the bound, two-sided.
+    put("W11.4a", mp.erfc(G_L_BOUND / mp.sqrt(2)), ("sig", 3))
+    put("W11.5a", 100 * (mp.exp(mp.mpf("0.25")) - 1), ("fix", 1))
+
+
+# ---------------------------------------------------------------------------------------
 # Section 7: death (C4). Gompertz-Makeham with a lognormal genetic multiplier.
 
 def hermite_rule(n):
@@ -648,6 +675,8 @@ def section_7():
         ]:
             put("W7.3" + next(letters), value, fmt)
         put("W7.4" + ("a" if sex == "f" else "b"), sigma / b, ("fix", 2))
+        # 11.4: the bound of g_L at 6 as a shift of age.
+        put("W11.4" + ("b" if sex == "f" else "c"), G_L_BOUND * sigma / b, ("fix", 1))
         # A larger genetic value of longevity means a longer life (criterion P16).
         assert model.correlation() > 0, sex
     mp.mp.dps = saved
@@ -811,6 +840,7 @@ def main(argv):
     section_5()
     section_6()
     section_8()
+    section_11()
     if "--fast" not in argv:
         section_7()
     args = [a for a in argv[1:] if a != "--fast"]
