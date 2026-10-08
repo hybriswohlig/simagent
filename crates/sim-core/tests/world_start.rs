@@ -610,3 +610,26 @@ fn a_rejected_nutrition_override_changes_nothing() {
     let params = world.state().world_params().expect("started");
     assert_eq!(params.nutrition, [fed(2, 0.7), fed(3, 0.7)]);
 }
+
+/// ADR-0013 section 2: the fork year is the year of the second after the stamp. Stamped
+/// two seconds before year 2 the block acts in year 1 and may set it; one second later
+/// it acts in year 2, and year 1 is past.
+#[test]
+fn the_fork_year_is_the_year_of_the_next_second() {
+    let second = sim_core::time::SimDuration::from_secs(1);
+    let at = |stamp: SimTime| {
+        let mut world = World::new(common::data());
+        world.submit(start_fed(&[])).expect("accepted");
+        let mut out = sim_core::world::YearOut::default();
+        world.advance_until(&mut out, stamp, &mut |_| false);
+        world.submit(nutrition_block(&[(1, 0.7)]))
+    };
+    let year_2 = sim_core::time::year_start(2);
+    assert!(at(year_2 - second - second).is_ok());
+    assert_eq!(
+        at(year_2 - second).expect_err("past"),
+        InputRejected {
+            code: RejectCode::NutritionYearPast
+        }
+    );
+}

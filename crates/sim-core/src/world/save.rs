@@ -403,6 +403,8 @@ fn input_log_consistent(
                 }
             }
             (Input::ForkOverride(block), Some((before, start))) => {
+                // A block acts in the second after its stamp, which must exist.
+                record.t.checked_add(SimDuration::from_secs(1))?;
                 if state::params::block_rejection(block, record.t).is_some() {
                     return None;
                 }

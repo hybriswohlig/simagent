@@ -28,12 +28,15 @@ pub(crate) fn check_override(
 
 /// Why a block stamped `stamp` is rejected in a started world, if at all: it acts from
 /// the next second on and sets no year of the nutrition index before the year of that
-/// second (ADR-0013 section 2).
+/// second (ADR-0013 section 2). At the last second of time there is no next second, and
+/// so no year left to set.
 pub(crate) fn block_rejection(block: &ForkOverride, stamp: SimTime) -> Option<RejectCode> {
     block.rejection().or_else(|| {
-        let fork_year = calendar(stamp + SimDuration::from_secs(1)).year;
+        let fork_year = stamp
+            .checked_add(SimDuration::from_secs(1))
+            .map(|next| calendar(next).year);
         let past = block.changes.iter().any(|change| match change {
-            ParamChange::NutritionYear(entry) => entry.year < fork_year,
+            ParamChange::NutritionYear(entry) => fork_year.is_none_or(|year| entry.year < year),
             ParamChange::HereditaryDiseases(_) => false,
         });
         past.then_some(RejectCode::NutritionYearPast)
