@@ -330,3 +330,86 @@ fn an_offset_without_slope_breaks_the_invariant() {
 fn an_offset_with_a_negative_slope_breaks_the_invariant() {
     age_offset(Some(1.0), SIGMA_G, -0.1);
 }
+
+/// The finite inputs of the review of PR #73 that overflowed, lost a lifetime or gave NaN
+/// now lie outside the accepted ranges and break an invariant; the ranges keep every
+/// accepted input finite.
+#[test]
+fn inputs_outside_the_ranges_break_invariants() {
+    use sim_core::mortality::{
+        ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, MAX_BUDGET, MAX_SIGMA_G,
+        MULTIPLIER_RANGE,
+    };
+    let breaks = |call: Box<dyn FnOnce() -> f64 + std::panic::UnwindSafe>, invariant: &str| {
+        let payload = std::panic::catch_unwind(call).expect_err("an invariant break");
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .expect("a panic message");
+        assert_eq!(message, invariant);
+    };
+    let tiny_a = Gompertz { a: 1e-310, b: 0.1 };
+    breaks(
+        Box::new(move || senescence_age(0.0, 1.0, tiny_a, 1.0)),
+        "invariant mortality.gompertz",
+    );
+    let flat = Gompertz { a: 1.0, b: 1e-20 };
+    breaks(
+        Box::new(move || senescence_age(0.0, 1.0, flat, 1.0)),
+        "invariant mortality.gompertz",
+    );
+    breaks(
+        Box::new(|| multiplier(Some(-2.0), 400.0)),
+        "invariant mortality.sigma",
+    );
+    breaks(
+        Box::new(|| age_offset(Some(6.0), 1.0, 1e-308)),
+        "invariant mortality.gompertz",
+    );
+    breaks(
+        Box::new(|| accident_age(0.0, 1.0, 1e-310)),
+        "invariant mortality.accident",
+    );
+    breaks(
+        Box::new(|| senescence_age(0.0, 2000.0, WOMEN, 1.0)),
+        "invariant mortality.budget",
+    );
+    breaks(
+        Box::new(|| senescence_age(0.0, 1.0, WOMEN, 1e15)),
+        "invariant mortality.multiplier",
+    );
+    // At the corners of the ranges the results stay finite.
+    let (a_low, a_high) = GOMPERTZ_A_RANGE;
+    let (b_low, b_high) = GOMPERTZ_B_RANGE;
+    let (m_low, m_high) = MULTIPLIER_RANGE;
+    for a in [a_low, a_high] {
+        for b in [b_low, b_high] {
+            for m in [m_low, m_high] {
+                for (x0, budget) in [(0.0, 0.0), (0.0, MAX_BUDGET), (2_000_000.0, MAX_BUDGET)] {
+                    let x = senescence_age(x0, budget, Gompertz { a, b }, m);
+                    assert!(x.is_finite() && x >= x0, "{a} {b} {m} {x0} {budget}: {x}");
+                }
+            }
+        }
+    }
+    for g in [-6.0, 6.0] {
+        let m = multiplier(Some(g), MAX_SIGMA_G);
+        assert!(m >= m_low && m <= m_high, "{g}: {m}");
+        assert!(age_offset(Some(g), MAX_SIGMA_G, b_low).is_finite());
+    }
+    let (rate_low, _) = ACCIDENT_RANGE;
+    assert!(accident_age(2_000_000.0, MAX_BUDGET, rate_low).is_finite());
+}
+
+/// The male negative twin (8.1): without the genetic factor P16 fails for men too.
+#[test]
+fn p16_fails_for_men_without_the_genetic_factor() {
+    let lives = cohort(SEED_MEN, MEN, ACCIDENT_MEN, 0.0);
+    let tolerance = 4.0 / sim_math::sqrt(f64::from(NEWBORNS) - 3.0);
+    let r = correlation(&lives);
+    assert!(
+        (fisher(r) - fisher(sim_math::sqrt(0.2))).abs() > tolerance,
+        "P16 passes for men without the factor: {r}"
+    );
+}

@@ -14,6 +14,24 @@
 /// (genetics specification 11.4, ADR-0017); it changes only by a new ADR.
 pub const LONGEVITY_INPUT_BOUND: f64 = 6.0;
 
+/// The ranges the functions accept (a contract, not calibration: the values of 7.2 lie far
+/// inside). They keep every accepted input finite and accurate: with `b` at least 1e-3 the
+/// rounding of `1 + y` in the closed form costs at most about 1e-13 years, with `a` at least
+/// 1e-15, `m` at least 1e-14 and a budget of at most 1000 the term `b · B / (a · m)` stays
+/// below 1e33, and with `σ_g` at most 5 the multiplier `e^(±σ_g · 6)` stays inside 1e-14 to
+/// 1e14.
+pub const GOMPERTZ_A_RANGE: (f64, f64) = (1e-15, 1.0);
+pub const GOMPERTZ_B_RANGE: (f64, f64) = (1e-3, 1.0);
+pub const MAX_SIGMA_G: f64 = 5.0;
+pub const MULTIPLIER_RANGE: (f64, f64) = (1e-14, 1e14);
+pub const MAX_BUDGET: f64 = 1000.0;
+/// The Makeham term per year: from the smallest hazard of a cause (ADR-0002, 1e-9) to 1000.
+pub const ACCIDENT_RANGE: (f64, f64) = (1e-9, 1000.0);
+
+fn within(x: f64, (low, high): (f64, f64)) -> bool {
+    x >= low && x <= high
+}
+
 /// The Gompertz term `a · e^(b·x)` of one sex (7.2): `a` per year, `b` per year of age.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Gompertz {
@@ -35,7 +53,7 @@ pub fn held_longevity(g: f64) -> f64 {
 
 /// `σ_g · ĝ`, 0 without a trait of longevity (11.1).
 fn genetic_term(longevity: Option<f64>, sigma_g: f64) -> f64 {
-    let valid = sigma_g >= 0.0 && sigma_g.is_finite();
+    let valid = within(sigma_g, (0.0, MAX_SIGMA_G));
     if !valid {
         panic!("invariant mortality.sigma");
     }
@@ -47,7 +65,7 @@ fn genetic_term(longevity: Option<f64>, sigma_g: f64) -> f64 {
 ///
 /// # Panics
 ///
-/// Invariant `mortality.sigma` if `sigma_g` is negative or not finite, and as
+/// Invariant `mortality.sigma` if `sigma_g` lies outside 0 to `MAX_SIGMA_G`, and as
 /// [`held_longevity`].
 pub fn multiplier(longevity: Option<f64>, sigma_g: f64) -> f64 {
     sim_math::exp(0.0 - genetic_term(longevity, sigma_g))
@@ -58,10 +76,10 @@ pub fn multiplier(longevity: Option<f64>, sigma_g: f64) -> f64 {
 ///
 /// # Panics
 ///
-/// Invariant `mortality.gompertz` if `b` is not positive and finite, and as
+/// Invariant `mortality.gompertz` if `b` lies outside `GOMPERTZ_B_RANGE`, and as
 /// [`multiplier`].
 pub fn age_offset(longevity: Option<f64>, sigma_g: f64, b: f64) -> f64 {
-    let valid = b > 0.0 && b.is_finite();
+    let valid = within(b, GOMPERTZ_B_RANGE);
     if !valid {
         panic!("invariant mortality.gompertz");
     }
@@ -73,7 +91,7 @@ fn check_origin_and_budget(origin_age: f64, budget: f64) {
     if !valid_origin {
         panic!("invariant mortality.origin");
     }
-    let valid_budget = budget >= 0.0 && budget.is_finite();
+    let valid_budget = within(budget, (0.0, MAX_BUDGET));
     if !valid_budget {
         panic!("invariant mortality.budget");
     }
@@ -86,17 +104,17 @@ fn check_origin_and_budget(origin_age: f64, budget: f64) {
 ///
 /// # Panics
 ///
-/// Invariants `mortality.origin` (negative or not finite), `mortality.budget` (negative or
-/// not finite), `mortality.gompertz` (`a` or `b` not positive and finite),
-/// `mortality.multiplier` (not positive and finite).
+/// Invariants `mortality.origin` (negative or not finite), `mortality.budget` (outside 0 to
+/// `MAX_BUDGET`), `mortality.gompertz` (`a` or `b` outside their ranges),
+/// `mortality.multiplier` (outside `MULTIPLIER_RANGE`).
 pub fn senescence_age(origin_age: f64, budget: f64, gompertz: Gompertz, multiplier: f64) -> f64 {
     check_origin_and_budget(origin_age, budget);
     let Gompertz { a, b } = gompertz;
-    let valid = a > 0.0 && a.is_finite() && b > 0.0 && b.is_finite();
+    let valid = within(a, GOMPERTZ_A_RANGE) && within(b, GOMPERTZ_B_RANGE);
     if !valid {
         panic!("invariant mortality.gompertz");
     }
-    let valid_multiplier = multiplier > 0.0 && multiplier.is_finite();
+    let valid_multiplier = within(multiplier, MULTIPLIER_RANGE);
     if !valid_multiplier {
         panic!("invariant mortality.multiplier");
     }
@@ -110,10 +128,10 @@ pub fn senescence_age(origin_age: f64, budget: f64, gompertz: Gompertz, multipli
 /// # Panics
 ///
 /// Invariants `mortality.origin`, `mortality.budget` as [`senescence_age`], and
-/// `mortality.accident` if `per_year` is not positive and finite.
+/// `mortality.accident` if `per_year` lies outside `ACCIDENT_RANGE`.
 pub fn accident_age(origin_age: f64, budget: f64, per_year: f64) -> f64 {
     check_origin_and_budget(origin_age, budget);
-    let valid = per_year > 0.0 && per_year.is_finite();
+    let valid = within(per_year, ACCIDENT_RANGE);
     if !valid {
         panic!("invariant mortality.accident");
     }
