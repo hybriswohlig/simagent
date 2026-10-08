@@ -1111,7 +1111,7 @@ impl Data {
 
     /// The phenotype weights of a trait, if it has a phenotype (ADR-0009 section 1): h2
     /// and c2 of the child, then of the adult.
-    pub(crate) fn phenotype_weights(&self, id: &DataId) -> Option<[f64; 4]> {
+    pub fn phenotype_weights(&self, id: &DataId) -> Option<[f64; 4]> {
         self.phenotypes.get(id).copied()
     }
 

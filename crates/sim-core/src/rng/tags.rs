@@ -52,6 +52,12 @@ pub const ENV_SHARED: PurposeTag = PurposeTag::from_pinned_list(10);
 /// subject: the person's lineage key; occasion: `str_key` of the trait; detail: 0.
 pub const ENV_INDIVIDUAL: PurposeTag = PurposeTag::from_pinned_list(11);
 
+/// The population sample of the clamp rate of the body contract (ADR-0005 section 8,
+/// ADR-0015 section 5). subject: `SubjectKey::WORLD`; occasion: the number of the sample;
+/// detail: the part of it (0 the alleles, 1 to 19 the shared and individual environments,
+/// 20 the age).
+pub const BODY_CLAMP_SAMPLE: PurposeTag = PurposeTag::from_pinned_list(12);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -65,6 +71,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (MUTATION_SITE, "MUTATION_SITE"),
     (ENV_SHARED, "ENV_SHARED"),
     (ENV_INDIVIDUAL, "ENV_INDIVIDUAL"),
+    (BODY_CLAMP_SAMPLE, "BODY_CLAMP_SAMPLE"),
 ];
 
 /// Values of deleted tags; they are never used again.

@@ -770,6 +770,7 @@ fn check_scans(root: &Path) -> Result {
         core_sources.push((relative(root, &file), read(&file)?));
     }
     problems.extend(scan::core_identifier_findings(&core_sources));
+    problems.extend(scan::body_findings(&core_sources));
     problems.extend(scan::core_time_findings(&core_sources));
     problems.extend(scan::tag_findings(
         &core_sources,
