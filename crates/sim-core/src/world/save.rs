@@ -380,7 +380,7 @@ fn input_log_consistent(
             return None;
         }
         last_stamp = Some(record.t);
-        match (&record.input, started) {
+        match (&record.input, started.take()) {
             (Input::Start(start), None) => {
                 let unstarted = DomainState::new();
                 let fits = state::start::check_start(&unstarted, data, record.t, start).is_ok()
@@ -391,7 +391,7 @@ fn input_log_consistent(
                 if !fits {
                     return None;
                 }
-                started = Some((start.world_params, start));
+                started = Some((start.world_params.clone(), start));
                 switch.push((
                     SimTime::START.as_secs(),
                     start.world_params.hereditary_diseases,
@@ -403,20 +403,21 @@ fn input_log_consistent(
                 }
             }
             (Input::ForkOverride(block), Some((before, start))) => {
-                if block.rejection().is_some() {
+                if state::params::block_rejection(block, record.t).is_some() {
                     return None;
                 }
                 let after = block
                     .changes
                     .iter()
                     .fold(before, |params, change| params.with(*change));
-                started = Some((after, start));
                 // Stamped with the last closed second, the block acts in the next one.
                 switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
+                started = Some((after, start));
             }
-            (Input::ArrangePartnership(pair), Some(_)) => {
+            (Input::ArrangePartnership(pair), Some(kept)) => {
                 let formed = record.t.checked_add(SimDuration::from_secs(1))?;
                 pairs.push((pair.woman, pair.man, formed));
+                started = Some(kept);
             }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_))

@@ -164,7 +164,7 @@ fn check(
 ) -> Result<(), InputRejected> {
     match input {
         Input::Start(start) => state::start::check_start(domain, data, closed_through, start),
-        Input::ForkOverride(block) => state::params::check_override(domain, block),
+        Input::ForkOverride(block) => state::params::check_override(domain, closed_through, block),
         Input::ArrangePartnership(pair) => state::partnership::check_arrange(domain, pair),
     }
 }
@@ -215,7 +215,7 @@ impl WorldState {
 
     /// The world parameters as they stand; `None` until `Start` was applied.
     pub fn world_params(&self) -> Option<WorldParams> {
-        self.domain.world_params
+        self.domain.world_params.clone()
     }
 
     pub fn living(&self) -> u64 {
@@ -334,6 +334,7 @@ mod tests {
             founder_tag: tag(),
             world_params: WorldParams {
                 hereditary_diseases: false,
+                nutrition: Vec::new(),
             },
             death_causes: Vec::new(),
             founders: born

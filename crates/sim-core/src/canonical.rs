@@ -108,7 +108,7 @@ pub fn canonical_projection<'a>(
     CanonicalState {
         projection_version: PROJECTION_VERSION,
         world_seed: domain.world_seed,
-        world_params: domain.world_params,
+        world_params: domain.world_params.clone(),
         death_causes: domain
             .death_causes
             .iter()

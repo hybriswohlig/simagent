@@ -118,7 +118,8 @@ pub struct ForkOverride {
 
 impl ForkOverride {
     /// Why this block is rejected whatever the state of the world, if at all: it has no
-    /// change, or it names a parameter twice.
+    /// change, it names a parameter twice (a year of the nutrition index is a parameter),
+    /// or it sets a nutrition index out of range (ADR-0013).
     pub fn rejection(&self) -> Option<RejectCode> {
         // An empty block would take a place in the input log and make a fork without
         // override differ from its parent.
@@ -130,7 +131,14 @@ impl ForkOverride {
                 .iter()
                 .any(|earlier| earlier.same_param(*change))
         });
-        twice.then_some(RejectCode::OverrideParamTwice)
+        if twice {
+            return Some(RejectCode::OverrideParamTwice);
+        }
+        let out_of_range = self.changes.iter().any(|change| match change {
+            ParamChange::NutritionYear(entry) => !entry.in_range(),
+            ParamChange::HereditaryDiseases(_) => false,
+        });
+        out_of_range.then_some(RejectCode::NutritionOutOfRange)
     }
 }
 
@@ -203,6 +211,12 @@ pub enum RejectCode {
     /// A founder gives a locus more or fewer copies than its chromosome type and sex
     /// have, or an allele other than 0 and 1.
     FounderCopies,
+    /// The years of the nutrition index of `Start` do not rise strictly.
+    NutritionOrder,
+    /// A nutrition index outside [0, 1], or of a year outside the range of time.
+    NutritionOutOfRange,
+    /// An override sets the nutrition index of a year before the fork year.
+    NutritionYearPast,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
