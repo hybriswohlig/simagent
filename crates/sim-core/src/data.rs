@@ -194,6 +194,22 @@ pub struct Genetics {
     pub mutation_rate_disease: PerTransmission,
     pub growth_male: GrowthCurve,
     pub growth_female: GrowthCurve,
+    pub nutrition: NutritionLoss,
+}
+
+/// The loss of height from nutrition (genetics specification 5.4, ADR-0013 section 3): `k`
+/// in cm per deficit year, the weights of the three windows, the ends of the first two
+/// windows (years of age) and the reach of the puberty window around `θ_i` (years).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NutritionLoss {
+    pub per_deficit_year: f64,
+    pub weight_infant: f64,
+    pub weight_child: f64,
+    pub weight_puberty: f64,
+    pub age_infant: f64,
+    pub age_child: f64,
+    pub puberty_before: f64,
+    pub puberty_after: f64,
 }
 
 impl Genetics {
@@ -233,6 +249,8 @@ const MAX_HEIGHT: f64 = 300.0;
 const MAX_THETA: f64 = 30.0;
 const MAX_RATE_PER_YEAR: f64 = 10.0;
 const MAX_THETA_SD: f64 = 5.0;
+/// Upper limit of the reach of the puberty window (ADR-0013 section 3).
+const MAX_PUBERTY_REACH: f64 = 10.0;
 
 /// Checked definitions with their data hash. Only `Data::new` makes one.
 #[derive(Clone, Debug, PartialEq)]
@@ -573,6 +591,19 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         Ok(x)
     };
     let gamma = value("core:growth_gamma", Unit::CentimeterPerYear, MAX_HEIGHT)?;
+    let nutrition = NutritionLoss {
+        per_deficit_year: value("core:nutrition_loss", Unit::CentimeterPerYear, MAX_HEIGHT)?,
+        weight_infant: value("core:nutrition_weight_infant", Unit::Fraction, 1.0)?,
+        weight_child: value("core:nutrition_weight_child", Unit::Fraction, 1.0)?,
+        weight_puberty: value("core:nutrition_weight_puberty", Unit::Fraction, 1.0)?,
+        age_infant: value("core:nutrition_age_infant", Unit::Year, MAX_THETA)?,
+        age_child: value("core:nutrition_age_child", Unit::Year, MAX_THETA)?,
+        puberty_before: value("core:nutrition_puberty_before", Unit::Year, MAX_PUBERTY_REACH)?,
+        puberty_after: value("core:nutrition_puberty_after", Unit::Year, MAX_PUBERTY_REACH)?,
+    };
+    if nutrition.age_infant >= nutrition.age_child {
+        return Err(DataError::CalibrationRange);
+    }
     let genetics = Genetics {
         map_length_autosome_female: Morgans(value(
             "core:map_length_autosome_female",
@@ -629,8 +660,9 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             value("core:growth_theta_sd_female", Unit::Year, MAX_THETA_SD)?,
             gamma,
         ])?,
+        nutrition,
     };
-    if calibration.values.len() != 26 {
+    if calibration.values.len() != 34 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
