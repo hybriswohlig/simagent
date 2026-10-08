@@ -87,6 +87,12 @@ fn p12_loci_half_a_morgan_apart_recombine_at_the_haldane_rate() {
     assert!((ours - 0.3161).abs() <= 0.0263, "{ours}");
     let twin = recombinant((3, 10), (4, 10));
     assert!((twin - 0.3161).abs() > 0.0263, "{twin}");
+    // And the twin is what it stands for: unlinked loci recombine with 1/2 (2.2), within
+    // 4 standard errors.
+    assert!(
+        (twin - 0.5).abs() <= 4.0 * sim_math::sqrt(0.25 / 5000.0),
+        "{twin}"
+    );
 }
 
 /// P13 (8.3): at `Λ` = 0.0075 per meiosis, 20 000 meioses count on average 150 [W8.13a]
@@ -146,12 +152,25 @@ fn p15_sons_of_carrier_mothers_have_it_with_one_half() {
     let share_twin = affected(&mixed);
     assert!((share_twin - 0.5).abs() > tolerance(&mixed), "{share_twin}");
     let affected_father = genome([0; 3], [0; 3], 1, json!({"y": 0}));
+    let (mut daughters, mut sons) = (0, 0);
     for zygote in zygotes(SEED_P15, &data, &free_mother, &affected_father, 4400..4800) {
         match zygote.genome.paternal_sex {
-            PaternalSex::X(x) => assert_eq!(x.allele(0), 1, "a daughter"),
-            PaternalSex::Y(_) => assert_eq!(zygote.genome.maternal_x.allele(0), 0, "a son"),
+            PaternalSex::X(x) => {
+                assert_eq!(x.allele(0), 1, "a daughter has his X");
+                daughters += 1;
+            }
+            PaternalSex::Y(y) => {
+                // A son has the father's Y and his mother's X, neither with the allele.
+                assert_eq!(y.allele(0), 0, "a son has his Y");
+                assert_eq!(zygote.genome.maternal_x.allele(0), 0, "a son");
+                sons += 1;
+            }
         }
     }
+    assert!(
+        daughters > 0 && sons > 0,
+        "{daughters} daughters, {sons} sons"
+    );
 }
 
 /// Exact (8.3, 2.6): mt comes from the mother to every child and never from the father;
@@ -166,9 +185,21 @@ fn mt_and_y_follow_their_tables_exactly() {
         }))
         .expect("a genome")
     };
+    // Each cross has sons and daughters; a daughter has the father's X, never a Y (the
+    // genome type has no place for it).
+    let sexes = |zygotes: &[Zygote]| {
+        let sons = zygotes.iter().filter(|zygote| is_son(zygote)).count();
+        assert!(
+            sons > 0 && sons < zygotes.len(),
+            "{sons} sons of {}",
+            zygotes.len()
+        );
+    };
     let mother = with_mt(json!({"x": 0}));
     let father = genome([0; 3], [0; 3], 0, json!({"y": 1}));
-    for zygote in zygotes(SEED_EXACT, &data, &mother, &father, 0..400) {
+    let first = zygotes(SEED_EXACT, &data, &mother, &father, 0..400);
+    sexes(&first);
+    for zygote in &first {
         assert_eq!(zygote.genome.mt.allele(0), 1, "mt of the mother");
         if let PaternalSex::Y(y) = zygote.genome.paternal_sex {
             assert_eq!(y.allele(0), 1, "the Y of the father");
@@ -176,8 +207,13 @@ fn mt_and_y_follow_their_tables_exactly() {
     }
     let mother = genome([0; 3], [0; 3], 0, json!({"x": 0}));
     let father = with_mt(json!({"y": 0}));
-    for zygote in zygotes(SEED_EXACT, &data, &mother, &father, 400..800) {
+    let second = zygotes(SEED_EXACT, &data, &mother, &father, 400..800);
+    sexes(&second);
+    for zygote in &second {
         assert_eq!(zygote.genome.mt.allele(0), 0, "no mt of the father");
+        if let PaternalSex::Y(y) = zygote.genome.paternal_sex {
+            assert_eq!(y.allele(0), 0, "the Y of this father");
+        }
     }
 }
 
@@ -198,12 +234,75 @@ fn passed_on(meiosis: &Meiosis, segment: u8, slot: u8, slots: u8) -> Strand {
     }
 }
 
+/// A map with loci on every chromosome type at the standard rate `rate`: 150 autosomal
+/// loci, every slot of X, Y and mt; all of direction both.
+fn every_chromosome(rate: f64) -> Data {
+    let (mut calibration, _) = common::files();
+    calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
+    let mut places: Vec<(u64, u64)> = (0..150).map(|i| (i % 8, i / 8)).collect();
+    places.sort_unstable();
+    let locus = |id: String, chromosome: &str, segment: u64, slot: u64| {
+        json!({"id": id, "chromosome": chromosome, "segment": segment, "slot": slot,
+            "action": "additive", "mark": "small", "mutation": "both"})
+    };
+    let mut loci: Vec<Value> = places
+        .iter()
+        .map(|(segment, slot)| {
+            locus(
+                format!("test:a{segment}_{slot}"),
+                "autosome",
+                *segment,
+                *slot,
+            )
+        })
+        .collect();
+    loci.extend((0..16).map(|slot| locus(format!("test:x{slot}"), "x", 0, slot)));
+    loci.extend((0..8).map(|slot| locus(format!("test:y{slot}"), "y", 0, slot)));
+    loci.extend((0..8).map(|slot| locus(format!("test:mt{slot}"), "mt", 0, slot)));
+    let genome_map = json!({"format_version": 1, "map_version": 1, "loci": loci});
+    Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// What a gamete passes on before mutation, by chromosome type: autosomes per segment,
+/// the X or Y (16 or 8 slots), and the mother's mt.
+struct Expected {
+    autosomes: Vec<Vec<u8>>,
+    x: Vec<u8>,
+    y: Vec<u8>,
+    mt: Vec<u8>,
+}
+
+impl Expected {
+    /// Applies the listed mutations in order; each must find its old allele. Returns the
+    /// chromosome type of each.
+    fn mutate(&mut self, data: &Data, meiosis: &Meiosis) -> Vec<Chromosome> {
+        let mut types = Vec::new();
+        for mutation in &meiosis.mutations {
+            let locus = data.locus(&mutation.locus).expect("a locus of the map");
+            let (segment, slot) = (usize::from(locus.segment), usize::from(locus.slot));
+            let allele = match locus.chromosome {
+                Chromosome::Autosome => &mut self.autosomes[segment][slot],
+                Chromosome::X => &mut self.x[slot],
+                Chromosome::Y => &mut self.y[slot],
+                Chromosome::Mt => &mut self.mt[slot],
+            };
+            assert_eq!((*allele, mutation.new), (mutation.old, 1 - mutation.old));
+            *allele = mutation.new;
+            types.push(locus.chromosome);
+        }
+        types
+    }
+}
+
 /// Exact (8.3, 2.4): the child is the recombination that the meiosis entries record plus
-/// exactly the new mutations they list, each with its old allele. A map of 150 loci at a
-/// high rate gives about 7.5 mutations per meiosis.
+/// exactly the new mutations they list, each with its old allele, on every chromosome
+/// type: autosomes, the mother's X and mt, the father's X or Y. At a high rate the map
+/// gives about 8.7 mutations per maternal meiosis. That the entries record the true
+/// draws (start strands, crossovers, mutation order) shows the comparison with the
+/// independent reference (`tests/meiosis.rs`, `tests/mutation.rs`).
 #[test]
 fn every_new_mutation_is_in_the_meiosis_entry() {
-    let data = common::autosomal_map(150, "both", 0.05);
+    let data = every_chromosome(0.05);
     let mother = genome(
         [0x0f0f_0f0f_0f0f_0f0f; 3],
         [0x3333_3333_3333_3333; 3],
@@ -214,56 +313,96 @@ fn every_new_mutation_is_in_the_meiosis_entry() {
         [0x5555_5555_5555_5555; 3],
         [0x0ff0_0ff0_0ff0_0ff0; 3],
         0x00ff,
-        json!({"y": 0}),
+        json!({"y": 0x96}),
     );
-    let mut listed = 0;
+    let PaternalSex::X(her_x) = mother.paternal_sex else {
+        panic!("a mother");
+    };
+    let PaternalSex::Y(his_y) = father.paternal_sex else {
+        panic!("a father");
+    };
+    let slots = |n: u8, allele: &dyn Fn(u8) -> u8| (0..n).map(allele).collect::<Vec<u8>>();
+    let (mut listed, mut daughters, mut sons) = (0, 0, 0);
+    let mut mutated = std::collections::BTreeSet::new();
     for zygote in zygotes(SEED_EXACT, &data, &mother, &father, 0..300) {
-        for (meiosis, parent, child) in [
-            (&zygote.mother, &mother, zygote.genome.maternal),
-            (&zygote.father, &father, zygote.genome.paternal),
-        ] {
-            let mut expected: Vec<Vec<u8>> = (0..8)
+        let mut sides = Vec::new();
+        for (meiosis, parent) in [(&zygote.mother, &mother), (&zygote.father, &father)] {
+            let autosomes = (0..8)
                 .map(|segment| {
-                    (0..24)
-                        .map(|slot| match passed_on(meiosis, segment, slot, 24) {
-                            Strand::Maternal => parent.maternal.allele(segment, slot),
-                            Strand::Paternal => parent.paternal.allele(segment, slot),
-                        })
-                        .collect()
+                    slots(24, &|slot| match passed_on(meiosis, segment, slot, 24) {
+                        Strand::Maternal => parent.maternal.allele(segment, slot),
+                        Strand::Paternal => parent.paternal.allele(segment, slot),
+                    })
                 })
                 .collect();
-            for mutation in &meiosis.mutations {
-                let locus = data.locus(&mutation.locus).expect("a locus of the map");
-                assert_eq!(locus.chromosome, Chromosome::Autosome);
-                let allele = &mut expected[usize::from(locus.segment)][usize::from(locus.slot)];
-                assert_eq!((*allele, mutation.new), (mutation.old, 1 - mutation.old));
-                *allele = mutation.new;
-                listed += 1;
-            }
-            for segment in 0..8 {
-                for slot in 0..24 {
-                    assert_eq!(
-                        child.allele(segment, slot),
-                        expected[usize::from(segment)][usize::from(slot)],
-                        "segment {segment} slot {slot}"
-                    );
-                }
-            }
+            sides.push(Expected {
+                autosomes,
+                x: Vec::new(),
+                y: Vec::new(),
+                mt: Vec::new(),
+            });
         }
-        let PaternalSex::X(her_x) = mother.paternal_sex else {
-            panic!("a mother");
+        let [hers, his] = &mut sides[..] else {
+            panic!("two sides");
         };
-        for slot in 0..16 {
-            let expected = match passed_on(&zygote.mother, X_SEGMENT, slot, 16) {
+        hers.x = slots(
+            16,
+            &|slot| match passed_on(&zygote.mother, X_SEGMENT, slot, 16) {
                 Strand::Maternal => mother.maternal_x.allele(slot),
                 Strand::Paternal => her_x.allele(slot),
-            };
-            assert_eq!(
-                zygote.genome.maternal_x.allele(slot),
-                expected,
-                "X slot {slot}"
-            );
+            },
+        );
+        hers.mt = slots(8, &|slot| mother.mt.allele(slot));
+        match zygote.genome.paternal_sex {
+            PaternalSex::X(_) => his.x = slots(16, &|slot| father.maternal_x.allele(slot)),
+            PaternalSex::Y(_) => his.y = slots(8, &|slot| his_y.allele(slot)),
+        }
+        for (side, types) in [
+            ("mother", hers.mutate(&data, &zygote.mother)),
+            ("father", his.mutate(&data, &zygote.father)),
+        ] {
+            listed += types.len();
+            mutated.extend(types.into_iter().map(|chromosome| (side, chromosome)));
+        }
+        let child = &zygote.genome;
+        for segment in 0..8 {
+            for slot in 0..24 {
+                let (s, i) = (usize::from(segment), usize::from(slot));
+                assert_eq!(child.maternal.allele(segment, slot), hers.autosomes[s][i]);
+                assert_eq!(child.paternal.allele(segment, slot), his.autosomes[s][i]);
+            }
+        }
+        assert_eq!(
+            slots(16, &|slot| child.maternal_x.allele(slot)),
+            hers.x,
+            "her X"
+        );
+        assert_eq!(slots(8, &|slot| child.mt.allele(slot)), hers.mt, "mt");
+        match child.paternal_sex {
+            PaternalSex::X(x) => {
+                assert_eq!(slots(16, &|slot| x.allele(slot)), his.x, "his X");
+                daughters += 1;
+            }
+            PaternalSex::Y(y) => {
+                assert_eq!(slots(8, &|slot| y.allele(slot)), his.y, "his Y");
+                sons += 1;
+            }
         }
     }
+    // Mutations on every chromosome type each side passes on, daughters and sons.
+    for place in [
+        ("mother", Chromosome::Autosome),
+        ("mother", Chromosome::X),
+        ("mother", Chromosome::Mt),
+        ("father", Chromosome::Autosome),
+        ("father", Chromosome::X),
+        ("father", Chromosome::Y),
+    ] {
+        assert!(mutated.contains(&place), "{place:?}");
+    }
     assert!(listed > 3000, "{listed} mutations listed");
+    assert!(
+        daughters > 0 && sons > 0,
+        "{daughters} daughters, {sons} sons"
+    );
 }
