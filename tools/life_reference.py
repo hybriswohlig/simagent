@@ -10,32 +10,27 @@ Usage:
   python3 tools/life_reference.py --quick      a smoke test (under a minute, imprecise)
   python3 tools/life_reference.py --jobs N     worker processes (default: all cores, at
                                                most 12); the result does not depend on N
+  python3 tools/life_reference.py --r7         the earlier market of Grok's R7, kept for
+                                               comparison (not the rule)
+  python3 tools/life_reference.py --wa-scan    adds a scan of w_a at the fitted point
 
 Pure Python (standard library only); every number is fixed by the seeds below, so two runs
 print the same digits. The output is a table of the fitted values with the targets they
-reach and their Monte Carlo standard errors, the checks, and a JSON snippet for
-data/calibration/demography.json.
+reach and their Monte Carlo standard errors, the checks, a check run on towns of 100
+founders, and a JSON snippet for data/calibration/demography.json.
 
-What the tool fits (targets from the specification and Grok's decisions of 2026-10-08 on
-the first fits, ADR-0011, as R6 and R7):
+What the tool fits (targets from the specification and Grok's decisions of 2026-10-08 and
+2026-10-09 on the earlier fits, ADR-0011, R6 to R8):
 
-- `c` and `m` of the entry rate `e(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
-  (the former search curve of 11.2, R7): among persons who reach 50, the median age at
-  the first partnership is 23.5 (women) and 26 (men), and the men's share without any
-  partnership by 50 is 0.10. The women's share is only reported: the first fit showed
-  that both shares cannot be 0.10 with the medians (1.05 boys per girl). Four parameters
-  for three targets leave one direction free; the women's share picks the point in it,
-  with a tenth of the weight.
-- Exploratory switch `--female` (cfg["market"] = "female", not a decision): the classic
-  female-dominant market of demographic microsimulation. Only single women search, with
-  `s_f(a)` (same form) times `rho`; their candidates are up to 12 single men of the
-  round's snapshot; utility and choice as in 11.2. It fits `c`, `m`, `rho`, `alpha`,
-  `lambda_sep`, `w_K`, `w_H` to the women's median and never share, the births under 18,
-  the births, the separations and the correlations; the men's values are emergent, and
-  the report scans `w_a`.
-- `rho`, a factor on `e(a)` for both sexes from the 16th until before the 18th birthday
-  (Grok, R6b): the share of live births to mothers under 18 among all live births after
-  the burn-in is 0.0024 (band 0.001 to 0.005); `rho` stays in (0, 1].
+- `c` and `m` of the women's search rate `s_f(a) = min(1, c * exp(-1/2 * ((a - m) /
+  7)^2))` (11.2 with R8): among women who reach 50, the median age at the first
+  partnership is 23.5 and the share without any partnership by 50 is 0.10. The men's
+  median and never share are emergent and only reported (R8).
+- `rho`, a factor on `s_f(a)` from the 16th until before the 18th birthday (R6b): the
+  share of live births to mothers under 18 among all live births after the burn-in is
+  0.0024 (band 0.001 to 0.005); `rho` stays in (0, 1].
+- `mu_a`, the preferred age gap (man older) of the age term, with `w_a` = 0.02 fixed
+  (R8): the mean age gap man minus woman over all partnerships is 3.0 (band 2.5 to 4).
 - `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
   live births on average, twins counting two. A wish mean above 3.0 stops the tool.
 - `lambda_sep` per year (ADR-0018 section 3): one third of all partnerships end by
@@ -52,18 +47,20 @@ The model, exactly as written in spec 7 and 11 unless stated:
   longevity value N(0, 1) held at +-6; one Exp(1) budget per cause, death age in closed
   form. Founders start at their age with fresh budgets (7.1). Hereditary diseases are
   left out (they add a small hazard to few carriers and would need the genome).
-- Market as a state (11.2 with Grok's R7) at every month start, after that month's births
-  and conception attempts: a single person of at least 16 who is not on the market enters
-  it with `e(a)` (times `rho` from 16 until before 18); separated and widowed persons are
-  single again and off the market, and re-enter by the same rule. Then everyone on the
-  market (the round's snapshot, entrants of this round included) searches with q = 0.25;
-  searchers choose in the order of a random rank; the candidates are the persons of the
-  other sex on the market in the snapshot, in the order of a random rank per searcher,
-  skipping those with `phi >= 1/8`, at most 12; utility `-w_K (dz_K)^2 - w_H (dz_h)^2 -
-  0.02 (da - 2.5)^2 - 16 ln(10) phi + Gumbel` (`w_a` fixed, R6c); the largest wins; a
-  pair forms if the chosen one is still single, else nothing; no counter check; whoever
-  was paired in the round no longer searches. Pairing takes both off the market. A new
-  partnership tries to conceive from the next month start on (ADR-0018 section 1).
+- Market (11.2 with Grok's R8, the female-dominant market of demographic
+  microsimulation) at every month start, after that month's births and conception
+  attempts: the single persons of at least 16 are held; each single woman searches with
+  `s_f(a)` (times `rho` from 16 until before 18), separated and widowed women by the same
+  rule; men do not search. Searchers choose in the order of a random rank; the
+  candidates are the single men of the snapshot in the order of a random rank per
+  searcher, skipping those with `phi >= 1/8`, at most 12; utility `-w_K (dz_K)^2 - w_H
+  (dz_h)^2 - 0.02 (da - mu_a)^2 - 16 ln(10) phi + Gumbel`; the largest wins; a pair forms
+  if the chosen man is still single, else nothing; no counter check. A new partnership
+  tries to conceive from the next month start on (ADR-0018 section 1).
+- The earlier market of R7 (`--r7`, cfg["market"] = "r7"): a single person enters the
+  market with `e(a)` per sex and stays until a partnership forms; everyone on the market
+  searches with q = 0.25 among the other sex on the market; `mu_a` = 2.5. It is kept to
+  reproduce the findings that led to R8, not as a rule.
 - Kinship `phi` by the recursion of 2.7 over the simulated pedigree, founders unrelated;
   kept as an exact fixed-point matrix over the living (values are dyadic, scale 2^62).
 - Fertility (11.3 with the curve of 5.6, decided by Dario, commit a96418f): a woman in an
@@ -80,9 +77,9 @@ The model, exactly as written in spec 7 and 11 unless stated:
 - Two rules stay replaceable: the conception chance (`cfg["fertility"]`, an object with
   `chance` and `last_age`) and the market's minimum age (`cfg["market_age"]`, default 16
   since Grok's decision; it was 18).
-- Checks: the mean age gap over all partnerships, 2.5 to 4 (only checked and reported,
-  R6c); the share of births to mothers under 18 within 0.001 to 0.005; the mean age of
-  mothers at first birth and the total fertility rate are reported.
+- Checks: the mean age gap within 2.5 to 4 and the share of births to mothers under 18
+  within 0.001 to 0.005; the men's median and never share, the women's never share under
+  R7, the mean age of mothers at first birth and the total fertility rate are reported.
 - Separation (ADR-0018 section 3): an Exp(1) budget per partnership drawn at its start;
   while both live it ends after `budget / lambda_sep` years.
 
@@ -189,6 +186,7 @@ GAP_BAND = (2.5, 4.0)  # 11.2
 TARGET = {
     "med_f": 23.5, "med_m": 26.0, "never_m": 0.10,  # K11.2c, K11.2d, K11.2e (men only)
     "u18": 0.0024,  # share of live births to mothers under 18 (Grok, R6b; Germany 2025)
+    "gap": 3.0,  # mean age gap man minus woman, all partnerships, via mu_a (Grok, R8)
     "r_K": 0.4, "r_H": 0.2,  # K4.2f, K4.2c
     "births": 2.20,  # K11.3e
     "sep": 1.0 / 3.0,  # ADR-0018 section 3
@@ -437,7 +435,8 @@ def simulate(par, seed, cfg):
     n0 = cfg["founders"]
     lam_sep = par["lam"]
     w_k, w_h, w_a = par["w_K"], par["w_H"], par.get("w_a", W_AGE)
-    female_market = cfg.get("market", "r7") == "female"
+    female_market = cfg.get("market", "female") == "female"
+    mu_a = par.get("mu_a", MU_AGE)
     market_age = round(cfg.get("market_age", MARKET_AGE) * MONTHS)
     rule = cfg.get("fertility") or PubertyFertility()
     chance = rule.chance
@@ -707,9 +706,9 @@ def simulate(par, seed, cfg):
             if death[p] > t and partner_of[p] < 0:
                 singles[sex[p]].add(p)
         if female_market:
-            # Exploratory variant (not a decision): only single women search, with s_f(a)
-            # times rho from 16 until before 18; the candidates are the single men of
-            # the round's snapshot.
+            # The market of Grok's R8 (the female-dominant market of demographic
+            # microsimulation): only single women search, with s_f(a) times rho from 16
+            # until before 18; the candidates are the single men of the round's snapshot.
             held = (sorted(singles[FEMALE]), sorted(singles[MALE]))
             ss = salt(TAG_SEARCH, t)
             tab = tabs[FEMALE]
@@ -784,7 +783,7 @@ def simulate(par, seed, cfg):
                     dk = zi_k - zk[j]
                     dh = zi_h - zh[j]
                     gumbel = -math.log(-math.log(unit(mix(ns ^ key[j]))))
-                    u = (-w_k * dk * dk - w_h * dh * dh - w_a * (da - MU_AGE) ** 2
+                    u = (-w_k * dk * dk - w_h * dh * dh - w_a * (da - mu_a) ** 2
                          - KIN_PENALTY * q_kin[row + slot[j]] / ONE + gumbel)
                     if u > best_u:
                         best, best_u = j, u
@@ -1357,19 +1356,20 @@ ALPHA0, LAM0 = 0.25, 0.0086
 SMALL_FOUNDERS, SMALL_TOWNS = 100, 96  # the extra check run on small towns (R7)
 WA_SCAN = (0.02, 0.05, 0.1, 0.2)  # w_a values of the scan of the female market
 
-# The exploratory female-dominant market (`--female`, cfg["market"] = "female"): only
-# women search; the outer fit has c and m of s_f, rho, w_K and w_H for the women's
-# median and never share, the births under 18 and the two correlations. The men's
-# median and never share are emergent there.
+# The rule of Grok's R8 (the default, cfg["market"] = "female"): only women search; the
+# outer fit has c and m of s_f, rho, mu_a, w_K and w_H for the women's median and never
+# share, the births under 18, the mean age gap and the two correlations. The men's
+# median and never share are emergent. R7 stays behind `--r7` for comparison.
 FEMALE_MODE = {
-    "XNAMES": ("c_f", "m_f", "rho", "w_K", "w_H"),
-    "LOGX": (True, False, True, True, True),
+    "XNAMES": ("c_f", "m_f", "rho", "mu_a", "w_K", "w_H"),
+    "LOGX": (True, False, True, False, True, True),
     "RHO_INDEX": 2,
-    "SCALE": (0.15, 1.5, 0.5, 0.25, 0.25),
-    "TSCALE": (0.48, 0.020, 0.0008, 0.021, 0.021),
-    "OUTER": ("med_f", "never_f", "u18", "r_K", "r_H"),
-    "REPORTED": ("med_f", "never_f", "u18", "births", "sep", "r_K", "r_H"),
-    "X0": [math.log(0.0106), 27.2, math.log(0.12), math.log(0.5), math.log(0.2)],
+    "SCALE": (0.15, 1.5, 0.5, 1.0, 0.25, 0.25),
+    "TSCALE": (0.48, 0.020, 0.0008, 0.21, 0.021, 0.021),
+    "OUTER": ("med_f", "never_f", "u18", "gap", "r_K", "r_H"),
+    "REPORTED": ("med_f", "never_f", "u18", "gap", "births", "sep", "r_K", "r_H"),
+    "X0": [math.log(0.0118), 25.25, math.log(0.0935), 5.0, math.log(0.388),
+           math.log(0.167)],
 }
 
 
@@ -1377,8 +1377,8 @@ def set_mode(mode):
     """Rebinds the fit's globals to a mode table (main process only; the towns read
     only their parameters and cfg)."""
     globals().update(mode)
-FIT_DATE = "2026-10-08"
-NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "alpha", "lam", "w_K", "w_H")
+FIT_DATE = "2026-10-09"
+NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "mu_a", "alpha", "lam", "w_K", "w_H")
 MEANING = {
     "c_f": "height c of e(a), women, per month", "m_f": "center m of e(a), women, years",
     "c_m": "height c of e(a), men, per month", "m_m": "center m of e(a), men, years",
@@ -1388,7 +1388,8 @@ MEANING = {
 }
 FEMALE_MODE["MEANING"] = dict(MEANING, c_f="height c of s_f(a), women, per month",
                               m_f="center m of s_f(a), women, years",
-                              rho="factor on s_f(a) from 16 until before 18")
+                              rho="factor on s_f(a) from 16 until before 18",
+                              mu_a="preferred age gap mu_a (man older), years")
 LABELS = {
     "med_f": "median age at first partnership, women",
     "never_f": "share without partnership by 50, women",
@@ -1557,8 +1558,8 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
         old = sum(s[i][1][0] * s[i][1][3] for s in snaps) / alive
         log("    %3d %7d %6.2f %6.3f %6.3f" % (t // MONTHS, alive, mean_age, young, old))
     log("")
-    log("Jacobian of the final local model: rows (%s) per unit of (ln c_f, m_f, ln c_m, m_m, "
-        "ln rho, ln w_K, ln w_H):" % ", ".join(OUTER))
+    log("Jacobian of the final local model: rows (%s) per unit of (%s):" % (
+        ", ".join(OUTER), ", ".join(("ln " if lg else "") + k for k, lg in zip(XNAMES, LOGX))))
     for row in fitted["jac"]:
         log("  " + " ".join("%9.4f" % (v / s) for v, s in zip(row, SCALE)))
     rounded = {k: sig(par[k], se_par[k]) for k in NAMES if k in se_par}
@@ -1569,17 +1570,32 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
               "local regression over %d runs of %d towns, checked on %d new towns" % (
                   cfg["founders"], cfg["years"], cfg["burn_in"], len(runs), cfg["towns"], n_chk))
     # Units from the closed list of tools/data_reference.py (ADR-0010 to ADR-0015).
-    entries = (
-        ("core:market_entry_height_female", "c_f", "fraction",
-         "Grok R7, c of the entry rate e(a) for women, per market round"),
-        ("core:market_entry_center_female", "m_f", "year",
-         "Grok R7, m of the entry rate e(a) for women"),
-        ("core:market_entry_height_male", "c_m", "fraction",
-         "Grok R7, c of the entry rate e(a) for men, per market round"),
-        ("core:market_entry_center_male", "m_m", "year",
-         "Grok R7, m of the entry rate e(a) for men"),
-        ("core:market_entry_factor_minor", "rho", "fraction",
-         "Grok R6b, factor on e(a) for both sexes from the 16th until before the 18th birthday"),
+    female = "c_m" not in rounded
+    if female:
+        market_entries = (
+            ("core:market_search_height_female", "c_f", "fraction",
+             "11.2 with Grok R8, c of the search rate s_f(a) of women, per market round"),
+            ("core:market_search_center_female", "m_f", "year",
+             "11.2 with Grok R8, m of the search rate s_f(a) of women"),
+            ("core:market_search_factor_minor", "rho", "fraction",
+             "Grok R6b and R8, factor on s_f(a) from the 16th until before the 18th birthday"),
+            ("core:pairing_age_gap_preferred", "mu_a", "year",
+             "11.2 with Grok R8, mu_a of the age term (man older), with w_a 0.02"),
+        )
+    else:
+        market_entries = (
+            ("core:market_entry_height_female", "c_f", "fraction",
+             "Grok R7, c of the entry rate e(a) for women, per market round"),
+            ("core:market_entry_center_female", "m_f", "year",
+             "Grok R7, m of the entry rate e(a) for women"),
+            ("core:market_entry_height_male", "c_m", "fraction",
+             "Grok R7, c of the entry rate e(a) for men, per market round"),
+            ("core:market_entry_center_male", "m_m", "year",
+             "Grok R7, m of the entry rate e(a) for men"),
+            ("core:market_entry_factor_minor", "rho", "fraction",
+             "Grok R6b and R7, factor on e(a) from the 16th until before the 18th birthday"),
+        )
+    entries = market_entries + (
         ("core:pairing_weight_cognition", "w_K", "logit",
          "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference"),
         ("core:pairing_weight_height", "w_H", "logit",
@@ -1605,7 +1621,7 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
 
 def main(argv):
     quick = "--quick" in argv
-    female = "--female" in argv
+    female = "--r7" not in argv
     if female:
         set_mode(FEMALE_MODE)
     jobs = min(os.cpu_count() or 1, 12)
@@ -1618,8 +1634,8 @@ def main(argv):
                           cfg["founders"], cfg["years"], cfg["burn_in"], cfg["towns"], jobs))
     sim_cfg = {k: cfg[k] for k in ("founders", "years", "burn_in")}
     sim_cfg["market"] = "female" if female else "r7"
-    if female:
-        log("EXPLORATORY: the female-dominant market (only women search), not a decision.")
+    log("market: %s" % ("only women search (Grok R8)" if female else
+                        "R7, the market as a state (kept for comparison)"))
     runner = Runner(sim_cfg, jobs)
     try:
         fitted = fit(runner, X0[:], ALPHA0, LAM0, cfg)
@@ -1638,7 +1654,7 @@ def main(argv):
     small, = runner.evaluate([par], list(range(CHECK_SEED0 + 5000,
                                                CHECK_SEED0 + 5000 + small_towns)), small_cfg)
     wa_scan = None
-    if female:
+    if female and "--wa-scan" in argv:
         wa_scan = [r[1] for r in runner.evaluate(
             [dict(par, w_a=w) for w in WA_SCAN], seeds_of(cfg["iters"] + 4, cfg["settle_towns"]))]
     reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan], small,
