@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xbeee_a5b3_dd6a_1fe9;
+const DATA_HASH: u64 = 0xce40_b4c9_64ff_15c8;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0xefd3_7114_1c32_ac86);
+    assert_eq!(data.hash(), 0x5d5c_2402_cbc8_8dac);
 }
 
 #[test]
