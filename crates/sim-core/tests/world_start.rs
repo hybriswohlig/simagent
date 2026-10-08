@@ -331,14 +331,15 @@ fn founder_alleles_must_fit_the_genome_map() {
     // has one X copy, a woman two and no Y copy (also not an empty list); mt has one.
     let (calibration, _) = common::files();
     let loci = serde_json::json!([
-        {"id": "test:x", "chromosome": "x", "segment": 0, "slot": 0, "action": "additive",
-         "mark": "small", "mutation": "both"},
-        {"id": "test:y", "chromosome": "y", "segment": 0, "slot": 0, "action": "additive",
-         "mark": "small", "mutation": "both"},
-        {"id": "test:mt", "chromosome": "mt", "segment": 0, "slot": 0, "action": "additive",
-         "mark": "small", "mutation": "both"},
+        {"id": "test:x", "chromosome": "x", "segment": 0, "slot": 0, "action": "recessive",
+         "mark": "large", "mutation": "both"},
+        {"id": "test:y", "chromosome": "y", "segment": 0, "slot": 0, "action": "recessive",
+         "mark": "large", "mutation": "both"},
+        {"id": "test:mt", "chromosome": "mt", "segment": 0, "slot": 0, "action": "recessive",
+         "mark": "large", "mutation": "both"},
     ]);
-    let genome_map = serde_json::json!({"format_version": 1, "map_version": 1, "loci": loci});
+    let genome_map =
+        serde_json::json!({"format_version": 2, "map_version": 1, "traits": [], "loci": loci});
     let data = sim_core::data::Data::new(
         common::definitions(calibration, genome_map).expect("definitions"),
     )

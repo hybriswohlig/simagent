@@ -1,6 +1,7 @@
 //! Definitions (ADR-0007): the genome map (B9) and the genetics calibration (B13) as the
 //! core sees them, without the text of their files. `Data::new` checks them once; only
-//! checked data reaches a world. The data hash covers them (ADR-0004 section 2).
+//! checked data reaches a world. The data hash covers them (ADR-0004 section 2). Traits,
+//! loads and reference values of the genome map follow ADR-0008.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -13,8 +14,11 @@ use crate::data_id::str_key;
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 
-/// Format version of both definition files.
-pub const FORMAT_VERSION: u32 = 1;
+/// Format version of the calibration file.
+pub const CALIBRATION_FORMAT_VERSION: u32 = 1;
+
+/// Format version of the genome map (ADR-0008 section 5).
+pub const MAP_FORMAT_VERSION: u32 = 2;
 
 /// The calibration values of the genetics (`core:calibration_genetics`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,13 +44,46 @@ pub enum Unit {
     PerTransmission,
 }
 
-/// The genome map (`core:genome_map`, B9): the loci in map order.
+/// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
+/// then the loci in map order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenomeMap {
     pub format_version: u32,
     pub map_version: u32,
+    pub traits: Vec<Trait>,
     pub loci: Vec<Locus>,
+}
+
+/// A trait the core computes a genetic value for (ADR-0008 section 1): its reference
+/// standard deviation, whether its loci may load on nothing else, and the traits whose
+/// loci go into its raw value with a weight.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Trait {
+    pub id: DataId,
+    pub sigma_ref: FiniteF64,
+    pub exclusive: bool,
+    pub includes: Vec<Load>,
+}
+
+/// A load of a locus on a trait, or a trait included in another one, with its weight.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Load {
+    #[serde(rename = "trait")]
+    pub target: DataId,
+    pub weight: FiniteF64,
+}
+
+/// The values of an additive or threshold locus (ADR-0008 section 2): effect size, mean
+/// dose of the reference population, one or two loads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Weights {
+    pub effect: FiniteF64,
+    pub d_ref: FiniteF64,
+    pub loads: Vec<Load>,
 }
 
 /// A locus of the genome map (genetics specification 2.1, 2.5, 2.4).
@@ -73,14 +110,25 @@ pub enum Chromosome {
     Mt,
 }
 
-/// How the alleles of a locus act (genetics specification 2.5).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// How the alleles of a locus act (genetics specification 2.5); additive and threshold
+/// loci carry their values (ADR-0008 section 2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
-    Additive,
+    Additive(Weights),
     Recessive,
     Dominant,
-    Threshold,
+    Threshold(Weights),
+}
+
+impl Action {
+    /// The values of an additive or threshold locus.
+    pub const fn weights(&self) -> Option<&Weights> {
+        match self {
+            Action::Additive(weights) | Action::Threshold(weights) => Some(weights),
+            Action::Recessive | Action::Dominant => None,
+        }
+    }
 }
 
 /// The mark of a locus (B9): small polygenic, large, disease.
@@ -147,6 +195,16 @@ pub enum DataError {
     LocusId,
     LocusKey,
     LocusMark,
+    TraitOrder,
+    TraitKey,
+    TraitSigma,
+    TraitInclude,
+    TraitUnused,
+    LocusWeights,
+    LocusLoad,
+    LoadExclusive,
+    LocusAdditive,
+    TraitBounds,
     CalibrationMissing,
     CalibrationUnknown,
     CalibrationUnit,
@@ -163,6 +221,16 @@ impl fmt::Display for DataError {
             DataError::LocusId => "data.locus_id",
             DataError::LocusKey => "data.locus_key",
             DataError::LocusMark => "data.locus_mark",
+            DataError::TraitOrder => "data.trait_order",
+            DataError::TraitKey => "data.trait_key",
+            DataError::TraitSigma => "data.trait_sigma",
+            DataError::TraitInclude => "data.trait_include",
+            DataError::TraitUnused => "data.trait_unused",
+            DataError::LocusWeights => "data.locus_weights",
+            DataError::LocusLoad => "data.locus_load",
+            DataError::LoadExclusive => "data.load_exclusive",
+            DataError::LocusAdditive => "data.locus_additive",
+            DataError::TraitBounds => "data.trait_bounds",
             DataError::CalibrationMissing => "data.calibration_missing",
             DataError::CalibrationUnknown => "data.calibration_unknown",
             DataError::CalibrationUnit => "data.calibration_unit",
@@ -210,12 +278,13 @@ impl Locus {
 
 /// The checks of the genome map; `key` is `str_key` outside the tests.
 fn check_map(map: &GenomeMap, key: impl Fn(&DataId) -> u64) -> Result<(), DataError> {
-    if map.format_version != FORMAT_VERSION {
+    if map.format_version != MAP_FORMAT_VERSION {
         return Err(DataError::FormatVersion);
     }
     if map.map_version == 0 {
         return Err(DataError::MapVersion);
     }
+    check_traits(&map.traits)?;
     let mut ids = BTreeMap::new();
     let mut previous = None;
     for locus in &map.loci {
@@ -232,9 +301,171 @@ fn check_map(map: &GenomeMap, key: impl Fn(&DataId) -> u64) -> Result<(), DataEr
         if !locus.marked() {
             return Err(DataError::LocusMark);
         }
+        if let Some(weights) = locus.action.weights() {
+            if locus.chromosome != Chromosome::Autosome {
+                return Err(DataError::LocusAdditive);
+            }
+            check_weights(weights, &map.traits)?;
+        }
     }
-    if !keys_unique(map.loci.iter().map(|locus| &locus.id), key) {
+    if !keys_unique(map.loci.iter().map(|locus| &locus.id), &key) {
         return Err(DataError::LocusKey);
+    }
+    let all = map.loci.iter().map(|locus| &locus.id);
+    if !keys_unique(all.chain(map.traits.iter().map(|t| &t.id)), &key) {
+        return Err(DataError::TraitKey);
+    }
+    for t in &map.traits {
+        // A locus counts once in a trait: not directly and through an include as well.
+        let twice = map
+            .loci
+            .iter()
+            .filter_map(|locus| locus.action.weights())
+            .any(|weights| {
+                let on = |id: &DataId| weights.loads.iter().any(|load| load.target == *id);
+                on(&t.id) && t.includes.iter().any(|include| on(&include.target))
+            });
+        if twice {
+            return Err(DataError::TraitInclude);
+        }
+        let loaded = map
+            .loci
+            .iter()
+            .filter_map(|locus| locus.action.weights())
+            .any(|weights| weights.loads.iter().any(|load| load.target == t.id));
+        if !loaded && t.includes.is_empty() {
+            return Err(DataError::TraitUnused);
+        }
+        check_bounds(map, t)?;
+    }
+    Ok(())
+}
+
+/// The trait with this data ID; the traits are in the order of their IDs.
+fn find<'a>(traits: &'a [Trait], id: &DataId) -> Option<&'a Trait> {
+    traits
+        .binary_search_by(|t| t.id.cmp(id))
+        .ok()
+        .and_then(|index| traits.get(index))
+}
+
+/// Order, reference standard deviation and includes of the traits (ADR-0008 section 1).
+fn check_traits(traits: &[Trait]) -> Result<(), DataError> {
+    for pair in traits.windows(2) {
+        if let [before, after] = pair
+            && before.id >= after.id
+        {
+            return Err(DataError::TraitOrder);
+        }
+    }
+    for t in traits {
+        if t.sigma_ref.get() <= 0.0 {
+            return Err(DataError::TraitSigma);
+        }
+        // Includes in ascending order of their IDs (ADR-0003 2.3), so none twice.
+        for pair in t.includes.windows(2) {
+            if let [before, after] = pair
+                && before.target >= after.target
+            {
+                return Err(DataError::TraitInclude);
+            }
+        }
+        for include in &t.includes {
+            let fits = find(traits, &include.target)
+                .is_some_and(|target| target.id != t.id && target.includes.is_empty());
+            if !fits || include.weight.get() == 0.0 {
+                return Err(DataError::TraitInclude);
+            }
+            if find(traits, &include.target).is_some_and(|target| target.exclusive) {
+                return Err(DataError::LoadExclusive);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The values of an additive or threshold locus (ADR-0008 section 2).
+fn check_weights(weights: &Weights, traits: &[Trait]) -> Result<(), DataError> {
+    let d_ref = weights.d_ref.get();
+    let distinct = match weights.loads.as_slice() {
+        [_] => true,
+        [first, second] => first.target != second.target,
+        _ => false,
+    };
+    if weights.effect.get() <= 0.0
+        || !(0.0..=2.0).contains(&d_ref)
+        || !distinct
+        || weights.loads.iter().any(|load| load.weight.get() == 0.0)
+    {
+        return Err(DataError::LocusWeights);
+    }
+    let mut exclusive = false;
+    for load in &weights.loads {
+        let target = find(traits, &load.target).ok_or(DataError::LocusLoad)?;
+        exclusive |= target.exclusive;
+    }
+    if exclusive && weights.loads.len() > 1 {
+        return Err(DataError::LoadExclusive);
+    }
+    Ok(())
+}
+
+/// One term of the raw value of a trait (ADR-0008 section 3): the locus, its coefficient
+/// `λ · β` (or `(w · λ) · β` through an include) and its reference dose.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Term {
+    pub(crate) locus: usize,
+    pub(crate) coefficient: f64,
+    pub(crate) d_ref: f64,
+}
+
+/// The terms of the loci that load on `target`, in map order; through an include, the
+/// weight `include` multiplies each load first.
+fn terms_on<'a>(
+    map: &'a GenomeMap,
+    target: &'a DataId,
+    include: Option<f64>,
+) -> impl Iterator<Item = Term> + 'a {
+    (0..).zip(&map.loci).filter_map(move |(index, locus)| {
+        let weights = locus.action.weights()?;
+        let load = weights.loads.iter().find(|load| load.target == *target)?;
+        let lambda = include.map_or(load.weight.get(), |w| w * load.weight.get());
+        Some(Term {
+            locus: index,
+            coefficient: lambda * weights.effect.get(),
+            d_ref: weights.d_ref.get(),
+        })
+    })
+}
+
+/// The terms of trait `t` in the order of its fold: the loci loading on it in map order,
+/// then for each include in its order the loci loading on the included trait.
+pub(crate) fn terms(map: &GenomeMap, t: &Trait) -> Vec<Term> {
+    let mut all: Vec<Term> = terms_on(map, &t.id, None).collect();
+    for include in &t.includes {
+        all.extend(terms_on(map, &include.target, Some(include.weight.get())));
+    }
+    all
+}
+
+/// The genetic value of `t` is finite for every genome (ADR-0008 section 3): every term
+/// is finite at the doses 0, 1 and 2 and not 0 at one of them, the fold of their largest
+/// magnitudes is finite and stays finite divided by `sigma_ref`.
+fn check_bounds(map: &GenomeMap, t: &Trait) -> Result<(), DataError> {
+    let mut largest = 0.0;
+    for term in terms(map, t) {
+        let at = [0.0, 1.0, 2.0].map(|dose| term.coefficient * (dose - term.d_ref));
+        if !at.iter().all(|c| c.is_finite()) || at.iter().all(|c| *c == 0.0) {
+            return Err(DataError::TraitBounds);
+        }
+        largest += at.iter().fold(
+            0.0,
+            |most: f64, c| if c.abs() > most { c.abs() } else { most },
+        );
+    }
+    let scaled = largest / t.sigma_ref.get();
+    if !largest.is_finite() || !scaled.is_finite() {
+        return Err(DataError::TraitBounds);
     }
     Ok(())
 }
@@ -248,7 +479,7 @@ fn keys_unique<'a>(ids: impl Iterator<Item = &'a DataId>, key: impl Fn(&DataId) 
 
 /// The calibration values the core reads, with their units; nothing else is allowed.
 fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataError> {
-    if calibration.format_version != FORMAT_VERSION {
+    if calibration.format_version != CALIBRATION_FORMAT_VERSION {
         return Err(DataError::FormatVersion);
     }
     let value = |key, unit, limit: f64| -> Result<f64, DataError> {
@@ -338,15 +569,15 @@ impl Data {
 }
 
 /// The definitions of the repository, read the way sim-cli reads them (ADR-0007 section
-/// 2): the text fields of each calibration value and each locus removed, the rest into
-/// the core types.
+/// 2, ADR-0008 section 1): the text fields of each calibration value, trait and locus
+/// removed, the rest into the core types.
 #[cfg(test)]
 pub(crate) mod testing {
     use serde_json::Value;
 
     use super::{Data, Definitions};
 
-    /// Removes the text of each calibration value and each locus; each text must be
+    /// Removes the text of each calibration value, trait and locus; each text must be
     /// there and not blank, as sim-cli demands.
     fn without_text(mut calibration: Value, mut genome_map: Value) -> (Value, Value) {
         let take = |entry: &mut Value, name| {
@@ -363,8 +594,10 @@ pub(crate) mod testing {
                 take(value, name);
             }
         }
-        for locus in genome_map["loci"].as_array_mut().expect("loci") {
-            take(locus, "description");
+        for list in ["traits", "loci"] {
+            for entry in genome_map[list].as_array_mut().expect("list") {
+                take(entry, "description");
+            }
         }
         (calibration, genome_map)
     }
@@ -413,6 +646,38 @@ mod tests {
         two.loci.push(other);
         assert_eq!(check_map(&two, str_key), Ok(()));
         assert_eq!(check_map(&two, |_| 7), Err(DataError::LocusKey));
+    }
+
+    /// A trait may not share its key with a locus: its key is a draw occasion (ADR-0008).
+    #[test]
+    fn a_trait_with_the_key_of_a_locus_is_rejected() {
+        let id = |text| DataId::new(text).expect("id");
+        let weights = Weights {
+            effect: FiniteF64::try_new(1.0).expect("finite"),
+            d_ref: FiniteF64::try_new(1.0).expect("finite"),
+            loads: alloc::vec![Load {
+                target: id("test:t"),
+                weight: FiniteF64::try_new(1.0).expect("finite"),
+            }],
+        };
+        let mut map = testing::data().genome_map().clone();
+        map.traits = alloc::vec![Trait {
+            id: id("test:t"),
+            sigma_ref: FiniteF64::try_new(1.0).expect("finite"),
+            exclusive: false,
+            includes: alloc::vec::Vec::new(),
+        }];
+        map.loci = alloc::vec![Locus {
+            id: id("test:a"),
+            chromosome: Chromosome::Autosome,
+            segment: 0,
+            slot: 0,
+            action: Action::Additive(weights),
+            mark: Mark::Small,
+            mutation: MutationDirection::Both,
+        }];
+        assert_eq!(check_map(&map, str_key), Ok(()));
+        assert_eq!(check_map(&map, |_| 7), Err(DataError::TraitKey));
     }
 
     #[test]

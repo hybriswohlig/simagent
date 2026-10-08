@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0x1bdf_3636_c22d_0643;
+const DATA_HASH: u64 = 0x0941_b68f_f721_7c6f;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -73,6 +73,19 @@ fn with_traits(g: &mut Value) {
 #[test]
 fn data_hash_is_pinned() {
     assert_eq!(common::data().hash(), DATA_HASH);
+}
+
+/// A map with traits, an include, an exclusive trait, two loads, additive and threshold
+/// loci (ADR-0008): its data hash from `tools/data_reference.py tests/golden/data_traits`.
+#[test]
+fn a_map_with_traits_hashes_like_the_reference() {
+    let (calibration, genome_map) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    let definitions = common::definitions(calibration, genome_map).expect("definitions");
+    let data = Data::new(definitions).expect("checked");
+    assert_eq!(data.hash(), 0x5fa6_062e_bcc9_9a2a);
 }
 
 #[test]
@@ -252,7 +265,7 @@ fn genome_map_rejects() {
 /// ADR-0008 section 5: traits, weights and loads.
 #[test]
 fn traits_and_weights_reject() {
-    let cases: [(Change, &str); 28] = [
+    let cases: [(Change, &str); 30] = [
         (
             |_, g| {
                 with_traits(g);
@@ -318,6 +331,29 @@ fn traits_and_weights_reject() {
             },
             "data.trait_include",
         ),
+        // Includes stand in ascending order of their data IDs (ADR-0003 2.3).
+        (
+            |_, g| {
+                with_traits(g);
+                g["traits"] = json!([
+                    trait_("test:a", 1.0),
+                    trait_("test:b", 2.0),
+                    trait_("test:c", 1.0)
+                ]);
+                g["traits"][2]["includes"] = json!([on("test:b", 1.0), on("test:a", 1.0)]);
+            },
+            "data.trait_include",
+        ),
+        // A locus may not count twice in one trait: directly and through an include.
+        (
+            |_, g| {
+                with_traits(g);
+                g["traits"][0]["includes"] = json!([on("test:b", 1.0)]);
+                g["loci"][1]["action"]["additive"]["loads"] =
+                    json!([on("test:a", 1.0), on("test:b", 1.0)]);
+            },
+            "data.trait_include",
+        ),
         // Includes are one level deep.
         (
             |_, g| {
@@ -372,8 +408,11 @@ fn traits_and_weights_reject() {
         (
             |_, g| {
                 with_traits(g);
-                g["traits"] = json!([trait_("test:a", 1.0), trait_("test:b", 1.0),
-                    trait_("test:c", 1.0)]);
+                g["traits"] = json!([
+                    trait_("test:a", 1.0),
+                    trait_("test:b", 1.0),
+                    trait_("test:c", 1.0)
+                ]);
                 g["loci"][1]["action"]["additive"]["loads"] =
                     json!([on("test:a", 1.0), on("test:b", 1.0), on("test:c", 1.0)]);
             },
@@ -495,13 +534,19 @@ fn traits_and_weights_reject() {
     for change in valid {
         assert_eq!(checked(change), "ok");
     }
-    // A trait that only includes another one is used.
+    // A trait that only includes others is used; two includes in ascending order may
+    // share a locus.
     assert_eq!(
         checked(|_, g| {
             with_traits(g);
-            g["traits"] = json!([trait_("test:a", 1.0), trait_("test:b", 2.0),
-                trait_("test:c", 1.0)]);
-            g["traits"][2]["includes"] = json!([on("test:a", 1.0)]);
+            g["traits"] = json!([
+                trait_("test:a", 1.0),
+                trait_("test:b", 2.0),
+                trait_("test:c", 1.0)
+            ]);
+            g["traits"][2]["includes"] = json!([on("test:a", 1.0), on("test:b", 0.5)]);
+            g["loci"][1]["action"]["additive"]["loads"] =
+                json!([on("test:a", 1.0), on("test:b", 1.0)]);
         }),
         "ok"
     );
