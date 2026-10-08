@@ -27,6 +27,7 @@ pub mod lineage;
 pub mod log;
 pub mod params;
 pub mod pedigree;
+pub mod phenotype;
 pub mod rng;
 mod state;
 pub mod time;
