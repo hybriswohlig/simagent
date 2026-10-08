@@ -1,0 +1,1390 @@
+#!/usr/bin/env python3
+"""Fits the life-course inputs of docs/genetik-spezifikation.md section 11 (and the
+separation rate of ADR-0018 section 3) by simulating closed towns, written from the
+specification and the ADRs only, independently of the Rust code (ADR-0017 section 1). The
+fitted values become calibration inputs of the core; the core's tests then check the
+emergent values against the targets of the specification.
+
+Usage:
+  python3 tools/life_reference.py              the full fit, then an independent check run
+  python3 tools/life_reference.py --quick      a smoke test (under a minute, imprecise)
+  python3 tools/life_reference.py --jobs N     worker processes (default: all cores, at
+                                               most 12); the result does not depend on N
+
+Pure Python (standard library only); every number is fixed by the seeds below, so two runs
+print the same digits. The output is a table of the fitted values with the targets they
+reach and their Monte Carlo standard errors, the checks of 11.2 and 11.3, and a JSON
+snippet for data/calibration/demography.json.
+
+What the tool fits (targets from the specification):
+
+- `c` and `m` of the search curve `s(a) = min(1, c * exp(-1/2 * ((a - m) / 7)^2))` per sex
+  (11.2): among persons who reach 50, the median age at the first partnership is 23.5
+  (women) and 26 (men), and the share without any partnership by 50 is 0.10 per sex.
+- `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
+  live births on average, twins counting two. A wish mean above 3.0 stops the tool.
+- `lambda_sep` per year (ADR-0018 section 3): one third of all partnerships end by
+  separation, the rest by the first death.
+- `w_K` and `w_H` (11.2): in first partnerships (neither partner had one before) the
+  correlation of the partners' adult phenotypes is 0.4 (cognition `z_K`) and 0.2 (height
+  `z_h`).
+
+The model, exactly as written in spec 7 and 11 unless stated:
+
+- Time in sim months of 28 days, 13 per year. Every birth falls on a month start, so ages
+  at month starts are whole months; "from 18" means from the 18th birthday.
+- Death (7.1, 7.2, 11.4): Gompertz-Makeham per sex with `m = exp(-sigma_g * g)`, `g` the
+  longevity value N(0, 1) held at +-6; one Exp(1) budget per cause, death age in closed
+  form. Founders start at their age with fresh budgets (7.1). Hereditary diseases are
+  left out (they add a small hazard to few carriers and would need the genome).
+- Market (11.2) at every month start, after that month's births and conception attempts:
+  the single persons of at least 18 are held; each searches with `s(a)`; searchers choose
+  in the order of a random rank; the candidates are the singles of the other sex from the
+  held list in the order of a random rank per searcher, skipping those with
+  `phi >= 1/8` to the searcher, at most 12; utility
+  `-w_K (dz_K)^2 - w_H (dz_h)^2 - 0.02 (da - 2.5)^2 - 16 ln(10) phi + Gumbel`; the
+  largest wins; a pair forms if the chosen one is still single, else nothing; no counter
+  check; whoever was paired in the round no longer searches. A new partnership tries to
+  conceive from the next month start on (ADR-0018 section 1).
+- Kinship `phi` by the recursion of 2.7 over the simulated pedigree, founders unrelated;
+  kept as an exact fixed-point matrix over the living (values are dyadic, scale 2^62).
+- Fertility (11.3): a woman in an open partnership tries at every month start while her
+  live births are below her wish, she is not pregnant and at least 12 months have passed
+  since her last birth; success `f(a)` = 0.20 from 18 to 30, `0.20 (45 - a) / 15` from 30
+  to 45, else 0; pregnancy 10 months; her death ends it; per conception identical twins
+  with 0.004, fraternal with 0.010; sons with `p_Y = 21/41`. Children stay with the
+  mother; that changes no rule here.
+- Two rules are kept replaceable because they may change: the conception chance is
+  `SpecFertility.chance` = adult rate x woman factor(age, key) x man factor(age, key)
+  (default 11.3 as above; another rule goes into `cfg["fertility"]`), and the market's
+  minimum age is `cfg["market_age"]` (default 18). The check "first partnerships in the
+  year after the 18th birthday" then means the year after the market age.
+- Separation (ADR-0018 section 3): an Exp(1) budget per partnership drawn at its start;
+  while both live it ends after `budget / lambda_sep` years.
+
+Modeling choices of this tool (not in the specification):
+
+- Phenotypes: each person's adult `z_K` and `z_h` are independent N(0, 1) draws at birth
+  and constant from 18 on. There is no inheritance of phenotypes in the tool, so no Bulmer
+  increase of the variance (4.4): the fit holds for a population at the equilibrium of
+  4.1, where `z` is N(0, 1) by construction of `sigma_ref`. Relatives are not more alike
+  than strangers here, so the kinship penalty does not interact with similarity.
+- Random numbers are addressed by entity and occasion (a splitmix64 mixer over person
+  keys built like lineage keys, not the core's draws). That makes a run independent of
+  the order of evaluation, but it does not make nearby parameters comparable: one
+  changed search decision changes every later market round of the town, and a 1 percent
+  change of `c` already decorrelates a town's medians. The fit therefore treats every
+  run as an independent sample.
+- Founders: ages from the stationary age distribution of the death model, sex by `p_Y`;
+  women and men of at least 18 are paired at the start by a simple rule (probability by
+  age, a man of the woman's age -2 to +8 years) and founder women are given a share of
+  their wish as earlier births without persons. Founders are only the burn-in; nothing is
+  measured on them.
+- Measurement: persons born after the burn-in who reach 50 before the end (search curve,
+  wish); partnerships formed after the burn-in (correlations, age gap, separation). The
+  separation share counts the eventual ending of each partnership, which the tool knows
+  even after the run's end because it draws death and separation times in advance.
+- Fitting statistics with less noise, same expectation: the mean live births of a woman
+  is averaged over her wish given her partnership history (which does not depend on her
+  wish), and the separation share over the separation budget given the time to the first
+  death (`1 - exp(-lambda * D)`). The realized values are printed next to them.
+
+- Town size: 1000 founders, growing to about 2000 to 2500 persons in 300 years. The
+  market outcome depends on the number of singles, so the values hold for towns of this
+  size; a much smaller town (ten founder families) has a thinner market.
+- Run: 300 years, of which 100 are burn-in (about three and a half generations; the
+  founders' age structure is already stationary, and the report shows that the cohorts of
+  the first and second half of the measured years agree).
+
+Fitting: `alpha` and `lambda_sep` are solved exactly on a run's sample (both statistics
+are smooth and monotone in their parameter), at the end on new towns at the fitted point.
+The other six (`ln c` and `m` per sex, `ln w_K`, `ln w_H`) are found by a trust-region
+search with a local regression model: a design of 12 runs one step away along each axis,
+then iterations that fit the six outer residuals linearly in the parameters by weighted
+least squares over all runs near the current point (weight: towns times a Gaussian
+kernel), take a Levenberg-Marquardt step towards the model's root and run new towns
+there. Plain Newton steps do not work here: the women's search center `m_f` has a weak
+effect where women search little (most women pair by being chosen), the finite-difference
+Jacobian is nearly singular and noisy, and the steps cycle. The fitted values are the
+least-squares point of the final local model (its root when it has one; residuals
+weighted by the per-town standard deviations TSCALE), with standard errors from the
+model's intercepts. A check run at the fitted values on new towns gives the achieved
+targets, with standard errors by the delete-one-town jackknife (they include the
+dependence within a town).
+
+Exit status 1 when a target misses by more than 4 standard errors or a check of 11.2
+fails: per 11.2 the finding then goes back to Grok before the values are used.
+"""
+
+import heapq
+import json
+import math
+import os
+import sys
+import time
+from bisect import bisect_right
+from concurrent.futures import ProcessPoolExecutor
+from statistics import NormalDist
+
+# ---------------------------------------------------------------------------------------
+# Constants of the specification
+
+MONTHS = 13  # sim months per sim year (11.1, ADR-0002)
+MARKET_AGE = 18  # years, K11.2a; the default of cfg["market_age"]
+WIDTH = 7.0  # K11.2b
+K_CAND = 12  # K11.2f
+W_AGE = 0.02  # K11.2h
+MU_AGE = 2.5  # K11.2g
+KIN_PENALTY = 16.0 * math.log(10.0)  # 11.2
+PAUSE = 12  # K11.3a, months
+PREGNANCY = 10  # K11.3c, months
+TWIN_MZ = 0.004  # K11.3f
+TWIN_ALL = 0.014  # MZ + DZ (K11.3g)
+P_Y = 21.0 / 41.0  # W11.3d
+WISH_SHAPE = (0.10, 0.15, 0.40, 0.25, 0.10)  # K11.3d
+WISH_MAX_MEAN = 3.0  # 11.3
+SIGMA_G = 0.724  # W7.2a
+GOMPERTZ = {0: (3.25e-6, 0.1182, 1.5e-4), 1: (8.73e-6, 0.1118, 2.0e-4)}  # (a, b, lambda)
+G_BOUND = 6.0  # 11.4
+
+TARGET = {
+    "med_f": 23.5, "never_f": 0.10, "med_m": 26.0, "never_m": 0.10,  # K11.2c-e
+    "r_K": 0.4, "r_H": 0.2,  # K4.2f, K4.2c
+    "births": 2.20,  # K11.3e
+    "sep": 1.0 / 3.0,  # ADR-0018 section 3
+}
+
+FEMALE, MALE = 0, 1
+
+# ---------------------------------------------------------------------------------------
+# Addressed random numbers: a splitmix64 finalizer over (tag, entity key, occasion).
+
+M64 = (1 << 64) - 1
+GA = 0x9E3779B97F4A7C15
+GB = 0xC2B2AE3D27D4EB4F
+GC = 0x165667B19E3779F9
+F1 = 0xBF58476D1CE4E5B9
+F2 = 0x94D049BB133111EB
+U53 = 2.0 ** -53
+
+(TAG_FOUNDER, TAG_CHILD, TAG_SEX, TAG_G, TAG_ZK, TAG_ZH, TAG_SEN, TAG_ACC, TAG_WISH,
+ TAG_SEARCH, TAG_ORDER, TAG_RANK, TAG_NOISE, TAG_CONCEIVE, TAG_TWIN, TAG_SEP, TAG_AGE,
+ TAG_PAIR0, TAG_PRIOR) = range(1, 20)
+
+
+def mix(x):
+    x &= M64
+    x = ((x ^ (x >> 30)) * F1) & M64
+    x = ((x ^ (x >> 27)) * F2) & M64
+    return x ^ (x >> 31)
+
+
+def salt(tag, a, b=0):
+    """A 64-bit word for (tag, a, b); `a` may be a key, `b` a small occasion."""
+    return mix(mix(tag * GC + a) + b * GA)
+
+
+def unit(w):
+    """Strictly between 0 and 1."""
+    return ((w >> 11) + 0.5) * U53
+
+
+NORMAL = NormalDist()
+
+
+def normal(w):
+    return NORMAL.inv_cdf(unit(w))
+
+
+def exp1(w):
+    return -math.log(unit(w))
+
+
+# ---------------------------------------------------------------------------------------
+# Death (7.1, 7.2, 11.4)
+
+def death_age(sex, x0, g, b_sen, b_acc):
+    """Age at death in years from origin age `x0` with fresh Exp(1) budgets."""
+    a, b, lam = GOMPERTZ[sex]
+    held = max(-G_BOUND, min(G_BOUND, g))
+    m = math.exp(-SIGMA_G * held)
+    senescence = math.log(math.exp(b * x0) + b * b_sen / (a * m)) / b
+    accident = x0 + b_acc / lam
+    return min(senescence, accident)
+
+
+def survival_table(sex, months):
+    """Population survival l(a) averaged over g, on whole months."""
+    a, b, lam = GOMPERTZ[sex]
+    n = 64
+    ms = [math.exp(-SIGMA_G * NORMAL.inv_cdf((i + 0.5) / n)) for i in range(n)]
+    out = []
+    for k in range(months):
+        x = k / MONTHS
+        h = a / b * (math.exp(b * x) - 1.0)
+        out.append(sum(math.exp(-lam * x - m * h) for m in ms) / n)
+    return out
+
+
+# ---------------------------------------------------------------------------------------
+# Kinship (2.7): a fixed-point matrix over slots of the living, scale 2^62, exact for the
+# dyadic values of the recursion. A child's row is the mean of its parents' rows, written
+# as its row and its column; its own entry is (1 + phi(mother, father)) / 2.
+
+ONE = 1 << 62
+EIGHTH = 1 << 59
+
+
+class Kinship:
+    def __init__(self, cap):
+        self.cap = 0
+        self.buf = bytearray()
+        self.free = []
+        self._grow(cap)
+
+    def _grow(self, cap):
+        old_cap, old = self.cap, self.buf
+        buf = bytearray(cap * cap * 8)
+        rb_old, rb = old_cap * 8, cap * 8
+        for r in range(old_cap):
+            buf[r * rb:r * rb + rb_old] = old[r * rb_old:(r + 1) * rb_old]
+        self.buf = buf
+        self.q = memoryview(buf).cast("Q")
+        self.mask = int.from_bytes((b"\xff" * 7 + b"\x7f") * cap, "little")
+        self.free.extend(range(cap - 1, old_cap - 1, -1))
+        self.cap = cap
+
+    def take(self):
+        if not self.free:
+            self._grow(int(self.cap * 1.25) + 64)
+        return self.free.pop()
+
+    def release(self, slot):
+        self.free.append(slot)
+
+    def founder(self, slot):
+        cap = self.cap
+        self.q[slot * cap:(slot + 1) * cap] = memoryview(bytes(cap * 8)).cast("Q")
+        self.q[slot::cap] = memoryview(bytes(cap * 8)).cast("Q")
+        self.q[slot * cap + slot] = ONE >> 1
+
+    def child(self, slot, sm, sf):
+        cap = self.cap
+        rb = cap * 8
+        mv = memoryview(self.buf)
+        rm = int.from_bytes(mv[sm * rb:(sm + 1) * rb], "little")
+        rf = int.from_bytes(mv[sf * rb:(sf + 1) * rb], "little")
+        row = (((rm + rf) >> 1) & self.mask).to_bytes(rb, "little")
+        self.buf[slot * rb:(slot + 1) * rb] = row
+        self.q[slot::cap] = memoryview(row).cast("Q")
+        self.q[slot * cap + slot] = (ONE + self.q[sm * cap + sf]) >> 1
+
+
+# ---------------------------------------------------------------------------------------
+# Parameters
+
+def search_table(c, m, market_age):
+    """s(a) on whole months of age; 0 below the market age (11.2)."""
+    out = [0.0] * (131 * MONTHS)
+    for k in range(market_age, len(out)):
+        x = (k / MONTHS - m) / WIDTH
+        out[k] = min(1.0, c * math.exp(-0.5 * x * x))
+    return out
+
+
+class SpecFertility:
+    """The monthly chance of a conception that is born, as one replaceable rule:
+    `adult_rate * woman_factor(age_w, key_w) * man_factor(age_m, key_m)`. The default is
+    11.3: `adult_rate` 0.20 (K11.3b), the woman factor 1 from 18 to 30, linear to 0 at
+    45 and 0 otherwise, the man factor 1. Ages are in years at the month start; `key` is
+    the person's addressed key, so a replacement (a factor from the timing of puberty,
+    say) can draw per-person values from it. `last_age` is the age from which the woman
+    factor is 0 for good; it only takes women off the list of attempts."""
+
+    adult_rate = 0.20
+    last_age = 45.0
+
+    def woman_factor(self, age, key):
+        if age < 18.0 or age >= 45.0:
+            return 0.0
+        if age < 30.0:
+            return 1.0
+        return (45.0 - age) / 15.0
+
+    def man_factor(self, age, key):
+        return 1.0
+
+    def chance(self, age_w, key_w, age_m, key_m):
+        return self.adult_rate * self.woman_factor(age_w, key_w) * self.man_factor(age_m, key_m)
+
+
+def wish_probs(alpha):
+    w = [p * math.exp(alpha * n) for n, p in enumerate(WISH_SHAPE)]
+    s = sum(w)
+    return [x / s for x in w]
+
+
+def wish_mean(alpha):
+    return sum(n * p for n, p in enumerate(wish_probs(alpha)))
+
+
+def wish_of(u, cum):
+    for n, c in enumerate(cum):
+        if u < c:
+            return n
+    return len(cum) - 1
+
+
+# ---------------------------------------------------------------------------------------
+# One town
+
+def simulate(par, seed, cfg):
+    """Runs one closed town; returns the sufficient statistics of the measurement."""
+    years, burn_years = cfg["years"], cfg["burn_in"]
+    t_end = years * MONTHS
+    burn = burn_years * MONTHS
+    cohort_end = t_end - 50 * MONTHS
+    split = (burn + cohort_end) // 2
+    n0 = cfg["founders"]
+    lam_sep = par["lam"]
+    w_k, w_h = par["w_K"], par["w_H"]
+    market_age = round(cfg.get("market_age", MARKET_AGE) * MONTHS)
+    rule = cfg.get("fertility") or SpecFertility()
+    chance = rule.chance
+    fert_until = math.ceil(rule.last_age * MONTHS)
+    tabs = (search_table(par["c_f"], par["m_f"], market_age),
+            search_table(par["c_m"], par["m_m"], market_age))
+    tab_len = len(tabs[0])
+    cum = []
+    acc = 0.0
+    for p in wish_probs(par["alpha"]):
+        acc += p
+        cum.append(acc)
+    cum[-1] = 2.0
+    town = mix(seed * GC + 0x5157)
+
+    # Person columns.
+    sex, birth, death, key, mother, father = [], [], [], [], [], []
+    zk, zh, slot, first, npart, partner_of = [], [], [], [], [], []
+    wish, vcount, vpreg, vlast, nconc, cumv, actual, first_birth = [], [], [], [], [], [], [], []
+    pend = []
+    kin = Kinship(int(n0 * 1.6) + 64)
+    heap = []
+    births_at = {}
+    adult_at = {}
+    singles = (set(), set())
+    fert = set()
+
+    def person(sx, born, k, gk, mo, fa, x0):
+        p = len(sex)
+        g = normal(salt(TAG_G, gk))
+        d = born + MONTHS * death_age(sx, x0, g, exp1(salt(TAG_SEN, k)), exp1(salt(TAG_ACC, k)))
+        sex.append(sx)
+        birth.append(born)
+        death.append(d)
+        key.append(k)
+        mother.append(mo)
+        father.append(fa)
+        zk.append(normal(salt(TAG_ZK, k)))
+        zh.append(normal(salt(TAG_ZH, k)))
+        first.append(-1)
+        npart.append(0)
+        partner_of.append(-1)
+        wish.append(wish_of(unit(salt(TAG_WISH, k)), cum) if sx == FEMALE else 0)
+        vcount.append(0)
+        vpreg.append(False)
+        vlast.append(-10 ** 9)
+        nconc.append(0)
+        cumv.append(None)
+        actual.append(0)
+        first_birth.append(-1)
+        pend.append(0)
+        s = kin.take()
+        slot.append(s)
+        if d < t_end:
+            heapq.heappush(heap, (d, 0, p))
+        adult = born + market_age
+        if adult > 0 and d > adult:
+            adult_at.setdefault(adult, []).append(p)
+        return p
+
+    # Partnerships.
+    q_w, q_m, q_open = [], [], []
+    stats_gap = [0, 0.0, 0.0]
+    stats_gap_first = [0, 0.0]
+    gap_hist = [0] * 201  # whole years from -100 to 100, man minus woman
+    stats_corr = [0] + [0.0] * 10  # n, then K: sx, sy, sxx, syy, sxy, then H likewise
+    sep_d = []
+    sep_real = [0, 0, 0]  # separations, deaths, still open at the end
+
+    def form(w, m, t):
+        q = len(q_w)
+        q_w.append(w)
+        q_m.append(m)
+        q_open.append(True)
+        is_first = npart[w] == 0 and npart[m] == 0
+        b = exp1(salt(TAG_SEP, key[w], npart[w]))
+        for p in (w, m):
+            if npart[p] == 0 and t >= 0:
+                first[p] = t - birth[p]
+            npart[p] += 1
+            partner_of[p] = q
+            singles[sex[p]].discard(p)
+        d = min(death[w], death[m])
+        t_sep = t + MONTHS * b / lam_sep if lam_sep > 0.0 else math.inf
+        if t_sep < d and t_sep < t_end:
+            heapq.heappush(heap, (t_sep, 1, q))
+        if t >= burn:
+            gap = (birth[w] - birth[m]) / MONTHS
+            stats_gap[0] += 1
+            stats_gap[1] += gap
+            stats_gap[2] += gap * gap
+            gap_hist[100 + max(-100, min(100, math.floor(gap)))] += 1
+            if is_first:
+                stats_gap_first[0] += 1
+                stats_gap_first[1] += gap
+            sep_d.append((d - t) / MONTHS)
+            sep_real[0 if t_sep < d else 1] += 1
+            if min(d, t_sep) >= t_end:
+                sep_real[2] += 1
+            if is_first:
+                c = stats_corr
+                c[0] += 1
+                for off, (x, y) in ((1, (zk[w], zk[m])), (6, (zh[w], zh[m]))):
+                    c[off] += x
+                    c[off + 1] += y
+                    c[off + 2] += x * x
+                    c[off + 3] += y * y
+                    c[off + 4] += x * y
+        if t - birth[w] < fert_until and vcount[w] < 4:
+            fert.add(w)
+
+    def close(q):
+        q_open[q] = False
+        w, m = q_w[q], q_m[q]
+        fert.discard(w)
+        partner_of[w] = -1
+        partner_of[m] = -1
+
+    def free_slot(p):
+        if pend[p] == 0:
+            kin.release(slot[p])
+            slot[p] = -1
+
+    # Founders.
+    surv = (survival_table(FEMALE, 110 * MONTHS), survival_table(MALE, 110 * MONTHS))
+    cdf = []
+    for tab in surv:
+        acc = 0.0
+        c = []
+        for v in tab:
+            acc += v
+            c.append(acc)
+        cdf.append([x / acc for x in c])
+    for i in range(n0):
+        k = mix(mix(town + TAG_FOUNDER * GC) + i * GA)
+        sx = MALE if unit(salt(TAG_SEX, k)) < P_Y else FEMALE
+        age = bisect_right(cdf[sx], unit(salt(TAG_AGE, k)))
+        p = person(sx, -age, k, k, -1, -1, age / MONTHS)
+        kin.founder(slot[p])
+    # A rough start for the founders (only the burn-in sees it): partnered with a
+    # probability by age to a single founder man 2 years younger to 8 years older, and a
+    # share of the wish already born (without persons).
+    adult_years = market_age / MONTHS
+    founders_by_age = {}
+    for p in range(n0):
+        if sex[p] == MALE and -birth[p] >= market_age:
+            founders_by_age.setdefault(-birth[p] // MONTHS, []).append(p)
+    for w in sorted(range(n0), key=lambda p: key[p]):
+        if sex[w] != FEMALE:
+            continue
+        age = -birth[w] / MONTHS
+        if age < adult_years:
+            continue
+        share = min(1.0, (age - adult_years) / 20.0)
+        u = unit(salt(TAG_PRIOR, key[w]))
+        vcount[w] = min(wish[w], int(wish[w] * share + u))
+        if age < adult_years + 10.0:
+            prob = 0.8 * (age - adult_years) / 10.0
+        elif age < 60:
+            prob = 0.8
+        else:
+            prob = max(0.3, 0.8 - 0.5 * (age - 60.0) / 25.0)
+        if unit(salt(TAG_PAIR0, key[w])) >= prob:
+            continue
+        best, best_rank = -1, M64 + 1
+        for y in range(int(age) - 2, int(age) + 9):
+            for m in founders_by_age.get(y, ()):
+                if partner_of[m] < 0:
+                    r = mix(key[w] ^ key[m])
+                    if r < best_rank:
+                        best, best_rank = m, r
+        if best >= 0:
+            form(w, best, 0)
+            first[w] = first[best] = -2
+    for sx in (FEMALE, MALE):
+        for p in range(n0):
+            if sex[p] == sx and -birth[p] >= market_age and partner_of[p] < 0:
+                singles[sx].add(p)
+
+    snapshots = []
+
+    # The months.
+    for t in range(t_end):
+        # Deaths and separations before this month start.
+        while heap and heap[0][0] <= t:
+            _, kind, x = heapq.heappop(heap)
+            if kind == 0:
+                singles[sex[x]].discard(x)
+                if sex[x] == FEMALE:
+                    fert.discard(x)
+                q = partner_of[x]
+                if q >= 0:
+                    close(q)
+                    other = q_m[q] if q_w[q] == x else q_w[q]
+                    singles[sex[other]].add(other)
+                free_slot(x)
+            elif q_open[x]:
+                close(x)
+                singles[FEMALE].add(q_w[x])
+                singles[MALE].add(q_m[x])
+        # Births at this month start.
+        for w, fa, nc, is_actual in births_at.pop(t, ()):
+            if is_actual:
+                pend[fa] -= 1
+            if death[w] <= t:
+                if is_actual and death[fa] <= t:
+                    free_slot(fa)
+                continue
+            k0 = mix(mix(key[w] + TAG_CHILD * GC) + nc * GA)
+            u = unit(salt(TAG_TWIN, k0))
+            size = 2 if u < TWIN_ALL else 1
+            vcount[w] += size
+            vpreg[w] = False
+            vlast[w] = t
+            if cumv[w] is None:
+                cumv[w] = []
+            cumv[w].append(vcount[w])
+            if is_actual:
+                if first_birth[w] < 0:
+                    first_birth[w] = t
+                actual[w] += size
+                for idx in range(size):
+                    k = k0 if idx == 0 else mix(mix(key[w] + TAG_CHILD * GC) + nc * GA + idx * GB)
+                    gk = k0 if (idx == 1 and u < TWIN_MZ) else k
+                    sx = MALE if unit(salt(TAG_SEX, gk)) < P_Y else FEMALE
+                    c = person(sx, t, k, gk, w, fa, 0.0)
+                    kin.child(slot[c], slot[w], slot[fa])
+                if death[fa] <= t:
+                    free_slot(fa)
+            if vcount[w] >= 4:
+                fert.discard(w)
+        # Conception attempts (only partnerships formed before this month start).
+        if fert:
+            cs = salt(TAG_CONCEIVE, t)
+            drop = []
+            for w in fert:
+                if vpreg[w] or t < vlast[w] + PAUSE:
+                    continue
+                am = t - birth[w]
+                if am >= fert_until:
+                    drop.append(w)
+                    continue
+                fa = q_m[partner_of[w]]
+                f = chance(am / MONTHS, key[w], (t - birth[fa]) / MONTHS, key[fa])
+                if f <= 0.0:
+                    continue
+                x = cs ^ key[w]
+                x = ((x ^ (x >> 30)) * F1) & M64
+                x = ((x ^ (x >> 27)) * F2) & M64
+                x ^= x >> 31
+                if ((x >> 11) + 0.5) * U53 < f:
+                    vpreg[w] = True
+                    is_actual = vcount[w] < wish[w]
+                    if is_actual:
+                        pend[fa] += 1
+                    births_at.setdefault(t + PREGNANCY, []).append((w, fa, nconc[w], is_actual))
+                    nconc[w] += 1
+            for w in drop:
+                fert.discard(w)
+        # New adults join the market.
+        for p in adult_at.pop(t, ()):
+            if death[p] > t and partner_of[p] < 0:
+                singles[sex[p]].add(p)
+        # Market round.
+        held = (sorted(singles[FEMALE]), sorted(singles[MALE]))
+        ss = salt(TAG_SEARCH, t)
+        seekers = []
+        for sx in (FEMALE, MALE):
+            tab = tabs[sx]
+            for p in held[sx]:
+                am = t - birth[p]
+                if am >= tab_len:
+                    continue
+                s = tab[am]
+                if s <= 0.0:
+                    continue
+                x = ss ^ key[p]
+                x = ((x ^ (x >> 30)) * F1) & M64
+                x = ((x ^ (x >> 27)) * F2) & M64
+                x ^= x >> 31
+                if ((x >> 11) + 0.5) * U53 < s:
+                    seekers.append(p)
+        if seekers:
+            os_ = salt(TAG_ORDER, town, t)
+            seekers.sort(key=lambda p: mix(os_ ^ key[p]))
+            paired = set()
+            q_kin = kin.q
+            cap = kin.cap
+            for i in seekers:
+                if i in paired:
+                    continue
+                pool = held[1 - sex[i]]
+                if not pool:
+                    continue
+                rs = salt(TAG_RANK, key[i], t)
+                ranked = heapq.nsmallest(3 * K_CAND, pool, key=lambda j: mix(rs ^ key[j]))
+                row = slot[i] * cap
+                cands = [j for j in ranked if q_kin[row + slot[j]] < EIGHTH][:K_CAND]
+                if len(cands) < K_CAND and len(ranked) < len(pool):
+                    ranked = sorted(pool, key=lambda j: mix(rs ^ key[j]))
+                    cands = [j for j in ranked if q_kin[row + slot[j]] < EIGHTH][:K_CAND]
+                if not cands:
+                    continue
+                ns = salt(TAG_NOISE, key[i], t)
+                zi_k, zi_h = zk[i], zh[i]
+                bi = birth[i]
+                male_i = sex[i] == MALE
+                best, best_u = -1, -math.inf
+                for j in cands:
+                    da = (birth[j] - bi) / MONTHS if male_i else (bi - birth[j]) / MONTHS
+                    dk = zi_k - zk[j]
+                    dh = zi_h - zh[j]
+                    gumbel = -math.log(-math.log(unit(mix(ns ^ key[j]))))
+                    u = (-w_k * dk * dk - w_h * dh * dh - W_AGE * (da - MU_AGE) ** 2
+                         - KIN_PENALTY * q_kin[row + slot[j]] / ONE + gumbel)
+                    if u > best_u:
+                        best, best_u = j, u
+                if best in paired:
+                    continue
+                paired.add(i)
+                paired.add(best)
+                if male_i:
+                    form(best, i, t)
+                else:
+                    form(i, best, t)
+        if t % (25 * MONTHS) == 0:
+            snapshots.append((t, census(t, birth, death, partner_of)))
+    snapshots.append((t_end, census(t_end, birth, death, partner_of)))
+
+    # Measurement.
+    out = {
+        "hist": [[0] * (50 * MONTHS) for _ in range(2)],
+        "never": [0, 0],
+        "hist_half": [[[0] * (50 * MONTHS) for _ in range(2)] for _ in range(2)],
+        "never_half": [[0, 0], [0, 0]],
+        "bsum": [0.0] * 5,
+        "bsq": [[0.0] * 5 for _ in range(5)],
+        "nwomen": 0,
+        "births_real": [0, 0],
+        "bsum_half": [[0.0] * 5, [0.0] * 5],
+        "nwomen_half": [0, 0],
+        "first_birth": [0, 0.0],
+        "first_year": [0, 0],  # first partnerships in the year after the market age
+        "gap": stats_gap,
+        "gap_first": stats_gap_first,
+        "gap_hist": gap_hist,
+        "corr": stats_corr,
+        "sep_d": sep_d,
+        "sep_real": sep_real,
+        "asfr_births": [0] * 60,
+        "asfr_years": [0.0] * 60,
+        "persons": len(sex),
+        "snapshots": snapshots,
+    }
+    hist, never = out["hist"], out["never"]
+    for p in range(len(sex)):
+        b = birth[p]
+        if sex[p] == FEMALE:
+            # Exposure and births for the period fertility rate after the burn-in.
+            lo, hi = max(b, burn), min(death[p], t_end)
+            if hi > lo:
+                for y in range(15, 50):
+                    a0, a1 = max(lo, b + y * MONTHS), min(hi, b + (y + 1) * MONTHS)
+                    if a1 > a0:
+                        out["asfr_years"][y] += (a1 - a0) / MONTHS
+        if b < burn or b >= cohort_end or death[p] <= b + 50 * MONTHS:
+            continue
+        half = 0 if b < split else 1
+        f = first[p]
+        if 0 <= f < 50 * MONTHS:
+            hist[sex[p]][f] += 1
+            out["hist_half"][half][sex[p]][f] += 1
+            if f < market_age + MONTHS:
+                out["first_year"][sex[p]] += 1
+        else:
+            never[sex[p]] += 1
+            out["never_half"][half][sex[p]] += 1
+        if sex[p] == FEMALE:
+            seq = cumv[p] or []
+            bn = [0.0] * 5
+            for n in range(1, 5):
+                bn[n] = float(next((c for c in seq if c >= n), seq[-1] if seq else 0))
+            out["nwomen"] += 1
+            out["nwomen_half"][half] += 1
+            for n in range(5):
+                out["bsum"][n] += bn[n]
+                out["bsum_half"][half][n] += bn[n]
+                for n2 in range(5):
+                    out["bsq"][n][n2] += bn[n] * bn[n2]
+            out["births_real"][0] += 1
+            out["births_real"][1] += actual[p]
+            if first_birth[p] >= 0:
+                out["first_birth"][0] += 1
+                out["first_birth"][1] += (first_birth[p] - b) / MONTHS
+    for c in range(len(sex)):
+        mo = mother[c]
+        if mo >= 0 and burn <= birth[c] < t_end:
+            out["asfr_births"][(birth[c] - birth[mo]) // MONTHS] += 1
+    return out
+
+
+def census(t, birth, death, partner_of):
+    alive = 0
+    young = old = 0
+    age_sum = 0.0
+    for p in range(len(birth)):
+        if birth[p] <= t < death[p]:
+            alive += 1
+            a = (t - birth[p]) / MONTHS
+            age_sum += a
+            if a < 18:
+                young += 1
+            elif a >= 65:
+                old += 1
+    return (alive, age_sum / max(alive, 1), young / max(alive, 1), old / max(alive, 1))
+
+
+# ---------------------------------------------------------------------------------------
+# Aggregation and the measured values
+
+def add_into(acc, x):
+    if isinstance(x, list) and x and isinstance(x[0], list):
+        for a, b in zip(acc, x):
+            add_into(a, b)
+    else:
+        for i, v in enumerate(x):
+            acc[i] += v
+
+
+def aggregate(outs):
+    agg = {}
+    for key in outs[0]:
+        if key == "sep_d":
+            agg[key] = [d for o in outs for d in o[key]]
+        elif key == "snapshots":
+            agg[key] = [o[key] for o in outs]
+        elif key in ("persons", "nwomen"):
+            agg[key] = sum(o[key] for o in outs)
+        else:
+            acc = json.loads(json.dumps(outs[0][key]))
+            for o in outs[1:]:
+                add_into(acc, o[key])
+            agg[key] = acc
+    return agg
+
+
+def median(hist, never):
+    """(smoothed, plain): the plain Kaplan-Meier median is the first age (on the month
+    grid) at which half of all persons had a first partnership; the smoothed one spreads
+    each month's count over half a month on either side, so it moves continuously."""
+    n = sum(hist) + never
+    half = n / 2.0
+    c = 0
+    for k, h in enumerate(hist):
+        if h and c + h >= half:
+            return (k - 0.5 + (half - c) / h) / MONTHS, k / MONTHS
+        c += h
+    return math.inf, math.inf
+
+
+def median_se(hist, never, med):
+    n = sum(hist) + never
+    lo = max(0, int((med - 1.0) * MONTHS))
+    hi = min(len(hist), int((med + 1.0) * MONTHS) + 1)
+    dens = sum(hist[lo:hi]) / n / ((hi - lo) / MONTHS)
+    return math.sqrt(0.25 / n) / dens
+
+
+def births_rb(agg, alpha):
+    p = wish_probs(alpha)
+    n = agg["nwomen"]
+    mean = sum(pi * s for pi, s in zip(p, agg["bsum"])) / n
+    sq = sum(p[i] * p[j] * agg["bsq"][i][j] for i in range(5) for j in range(5))
+    var = (sq - n * mean * mean) / (n - 1)
+    return mean, math.sqrt(max(var, 0.0) / n)
+
+
+def sep_rb(agg, lam):
+    ds = agg["sep_d"]
+    vals = [1.0 - math.exp(-lam * d) for d in ds]
+    n = len(vals)
+    mean = sum(vals) / n
+    var = sum((v - mean) ** 2 for v in vals) / (n - 1)
+    return mean, math.sqrt(var / n)
+
+
+def correlation(c, off):
+    n = c[0]
+    sx, sy, sxx, syy, sxy = c[off:off + 5]
+    cov = sxy / n - sx * sy / n / n
+    vx = sxx / n - (sx / n) ** 2
+    vy = syy / n - (sy / n) ** 2
+    r = cov / math.sqrt(vx * vy)
+    return r, (1.0 - r * r) / math.sqrt(n - 3)
+
+
+def measure(agg, par):
+    m = {}
+    for sx, tag in ((FEMALE, "f"), (MALE, "m")):
+        hist, never = agg["hist"][sx], agg["never"][sx]
+        n = sum(hist) + never
+        smooth, plain = median(hist, never)
+        m["med_" + tag] = (smooth, median_se(hist, never, smooth))
+        m["km_" + tag] = plain
+        p = never / n
+        m["never_" + tag] = (p, math.sqrt(p * (1 - p) / n))
+        m["n_" + tag] = n
+        m["first18_" + tag] = agg["first_year"][sx] / sum(hist)
+        for half in (0, 1):
+            h, nv = agg["hist_half"][half][sx], agg["never_half"][half][sx]
+            m["med_%s_%d" % (tag, half)] = median(h, nv)[0]
+            m["never_%s_%d" % (tag, half)] = nv / (sum(h) + nv)
+    m["r_K"] = correlation(agg["corr"], 1)
+    m["r_H"] = correlation(agg["corr"], 6)
+    m["n_first"] = agg["corr"][0]
+    m["births"] = births_rb(agg, par["alpha"])
+    nr, br = agg["births_real"]
+    m["births_real"] = br / nr
+    p = wish_probs(par["alpha"])
+    for half in (0, 1):
+        nw = agg["nwomen_half"][half]
+        m["births_%d" % half] = sum(pi * s for pi, s in zip(p, agg["bsum_half"][half])) / nw
+    m["n_women"] = agg["nwomen"]
+    m["sep"] = sep_rb(agg, par["lam"])
+    s, d, open_ = agg["sep_real"]
+    m["sep_real"] = s / (s + d)
+    m["n_part"] = s + d
+    m["n_open"] = open_
+    n, g, g2 = agg["gap"]
+    m["gap"] = (g / n, math.sqrt((g2 / n - (g / n) ** 2) / n))
+    m["gap_sd"] = math.sqrt(g2 / n - (g / n) ** 2)
+    nf, gf = agg["gap_first"]
+    m["gap_first"] = gf / nf
+    hist = agg["gap_hist"]
+    m["gap_woman_older"] = sum(hist[:100]) / n
+    m["gap_over_10"] = (sum(hist[:90]) + sum(hist[110:])) / n
+    c = 0
+    for i, h in enumerate(hist):
+        c += h
+        if c >= n / 2:
+            m["gap_median_bin"] = i - 100
+            break
+    nb, sb = agg["first_birth"]
+    m["first_birth"] = sb / nb
+    m["tfr"] = sum(b / y for b, y in zip(agg["asfr_births"], agg["asfr_years"]) if y > 0)
+    m["wish_mean"] = wish_mean(par["alpha"])
+    return m
+
+
+
+OUTER = ("med_f", "never_f", "med_m", "never_m", "r_K", "r_H")
+REPORTED = ("med_f", "never_f", "med_m", "never_m", "births", "sep", "r_K", "r_H")
+
+
+def value(m, k):
+    v = m[k]
+    return v[0] if isinstance(v, tuple) else v
+
+
+def residual(m):
+    return [value(m, k) - TARGET[k] for k in OUTER]
+
+
+def derived(m):
+    """Values for the report that are differences of measured ones."""
+    out = {}
+    for k in ("med_f", "med_m", "never_f", "never_m", "births"):
+        out["drift_" + k] = m[k + "_1"] - m[k + "_0"]
+    return out
+
+
+def jackknife(outs, par, keys):
+    """Standard errors by the delete-one-town jackknife: they include the dependence of
+    persons within a town (market, kin, cohort sizes), unlike the analytic ones."""
+    n = len(outs)
+    if n < 3:
+        return {}
+    rows = []
+    for i in range(n):
+        m = measure(aggregate(outs[:i] + outs[i + 1:]), par)
+        m.update(derived(m))
+        rows.append(m)
+    se = {}
+    for k in keys:
+        vals = [value(m, k) for m in rows]
+        mean = sum(vals) / n
+        se[k] = math.sqrt((n - 1) / n * sum((v - mean) ** 2 for v in vals))
+    return se
+
+
+# ---------------------------------------------------------------------------------------
+# Fitting
+
+def root(f, lo, hi, tol=1e-12):
+    """Bisection of an increasing function on [lo, hi]; None without a sign change."""
+    if f(lo) > 0 or f(hi) < 0:
+        return None
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if f(mid) < 0:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return 0.5 * (lo + hi)
+
+
+class WishTooHigh(Exception):
+    pass
+
+
+def inner(agg):
+    """alpha and lambda_sep solved exactly on one sample; stops when the births target
+    needs a wish mean above 3.0 (11.3)."""
+    alpha = root(lambda a: births_rb(agg, a)[0] - TARGET["births"], -5.0, 5.0)
+    lam = root(lambda x: sep_rb(agg, x)[0] - TARGET["sep"], 1e-7, 1.0)
+    if alpha is None or wish_mean(alpha) > WISH_MAX_MEAN:
+        raise WishTooHigh(alpha)
+    return alpha, lam
+
+
+def params(x, alpha, lam):
+    return {"c_f": math.exp(x[0]), "m_f": x[1], "c_m": math.exp(x[2]), "m_m": x[3],
+            "w_K": math.exp(x[4]), "w_H": math.exp(x[5]), "alpha": alpha, "lam": lam}
+
+
+def run_town(args):
+    par, seed, cfg = args
+    return simulate(par, seed, cfg)
+
+
+class Runner:
+    """Runs towns in worker processes; results are combined in task order, so they do not
+    depend on the number of workers."""
+
+    def __init__(self, cfg, jobs):
+        self.cfg = cfg
+        self.pool = ProcessPoolExecutor(max_workers=jobs) if jobs > 1 else None
+        self.towns = 0
+
+    def evaluate(self, pars, seeds):
+        tasks = [(p, s, self.cfg) for p in pars for s in seeds]
+        if self.pool:
+            outs = list(self.pool.map(run_town, tasks))
+        else:
+            outs = [run_town(t) for t in tasks]
+        self.towns += len(tasks)
+        n = len(seeds)
+        result = []
+        for i, p in enumerate(pars):
+            part = outs[i * n:(i + 1) * n]
+            agg = aggregate(part)
+            result.append((agg, measure(agg, p), part))
+        return result
+
+
+def solve_linear(a, b):
+    n = len(b)
+    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(m[r][col]))
+        m[col], m[piv] = m[piv], m[col]
+        for r in range(n):
+            if r != col:
+                f = m[r][col] / m[col][col]
+                for c in range(col, n + 1):
+                    m[r][c] -= f * m[col][c]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+SCALE = (0.25, 1.5, 0.25, 1.5, 0.25, 0.25)  # trust-region unit: ln c, m, ln c, m, ln w, ln w
+# Per-town standard deviations of the six outer targets (development runs). They weight
+# the targets in the least-squares step, which only matters if not all can be met.
+TSCALE = (0.48, 0.020, 0.165, 0.0069, 0.021, 0.021)
+RHO0, RHO_MIN, RHO_DECAY = 2.0, 1.0, 0.85  # trust radius in SCALE units and its schedule
+MU, MU_FINAL = 0.05, 0.01  # Levenberg-Marquardt regularization in SCALE units
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def describe(label, x, alpha, lam, m):
+    p = params(x, alpha, lam)
+    log("  %-6s c_f %.5f m_f %6.3f c_m %.5f m_m %6.3f w_K %.4f w_H %.4f alpha %.4f "
+        "lam %.5f" % ((label,) + tuple(p[k] for k in (
+            "c_f", "m_f", "c_m", "m_m", "w_K", "w_H", "alpha", "lam"))))
+    log("         med_f %6.3f never_f %.4f med_m %6.3f never_m %.4f births %.4f sep %.4f "
+        "r_K %.4f r_H %.4f" % tuple(value(m, k) for k in REPORTED))
+
+
+def seeds_of(k, towns):
+    return [FIT_SEED0 + 1000 * k + i for i in range(towns)]
+
+
+def regress(points, xc, rho):
+    """Weighted least squares of the six outer residuals on (x - xc) / SCALE over all runs;
+    weight = towns x Gaussian kernel of radius rho around xc. Returns the intercepts (the
+    model's residuals at xc), the Jacobian rows (per SCALE unit), the variances of the
+    intercepts and the effective number of runs. The residual variance includes any lack
+    of fit, so the variances err on the large side."""
+    p = 7
+    a = [[0.0] * p for _ in range(p)]
+    rhs = [[0.0] * p for _ in range(6)]
+    rows = []
+    for x, g, n in points:
+        u = [(xi - ci) / s for xi, ci, s in zip(x, xc, SCALE)]
+        k = math.exp(-0.5 * sum(v * v for v in u) / (rho * rho))
+        row = [1.0] + u
+        rows.append((row, g, n * k, k))
+        for i in range(p):
+            for j in range(p):
+                a[i][j] += n * k * row[i] * row[j]
+            for t in range(6):
+                rhs[t][i] += n * k * row[i] * g[t]
+    beta = [solve_linear(a, rhs[t]) for t in range(6)]
+    neff = sum(r[3] for r in rows)
+    inv00 = solve_linear(a, [1.0] + [0.0] * (p - 1))[0]
+    var_a = []
+    for t in range(6):
+        ss = sum(w * (g[t] - sum(b * r for b, r in zip(beta[t], row))) ** 2
+                 for row, g, w, _ in rows)
+        var_a.append(ss / max(neff - p, 1.0) * inv00)
+    return [b[0] for b in beta], [b[1:] for b in beta], var_a, neff
+
+
+def lm_step(a, jac, mu, rho):
+    """The step d (SCALE units) minimizing sum(((a + J d) / TSCALE)^2) + mu |d|^2,
+    shortened to length rho in the largest coordinate."""
+    jt = [[jac[t][i] / TSCALE[t] for i in range(6)] for t in range(6)]
+    at = [a[t] / TSCALE[t] for t in range(6)]
+    m = [[sum(jt[t][i] * jt[t][j] for t in range(6)) + (mu if i == j else 0.0)
+          for j in range(6)] for i in range(6)]
+    d = solve_linear(m, [-sum(jt[t][i] * at[t] for t in range(6)) for i in range(6)])
+    big = max(abs(v) for v in d)
+    if big > rho:
+        d = [v * rho / big for v in d]
+    return d
+
+
+def fit(runner, x, alpha, lam, cfg):
+    """A trust-region search with a local regression model. A design of 12 runs around the
+    start gives the first model; each iteration fits the six outer residuals linearly in
+    the parameters by weighted least squares over all runs near the current point, takes a
+    Levenberg-Marquardt step towards the model's root and runs fresh towns there. The
+    fitted values are the root of the final local model. A single fixed set of towns would
+    not help: one changed search decision changes every later market round, so nearby
+    parameters on the same towns differ as much as on new ones. alpha and lambda_sep are
+    solved exactly on the previous run, at the end on the pooled last runs."""
+    towns = cfg["towns"]
+    points, runs = [], []
+
+    def record(x, alpha, lam, res, label):
+        agg, m, outs = res
+        points.append((x[:], residual(m), len(outs)))
+        runs.append((x[:], alpha, lam, agg, m, outs))
+        describe(label, x, alpha, lam, m)
+
+    log("Start, and a design one SCALE unit away along each axis (one set of towns):")
+    record(x, alpha, lam, runner.evaluate([params(x, alpha, lam)], seeds_of(0, towns))[0],
+           "start")
+    alpha, lam = inner(runs[-1][3])
+    xs = []
+    for i in range(6):
+        for sgn in (1.0, -1.0):
+            xi = x[:]
+            xi[i] += sgn * SCALE[i]
+            xs.append(xi)
+    res = runner.evaluate([params(xi, alpha, lam) for xi in xs], seeds_of(1, towns))
+    for xi, r in zip(xs, res):
+        record(xi, alpha, lam, r, "design")
+    xc = x[:]
+    log("Iterations (fresh towns each):")
+    for k in range(1, cfg["iters"] + 1):
+        rho = max(RHO_MIN, RHO0 * RHO_DECAY ** k)
+        a, jac, _, _ = regress(points, xc, rho)
+        d = lm_step(a, jac, MU, rho)
+        xc = [c + s * v for c, s, v in zip(xc, SCALE, d)]
+        alpha, lam = inner(runs[-1][3])
+        res = runner.evaluate([params(xc, alpha, lam)], seeds_of(k + 1, towns))[0]
+        record(xc, alpha, lam, res, "it %d" % k)
+    a, jac, var_a, neff = regress(points, xc, RHO_MIN)
+    d = lm_step(a, jac, MU_FINAL, RHO_MIN)
+    x_fit = [c + s * v for c, s, v in zip(xc, SCALE, d)]
+    model = [a[t] + sum(jac[t][i] * d[i] for i in range(6)) for t in range(6)]
+    # Standard errors of the root from the intercept variances (delta method).
+    inv = [solve_linear(jac, [1.0 if i == j else 0.0 for i in range(6)]) for j in range(6)]
+    se_x = [SCALE[i] * math.sqrt(sum((inv[j][i]) ** 2 * var_a[j] for j in range(6)))
+            for i in range(6)]
+    # alpha and lambda_sep settled at the fitted point on new towns.
+    log("Settling alpha and lambda_sep at the fitted point:")
+    alpha, lam = inner(aggregate([o for r in runs[-4:] for o in r[5]]))
+    res = runner.evaluate([params(x_fit, alpha, lam)],
+                          seeds_of(cfg["iters"] + 2, cfg["settle_towns"]))[0]
+    describe("settle", x_fit, alpha, lam, res[1])
+    alpha, lam = inner(res[0])
+    fitted = {"x": x_fit, "alpha": alpha, "lam": lam, "model": model, "se_x": se_x,
+              "model_se": [math.sqrt(v) for v in var_a], "jac": jac, "neff": neff,
+              "pooled": res[0], "runs": runs}
+    return fitted
+
+
+def fit_errors(fitted, par):
+    """Monte Carlo standard errors of the fitted values."""
+    se_x = fitted["se_x"]
+    out = {"c_f": par["c_f"] * se_x[0], "m_f": se_x[1], "c_m": par["c_m"] * se_x[2],
+           "m_m": se_x[3], "w_K": par["w_K"] * se_x[4], "w_H": par["w_H"] * se_x[5]}
+    agg = fitted["pooled"]
+    h = 1e-4
+    a = par["alpha"]
+    slope = (births_rb(agg, a + h)[0] - births_rb(agg, a - h)[0]) / (2 * h)
+    out["alpha"] = births_rb(agg, a)[1] / slope
+    lam = par["lam"]
+    slope = (sep_rb(agg, lam * (1 + h))[0] - sep_rb(agg, lam * (1 - h))[0]) / (2 * h * lam)
+    out["lam"] = sep_rb(agg, lam)[1] / slope
+    return out
+
+
+# ---------------------------------------------------------------------------------------
+# Report
+
+FULL = {"founders": 1000, "years": 300, "burn_in": 100, "towns": 12, "iters": 24,
+        "settle_towns": 24, "check_towns": 48}
+QUICK = {"founders": 400, "years": 200, "burn_in": 80, "towns": 4, "iters": 3,
+         "settle_towns": 4, "check_towns": 4}
+FIT_SEED0, CHECK_SEED0 = 1, 900001
+# Start of the fit, from development runs; the result does not depend on it beyond its
+# standard error.
+X0 = [math.log(0.0016), 26.0, math.log(0.0085), 29.5, math.log(0.62), math.log(0.27)]
+ALPHA0, LAM0 = 0.25, 0.0084
+FIT_DATE = "2026-10-08"
+NAMES = ("c_f", "m_f", "c_m", "m_m", "alpha", "lam", "w_K", "w_H")
+MEANING = {
+    "c_f": "height c of s(a), women, per month", "m_f": "center m of s(a), women, years",
+    "c_m": "height c of s(a), men, per month", "m_m": "center m of s(a), men, years",
+    "alpha": "tilt of the wish distribution", "lam": "separation rate lambda_sep per year",
+    "w_K": "similarity weight w_K (cognition)", "w_H": "similarity weight w_H (height z_h)",
+}
+LABELS = {
+    "med_f": "median age at first partnership, women",
+    "never_f": "share without partnership by 50, women",
+    "med_m": "median age at first partnership, men",
+    "never_m": "share without partnership by 50, men",
+    "births": "mean live births, women reaching 50",
+    "sep": "share of partnerships ending by separation",
+    "r_K": "partner correlation z_K, first partnerships",
+    "r_H": "partner correlation z_h, first partnerships",
+}
+EXTRA = ("first18_f", "first18_m", "gap", "first_birth", "tfr", "births_real", "sep_real",
+         "drift_med_f", "drift_med_m", "drift_never_f", "drift_never_m", "drift_births")
+
+
+def sig(value, se):
+    """Four significant digits, three when the fourth is noise by a factor of ten."""
+    digits = 4
+    if value != 0.0 and se == se:
+        step = 10.0 ** (math.floor(math.log10(abs(value))) - 3)
+        if se > 10.0 * step:
+            digits = 3
+    return float("%.*g" % (digits, value))
+
+
+def german(x):
+    return repr(x).replace(".", ",")
+
+
+def report(cfg, par, se_par, fitted, chk, runtime, towns_run):
+    agg, m, outs = chk
+    m.update(derived(m))
+    se = jackknife(outs, par, REPORTED + EXTRA)
+    if not se:
+        se = {k: m[k][1] if isinstance(m[k], tuple) else math.nan for k in REPORTED + EXTRA}
+    runs = fitted["runs"]
+    log("")
+    log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
+        "effective at the end); alpha and lambda_sep solved on %d new towns there; MC "
+        "standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
+    log("  %-6s %12s %10s  %s" % ("value", "fitted", "MC SE", "meaning"))
+    for k in NAMES:
+        log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
+    log("  wish P_0..P_4 = %s, mean %.4f (limit 3.0)" % (
+        ", ".join("%.4f" % p for p in wish_probs(par["alpha"])), wish_mean(par["alpha"])))
+    log("")
+    n_chk = cfg["check_towns"]
+    log("Targets: the regression model at the fitted values (model; births and separation "
+        "on the settle run), and a check run there on %d new towns (seeds %d-%d), SE by the "
+        "delete-one-town jackknife:" % (n_chk, CHECK_SEED0, CHECK_SEED0 + n_chk - 1))
+    log("  %-44s %8s %9s %9s %8s %7s" % ("target", "goal", "model", "check", "SE", "dev/SE"))
+    model = dict(zip(OUTER, (TARGET[k] + v for k, v in zip(OUTER, fitted["model"]))))
+    model["births"] = births_rb(fitted["pooled"], par["alpha"])[0]
+    model["sep"] = sep_rb(fitted["pooled"], par["lam"])[0]
+    reached = True
+    for k in REPORTED:
+        fit_mean = model[k]
+        v = value(m, k)
+        dev = (v - TARGET[k]) / se[k]
+        reached = reached and abs(dev) <= 4.0
+        log("  %-44s %8.4f %9.4f %9.4f %8.4f %7.2f" % (LABELS[k], TARGET[k], fit_mean, v,
+                                                       se[k], dev))
+    missed = [k for k, v, s in zip(OUTER, fitted["model"], fitted["model_se"]) if abs(v) > 3 * s]
+    if missed:
+        log("  NO ROOT: the local model itself misses %s by more than 3 of its standard errors;"
+            " the fitted point is its least-squares compromise (residuals weighted by the "
+            "per-town standard deviations TSCALE)." % ", ".join(missed))
+    log("  Medians are Kaplan-Meier medians among persons reaching 50 (no other censoring),")
+    log("  with each month's count spread over half a month on either side; plain (first")
+    log("  month with half reached): women %.3f, men %.3f." % (m["km_f"], m["km_m"]))
+    log("  Births: the mean over the wish given each woman's history; realized %.4f +- %.4f." % (
+        m["births_real"], se["births_real"]))
+    log("  Separation: partnerships formed in years %d-%d, each counted by its eventual end; "
+        "realized share %.4f +- %.4f; %d of %d still open at the end of the run." % (
+            cfg["burn_in"], cfg["years"], m["sep_real"], se["sep_real"], m["n_open"],
+            m["n_part"]))
+    log("  Sample: %d women and %d men reaching 50 (born in years %d-%d), %d first "
+        "partnerships, %d partnerships, %d persons simulated." % (
+            m["n_f"], m["n_m"], cfg["burn_in"], cfg["years"] - 50, m["n_first"], m["n_part"],
+            agg["persons"]))
+    checks = []
+    log("")
+    log("Checks of 11.2 and 11.3 (check run):")
+    for tag, name in (("f", "women"), ("m", "men")):
+        v = m["first18_" + tag]
+        ok = v <= 0.10
+        checks.append(ok)
+        log("  first partnerships in the year after the 18th birthday, %-5s %.4f +- %.4f "
+            "(at most 0.10) %s" % (name + ":", v, se["first18_" + tag], "ok" if ok else "FAILED"))
+    g = m["gap"][0]
+    ok = 2.5 <= g <= 4.0
+    checks.append(ok)
+    log("  mean age gap man minus woman, all partnerships: %.3f +- %.3f (2.5 to 4) %s" % (
+        g, se["gap"], "ok" if ok else "FAILED"))
+    log("    in first partnerships %.3f; SD %.2f; median in [%d, %d) years; woman older in "
+        "%.3f; |gap| of 10 years or more in %.3f" % (
+            m["gap_first"], m["gap_sd"], m["gap_median_bin"], m["gap_median_bin"] + 1,
+            m["gap_woman_older"], m["gap_over_10"]))
+    log("  mean age of mothers at first birth (women reaching 50): %.2f +- %.2f (report)" % (
+        m["first_birth"], se["first_birth"]))
+    tfr = m["tfr"]
+    log("  total fertility rate, years %d-%d: %.3f +- %.3f (2.1 to 2.3: %s)" % (
+        cfg["burn_in"], cfg["years"], tfr, se["tfr"],
+        "inside" if 2.1 <= tfr <= 2.3 else "REPORT ITEM"))
+    log("")
+    log("Founders and burn-in (check run): change from the cohorts born in the first half of "
+        "years %d-%d to the second half (0 expected):" % (cfg["burn_in"], cfg["years"] - 50))
+    for k, name in (("med_f", "median women"), ("med_m", "median men"),
+                    ("never_f", "never women"), ("never_m", "never men"),
+                    ("births", "births")):
+        d = m["drift_" + k]
+        log("  %-13s %+.4f +- %.4f (%+.1f SE)" % (name, d, se["drift_" + k],
+                                                 d / se["drift_" + k]))
+    snaps = agg["snapshots"]
+    log("  population of all towns by year: alive, mean age, share under 18, 65 and over")
+    for i in range(len(snaps[0])):
+        t = snaps[0][i][0]
+        alive = sum(s[i][1][0] for s in snaps)
+        mean_age = sum(s[i][1][0] * s[i][1][1] for s in snaps) / alive
+        young = sum(s[i][1][0] * s[i][1][2] for s in snaps) / alive
+        old = sum(s[i][1][0] * s[i][1][3] for s in snaps) / alive
+        log("    %3d %7d %6.2f %6.3f %6.3f" % (t // MONTHS, alive, mean_age, young, old))
+    log("")
+    log("Jacobian of the final local model: (med_f, never_f, med_m, never_m, r_K, r_H) per "
+        "unit of (ln c_f, m_f, ln c_m, m_m, ln w_K, ln w_H):")
+    for row in fitted["jac"]:
+        log("  " + " ".join("%9.4f" % (v / s) for v, s in zip(row, SCALE)))
+    rounded = {k: sig(par[k], se_par[k]) for k in NAMES}
+    log("")
+    log("Values for the specification (German decimals):")
+    log("  c Frauen %s, m Frauen %s, c Männer %s, m Männer %s, alpha %s, lambda_sep %s, "
+        "w_K %s, w_H %s" % tuple(german(rounded[k]) for k in NAMES))
+    source = ("tools/life_reference.py: closed towns of %d founders over %d years (burn-in %d), "
+              "local regression over %d runs of %d towns, checked on %d new towns" % (
+                  cfg["founders"], cfg["years"], cfg["burn_in"], len(runs), cfg["towns"], n_chk))
+    # Units from the closed list of tools/data_reference.py (ADR-0010 to ADR-0015).
+    entries = (
+        ("core:market_search_height_female", "c_f", "fraction",
+         "docs/genetik-spezifikation.md 11.2, c of s(a) for women, per market round"),
+        ("core:market_search_center_female", "m_f", "year",
+         "docs/genetik-spezifikation.md 11.2, m of s(a) for women"),
+        ("core:market_search_height_male", "c_m", "fraction",
+         "docs/genetik-spezifikation.md 11.2, c of s(a) for men, per market round"),
+        ("core:market_search_center_male", "m_m", "year",
+         "docs/genetik-spezifikation.md 11.2, m of s(a) for men"),
+        ("core:pairing_weight_cognition", "w_K", "logit",
+         "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference"),
+        ("core:pairing_weight_height", "w_H", "logit",
+         "docs/genetik-spezifikation.md 11.2, w_H, utility per squared phenotype difference"),
+        ("core:fertility_wish_tilt", "alpha", "logit",
+         "docs/genetik-spezifikation.md 11.3, alpha, log weight per wished child"),
+        ("core:separation_rate", "lam", "per_year", "ADR-0018 section 3, lambda_sep"),
+    )
+    snippet = {}
+    for name, k, unit_, note in entries:
+        snippet[name] = {"value": rounded[k], "unit": unit_, "source": source,
+                         "as_of": FIT_DATE,
+                         "note": "%s; Monte Carlo standard error %.2g" % (note, se_par[k])}
+    log("")
+    log("JSON for data/calibration/demography.json (the key names are proposals):")
+    log(json.dumps(snippet, indent=2, ensure_ascii=False))
+    log("")
+    log("%d town runs, %.0f s." % (towns_run, runtime))
+    return reached, all(checks)
+
+
+def main(argv):
+    quick = "--quick" in argv
+    jobs = min(os.cpu_count() or 1, 12)
+    if "--jobs" in argv:
+        jobs = int(argv[argv.index("--jobs") + 1])
+    cfg = dict(QUICK if quick else FULL)
+    t0 = time.time()
+    log("life_reference: %s; towns of %d founders over %d years (burn-in %d); %d towns per "
+        "run; %d jobs" % ("QUICK smoke test, imprecise" if quick else "full fit",
+                          cfg["founders"], cfg["years"], cfg["burn_in"], cfg["towns"], jobs))
+    sim_cfg = {k: cfg[k] for k in ("founders", "years", "burn_in")}
+    runner = Runner(sim_cfg, jobs)
+    try:
+        fitted = fit(runner, X0[:], ALPHA0, LAM0, cfg)
+    except WishTooHigh as err:
+        log("STOP: the births target needs alpha %s, a wish mean above %.1f (11.3)." % (
+            err.args[0], WISH_MAX_MEAN))
+        return 1
+    par = params(fitted["x"], fitted["alpha"], fitted["lam"])
+    se_par = fit_errors(fitted, par)
+    check_seeds = list(range(CHECK_SEED0, CHECK_SEED0 + cfg["check_towns"]))
+    chk, = runner.evaluate([par], check_seeds)
+    reached, ok = report(cfg, par, se_par, fitted, chk, time.time() - t0, runner.towns)
+    status = 0
+    if not reached:
+        log("NOT REACHED: a target misses by more than 4 standard errors in the check run.")
+        status = 1
+    if not ok:
+        log("STOP: a check of 11.2 failed; per 11.2 the finding goes back to Grok before these "
+            "values enter the calibration.")
+        status = 1
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
