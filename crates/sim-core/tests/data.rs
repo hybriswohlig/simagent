@@ -673,6 +673,17 @@ fn phenotype_weights_reject() {
         let result = checked(change);
         assert!(result.starts_with(code), "{code}: {result}");
     }
+    // A trait with a phenotype keeps the bound of its genetic value at most 2^1022
+    // (ADR-0009 section 2); without a row only finiteness counts (ADR-0008).
+    let huge = |c: &mut Value, g: &mut Value, with_row: bool| {
+        with_traits(g);
+        g["loci"][1]["action"]["additive"]["effect"] = json!(1e308);
+        if with_row {
+            c["traits"] = json!([row("test:a", [0.5, 0.1, 0.5, 0.1])]);
+        }
+    };
+    assert!(checked(|c, g| huge(c, g, true)).starts_with("data.trait_bounds"));
+    assert_eq!(checked(|c, g| huge(c, g, false)), "ok");
     // Valid: c2 = 0, h2 + c2 = 1 exactly, a trait without a row, both traits with rows.
     let valid: [Change; 3] = [
         |c, g| {

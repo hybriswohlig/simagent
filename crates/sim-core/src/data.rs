@@ -466,11 +466,12 @@ pub(crate) fn terms(map: &GenomeMap, t: &Trait) -> Vec<Term> {
     all
 }
 
-/// The genetic value of `t` is finite for every genome (ADR-0008 section 3): every term
+/// The largest magnitude the genetic value of `t` can reach, and that it is finite for
+/// every genome (ADR-0008 section 3): every term
 /// is finite at the doses 0, 1 and 2, every term of a load is not 0 at one of them, and
 /// the fold of their largest magnitudes is finite and stays finite divided by
 /// `sigma_ref`.
-fn check_bounds(map: &GenomeMap, t: &Trait) -> Result<(), DataError> {
+fn bound(map: &GenomeMap, t: &Trait) -> Result<f64, DataError> {
     // The terms of the trait's own loads come first (see `terms`); only they must not
     // vanish. An include term of 0 adds nothing and is finite.
     let direct = terms_on(map, &t.id, None).count();
@@ -490,7 +491,11 @@ fn check_bounds(map: &GenomeMap, t: &Trait) -> Result<(), DataError> {
     if !largest.is_finite() || !scaled.is_finite() {
         return Err(DataError::TraitBounds);
     }
-    Ok(())
+    Ok(scaled)
+}
+
+fn check_bounds(map: &GenomeMap, t: &Trait) -> Result<(), DataError> {
+    bound(map, t).map(|_| ())
 }
 
 /// No two IDs share a key (ADR-0004 section 2: a collision is a load error); `key` is
@@ -552,7 +557,11 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
 /// The phenotype weights (ADR-0009 section 2): each row names a trait of the map, the rows
 /// stand in ascending order, every weight is a fraction from 0 to 1, and heritability
 /// plus shared environment is at most 1 for the child and for the adult.
-fn check_weights_of_traits(rows: &[PhenotypeWeights], traits: &[Trait]) -> Result<(), DataError> {
+/// The bound of the genetic value of a trait with a phenotype: 2^1022, so that weights up
+/// to 1 and two bounded draws keep the phenotype finite (ADR-0009 section 2).
+const PHENOTYPE_BOUND: f64 = f64::from_bits(2045_u64 << 52);
+
+fn check_weights_of_traits(rows: &[PhenotypeWeights], map: &GenomeMap) -> Result<(), DataError> {
     for pair in rows.windows(2) {
         if let [before, after] = pair
             && before.target >= after.target
@@ -561,9 +570,7 @@ fn check_weights_of_traits(rows: &[PhenotypeWeights], traits: &[Trait]) -> Resul
         }
     }
     for row in rows {
-        if find(traits, &row.target).is_none() {
-            return Err(DataError::CalibrationUnknown);
-        }
+        let t = find(&map.traits, &row.target).ok_or(DataError::CalibrationUnknown)?;
         let all = [&row.h2_child, &row.c2_child, &row.h2_adult, &row.c2_adult];
         if all.iter().any(|weight| weight.unit != Unit::Fraction) {
             return Err(DataError::CalibrationUnit);
@@ -575,6 +582,9 @@ fn check_weights_of_traits(rows: &[PhenotypeWeights], traits: &[Trait]) -> Resul
         let adult = row.h2_adult.value.get() + row.c2_adult.value.get();
         if !in_range || child > 1.0 || adult > 1.0 {
             return Err(DataError::CalibrationRange);
+        }
+        if bound(map, t)? > PHENOTYPE_BOUND {
+            return Err(DataError::TraitBounds);
         }
     }
     Ok(())
@@ -589,10 +599,7 @@ impl Data {
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map, str_key)?;
-        check_weights_of_traits(
-            &definitions.calibration.traits,
-            &definitions.genome_map.traits,
-        )?;
+        check_weights_of_traits(&definitions.calibration.traits, &definitions.genome_map)?;
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
             .zip(&definitions.genome_map.loci)
