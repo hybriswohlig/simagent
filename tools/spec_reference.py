@@ -245,6 +245,19 @@ def section_3():
     # by at most this much per generation.
     put("W3.3a", mp.mpf("1e-6") / q_ad, ("fix", 3))
     put("W3.3b", mp.mpf("5e-5") / q_ad, ("fix", 2))
+    # Piecewise hazards (3.1, 3.2). One Exp(1) budget; the childhood cumulative hazard
+    # is a play value, the adult rate is whatever makes the cited median.
+    ln2 = mp.log(2)
+    h18_ar = mp.mpf("0.02")
+    median_ar = mp.mpf("65")
+    put("W3.2j", h18_ar / 18, ("sig", 4))
+    put("W3.2k", (ln2 - h18_ar) / (median_ar - 18), ("sig", 4))
+    put("W3.2l", 1 - mp.e ** (-h18_ar), ("sig", 4))
+    h18_x = mp.mpf("0.01")
+    put("W3.2m", h18_x / 18, ("sig", 3))
+    put("W3.2n", 1 - mp.e ** (-h18_x), ("sig", 3))
+    # Liability onset N(25, 5), mass at or below the lower clamp of 15.
+    put("W3.2o", mp.ncdf(-2), ("sig", 3))
 
 
 # ---------------------------------------------------------------------------------------
@@ -462,6 +475,10 @@ def section_5():
     put("W5.4d", nutrition_cohort_loss(k, mp.mpf("0.3"), 0), ("fix", 3))
     put("W5.4e", nutrition_cohort_loss(k, mp.mpf("0.3"), -2), ("fix", 3))
     put("W5.4f", nutrition_cohort_loss(k, mp.mpf("0.3"), -4), ("fix", 3))
+    # Fertility multipliers (5.6). Smoothstep midpoint is exact; the declines are linear.
+    put("W5.6a", mp.mpf("0.5"), ("fix", 1))
+    put("W5.6b", (mp.mpf("50") - 40) / 20, ("fix", 1))
+    put("W5.6c", 1 + (mp.mpf("0.4") - 1) * mp.mpf("0.5"), ("fix", 1))
 
 
 def nutrition_weight(age):
