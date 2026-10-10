@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
 use crate::ids::{PartnershipId, SimId};
-use crate::input::DeathCause;
 use crate::input::Fertility;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
@@ -119,8 +118,6 @@ pub(crate) struct DomainState {
     pub(crate) world_seed: Option<u64>,
     /// The parameters of `Start` after every override; `None` until `Start`.
     pub(crate) world_params: Option<WorldParams>,
-    /// The causes of death of `Start`, in its order.
-    pub(crate) death_causes: Vec<DeathCause>,
     /// The fertility of `Start`; `None` until `Start`.
     pub(crate) fertility: Option<Fertility>,
     /// The living, by ID.
@@ -155,7 +152,6 @@ impl DomainState {
         DomainState {
             world_seed: None,
             world_params: None,
-            death_causes: Vec::new(),
             sims: BTreeMap::new(),
             fertility: None,
             pregnancies: BTreeMap::new(),

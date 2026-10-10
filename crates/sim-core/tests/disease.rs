@@ -9,19 +9,19 @@
 //! The expected bytes and times come from `tools/state_reference.py`, which runs the
 //! model of `tools/world_reference.py`, written from the ADRs and not from this code.
 //!
-//! Scenario "sick": seed 0xff, founder tag `test:sick`, `test:base` with 0.02 per year
-//! for everyone, the test data with the dummy disease. A woman
+//! Scenario "sick": seed 0xff, founder tag `test:sick`, test data with accident 0.02 per
+//! year, senescence practically off, and the dummy disease. A woman
 //! (wild, dummy) born one second and a man (dummy twice) born two seconds before the
-//! start. The disease needs about 3.21 years of exposure to kill him, `test:base` about
-//! 19.6 years.
+//! start. The disease needs about 3.21 years of exposure to kill him, accident about
+//! 58.8 years.
 
 mod common;
 
 use sim_core::data::Data;
-use sim_core::data_id::{Code, DataId};
+use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
-use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, Input, Start};
+use sim_core::input::{Fertility, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -40,19 +40,20 @@ fn barren() -> Fertility {
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-/// How long each cause must act on him, in seconds.
+/// When he dies of the disease (switch on from the start) and of accident, in seconds.
 const HIS_DISEASE: i64 = 101_053_347;
-const HIS_BASE: i64 = 617_173_485;
-/// Switched on in this second, the disease and `test:base` are due in the same second.
-const TIE_SWITCH: i64 = 516_120_138;
-const SICK_ON_SAVE_AFTER_START: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010100018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0a01030106fc87ff1d0004010200fe87ff1d0002010100fe87ff1d000100018088ff1dc6ceaf6000060202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010007020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001000000000000000001000000000000060300020001000300030002000401010100ff0109746573743a7369636b01000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a00";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010100018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0afe9ffc77030103fea7fb9501000d010100fea7fb9501000100018088ff1d8ea5b5f604000302018bbec9d8c5bd99888b01000e010101abd4f19caceffaefab0100000000010000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001000000000000000001000000030bfe9ffc77010002000c01010100ff0109746573743a7369636b01000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a0400babeeeea98979f820602d080bf8e83c7c6b59f0104b8b3bc90f6defae8bf010698cacbc3a9d1bceb3d";
-const SICK_OFF_SAVE_AFTER_START: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010000018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0a01030105fc87ff1d0004010200fe87ff1d0002010100fe87ff1d000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010006020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001000000000000000000000000000005030002000100030002000401010100ff0109746573743a7369636b00000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a00";
-const SWITCHED_ON_SAVE: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010100018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0afe87ff1d030106fc8ffe3b0006010200fe8ffe3b0007010100fe8ffe3b000100018088ff1dc6d6ae7e00080202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010009020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d00000000000604fc87ff1d05fe87ff1d0100068088ff1d030002000702010100ff0109746573743a7369636b00000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0afe87ff1d020101000101009f8cc8defcf1d1bccd01";
-const ON_OFF_ON_SAVE: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010100018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0afe8ffe3b030106fc97fd590009010200fe97fd59000a010100fe97fd59000100018088ff1dc6d6ae7e000b0202dd90d4c2cac3a7bbf40100dac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b01000c020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001333333333333d33f018090fe3b00000000000607fc8ffe3b08fe8ffe3b0100098090fe3b030002000a03010100ff0109746573743a7369636b01000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0afe87ff1d0201010000fe8ffe3b03010100010200babeeeea98979f820602bede8186a78c8bfe7c";
-const NO_DISEASE_HIS_DEATH: &str =
-    "2bdac7cacc04010002020103000404fba99785c4c1bc5c8bbec9d8c5bd99888b01000409746573743a62617365";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e540117bb9dbe9d8e94da853c0b01ff01010000018bbec9d8c5bd99888b017b14ae47e17a943f00010000000000000000122d0afea7fb9501030105fcaffab301000f010200feaffab3010010010100feaffab301000100018088ff1ddac7cacc04000502028bbec9d8c5bd99888b01008ea5b5f604000302018bbec9d8c5bd99888b010011020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f000000000000050dfca7fb95010efea7fb95010100030002000f02010100ff0109746573743a7369636b01000109746573743a626173657b14ae47e17a943f00020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0ac4ceaf6002010100000500babeeeea98979f820602d080bf8e83c7c6b59f0104b8b3bc90f6defae8bf01068db6b288ead7bd94bd0108f5d7ac978ba5dfebe601";
+const HIS_ACCIDENT: i64 = 1_850_439_351;
+/// Switched on in this second, the disease and accident are due in the same second.
+const TIE_SWITCH: i64 = 1_749_386_004;
+/// His death of `core:disease_ar` on the data without the dummy disease, switched on at
+/// the start of year 1.
+const HIS_AR: i64 = 645_730_542;
+const SICK_ON_SAVE_AFTER_START: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010100010000000000000000122d0a01030108fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1dc6ceaf6000080202dd90d4c2cac3a7bbf40100eedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c0009020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf40100000000000000000100000000000000000100000000000008030002000100030003000200030002000401010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a00";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010100010000000000000000122d0afe9ffc77030104fea7fb9501000f010100fea7fb9501000100018088ff1da695b0d0280004020185d2bc82f8b2ead44d00dc84cbc8823300030201a0bb8ca1c58498a01c0010010101abd4f19caceffaefab0100000000010000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001000000000000000001000000040bfe9ffc770100020002000c01010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a0400f4b1c4fdd6f8f3e90c02d3b391f38afac8db0c04fec7c0b9fac2b4e9c00106c4dcb3e2f1adc79150";
+const SICK_OFF_SAVE_AFTER_START: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010000010000000000000000122d0a01030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1deedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c0008020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf40100000000000000000100000000000000000000000000000703000200010003000200030002000401010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0a00";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010100010000000000000000122d0afe87ff1d030108fc8ffe3b0008010200fe8ffe3b0009010100fe8ffe3b000100018088ff1dc6d6ae7e000a0202dd90d4c2cac3a7bbf40100eedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c000b020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d00000000000804fc87ff1d05fe87ff1d0100068088ff1d03000200030002000702010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0afe87ff1d02010100010100dbd5f9abd6fecfc87c";
+const ON_OFF_ON_SAVE: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010100010000000000000000122d0afe8ffe3b030108fc97fd59000b010200fe97fd59000c010100fe97fd59000100018088ff1dc6d6ae7e000d0202dd90d4c2cac3a7bbf40100eedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c000e020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001333333333333d33f018090fe3b00000000000807fc8ffe3b08fe8ffe3b0100098090fe3b03000200030002000a03010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0afe87ff1d0201010000fe8ffe3b03010100010200f4b1c4fdd6f8f3e90c029da1f0eab2c2b7cc73";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e540118c6c0f3b2b0e3c0c7e6010c01ff01010000010000000000000000122d0afea7fb9501030107fcaffab3010011010200feaffab3010012010100feaffab301000100018088ff1deedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c0013020101abd4f19caceffaefab0100000000010000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f000000000000070dfca7fb95010efea7fb9501010003000200030002000f02010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000000000000000000122d0ac4ceaf6002010100000500f4b1c4fdd6f8f3e90c02d3b391f38afac8db0c04fec7c0b9fac2b4e9c00106bee5a9ada1c78b882408bfa09db6d58ca38a9301";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -61,17 +62,9 @@ fn hex(text: &str) -> Vec<u8> {
         .collect()
 }
 
-fn base() -> DeathCause {
-    DeathCause {
-        cause: Code::new("test:base").expect("valid"),
-        per_year: FiniteF64::try_new(0.02).expect("finite"),
-        applies_to: AppliesTo::Everyone,
-    }
-}
-
-/// The test data with the disease of the walking skeleton from birth on.
+/// The test data with the disease of the walking skeleton from birth on, accident 0.02.
 fn sick_data() -> Data {
-    common::data_with_diseases(common::dummy_disease(0.0))
+    common::death_data(0.02, None, common::dummy_disease(0.0))
 }
 
 fn founder(born: i64, sex: Sex, maternal: u8) -> Founder {
@@ -87,7 +80,7 @@ fn sick(on: bool) -> World {
     sick_on(sick_data(), on)
 }
 
-/// "sick" with the switch `on` at the start and the cause `test:base`, on `data`.
+/// "sick" with the switch `on` at the start, on `data`.
 fn sick_on(data: Data, on: bool) -> World {
     let mut world = World::new(data);
     world
@@ -98,7 +91,6 @@ fn sick_on(data: Data, on: bool) -> World {
                 hereditary_diseases: on,
                 nutrition: Vec::new(),
             },
-            death_causes: vec![base()],
             founders: vec![founder(-1, Sex::Female, 0), founder(-2, Sex::Male, 1)],
             couples: Vec::new(),
             fertility: barren(),
@@ -188,12 +180,12 @@ fn the_disease_acts_only_on_the_homozygous_while_the_switch_is_on() {
     assert_eq!(on.save(), hex(SICK_ON_SAVE_AFTER_START));
     assert_eq!(
         on.world.pending_events(),
-        6,
-        "the year end series, two birthdays, her death of test:base and his two deaths"
+        8,
+        "the year end series, two birthdays, her two deaths (senescence and accident) and his three"
     );
     let off = Run::new(sick(false));
     assert_eq!(off.save(), hex(SICK_OFF_SAVE_AFTER_START));
-    assert_eq!(off.world.pending_events(), 5);
+    assert_eq!(off.world.pending_events(), 7);
 
     let on = drive(true, &[], 4 * Y - 1);
     assert_eq!(on.deaths(), [died(HIS_DISEASE, "test:dummy_disease")]);
@@ -215,7 +207,7 @@ fn the_disease_acts_only_on_the_homozygous_while_the_switch_is_on() {
 }
 
 /// Switched on at the start of year 1, the disease needs its whole budget from then on.
-/// Its death is planned by the entry of the override; his death of `test:base`, earlier
+/// Its death is planned by the entry of the override; his deaths of senescence and accident, earlier
 /// in the list, keeps its plan and its insertion number.
 #[test]
 fn switching_on_plans_the_disease_from_the_budget() {
@@ -257,20 +249,21 @@ fn the_exposure_adds_up_over_the_periods_of_the_switch() {
     );
 }
 
-/// The causes of `Start` keep their plans when the switch flips: on the repository's data
-/// he has `core:disease_ar`, whose death the override plans (`tools/state_reference.py`:
-/// 645 730 542, after his death of `test:base`); his death of `test:base` keeps the plan
-/// of his creation entry (3, at the start).
+/// Senescence and accident keep their plans when the switch flips: on the data with the
+/// repository's diseases he has `core:disease_ar`, whose death the override (entry 6, at
+/// the start of year 1) plans and which comes first (`tools/state_reference.py`).
 #[test]
-fn a_switch_keeps_the_plans_of_the_causes_of_start() {
-    let mut run = Run::new(sick_on(common::data(), false));
+fn a_switch_plans_only_the_diseases_again() {
+    let data = common::death_data(0.02, None, common::repository_diseases());
+    let mut run = Run::new(sick_on(data, false));
     run.switch(Y, true);
-    run.advance(HIS_BASE);
-    assert_eq!(run.deaths(), [died(HIS_BASE, "test:base")]);
+    run.advance(HIS_AR);
+    assert_eq!(run.deaths(), [died(HIS_AR, "core:disease_ar")]);
     let entry = run.log.last().expect("his death");
-    assert_eq!(
-        postcard::to_allocvec(entry).expect("encodes"),
-        hex(NO_DISEASE_HIS_DEATH)
+    let json = serde_json::to_string(entry).expect("json");
+    assert!(
+        json.contains(r#"{"plan":{"by":6,"planned_at":31449600}}"#),
+        "{json}"
     );
 }
 
@@ -303,15 +296,15 @@ fn an_override_that_keeps_the_switch_changes_nothing() {
     }
 }
 
-/// Switched on so that the disease and `test:base` are due in the second of his death
-/// of `test:base`: the cause of `Start` wins, it comes first in the list of causes, though
-/// the disease was planned later (ADR-0017 section 2).
+/// Switched on so that the disease and accident are due in the second of his death of
+/// accident: accident wins, it comes first in the list of causes, though the disease was
+/// planned later (ADR-0017 section 2).
 #[test]
-fn of_the_disease_and_a_cause_of_start_due_together_the_cause_of_start_wins() {
+fn of_the_disease_and_accident_due_together_accident_wins() {
     let mut run = Run::new(sick(false));
     run.switch(TIE_SWITCH, true);
-    run.advance(HIS_BASE);
-    assert_eq!(run.deaths(), [died(HIS_BASE, "test:base")]);
+    run.advance(HIS_ACCIDENT);
+    assert_eq!(run.deaths(), [died(HIS_ACCIDENT, "core:accident")]);
     assert_eq!(run.world.state().living(), 1);
 }
 

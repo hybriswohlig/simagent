@@ -48,7 +48,6 @@ fn new_world(filter: TraceFilter) -> World {
                 hereditary_diseases: false,
                 nutrition: Vec::new(),
             },
-            death_causes: Vec::new(),
             founders: [-943_488_000, -794_880_000, -1]
                 .into_iter()
                 .map(|secs| Founder {

@@ -6,10 +6,8 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::ids::{PartnershipId, SimId};
-use crate::input::AppliesTo;
 use crate::input::Fertility;
 use crate::log::PlanRef;
 use crate::params::WorldParams;
@@ -40,16 +38,6 @@ pub(crate) struct QueueEntry {
     pub(crate) period: Option<SimDuration>,
 }
 
-/// A cause of death as the projection holds it: the `str_key` of its code, its hazard
-/// and on whom it acts. Data IDs never appear as text or as an internal number
-/// (ADR-0003 5.2).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ProjectedCause {
-    pub(crate) cause: u64,
-    pub(crate) per_year: FiniteF64,
-    pub(crate) applies_to: AppliesTo,
-}
-
 /// The projection as a save holds it: the same fields in the same order as
 /// `CanonicalState`, owned, so a load can read them (ADR-0006). The two encode to the
 /// same bytes; `tests/save.rs` holds them together.
@@ -58,7 +46,6 @@ pub(crate) struct LoadedState {
     pub(crate) projection_version: u32,
     pub(crate) world_seed: Option<u64>,
     pub(crate) world_params: Option<WorldParams>,
-    pub(crate) death_causes: Vec<ProjectedCause>,
     pub(crate) fertility: Option<Fertility>,
     pub(crate) closed_through: SimTime,
     pub(crate) next_sim_id: u64,
@@ -78,7 +65,6 @@ pub struct CanonicalState<'a> {
     projection_version: u32,
     world_seed: Option<u64>,
     world_params: Option<WorldParams>,
-    death_causes: Vec<ProjectedCause>,
     fertility: Option<Fertility>,
     closed_through: SimTime,
     next_sim_id: u64,
@@ -109,15 +95,6 @@ pub fn canonical_projection<'a>(
         projection_version: PROJECTION_VERSION,
         world_seed: domain.world_seed,
         world_params: domain.world_params.clone(),
-        death_causes: domain
-            .death_causes
-            .iter()
-            .map(|cause| ProjectedCause {
-                cause: cause.cause.key(),
-                per_year: cause.per_year,
-                applies_to: cause.applies_to,
-            })
-            .collect(),
         fertility: domain.fertility,
         closed_through: snapshot.closed_through,
         next_sim_id: state.next_sim_id(),

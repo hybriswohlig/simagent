@@ -19,8 +19,8 @@ use sim_core::genome::{
 };
 use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
-    AppliesTo, ArrangePartnership, Couple, DeathCause, Fertility, ForkOverride, Founder, Input,
-    InputRecord, InputRejected, InputStamp, RejectCode, Start,
+    ArrangePartnership, Couple, Fertility, ForkOverride, Founder, Input, InputRecord,
+    InputRejected, InputStamp, RejectCode, Start,
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
@@ -90,11 +90,6 @@ fn sample_input() -> Input {
             hereditary_diseases: false,
             nutrition: Vec::new(),
         },
-        death_causes: vec![DeathCause {
-            cause: Code::new("test:base").expect("valid"),
-            per_year: FiniteF64::try_new(0.02).expect("finite"),
-            applies_to: AppliesTo::Everyone,
-        }],
         founders: vec![Founder {
             born: SimTime::from_secs(-946_080_000),
             sex: Sex::Female,
@@ -171,17 +166,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -469,43 +464,11 @@ fn partnership_forms_are_pinned() {
     assert!(from_json::<Input>(&without).is_err());
 }
 
-/// Death (ADR-0001, ADR-0004 section 7): the cause in the input (for everyone; the
-/// hereditary diseases are causes of the data, ADR-0017), the entry of a death and the draw
-/// it names as its cause,
-/// with all four numbers as hex in JSON.
+/// Death (ADR-0001, ADR-0004 section 7): the entry of a death and the draw it names as its
+/// cause, with all four numbers as hex in JSON. The causes come from the data (ADR-0017
+/// section 2), the input names none.
 #[test]
 fn death_forms_are_pinned() {
-    let cause = DeathCause {
-        cause: Code::new("test:base").expect("valid"),
-        per_year: FiniteF64::try_new(0.02).expect("finite"),
-        applies_to: AppliesTo::Everyone,
-    };
-    let cause_json = r#"{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}"#;
-    assert_eq!(json(&cause), cause_json);
-    assert_eq!(from_json::<DeathCause>(cause_json).expect("parses"), cause);
-    assert_eq!(
-        postcard_round_trip(&cause),
-        hex("09746573743a626173657b14ae47e17a943f00")
-    );
-    for rejected in [
-        r#"{"cause":"test:base","applies_to":"everyone"}"#,
-        r#"{"per_year":0.02,"applies_to":"everyone"}"#,
-        r#"{"cause":"test:base","per_year":0.02}"#,
-        r#"{"cause":"test:base","per_year":"0.02","applies_to":"everyone"}"#,
-        r#"{"cause":"test:base","per_year":null,"applies_to":"everyone"}"#,
-        r#"{"cause":"test:base","per_year":-0.0,"applies_to":"everyone"}"#,
-        r#"{"cause":"test:base","per_year":1e999,"applies_to":"everyone"}"#,
-        r#"{"cause":"Base","per_year":0.02,"applies_to":"everyone"}"#,
-        r#"{"cause":"test:base","per_year":0.02,"applies_to":"all"}"#,
-        r#"{"cause":"test:base","per_year":0.02,"applies_to":"DummyHomozygous"}"#,
-        // The diseases are causes of the data since ADR-0017.
-        r#"{"cause":"test:base","per_year":0.02,"applies_to":"dummy_homozygous"}"#,
-        r#"{"cause":"test:base","per_year":0.02,"applies_to":1}"#,
-        r#"{"cause":"test:base","per_year":0.02,"applies_to":"everyone","applies":"all"}"#,
-    ] {
-        assert!(from_json::<DeathCause>(rejected).is_err(), "{rejected}");
-    }
-
     let random = Cause::Random(sample_draw());
     let random_json = r#"{"random":{"tag":"0000000000000004","subject":"cfd3d4551fb363c2","occasion":"0123456789abcdef","detail":"0000000000000000"}}"#;
     assert_eq!(json(&random), random_json);
@@ -598,17 +561,16 @@ fn postcard_forms_are_pinned() {
             hereditary_diseases: false,
             nutrition: Vec::new(),
         },
-        death_causes: Vec::new(),
         founders: Vec::new(),
         couples: Vec::new(),
         fertility: barren(),
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
-    // The tag, the switch off (one byte 0), no nutrition years, no causes of death, no
-    // founders and no couples (four lengths 0), then the fertility: eight bytes of 0.0
-    // and the varints 18, 45 and 10.
-    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0, 0]);
+    // The tag, the switch off (one byte 0), no nutrition years, no founders and no
+    // couples (three lengths 0), then the fertility: eight bytes of 0.0 and the varints
+    // 18, 45 and 10.
+    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0]);
     expected.extend([0; 8]);
     expected.extend([18, 45, 10]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
@@ -907,7 +869,6 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
             hereditary_diseases: false,
             nutrition: Vec::new(),
         },
-        death_causes: Vec::new(),
         founders: vec![Founder {
             born: SimTime::from_secs(MAX_ABS_SECS),
             sex: Sex::Male,
@@ -1229,14 +1190,6 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(params.iter().map(|p| line("param", p)));
-    // On whom a cause of death acts: part of `Start` and of saves.
-    let targets = [AppliesTo::Everyone];
-    for target in &targets {
-        match target {
-            AppliesTo::Everyone => {}
-        }
-    }
-    actual.extend(targets.iter().map(|t| line("applies_to", t)));
     // The meiosis entry: the start strand and the sex chromosome passed on.
     let strands = [Strand::Maternal, Strand::Paternal];
     for strand in &strands {

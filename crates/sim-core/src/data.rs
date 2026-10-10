@@ -13,9 +13,10 @@ use crate::data_id::DataId;
 use crate::data_id::str_key;
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
+use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
-pub const CALIBRATION_FORMAT_VERSION: u32 = 4;
+pub const CALIBRATION_FORMAT_VERSION: u32 = 5;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -29,6 +30,9 @@ pub struct GeneticsCalibration {
     pub traits: Vec<PhenotypeWeights>,
     pub sex_differences: Vec<SexDifference>,
     pub diseases: Vec<Disease>,
+    /// The trait of longevity `g_L` (genetics specification 7.2), or none: then the genetic
+    /// factor of death is 1 (11.1). The repository's data names none before the pre-run.
+    pub longevity_trait: Option<DataId>,
 }
 
 /// A hereditary disease (genetics specification 3, ADR-0017 section 1): what carries it,
@@ -287,6 +291,13 @@ pub struct Genetics {
     /// The sex ratio at birth `r`, sons per daughter (genetics specification 2.3, 7.5,
     /// 11.3); the father passes his Y with `r / (1 + r)` (ADR-0017 section 4).
     pub sex_ratio_at_birth: f64,
+    /// Death (genetics specification 7.1, 7.2, ADR-0017 section 2): the Gompertz term of
+    /// senescence and the Makeham term of accident per sex, and `σ_g` of the genetic factor.
+    pub senescence_female: Gompertz,
+    pub senescence_male: Gompertz,
+    pub accident_female: f64,
+    pub accident_male: f64,
+    pub longevity_sigma_g: f64,
 }
 
 /// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
@@ -791,6 +802,26 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         }
         Ok(x)
     };
+    // The ranges of the death math (`mortality`): inside them every age at death is finite.
+    let in_range = |x: f64, (low, high): (f64, f64)| {
+        if x >= low && x <= high {
+            Ok(x)
+        } else {
+            Err(DataError::CalibrationRange)
+        }
+    };
+    let gompertz = |a, b| -> Result<Gompertz, DataError> {
+        Ok(Gompertz {
+            a: in_range(
+                value(a, Unit::PerYear, GOMPERTZ_A_RANGE.1)?,
+                GOMPERTZ_A_RANGE,
+            )?,
+            b: in_range(
+                value(b, Unit::PerYear, GOMPERTZ_B_RANGE.1)?,
+                GOMPERTZ_B_RANGE,
+            )?,
+        })
+    };
     let gamma = value("core:growth_gamma", Unit::CentimeterPerYear, MAX_HEIGHT)?;
     let nutrition = NutritionLoss {
         per_deficit_year: value("core:nutrition_loss", Unit::CentimeterPerYear, MAX_HEIGHT)?,
@@ -1014,8 +1045,19 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         body,
         bio_age_weight,
         sex_ratio_at_birth: value("core:sex_ratio_at_birth", Unit::Ratio, MAX_SEX_RATIO)?,
+        senescence_female: gompertz("core:senescence_a_female", "core:senescence_b_female")?,
+        senescence_male: gompertz("core:senescence_a_male", "core:senescence_b_male")?,
+        accident_female: in_range(
+            value("core:accident_female", Unit::PerYear, ACCIDENT_RANGE.1)?,
+            ACCIDENT_RANGE,
+        )?,
+        accident_male: in_range(
+            value("core:accident_male", Unit::PerYear, ACCIDENT_RANGE.1)?,
+            ACCIDENT_RANGE,
+        )?,
+        longevity_sigma_g: value("core:longevity_sigma_g", Unit::Logit, MAX_SIGMA_G)?,
     };
-    if calibration.values.len() != 110 {
+    if calibration.values.len() != 117 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
@@ -1257,6 +1299,15 @@ impl Data {
             &definitions.genome_map,
             str_key,
         )?;
+        if let Some(t) = &definitions.calibration.longevity_trait
+            && !definitions
+                .genome_map
+                .traits
+                .iter()
+                .any(|known| &known.id == t)
+        {
+            return Err(DataError::TraitNamed);
+        }
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
             .zip(&definitions.genome_map.loci)
@@ -1314,6 +1365,11 @@ impl Data {
     pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64)> {
         let (terms, sigma) = self.traits.get(id)?;
         Some((terms, *sigma))
+    }
+
+    /// The trait of longevity, if the data name one (genetics specification 7.2, 11.1).
+    pub fn longevity_trait(&self) -> Option<&DataId> {
+        self.definitions.calibration.longevity_trait.as_ref()
     }
 
     /// The hereditary diseases in the order of the data (ADR-0017 sections 1 and 2).

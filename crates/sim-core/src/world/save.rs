@@ -10,14 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use super::ctx::{IdCounters, LogBuffer};
 use super::{EventPayload, InputLog, World, WorldState};
-use crate::canonical::{
-    self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
-};
+use crate::canonical::{self, LoadedState, PROJECTION_VERSION, QueueEntry, YearHash};
 use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, SimId};
-use crate::input::{DeathCause, Fertility, Input, InputRecord, Start};
+use crate::input::{Fertility, Input, InputRecord, Start};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
@@ -197,8 +195,9 @@ impl World {
             entries,
         })
         .map_err(|_| LoadError::InvalidQueue)?;
-        let death_causes =
-            consistent(&loaded, &exceptions, &data).ok_or(LoadError::Inconsistent)?;
+        if !consistent(&loaded, &exceptions, &data) {
+            return Err(LoadError::Inconsistent);
+        }
         // `consistent` has checked the ranges of the three counters.
         let counter = |next: u64| Counter::from_next(next).ok_or(LoadError::Inconsistent);
         let next_input = u64::try_from(exceptions.input_log.len())
@@ -215,7 +214,6 @@ impl World {
                 domain: DomainState {
                     world_seed: loaded.world_seed,
                     world_params: loaded.world_params,
-                    death_causes,
                     sims: loaded.sims,
                     partnerships: loaded.partnerships,
                     fertility: loaded.fertility,
@@ -285,26 +283,19 @@ pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), Eve
     index
 }
 
-/// The causes of death of the world if the saved state is one the core can reach, as
-/// far as that shows without a replay (ADR-0006 section 5); `None` if it is not. The
-/// projection holds the causes by key, their codes come from `Start`. The queue has
-/// passed the scheduler's own checks. The ranges of the ID counters are checked when
-/// the world is built from them.
-fn consistent(
-    loaded: &LoadedState,
-    exceptions: &Exceptions,
-    data: &Data,
-) -> Option<Vec<DeathCause>> {
+/// Whether the saved state is one the core can reach, as far as that shows without a
+/// replay (ADR-0006 section 5). The queue has passed the scheduler's own checks. The
+/// ranges of the ID counters are checked when the world is built from them.
+fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> bool {
     let closed = loaded.closed_through.as_secs();
     if closed < SimTime::START.as_secs() - 1 {
-        return None;
+        return false;
     }
     let now = closed + 1;
     let Some(seed) = loaded.world_seed else {
         // Never started: the world is empty. The queue is empty too: an event needs an
         // insertion number below the counter, which stands at 1.
         let empty = loaded.world_params.is_none()
-            && loaded.death_causes.is_empty()
             && loaded.sims.is_empty()
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
@@ -316,13 +307,14 @@ fn consistent(
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
             && exceptions.year_hashes.is_empty();
-        return empty.then(Vec::new);
+        return empty;
     };
-    let history = input_log_consistent(loaded, exceptions, seed, data)?;
+    let Some(history) = input_log_consistent(loaded, exceptions, seed, data) else {
+        return false;
+    };
     let rules = Rules {
         seed,
         data,
-        causes: &history.causes,
         switch: &history.switch,
         fertility: history.fertility,
     };
@@ -331,7 +323,7 @@ fn consistent(
     let keys = lineage_keys(&loaded.sims, &loaded.archive, &loaded.pregnancies);
     let distinct = keys.collect::<BTreeSet<_>>().len()
         == loaded.sims.len() + loaded.archive.len() + loaded.pregnancies.len();
-    let rest = distinct
+    distinct
         && born_consistent(loaded, now, &rules, history.founders)
         && sims_consistent(loaded, now, &rules)
         && partnerships_consistent(loaded, &history.pairs)
@@ -341,14 +333,11 @@ fn consistent(
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
-        && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes);
-    rest.then_some(history.causes)
+        && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes)
 }
 
 /// What the input log says beyond the projection.
 struct InputHistory {
-    /// The causes of death of `Start`.
-    causes: Vec<DeathCause>,
     /// The switch of the hereditary diseases over time (see `Rules`).
     switch: SwitchHistory,
     /// (woman, man, formed) of each partnership the inputs formed, in their order.
@@ -361,7 +350,7 @@ struct InputHistory {
 
 /// Sequence numbers gapless from 1, stamps that never fall and never lie after the
 /// clock. `Start` first and only first, stamped before the start, with the seed of the
-/// world, its causes of death and the founders as the sims 1 to N; then override blocks
+/// world and the founders as the sims 1 to N; then override blocks
 /// that pass their own check, and pairings. The parameters of `Start` after every
 /// override are those of the world. Gives what the log says beyond the projection, or
 /// `None` if anything is off.
@@ -387,8 +376,7 @@ fn input_log_consistent(
                 let fits = state::start::check_start(&unstarted, data, record.t, start).is_ok()
                     && start.world_seed == seed
                     && loaded.fertility == Some(start.fertility)
-                    && founders_are_the_first_sims(loaded, start, data)
-                    && causes_are_those_of(loaded, start);
+                    && founders_are_the_first_sims(loaded, start, data);
                 if !fits {
                     return None;
                 }
@@ -427,8 +415,7 @@ fn input_log_consistent(
     }
     let (params, start) = started?;
     let founders = u64::try_from(start.founders.len()).ok()?;
-    (Some(params) == loaded.world_params).then(|| InputHistory {
-        causes: start.death_causes.clone(),
+    (Some(params) == loaded.world_params).then_some(InputHistory {
         switch,
         pairs,
         fertility: start.fertility,
@@ -489,17 +476,11 @@ type SwitchHistory = Vec<(i64, bool)>;
 struct Rules<'a> {
     seed: u64,
     data: &'a Data,
-    causes: &'a [DeathCause],
     switch: &'a [(i64, bool)],
     fertility: Fertility,
 }
 
 impl Rules<'_> {
-    /// When a sim dies of a cause for everyone if nothing else comes first.
-    fn due(&self, born: SimTime, lineage_key: LineageKey, cause: &DeathCause) -> Option<SimTime> {
-        state::death::due(self.seed, lineage_key, cause, state::death::origin(born))
-    }
-
     /// When a sim dies of a lethal affliction if nothing else comes first.
     fn disease_due(
         &self,
@@ -511,18 +492,15 @@ impl Rules<'_> {
         state::disease::due(self.seed, born, lineage_key, affliction, disease)
     }
 
-    /// The causes of a sim in their order: the causes of `Start`, then its lethal
-    /// afflictions. Each with its key and when it is due.
+    /// The causes of a sim in their order: senescence, accident, then its lethal
+    /// afflictions (ADR-0017 section 2). Each with its key and when it is due.
     fn dues(
         &self,
-        born: SimTime,
-        lineage_key: LineageKey,
+        facts: (SimTime, LineageKey, Sex, &Genome),
         afflictions: &[Affliction],
     ) -> Vec<(u64, Option<SimTime>)> {
-        let everyone = self
-            .causes
-            .iter()
-            .map(|cause| (cause.cause.key(), self.due(born, lineage_key, cause)));
+        let (born, lineage_key, _, _) = facts;
+        let everyone = state::death::everyone_dues(self.data, self.seed, facts);
         let diseases = afflictions
             .iter()
             .filter(|affliction| affliction.exposure.is_some())
@@ -530,7 +508,7 @@ impl Rules<'_> {
                 let due = self.disease_due(born, lineage_key, affliction);
                 (affliction.disease, due)
             });
-        everyone.chain(diseases).collect()
+        everyone.into_iter().chain(diseases).collect()
     }
 
     /// The exposure the switch history gives a lethal affliction of a sim born `born`
@@ -612,17 +590,6 @@ impl Rules<'_> {
                 })
             })
     }
-}
-
-/// The causes of death of the projection are those of `Start`, in its order: each by
-/// the key of its code, with its hazard.
-fn causes_are_those_of(loaded: &LoadedState, start: &Start) -> bool {
-    let projected = start.death_causes.iter().map(|cause| ProjectedCause {
-        cause: cause.cause.key(),
-        per_year: cause.per_year,
-        applies_to: cause.applies_to,
-    });
-    loaded.death_causes.iter().copied().eq(projected)
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times, sex
@@ -908,7 +875,10 @@ fn next_attempt(
 /// due only if its exposure kept with the sim ran at the death.
 fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
     let LeftBy::Death { cause } = sim.left_by;
-    let dues = rules.dues(sim.born, sim.lineage_key, &sim.afflictions);
+    let dues = rules.dues(
+        (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+        &sim.afflictions,
+    );
     let Some(position) = dues.iter().position(|(key, _)| *key == cause) else {
         return false;
     };
@@ -932,7 +902,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut deaths = BTreeSet::new();
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
-    let dues = |person: &Sim| rules.dues(person.born, person.lineage_key, &person.afflictions);
+    let dues = |person: &Sim| {
+        rules.dues(
+            (person.born, person.lineage_key, person.sex, &person.genome),
+            &person.afflictions,
+        )
+    };
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
