@@ -99,6 +99,20 @@ fn without_a_hazard_after_the_change_the_rest_never_kills() {
     assert_eq!(disease_age(12.0, 0.1, early), None);
 }
 
+/// A budget of 0 dies at the origin, but with `h0` of 0 not before the change: nobody
+/// dies of it before `s` (3.1).
+#[test]
+fn a_budget_of_zero_dies_at_the_origin_or_at_the_edge() {
+    let edge = StepHazard {
+        before: 0.0,
+        change_age: 18.0,
+        after: 0.04,
+    };
+    assert_eq!(disease_age(5.0, 0.0, edge), Some(18.0));
+    assert_eq!(disease_age(5.0, 0.0, CYSTIC), Some(5.0));
+    assert_eq!(disease_age(20.0, 0.0, CYSTIC), Some(20.0));
+}
+
 /// The hazard used up between two ages (3.1, the switch counts only the time it is on):
 /// `h0` on the part before the change, `h1` on the part after it.
 ///
