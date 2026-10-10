@@ -1,5 +1,5 @@
 {
-  "format_version": 3,
+  "format_version": 4,
   "values": {
     "core:map_length_autosome_female": {
       "value": 5.35,
@@ -854,5 +854,6 @@
         "note": "square root 1.1, so a man after puberty has 1.1 z - 0.4"
       }
     }
-  ]
+  ],
+  "diseases": []
 }

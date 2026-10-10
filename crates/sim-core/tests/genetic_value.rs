@@ -91,7 +91,9 @@ fn ordered() -> Data {
     };
     let on = |t: &str, weight: f64| json!({"trait": t, "weight": weight});
     let trait_ = |id: &str, includes: Value| json!({"id": id, "sigma_ref": 1.0, "exclusive": false, "includes": includes});
-    let (calibration, mut genome_map) = common::files();
+    let (mut calibration, mut genome_map) = common::files();
+    // The map below keeps only the first locus; the other diseases would miss theirs.
+    calibration["diseases"] = json!([calibration["diseases"][0].clone()]);
     genome_map["traits"] = json!([
         trait_("test:s1", json!([])),
         trait_("test:s2", json!([])),
@@ -140,7 +142,9 @@ fn the_fold_runs_in_the_order_of_the_specification() {
 /// other bits.
 #[test]
 fn the_parentheses_of_the_specification_decide_the_bits() {
-    let (calibration, mut genome_map) = common::files();
+    let (mut calibration, mut genome_map) = common::files();
+    // The map below keeps only the first locus; the other diseases would miss theirs.
+    calibration["diseases"] = json!([calibration["diseases"][0].clone()]);
     genome_map["traits"] = json!([
         {"id": "test:u", "sigma_ref": 1.7, "exclusive": false,
          "includes": [{"trait": "test:v", "weight": 0.15}]},

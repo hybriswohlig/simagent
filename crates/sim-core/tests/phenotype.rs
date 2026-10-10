@@ -218,6 +218,8 @@ fn full_siblings_share_the_shared_environment() {
 /// whose weights trade places (h2 1 to 0, c2 0 to 1), so that `e2` rounds around 0.
 fn moving() -> Data {
     let (mut calibration, mut genome_map) = common::files();
+    // The map below keeps only the first locus; the other diseases would miss theirs.
+    calibration["diseases"] = serde_json::json!([calibration["diseases"][0].clone()]);
     let trait_ = |t: &str| serde_json::json!({"id": t, "sigma_ref": 1.0, "exclusive": false, "includes": []});
     let additive = |id: &str, slot: u64, t: &str| {
         serde_json::json!({"id": id, "chromosome": "autosome", "segment": 7, "slot": slot,

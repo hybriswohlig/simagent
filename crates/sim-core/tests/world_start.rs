@@ -333,7 +333,9 @@ fn founder_alleles_must_fit_the_genome_map() {
     }
     // Copies per chromosome type and sex, on a map with an X, a Y and an mt locus: a man
     // has one X copy, a woman two and no Y copy (also not an empty list); mt has one.
-    let (calibration, _) = common::files();
+    let (mut calibration, _) = common::files();
+    // The diseases of the repository name loci this map does not have.
+    calibration["diseases"] = serde_json::json!([]);
     let loci = serde_json::json!([
         {"id": "test:x", "chromosome": "x", "segment": 0, "slot": 0, "action": "recessive",
          "mark": "large", "mutation": "both"},

@@ -43,9 +43,10 @@ fn rejected(detail: &str) -> CliError {
     CliError::new("data_rejected", detail)
 }
 
-/// The calibration values, each of the four weights of each phenotype row and the two
-/// numbers of each sex difference, with their text fields (ADR-0009 section 2, ADR-0014);
-/// `None` unless all three lists are there.
+/// The calibration values, each of the four weights of each phenotype row, the two
+/// numbers of each sex difference and every number of each disease, with their text
+/// fields (ADR-0009 section 2, ADR-0014, ADR-0017 section 1); `None` unless all four lists
+/// are there.
 fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
     let mut all = Vec::new();
     let mut lists = 0;
@@ -68,9 +69,27 @@ fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
                 }
             }
             lists += 1;
+        } else if name == "diseases" {
+            for disease in list.as_array_mut()? {
+                numbers(disease, &mut all);
+            }
+            lists += 1;
         }
     }
-    (lists == 3).then_some(all)
+    (lists == 4).then_some(all)
+}
+
+/// Every number inside a disease: an object with a unit, however deep it sits.
+fn numbers<'a>(value: &'a mut Value, all: &mut Vec<&'a mut Value>) {
+    if value.get("unit").is_some() {
+        all.push(value);
+        return;
+    }
+    match value {
+        Value::Object(fields) => fields.values_mut().for_each(|v| numbers(v, all)),
+        Value::Array(items) => items.iter_mut().for_each(|v| numbers(v, all)),
+        _ => {}
+    }
 }
 
 /// The four weights of a phenotype row.
@@ -132,7 +151,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0xc61d_c8e5_cf9b_c45f);
+        assert_eq!(core_data().expect("data").hash(), 0xd646_0a22_88eb_0602);
     }
 
     #[test]
@@ -195,7 +214,7 @@ mod tests {
     #[test]
     fn traits_have_their_text() {
         let data = data_from(TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x384b_2ae5_19b6_6207);
+        assert_eq!(data.hash(), 0x82fe_6ec0_b0d6_1cbc);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",

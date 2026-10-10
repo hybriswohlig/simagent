@@ -307,6 +307,8 @@ fn passed_on(meiosis: &Meiosis, segment: u8, slot: u8, slots: u8) -> Strand {
 /// mark decides the rate, and an additive locus would need a trait, ADR-0008).
 fn every_chromosome(rate: f64) -> Data {
     let (mut calibration, _) = common::files();
+    // The diseases of the repository name loci this map does not have.
+    calibration["diseases"] = json!([]);
     calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
     let mut places: Vec<(u64, u64)> = (0..150).map(|i| (i % 8, i / 8)).collect();
     places.sort_unstable();

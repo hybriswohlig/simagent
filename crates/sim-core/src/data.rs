@@ -14,8 +14,8 @@ use crate::data_id::str_key;
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 
-/// Format version of the calibration file (ADR-0009 section 2).
-pub const CALIBRATION_FORMAT_VERSION: u32 = 3;
+/// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
+pub const CALIBRATION_FORMAT_VERSION: u32 = 4;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -28,6 +28,71 @@ pub struct GeneticsCalibration {
     pub values: BTreeMap<DataId, Calibrated>,
     pub traits: Vec<PhenotypeWeights>,
     pub sex_differences: Vec<SexDifference>,
+    pub diseases: Vec<Disease>,
+}
+
+/// A hereditary disease (genetics specification 3, ADR-0017 section 1): what carries it,
+/// when it begins and what it does. The order of the list is the order of the causes of
+/// death (ADR-0017 section 2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Disease {
+    pub code: DataId,
+    pub carrier: Carrier,
+    pub onset: Onset,
+    pub effect: Effect,
+}
+
+/// Who can have a disease (genetics specification 3.1, 3.4, 3.6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Carrier {
+    /// A mendelian locus of the map, marked disease: affected by the genotype of 3.4 and
+    /// the penetrance of the sex.
+    Locus {
+        locus: DataId,
+        penetrance_female: Calibrated,
+        penetrance_male: Calibrated,
+    },
+    /// The threshold model of 3.6 on a trait of liability; without one nobody is affected
+    /// (11.1).
+    Threshold {
+        liability: Option<DataId>,
+        heritability: Calibrated,
+        prevalence: Calibrated,
+    },
+}
+
+/// The onset of a disease in years (genetics specification 3.1): fixed, or drawn and held
+/// at its bounds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Onset {
+    Fixed {
+        age: Calibrated,
+    },
+    Normal {
+        mean: Calibrated,
+        sd: Calibrated,
+        low: Calibrated,
+        high: Calibrated,
+    },
+}
+
+/// What a disease does from its onset while the switch is on (genetics specification 3.1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Effect {
+    /// A cause of death with a constant hazard per year.
+    Death { per_year: Calibrated },
+    /// A cause of death with its hazard in two steps (`mortality::StepHazard`).
+    DeathInTwoSteps {
+        before: Calibrated,
+        change_age: Calibrated,
+        after: Calibrated,
+    },
+    /// Visible in the pedigree, without a risk of death.
+    Visible,
 }
 
 /// The sex difference of one trait with a phenotype (ADR-0014 section 1, genetics
@@ -421,6 +486,10 @@ pub enum DataError {
     CalibrationRange,
     /// The definitions lack a trait or a locus of the body mapping (ADR-0015 section 2).
     BodyTraits,
+    /// A disease with a carrier or a value that does not fit (ADR-0017 section 1).
+    Disease,
+    /// A trait named by the calibration is not in the map (ADR-0017 section 1).
+    TraitNamed,
 }
 
 impl fmt::Display for DataError {
@@ -448,6 +517,8 @@ impl fmt::Display for DataError {
             DataError::CalibrationUnit => "data.calibration_unit",
             DataError::CalibrationRange => "data.calibration_range",
             DataError::BodyTraits => "data.body_traits",
+            DataError::Disease => "data.disease",
+            DataError::TraitNamed => "data.trait_named",
         })
     }
 }
@@ -1062,6 +1133,106 @@ fn check_sex_differences(
     Ok(())
 }
 
+/// The value of a disease number with its unit; `data.calibration_unit` for another unit.
+fn disease_number(c: &Calibrated, unit: Unit) -> Result<f64, DataError> {
+    if c.unit != unit {
+        return Err(DataError::CalibrationUnit);
+    }
+    Ok(c.value.get())
+}
+
+/// The diseases (ADR-0017 section 1): codes with unique keys (the occasion of their
+/// draws), none of them a cause of death for everyone; a carrier locus of the map, marked disease, recessive or dominant, at most one
+/// disease per locus; a trait of liability the map has; penetrances in [0, 1], a
+/// heritability in (0, 1), a prevalence in (0, 0.5]; ages from 0 to 130 with a positive
+/// spread and ordered bounds; hazards in the ranges of `mortality`, a death with some.
+fn check_diseases(
+    diseases: &[Disease],
+    map: &GenomeMap,
+    key: impl Fn(&DataId) -> u64,
+) -> Result<(), DataError> {
+    use crate::mortality::{CHANGE_AGE_RANGE, DISEASE_HAZARD_RANGE};
+    let fraction = |x: f64| (0.0..=1.0).contains(&x);
+    let age = |x: f64| (0.0..=CHANGE_AGE_RANGE.1).contains(&x);
+    let hazard = |x: f64| (DISEASE_HAZARD_RANGE.0..=DISEASE_HAZARD_RANGE.1).contains(&x);
+    let fits = |ok: bool| if ok { Ok(()) } else { Err(DataError::Disease) };
+    // The causes of death for everyone come first in the list of causes (ADR-0017
+    // section 2) and share the budget address by key: no disease may take their names.
+    let reserved = ["core:senescence", "core:accident"]
+        .map(|code| DataId::new(code).unwrap_or_else(|_| panic!("invariant data.key")));
+    fits(keys_unique(
+        reserved.iter().chain(diseases.iter().map(|d| &d.code)),
+        key,
+    ))?;
+    let mut carriers = BTreeMap::new();
+    for disease in diseases {
+        match &disease.carrier {
+            Carrier::Locus {
+                locus,
+                penetrance_female,
+                penetrance_male,
+            } => {
+                let found = map
+                    .loci
+                    .iter()
+                    .find(|l| &l.id == locus)
+                    .ok_or(DataError::Disease)?;
+                let mendelian = matches!(found.action, Action::Recessive | Action::Dominant);
+                fits(found.mark == Mark::Disease && mendelian)?;
+                fits(carriers.insert(locus.clone(), ()).is_none())?;
+                let female = disease_number(penetrance_female, Unit::Fraction)?;
+                let male = disease_number(penetrance_male, Unit::Fraction)?;
+                fits(fraction(female) && fraction(male))?;
+            }
+            Carrier::Threshold {
+                liability,
+                heritability,
+                prevalence,
+            } => {
+                let h2 = disease_number(heritability, Unit::Fraction)?;
+                let k = disease_number(prevalence, Unit::Fraction)?;
+                fits(h2 > 0.0 && h2 < 1.0 && k > 0.0 && k <= 0.5)?;
+                if let Some(t) = liability
+                    && !map.traits.iter().any(|known| &known.id == t)
+                {
+                    return Err(DataError::TraitNamed);
+                }
+            }
+        }
+        match &disease.onset {
+            Onset::Fixed { age: at } => fits(age(disease_number(at, Unit::Year)?))?,
+            Onset::Normal {
+                mean,
+                sd,
+                low,
+                high,
+            } => {
+                let mean = disease_number(mean, Unit::Year)?;
+                let sd = disease_number(sd, Unit::Year)?;
+                let low = disease_number(low, Unit::Year)?;
+                let high = disease_number(high, Unit::Year)?;
+                fits(age(mean) && age(low) && age(high) && sd > 0.0 && age(sd) && low <= high)?;
+            }
+        }
+        match &disease.effect {
+            Effect::Death { per_year } => fits(hazard(disease_number(per_year, Unit::PerYear)?))?,
+            Effect::DeathInTwoSteps {
+                before,
+                change_age,
+                after,
+            } => {
+                let h0 = disease_number(before, Unit::PerYear)?;
+                let s = disease_number(change_age, Unit::Year)?;
+                let h1 = disease_number(after, Unit::PerYear)?;
+                let step = |h: f64| h == 0.0 || hazard(h);
+                fits(step(h0) && step(h1) && (h0 > 0.0 || h1 > 0.0) && s > 0.0 && age(s))?;
+            }
+            Effect::Visible => {}
+        }
+    }
+    Ok(())
+}
+
 fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     postcard::to_allocvec(value).unwrap_or_else(|_| panic!("invariant data.encode"))
 }
@@ -1075,6 +1246,11 @@ impl Data {
         check_sex_differences(
             &definitions.calibration.sex_differences,
             &definitions.calibration.traits,
+        )?;
+        check_diseases(
+            &definitions.calibration.diseases,
+            &definitions.genome_map,
+            str_key,
         )?;
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
@@ -1133,6 +1309,11 @@ impl Data {
     pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64)> {
         let (terms, sigma) = self.traits.get(id)?;
         Some((terms, *sigma))
+    }
+
+    /// The hereditary diseases in the order of the data (ADR-0017 sections 1 and 2).
+    pub fn diseases(&self) -> &[Disease] {
+        &self.definitions.calibration.diseases
     }
 
     /// The data hash (ADR-0007 section 3).
@@ -1198,12 +1379,39 @@ pub(crate) mod testing {
                 }
             }
         }
+        for disease in calibration["diseases"]
+            .as_array_mut()
+            .expect("diseases")
+            .iter_mut()
+        {
+            without_numbers(disease);
+        }
         for list in ["traits", "loci"] {
             for entry in genome_map[list].as_array_mut().expect("list") {
                 take(entry, "description");
             }
         }
         (calibration, genome_map)
+    }
+
+    /// Removes the text of every number (an object with a unit) inside a disease; each
+    /// text must be there and not blank.
+    fn without_numbers(value: &mut Value) {
+        match value {
+            Value::Object(fields) if fields.contains_key("unit") => {
+                for name in ["source", "as_of", "note"] {
+                    let text = fields.remove(name);
+                    let filled = text
+                        .as_ref()
+                        .and_then(Value::as_str)
+                        .is_some_and(|t| !t.trim().is_empty());
+                    assert!(filled, "text field missing or blank");
+                }
+            }
+            Value::Object(fields) => fields.values_mut().for_each(without_numbers),
+            Value::Array(items) => items.iter_mut().for_each(without_numbers),
+            _ => {}
+        }
     }
 
     pub(crate) fn data() -> Data {

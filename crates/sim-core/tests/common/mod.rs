@@ -53,7 +53,34 @@ fn without_weights(mut calibration: Value) -> Value {
             }
         }
     }
+    for disease in calibration["diseases"]
+        .as_array_mut()
+        .expect("diseases")
+        .iter_mut()
+    {
+        without_numbers(disease);
+    }
     calibration
+}
+
+/// Removes the text of every number (an object with a unit) inside a disease (ADR-0017
+/// section 1), however deep it sits.
+fn without_numbers(value: &mut Value) {
+    match value {
+        Value::Object(fields) if fields.contains_key("unit") => {
+            for name in ["source", "as_of", "note"] {
+                let text = fields.remove(name);
+                let filled = text
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.trim().is_empty());
+                assert!(filled, "{name} missing or blank");
+            }
+        }
+        Value::Object(fields) => fields.values_mut().for_each(without_numbers),
+        Value::Array(items) => items.iter_mut().for_each(without_numbers),
+        _ => {}
+    }
 }
 
 /// The two files of the repository as JSON values without their text.
@@ -114,6 +141,8 @@ pub fn dummy(maternal: u8, paternal: u8) -> Vec<sim_core::genome::LocusAlleles> 
 #[allow(dead_code, reason = "not every test crate needs a map of many loci")]
 pub fn autosomal_map(n: u64, direction: &str, rate: f64) -> Data {
     let (mut calibration, _) = files();
+    // The diseases of the repository name loci this map does not have.
+    calibration["diseases"] = json!([]);
     calibration["values"]["core:mutation_rate"]["value"] = json!(rate);
     let mut loci: Vec<(u64, u64)> = (0..n).map(|i| (i % 8, i / 8)).collect();
     loci.sort_unstable();
