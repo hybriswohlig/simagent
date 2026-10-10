@@ -1256,8 +1256,20 @@ fn log_codes_are_stable() {
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
         .lines()
-        .filter(|l| !l.starts_with('#'))
+        .filter(|l| !l.starts_with('#') && !l.starts_with("retired "))
         .map(|l| format!("{l}\n"))
         .collect();
     assert_eq!(actual, pinned, "log codes are never renumbered (ADR-0004)");
+    // A retired code keeps its place: no code in use has its type and index.
+    for retired in golden.lines().filter_map(|l| l.strip_prefix("retired ")) {
+        let mut words = retired.split(' ');
+        let (kind, index) = (words.next(), words.next());
+        assert!(
+            !pinned.lines().any(|l| {
+                let mut used = l.split(' ');
+                (used.next(), used.next()) == (kind, index)
+            }),
+            "a retired code is used again: {retired}"
+        );
+    }
 }

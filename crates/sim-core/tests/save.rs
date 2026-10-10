@@ -16,8 +16,9 @@ use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::input::{AppliesTo, DeathCause, Fertility, ForkOverride, Founder, Input, Start};
 use sim_core::log::{LogEntry, log_hash};
+use sim_core::mortality::{StepHazard, disease_hazard_used};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
-use sim_core::time::SimTime;
+use sim_core::time::{SimDuration, SimTime};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
 
@@ -1806,10 +1807,20 @@ fn load_checks_the_afflictions() {
             sick_off_at_due().with(|f| f.sims[1].1.4[0].2 = Some((0.9, None))),
         ),
         (
+            // The exposure is exactly what the switch history gives (on from the start, off
+            // 100 seconds after his due death), so only the rule that the budget did not run
+            // out within a closed period rejects it.
             "alive although the disease used up its budget while the switch was on",
             sick_off_at_due().with(|f| {
                 f.input_log[1].0 = HIS_DISEASE + 99;
-                f.sims[1].1.4[0].2 = Some((OFF_AT_DUE_USED + 0.0001, None));
+                let age = |t: i64| SimDuration::from_secs(t + 2).as_years();
+                let hazard = StepHazard {
+                    before: 0.3,
+                    change_age: 0.0,
+                    after: 0.3,
+                };
+                let used = disease_hazard_used(hazard, age(0), age(HIS_DISEASE + 100));
+                f.sims[1].1.4[0].2 = Some((used, None));
             }),
         ),
         // The archive.

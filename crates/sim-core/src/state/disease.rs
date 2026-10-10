@@ -193,6 +193,12 @@ pub(crate) fn due(
     let running = age(born, since);
     let start = later(running, affliction.onset.get());
     let left = (budget(seed, lineage_key, disease) - exposure.used.get()).clamp(0.0, f64::MAX);
+    // A budget the closed periods used up kills in the second the switch goes on again,
+    // whatever hazard the age has then (7.1: the budget is spent). A period used something
+    // only after the onset, so the onset lies behind.
+    if exposure.used.get() > 0.0 && left <= 0.0 {
+        return Some(since);
+    }
     let at = disease_age(start, left, hazard)?;
     // From the second the period began, so that no round trip through the age moves it:
     // a budget used up dies in the second the switch goes on again.

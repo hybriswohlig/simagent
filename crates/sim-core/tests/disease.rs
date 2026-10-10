@@ -385,3 +385,29 @@ fn save_load_continue_across_the_switch() {
         );
     }
 }
+
+/// A budget used up before the hazard ends still kills (spec 7.1, review): the dummy
+/// disease with 0.3 per year until 4 and none after; switched off in the second of his
+/// death (about 3.2 years), he lives with the budget spent; switched on again at the start
+/// of year 5, after the hazard ended, he dies in that very second. A save between loads.
+#[test]
+fn a_used_budget_kills_when_the_switch_goes_on_even_after_the_hazard_ended() {
+    let number = |value: f64, unit: &str| serde_json::json!({"value": value, "unit": unit});
+    let mut diseases = common::dummy_disease(0.0);
+    diseases[0]["effect"] = serde_json::json!({"death_in_two_steps": {
+        "before": number(0.3, "per_year"),
+        "change_age": number(4.0, "year"),
+        "after": number(0.0, "per_year")
+    }});
+    let data = common::data_with_diseases(diseases);
+    let mut run = Run::new(sick_on(data.clone(), true));
+    run.switch(HIS_DISEASE, false);
+    run.advance(5 * Y - 1);
+    assert_eq!(run.deaths(), []);
+    let bytes = run.save();
+    let (loaded, years) = World::load(&bytes, data).expect("loads");
+    assert_eq!(loaded.save(&years).expect("saves"), bytes);
+    run.switch(5 * Y, true);
+    run.advance(5 * Y);
+    assert_eq!(run.deaths(), [died(5 * Y, "test:dummy_disease")]);
+}

@@ -601,6 +601,10 @@ class World:
         at_since = as_years(since - born)
         x0 = max(at_since, affliction.onset)
         remaining = max(budget_of(self.seed, key, affliction.disease.code) - used, 0.0)
+        # A budget the closed periods used up kills in the second the switch goes on
+        # again, whatever hazard the age has then (spec 7.1; review of the design).
+        if used > 0.0 and remaining <= 0.0:
+            return since if abs(since) <= MAX_ABS_SECS else None
         age = disease_age(x0, remaining, affliction.disease.hazard)
         if age is None:
             return None
