@@ -1,7 +1,8 @@
 # Stable codes of the log and input formats (ADR-0004 sections 4 and 7) and of saving
 # and loading (ADR-0006).
 # Form: <type> <postcard variant index> <JSON name>. Never renumber or rename;
-# new variants only at the end. Changing a line is a save format break.
+# new variants only at the end. Changing a line is a save format break. A variant that
+# goes stays as a retired line, and its index is never used again for that type.
 payload 0 core:started
 payload 1 core:founder_added
 payload 2 core:birthday
@@ -59,6 +60,7 @@ paternal_sex 1 y
 param 0 core:hereditary_diseases
 param 1 core:nutrition_year
 applies_to 0 everyone
+retired applies_to 1 dummy_homozygous
 strand 0 maternal
 strand 1 paternal
 sex_chromosome 0 x
