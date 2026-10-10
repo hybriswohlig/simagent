@@ -152,14 +152,21 @@ pub struct StepHazard {
     pub after: f64,
 }
 
-/// The ranges of a disease hazard (a contract like the ranges above): each step from 0 to
-/// 1000 per year, the change from 0 to 130 years, the range of the body contract.
-pub const DISEASE_HAZARD_RANGE: (f64, f64) = (0.0, 1000.0);
+/// The ranges of a disease hazard (a contract like the ranges above): each step is 0 or
+/// from the smallest hazard of a cause (1e-9, as `ACCIDENT_RANGE`) to 1000 per year, the
+/// change from 0 to 130 years (the range of the body contract), and every age from 0 to
+/// 1e6 years. So `B / h` stays below 1e12 years and every result is finite.
+pub const DISEASE_HAZARD_RANGE: (f64, f64) = (1e-9, 1000.0);
 pub const CHANGE_AGE_RANGE: (f64, f64) = (0.0, 130.0);
+pub const DISEASE_AGE_RANGE: (f64, f64) = (0.0, 1e6);
+
+fn valid_step(per_year: f64) -> bool {
+    per_year == 0.0 || within(per_year, DISEASE_HAZARD_RANGE)
+}
 
 fn check_disease(hazard: StepHazard) {
-    let valid = within(hazard.before, DISEASE_HAZARD_RANGE)
-        && within(hazard.after, DISEASE_HAZARD_RANGE)
+    let valid = valid_step(hazard.before)
+        && valid_step(hazard.after)
         && within(hazard.change_age, CHANGE_AGE_RANGE);
     if !valid {
         panic!("invariant mortality.disease");
@@ -174,10 +181,15 @@ fn check_disease(hazard: StepHazard) {
 ///
 /// # Panics
 ///
-/// Invariants `mortality.origin` and `mortality.budget` as [`senescence_age`], and
-/// `mortality.disease` if a step or the change lies outside its range.
+/// Invariants `mortality.origin` (outside `DISEASE_AGE_RANGE`) and `mortality.budget` as
+/// [`senescence_age`], and `mortality.disease` if a step or the change lies outside its
+/// range.
 pub fn disease_age(origin_age: f64, budget: f64, hazard: StepHazard) -> Option<f64> {
     check_origin_and_budget(origin_age, budget);
+    let valid_origin = within(origin_age, DISEASE_AGE_RANGE);
+    if !valid_origin {
+        panic!("invariant mortality.origin");
+    }
     check_disease(hazard);
     let StepHazard {
         before,
@@ -189,7 +201,8 @@ pub fn disease_age(origin_age: f64, budget: f64, hazard: StepHazard) -> Option<f
     } else {
         0.0
     };
-    if used_before > 0.0 && budget <= used_before {
+    // A positive `h0` before the change, not a positive `H`: `H` may round to 0.
+    if origin_age < change_age && before > 0.0 && budget <= used_before {
         return Some(origin_age + budget / before);
     }
     if after <= 0.0 {
@@ -209,10 +222,12 @@ pub fn disease_age(origin_age: f64, budget: f64, hazard: StepHazard) -> Option<f
 ///
 /// # Panics
 ///
-/// Invariant `mortality.ages` unless `0 ≤ from_age ≤ to_age` and both are finite, and
-/// `mortality.disease` as [`disease_age`].
+/// Invariant `mortality.ages` unless `from_age ≤ to_age` and both lie in
+/// `DISEASE_AGE_RANGE`, and `mortality.disease` as [`disease_age`].
 pub fn disease_hazard_used(hazard: StepHazard, from_age: f64, to_age: f64) -> f64 {
-    let valid = from_age >= 0.0 && from_age <= to_age && to_age.is_finite();
+    let valid = within(from_age, DISEASE_AGE_RANGE)
+        && within(to_age, DISEASE_AGE_RANGE)
+        && from_age <= to_age;
     if !valid {
         panic!("invariant mortality.ages");
     }

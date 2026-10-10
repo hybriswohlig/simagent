@@ -111,6 +111,35 @@ fn a_budget_of_zero_dies_at_the_origin_or_at_the_edge() {
     assert_eq!(disease_age(5.0, 0.0, edge), Some(18.0));
     assert_eq!(disease_age(5.0, 0.0, CYSTIC), Some(5.0));
     assert_eq!(disease_age(20.0, 0.0, CYSTIC), Some(20.0));
+    // The smallest positive `h0` over a short stretch: with any positive `h0` a budget of 0
+    // dies at the origin (review: the rule reads `h0`, not the product `H`).
+    let short = StepHazard {
+        before: 1e-9,
+        change_age: 0.25,
+        after: 0.0,
+    };
+    assert_eq!(disease_age(0.0, 0.0, short), Some(0.0));
+}
+
+/// Every accepted input gives a finite age (review): the largest budget over the smallest
+/// hazard, from the oldest origin.
+#[test]
+fn every_accepted_input_gives_a_finite_age() {
+    let slow = StepHazard {
+        before: 1e-9,
+        change_age: 130.0,
+        after: 1e-9,
+    };
+    for origin in [0.0, 129.0, 1e6] {
+        let age = disease_age(origin, 1000.0, slow).expect("a death");
+        assert!(age.is_finite(), "{origin}: {age}");
+    }
+    let fast = StepHazard {
+        before: 1000.0,
+        change_age: 0.0,
+        after: 1000.0,
+    };
+    assert!(disease_hazard_used(fast, 0.0, 1e6).is_finite());
 }
 
 /// The hazard used up between two ages (3.1, the switch counts only the time it is on):
@@ -190,9 +219,19 @@ fn inputs_outside_the_ranges_break_invariants() {
     age_breaks(0.0, 1.0, with(0.01, -1.0, 0.01), "mortality.disease");
     age_breaks(0.0, 1.0, with(0.01, 131.0, 0.01), "mortality.disease");
     age_breaks(0.0, 1.0, with(f64::NAN, 18.0, 0.01), "mortality.disease");
+    // Below the smallest hazard of a cause (review: `B / h` overflowed).
+    age_breaks(18.0, 1.0, with(0.01, 18.0, 1e-310), "mortality.disease");
+    age_breaks(
+        0.0,
+        0.0,
+        with(f64::from_bits(1), 0.25, 0.0),
+        "mortality.disease",
+    );
     age_breaks(-1.0, 1.0, CYSTIC, "mortality.origin");
+    age_breaks(1.1e6, 1.0, CYSTIC, "mortality.origin");
     age_breaks(0.0, -1.0, CYSTIC, "mortality.budget");
     used_breaks(10.0, 9.0);
     used_breaks(-1.0, 9.0);
     used_breaks(0.0, f64::INFINITY);
+    used_breaks(0.0, f64::MAX);
 }
