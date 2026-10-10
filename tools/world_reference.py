@@ -2,30 +2,44 @@
 """A model of the world of sim-core, written from the ADRs and independent of the Rust
 code: the event queue (ADR-0002), the log entries (ADR-0004), the canonical projection
 (ADR-0003 5.2), the save (ADR-0006 section 2), death through hazard budgets (ADR-0001)
-and the hereditary diseases of the data (genetics specification 3.1 to 3.4, 7.1;
-ADR-0017 sections 2, 3 and 5). The goldens and the reference bytes of the tests come
-from it.
+by senescence and accident from the data (genetics specification 7.1, 7.2, 11.4;
+ADR-0017 section 2) and the hereditary diseases of the data (genetics specification 3.1
+to 3.4, 7.1; ADR-0017 sections 2, 3 and 5). The goldens and the reference bytes of the
+tests come from it.
 
 What the model knows:
 
-- A world runs on its data (ADR-0007): the calibration and the genome map, by default
-  those under data/ (`REPOSITORY`). Test data differ from them only in the list
-  `diseases` (`dummy_disease_data`); the save names the hash of the data a world runs on.
-- `Start` writes `core:started`, plans the year end series (insertion number 1, first at
-  the last second of year 0, period one year) and then per founder, in list order: the
-  creation entry, the first birthday (the first anniversary at or after the start) and
-  the deaths in the order of its causes.
+- A world runs on its data (ADR-0007): the calibration and the genome map as documents,
+  by default those under data/ (`REPOSITORY`). Test data (`death_test_data`) differ from
+  them only in the rates of senescence and accident and the list `diseases`; the save
+  names the hash of the data a world runs on. The map lengths, the sex ratio, the map in
+  the form of the meiosis reference and the mutation rates come from the documents too.
+- `Start` (world seed, founder tag, world parameters, founders, couples, fertility; no
+  causes of death any more) writes `core:started`, plans the year end series (insertion
+  number 1, first at the last second of year 0, period one year) and then per founder,
+  in list order: the creation entry, the first birthday (the first anniversary at or
+  after the start) and the deaths in the order of its causes.
 - Events run in the order of their key: time, phase (0 domain, 1 observer), micro step,
   class (general 500, death 900, observer 1000), subject (kind, ID), kind (year end 1,
   birthday 2, death 3), insertion number.
 - A birthday writes `core:birthday` and plans the next one a year later. The year end
   observer sees the clock one second before its own second, with its next occurrence
   already in the queue.
-- Death: per person and cause a budget `B = exponential(DEATH_BUDGET, 1.0)` at the key
-  (tag DEATH_BUDGET, subject lineage key, occasion `str_key` of the cause, detail 0). A
-  cause of `Start` (each acts on everyone) with the hazard `r` per year must act
-  `ceil(B / r * YEAR)` seconds on a person until the person dies of it, never if `B / r`
-  is 100 000 years or more (ADR-0002); it acts on a founder from the start on.
+- Death (genetics specification 7.1, design note of the death from the data): the causes
+  of every sim, in this order, are `core:senescence`, `core:accident`, then its lethal
+  afflictions in data order. Per sim and cause a budget `B = exponential(DEATH_BUDGET,
+  1.0)` at the key (tag DEATH_BUDGET, subject lineage key, occasion `str_key` of the
+  code, detail 0). The origin is `o = max(born, start)` (a founder from the start, B19; a
+  child from its birth), the origin age `x0 = as_years(o - born)`. Senescence (Gompertz
+  `m · a · e^(b·x)`, `a` and `b` of the sex): the age at death
+  `x = x0 + ln(1 + b · B / (a · m) · e^(−b·x0)) / b`, computed in that order as
+  `mortality::senescence_age`, with `m` = 1 exactly without a trait of longevity (the data
+  of these tests name none; this model refuses a trait, see `Data`). Accident (Makeham
+  `λ` of the sex): `x = x0 + B / λ`. Both are due at `o + ceil((x − x0) · YEAR)`, never at
+  100 000 years or more or beyond the clock (ADR-0002). exp and ln are the correctly
+  rounded values (tools/kat_reference.py); each due second is checked not to hang on the
+  last bit of exp, ln or the budget (`robust_seconds`), so the pinned libm of the core
+  gives the same second.
 - Afflictions (genetics specification 3.1, 3.4; ADR-0017 section 3): once, at its
   creation (a founder at `Start`, a child at its birth), a sim gets one affliction per
   disease of the data list `diseases` (in data order) that it has, whatever the switch
@@ -53,10 +67,12 @@ What the model knows:
   the period began, so a used-up budget dies in the very second the switch goes on
   again); never if there is no such age, if `a - age(ts)` is 100 000 years or more, or
   if the time is beyond the clock (ADR-0002).
-- The deaths of a sim are planned in the order of its causes: those of `Start`, then
-  its lethal afflictions whose exposure runs, in data order. The death writes
-  `core:death` with the plan and the draw as causes, moves the sim with its afflictions
-  as they are to the archive and cancels its other pending events.
+- The deaths of a sim are planned in the order of its causes: senescence, accident, then
+  its lethal afflictions whose exposure runs, in data order; so in a tie of one second
+  senescence comes before accident before the diseases (insertion order). The death
+  writes `core:death` naming the cause code (`core:senescence`, `core:accident` or the
+  disease) with the plan and the draw as causes, moves the sim with its afflictions as
+  they are to the archive and cancels its other pending events.
 - An override block is an input: stamped with the last closed second, acting in the
   next one, one entry `core:param_changed` per change. If the switch flips at `now`,
   every living sim (by ID) updates each lethal affliction (in data order): switched on,
@@ -96,7 +112,7 @@ Usage: .venv/bin/python tools/world_reference.py (prints the data hashes and the
 of the step hazard; the other tools use the model)
 """
 
-import json
+import itertools
 import math
 from pathlib import Path
 
@@ -113,10 +129,8 @@ from postcard_reference import (
     Y_CHROMOSOME,
     afflictions as afflictions_bytes,
     couple,
-    death_cause,
     fertility,
     genome_of,
-    f64,
     founder,
     lineage_key,
     param_change,
@@ -141,38 +155,11 @@ from rng_reference import (
     words,
 )
 
+from kat_reference import exp_reference, ln_reference
+
 import meiosis_reference
 
 ROOT = Path(__file__).resolve().parent.parent
-
-# The map lengths and the sex ratio at birth of data/calibration/genetics.json. Test data
-# differ from the repository only in `diseases`, so these hold for every world here.
-MAP_LENGTHS = meiosis_reference.load_map_lengths()
-SEX_RATIO = meiosis_reference.load_sex_ratio()
-
-
-def _definitions():
-    """The genome map of data/genetics/genome_map.json in the form of the meiosis
-    reference, and the mutation rates of data/calibration/genetics.json."""
-    root = ROOT / "data"
-    loci = json.loads((root / "genetics" / "genome_map.json").read_text())["loci"]
-    values = json.loads((root / "calibration" / "genetics.json").read_text())["values"]
-    genome_map = [
-        {
-            "id": locus["id"],
-            "chromosome": locus["chromosome"],
-            "segment": locus["segment"] if locus["chromosome"] == "autosome" else (8 if locus["chromosome"] == "x" else 0),
-            "slot": locus["slot"],
-            "mark": locus["mark"],
-            "direction": locus["mutation"],
-        }
-        for locus in loci
-    ]
-    rates = {"standard": values["core:mutation_rate"]["value"], "disease": values["core:mutation_rate_disease"]["value"]}
-    return genome_map, rates
-
-
-GENOME_MAP, RATES = _definitions()
 
 
 YEAR = 364 * 86_400
@@ -184,8 +171,8 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
 
-PROJECTION_VERSION = 11
-CORE_VERSION = 23
+PROJECTION_VERSION = 12
+CORE_VERSION = 24
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -197,8 +184,9 @@ NONE = b"\x00"
 BIRTH, GENERAL, DEATH, OBSERVER = 200, 500, 900, 1000
 YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND, ATTEMPT_KIND, BIRTH_KIND = 1, 2, 3, 4, 5
 WORLD_SUBJECT, SIM_SUBJECT = 0, 1
-# The causes of `Start` act on everyone, AppliesTo variant 0.
-EVERYONE = 0
+# The causes of death every sim has before its diseases, in this order (design note of
+# the death from the data, section 2).
+SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
 
 
 def some(data: bytes) -> bytes:
@@ -265,20 +253,101 @@ class Disease:
                 self.hazard = tuple(number(numbers[name]) for name in ("before", "change_age", "after"))
 
 
+# The ranges `mortality` accepts (crates/sim-core/src/mortality.rs, a contract of the
+# merged pure functions): a world never calls them outside, the data keep inside.
+GOMPERTZ_A_RANGE = (1e-15, 1.0)
+GOMPERTZ_B_RANGE = (1e-3, 1.0)
+MAX_SIGMA_G = 5.0
+MULTIPLIER_RANGE = (1e-14, 1e14)
+MAX_BUDGET = 1000.0
+ACCIDENT_RANGE = (1e-9, 1000.0)
+
+
+def within(x: float, bounds: tuple) -> bool:
+    return bounds[0] <= x <= bounds[1]
+
+
 class Data:
     """The definitions a world runs on: the calibration and the genome map as documents
     (parsed JSON with their texts), their data hash (tools/data_reference.py), the loci
-    by ID and the diseases in data order."""
+    by ID, the diseases in data order, the rates of death per sex (Gompertz `a` and `b`,
+    the Makeham term `λ`), `σ_g` and the trait of longevity, and what the meiosis
+    reference reads: the map lengths, the sex ratio at birth, the map in its form and
+    the mutation rates."""
 
     def __init__(self, calibration: dict, genome_map: dict):
         self.hash = data_reference.documents_hash(calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
+        values = stripped["values"]
+        self.senescence = {
+            sex: (number(values[f"core:senescence_a_{name}"]), number(values[f"core:senescence_b_{name}"]))
+            for sex, name in ((FEMALE, "female"), (MALE, "male"))
+        }
+        self.accident = {sex: number(values[f"core:accident_{name}"]) for sex, name in ((FEMALE, "female"), (MALE, "male"))}
+        self.sigma_g = number(values["core:longevity_sigma_g"])
+        for a, b in self.senescence.values():
+            assert within(a, GOMPERTZ_A_RANGE) and within(b, GOMPERTZ_B_RANGE), (a, b)
+        assert all(within(rate, ACCIDENT_RANGE) for rate in self.accident.values())
+        assert within(self.sigma_g, (0.0, MAX_SIGMA_G))
+        # With a trait of longevity `m = e^(−σ_g · ĝ)` needs the genetic value of the
+        # trait (genetics specification 4.1), which no Python reference computes yet; the
+        # data of these tests name none (`m` = 1 exactly, 11.1).
+        self.longevity_trait = stripped["longevity_trait"]
+        assert self.longevity_trait is None, "a trait of longevity is not modelled by this reference"
+        self.map_lengths = {
+            "autosome_female": values["core:map_length_autosome_female"]["value"],
+            "autosome_male": values["core:map_length_autosome_male"]["value"],
+            "x_female": values["core:map_length_x_female"]["value"],
+        }
+        self.sex_ratio = values["core:sex_ratio_at_birth"]["value"]
+        self.genome_map = [
+            {
+                "id": locus["id"],
+                "chromosome": locus["chromosome"],
+                "segment": locus["segment"]
+                if locus["chromosome"] == "autosome"
+                else (8 if locus["chromosome"] == "x" else 0),
+                "slot": locus["slot"],
+                "mark": locus["mark"],
+                "direction": locus["mutation"],
+            }
+            for locus in genome_map["loci"]
+        ]
+        self.rates = {
+            "standard": values["core:mutation_rate"]["value"],
+            "disease": values["core:mutation_rate_disease"]["value"],
+        }
+
+    def multiplier(self, person: dict) -> float:
+        """`m` of the Gompertz term (7.2): 1 exactly without a trait of longevity
+        (`exp(−0.0)` is 1, 11.1)."""
+        assert self.longevity_trait is None
+        return 1.0
 
 
 def repository_data() -> Data:
     return Data(*data_reference.documents(ROOT / "data"))
+
+
+def death_test_data(accident: float, senescence_a: float = 1e-15, senescence_b: float = 0.001, diseases=None) -> Data:
+    """Test data for the deaths (design note of the death from the data, section 4): the
+    repository's calibration and map with the Makeham term `accident` and the Gompertz
+    `a`, `b` for both sexes, and `diseases` (a list of disease documents) instead of the
+    repository's six if given. A scenario that had causes of `Start` takes the rate of
+    its first cause as `accident` and that of its second as `senescence_a` with `b` =
+    0.001; without a second cause `a` = 1e-15 and `b` = 0.001, senescence practically
+    off (its death lies some 20 000 years ahead)."""
+    calibration, genome_map = data_reference.documents(ROOT / "data")
+    values = calibration["values"]
+    for sex in ("female", "male"):
+        values[f"core:accident_{sex}"]["value"] = accident
+        values[f"core:senescence_a_{sex}"]["value"] = senescence_a
+        values[f"core:senescence_b_{sex}"]["value"] = senescence_b
+    if diseases is not None:
+        calibration["diseases"] = diseases
+    return Data(calibration, genome_map)
 
 
 def dummy_disease(onset_years: float) -> dict:
@@ -309,19 +378,11 @@ def dummy_disease(onset_years: float) -> dict:
     }
 
 
-def dummy_disease_data(onset_years: float) -> Data:
-    """The repository's calibration and map with `diseases` replaced by the dummy disease
-    alone: onset 0 is the "dummy disease data" of the tests that had the old cause for the
-    homozygous (it acted from the origin on), onset 18 the "fork data" of the acceptance
-    scenario `fork_no_density`."""
-    calibration, genome_map = data_reference.documents(ROOT / "data")
-    calibration["diseases"] = [dummy_disease(onset_years)]
-    return Data(calibration, genome_map)
-
-
 REPOSITORY = repository_data()
-DUMMY_DISEASE_DATA = dummy_disease_data(0.0)
-FORK_DATA = dummy_disease_data(18.0)
+# The "fork data" of the acceptance scenario `fork_no_density` (ADR-0017 section 5): the
+# old model, accident 0.02 per year, senescence practically off (`a` = 1e-12, `b` = 0.1),
+# the dummy disease from 18.
+FORK_DATA = death_test_data(0.02, 1e-12, 0.1, [dummy_disease(18.0)])
 # The data hash of the definitions under data/ (ADR-0007), from their own reference.
 DATA_HASH = REPOSITORY.hash
 assert DATA_HASH == data_reference.data_hash(ROOT / "data")
@@ -467,20 +528,54 @@ for low, high, want in [(0.0, 18.0, 0.02), (10.0, 30.0, 0.180_756_254_138_236_62
     assert abs(disease_hazard_used(CYSTIC, low, high) - want) <= 1e-15 + 1e-13 * want, (low, high)
 
 
-def needed_seconds(seed: int, key: int, code: str, per_year: float):
-    """How long a cause of `Start` must act until the person with this lineage key dies
-    of it."""
-    word = words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), 0))[0]
-    _, budget = exponential_reference(word, 1.0)
-    years = budget / per_year
-    if years >= NEVER_YEARS:
-        return None
-    return math.ceil(years * 31_449_600.0)
-
-
 def budget_of(seed: int, key: int, code: str) -> float:
     """The budget `B` of the cause or disease with this code for this lineage key."""
     return exponential_reference(words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), 0))[0], 1.0)[1]
+
+
+def step_ulps(value: float, ulps: int) -> float:
+    """`value` moved by whole ulps (the check that a result does not hang on the last bit
+    of a libm function)."""
+    for _ in range(abs(ulps)):
+        value = math.nextafter(value, math.inf if ulps > 0 else -math.inf)
+    return value
+
+
+def senescence_age(x0: float, budget: float, a: float, b: float, m: float, nudge=(0, 0)) -> float:
+    """`mortality::senescence_age` (genetics specification 7.1): the age at which the
+    Gompertz term `m · a · e^(b·x)` acting from `x0` on uses up `budget`, computed as
+    `x0 + ln(1 + b · B / (a · m) · e^(−b·x0)) / b` in this order. exp and ln are correctly
+    rounded; `nudge` moves their results by whole ulps (exact results stay)."""
+    assert x0 >= 0.0 and math.isfinite(x0) and within(budget, (0.0, MAX_BUDGET))
+    assert within(a, GOMPERTZ_A_RANGE) and within(b, GOMPERTZ_B_RANGE) and within(m, MULTIPLIER_RANGE)
+    kind, e = exp_reference(0.0 - b * x0)
+    if kind == "P":
+        e = step_ulps(e, nudge[0])
+    ahead = b * budget / (a * m) * e
+    kind, log = ln_reference(1.0 + ahead)
+    if kind == "P":
+        log = step_ulps(log, nudge[1])
+    return x0 + log / b
+
+
+def accident_age(x0: float, budget: float, per_year: float) -> float:
+    """`mortality::accident_age` (7.1): `x0 + B / λ`."""
+    assert x0 >= 0.0 and math.isfinite(x0) and within(budget, (0.0, MAX_BUDGET))
+    assert within(per_year, ACCIDENT_RANGE)
+    return x0 + budget / per_year
+
+
+# The ages at death of crates/sim-core/tests/mortality.rs (W7.1, from Python's math there,
+# independent of this model): the closed forms here meet them.
+for origin, budget, (a, b), m, want in [
+    (0.0, 1.0, (3.25e-6, 0.1182), 1.0, 88.845_227_436_585_18),
+    (30.0, 0.5, (8.73e-6, 0.1118), 1.0, 78.434_825_532_710_79),
+    (0.0, 2.0, (3.25e-6, 0.1182), exp_reference(-0.724 * 1.5)[1], 103.897_040_684_885_16),
+    (64.0, 0.01, (8.73e-6, 0.1118), exp_reference(0.724 * 2.0)[1], 64.207_782_683_835_45),
+]:
+    assert abs(senescence_age(origin, budget, a, b, m) - want) <= 1e-13 * want, (origin, budget, want)
+assert abs(accident_age(20.0, 0.7, 1.5e-4) - 4_686.666_666_666_667) <= 1e-13 * 4_686.666_666_666_667
+assert senescence_age(40.0, 0.0, 8.73e-6, 0.1118, 1.0) == 40.0 and accident_age(40.0, 0.0, 2.0e-4) == 40.0
 
 
 class Affliction:
@@ -521,22 +616,32 @@ def death_payload(sim: int, code_key: int) -> bytes:
     return variant(2, varint(sim), varint(code_key))
 
 
+def death_key(payload: bytes) -> int:
+    """The key of the cause in the payload of a planned death: three varints, the variant
+    2, the sim and the key."""
+    numbers, value, shift = [], 0, 0
+    for byte in payload:
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            numbers.append(value)
+            value, shift = 0, 0
+    assert shift == 0 and len(numbers) == 3 and numbers[0] == 2, payload.hex()
+    return numbers[2]
+
+
 class World:
     """A started world. `switch` is the switch of the hereditary diseases at the start,
-    `causes` a list of (code, hazard per year) for everyone, `founders` a list of (born,
-    sex, alleles) with the sex as postcard bytes and the alleles as for `founder_genome`,
-    `couples` a list of (woman, man) by their places among the founders, `data` the
-    definitions it runs on."""
+    `founders` a list of (born, sex, alleles) with the sex as postcard bytes and the
+    alleles as for `founder_genome`, `couples` a list of (woman, man) by their places
+    among the founders, `data` the definitions it runs on (the repository's by default,
+    or test data)."""
 
-    def __init__(
-        self, seed: int, tag: str, switch: bool, causes: list, founders: list, couples=(), fertility_=BARREN, data=None
-    ):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), fertility_=BARREN, data=None):
         self.seed = seed
         self.tag = tag
         self.switch = switch
         self.data = REPOSITORY if data is None else data
-        assert all(len(cause) == 2 for cause in causes), "a cause of Start acts on everyone"
-        self.causes = list(causes)
         self.closed = -1
         self.queue = []
         self.next_insertion = 1
@@ -557,7 +662,6 @@ class World:
             varint(seed),
             string(tag),
             world_params(switch),
-            seq([death_cause(code, rate) for code, rate in self.causes]),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
             fertility(*fertility_),
@@ -614,21 +718,37 @@ class World:
         due = since + seconds
         return due if abs(due) <= MAX_ABS_SECS else None
 
-    def cause_due(self, sim: int, cause: tuple):
-        """When the sim dies of the cause of `Start` if nothing else happens first."""
-        code, rate = cause
-        born, key = self.sims[sim][0], self.sims[sim][1]
-        needed = needed_seconds(self.seed, key, code, rate)
-        if needed is None:
+    def cause_seconds(self, sim: int, code: str, nudge=(0, 0, 0)):
+        """How many seconds after its origin the sim dies of senescence or accident if
+        nothing else happens first, or None (never). `nudge` moves the budget, exp and ln
+        by whole ulps."""
+        born, key, sex, person = self.sims[sim][:4]
+        origin = max(born, 0)
+        x0 = as_years(origin - born)
+        budget = step_ulps(budget_of(self.seed, key, code), nudge[0])
+        if code == SENESCENCE:
+            a, b = self.data.senescence[sex]
+            x = senescence_age(x0, budget, a, b, self.data.multiplier(person), nudge[1:])
+        else:
+            assert code == ACCIDENT
+            x = accident_age(x0, budget, self.data.accident[sex])
+        return from_years_ceil(x - x0)
+
+    def cause_due(self, sim: int, code: str):
+        """When the sim dies of `core:senescence` or `core:accident` if nothing else
+        happens first, or None: from its origin second (a founder from the start, a child
+        from its birth), never beyond the clock."""
+        seconds = robust_seconds(lambda nudge: self.cause_seconds(sim, code, nudge))
+        if seconds is None:
             return None
-        due = max(born, 0) + needed  # from the birth on, a founder from the start
+        due = max(self.sims[sim][0], 0) + seconds
         return due if abs(due) <= MAX_ABS_SECS else None
 
     def _plan_deaths(self, sim: int, by: int, now: int) -> None:
-        for cause in self.causes:
-            due = self.cause_due(sim, cause)
+        for code in (SENESCENCE, ACCIDENT):
+            due = self.cause_due(sim, code)
             if due is not None:
-                payload = death_payload(sim, str_key(cause[0]))
+                payload = death_payload(sim, str_key(code))
                 self._schedule(due, DEATH, (SIM_SUBJECT, sim), DEATH_KIND, payload, None, by, now)
         self._plan_disease_deaths(sim, by, now)
 
@@ -689,8 +809,9 @@ class World:
         )
         # The meiosis of the independent reference (tools/meiosis_reference.py, written
         # from the genetics specification 2.3 by another model).
+        data = self.data
         person, records = meiosis_reference.child_with_mutation(
-            self.seed, child, her[3], him[3], MAP_LENGTHS, SEX_RATIO, GENOME_MAP, RATES
+            self.seed, child, her[3], him[3], data.map_lengths, data.sex_ratio, data.genome_map, data.rates
         )
         for side, parent in ((0, woman), (1, man)):
             record = records["mother" if side == 0 else "father"]
@@ -833,7 +954,7 @@ class World:
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
         born, key, sex, person, afflictions, conceptions, parents = self.sims.pop(sim)
-        codes = [code for code, _ in self.causes] + [
+        codes = [SENESCENCE, ACCIDENT] + [
             affliction.disease.code for affliction in afflictions if affliction.exposure is not None
         ]
         code = next(code for code in codes if event.payload == death_payload(sim, str_key(code)))
@@ -898,7 +1019,6 @@ class World:
             varint(PROJECTION_VERSION)
             + some(varint(self.seed))
             + some(world_params(self.switch))
-            + seq([varint(str_key(code)) + f64(rate) + variant(EVERYONE) for code, rate in self.causes])
             + some(fertility(*self.fertility))
             + signed(closed)
             + varint(self.next_sim_id)
@@ -931,6 +1051,16 @@ class World:
         )
 
 
+def robust_seconds(seconds_of):
+    """The seconds of a death that do not hang on the last bit of libm: `seconds_of(nudge)`
+    gives the same with the budget, exp and ln moved by one ulp either way, so the pinned
+    libm of the core (within an ulp of the correctly rounded value) gives this second."""
+    nominal = seconds_of((0, 0, 0))
+    for nudge in itertools.product((-1, 0, 1), repeat=3):
+        assert seconds_of(nudge) == nominal, f"a due second hangs on the last bit: {nudge}"
+    return nominal
+
+
 def parents_bytes(parents) -> bytes:
     """Option<Parents>, Parents { mother: SimId, father: SimId, conception: u32 }"""
     if parents is None:
@@ -949,7 +1079,6 @@ EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
     + NONE  # world_seed
     + NONE  # world_params
-    + seq([])  # death_causes
     + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
@@ -965,8 +1094,16 @@ EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]
 
 
 if __name__ == "__main__":
+    print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
     print(f"data_hash_repository {REPOSITORY.hash:016x}")
-    print(f"data_hash_dummy_disease {DUMMY_DISEASE_DATA.hash:016x}")
     print(f"data_hash_fork {FORK_DATA.hash:016x}")
     print("diseases " + " ".join(f"{d.code}={d.key:016x}" for d in REPOSITORY.diseases))
+    print(f"causes {SENESCENCE}={str_key(SENESCENCE):016x} {ACCIDENT}={str_key(ACCIDENT):016x}")
+    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+        rates = " ".join(
+            f"{sex_name} a {data.senescence[sex][0]!r} b {data.senescence[sex][1]!r} accident {data.accident[sex]!r}"
+            for sex, sex_name in ((FEMALE, "female"), (MALE, "male"))
+        )
+        print(f"death_rates_{name} {rates} sigma_g {data.sigma_g!r} longevity_trait {data.longevity_trait}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
+    print("closed form checks (senescence_age, accident_age against mortality.rs W7.1): ok")

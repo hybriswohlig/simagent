@@ -6,9 +6,10 @@ use serde_json::{Value, json};
 use sim_core::data::{
     Calibrated, Carrier, Data, DataError, Effect, Morgans, Onset, PerTransmission,
 };
+use sim_core::data_id::DataId;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xd646_0a22_88eb_0602;
+const DATA_HASH: u64 = 0x5bb6_ebe1_6061_394b;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -97,7 +98,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x82fe_6ec0_b0d6_1cbc);
+    assert_eq!(data.hash(), 0x1374_3bd5_c4f3_44fc);
 }
 
 #[test]
@@ -912,8 +913,8 @@ fn individual_curve_values_reject() {
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
-        (|c, _| c["format_version"] = json!(2), "data.format_version"),
-        (|c, _| c["format_version"] = json!(5), "data.format_version"),
+        (|c, _| c["format_version"] = json!(4), "data.format_version"),
+        (|c, _| c["format_version"] = json!(6), "data.format_version"),
         (
             |c, _| {
                 c["values"]
@@ -973,6 +974,118 @@ fn calibration_rejects() {
     assert_eq!(
         DataError::CalibrationRange.to_string(),
         "data.calibration_range"
+    );
+}
+
+/// ADR-0017 section 2, genetics specification 7.2: the Gompertz `a` and `b`, the Makeham
+/// term and `σ_g` per year (logit for `σ_g`), each inside the range of the death math, so
+/// that every age at death is finite; and the trait of longevity, if named, is a trait of
+/// the map.
+#[test]
+fn death_values_reject() {
+    let cases: [(Change, &str); 13] = [
+        (
+            |c, _| c["values"]["core:senescence_a_female"]["unit"] = json!("fraction"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:accident_male"]["unit"] = json!("ratio"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:longevity_sigma_g"]["unit"] = json!("per_year"),
+            "data.calibration_unit",
+        ),
+        (
+            |c, _| c["values"]["core:senescence_a_female"]["value"] = json!(9e-16),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:senescence_a_male"]["value"] = json!(1.01),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:senescence_b_female"]["value"] = json!(9e-4),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:senescence_b_male"]["value"] = json!(1.01),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:accident_female"]["value"] = json!(9e-10),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:accident_male"]["value"] = json!(1000.5),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:longevity_sigma_g"]["value"] = json!(5.01),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| c["values"]["core:longevity_sigma_g"]["value"] = json!(0.0),
+            "data.calibration_range",
+        ),
+        (
+            |c, _| {
+                c["values"]
+                    .as_object_mut()
+                    .expect("values")
+                    .remove("core:senescence_b_male");
+            },
+            "data.calibration_missing",
+        ),
+        (
+            |c, _| c["longevity_trait"] = json!("test:longevity"),
+            "data.trait_named",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    // The limits are allowed.
+    let limits = checked(|c, _| {
+        let values = &mut c["values"];
+        values["core:senescence_a_female"]["value"] = json!(1e-15);
+        values["core:senescence_a_male"]["value"] = json!(1.0);
+        values["core:senescence_b_female"]["value"] = json!(1e-3);
+        values["core:senescence_b_male"]["value"] = json!(1.0);
+        values["core:accident_female"]["value"] = json!(1e-9);
+        values["core:accident_male"]["value"] = json!(1000.0);
+        values["core:longevity_sigma_g"]["value"] = json!(5.0);
+    });
+    assert_eq!(limits, "ok");
+    // A trait of the map may be named; the data hash takes it in.
+    assert_eq!(
+        checked_traits(|c, _| c["longevity_trait"] = json!("test:growth")),
+        "ok"
+    );
+    assert!(
+        checked_traits(|c, _| c["longevity_trait"] = json!("test:longevity"))
+            .starts_with("data.trait_named")
+    );
+    let (mut c, g) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    c["longevity_trait"] = json!("test:growth");
+    let named = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    assert_eq!(
+        named.longevity_trait().map(DataId::as_str),
+        Some("test:growth")
+    );
+    assert_ne!(named.hash(), 0x1374_3bd5_c4f3_44fc);
+    assert_eq!(common::data().longevity_trait(), None);
+    // The data name the trait or say `null` explicitly (ADR-0017 section 1).
+    let missing = checked(|c, _| {
+        c.as_object_mut().expect("object").remove("longevity_trait");
+    });
+    assert!(
+        missing.starts_with("serde: missing field `longevity_trait`"),
+        "{missing}"
     );
 }
 

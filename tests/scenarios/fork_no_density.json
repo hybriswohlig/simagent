@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:fork_no_density",
@@ -7,13 +7,6 @@
       "hereditary_diseases": false,
       "nutrition": []
     },
-    "death_causes": [
-      {
-        "cause": "test:base",
-        "per_year": 0.02,
-        "applies_to": "everyone"
-      }
-    ],
     "founders": [
       {
         "born": -628992000,

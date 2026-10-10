@@ -22,7 +22,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`
 /// (ADR-0007).
-const DATA_HASH: u64 = 0xd646_0a22_88eb_0602;
+const DATA_HASH: u64 = 0x5bb6_ebe1_6061_394b;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -125,7 +125,8 @@ fn golden_fork_matches() {
     assert_ne!(golden_fork.log_hash, parent.log_hash);
     // The entry of the override. It plans the death of sim 1 of `core:disease_ar` (cystic
     // fibrosis on the repository's data, ADR-0017 section 3) for second 1 506 119 448, at
-    // about 78, beyond the ten years (tools/golden_reference.py).
+    // about 78; she dies of senescence in year 27 first, as in the run
+    // (tools/golden_reference.py).
     assert_eq!(fork.log.len(), whole_run().log.len() + 1);
 }
 
@@ -137,7 +138,7 @@ fn golden_run_matches() {
     let run = whole_run();
     assert_eq!(run.out.year_hashes, golden.year_hashes);
     assert_eq!(log_hash(&run.log), golden.log_hash);
-    assert_eq!(golden.year_hashes.len(), 10);
+    assert_eq!(golden.year_hashes.len(), 30);
 }
 
 /// ADR-0003 6.3: the golden save is what this code writes at that point, and loading

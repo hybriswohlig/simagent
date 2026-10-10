@@ -336,7 +336,6 @@ mod tests {
                 hereditary_diseases: false,
                 nutrition: Vec::new(),
             },
-            death_causes: Vec::new(),
             founders: born
                 .iter()
                 .map(|&secs| Founder {
@@ -371,17 +370,19 @@ mod tests {
 
     /// ADR-0002: the year end series starts at `year_start(1) - 1 s` with period YEAR,
     /// planned by `Start` with `core:started` (entry 1) as its `by`. Each founder's first
-    /// birthday is a single event with the founder's creation entry as its `by`.
+    /// birthday is a single event with the founder's creation entry as its `by`; its two
+    /// deaths follow it in the insertion numbers (tests/death.rs checks them).
     #[test]
     fn start_plans_the_year_end_series_and_first_birthdays() {
         let mut world = World::new(testing::data());
         world.submit(start(&[-5, -1])).expect("accepted");
         let snapshot = world.sched.snapshot();
-        assert_eq!(snapshot.next_seq, 4);
+        assert_eq!(snapshot.next_seq, 8);
         let sim = |n: u64| SimId::try_from(n).expect("valid");
         let seen: Vec<_> = snapshot
             .entries
             .iter()
+            .filter(|entry| !matches!(entry.payload, EventPayload::Death { .. }))
             .map(|entry| {
                 (
                     entry.time.as_secs(),
@@ -405,7 +406,7 @@ mod tests {
             ),
             (
                 31_449_599,
-                3,
+                5,
                 EventPayload::Birthday { sim: sim(2) },
                 None,
                 plan(3),

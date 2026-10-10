@@ -129,6 +129,39 @@ pub fn data_with_diseases(diseases: Value) -> Data {
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 
+/// Test data with the causes of death of a test (ADR-0017 section 2): accident `accident`
+/// per year and senescence `a` = `old_age` with `b` = 0.001 (the smallest `b` of
+/// `mortality`), the same for both sexes; without `old_age` senescence is practically off
+/// (`a` = 1e-15); the hereditary diseases `diseases`.
+#[allow(
+    dead_code,
+    reason = "not every test crate needs its own causes of death"
+)]
+pub fn death_data(accident: f64, old_age: Option<f64>, diseases: Value) -> Data {
+    let (mut calibration, genome_map) = files();
+    let values = &mut calibration["values"];
+    for sex in ["female", "male"] {
+        values[format!("core:accident_{sex}")]["value"] = json!(accident);
+        values[format!("core:senescence_a_{sex}")]["value"] = json!(old_age.unwrap_or(1e-15));
+        values[format!("core:senescence_b_{sex}")]["value"] = json!(0.001);
+    }
+    calibration["diseases"] = diseases;
+    Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// The repository's six hereditary diseases (ADR-0017 section 1).
+#[allow(dead_code, reason = "not every test crate needs the diseases")]
+pub fn repository_diseases() -> Value {
+    files().0["diseases"].clone()
+}
+
+/// Test data in which only the hereditary diseases kill: accident 1e-9 per year (beyond
+/// 100 000 years, so never) and senescence practically off, the repository's diseases.
+#[allow(dead_code, reason = "not every test crate needs it")]
+pub fn only_diseases_data() -> Data {
+    death_data(1e-9, None, repository_diseases())
+}
+
 /// The disease of the walking skeleton as data (ADR-0017 section 5): `test:dummy_disease` on
 /// `core:disease_ar`, penetrance 1, onset `onset`, 0.3 per year. With onset 0 it acts like
 /// the old cause of `Start` for the homozygous; the acceptance scenario takes onset 18.

@@ -7,7 +7,8 @@
 //! from this code.
 //!
 //! Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
-//! start, no causes of `Start`, nobody conceives, ten founders born a second before the
+//! start, on test data where only the diseases kill (`common::only_diseases_data`), nobody
+//! conceives, ten founders born a second before the
 //! start (the ninth 30 years before): a man with the allele of `core:disease_xr` on his X,
 //! a woman with it once (a carrier) and one with it twice; a man and a woman with
 //! `core:disease_mt`; a woman with `core:disease_ad_late` once; a woman and a man with
@@ -50,7 +51,7 @@ fn founder(born: i64, sex: Sex, locus: &str, copies: &[u8]) -> Founder {
 
 /// "afflicted" on the repository's data with the switch `on`.
 fn afflicted(tag: &str, on: bool, founders: Vec<Founder>) -> World {
-    let mut world = World::new(common::data());
+    let mut world = World::new(common::only_diseases_data());
     world
         .submit(Input::Start(Start {
             world_seed: 0xff,
@@ -59,7 +60,6 @@ fn afflicted(tag: &str, on: bool, founders: Vec<Founder>) -> World {
                 hereditary_diseases: on,
                 nutrition: Vec::new(),
             },
-            death_causes: Vec::new(),
             founders,
             couples: Vec::new(),
             fertility: barren(),
@@ -160,7 +160,7 @@ fn a_visible_disease_never_kills() {
 #[test]
 fn the_afflictions_are_those_of_the_reference() {
     let world = afflicted("test:afflicted", true, the_ten());
-    assert_eq!(world.state_hash(), 0x49a7_c43d_2851_ca42);
+    assert_eq!(world.state_hash(), 0x419a_f309_044b_5c18);
 }
 
 /// A save of "afflicted" loads and gives the same bytes, at the start and after the first
@@ -174,7 +174,7 @@ fn a_save_of_the_afflicted_loads() {
         world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
         world.take_log();
         let bytes = world.save(&out.year_hashes).expect("saves");
-        let (loaded, years) = World::load(&bytes, common::data()).expect("loads");
+        let (loaded, years) = World::load(&bytes, common::only_diseases_data()).expect("loads");
         assert_eq!(loaded.save(&years).expect("saves"), bytes, "{until}");
     }
 }

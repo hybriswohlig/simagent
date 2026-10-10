@@ -2,8 +2,9 @@
 //! founder couples of 20 to 25 years. In 8 couples one partner has the dummy allele twice
 //! (4 mothers, 4 fathers), all other founders have it once. Only these couples have
 //! children; nobody comes or goes, nobody pairs again. Death per cause from hazard
-//! budgets: `test:base` 0.02 per year for everyone, `test:dummy_disease` 0.3 per year for
-//! the homozygous while the switch is on. Conception monthly with 0.05 while both live,
+//! budgets on test data (ADR-0017 section 5): accident 0.02 per year and senescence with
+//! Gompertz `a` 1e-12, `b` 0.1 per year for everyone, `test:dummy_disease` 0.3 per year
+//! from 18 for the homozygous while the switch is on. Conception monthly with 0.05 while both live,
 //! the mother is 18 to 45 years old and not pregnant; ten months of pregnancy. The parent
 //! run lasts 60 years with the switch off; the fork at year 5 switches it on.
 //!
@@ -46,9 +47,25 @@ impl Run {
 }
 
 /// The test data of the scenario (ADR-0017 section 5): the repository's map and calibration
-/// with the disease of the walking skeleton only, from 18 years on.
+/// with accident 0.02 and senescence `a` 1e-12, `b` 0.1 per year for both sexes, and the
+/// disease of the walking skeleton only, from 18 years on.
 fn fork_data() -> sim_core::data::Data {
-    common::data_with_diseases(common::dummy_disease(18.0))
+    let (mut calibration, genome_map) = common::files();
+    let values = &mut calibration["values"];
+    for sex in ["female", "male"] {
+        values[format!("core:accident_{sex}")]["value"] = serde_json::json!(0.02);
+        values[format!("core:senescence_a_{sex}")]["value"] = serde_json::json!(1e-12);
+        values[format!("core:senescence_b_{sex}")]["value"] = serde_json::json!(0.1);
+    }
+    calibration["diseases"] = common::dummy_disease(18.0);
+    let definitions = common::definitions(calibration, genome_map).expect("definitions");
+    sim_core::data::Data::new(definitions).expect("checked")
+}
+
+/// The data hash of the test data (`tools/state_reference.py`).
+#[test]
+fn the_test_data_are_those_of_the_reference() {
+    assert_eq!(fork_data().hash(), 0x8106_a604_e46b_3eac);
 }
 
 /// The scenario: its `Start` and its end.

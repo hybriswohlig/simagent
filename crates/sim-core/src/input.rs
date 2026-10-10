@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::data_id::{Code, DataId};
+use crate::data_id::DataId;
 use crate::finite::FiniteF64;
 use crate::genome::{LocusAlleles, Sex};
 use crate::ids::{InputSeq, SimId};
@@ -36,9 +36,7 @@ pub struct Start {
     /// Data ID of the scenario; founder keys use its `str_key` (ADR-0001).
     pub founder_tag: DataId,
     pub world_params: WorldParams,
-    /// The causes of death of this world, each with its own hazard budget per person
-    /// (ADR-0001). The order of the list is the order in which their events are planned.
-    pub death_causes: Vec<DeathCause>,
+    /// The causes of death come from the data (ADR-0017 section 2), not from the scenario.
     pub founders: Vec<Founder>,
     /// The fixed couples of founders (ADR-0001, Durchstich), paired after all founders
     /// entered the world, in list order.
@@ -81,30 +79,6 @@ pub struct ArrangePartnership {
     pub woman: SimId,
     pub man: SimId,
 }
-
-/// A cause of death with a constant hazard (C4, simplified for the Durchstich): a person
-/// dies of it once the cause has acted for the person's budget divided by this rate.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DeathCause {
-    pub cause: Code,
-    /// Hazard per year, at least `MIN_DEATH_RATE_PER_YEAR`.
-    pub per_year: FiniteF64,
-    pub applies_to: AppliesTo,
-}
-
-/// On whom a cause of death acts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AppliesTo {
-    /// On everyone; on a founder from the start on. The hereditary diseases are causes of
-    /// the data, not of `Start` (ADR-0017 section 3).
-    Everyone,
-}
-
-/// The smallest hazard a cause may have. A budget is below 37, so the years until death
-/// stay finite; from 100 000 years on they mean never (ADR-0002).
-pub const MIN_DEATH_RATE_PER_YEAR: f64 = 1e-9;
 
 /// World parameters with their new values, applied in list order. A block is never
 /// empty and names no parameter twice.
@@ -186,9 +160,11 @@ pub enum RejectCode {
     EmptyOverride,
     /// An override block that names a world parameter twice.
     OverrideParamTwice,
-    /// Two causes of death with the same code, or with codes of the same key.
+    /// Retired with the causes of death of `Start` (ADR-0017 section 2); never given, the
+    /// index stays.
     DeathCauseTwice,
-    /// A cause of death with a hazard below `MIN_DEATH_RATE_PER_YEAR`.
+    /// Retired with the causes of death of `Start` (ADR-0017 section 2); never given, the
+    /// index stays.
     DeathRateOutOfRange,
     /// A SimId that was never handed out.
     UnknownSim,

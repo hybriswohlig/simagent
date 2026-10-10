@@ -48,7 +48,6 @@ fn start_with(born: &[i64]) -> Input {
             hereditary_diseases: false,
             nutrition: Vec::new(),
         },
-        death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
         fertility: barren(),
@@ -160,7 +159,13 @@ fn ten_years_of_birthdays_are_pinned() {
     for (index, line) in spots {
         assert_eq!(log[index], line, "entry {index}");
     }
-    assert_eq!(world.pending_events(), 4, "year end series and 3 birthdays");
+    // Nobody dies in the ten years: each founder still has its two deaths ahead
+    // (senescence and accident, ADR-0017 section 2).
+    assert_eq!(
+        world.pending_events(),
+        10,
+        "year end series, 3 birthdays and 6 deaths"
+    );
 }
 
 /// ADR-0002 (year end), ADR-0004 section 8: one row per year from the state.
@@ -337,26 +342,43 @@ fn yearly_balance_log_matches_state() {
 }
 
 /// An accepted input never breaks an invariant later (ADR-0004 section 4): the oldest
-/// founder the time range allows, born 1 000 000 years before the start, has birthdays
-/// like everyone else. The span from birth to now then exceeds the range of a duration.
+/// founder the time range allows, born 1 000 000 years before the start, has its birthday
+/// in the first second like everyone else; the span from birth to now exceeds the range of
+/// a duration. In the same second it dies of senescence, after the birthday (planned
+/// first): at that age `e^(−b · x0)` is 0, so the closed form leaves no time (genetics
+/// specification 7.1).
 #[test]
-fn the_oldest_possible_founder_has_birthdays() {
+fn the_oldest_possible_founder_has_its_birthday_and_dies() {
     let born = -1_000_000 * Y;
     let mut world = started(&[born]);
     world.take_log();
     let mut out = YearOut::default();
     world.advance_until(&mut out, SimTime::from_secs(2 * Y), &mut |_| false);
-    let ages: Vec<u32> = world
+    let seen: Vec<(i64, String)> = world
         .take_log()
         .iter()
-        .map(|entry| match entry.payload {
-            LogPayload::Birthday { age_years } => age_years,
-            _ => panic!("only birthdays expected"),
+        .map(|entry| {
+            let what = match &entry.payload {
+                LogPayload::Birthday { age_years } => format!("birthday {age_years}"),
+                LogPayload::Death { cause } => format!("death of {}", cause.as_str()),
+                _ => panic!("only her birthday and her death expected"),
+            };
+            (entry.t.as_secs(), what)
         })
         .collect();
-    assert_eq!(ages, [1_000_000, 1_000_001, 1_000_002]);
+    assert_eq!(
+        seen,
+        [
+            (0, "birthday 1000000".to_owned()),
+            (0, "death of core:senescence".to_owned())
+        ]
+    );
     assert_eq!(out.census.len(), 2);
-    assert_eq!(out.census[1].lived_secs, 31_449_600);
+    assert_eq!(
+        out.census[0].lived_secs, 0,
+        "the second of death is not lived"
+    );
+    assert_eq!(world.state().archive_len(), 1);
 }
 
 /// A `Start` after the clock moved is rejected; it could not plan the first year end.

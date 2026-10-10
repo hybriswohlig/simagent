@@ -62,18 +62,8 @@ impl crate::world::WorldState {
             mother: sim.parents.map(|parents| parents.mother),
             father: sim.parents.map(|parents| parents.father),
         });
-        // A cause of `Start`, or a disease of the data (ADR-0017 section 2).
-        let cause_of = |key: u64| {
-            domain
-                .death_causes
-                .iter()
-                .find(|cause| cause.cause.key() == key)
-                .map(|cause| cause.cause.clone())
-                .or_else(|| {
-                    crate::state::disease::of_key(self.data(), key)
-                        .map(|disease| crate::data_id::Code::from(disease.code.clone()))
-                })
-        };
+        // Senescence, accident or a disease of the data (ADR-0017 section 2).
+        let cause_of = |key: u64| crate::state::death::cause_code(self.data(), key);
         let archived = domain.archive.iter().map(|(id, sim)| {
             let LeftBy::Death { cause } = sim.left_by;
             Person {

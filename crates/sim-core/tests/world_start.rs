@@ -38,7 +38,6 @@ fn start_with(born: &[i64]) -> Input {
             hereditary_diseases: false,
             nutrition: Vec::new(),
         },
-        death_causes: Vec::new(),
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
         fertility: barren(),
@@ -160,8 +159,8 @@ fn start_records_seed_and_founders() {
     assert_eq!(state.born(sim(4)), None);
     assert_eq!(
         world.pending_events(),
-        4,
-        "the year end series and three first birthdays"
+        10,
+        "the year end series, three first birthdays and two deaths each"
     );
     assert_eq!(world.stats().contexts, 1, "one applied input");
     assert_eq!(world.closed_through(), SimTime::from_secs(-1));
@@ -241,7 +240,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[],"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}]"#
     );
 }
 

@@ -7,8 +7,7 @@ use super::{DomainState, Sim, Slot, death, disease, partnership, years_between};
 use crate::data::Data;
 use crate::genome::{AlleleError, Genome};
 use crate::input::{
-    DeathCause, Fertility, Founder, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS,
-    MIN_DEATH_RATE_PER_YEAR, RejectCode, Start,
+    Fertility, Founder, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS, RejectCode, Start,
 };
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
@@ -30,7 +29,6 @@ pub(crate) fn check_start(
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
     .or_else(|| alleles_rejection(&start.founders, data))
-    .or_else(|| death_causes_rejection(&start.death_causes, data))
     .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
     .or_else(|| fertility_rejection(&start.fertility))
     .or_else(|| nutrition_rejection(&start.world_params.nutrition));
@@ -94,27 +92,6 @@ fn alleles_rejection(founders: &[Founder], data: &Data) -> Option<RejectCode> {
     })
 }
 
-/// Why these causes of death are rejected, if at all: two with the same key, also one
-/// with the key of a hereditary disease of the data (it would share its budget and its
-/// slot, ADR-0017 section 2), or a hazard so small that the years until death would not be
-/// a finite number.
-pub(crate) fn death_causes_rejection(causes: &[DeathCause], data: &Data) -> Option<RejectCode> {
-    let twice = causes.iter().enumerate().any(|(index, cause)| {
-        causes[..index]
-            .iter()
-            .any(|earlier| earlier.cause.key() == cause.cause.key())
-            || disease::of_key(data, cause.cause.key()).is_some()
-    });
-    if twice {
-        return Some(RejectCode::DeathCauseTwice);
-    }
-    let too_small = |cause: &DeathCause| cause.per_year.get() < MIN_DEATH_RATE_PER_YEAR;
-    if causes.iter().any(too_small) {
-        return Some(RejectCode::DeathRateOutOfRange);
-    }
-    None
-}
-
 /// Why this fertility is rejected, if at all: a chance outside 0 to 1, no age at which a
 /// woman can conceive, an end of fertility after `MAX_FERTILE_YEARS`, or a pregnancy
 /// outside 1 to `MAX_PREGNANCY_MONTHS` months.
@@ -146,7 +123,6 @@ pub(crate) fn apply_start(
 ) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params.clone());
-    domain.death_causes.clone_from(&start.death_causes);
     domain.fertility = Some(start.fertility);
     let founders = founder_count(start.founders.len())
         .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
