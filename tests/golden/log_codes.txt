@@ -59,7 +59,7 @@ paternal_sex 0 x
 paternal_sex 1 y
 param 0 core:hereditary_diseases
 param 1 core:nutrition_year
-applies_to 0 everyone
+retired applies_to 0 everyone
 retired applies_to 1 dummy_homozygous
 strand 0 maternal
 strand 1 paternal
