@@ -9,6 +9,10 @@
 //! and of accident at `x0 + B / λ`. The multiplier acts like a shift of age by
 //! `Δ = ln(m) / b = −σ_g · ĝ / b` years, the offset that `bio_age` reads (7.4); `ĝ` is
 //! `g_L` held at `±LONGEVITY_INPUT_BOUND` (11.4), so death and `bio_age` read one `Δ`.
+//!
+//! A hereditary disease (3.1, ADR-0017 section 3) has a hazard constant in two steps, `h0`
+//! before an age `s` and `h1` from it on; [`disease_age`] gives the age at death from a
+//! budget and [`disease_hazard_used`] what a period uses up, for the switch of the diseases.
 
 /// The bound of the genetic value of longevity as an input of death and `bio_age`
 /// (genetics specification 11.4, ADR-0017); it changes only by a new ADR.
@@ -136,4 +140,90 @@ pub fn accident_age(origin_age: f64, budget: f64, per_year: f64) -> f64 {
         panic!("invariant mortality.accident");
     }
     origin_age + budget / per_year
+}
+
+/// The hazard of a hereditary disease per year, constant in two steps (genetics
+/// specification 3.1): `before` up to the age `change_age`, `after` from it on. A constant
+/// hazard has both equal; an onset makes the origin of the caller, not a step here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StepHazard {
+    pub before: f64,
+    pub change_age: f64,
+    pub after: f64,
+}
+
+/// The ranges of a disease hazard (a contract like the ranges above): each step from 0 to
+/// 1000 per year, the change from 0 to 130 years, the range of the body contract.
+pub const DISEASE_HAZARD_RANGE: (f64, f64) = (0.0, 1000.0);
+pub const CHANGE_AGE_RANGE: (f64, f64) = (0.0, 130.0);
+
+fn check_disease(hazard: StepHazard) {
+    let valid = within(hazard.before, DISEASE_HAZARD_RANGE)
+        && within(hazard.after, DISEASE_HAZARD_RANGE)
+        && within(hazard.change_age, CHANGE_AGE_RANGE);
+    if !valid {
+        panic!("invariant mortality.disease");
+    }
+}
+
+/// The age at which a person dies of a disease when it acts from `origin_age` on with the
+/// budget `budget` (3.1): from an origin at or after the change `x0 + B / h1`; before it,
+/// with `H = h0 · (s − x0)`, `x0 + B / h0` if `B ≤ H`, else `s + (B − H) / h1`. With `h0`
+/// of 0 nobody dies before the change. `None` is never: no hazard is left for the rest of
+/// the budget.
+///
+/// # Panics
+///
+/// Invariants `mortality.origin` and `mortality.budget` as [`senescence_age`], and
+/// `mortality.disease` if a step or the change lies outside its range.
+pub fn disease_age(origin_age: f64, budget: f64, hazard: StepHazard) -> Option<f64> {
+    check_origin_and_budget(origin_age, budget);
+    check_disease(hazard);
+    let StepHazard {
+        before,
+        change_age,
+        after,
+    } = hazard;
+    let used_before = if origin_age < change_age {
+        before * (change_age - origin_age)
+    } else {
+        0.0
+    };
+    if used_before > 0.0 && budget <= used_before {
+        return Some(origin_age + budget / before);
+    }
+    if after <= 0.0 {
+        return None;
+    }
+    let from = if origin_age < change_age {
+        change_age
+    } else {
+        origin_age
+    };
+    Some(from + (budget - used_before) / after)
+}
+
+/// The hazard a disease uses up between the ages `from_age` and `to_age` (3.1): `h0` times
+/// the part before the change plus `h1` times the part after it. The switch counts only
+/// the time it is on, so the caller adds the periods.
+///
+/// # Panics
+///
+/// Invariant `mortality.ages` unless `0 ≤ from_age ≤ to_age` and both are finite, and
+/// `mortality.disease` as [`disease_age`].
+pub fn disease_hazard_used(hazard: StepHazard, from_age: f64, to_age: f64) -> f64 {
+    let valid = from_age >= 0.0 && from_age <= to_age && to_age.is_finite();
+    if !valid {
+        panic!("invariant mortality.ages");
+    }
+    check_disease(hazard);
+    let s = hazard.change_age;
+    let before_part = to_age.clamp(0.0, s) - from_age.clamp(0.0, s);
+    let after_start = if from_age > s { from_age } else { s };
+    let after_part = if to_age > after_start {
+        to_age - after_start
+    } else {
+        0.0
+    };
+    hazard.before * before_part + hazard.after * after_part
 }
