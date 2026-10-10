@@ -32,6 +32,22 @@ pub fn unit_open0(w: u64) -> f64 {
     scaled((w >> 11) + 1)
 }
 
+/// Uniform strictly inside (0, 1): `(2 (w >> 12) + 1) * 2^-53`, the odd multiples of
+/// 2^-53 from 2^-53 (w = 0) to 1 - 2^-53 (w = `u64::MAX`), exact. Neither `ln(u)` nor
+/// `ln(1 - u)` ever sees 0.
+pub fn unit_open(w: u64) -> f64 {
+    scaled(2 * (w >> 12) + 1)
+}
+
+/// Standard Gumbel (location 0, scale 1) by inversion: `0.0 - ln(0.0 - ln(u))` with
+/// `u = unit_open(w)`. One word, no rejection, always finite: from -ln(53 ln 2) =
+/// -3.6037789929704575... at w = 0 to -ln(-ln(1 - 2^-53)) = 36.736800569677101... at
+/// w = `u64::MAX` (mpmath, 60 digits). The KAT bound against the reference is 2^-45
+/// absolute (xtask, ADR-0003 section 3.3).
+pub fn gumbel(w: u64) -> f64 {
+    0.0 - ln(0.0 - ln(unit_open(w)))
+}
+
 /// Uniform on `0..n` for `n >= 1`: the upper 64 bits of `w * n`. The bias is at most
 /// n / 2^64.
 pub fn uniform_below(w: u64, n: u64) -> u64 {
@@ -105,6 +121,8 @@ mod tests {
     const POISSON: &str = include_str!("../../../tests/golden/kat/poisson.csv");
     const EXPONENTIAL: &str = include_str!("../../../tests/golden/kat/exponential.csv");
     const NORMAL: &str = include_str!("../../../tests/golden/kat/normal.csv");
+    const UNIT_OPEN: &str = include_str!("../../../tests/golden/kat/unit_open.csv");
+    const GUMBEL: &str = include_str!("../../../tests/golden/kat/gumbel.csv");
 
     const UNARY: &str = "input_bits,expected_bits,class,reference_bits";
 
@@ -154,6 +172,24 @@ mod tests {
         assert_eq!(rows.len(), 10);
         for row in rows {
             assert_bits("unit_open0", row[0], row[1], unit_open0(word(row[0])));
+        }
+    }
+
+    #[test]
+    fn unit_open_kat() {
+        let rows = rows(UNIT_OPEN, UNARY);
+        assert_eq!(rows.len(), 16);
+        for row in rows {
+            assert_bits("unit_open", row[0], row[1], unit_open(word(row[0])));
+        }
+    }
+
+    #[test]
+    fn gumbel_kat() {
+        let rows = rows(GUMBEL, UNARY);
+        assert_eq!(rows.len(), 16);
+        for row in rows {
+            assert_bits("gumbel", row[0], row[1], gumbel(word(row[0])));
         }
     }
 
@@ -385,6 +421,104 @@ mod tests {
                 lambda,
                 lambda,
                 lambda * (1.0 + 3.0 * lambda),
+            );
+        }
+    }
+
+    /// Standard Gumbel: mean the Euler-Mascheroni constant, variance pi^2 / 6, excess
+    /// kurtosis 12 / 5, so the fourth central moment is 27 / 5 times the variance squared.
+    #[test]
+    fn gumbel_smoke() {
+        const EULER_GAMMA: f64 = 0.577_215_664_901_532_9;
+        let pi = core::f64::consts::PI;
+        let variance = pi * pi / 6.0;
+        assert_moments(
+            "gumbel",
+            WORDS,
+            |index| gumbel(splitmix(index)),
+            EULER_GAMMA,
+            variance,
+            27.0 / 5.0 * variance * variance,
+        );
+    }
+
+    /// 2^-45: the KAT bound of `gumbel` against its reference (ADR-0001 section 3).
+    const TWO_POW_MINUS_45: f64 = f64::from_bits(0x3d20_0000_0000_0000);
+
+    /// `unit_open` (ADR-0001 section 3, for the Gumbel noise of C3) is `(2 (w >> 12) + 1)
+    /// 2^-53`: the odd multiples of 2^-53 from 2^-53 at w = 0 to 1 - 2^-53 at
+    /// w = u64::MAX, never 0 or 1. The lower 12 bits of the word do not count.
+    #[test]
+    fn unit_open_lies_strictly_inside_the_unit_interval() {
+        let step = TWO_POW_MINUS_53;
+        assert_eq!(unit_open(0).to_bits(), step.to_bits(), "2^-53");
+        assert_eq!(
+            unit_open(u64::MAX).to_bits(),
+            (1.0 - step).to_bits(),
+            "1 - 2^-53"
+        );
+        assert_eq!(unit_open(0xfff), step);
+        assert_eq!(unit_open(0x1000), 3.0 * step);
+        assert_eq!(unit_open(1 << 63), 0.5 + step);
+        assert_eq!(unit_open(u64::MAX - 0xfff), 1.0 - step);
+        assert_eq!(unit_open(u64::MAX - 0x1000), 1.0 - 3.0 * step);
+        for index in 0..WORDS {
+            let w = splitmix(index);
+            let u = unit_open(w);
+            assert!(u > 0.0 && u < 1.0, "unit_open({w:x}) = {u}");
+            let multiple = crate::to_i64_exact(u / step).expect("a multiple of 2^-53");
+            assert_eq!(
+                u64::try_from(multiple),
+                Ok(2 * (w >> 12) + 1),
+                "unit_open({w:x}) = {u}"
+            );
+            assert_eq!(
+                unit_open(w | 0xfff),
+                u,
+                "unit_open({w:x}): the lower 12 bits"
+            );
+        }
+    }
+
+    /// `gumbel` is `0.0 - ln(0.0 - ln(unit_open(w)))`: finite for every word, from
+    /// -ln(53 ln 2) = -3.6037789929704575... at w = 0 to -ln(-ln(1 - 2^-53)) =
+    /// 36.736800569677101... at w = u64::MAX (mpmath, 60 digits; here rounded to f64),
+    /// within the KAT bound, and increasing in the upper 52 bits of the word.
+    #[test]
+    fn gumbel_is_finite_and_increasing() {
+        const LOWEST: f64 = -3.603_778_992_970_457_6;
+        const HIGHEST: f64 = 36.736_800_569_677_1;
+        let (low, high) = (gumbel(0), gumbel(u64::MAX));
+        assert!(
+            (low - LOWEST).abs() <= TWO_POW_MINUS_45,
+            "gumbel(0) = {low}"
+        );
+        assert!(
+            (high - HIGHEST).abs() <= TWO_POW_MINUS_45,
+            "gumbel(u64::MAX) = {high}"
+        );
+        // The steps at the bottom, every value of the upper 12 bits, the steps at the top.
+        let words = [0, 1 << 12, 2 << 12]
+            .into_iter()
+            .chain((1_u64..1 << 12).map(|top| top << 52))
+            .chain([u64::MAX - (2 << 12), u64::MAX - (1 << 12), u64::MAX]);
+        let mut previous = f64::NEG_INFINITY;
+        for w in words {
+            let g = gumbel(w);
+            assert!(g > previous, "gumbel({w:x}) = {g} after {previous}");
+            assert_eq!(
+                gumbel(w | 0xfff).to_bits(),
+                g.to_bits(),
+                "gumbel({w:x}): the lower 12 bits"
+            );
+            previous = g;
+        }
+        for index in 0..WORDS {
+            let w = splitmix(index);
+            let g = gumbel(w);
+            assert!(
+                g.is_finite() && low <= g && g <= high,
+                "gumbel({w:x}) = {g}"
             );
         }
     }

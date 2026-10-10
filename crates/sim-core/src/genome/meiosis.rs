@@ -1,6 +1,7 @@
 //! Meiosis (genetics specification 2.3): per parent and segment a start strand and a
 //! Poisson number of crossovers at uniform positions; the mother passes an X the same
-//! way, the father his X or his Y unchanged, the mitochondria come from the mother. Every
+//! way, the father his X or his Y unchanged (his Y with the probability of a son from the
+//! sex ratio at birth, 11.3), the mitochondria come from the mother. Every
 //! draw is addressed by the genome key of the child and the side (ADR-0001), so a
 //! meiosis depends only on the parents' genomes, the seed and the key.
 
@@ -88,7 +89,8 @@ pub fn crossover_position_key(genome: GenomeKey, side: u64, segment: u8, j: u32)
     key(tags::CROSSOVER_POSITION, genome, side, detail)
 }
 
-/// The address of the sex chromosome the father passes on.
+/// The address of the sex chromosome the father passes on: `bernoulli(p_Y)`, true for his
+/// Y (specification 2.3, the table of 11.7).
 pub fn sex_key(genome: GenomeKey) -> DrawKey {
     key(tags::SEX_CHROMOSOME, genome, FATHER, 0)
 }
@@ -351,9 +353,13 @@ impl Zygote {
             father,
             genetics.map_length_autosome_male,
         );
-        let (paternal_sex, sex_chromosome) = match seed.uniform_below(sex_key(genome), 2) {
-            0 => (PaternalSex::X(father.maternal_x), SexChromosome::X),
-            _ => (PaternalSex::Y(his_y), SexChromosome::Y),
+        // The father passes his Y with `p_Y = r / (1 + r)` of the sex ratio at birth `r`
+        // (specification 2.3 and 11.3, W11.3d; 21/41 for 1.05), his X otherwise.
+        let r = genetics.sex_ratio_at_birth;
+        let (paternal_sex, sex_chromosome) = if seed.bernoulli(sex_key(genome), r / (1.0 + r)) {
+            (PaternalSex::Y(his_y), SexChromosome::Y)
+        } else {
+            (PaternalSex::X(father.maternal_x), SexChromosome::X)
         };
         let mut hers = Gamete {
             autosomes: maternal,

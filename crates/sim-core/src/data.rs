@@ -202,7 +202,7 @@ pub struct Morgans(pub f64);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PerTransmission(pub f64);
 
-/// The genetics calibration as the core reads it (genetics specification 2.2, 2.4).
+/// The genetics calibration as the core reads it (genetics specification 2.2, 2.4, 11.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Genetics {
     pub map_length_autosome_female: Morgans,
@@ -219,6 +219,9 @@ pub struct Genetics {
     pub body: BodyModel,
     /// The weight `w` of the biological age (genetics specification 7.4, ADR-0015).
     pub bio_age_weight: f64,
+    /// The sex ratio at birth `r`, sons per daughter (genetics specification 2.3, 7.5,
+    /// 11.3); the father passes his Y with `r / (1 + r)` (ADR-0017 section 4).
+    pub sex_ratio_at_birth: f64,
 }
 
 /// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
@@ -370,6 +373,9 @@ const MAX_STAGE: f64 = 7.0;
 /// Limits of a sex difference (ADR-0014 section 1).
 const MAX_SHIFT: f64 = 10.0;
 const MAX_VARIANCE_RATIO: f64 = 10.0;
+/// Upper limit of the sex ratio at birth (ADR-0017 section 4); every ratio above 0 gives
+/// a probability of a son below 1, real ratios lie near 1.05.
+const MAX_SEX_RATIO: f64 = 10.0;
 
 /// Checked definitions with their data hash. Only `Data::new` makes one.
 #[derive(Clone, Debug, PartialEq)]
@@ -936,8 +942,9 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         height_loss,
         body,
         bio_age_weight,
+        sex_ratio_at_birth: value("core:sex_ratio_at_birth", Unit::Ratio, MAX_SEX_RATIO)?,
     };
-    if calibration.values.len() != 109 {
+    if calibration.values.len() != 110 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)

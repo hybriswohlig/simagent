@@ -245,6 +245,19 @@ def section_3():
     # by at most this much per generation.
     put("W3.3a", mp.mpf("1e-6") / q_ad, ("fix", 3))
     put("W3.3b", mp.mpf("5e-5") / q_ad, ("fix", 2))
+    # Piecewise hazards (3.1, 3.2). One Exp(1) budget; the childhood cumulative hazard
+    # is a play value, the adult rate is whatever makes the cited median.
+    ln2 = mp.log(2)
+    h18_ar = mp.mpf("0.02")
+    median_ar = mp.mpf("65")
+    put("W3.2j", h18_ar / 18, ("sig", 4))
+    put("W3.2k", (ln2 - h18_ar) / (median_ar - 18), ("sig", 4))
+    put("W3.2l", 1 - mp.e ** (-h18_ar), ("sig", 4))
+    h18_x = mp.mpf("0.01")
+    put("W3.2m", h18_x / 18, ("sig", 3))
+    put("W3.2n", 1 - mp.e ** (-h18_x), ("sig", 3))
+    # Liability onset N(25, 5), mass at or below the lower clamp of 15.
+    put("W3.2o", mp.ncdf(-2), ("sig", 3))
 
 
 # ---------------------------------------------------------------------------------------
@@ -462,6 +475,10 @@ def section_5():
     put("W5.4d", nutrition_cohort_loss(k, mp.mpf("0.3"), 0), ("fix", 3))
     put("W5.4e", nutrition_cohort_loss(k, mp.mpf("0.3"), -2), ("fix", 3))
     put("W5.4f", nutrition_cohort_loss(k, mp.mpf("0.3"), -4), ("fix", 3))
+    # Fertility multipliers (5.6). Smoothstep midpoint is exact; the declines are linear.
+    put("W5.6a", mp.mpf("0.5"), ("fix", 1))
+    put("W5.6b", (mp.mpf("50") - 40) / 20, ("fix", 1))
+    put("W5.6c", 1 + (mp.mpf("0.4") - 1) * mp.mpf("0.5"), ("fix", 1))
 
 
 def nutrition_weight(age):
@@ -500,6 +517,33 @@ def section_6():
     boys, girls = Growth("m"), Growth("f")
     for key, age in [("W6.1g", 8), ("W6.1h", 12)]:
         put(key, boys.height(age) - girls.height(age), ("fix", 1))
+
+
+# ---------------------------------------------------------------------------------------
+# Section 11: life course (step 9). Partner choice, fertility and twins, the bound of the
+# genetic value of longevity, the learning function.
+
+G_L_BOUND = 6
+WISH_SHAPE = [Fraction(10, 100), Fraction(15, 100), Fraction(40, 100), Fraction(25, 100), Fraction(10, 100)]
+TWINS_MZ = Fraction(4, 1000)
+TWINS_DZ = Fraction(10, 1000)
+
+
+def section_11():
+    # The penalty 16 ln(10) phi is ln(10) for first cousins (phi = 1/16), so a cousin is
+    # chosen a tenth as often as an equally fitting stranger; the odds ratio is e^penalty.
+    put("W11.2a", 16 * mp.log(10) / 16, ("fix", 3))
+    put("W11.2b", mp.exp(16 * mp.log(10) / 32), ("fix", 3))
+    put("W11.2c", mp.exp(16 * mp.log(10) / 64), ("fix", 3))
+    assert sum(WISH_SHAPE) == 1
+    put("W11.3a", sum(n * p for n, p in enumerate(WISH_SHAPE)), ("fix", 2))
+    twin_births = TWINS_MZ + TWINS_DZ
+    put("W11.3b", 100 * twin_births, ("fix", 1))
+    put("W11.3c", 100 * 2 * twin_births / (1 + twin_births), ("fix", 2))
+    put("W11.3d", Fraction(105, 205), ("frac",))
+    # Share of the reference population beyond the bound, two-sided.
+    put("W11.4a", mp.erfc(G_L_BOUND / mp.sqrt(2)), ("sig", 3))
+    put("W11.5a", 100 * (mp.exp(mp.mpf("0.25")) - 1), ("fix", 1))
 
 
 # ---------------------------------------------------------------------------------------
@@ -648,6 +692,8 @@ def section_7():
         ]:
             put("W7.3" + next(letters), value, fmt)
         put("W7.4" + ("a" if sex == "f" else "b"), sigma / b, ("fix", 2))
+        # 11.4: the bound of g_L at 6 as a shift of age.
+        put("W11.4" + ("b" if sex == "f" else "c"), G_L_BOUND * sigma / b, ("fix", 1))
         # A larger genetic value of longevity means a longer life (criterion P16).
         assert model.correlation() > 0, sex
     mp.mp.dps = saved
@@ -811,6 +857,7 @@ def main(argv):
     section_5()
     section_6()
     section_8()
+    section_11()
     if "--fast" not in argv:
         section_7()
     args = [a for a in argv[1:] if a != "--fast"]
