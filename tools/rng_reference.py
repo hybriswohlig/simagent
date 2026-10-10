@@ -9,12 +9,13 @@ written from the ADR alone, without a look at the Rust code.
   occasion, detail]) as 8 little-endian bytes each, 32 bytes in all.
 - Words: the key stream of ChaCha with 8 rounds, 256-bit key, 64-bit block counter 0
   and 64-bit stream 0 (the original ChaCha layout), block 0, as 8 little-endian u64.
-- Distributions (section 3): unit, unit_open0, uniform_below, bernoulli and poisson are
-  class E (integer and power-of-two arithmetic, exact here). exponential and normal are
-  class P: every basic step is done in f64 as the ADR writes it, only ln, sqrt and cos
-  come from mpmath (dps = 60, rounded to f64 by kat_reference.round_to_f64). The bits
-  recorded by `cargo xtask kat-record` may differ from this reference by 2^-48 relative
-  (exponential) and 2^-45 absolute (normal with mean 0, sd 1).
+- Distributions (section 3): unit, unit_open0, unit_open, uniform_below, bernoulli and
+  poisson are class E (integer and power-of-two arithmetic, exact here). exponential,
+  normal and gumbel are class P: every basic step is done in f64 as the ADR writes it,
+  only ln, sqrt and cos come from mpmath (dps = 60, rounded to f64 by
+  kat_reference.round_to_f64). The bits recorded by `cargo xtask kat-record` may differ
+  from this reference by 2^-48 relative (exponential) and 2^-45 absolute (normal with
+  mean 0, sd 1, and gumbel).
 
 The ChaCha8 here is an own implementation and is checked against test vector TC1 of
 draft-strombergson-chacha-test-vectors-01 (zero key, zero IV, 8 rounds) on every run.
@@ -208,6 +209,12 @@ def unit_open0(w: int) -> float:
     return float((w >> 11) + 1) * TWO_POW_MINUS_53
 
 
+def unit_open(w: int) -> float:
+    """(2 (w >> 12) + 1) * 2^-53: an odd integer below 2^53, exact as f64, times a power
+    of two, also exact. Strictly inside (0, 1), from 2^-53 to 1 - 2^-53."""
+    return float(2 * (w >> 12) + 1) * TWO_POW_MINUS_53
+
+
 def uniform_below(w: int, n: int) -> int:
     """The upper 64 bits of the 128-bit product."""
     assert n >= 1
@@ -234,6 +241,16 @@ def normal_reference(w0: int, w1: int, mean: float, sd: float):
     value = mean + sd * (radius * cosine)
     exact = sd == 0.0 or kind_ln == "E"
     return ("E" if exact else "P"), value
+
+
+def gumbel_reference(w: int):
+    """(class, value) of 0.0 - ln(0.0 - ln(unit_open(w))), the standard Gumbel by
+    inversion. Never exact: u < 1, so the inner logarithm is never exact, and the outer
+    one depends on its rounding."""
+    kind, log_u = ln_reference(unit_open(w))
+    assert kind == "P", f"ln(u) of word {w:016x} is exact"
+    _, log_t = ln_reference(0.0 - log_u)
+    return "P", 0.0 - log_t
 
 
 POISSON_MARGIN = mpmath.mpf("1e-9")
@@ -286,6 +303,21 @@ NORMAL_PAIRS = [
 ]
 
 
+def gumbel_zero_words() -> list:
+    """The two words around the zero of gumbel: u = (2k + 1) 2^-53 next to 1/e, with k the
+    integer nearest to (2^53 / e - 1) / 2 (mpmath, 60 digits), and k + 1."""
+    k = int(mpmath.nint((mpmath.mpf(2) ** 53 / mpmath.e - 1) / 2))
+    below, above = k << 12, (k + 1) << 12
+    assert gumbel_reference(below)[1] < 0.0 < gumbel_reference(above)[1]
+    return [below, above]
+
+
+# unit_open and gumbel take the upper 52 bits: their edges lie at 2^12 - 1 and 2^12 and at
+# the top, where 2^64 - 2^12 is the smallest word with the largest u. Then the two words
+# around the zero of gumbel, where a relative bound would fail.
+OPEN_WORDS = WORDS + [2**12 - 1, 2**12, MASK - 2**12, MASK - 2**12 + 1] + gumbel_zero_words()
+
+
 def class_p_row(name: str, inputs: str, kind: str, value: float, known: dict) -> str:
     ref = value_bits(value)
     expected = ref if kind == "E" else known.get((inputs, ref), kat_reference.UNRECORDED)
@@ -305,6 +337,11 @@ def write_distributions() -> None:
         "unit_open0",
         header,
         [f"{w:016x},{bits(unit_open0(w))},E,{bits(unit_open0(w))}" for w in WORDS],
+    )
+    write(
+        "unit_open",
+        header,
+        [f"{w:016x},{bits(unit_open(w))},E,{bits(unit_open(w))}" for w in OPEN_WORDS],
     )
     write(
         "uniform_below",
@@ -349,6 +386,13 @@ def write_distributions() -> None:
             rows.append(class_p_row("normal", inputs, kind, value, known))
     write("normal", header, rows)
 
+    known = kat_reference.recorded("gumbel")
+    rows = []
+    for w in OPEN_WORDS:
+        kind, value = gumbel_reference(w)
+        rows.append(class_p_row("gumbel", f"{w:016x}", kind, value, known))
+    write("gumbel", header, rows)
+
 
 if __name__ == "__main__":
     print("tc1_words", " ".join(f"{word:016x}" for word in words(bytes(32))))
@@ -367,9 +411,17 @@ if __name__ == "__main__":
             f" uniform_below(2^40+3)={uniform_below(w[0], 2**40 + 3)}"
             f" bernoulli(0.3)={int(bernoulli(w[0], 0.3))} bernoulli(0.6)={int(bernoulli(w[0], 0.6))}"
             f" poisson(5)={poisson_reference(w[0], 5.0)}"
-            f" unit={unit(w[0])!r}"
+            f" unit={unit(w[0])!r} unit_bits={bits(unit(w[0]))}"
+            f" gumbel_reference_bits={bits(gumbel_reference(w[0])[1])}"
         )
     print_lineage()
+    # The exact ends of gumbel: u = 2^-53 at w = 0 and u = 1 - 2^-53 at w = 2^64 - 1.
+    lowest, highest = mpmath.mpf(2) ** -53, 1 - mpmath.mpf(2) ** -53
+    print(
+        "gumbel_range",
+        mpmath.nstr(-mpmath.log(-mpmath.log(lowest)), 20),
+        mpmath.nstr(-mpmath.log(-mpmath.log(highest)), 20),
+    )
     write_distributions()
     if kat_reference.MISMATCHES:
         sys.exit(f"{len(kat_reference.MISMATCHES)} file(s) differ from the reference")
