@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":1,"core_version":21,"data_hash":"c61dc8e5cf9bc45f","build_commit":"unknown"}"#,
+            r#"{"format_version":1,"core_version":22,"data_hash":"d6460a2288eb0602","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[],"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.0,"from_years":18,"until_years":45,"pregnancy_months":10}}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":1,"core_version":21,"data_hash":"c61dc8e5cf9bc45f","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"e5f704bed88f0564"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":1,"core_version":22,"data_hash":"d6460a2288eb0602","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"e5f704bed88f0564"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540115df88effcdc9cf28ec6010a01ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000000010000000000000000000000000203fe87ff1d01000401010100ff0109746573743a74696e79000000010100010f636f72653a646973656173655f6172020001000000000000000000122d0a0100e48abcc4ed97c1fbe501"
+        "53494d4147454e540116828cacc7a8c482a3d6010a01ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e00000000010000000000000000000000000203fe87ff1d01000401010100ff0109746573743a74696e79000000010100010f636f72653a646973656173655f6172020001000000000000000000122d0a0100e48abcc4ed97c1fbe501"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -623,16 +623,16 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":21"#, r#""core_version":22"#);
+    replace_in(&log, r#""core_version":22"#, r#""core_version":23"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 22, this is 21"
+        "error: replay_foreign_core_version: the input log is of core version 23, this is 22"
     );
-    replace_in(&log, r#""core_version":22"#, r#""core_version":21"#);
-    replace_in(&log, "c61dc8e5cf9bc45f", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":23"#, r#""core_version":22"#);
+    replace_in(&log, "d6460a2288eb0602", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is c61dc8e5cf9bc45f"
+        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is d6460a2288eb0602"
     );
     assert!(!out.exists(), "a rejected replay writes nothing");
 }
@@ -1108,8 +1108,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 21, "the core version in the header of the save");
-    bytes[9] = 22;
+    assert_eq!(bytes[9], 22, "the core version in the header of the save");
+    bytes[9] = 23;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

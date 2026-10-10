@@ -3,16 +3,28 @@
 mod common;
 
 use serde_json::{Value, json};
-use sim_core::data::{Data, DataError, Morgans, PerTransmission};
+use sim_core::data::{
+    Calibrated, Carrier, Data, DataError, Effect, Morgans, Onset, PerTransmission,
+};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xc61d_c8e5_cf9b_c45f;
+const DATA_HASH: u64 = 0xd646_0a22_88eb_0602;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
 
-/// The check of definitions changed by `change`, as its error code or "ok".
+/// The check of definitions changed by `change`, as its error code or "ok"; without the
+/// diseases, whose loci the changes of the map would take away (`checked_diseases` keeps
+/// them).
 fn checked(change: impl FnOnce(&mut Value, &mut Value)) -> String {
+    checked_diseases(|c, g| {
+        c["diseases"] = json!([]);
+        change(c, g);
+    })
+}
+
+/// The check of the definitions of the repository, diseases included, changed by `change`.
+fn checked_diseases(change: impl FnOnce(&mut Value, &mut Value)) -> String {
     let (mut calibration, mut genome_map) = common::files();
     change(&mut calibration, &mut genome_map);
     match common::definitions(calibration, genome_map) {
@@ -85,7 +97,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x384b_2ae5_19b6_6207);
+    assert_eq!(data.hash(), 0x82fe_6ec0_b0d6_1cbc);
 }
 
 #[test]
@@ -126,7 +138,10 @@ fn the_hash_follows_every_value() {
         |c, _| c["values"]["core:map_length_x_female"]["value"] = json!(1.8),
         |_, g| g["map_version"] = json!(4),
         |_, g| g["loci"][0]["slot"] = json!(1),
-        |_, g| with_traits(g),
+        |c, g| {
+            with_traits(g);
+            c["diseases"] = json!([]);
+        },
     ];
     for change in changes {
         assert_ne!(changed(change), DATA_HASH);
@@ -708,6 +723,7 @@ fn phenotype_weights_reject() {
     let bounded = |effect: f64, with_row: bool| {
         let (mut c, mut g) = common::files();
         with_traits(&mut g);
+        c["diseases"] = json!([]);
         g["traits"][0]["sigma_ref"] = json!(1.0);
         g["loci"][1]["action"]["additive"]["effect"] = json!(effect);
         if with_row {
@@ -897,7 +913,7 @@ fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
         (|c, _| c["format_version"] = json!(2), "data.format_version"),
-        (|c, _| c["format_version"] = json!(4), "data.format_version"),
+        (|c, _| c["format_version"] = json!(5), "data.format_version"),
         (
             |c, _| {
                 c["values"]
@@ -1539,4 +1555,263 @@ fn every_body_value_reaches_its_field() {
     for ((key, get, _), new) in fields.into_iter().zip(moved) {
         assert_eq!(get(&model), new, "{key}");
     }
+}
+
+/// The map of the repository plus the trait `test:a` with one additive locus `test:s` on
+/// the free slot 0 of segment 1, next to the loci of the diseases.
+fn with_liability(g: &mut Value) {
+    g["traits"] = json!([trait_("test:a", 1.0)]);
+    let mut loci = g["loci"].as_array().expect("loci").clone();
+    loci.insert(
+        1,
+        json!({
+            "id": "test:s",
+            "chromosome": "autosome",
+            "segment": 1,
+            "slot": 0,
+            "action": {"additive": {"effect": 0.5, "d_ref": 1.0, "loads": [on("test:a", 1.0)]}},
+            "mark": "small",
+            "mutation": "both"
+        }),
+    );
+    g["loci"] = json!(loci);
+}
+
+/// The number of a calibration value inside a disease.
+fn number(c: &Calibrated) -> f64 {
+    c.value.get()
+}
+
+/// The six archetypes of genetics specification 3.2 in the order of the data, which is the
+/// order of their causes of death (ADR-0017 sections 1 and 2): carrier, penetrance, onset
+/// and effect. The two steps are those of 3.2: `h0 = H_18 / 18` (W3.2j, W3.2m) and for
+/// cystic fibrosis `h1 = (ln 2 − 0.02) / 47` (W3.2k, from Python), so `H(65) = ln 2`.
+#[test]
+fn the_diseases_are_those_of_the_specification() {
+    let data = common::data();
+    let diseases = data.diseases();
+    let codes: Vec<&str> = diseases.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(
+        codes,
+        [
+            "core:disease_ar",
+            "core:disease_ad_late",
+            "core:disease_ad_partial",
+            "core:disease_xr",
+            "core:disease_mt",
+            "core:disease_liability"
+        ]
+    );
+    let locus = |i: usize| match &diseases[i].carrier {
+        Carrier::Locus {
+            locus,
+            penetrance_female,
+            penetrance_male,
+        } => (
+            locus.as_str().to_owned(),
+            number(penetrance_female),
+            number(penetrance_male),
+        ),
+        Carrier::Threshold { .. } => panic!("a locus"),
+    };
+    assert_eq!(locus(0), ("core:disease_ar".to_owned(), 1.0, 1.0));
+    assert_eq!(locus(1), ("core:disease_ad_late".to_owned(), 1.0, 1.0));
+    assert_eq!(locus(2), ("core:disease_ad_partial".to_owned(), 0.7, 0.1));
+    assert_eq!(locus(3), ("core:disease_xr".to_owned(), 1.0, 1.0));
+    assert_eq!(locus(4), ("core:disease_mt".to_owned(), 0.1, 0.5));
+    match &diseases[5].carrier {
+        Carrier::Threshold {
+            liability,
+            heritability,
+            prevalence,
+        } => {
+            assert_eq!(
+                *liability, None,
+                "no trait of liability before the pre-run (11.1)"
+            );
+            assert_eq!((number(heritability), number(prevalence)), (0.6, 0.01));
+        }
+        Carrier::Locus { .. } => panic!("the threshold"),
+    }
+    let onset = |i: usize| match &diseases[i].onset {
+        Onset::Fixed { age } => vec![number(age)],
+        Onset::Normal {
+            mean,
+            sd,
+            low,
+            high,
+        } => {
+            vec![number(mean), number(sd), number(low), number(high)]
+        }
+    };
+    assert_eq!(onset(0), [0.0]);
+    assert_eq!(onset(1), [45.0, 10.0, 20.0, 80.0]);
+    assert_eq!(onset(2), [50.0, 10.0, 25.0, 85.0]);
+    assert_eq!(onset(3), [0.0]);
+    assert_eq!(onset(4), [25.0, 8.0, 10.0, 60.0]);
+    assert_eq!(onset(5), [25.0, 5.0, 15.0, 45.0]);
+    let effect = |i: usize| match &diseases[i].effect {
+        Effect::Death { per_year } => vec![number(per_year)],
+        Effect::DeathInTwoSteps {
+            before,
+            change_age,
+            after,
+        } => vec![number(before), number(change_age), number(after)],
+        Effect::Visible => Vec::new(),
+    };
+    assert_eq!(effect(0), [0.02 / 18.0, 18.0, 0.014_322_280_437_445_644]);
+    assert_eq!(effect(1), [0.04]);
+    assert_eq!(effect(2), [0.02]);
+    assert_eq!(effect(3), [0.01 / 18.0, 18.0, 0.005]);
+    assert_eq!(effect(4), Vec::<f64>::new());
+    assert_eq!(effect(5), [0.01]);
+}
+
+/// ADR-0017 section 1: the checks of the diseases, `data.disease` for a value or a
+/// carrier that does not fit, `data.trait_named` for a trait of liability the map lacks.
+#[test]
+fn diseases_reject() {
+    let cases: [(Change, &str); 24] = [
+        (|c, _| c["format_version"] = json!(3), "data.format_version"),
+        // The carrier: a locus of the map, marked disease, recessive or dominant, one
+        // disease per locus; codes unique.
+        (
+            |c, _| c["diseases"][0]["carrier"]["locus"]["locus"] = json!("core:nothing"),
+            "data.disease",
+        ),
+        (
+            |c, g| {
+                with_liability(g);
+                c["diseases"][0]["carrier"]["locus"]["locus"] = json!("test:s");
+            },
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["carrier"]["locus"]["locus"] = json!("core:disease_ar"),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["code"] = json!("core:disease_ar"),
+            "data.disease",
+        ),
+        // Penetrance, a fraction.
+        (
+            |c, _| c["diseases"][2]["carrier"]["locus"]["penetrance_female"]["value"] = json!(1.1),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][2]["carrier"]["locus"]["penetrance_male"]["value"] = json!(-0.1),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][2]["carrier"]["locus"]["penetrance_male"]["unit"] = json!("year"),
+            "data.calibration_unit",
+        ),
+        // Onset: ages from 0 to 130, a positive spread, bounds in order.
+        (
+            |c, _| c["diseases"][1]["onset"]["normal"]["low"]["value"] = json!(81.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["onset"]["normal"]["sd"]["value"] = json!(0.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["onset"]["normal"]["high"]["value"] = json!(131.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["onset"]["normal"]["mean"]["value"] = json!(-1.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][0]["onset"]["fixed"]["age"]["value"] = json!(-1.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][0]["onset"]["fixed"]["age"]["unit"] = json!("per_year"),
+            "data.calibration_unit",
+        ),
+        // Effect: the ranges of the death math (`mortality`), a death has a hazard.
+        (
+            |c, _| c["diseases"][1]["effect"]["death"]["per_year"]["value"] = json!(0.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][1]["effect"]["death"]["per_year"]["value"] = json!(1001.0),
+            "data.disease",
+        ),
+        (
+            |c, _| {
+                let steps = &mut c["diseases"][0]["effect"]["death_in_two_steps"];
+                steps["before"]["value"] = json!(0.0);
+                steps["after"]["value"] = json!(0.0);
+            },
+            "data.disease",
+        ),
+        (
+            |c, _| {
+                c["diseases"][0]["effect"]["death_in_two_steps"]["before"]["value"] = json!(1e-10);
+            },
+            "data.disease",
+        ),
+        (
+            |c, _| {
+                c["diseases"][0]["effect"]["death_in_two_steps"]["change_age"]["value"] =
+                    json!(0.0);
+            },
+            "data.disease",
+        ),
+        (
+            |c, _| {
+                c["diseases"][0]["effect"]["death_in_two_steps"]["change_age"]["value"] =
+                    json!(131.0);
+            },
+            "data.disease",
+        ),
+        // The threshold: a trait of the map, a heritability and a prevalence in (0, 1)
+        // and (0, 0.5].
+        (
+            |c, _| c["diseases"][5]["carrier"]["threshold"]["liability"] = json!("test:a"),
+            "data.trait_named",
+        ),
+        (
+            |c, _| c["diseases"][5]["carrier"]["threshold"]["heritability"]["value"] = json!(1.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][5]["carrier"]["threshold"]["prevalence"]["value"] = json!(0.6),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][4]["effect"] = json!("explodes"),
+            "serde",
+        ),
+    ];
+    for (change, code) in cases {
+        let result = checked_diseases(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    // Valid variants: no diseases, a trait of liability the map has, a penetrance of 0.
+    assert_eq!(checked_diseases(|c, _| c["diseases"] = json!([])), "ok");
+    assert_eq!(
+        checked_diseases(|c, g| {
+            with_liability(g);
+            c["diseases"][5]["carrier"]["threshold"]["liability"] = json!("test:a");
+        }),
+        "ok"
+    );
+    assert_eq!(
+        checked_diseases(|c, _| {
+            c["diseases"][2]["carrier"]["locus"]["penetrance_male"]["value"] = json!(0.0);
+        }),
+        "ok"
+    );
+    assert_eq!(
+        checked_diseases(|c, _| {
+            let diseases = c["diseases"].as_array_mut().expect("diseases");
+            diseases.push(json!({"code": "test:x"}));
+        }),
+        "serde: missing field `carrier`"
+    );
 }

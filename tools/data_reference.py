@@ -13,7 +13,19 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
 
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
                         traits: Vec<PhenotypeWeights>,
-                        sex_differences: Vec<SexDifference> }   (ADR-0014)
+                        sex_differences: Vec<SexDifference>,   (ADR-0014)
+                        diseases: Vec<Disease> }   (ADR-0017)
+  Disease { code: DataId, carrier: Carrier, onset: Onset, effect: Effect }
+  Carrier: locus { locus: DataId, penetrance_female: Calibrated,
+                   penetrance_male: Calibrated },
+           threshold { liability: Option<DataId>, heritability: Calibrated,
+                       prevalence: Calibrated }   (an option: 0 for none, 1 then the value)
+  Onset: fixed { age: Calibrated },
+         normal { mean: Calibrated, sd: Calibrated, low: Calibrated, high: Calibrated }
+  Effect: death { per_year: Calibrated },
+          death_in_two_steps { before: Calibrated, change_age: Calibrated,
+                               after: Calibrated },
+          visible
   SexDifference { trait: DataId, shift: Calibrated, variance_ratio: Calibrated }
   Calibrated { value: f64, unit: Unit }
   PhenotypeWeights { trait: DataId, h2_child: Calibrated, c2_child: Calibrated,
@@ -115,6 +127,20 @@ def check_text(calibration, genome_map) -> None:
             filled(row[number], CALIBRATED_TEXT)
     for entry in genome_map["traits"] + genome_map["loci"]:
         filled(entry, ("description",))
+    for disease in calibration["diseases"]:
+        check_numbers(disease)
+
+
+def check_numbers(value) -> None:
+    """Every number inside a disease (an object with a unit) has its text (ADR-0017)."""
+    if isinstance(value, dict) and "unit" in value:
+        filled(value, CALIBRATED_TEXT)
+    elif isinstance(value, dict):
+        for inner in value.values():
+            check_numbers(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            check_numbers(inner)
 
 
 def strip(value):
@@ -145,6 +171,42 @@ def calibration_bytes(doc) -> bytes:
         out += string(row["trait"])
         for number in SEX_DIFFERENCE:
             out += calibrated_bytes(row[number])
+    out += varint(len(doc["diseases"]))
+    for disease in doc["diseases"]:
+        out += disease_bytes(disease)
+    return out
+
+
+def variant(value, names):
+    """The variant of an externally tagged enum: its index and its fields (or none)."""
+    if isinstance(value, str):
+        return names.index(value), {}
+    (name, fields), = value.items()
+    return names.index(name), fields
+
+
+def disease_bytes(disease) -> bytes:
+    out = string(disease["code"])
+    index, carrier = variant(disease["carrier"], ["locus", "threshold"])
+    out += varint(index)
+    if index == 0:
+        out += string(carrier["locus"])
+        out += calibrated_bytes(carrier["penetrance_female"])
+        out += calibrated_bytes(carrier["penetrance_male"])
+    else:
+        liability = carrier["liability"]
+        out += varint(0) if liability is None else varint(1) + string(liability)
+        out += calibrated_bytes(carrier["heritability"]) + calibrated_bytes(carrier["prevalence"])
+    index, onset = variant(disease["onset"], ["fixed", "normal"])
+    out += varint(index)
+    names = ["age"] if index == 0 else ["mean", "sd", "low", "high"]
+    for name in names:
+        out += calibrated_bytes(onset[name])
+    index, effect = variant(disease["effect"], ["death", "death_in_two_steps", "visible"])
+    out += varint(index)
+    names = [["per_year"], ["before", "change_age", "after"], []][index]
+    for name in names:
+        out += calibrated_bytes(effect[name])
     return out
 
 

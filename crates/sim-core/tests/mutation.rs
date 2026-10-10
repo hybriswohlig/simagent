@@ -144,6 +144,8 @@ fn reference_data(vectors: &Value) -> Data {
         })
         .collect();
     let (mut calibration, _) = common::files();
+    // The diseases of the repository name loci this map does not have.
+    calibration["diseases"] = json!([]);
     calibration["values"]["core:mutation_rate"]["value"] = vectors["rates"]["standard"].clone();
     calibration["values"]["core:mutation_rate_disease"]["value"] =
         vectors["rates"]["disease"].clone();

@@ -1,5 +1,5 @@
 {
-  "format_version": 3,
+  "format_version": 4,
   "values": {
     "core:map_length_autosome_female": {
       "value": 5.35,
@@ -1921,5 +1921,6 @@
       }
     }
   ],
-  "sex_differences": []
+  "sex_differences": [],
+  "diseases": []
 }

@@ -1,5 +1,5 @@
 {
-  "format_version": 3,
+  "format_version": 4,
   "values": {
     "core:map_length_autosome_female": {
       "value": 5.35,
@@ -773,5 +773,373 @@
     }
   },
   "traits": [],
-  "sex_differences": []
+  "sex_differences": [],
+  "diseases": [
+    {
+      "code": "core:disease_ar",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ar",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "fixed": {
+          "age": {
+            "value": 0.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "visible and acting from birth"
+          }
+        }
+      },
+      "effect": {
+        "death_in_two_steps": {
+          "before": {
+            "value": 0.0011111111111111111,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2j): H_18 = 0.02 (K3.2b, game value) over 18 years",
+            "as_of": "2026-10-10",
+            "note": "h0 = H_18 / 18"
+          },
+          "change_age": {
+            "value": 18.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2",
+            "as_of": "2026-10-10",
+            "note": "the hazard changes at 18"
+          },
+          "after": {
+            "value": 0.014322280437445644,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2k): median age at death 65 (K3.2l), CFF Patient Registry 2024",
+            "as_of": "2026-10-10",
+            "note": "h1 = (ln 2 - H_18) / 47, so H(65) = ln 2"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_ad_late",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ad_late",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 45.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 20.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 80.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.04,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2d)",
+            "as_of": "2026-10-10",
+            "note": "median 17 years from onset to death (ln 2 / h)"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_ad_partial",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ad_partial",
+          "penetrance_female": {
+            "value": 0.7,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1 (Kuchenbaecker et al. 2017)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 0.1,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1 (Kuchenbaecker et al. 2017)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 50.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 85.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.02,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2f)",
+            "as_of": "2026-10-10",
+            "note": "constant from onset"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_xr",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_xr",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "fixed": {
+          "age": {
+            "value": 0.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "visible and acting from birth"
+          }
+        }
+      },
+      "effect": {
+        "death_in_two_steps": {
+          "before": {
+            "value": 0.0005555555555555556,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2m): H_18 = 0.01 (K3.2m, game value) over 18 years",
+            "as_of": "2026-10-10",
+            "note": "h0 = H_18 / 18"
+          },
+          "change_age": {
+            "value": 18.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2",
+            "as_of": "2026-10-10",
+            "note": "the hazard changes at 18"
+          },
+          "after": {
+            "value": 0.005,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2h), game value next to Hassan et al. 2021",
+            "as_of": "2026-10-10",
+            "note": "an addition to core:senescence"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_mt",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_mt",
+          "penetrance_female": {
+            "value": 0.1,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy (Yu-Wai-Man et al. 2011)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 0.5,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy (Yu-Wai-Man et al. 2011)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 8.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 60.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": "visible"
+    },
+    {
+      "code": "core:disease_liability",
+      "carrier": {
+        "threshold": {
+          "liability": null,
+          "heritability": {
+            "value": 0.6,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.6 (K3.6a), game value between the models 0.5 to 0.8",
+            "as_of": "2026-10-10",
+            "note": "h2 of the liability"
+          },
+          "prevalence": {
+            "value": 0.01,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2j)",
+            "as_of": "2026-10-10",
+            "note": "affected when L > T = Phi^-1(1 - K) (Falconer 1965)"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 5.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 15.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 45.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.01,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2k)",
+            "as_of": "2026-10-10",
+            "note": "constant from onset"
+          }
+        }
+      }
+    }
+  ]
 }
