@@ -59,7 +59,6 @@ paternal_sex 1 y
 param 0 core:hereditary_diseases
 param 1 core:nutrition_year
 applies_to 0 everyone
-applies_to 1 dummy_homozygous
 strand 0 maternal
 strand 1 paternal
 sex_chromosome 0 x
