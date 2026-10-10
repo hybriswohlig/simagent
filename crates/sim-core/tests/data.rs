@@ -1671,7 +1671,7 @@ fn the_diseases_are_those_of_the_specification() {
 /// carrier that does not fit, `data.trait_named` for a trait of liability the map lacks.
 #[test]
 fn diseases_reject() {
-    let cases: [(Change, &str); 26] = [
+    let cases: [(Change, &str); 29] = [
         (|c, _| c["format_version"] = json!(3), "data.format_version"),
         // The carrier: a locus of the map, marked disease, recessive or dominant, one
         // disease per locus; codes unique.
@@ -1789,6 +1789,16 @@ fn diseases_reject() {
             "data.disease",
         ),
         (
+            |c, _| c["diseases"][5]["carrier"]["threshold"]["heritability"]["value"] = json!(0.0),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][5]["carrier"]["threshold"]["prevalence"]["value"] = json!(0.0),
+            "data.disease",
+        ),
+        // A mendelian locus that is not marked disease (mutants: the mark alone decides).
+        (|_, g| g["loci"][0]["mark"] = json!("large"), "data.disease"),
+        (
             |c, _| c["diseases"][5]["carrier"]["threshold"]["prevalence"]["value"] = json!(0.6),
             "data.disease",
         ),
@@ -1816,6 +1826,19 @@ fn diseases_reject() {
         }),
         "ok"
     );
+    // Two steps with one of them 0: the old edge (nobody dies before the change), or a
+    // risk only before it (mutants: either step alone is enough).
+    for (before, after) in [(0.0, 0.01), (0.01, 0.0)] {
+        assert_eq!(
+            checked_diseases(|c, _| {
+                let steps = &mut c["diseases"][0]["effect"]["death_in_two_steps"];
+                steps["before"]["value"] = json!(before);
+                steps["after"]["value"] = json!(after);
+            }),
+            "ok",
+            "{before} {after}"
+        );
+    }
     assert_eq!(
         checked_diseases(|c, _| {
             let diseases = c["diseases"].as_array_mut().expect("diseases");
