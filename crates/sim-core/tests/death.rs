@@ -20,16 +20,14 @@ use sim_core::ageing::bio_age;
 use sim_core::body_contract::BodyParamKey;
 use sim_core::canonical::YearHash;
 use sim_core::data::Data;
-use sim_core::data_id::{DataId, str_key};
+use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{Genome, LocusAlleles, Sex};
 use sim_core::ids::SimId;
 use sim_core::input::{Couple, Fertility, Founder, Input, Start};
-use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::mortality;
 use sim_core::params::WorldParams;
-use sim_core::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use sim_core::time::{SimDuration, SimTime};
 use sim_core::world::{CensusRow, World, YearOut};
 
@@ -433,76 +431,36 @@ fn growth_alleles(g1: [u8; 2], g2: [u8; 2]) -> Vec<LocusAlleles> {
     vec![locus("test:g1", g1), locus("test:g2", g2)]
 }
 
+/// Scenario "longevity" of `tools/state_reference.py`: when each founder dies of
+/// senescence, with the trait and without it (seconds after the start). Senescence comes
+/// first for both; accident lies thousands of years ahead.
+const LONGEVITY_DUES: [(i64, i64); 2] = [(931_907_911, 908_586_569), (36_616_318, 47_127_105)];
+
 /// A trait of longevity scales senescence (genetics specification 7.2): a founder dies of
-/// it where the closed form of `mortality` puts it with `m = e^(−σ_g · g)` and `g` the
-/// genetic value of the trait; accident stays as it is. On the fixture with `test:growth`
-/// as the trait; by hand from 4.1 (`test:g1` additive with 0.5 and `d_ref` 1.25, `test:g2`
-/// with 0.125 and weight 2 around 0.5, `σ_ref` 2): two copies at `test:g1` give
-/// `(0.5 · 0.75 + 0.25 · (−0.5)) / 2 = 0.125`, none at either `(0.5 · (−1.25) + 0.25 ·
-/// (−0.5)) / 2 = −0.375`. Without the trait (`m` = 1) both die at other times.
+/// it with `m = e^(−σ_g · g)` and `g` the genetic value of the trait; on the fixture with
+/// `test:growth` as the trait, a woman and a man of 70 at the start. By hand from 4.1
+/// (`test:g1` additive with 0.5 and `d_ref` 1.25, `test:g2` with 0.125 and weight 2 around
+/// 0.5, `σ_ref` 2): her two copies at `test:g1` give `(0.5 · 0.75 + 0.25 · (−0.5)) / 2 =
+/// 0.125`, she lives longer; his none at either `(0.5 · (−1.25) + 0.25 · (−0.5)) / 2 =
+/// −0.375`, he dies sooner. Without the trait (`m` = 1) both die at the other times.
 #[test]
 fn a_trait_of_longevity_scales_senescence() {
     let data = longevity_data();
-    let tag = DataId::new("test:longevity").expect("valid");
-    let born = SimTime::from_secs(-70 * Y);
     let founders = [
         (Sex::Female, growth_alleles([1, 1], [0, 0]), 0.125),
         (Sex::Male, growth_alleles([0, 0], [0, 0]), -0.375),
     ];
-    let genetics = data.genetics();
     let growth = DataId::new("test:growth").expect("id");
-    let draws = Draws::new(WorldSeed::new(0xff));
-    let x0 = SimDuration::from_secs(70 * Y).as_years();
-    let due = |age: f64| {
-        SimTime::START
-            .checked_add(SimDuration::from_years_ceil(age - x0).expect("in range"))
-            .expect("in range")
-    };
-    let mut expected = Vec::new();
-    for (index, (sex, alleles, value)) in (0..).zip(&founders) {
+    for (sex, alleles, value) in &founders {
         let genome = Genome::with_alleles(*sex, alleles, &data).expect("fits");
         assert_eq!(genome.genetic_value(&growth, &data), Some(*value));
-        let (gompertz, per_year) = match sex {
-            Sex::Female => (genetics.senescence_female, genetics.accident_female),
-            Sex::Male => (genetics.senescence_male, genetics.accident_male),
-        };
-        let budget = |code: &str| {
-            let key = DrawKey {
-                tag: tags::DEATH_BUDGET,
-                subject: SubjectKey::from(LineageKey::founder(&tag, index)),
-                occasion: str_key(&DataId::new(code).expect("id")),
-                detail: 0,
-            };
-            draws.exponential(key, 1.0)
-        };
-        let senescence = |m: f64| {
-            due(mortality::senescence_age(
-                x0,
-                budget("core:senescence"),
-                gompertz,
-                m,
-            ))
-        };
-        let m = mortality::multiplier(Some(*value), genetics.longevity_sigma_g);
-        let with_trait = senescence(m);
-        let without = senescence(1.0);
-        let accident = due(mortality::accident_age(
-            x0,
-            budget("core:accident"),
-            per_year,
-        ));
-        assert!(with_trait < accident, "senescence comes first");
-        // A positive value makes the sim live longer, a negative one shorter.
-        assert_eq!(with_trait > without, *value > 0.0);
-        expected.push((with_trait, without));
     }
-
-    let world_with = |data: Data| {
+    let deaths = |data: Data| -> Vec<(Option<SimTime>, Option<String>)> {
         let mut world = World::new(data);
         let founders = founders
             .iter()
             .map(|(sex, alleles, _)| Founder {
-                born,
+                born: SimTime::from_secs(-70 * Y),
                 sex: *sex,
                 alleles: alleles.clone(),
             })
@@ -510,14 +468,8 @@ fn a_trait_of_longevity_scales_senescence() {
         world
             .submit(start("test:longevity", founders))
             .expect("accepted");
-        let last = expected
-            .iter()
-            .map(|(with_trait, without)| (*with_trait).max(*without))
-            .max()
-            .expect("two");
-        run(world, last.as_secs()).world
-    };
-    let deaths = |world: &World| -> Vec<(Option<SimTime>, Option<String>)> {
+        // Her death with the trait is the latest of the four.
+        let world = run(world, LONGEVITY_DUES[0].0).world;
         world
             .state()
             .pedigree()
@@ -529,14 +481,18 @@ fn a_trait_of_longevity_scales_senescence() {
             })
             .collect()
     };
-    let senescence = || Some("core:senescence".to_owned());
-    assert_eq!(
-        deaths(&world_with(longevity_data())),
-        expected
+    let expected = |pick: fn(&(i64, i64)) -> i64| -> Vec<(Option<SimTime>, Option<String>)> {
+        LONGEVITY_DUES
             .iter()
-            .map(|(with_trait, _)| (Some(*with_trait), senescence()))
-            .collect::<Vec<_>>()
-    );
+            .map(|dues| {
+                (
+                    Some(SimTime::from_secs(pick(dues))),
+                    Some("core:senescence".to_owned()),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(deaths(longevity_data()), expected(|dues| dues.0));
     // The same founders on the fixture without the trait.
     let (calibration, genome_map) = common::files_from(
         include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
@@ -544,13 +500,7 @@ fn a_trait_of_longevity_scales_senescence() {
     );
     let plain = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
         .expect("checked");
-    assert_eq!(
-        deaths(&world_with(plain)),
-        expected
-            .iter()
-            .map(|(_, without)| (Some(*without), senescence()))
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(deaths(plain), expected(|dues| dues.1));
 }
 
 /// ADR-0005, ADR-0017: the form age of every sim at every year end is never smaller than at

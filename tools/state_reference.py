@@ -63,6 +63,7 @@ from postcard_reference import (
 )
 from rng_reference import chacha_key, founder_key, str_key, unit, words
 
+import data_reference
 import world_reference
 
 YEAR = 364 * 86_400
@@ -973,6 +974,59 @@ def death_rows(name: str, world: world_reference.World) -> list:
     return rows
 
 
+# Scenario "longevity" (crates/sim-core/tests/death.rs): the fixture with traits
+# (tests/golden/data_traits) with `test:growth` as the trait of longevity (7.2), seed 0xff,
+# tag `test:longevity`, a woman and a man born 70 years before the start. The genetic
+# value of `test:growth` by hand from 4.1 and the fixture's map: `test:g1` additive with
+# effect 0.5 and `d_ref` 1.25 (load 1), `test:g2` with effect 0.125 and load 2 around
+# `d_ref` 0.5, `sigma_ref` 2. The woman has two copies at `test:g1` and none at `test:g2`:
+# `(0.5 * (2 - 1.25) + 0.25 * (0 - 0.5)) / 2 = 0.125`; the man none at either:
+# `(0.5 * (0 - 1.25) + 0.25 * (0 - 0.5)) / 2 = -0.375`. Senescence with
+# `m = e^(-sigma_g * g)` (|g| < 6, nothing held) and without the trait (`m` = 1), accident
+# as always; due from the start, seconds rounded up and robust to the last bit of libm.
+LONGEVITY_TAG = "test:longevity"
+LONGEVITY_BORN = -70 * YEAR
+LONGEVITY_VALUES = [(FEMALE, 0.125), (MALE, -0.375)]
+
+
+def longevity_dues() -> list:
+    """Per founder of "longevity": (senescence with the trait, without it, accident), in
+    seconds after the start."""
+    calibration, _ = data_reference.documents(world_reference.ROOT / "tests" / "golden" / "data_traits")
+    values = {key: entry["value"] for key, entry in calibration["values"].items()}
+    sigma_g = values["core:longevity_sigma_g"]
+    x0 = world_reference.as_years(0 - LONGEVITY_BORN)
+    rows = []
+    for index, (sex, value) in enumerate(LONGEVITY_VALUES):
+        name = "female" if sex == FEMALE else "male"
+        a, b = values[f"core:senescence_a_{name}"], values[f"core:senescence_b_{name}"]
+        per_year = values[f"core:accident_{name}"]
+        key = founder_key(LONGEVITY_TAG, index)
+
+        def senescence(m: float):
+            def seconds(nudge):
+                budget = world_reference.step_ulps(world_reference.budget_of(0xFF, key, SENESCENCE), nudge[0])
+                return world_reference.from_years_ceil(
+                    world_reference.senescence_age(x0, budget, a, b, m, nudge[1:]) - x0
+                )
+
+            return world_reference.robust_seconds(seconds)
+
+        m = world_reference.exp_reference(0.0 - sigma_g * value)[1]
+        accident = world_reference.from_years_ceil(
+            world_reference.accident_age(x0, world_reference.budget_of(0xFF, key, ACCIDENT), per_year) - x0
+        )
+        rows.append((senescence(m), senescence(1.0), accident))
+    return rows
+
+
+LONGEVITY_DUES = longevity_dues()
+# Senescence comes first for both; the trait moves the woman's death later (g > 0) and
+# the man's earlier (g < 0).
+assert all(with_trait < accident for with_trait, _, accident in LONGEVITY_DUES)
+assert LONGEVITY_DUES[0][0] > LONGEVITY_DUES[0][1] and LONGEVITY_DUES[1][0] < LONGEVITY_DUES[1][1]
+
+
 TEST_DATA = [
     ("repository", world_reference.REPOSITORY),
     ("mortal", MORTAL_DATA),
@@ -990,6 +1044,7 @@ TEST_DATA = [
 
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
+    print(f"longevity_dues (senescence with the trait, without, accident) {LONGEVITY_DUES}")
     for name, data in TEST_DATA:
         (fa, fb), (ma, mb) = data.senescence[FEMALE], data.senescence[MALE]
         print(
