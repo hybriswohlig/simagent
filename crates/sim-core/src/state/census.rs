@@ -71,7 +71,7 @@ mod tests {
             lineage_key: key(n),
             sex: Sex::Female,
             genome: Genome::reference(Sex::Female),
-            exposure: None,
+            afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
             parents: None,
         }
@@ -85,7 +85,7 @@ mod tests {
             lineage_key: key(n),
             sex: Sex::Male,
             genome: Genome::reference(Sex::Male),
-            exposure: None,
+            afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
             parents: None,
         }

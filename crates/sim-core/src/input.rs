@@ -97,11 +97,9 @@ pub struct DeathCause {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppliesTo {
-    /// On everyone; on a founder from the start on.
+    /// On everyone; on a founder from the start on. The hereditary diseases are causes of
+    /// the data, not of `Start` (ADR-0017 section 3).
     Everyone,
-    /// Only on a sim with the dummy allele twice, and only while the switch of the
-    /// hereditary diseases is on (C5): the hereditary disease of the Durchstich.
-    DummyHomozygous,
 }
 
 /// The smallest hazard a cause may have. A budget is below 37, so the years until death

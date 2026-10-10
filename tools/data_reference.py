@@ -254,12 +254,25 @@ def genome_map_bytes(doc) -> bytes:
     return out
 
 
-def data_hash(data_dir: Path) -> int:
+def documents(data_dir: Path):
+    """The calibration and the genome map under `data_dir` as parsed JSON, text fields and
+    all."""
     calibration = json.loads((data_dir / "calibration" / "genetics.json").read_text())
     genome_map = json.loads((data_dir / "genetics" / "genome_map.json").read_text())
+    return calibration, genome_map
+
+
+def documents_hash(calibration, genome_map) -> int:
+    """The data hash of a calibration and a genome map given as parsed JSON (test data
+    built in memory, or the files): the text fields checked, then stripped, as the core
+    sees them."""
     check_text(calibration, genome_map)
     calibration, genome_map = strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(calibration_bytes(calibration) + genome_map_bytes(genome_map), seed=0)
+
+
+def data_hash(data_dir: Path) -> int:
+    return documents_hash(*documents(data_dir))
 
 
 def main(argv):

@@ -45,6 +45,12 @@ impl Run {
     }
 }
 
+/// The test data of the scenario (ADR-0017 section 5): the repository's map and calibration
+/// with the disease of the walking skeleton only, from 18 years on.
+fn fork_data() -> sim_core::data::Data {
+    common::data_with_diseases(common::dummy_disease(18.0))
+}
+
 /// The scenario: its `Start` and its end.
 fn scenario() -> (Input, i64) {
     let text = include_str!("../../../tests/scenarios/fork_no_density.json");
@@ -57,7 +63,7 @@ fn scenario() -> (Input, i64) {
 /// The parent run, or with `fork` the fork at year 5 with the switch on.
 fn run(fork: bool) -> Run {
     let (start, until) = scenario();
-    let mut world = World::new(common::data());
+    let mut world = World::new(fork_data());
     world.submit(start).expect("accepted");
     let mut run = Run {
         log: world.take_log(),
@@ -238,7 +244,7 @@ fn fork_point_hash_equals_parent() {
 fn fork_without_override_equals_original() {
     let parent = run(false);
     let (start, until) = scenario();
-    let mut world = World::new(common::data());
+    let mut world = World::new(fork_data());
     world.submit(start).expect("accepted");
     let mut fork = Run {
         log: world.take_log(),
@@ -403,7 +409,7 @@ fn draw_keys_unique_in_log() {
 #[test]
 fn yearly_balance_log_matches_state() {
     let (start, until) = scenario();
-    let mut world = World::new(common::data());
+    let mut world = World::new(fork_data());
     world.submit(start).expect("accepted");
     let mut run = Run {
         log: world.take_log(),

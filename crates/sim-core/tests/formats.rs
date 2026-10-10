@@ -469,8 +469,9 @@ fn partnership_forms_are_pinned() {
     assert!(from_json::<Input>(&without).is_err());
 }
 
-/// Death (ADR-0001, ADR-0004 section 7): the causes in the input (one for everyone, one
-/// for the homozygous only), the entry of a death and the draw it names as its cause,
+/// Death (ADR-0001, ADR-0004 section 7): the cause in the input (for everyone; the
+/// hereditary diseases are causes of the data, ADR-0017), the entry of a death and the draw
+/// it names as its cause,
 /// with all four numbers as hex in JSON.
 #[test]
 fn death_forms_are_pinned() {
@@ -486,22 +487,6 @@ fn death_forms_are_pinned() {
         postcard_round_trip(&cause),
         hex("09746573743a626173657b14ae47e17a943f00")
     );
-    let disease = DeathCause {
-        cause: Code::new("test:dummy_disease").expect("valid"),
-        per_year: FiniteF64::try_new(0.3).expect("finite"),
-        applies_to: AppliesTo::DummyHomozygous,
-    };
-    let disease_json =
-        r#"{"cause":"test:dummy_disease","per_year":0.3,"applies_to":"dummy_homozygous"}"#;
-    assert_eq!(json(&disease), disease_json);
-    assert_eq!(
-        from_json::<DeathCause>(disease_json).expect("parses"),
-        disease
-    );
-    assert_eq!(
-        postcard_round_trip(&disease),
-        hex("12746573743a64756d6d795f64697365617365333333333333d33f01")
-    );
     for rejected in [
         r#"{"cause":"test:base","applies_to":"everyone"}"#,
         r#"{"per_year":0.02,"applies_to":"everyone"}"#,
@@ -513,6 +498,8 @@ fn death_forms_are_pinned() {
         r#"{"cause":"Base","per_year":0.02,"applies_to":"everyone"}"#,
         r#"{"cause":"test:base","per_year":0.02,"applies_to":"all"}"#,
         r#"{"cause":"test:base","per_year":0.02,"applies_to":"DummyHomozygous"}"#,
+        // The diseases are causes of the data since ADR-0017.
+        r#"{"cause":"test:base","per_year":0.02,"applies_to":"dummy_homozygous"}"#,
         r#"{"cause":"test:base","per_year":0.02,"applies_to":1}"#,
         r#"{"cause":"test:base","per_year":0.02,"applies_to":"everyone","applies":"all"}"#,
     ] {
@@ -1243,10 +1230,10 @@ fn log_codes_are_stable() {
     }
     actual.extend(params.iter().map(|p| line("param", p)));
     // On whom a cause of death acts: part of `Start` and of saves.
-    let targets = [AppliesTo::Everyone, AppliesTo::DummyHomozygous];
+    let targets = [AppliesTo::Everyone];
     for target in &targets {
         match target {
-            AppliesTo::Everyone | AppliesTo::DummyHomozygous => {}
+            AppliesTo::Everyone => {}
         }
     }
     actual.extend(targets.iter().map(|t| line("applies_to", t)));
@@ -1269,8 +1256,20 @@ fn log_codes_are_stable() {
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
         .lines()
-        .filter(|l| !l.starts_with('#'))
+        .filter(|l| !l.starts_with('#') && !l.starts_with("retired "))
         .map(|l| format!("{l}\n"))
         .collect();
     assert_eq!(actual, pinned, "log codes are never renumbered (ADR-0004)");
+    // A retired code keeps its place: no code in use has its type and index.
+    for retired in golden.lines().filter_map(|l| l.strip_prefix("retired ")) {
+        let mut words = retired.split(' ');
+        let (kind, index) = (words.next(), words.next());
+        assert!(
+            !pinned.lines().any(|l| {
+                let mut used = l.split(' ');
+                (used.next(), used.next()) == (kind, index)
+            }),
+            "a retired code is used again: {retired}"
+        );
+    }
 }

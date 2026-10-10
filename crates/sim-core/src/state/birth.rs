@@ -2,7 +2,7 @@
 //! child enters the world with the next SimId, its parents and the genome fixed at its
 //! conception.
 
-use super::{DomainState, Parents, Sim, Slot, conception, death, partnership, start};
+use super::{DomainState, Parents, Sim, Slot, conception, death, disease, partnership, start};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::ids::SimId;
@@ -14,7 +14,7 @@ use crate::world::{EventPayload, SimCtx};
 /// The pregnancy of `mother` ends: the child is born now. Its creation entry `core:birth`
 /// names child, mother and father, with the plan of the conception and the rule
 /// `core:gestation` as causes. The child's first birthday comes a year later, its causes
-/// of death and its exposure act from now on. If she is in an open partnership, her
+/// of death act from now on, its diseases are fixed now (ADR-0017 section 3). If she is in an open partnership, her
 /// attempts begin again from the second after the birth.
 pub(crate) fn on_birth(
     domain: &mut DomainState,
@@ -32,6 +32,9 @@ pub(crate) fn on_birth(
         .as_ref()
         .unwrap_or_else(|| panic!("invariant birth.before_start"))
         .hereditary_diseases;
+    let seed = domain
+        .world_seed
+        .unwrap_or_else(|| panic!("invariant birth.before_start"));
     let now = ctx.now();
     // The rule of a gestation, the cause of the birth next to the plan.
     let rule = Code::new("core:gestation").unwrap_or_else(|_| panic!("invariant birth.rule_code"));
@@ -49,8 +52,12 @@ pub(crate) fn on_birth(
             lineage_key: pregnancy.lineage_key,
             sex: pregnancy.sex,
             genome: pregnancy.genome,
-            exposure: death::first_exposure(
-                death::dummy_homozygous(&pregnancy.genome, data),
+            afflictions: disease::afflictions(
+                data,
+                seed,
+                pregnancy.lineage_key,
+                pregnancy.sex,
+                &pregnancy.genome,
                 switch_on,
                 now,
             ),
@@ -66,7 +73,7 @@ pub(crate) fn on_birth(
     let handle = ctx.schedule(next, EventPayload::Birthday { sim: child }, born);
     domain.pending.insert((child, Slot::Birthday), handle);
     ctx.trace(child, || TracePayload::BirthdayPlanned { next });
-    death::plan_deaths(domain, child, 0, born, ctx);
+    death::plan_deaths(domain, data, child, born, ctx);
     if partnership::open_partnership(domain, mother).is_some() {
         let after = now
             .checked_add(SimDuration::from_secs(1))

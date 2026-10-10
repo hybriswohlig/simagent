@@ -120,6 +120,33 @@ pub fn data() -> Data {
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 
+/// The data of the repository with `diseases` as its list of hereditary diseases (ADR-0017
+/// section 1).
+#[allow(dead_code, reason = "not every test crate needs other diseases")]
+pub fn data_with_diseases(diseases: Value) -> Data {
+    let (mut calibration, genome_map) = files();
+    calibration["diseases"] = diseases;
+    Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// The disease of the walking skeleton as data (ADR-0017 section 5): `test:dummy_disease` on
+/// `core:disease_ar`, penetrance 1, onset `onset`, 0.3 per year. With onset 0 it acts like
+/// the old cause of `Start` for the homozygous; the acceptance scenario takes onset 18.
+#[allow(dead_code, reason = "not every test crate needs the dummy disease")]
+pub fn dummy_disease(onset: f64) -> Value {
+    let number = |value: f64, unit: &str| json!({"value": value, "unit": unit});
+    json!([{
+        "code": "test:dummy_disease",
+        "carrier": {"locus": {
+            "locus": "core:disease_ar",
+            "penetrance_female": number(1.0, "fraction"),
+            "penetrance_male": number(1.0, "fraction")
+        }},
+        "onset": {"fixed": {"age": number(onset, "year")}},
+        "effect": {"death": {"per_year": number(0.3, "per_year")}}
+    }])
+}
+
 /// The alleles of a founder at the locus `core:disease_ar` of the walking skeleton: 1 for the
 /// dummy allele, 0 for the reference allele, maternal then paternal; no entry for two
 /// reference alleles (genetics specification 2.1).

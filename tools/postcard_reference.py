@@ -58,12 +58,14 @@ def genotype(maternal: int, paternal: int) -> tuple:
     return (maternal, paternal)
 
 
-def founder_alleles(genes: tuple) -> bytes:
+def founder_alleles(genes) -> bytes:
     """Vec<LocusAlleles>, LocusAlleles { locus: DataId, copies: Vec<u8> }: only a locus
-    with an alternative allele is listed; a u8 is one raw byte."""
-    if genes == (0, 0):
-        return seq([])
-    return seq([string("core:disease_ar") + varint(2) + bytes(genes)])
+    with an alternative allele is listed; a u8 is one raw byte. `genes` is the pair of
+    alleles at `core:disease_ar` (from `genotype`) or a list of (locus, copies), the
+    copies maternal then paternal (docs/GLOSSAR.md `copies`)."""
+    if isinstance(genes, tuple):
+        genes = [] if genes == (0, 0) else [("core:disease_ar", list(genes))]
+    return seq([string(locus) + varint(len(copies)) + bytes(copies) for locus, copies in genes])
 
 
 def genome(sex: bytes, genes: tuple) -> bytes:
@@ -79,6 +81,41 @@ def genome(sex: bytes, genes: tuple) -> bytes:
 
     from_father = variant(0, varint(0)) if sex == FEMALE else variant(1, bytes([0]))
     return autosomes(maternal) + autosomes(paternal) + varint(0) + from_father + bytes([0])
+
+
+def genome_of(person: dict) -> bytes:
+    """Genome as in `genome`, from a genome in the form of tools/meiosis_reference.py
+    (`autosomes_maternal`, `autosomes_paternal`: 8 segments of 24 slots; `x_maternal`;
+    `x_paternal` or `paternal_sex` {"x" or "y": slots}; `mt`). Autosome segment s, slot i
+    is bit 24 s + i of the three words; X, Y and mt slot i is bit i (the layout the
+    meiosis tests of sim-core read the reference vectors with)."""
+
+    def autosomes(rows) -> bytes:
+        words = [0, 0, 0]
+        for segment, row in enumerate(rows):
+            for slot, allele in enumerate(row):
+                at = 24 * segment + slot
+                words[at // 64] |= allele << (at % 64)
+        return b"".join(varint(word) for word in words)
+
+    def bits(slots) -> int:
+        return sum(allele << slot for slot, allele in enumerate(slots))
+
+    if "x_paternal" in person:
+        name, from_father = "x", person["x_paternal"]
+    else:
+        ((name, from_father),) = person["paternal_sex"].items()
+    if name == "x":
+        second = variant(0, varint(bits(from_father)))
+    else:
+        second = variant(1, bytes([bits(from_father)]))
+    return (
+        autosomes(person["autosomes_maternal"])
+        + autosomes(person["autosomes_paternal"])
+        + varint(bits(person["x_maternal"]))
+        + second
+        + bytes([bits(person["mt"])])
+    )
 
 
 def lineage_key(key: int) -> bytes:
@@ -116,8 +153,9 @@ def f64(value: float) -> bytes:
     return struct.pack("<d", value)
 
 
-# AppliesTo: everyone = 0, dummy_homozygous = 1.
-APPLIES_TO = {"everyone": 0, "dummy_homozygous": 1}
+# AppliesTo: everyone = 0, its only variant since the hereditary diseases come from the
+# data (ADR-0017 section 3).
+APPLIES_TO = {"everyone": 0}
 
 
 def death_cause(code: str, per_year: float, applies_to: str = "everyone") -> bytes:
@@ -126,12 +164,25 @@ def death_cause(code: str, per_year: float, applies_to: str = "everyone") -> byt
 
 
 def exposure(value) -> bytes:
-    """Option<Exposure>, Exposure { before: SimDuration, since: Option<SimTime> }; the
-    value is None or a pair (before, since) with since None or a time."""
+    """Option<Exposure>, Exposure { used: FiniteF64, since: Option<SimTime> }: the hazard
+    used up in the closed periods of the switch and the time the current one began. The
+    value is None or a pair (used, since) with since None or a time."""
     if value is None:
         return b"\x00"
-    before, since = value
-    return b"\x01" + signed(before) + (b"\x00" if since is None else b"\x01" + signed(since))
+    used, since = value
+    return b"\x01" + f64(used) + (b"\x00" if since is None else b"\x01" + signed(since))
+
+
+def affliction(disease: int, onset: float, exposure_) -> bytes:
+    """Affliction { disease: u64 (the str_key of its code), onset: FiniteF64 (years),
+    exposure: Option<Exposure> } (None for a visible disease)."""
+    return varint(disease) + f64(onset) + exposure(exposure_)
+
+
+def afflictions(items: list) -> bytes:
+    """Vec<Affliction> in the order of the diseases in the data; each item a triple
+    (disease, onset, exposure) as for `affliction`."""
+    return seq([affliction(*item) for item in items])
 
 
 def founder(born: int, sex: bytes, genes: tuple) -> bytes:
@@ -263,7 +314,9 @@ if __name__ == "__main__":
         ("sample_random_cause", SAMPLE_RANDOM_CAUSE),
         ("sample_death_payload", SAMPLE_DEATH_PAYLOAD),
         ("death_cause", death_cause("test:base", 0.02)),
-        ("death_cause_dummy", death_cause("test:dummy_disease", 0.3, "dummy_homozygous")),
+        ("affliction_lethal_off", affliction(0x0123456789ABCDEF, 0.0, (0.0, None))),
+        ("affliction_lethal_on", affliction(0x0123456789ABCDEF, 18.0, (0.25, 5))),
+        ("affliction_visible", affliction(0x0123456789ABCDEF, 25.5, None)),
         ("sample_arrange", SAMPLE_ARRANGE),
         ("sample_partnered_payload", SAMPLE_PARTNERED_PAYLOAD),
         ("couple", couple(0, 1)),

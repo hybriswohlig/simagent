@@ -1811,15 +1811,16 @@ fn diseases_reject() {
         let result = checked_diseases(change);
         assert!(result.starts_with(code), "{code}: {result}");
     }
-    // Valid variants: no diseases, a trait of liability the map has, a penetrance of 0.
-    assert_eq!(checked_diseases(|c, _| c["diseases"] = json!([])), "ok");
+    // A trait of liability the map has waits for the world rule of step 11.
     assert_eq!(
         checked_diseases(|c, g| {
             with_liability(g);
             c["diseases"][5]["carrier"]["threshold"]["liability"] = json!("test:a");
         }),
-        "ok"
+        "data.disease"
     );
+    // Valid variants: no diseases, a penetrance of 0.
+    assert_eq!(checked_diseases(|c, _| c["diseases"] = json!([])), "ok");
     assert_eq!(
         checked_diseases(|c, _| {
             c["diseases"][2]["carrier"]["locus"]["penetrance_male"]["value"] = json!(0.0);
