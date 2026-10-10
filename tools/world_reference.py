@@ -42,8 +42,9 @@ What the model knows:
   her lineage key, occasion the month index, detail his lineage key); on success she
   conceives her conception number n: the child key `child(her, his, n, 0)`, per parent
   the start strand `uniform_below(MEIOSIS_START_STRAND, 2)` (subject the genome key,
-  occasion 0 mother and 1 father) and the sex `uniform_below(SEX_CHROMOSOME, 2)`
-  (occasion 1). Entries: `core:conception` (her, him; plan and draw), then
+  occasion 0 mother and 1 father) and the sex `bernoulli(SEX_CHROMOSOME, p_Y)`
+  (occasion 1, true for a son; `p_Y = r / (1 + r)` from `core:sex_ratio_at_birth`,
+  genetics specification 2.3 and 11.3). Entries: `core:conception` (her, him; plan and draw), then
   `core:meiosis` of her and of him (event, rule `core:meiosis`, the strand draw, for him
   also the sex draw). The series ends; the pregnancy is state, and the birth is planned
   `pregnancy_months` months later (class birth 200, by the conception). A failed attempt
@@ -110,8 +111,9 @@ from rng_reference import (
 
 import meiosis_reference
 
-# The map lengths of data/calibration/genetics.json.
+# The map lengths and the sex ratio at birth of data/calibration/genetics.json.
 MAP_LENGTHS = meiosis_reference.load_map_lengths()
+SEX_RATIO = meiosis_reference.load_sex_ratio()
 
 
 def _definitions():
@@ -173,7 +175,7 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
 PROJECTION_VERSION = 10
-CORE_VERSION = 19
+CORE_VERSION = 20
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -319,7 +321,7 @@ class World:
         # The meiosis of the independent reference (tools/meiosis_reference.py, written
         # from the genetics specification 2.3 by another model).
         genome, records = meiosis_reference.child_with_mutation(
-            self.seed, child, self.genomes[woman], self.genomes[man], MAP_LENGTHS, GENOME_MAP, RATES
+            self.seed, child, self.genomes[woman], self.genomes[man], MAP_LENGTHS, SEX_RATIO, GENOME_MAP, RATES
         )
         for side, parent in ((0, woman), (1, man)):
             record = records["mother" if side == 0 else "father"]
