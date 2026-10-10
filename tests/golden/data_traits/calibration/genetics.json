@@ -1,6 +1,55 @@
 {
-  "format_version": 4,
+  "format_version": 5,
   "values": {
+    "core:accident_female": {
+      "value": 0.00015,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (K7.1a), between the life table's death rates of children and young adults",
+      "as_of": "2026-10-11",
+      "note": "Makeham term of women, per year"
+    },
+    "core:accident_male": {
+      "value": 0.0002,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (K7.1b), between the life table's death rates of children and young adults",
+      "as_of": "2026-10-11",
+      "note": "Makeham term of men, per year"
+    },
+    "core:longevity_sigma_g": {
+      "value": 0.724,
+      "unit": "logit",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2a), fitted so that the heritability of lifespan is 0.2 (K7.1g)",
+      "as_of": "2026-10-11",
+      "note": "m = exp(-sigma_g * g_L); no effect without a trait of longevity"
+    },
+    "core:senescence_a_female": {
+      "value": 3.25e-06,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2b), fitted to the life tables of Destatis 2023/2025 (life expectancy 83.43, at 65 21.10)",
+      "as_of": "2026-10-11",
+      "note": "Gompertz a of women, per year"
+    },
+    "core:senescence_a_male": {
+      "value": 8.73e-06,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2d), fitted to the life tables of Destatis 2023/2025 (life expectancy 78.82, at 65 17.97)",
+      "as_of": "2026-10-11",
+      "note": "Gompertz a of men, per year"
+    },
+    "core:senescence_b_female": {
+      "value": 0.1182,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2c), fitted as a",
+      "as_of": "2026-10-11",
+      "note": "Gompertz b of women, per year of age"
+    },
+    "core:senescence_b_male": {
+      "value": 0.1118,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2e), fitted as a",
+      "as_of": "2026-10-11",
+      "note": "Gompertz b of men, per year of age"
+    },
     "core:map_length_autosome_female": {
       "value": 5.35,
       "unit": "morgan",
@@ -855,5 +904,6 @@
       }
     }
   ],
-  "diseases": []
+  "diseases": [],
+  "longevity_trait": null
 }
