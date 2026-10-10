@@ -14,7 +14,9 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
                         traits: Vec<PhenotypeWeights>,
                         sex_differences: Vec<SexDifference>,   (ADR-0014)
-                        diseases: Vec<Disease> }   (ADR-0017)
+                        diseases: Vec<Disease>,   (ADR-0017)
+                        longevity_trait: Option<DataId> }   (format 5, ADR-0017 section 1:
+                        a trait of the map or none, 0 for none, 1 then the ID)
   Disease { code: DataId, carrier: Carrier, onset: Onset, effect: Effect }
   Carrier: locus { locus: DataId, penetrance_female: Calibrated,
                    penetrance_male: Calibrated },
@@ -143,6 +145,14 @@ def check_numbers(value) -> None:
             check_numbers(inner)
 
 
+def check_named_traits(calibration, genome_map) -> None:
+    """A trait the calibration names (the trait of longevity) is a trait of the map
+    (ADR-0017 section 1, `data.trait_named`); none is allowed."""
+    named = calibration["longevity_trait"]
+    traits = {entry["id"] for entry in genome_map["traits"]}
+    assert named is None or named in traits, f"longevity_trait {named} is no trait of the map"
+
+
 def strip(value):
     """The file without its text fields, which every place that has them must fill."""
     if isinstance(value, dict):
@@ -174,7 +184,13 @@ def calibration_bytes(doc) -> bytes:
     out += varint(len(doc["diseases"]))
     for disease in doc["diseases"]:
         out += disease_bytes(disease)
+    out += option_id(doc["longevity_trait"])
     return out
+
+
+def option_id(value) -> bytes:
+    """Option<DataId>: 0 for none, 1 then the string."""
+    return varint(0) if value is None else varint(1) + string(value)
 
 
 def variant(value, names):
@@ -195,7 +211,7 @@ def disease_bytes(disease) -> bytes:
         out += calibrated_bytes(carrier["penetrance_male"])
     else:
         liability = carrier["liability"]
-        out += varint(0) if liability is None else varint(1) + string(liability)
+        out += option_id(liability)
         out += calibrated_bytes(carrier["heritability"]) + calibrated_bytes(carrier["prevalence"])
     index, onset = variant(disease["onset"], ["fixed", "normal"])
     out += varint(index)
@@ -267,6 +283,7 @@ def documents_hash(calibration, genome_map) -> int:
     built in memory, or the files): the text fields checked, then stripped, as the core
     sees them."""
     check_text(calibration, genome_map)
+    check_named_traits(calibration, genome_map)
     calibration, genome_map = strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(calibration_bytes(calibration) + genome_map_bytes(genome_map), seed=0)
 

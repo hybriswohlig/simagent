@@ -6,20 +6,33 @@ The bytes follow the postcard wire format (see postcard_reference.py), the field
 follows ADR-0003 5.2 and ADR-0002 ("Speichern, Laden, Hash"). The hash is xxh3-64 with
 seed 0 from the C reference implementation (PyPI xxhash, pinned in requirements.txt).
 
-Every scenario runs on the repository data (six hereditary diseases, ADR-0017 section 3)
-unless it says otherwise; those that had the old cause `test:dummy_disease` for the
-homozygous run on the "dummy disease data" instead (world_reference.dummy_disease_data,
-design note section 6). With the switch off a sim keeps its afflictions but no disease is
-planned to kill it.
+`Start` has no causes of death any more: every sim dies of `core:senescence`,
+`core:accident` or a lethal hereditary disease, with the rates of the data (genetics
+specification 7.1, 7.2; ADR-0017 section 2; design note of the death from the data). A
+scenario without causes of its own ("tiny", "pair") runs on the repository data (six
+hereditary diseases, the rates of 7.2). A scenario that had causes runs on test data
+(`world_reference.death_test_data`, design note section 4): the accident rate of both
+sexes is the rate of its first cause (`test:base`), the Gompertz `a` of both sexes the
+rate of its second (`test:old_age` and the like) with `b` = 0.001, or `a` = 1e-15 and
+`b` = 0.001 (senescence practically off) without a second cause; the diseases as the
+scenario had them (the dummy disease for "sick", the repository's six otherwise).
+"afflicted" tests only the diseases: both causes practically off (accident 1e-9, `a` =
+1e-15, `b` = 0.001). Where the rates of section 4 cannot keep the idea of a scenario
+("tie", "partners", "blight") it says so and why. The death codes in the log are
+`core:senescence` and `core:accident`. With the switch off a sim keeps its afflictions
+but no disease is planned to kill it.
 
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
 (from the father) at the dummy locus (ADR-0004). Her lineage key is that of founder 0
-of the tag (ADR-0001 section 4). By hand from ADR-0002 and ADR-0004:
+of the tag (ADR-0001 section 4). By hand from ADR-0002, ADR-0004 and the genetics
+specification 7.1, 7.2:
 - the input is applied at now = 0; the year end series gets insertion number 1 (first at
-  YEAR - 1, period YEAR), the founder's first birthday insertion number 2 (at YEAR - 1);
-- in the queue the birthday comes first: same second, domain phase before observers.
+  YEAR - 1, period YEAR), the founder's first birthday insertion number 2 (at YEAR - 1),
+  her death of senescence 3 and of accident 4 (after about 85 and 16 990 years);
+- in the queue the birthday comes first: same second, domain phase before observers; the
+  deaths come last.
 
 Usage: .venv/bin/python tools/state_reference.py
 """
@@ -82,6 +95,38 @@ CORE_VERSION = world_reference.CORE_VERSION
 # The fertility of a scenario without its own: nobody ever conceives.
 BARREN = fertility(0.0, 18, 45, 10)
 
+SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
+SENESCENCE_KEY, ACCIDENT_KEY = str_key(SENESCENCE), str_key(ACCIDENT)
+
+# The rates of the repository's data by hand from the genetics specification 7.2: the
+# Gompertz `a` (W7.2b, W7.2d) and `b` (W7.2c, W7.2e) and the Makeham term (K7.1a,
+# K7.1b), per sex.
+SPEC_RATES = {FEMALE: (3.25e-6, 0.1182, 1.5e-4), MALE: (8.73e-6, 0.1118, 2.0e-4)}
+
+
+def hand_due(key: int, born: int, code: str, rates: tuple):
+    """When a founder (seed 0xff, origin the start, B19) dies of the cause if nothing else
+    happens first, by hand from the genetics specification 7.1 with Python's math: the age
+    `x = ln(e^(b·x0) + b·B / (a·m)) / b` (the form of the specification, `m` = 1 without a
+    trait of longevity, 11.1) or `x0 + B / λ` from the age `x0` at the start, due
+    `ceil((x - x0) · YEAR)` seconds after the start, never at 100 000 years or more.
+    `rates` is (a, b, λ) of the founder's sex."""
+    a, b, per_year = rates
+    budget = world_reference.budget_of(0xFF, key, code)
+    x0 = (0 - born) / 31_449_600.0
+    if code == SENESCENCE:
+        x = math.log(math.exp(b * x0) + b * budget / a) / b
+    else:
+        x = x0 + budget / per_year
+    if x - x0 >= 100_000.0:
+        return None
+    return math.ceil((x - x0) * 31_449_600.0)
+
+
+def death(time: int, insertion: int, sim: int, code: str) -> bytes:
+    """A planned death in the queue: Event::Death { sim, cause } (variant 2)."""
+    return queue_entry(time, insertion, variant(2, varint(sim), varint(str_key(code))), None)
+
 
 def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> bytes:
     """Sim { born, lineage_key, sex, genome, afflictions, conceptions, parents }: the
@@ -93,6 +138,10 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> by
 
 TINY_KEY = founder_key("test:tiny", 0)
 TINY_GENES = genotype(WILD, DUMMY)
+# Her deaths, planned by her creation entry 2 at the start (insertion numbers 3 and 4).
+TINY_DUE = {code: hand_due(TINY_KEY, -1, code, SPEC_RATES[FEMALE]) for code in (SENESCENCE, ACCIDENT)}
+assert 80 * YEAR < TINY_DUE[SENESCENCE] < 90 * YEAR < TINY_DUE[ACCIDENT] < 100_000 * YEAR
+TINY_DEATHS = [death(TINY_DUE[SENESCENCE], 3, 1, SENESCENCE), death(TINY_DUE[ACCIDENT], 4, 1, ACCIDENT)]
 
 
 def projection(
@@ -102,7 +151,6 @@ def projection(
         varint(PROJECTION_VERSION)
         + some(varint(0xFF))  # world_seed
         + some(world_params(diseases))
-        + seq([])  # death_causes
         + some(BARREN)
         + signed(closed_through)
         + varint(2)  # next SimId
@@ -122,46 +170,63 @@ TINY_AFTER_START = projection(
     [
         queue_entry(YEAR - 1, 2, birthday(1), None),
         queue_entry(YEAR - 1, 1, year_end(), YEAR),
-    ],
-    3,
+    ]
+    + TINY_DEATHS,
+    5,
 )
 
 # What the year end observer of year 0 sees at t = YEAR - 1: the clock stands at t - 1
 # (ADR-0002), the birthday of this second has run and planned the next one (insertion
-# number 3), the year end series already holds its next occurrence.
+# number 5), the year end series already holds its next occurrence.
 TINY_YEAR_0 = projection(
     YEAR - 2,
     [
-        queue_entry(2 * YEAR - 1, 3, birthday(1), None),
+        queue_entry(2 * YEAR - 1, 5, birthday(1), None),
         queue_entry(2 * YEAR - 1, 1, year_end(), YEAR),
-    ],
-    4,
+    ]
+    + TINY_DEATHS,
+    6,
 )
 
 # After advance_until(YEAR - 1): the same state with the second closed.
 TINY_AFTER_YEAR_0 = projection(
     YEAR - 1,
     [
-        queue_entry(2 * YEAR - 1, 3, birthday(1), None),
+        queue_entry(2 * YEAR - 1, 5, birthday(1), None),
         queue_entry(2 * YEAR - 1, 1, year_end(), YEAR),
-    ],
-    4,
+    ]
+    + TINY_DEATHS,
+    6,
 )
 
 
 # Scenario "pair": seed 0xff, founder tag `test:pair`, a woman born two seconds before
 # the start with the alleles wild and dummy, and a man born one second before it with
 # dummy twice. Right after Start: her first birthday (insertion number 2) is due at
-# YEAR - 2, his (insertion number 3) at YEAR - 1, in the same second as the year end.
-# He has `core:disease_ar` (recessive, penetrance 1, so the draw always says yes; onset
-# fixed at 0): an affliction with nothing used, the switch off.
+# YEAR - 2, her deaths of senescence and accident (3, 4) after about 92 and 436 years;
+# his first birthday (5) at YEAR - 1, in the same second as the year end, his deaths (6,
+# 7) after about 88 and 584 years. He has `core:disease_ar` (recessive, penetrance 1, so
+# the draw always says yes; onset fixed at 0): an affliction with nothing used, the
+# switch off.
 AR_KEY = str_key("core:disease_ar")
 PAIR_KEYS = [founder_key("test:pair", index) for index in range(2)]
+PAIR_DUE = [
+    {code: hand_due(key, born, code, SPEC_RATES[sex]) for code in (SENESCENCE, ACCIDENT)}
+    for key, born, sex in ((PAIR_KEYS[0], -2, FEMALE), (PAIR_KEYS[1], -1, MALE))
+]
+PAIR_DEATHS = sorted(
+    [
+        (PAIR_DUE[0][SENESCENCE], death(PAIR_DUE[0][SENESCENCE], 3, 1, SENESCENCE)),
+        (PAIR_DUE[0][ACCIDENT], death(PAIR_DUE[0][ACCIDENT], 4, 1, ACCIDENT)),
+        (PAIR_DUE[1][SENESCENCE], death(PAIR_DUE[1][SENESCENCE], 6, 2, SENESCENCE)),
+        (PAIR_DUE[1][ACCIDENT], death(PAIR_DUE[1][ACCIDENT], 7, 2, ACCIDENT)),
+    ]
+)
+assert 2 * YEAR < PAIR_DEATHS[0][0] < PAIR_DEATHS[1][0] < PAIR_DEATHS[2][0] < PAIR_DEATHS[3][0]
 PAIR_AFTER_START = (
     varint(PROJECTION_VERSION)
     + some(varint(0xFF))
     + some(world_params(False))
-    + seq([])  # death_causes
     + some(BARREN)
     + signed(-1)
     + varint(3)  # next SimId
@@ -169,11 +234,12 @@ PAIR_AFTER_START = (
     + seq(
         [
             queue_entry(YEAR - 2, 2, birthday(1), None),
-            queue_entry(YEAR - 1, 3, birthday(2), None),
+            queue_entry(YEAR - 1, 5, birthday(2), None),
             queue_entry(YEAR - 1, 1, year_end(), YEAR),
         ]
+        + [entry for _, entry in PAIR_DEATHS]
     )
-    + varint(4)
+    + varint(8)
     + seq(
         [
             varint(1) + sim_state(-2, PAIR_KEYS[0], FEMALE, genotype(WILD, DUMMY)),
@@ -210,7 +276,6 @@ TINY_INPUT_LOG = seq(
             varint(0xFF),
             string("test:tiny"),
             world_params(False),
-            seq([]),  # death_causes
             seq([founder(-1, FEMALE, TINY_GENES)]),
             seq([]),  # couples
             BARREN,
@@ -219,12 +284,12 @@ TINY_INPUT_LOG = seq(
 )
 
 # Right after Start (the log taken): plan references in queue order (the birthday was
-# planned by the founder's entry 2, the year end series by `core:started`, entry 1), the
-# next EventId is 3, no year hashes yet.
+# planned by the founder's entry 2, the year end series by `core:started`, entry 1, her
+# two deaths by her entry 2), the next EventId is 3, no year hashes yet.
 TINY_SAVE_AFTER_START = (
     header(DATA_HASH)
     + TINY_AFTER_START
-    + seq([plan_ref(2, 0), plan_ref(1, 0)])
+    + seq([plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(3)
     + TINY_INPUT_LOG
     + seq([])
@@ -235,7 +300,6 @@ EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
     + NONE  # world_seed
     + NONE  # world_params
-    + seq([])  # death_causes
     + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
@@ -277,14 +341,15 @@ TINY_OVERRIDDEN = projection(
     [
         queue_entry(YEAR - 1, 2, birthday(1), None),
         queue_entry(YEAR - 1, 1, year_end(), YEAR),
-    ],
-    3,
+    ]
+    + TINY_DEATHS,
+    5,
     diseases=True,
 )
 TINY_SAVE_OVERRIDDEN = (
     header(DATA_HASH)
     + TINY_OVERRIDDEN
-    + seq([plan_ref(2, 0), plan_ref(1, 0)])
+    + seq([plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(4)
     + seq(
         [
@@ -295,7 +360,6 @@ TINY_SAVE_OVERRIDDEN = (
                 varint(0xFF),
                 string("test:tiny"),
                 world_params(False),
-                seq([]),  # death_causes
                 seq([founder(-1, FEMALE, TINY_GENES)]),
                 seq([]),  # couples
                 BARREN,
@@ -307,13 +371,13 @@ TINY_SAVE_OVERRIDDEN = (
 )
 
 # The save at the end of year 0: the birthday of that second planned the next one
-# (entry 3 at YEAR - 1), the year end series keeps the plan of `core:started`; the next
-# EventId is 4; one year hash.
+# (entry 3 at YEAR - 1), the year end series keeps the plan of `core:started`, her deaths
+# that of her entry 2; the next EventId is 4; one year hash.
 TINY_YEAR_0_HASH = xxhash.xxh3_64_intdigest(TINY_YEAR_0, seed=0)
 TINY_SAVE_AFTER_YEAR_0 = (
     header(DATA_HASH)
     + TINY_AFTER_YEAR_0
-    + seq([plan_ref(3, YEAR - 1), plan_ref(1, 0)])
+    + seq([plan_ref(3, YEAR - 1), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(4)
     + TINY_INPUT_LOG
     + seq([signed(0) + varint(TINY_YEAR_0_HASH)])
@@ -328,7 +392,7 @@ TINY_FOUNDERS = [(-1, FEMALE, TINY_GENES)]
 
 
 def tiny_world() -> world_reference.World:
-    return world_reference.World(0xFF, "test:tiny", False, [], TINY_FOUNDERS)
+    return world_reference.World(0xFF, "test:tiny", False, TINY_FOUNDERS)
 
 
 def check_the_model_on_tiny() -> None:
@@ -349,7 +413,6 @@ def check_the_model_on_tiny() -> None:
         0xFF,
         "test:pair",
         False,
-        [],
         [(-2, FEMALE, genotype(WILD, DUMMY)), (-1, MALE, genotype(DUMMY, DUMMY))],
     )
     assert pair.projection() == PAIR_AFTER_START
@@ -358,72 +421,96 @@ def check_the_model_on_tiny() -> None:
 
 check_the_model_on_tiny()
 
-# Scenario "mortal": seed 0xff, founder tag `test:mortal`, the switch off, the causes
-# `test:base` with 0.5 per year and `test:old_age` with 0.05 per year. A woman born one
-# second before the start (wild, dummy) and a man born two seconds before it (dummy
-# twice). Her budgets are about 0.729 and 0.189: she dies of `test:base` after about
-# 1.46 years, her death of old age (after 3.79 years) and her next birthday are
-# cancelled. His are about 2.292 and 0.085: he dies of old age after about 1.71 years,
-# his death of `test:base` (after 4.58 years) and his next birthday are cancelled.
-MORTAL_CAUSES = [("test:base", 0.5), ("test:old_age", 0.05)]
+# Scenario "mortal": seed 0xff, founder tag `test:mortal`, the switch off, on the test
+# data of its old causes (`test:base` 0.5 and `test:old_age` 0.05 per year): accident
+# 0.5 per year, senescence `a` = 0.05 and `b` = 0.001, for both sexes, the repository's
+# diseases. A woman born one second before the start (wild, dummy) and a man born two
+# seconds before it (dummy twice). Her budgets of senescence and accident are about 0.41
+# and 2.15: she dies of accident after about 4.29 years, her death of senescence (after
+# 8.25 years) and her next birthday are cancelled. His are about 0.33 and 2.83: he dies
+# of accident after about 5.66 years, his death of senescence (after 6.60 years) and his
+# next birthday are cancelled. Both die of accident (the new budgets; with the old ones
+# each cause won once); the run goes to the end of year 5 so that both die in it.
+MORTAL_DATA = world_reference.death_test_data(0.5, 0.05)
+MORTAL_RATES = (0.05, 0.001, 0.5)
 MORTAL_FOUNDERS = [(-1, FEMALE, genotype(WILD, DUMMY)), (-2, MALE, genotype(DUMMY, DUMMY))]
+MORTAL_KEYS = [founder_key("test:mortal", index) for index in range(2)]
 
 
 def mortal_world() -> world_reference.World:
-    return world_reference.World(0xFF, "test:mortal", False, MORTAL_CAUSES, MORTAL_FOUNDERS)
+    return world_reference.World(0xFF, "test:mortal", False, MORTAL_FOUNDERS, data=MORTAL_DATA)
 
 
 MORTAL = mortal_world()
 MORTAL_AFTER_START = MORTAL.projection()
 MORTAL_SAVE_AFTER_START = MORTAL.save()
-MORTAL_DEATHS = [
-    world_reference.needed_seconds(0xFF, founder_key("test:mortal", index), code, rate)
-    for index in range(2)
-    for code, rate in MORTAL_CAUSES
+# When each founder dies of each cause (seconds after the start), in the order
+# (her senescence, her accident, his senescence, his accident).
+MORTAL_DEATHS = [MORTAL.cause_due(sim, code) for sim in (1, 2) for code in (SENESCENCE, ACCIDENT)]
+assert MORTAL_DEATHS == [
+    hand_due(key, born, code, MORTAL_RATES)
+    for key, (born, _, _) in zip(MORTAL_KEYS, MORTAL_FOUNDERS)
+    for code in (SENESCENCE, ACCIDENT)
 ]
-MORTAL.advance(2 * YEAR - 1)
-MORTAL_AFTER_YEAR_1 = MORTAL.projection()
-MORTAL_SAVE_AFTER_YEAR_1 = MORTAL.save()
-assert len(MORTAL.log) == 7 and not MORTAL.sims and sorted(MORTAL.archive) == [1, 2]
+assert 4 * YEAR < MORTAL_DEATHS[1] < 5 * YEAR < MORTAL_DEATHS[3] < 6 * YEAR < MORTAL_DEATHS[2] < MORTAL_DEATHS[0]
+MORTAL.advance(6 * YEAR - 1)
+MORTAL_AFTER_YEAR_5 = MORTAL.projection()
+MORTAL_SAVE_AFTER_YEAR_5 = MORTAL.save()
+assert not MORTAL.sims and sorted(MORTAL.archive) == [1, 2]
+assert [MORTAL.archive[sim][1:3] for sim in (1, 2)] == [(MORTAL_DEATHS[1], ACCIDENT_KEY), (MORTAL_DEATHS[3], ACCIDENT_KEY)]
+# started, two founders, her four birthdays, his five, two deaths
+assert len(MORTAL.log) == 14
 
 
-# Scenario "tie": seed 0xff, founder tag `test:tie`, one woman born one second before
-# the start. `test:base` has 5 per year; the hazard of `test:old_age` is chosen so that
-# both causes are due in the same second (about 1.63 years). The cause earlier in the
-# list wins: its event was planned first.
+# Scenario "tie": seed 0xff, founder tag `test:tie`, the woman of "tiny" (born one second
+# before the start). Her senescence and her accident are due in the same second; the cause
+# earlier in the list, senescence, wins: its event was planned first. The test data:
+# accident 0.2 per year and senescence `b` = 0.001 for both sexes, the Gompertz `a` chosen
+# so that both are due in that second (the middle of it: `a = b · B · e^(−b·x0) /
+# (e^(b·T) − 1)` with `T` half a second before the end of the second, in 60 digits).
+# The rate of the old first cause (5 per year) cannot tie: with her budgets (senescence
+# about 3.03, accident about 0.75) it needs `a` = 20.15, beyond the range of `a`
+# (mortality::GOMPERTZ_A_RANGE, at most 1); 0.2 per year gives `a` = 0.80. She dies after
+# about 3.76 years.
 TIE_KEY = founder_key("test:tie", 0)
-TIE_BASE = ("test:base", 5.0)
-TIE_DUE = world_reference.needed_seconds(0xFF, TIE_KEY, *TIE_BASE)
-TIE_OLD_AGE = ("test:old_age", 0.5934198823895418)
-assert world_reference.needed_seconds(0xFF, TIE_KEY, *TIE_OLD_AGE) == TIE_DUE
+TIE_ACCIDENT = 0.2
+TIE_SENESCENCE_A = 0.8046949992648321
+TIE_DATA = world_reference.death_test_data(TIE_ACCIDENT, TIE_SENESCENCE_A)
+TIE_RATES = (TIE_SENESCENCE_A, 0.001, TIE_ACCIDENT)
+TIE_DUE = hand_due(TIE_KEY, -1, ACCIDENT, TIE_RATES)
+assert hand_due(TIE_KEY, -1, SENESCENCE, TIE_RATES) == TIE_DUE
+assert 3 * YEAR < TIE_DUE < 4 * YEAR
 
 
-def tie_world(causes: list) -> world_reference.World:
-    world = world_reference.World(0xFF, "test:tie", False, causes, TINY_FOUNDERS)
-    world.advance(2 * YEAR - 1)
-    return world
+def tie_world() -> world_reference.World:
+    return world_reference.World(0xFF, "test:tie", False, TINY_FOUNDERS, data=TIE_DATA)
 
 
-TIE_BASE_FIRST = tie_world([TIE_BASE, TIE_OLD_AGE])
-TIE_OLD_AGE_FIRST = tie_world([TIE_OLD_AGE, TIE_BASE])
-assert TIE_BASE_FIRST.archive[1][2] == world_reference.str_key("test:base")
-assert TIE_OLD_AGE_FIRST.archive[1][2] == world_reference.str_key("test:old_age")
+TIE = tie_world()
+assert [TIE.cause_due(1, code) for code in (SENESCENCE, ACCIDENT)] == [TIE_DUE, TIE_DUE]
+TIE_SAVE_AFTER_START = TIE.save()
+TIE.advance(4 * YEAR - 1)
+assert TIE.archive[1][1:3] == (TIE_DUE, SENESCENCE_KEY)
+assert [event.kind for event in TIE.queue] == [world_reference.YEAR_END_KIND]
+TIE_SAVE = TIE.save()
 
 
-# Scenario "sick": seed 0xff, founder tag `test:sick`, `test:base` with 0.02 per year for
-# everyone, on the dummy disease data: `test:dummy_disease` on `core:disease_ar`,
-# penetrance 1, onset 0, 0.3 per year (design note section 6; the old cause for the
-# homozygous acted from the origin on). The woman (wild, dummy) and the man (dummy twice)
-# of "mortal". Only he has the disease: an affliction with onset 0 whose exposure runs
-# while the switch is on. Its budget lasts about 3.21 years of exposure, `test:base`
-# about 19.6 years (her: about 21.0 years).
-SICK_BASE = ("test:base", 0.02)
+# Scenario "sick": seed 0xff, founder tag `test:sick`, on the test data of its old cause
+# (`test:base` 0.02 per year) with the dummy disease: accident 0.02 per year, senescence
+# practically off (`a` = 1e-15, `b` = 0.001), and as the only disease `test:dummy_disease`
+# on `core:disease_ar`, penetrance 1, onset 0, 0.3 per year (design note of the diseases,
+# section 6; the old cause for the homozygous acted from the origin on). The woman (wild,
+# dummy) and the man (dummy twice) of "mortal". Only he has the disease: an affliction
+# with onset 0 whose exposure runs while the switch is on. Its budget lasts about 3.21
+# years of exposure, his accident about 58.8 years (hers about 173 years); senescence
+# would take some 23 000 years.
 DUMMY_DISEASE = "test:dummy_disease"
-SICK_DATA = world_reference.DUMMY_DISEASE_DATA
+SICK_DATA = world_reference.death_test_data(0.02, diseases=[world_reference.dummy_disease(0.0)])
+SICK_RATES = (1e-15, 0.001, 0.02)
 SICK_KEYS = [founder_key("test:sick", index) for index in range(2)]
 HIS_BUDGET = world_reference.budget_of(0xFF, SICK_KEYS[1], DUMMY_DISEASE)
-HIS_BASE = world_reference.needed_seconds(0xFF, SICK_KEYS[1], *SICK_BASE)
-HER_BASE = world_reference.needed_seconds(0xFF, SICK_KEYS[0], *SICK_BASE)
+HIS_ACCIDENT = hand_due(SICK_KEYS[1], -2, ACCIDENT, SICK_RATES)
+HER_ACCIDENT = hand_due(SICK_KEYS[0], -1, ACCIDENT, SICK_RATES)
 HIS_BORN = -2
 
 
@@ -439,15 +526,13 @@ def his_disease_death(since: int, used: float = 0.0) -> int:
 
 # Exposed from the start on: his death of the disease.
 HIS_DISEASE = his_disease_death(0)
-assert 3 * YEAR < HIS_DISEASE < 4 * YEAR < 19 * YEAR < HIS_BASE < HER_BASE
+assert 3 * YEAR < HIS_DISEASE < 4 * YEAR < 50 * YEAR < HIS_ACCIDENT < HER_ACCIDENT
 
 
-def sick_world(on: bool, switches=(), causes=None, data=SICK_DATA) -> world_reference.World:
+def sick_world(on: bool, switches=(), data=SICK_DATA) -> world_reference.World:
     """"sick" with the switch `on` at the start and an override block (the switch, the
     time it acts) at each of `switches`."""
-    world = world_reference.World(
-        0xFF, "test:sick", on, [SICK_BASE] if causes is None else causes, MORTAL_FOUNDERS, data=data
-    )
+    world = world_reference.World(0xFF, "test:sick", on, MORTAL_FOUNDERS, data=data)
     for at, value in switches:
         world.advance(at - 1)
         world.override(value)
@@ -467,11 +552,11 @@ def his_exposure(world: world_reference.World):
 
 
 DISEASE_KEY = world_reference.str_key(DUMMY_DISEASE)
-BASE_KEY = world_reference.str_key("test:base")
 
 # The switch on from the start: he is exposed since the start and dies of the disease;
-# she has no affliction.
+# she has no affliction. Each founder has its deaths of senescence and accident planned.
 SICK_ON = sick_world(True)
+assert [SICK_ON.cause_due(sim, ACCIDENT) for sim in (1, 2)] == [HER_ACCIDENT, HIS_ACCIDENT]
 assert [[a.triple() for a in SICK_ON.sims[sim][4]] for sim in (1, 2)] == [[], [(DISEASE_KEY, 0.0, (0.0, 0))]]
 SICK_ON_SAVE_AFTER_START = SICK_ON.save()
 SICK_ON.advance(4 * YEAR - 1)
@@ -485,7 +570,8 @@ SICK_OFF.advance(4 * YEAR - 1)
 assert sorted(SICK_OFF.sims) == [1, 2] and his_exposure(SICK_OFF) == [0.0, None]
 
 # Switched on at the start of year 1: the disease needs its whole budget from then on,
-# planned by the entry of the override. His death of `test:base` keeps its plan.
+# planned by the entry of the override. His deaths of senescence and accident keep their
+# plans.
 SWITCHED_ON = sick_world(False, [(YEAR, True)])
 SWITCHED_ON_SAVE = SWITCHED_ON.save()
 SWITCHED_ON.advance(5 * YEAR - 1)
@@ -519,20 +605,34 @@ TWO_PERIODS_DEATH = his_disease_death(4 * YEAR, TWO_PERIODS_USED)
 assert abs(TWO_PERIODS_DEATH - (2 * YEAR + HIS_DISEASE)) <= 1
 assert death_of(TWO_PERIODS, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 
-# On the repository data the switch plans only the diseases of the data: he has
-# `core:disease_ar` (recessive, onset 0, two steps), and switched on at the start of
-# year 1 its death is planned; his death of `test:base` keeps its plan (his creation
-# entry 3 at the start) and comes first.
-NO_DISEASE = sick_world(False, [(YEAR, True)], data=world_reference.REPOSITORY)
+# On the test data with the repository's six diseases instead of the dummy one (accident
+# 0.02 per year, senescence practically off) the switch plans only the diseases of the
+# data: he has `core:disease_ar` (recessive, onset 0, two steps), and switched on at the
+# start of year 1 its death is planned by the entry of the override, after about 20.5
+# years; his death of accident keeps its plan (his creation entry 3 at the start, after
+# about 58.8 years) and comes later. He dies of `core:disease_ar`.
+NO_DISEASE_DATA = world_reference.death_test_data(0.02)
+NO_DISEASE = sick_world(False, [(YEAR, True)], data=NO_DISEASE_DATA)
+assert NO_DISEASE.cause_due(2, ACCIDENT) == HIS_ACCIDENT
 (HIS_AR,) = NO_DISEASE.sims[2][4]
 NO_DISEASE_HIS_AR_DEATH = NO_DISEASE.disease_due(2, HIS_AR)
-assert NO_DISEASE_HIS_AR_DEATH is None or NO_DISEASE_HIS_AR_DEATH > HIS_BASE
-NO_DISEASE.advance(HIS_BASE)
-assert death_of(NO_DISEASE, 2) == (HIS_BASE, BASE_KEY)
+assert 20 * YEAR < NO_DISEASE_HIS_AR_DEATH < HIS_ACCIDENT
+NO_DISEASE_OVERRIDE_ENTRY = len(NO_DISEASE.log)
+assert [
+    (event.time, event.plan)
+    for event in NO_DISEASE.queue
+    if event.kind == world_reference.DEATH_KIND and event.subject == (world_reference.SIM_SUBJECT, 2)
+] == [
+    (NO_DISEASE.cause_due(2, SENESCENCE), (3, 0)),
+    (HIS_ACCIDENT, (3, 0)),
+    (NO_DISEASE_HIS_AR_DEATH, (NO_DISEASE_OVERRIDE_ENTRY, YEAR)),
+]
+NO_DISEASE.advance(NO_DISEASE_HIS_AR_DEATH)
+assert death_of(NO_DISEASE, 2) == (NO_DISEASE_HIS_AR_DEATH, AR_KEY)
 
 # Exposed from close to the end of the clock: a death beyond it is never due, one in its
 # last second is (ADR-0002).
-LATE = sick_world(False, causes=[])
+LATE = sick_world(False)
 (LATE_AFFLICTION,) = LATE.sims[2][4]
 LATE_AFFLICTION.exposure[1] = world_reference.MAX_ABS_SECS - 1000
 assert LATE.disease_due(2, LATE_AFFLICTION) is None
@@ -562,17 +662,20 @@ UNCHANGED = sick_world(True)
 UNCHANGED.advance(YEAR - 1)
 assert SAME.projection() == UNCHANGED.projection() and len(SAME.log) == len(UNCHANGED.log) + 1
 
-# A tie of the disease and `test:base`: switched on so that both are due in the second
-# of his death of `test:base`. The cause of `Start` comes first, so it wins (the
-# disease can no longer come first: the causes of `Start` always precede the diseases).
+# A tie of the disease and the accident: switched on so that both are due in the second
+# of his death of accident. Accident comes before the diseases in the list, so it wins.
 TIE_SWITCHES = [
-    at for at in range(HIS_BASE - HIS_DISEASE - 3, HIS_BASE - HIS_DISEASE + 4) if his_disease_death(at) == HIS_BASE
+    at
+    for at in range(HIS_ACCIDENT - HIS_DISEASE - 3, HIS_ACCIDENT - HIS_DISEASE + 4)
+    if his_disease_death(at) == HIS_ACCIDENT
 ]
 TIE_SWITCH = TIE_SWITCHES[0]
-BASE_WINS = sick_world(False, [(TIE_SWITCH, True)])
-assert sorted(event.time for event in BASE_WINS.queue if event.kind == world_reference.DEATH_KIND).count(HIS_BASE) == 2
-BASE_WINS.advance(HIS_BASE)
-assert death_of(BASE_WINS, 2) == (HIS_BASE, BASE_KEY)
+ACCIDENT_WINS = sick_world(False, [(TIE_SWITCH, True)])
+assert sorted(event.time for event in ACCIDENT_WINS.queue if event.kind == world_reference.DEATH_KIND).count(
+    HIS_ACCIDENT
+) == 2
+ACCIDENT_WINS.advance(HIS_ACCIDENT)
+assert death_of(ACCIDENT_WINS, 2) == (HIS_ACCIDENT, ACCIDENT_KEY)
 
 # Save, load and go on across the switch (crates/sim-core/tests/disease.rs): on, off at
 # the start of year 1, on at year 2, off at year 3, on at year 4, off at year 6; he dies
@@ -582,58 +685,65 @@ SAVE_LOAD.advance(7 * YEAR - 1)
 assert death_of(SAVE_LOAD, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 
 
-# Scenario "partners": seed 0xff, founder tag `test:partners`, the causes of "mortal", a
-# woman (wild, dummy) and two men (dummy twice; dummy, wild) born one, two and three
-# seconds before the start. `Start` pairs her with the first man (partnership 1). He dies
-# after about 0.8 years, which ends it; at the start of year 1 `ArrangePartnership` pairs
-# her with the second man (partnership 2, by the input with sequence number 2). He dies
-# after about 4.66 years, she after about 4.88.
+# Scenario "partners": seed 0xff, founder tag `test:partners`, a woman (wild, dummy) and
+# two men (dummy twice; dummy, wild) born one, two and three seconds before the start.
+# `Start` pairs her with the first man (partnership 1). He dies of senescence after about
+# 0.2 years, which ends it; at the start of year 1 `ArrangePartnership` pairs her with the
+# second man (partnership 2, by the input with sequence number 2). She dies of accident
+# after about 1.86 years, which ends it; he lives on (senescence after about 13.0 years).
+# The test data: accident 0.02 per year, senescence `a` = 0.5 and `b` = 0.001 for both
+# sexes (the data of "fever"), the repository's diseases. The rates of its old causes
+# (those of "mortal": accident 0.5, `a` = 0.05) cannot keep the idea: with the new budgets
+# she would die first, after 0.07 years, and nobody could be paired with her at year 1.
 PARTNERS_FOUNDERS = [
     (-1, FEMALE, genotype(WILD, DUMMY)),
     (-2, MALE, genotype(DUMMY, DUMMY)),
     (-3, MALE, genotype(DUMMY, WILD)),
 ]
 PARTNERS_KEYS = [founder_key("test:partners", index) for index in range(3)]
+PARTNERS_DATA = world_reference.death_test_data(0.02, 0.5)
+PARTNERS_RATES = (0.5, 0.001, 0.02)
 PARTNERS_DEATHS = [
-    min(
-        world_reference.needed_seconds(0xFF, key, code, rate) for code, rate in MORTAL_CAUSES
-    )
-    for key in PARTNERS_KEYS
+    min(hand_due(key, born, code, PARTNERS_RATES) for code in (SENESCENCE, ACCIDENT))
+    for key, (born, _, _) in zip(PARTNERS_KEYS, PARTNERS_FOUNDERS)
 ]
-assert PARTNERS_DEATHS[1] < YEAR < PARTNERS_DEATHS[2] < PARTNERS_DEATHS[0] < 5 * YEAR
+assert PARTNERS_DEATHS[1] < YEAR < PARTNERS_DEATHS[0] < 2 * YEAR < 5 * YEAR < PARTNERS_DEATHS[2]
 
 
 def partners_world() -> world_reference.World:
-    return world_reference.World(
-        0xFF, "test:partners", False, MORTAL_CAUSES, PARTNERS_FOUNDERS, [(0, 1)]
-    )
+    return world_reference.World(0xFF, "test:partners", False, PARTNERS_FOUNDERS, [(0, 1)], data=PARTNERS_DATA)
 
 
 PARTNERS = partners_world()
 PARTNERS_SAVE_AFTER_START = PARTNERS.save()
+# Started, three founders, then the partnership.
 PARTNERS_STARTED_ENTRY = PARTNERS.log[4]
 PARTNERS.advance(YEAR - 1)
 assert PARTNERS.partnerships == {1: [1, 2, 0, PARTNERS_DEATHS[1]]}
+assert PARTNERS.archive[2][2] == SENESCENCE_KEY
 PARTNERS.arrange(1, 3)
 PARTNERS_ARRANGED_ENTRY = PARTNERS.log[-1]
 PARTNERS_SAVE_AFTER_ARRANGE = PARTNERS.save()
 PARTNERS.advance(5 * YEAR - 1)
 assert PARTNERS.partnerships == {
     1: [1, 2, 0, PARTNERS_DEATHS[1]],
-    2: [1, 3, YEAR, PARTNERS_DEATHS[2]],
+    2: [1, 3, YEAR, PARTNERS_DEATHS[0]],
 }
-assert not PARTNERS.sims
+assert sorted(PARTNERS.sims) == [3] and PARTNERS.archive[1][2] == ACCIDENT_KEY
 PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 
 
-# Scenario "clan": seed 0xff, founder tag `test:clan`, `test:base` with 0.02 per year, and
-# a fertility of 0.25 per month, the mother 18 to 45 years old, ten months. Three founder
-# couples: a woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 12 (dummy
-# twice) and a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first
-# couple tries from month 0, conceives in month 5 and has the child (sim 7) in month 15;
-# her attempts begin again in month 16, and by the end of year 7 she has conceived eight
-# times (two of the children die young). The girl's attempts begin at her 18th birthday
-# (month 78); she conceives in month 85 and gives birth in month 95. The third couple
+# Scenario "clan": seed 0xff, founder tag `test:clan`, a fertility of 0.25 per month, the
+# mother 18 to 45 years old, ten months, on the test data of its old cause (`test:base`
+# 0.02 per year): accident 0.02 per year, senescence practically off, the repository's
+# diseases. Three founder couples: a woman of 20 (wild, dummy) and a man of 22 (dummy,
+# wild); a girl of 12 (dummy twice) and a man of 30 (wild twice); a woman and a man of 46
+# (wild twice). The first couple tries from month 0, conceives in month 5 and has the
+# child (sim 7) in month 15; her attempts begin again in month 16, and by the end of year
+# 7 she has conceived eight times (months 5, 17, 28, 42, 59, 74, 90, 101) and is pregnant
+# with the eighth child. The girl's attempts begin at her 18th birthday (month 78); she
+# dies of accident in month 83.9 without having conceived, which ends them. The first
+# child dies of accident in month 80.5, the man of 46 in month 98.7. The third couple
 # never tries.
 CLAN_FOUNDERS = [
     (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
@@ -644,19 +754,19 @@ CLAN_FOUNDERS = [
     (-46 * YEAR, MALE, genotype(WILD, WILD)),
 ]
 CLAN_KEYS = [founder_key("test:clan", index) for index in range(6)]
+CLAN_COUPLES = [(0, 1), (2, 3), (4, 5)]
+CLAN_FERTILITY = (0.25, 18, 45, 10)
+CLAN_DATA = world_reference.death_test_data(0.02)
 MONTH = world_reference.MONTH
 
 
-def clan_world() -> world_reference.World:
-    return world_reference.World(
-        0xFF,
-        "test:clan",
-        False,
-        [("test:base", 0.02)],
-        CLAN_FOUNDERS,
-        [(0, 1), (2, 3), (4, 5)],
-        (0.25, 18, 45, 10),
-    )
+def clan_world(data=CLAN_DATA, on: bool = False) -> world_reference.World:
+    return world_reference.World(0xFF, "test:clan", on, CLAN_FOUNDERS, CLAN_COUPLES, CLAN_FERTILITY, data=data)
+
+
+def deaths_in(world: world_reference.World) -> list:
+    """(time, sim, key of the cause) of every death, in time order."""
+    return sorted((left, sim, cause) for sim, (_, left, cause, *_) in world.archive.items())
 
 
 CLAN = clan_world()
@@ -676,66 +786,71 @@ assert 7 in CLAN.sims and CLAN.sims[7][6] == (1, 2, 0) and not CLAN.pregnancies
 CLAN_BIRTH_ENTRIES = CLAN.log[CLAN_LOG_BEFORE_BIRTH:]
 CLAN_SAVE_AFTER_BIRTH = CLAN.save()
 CLAN.advance(8 * YEAR - 1)
-assert sorted(CLAN.pregnancies) == [1, 3] and [CLAN.sims[1][5], CLAN.sims[3][5]] == [8, 2]
-assert sorted(CLAN.archive) == [9, 10] and CLAN.sims[13][6] == (3, 4, 0)
+assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][2] == 7 and CLAN.sims[1][5] == 8
+assert CLAN.pregnancies[1][5] == 101 * MONTH
+CLAN_DEATHS = deaths_in(CLAN)
+assert [(sim, cause) for _, sim, cause in CLAN_DEATHS] == [(7, ACCIDENT_KEY), (3, ACCIDENT_KEY), (6, ACCIDENT_KEY)]
+# The girl died after her 18th birthday (month 78), before she conceived.
+assert 78 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7] == 0
+assert [CLAN.sims[sim][0] for sim in range(8, 14)] == [m * MONTH for m in (27, 38, 52, 69, 84, 100)]
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
 
-# "clan" with the switch of the hereditary diseases on from the start (repository data):
-# the girl (dummy twice, `core:disease_ar`) is exposed from the start, the first child
-# (dummy twice) from its birth in month 15; both have their death of the disease planned
-# (`CLAN_ON_AR_DEATHS`), far beyond month 15.
-CLAN_ON = world_reference.World(
-    0xFF,
-    "test:clan",
-    True,
-    [("test:base", 0.02)],
-    CLAN_FOUNDERS,
-    [(0, 1), (2, 3), (4, 5)],
-    (0.25, 18, 45, 10),
-)
+# "clan" with the switch of the hereditary diseases on from the start (the same test
+# data): the girl (dummy twice, `core:disease_ar`) is exposed from the start, the first
+# child (dummy twice) from its birth in month 15; both have their death of the disease
+# planned (`CLAN_ON_AR_DEATHS`), far beyond month 15.
+CLAN_ON = clan_world(on=True)
 CLAN_ON.advance(15 * MONTH)
 assert [a.triple() for a in CLAN_ON.sims[7][4]] == [(AR_KEY, 0.0, (0.0, 15 * MONTH))]
 assert [a.triple() for a in CLAN_ON.sims[3][4]] == [(AR_KEY, 0.0, (0.0, 0))]
 CLAN_ON_AR_DEATHS = {sim: CLAN_ON.disease_due(sim, CLAN_ON.sims[sim][4][0]) for sim in (3, 7)}
+assert all(due > 40 * YEAR for due in CLAN_ON_AR_DEATHS.values())
 CLAN_ON_SAVE_AFTER_BIRTH = CLAN_ON.save()
 
-# "clan" with a second cause, `test:fever` with 0.5 per year: the father dies in month 6.2
-# (the pregnancy goes on, his child is born in month 15), the girl's partner in month 7.2
-# (her attempts end before they begin). By the end of year 3 all seven have died, the
-# child in month 43.1.
-FEVER = world_reference.World(
-    0xFF,
-    "test:clan",
-    False,
-    [("test:base", 0.02), ("test:fever", 0.5)],
-    CLAN_FOUNDERS,
-    [(0, 1), (2, 3), (4, 5)],
-    (0.25, 18, 45, 10),
-)
+# "clan" with a second cause, `test:fever` with 0.5 per year, as test data: accident 0.02
+# per year, senescence `a` = 0.5 and `b` = 0.001. The woman of 46 dies of senescence in
+# month 2.0, the girl in month 8.2 (her attempts end before they begin), the father in
+# month 20.9: the first woman is pregnant since month 17, the pregnancy goes on, his child
+# (sim 8) is born in month 27. The man of 46 dies in month 51.9. At the end of year 3 the
+# first woman, the girl's partner and the two children live.
+FEVER_DATA = world_reference.death_test_data(0.02, 0.5)
+FEVER = clan_world(FEVER_DATA)
 FEVER.advance(4 * YEAR - 1)
-assert sorted(FEVER.archive) == [1, 2, 3, 4, 5, 6, 7] and not FEVER.pregnancies
-assert FEVER.archive[1][7] == 1 and FEVER.archive[7][8] == (1, 2, 0)
+FEVER_DEATHS = deaths_in(FEVER)
+assert [(sim, cause) for _, sim, cause in FEVER_DEATHS] == [(sim, SENESCENCE_KEY) for sim in (5, 3, 2, 6)]
+assert sorted(FEVER.sims) == [1, 4, 7, 8] and not FEVER.pregnancies
+assert FEVER.sims[8][6] == (1, 2, 1) and FEVER.sims[8][0] == 27 * MONTH
+assert 17 * MONTH < FEVER.archive[2][1] < 27 * MONTH and FEVER.archive[2][7] == 0
 CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
 
-# "clan" with `test:blight` with 0.1 per year instead: the first woman dies in month 6.7,
-# pregnant since month 5; the pregnancy ends with her, her conception stays counted.
-BLIGHT = world_reference.World(
-    0xFF,
-    "test:clan",
-    False,
-    [("test:base", 0.02), ("test:blight", 0.1)],
-    CLAN_FOUNDERS,
-    [(0, 1), (2, 3), (4, 5)],
-    (0.25, 18, 45, 10),
-)
-BLIGHT.advance(YEAR - 1)
-assert sorted(BLIGHT.archive) == [1, 3, 5] and BLIGHT.archive[1][7] == 1 and not BLIGHT.pregnancies
-CLAN_BLIGHT_SAVE_AFTER_YEAR_0 = BLIGHT.save()
+# "clan" with `test:blight` with 0.1 per year instead: the first woman dies of accident
+# in month 22.2, pregnant since month 17 with her second child; the pregnancy ends with
+# her, her conception stays counted. Before her the girl (month 16.8) and the man of 46
+# (month 19.7) die of accident. The test data take the two old rates the other way round:
+# accident 0.1 per year (the old `test:blight`), senescence `a` = 0.02 (the old
+# `test:base`) and `b` = 0.001. With them in the order of section 4 (accident 0.02, `a` =
+# 0.1) no woman dies pregnant: the first woman dies in month 111.09, just after the birth
+# in month 111, and with `b` = 0.001 no `a` up to 1 lets her die within a pregnancy while
+# her partner lives. The run goes to the end of year 1.
+BLIGHT_DATA = world_reference.death_test_data(0.1, 0.02)
+BLIGHT = clan_world(BLIGHT_DATA)
+HER_BLIGHT = BLIGHT.cause_due(1, ACCIDENT)
+assert 22 * MONTH < HER_BLIGHT < 23 * MONTH < BLIGHT.cause_due(1, SENESCENCE)
+BLIGHT.advance(HER_BLIGHT - 1)
+assert BLIGHT.pregnancies[1][2] == 1 and BLIGHT.pregnancies[1][5] == 17 * MONTH
+BLIGHT.advance(2 * YEAR - 1)
+assert BLIGHT.archive[1][1:3] == (HER_BLIGHT, ACCIDENT_KEY) and BLIGHT.archive[1][7] == 2
+assert 1 not in BLIGHT.pregnancies
+BLIGHT_DEATHS = deaths_in(BLIGHT)
+assert [(sim, cause) for _, sim, cause in BLIGHT_DEATHS] == [(3, ACCIDENT_KEY), (6, ACCIDENT_KEY), (1, ACCIDENT_KEY)]
+CLAN_BLIGHT_SAVE_AFTER_YEAR_1 = BLIGHT.save()
 
 
-# Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the repository data with
-# its six diseases, the switch on from the start, no causes of `Start`, barren, no
-# couples. Ten founders born one second before the start (sim 9 thirty years before it),
+# Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
+# start, barren, no couples, on test data with the repository's six diseases and both
+# causes for everyone practically off, so that only the diseases kill: accident 1e-9 per
+# year (the smallest of the range; a budget lasts 100 000 years or more, so never) and
+# senescence `a` = 1e-15, `b` = 0.001 (some 24 000 to 29 000 years) for both sexes. Ten founders born one second before the start (sim 9 thirty years before it),
 # each with alleles at one disease locus (copies maternal then paternal; a man has one
 # X copy, everyone one mt copy):
 #   1 man      core:disease_xr [1]            hemizygous: has it (penetrance 1, onset 0)
@@ -750,7 +865,8 @@ CLAN_BLIGHT_SAVE_AFTER_YEAR_0 = BLIGHT.save()
 #                                             past the change at 18)
 #  10 woman    core:disease_ar [1, 0]         carrier: healthy, no draw
 # Nobody has `core:disease_liability` (no liability trait, no draw). A lethal affliction
-# is exposed from the start (the switch is on), its death planned at Start.
+# is exposed from the start (the switch is on), its death planned at Start after the
+# founder's death of senescence (accident: never).
 AFFLICTED_FOUNDERS = [
     (-1, MALE, [("core:disease_xr", [1])]),
     (-1, FEMALE, [("core:disease_xr", [0, 1])]),
@@ -766,8 +882,11 @@ AFFLICTED_FOUNDERS = [
 AFFLICTED_KEYS = [founder_key("test:afflicted", index) for index in range(len(AFFLICTED_FOUNDERS))]
 
 
+AFFLICTED_DATA = world_reference.death_test_data(1e-9)
+
+
 def afflicted_world() -> world_reference.World:
-    return world_reference.World(0xFF, "test:afflicted", True, [], AFFLICTED_FOUNDERS)
+    return world_reference.World(0xFF, "test:afflicted", True, AFFLICTED_FOUNDERS, data=AFFLICTED_DATA)
 
 
 AFFLICTED = afflicted_world()
@@ -808,23 +927,77 @@ def afflicted_rows() -> list:
     return rows
 
 
-# The planned deaths are in the queue, by the creation entry of each founder.
+# The planned deaths are in the queue, by the creation entry of each founder: (time,
+# sim, code), senescence for everyone (accident never), and the lethal diseases.
+CODES = {str_key(code): code for code in (SENESCENCE, ACCIDENT)}
+CODES.update({disease.key: disease.code for disease in AFFLICTED_DATA.diseases})
 AFFLICTED_DEATHS = sorted(
-    (event.time, event.subject[1]) for event in AFFLICTED.queue if event.kind == world_reference.DEATH_KIND
+    (event.time, event.subject[1], CODES[world_reference.death_key(event.payload)])
+    for event in AFFLICTED.queue
+    if event.kind == world_reference.DEATH_KIND
 )
+assert all(AFFLICTED.cause_due(sim, ACCIDENT) is None for sim in AFFLICTED.sims)
+assert all(AFFLICTED.cause_due(sim, SENESCENCE) > 20_000 * YEAR for sim in AFFLICTED.sims)
 assert all(
-    AFFLICTED.disease_due(sim, a) in [time for time, who in AFFLICTED_DEATHS if who == sim]
+    (AFFLICTED.disease_due(sim, a), sim, a.disease.code) in AFFLICTED_DEATHS
     for sim in AFFLICTED.sims
     for a in AFFLICTED.sims[sim][4]
     if a.exposure is not None and AFFLICTED.disease_due(sim, a) is not None
 )
+AFFLICTED_DISEASE_DEATHS = [row for row in AFFLICTED_DEATHS if row[2] not in (SENESCENCE, ACCIDENT)]
 
 
 def digest(data: bytes) -> str:
     return f"{xxhash.xxh3_64_intdigest(data, seed=0):016x}"
 
 
+def years(seconds) -> str:
+    return "never" if seconds is None else f"{seconds} ({seconds / YEAR:.4f} years)"
+
+
+def cause_name(key: int) -> str:
+    return CODES.get(key, f"{key:016x}") if key != DISEASE_KEY else DUMMY_DISEASE
+
+
+def death_rows(name: str, world: world_reference.World) -> list:
+    """Per sim of the world (living and archived): the due time of senescence and
+    accident from its origin, and its death if it died."""
+    rows = []
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        if sim in world.sims:
+            dues = " ".join(f"{code} {years(world.cause_due(sim, code))}" for code in (SENESCENCE, ACCIDENT))
+            rows.append(f"{name}_sim_{sim} living {dues}")
+        else:
+            _, left, cause, *_ = world.archive[sim]
+            rows.append(f"{name}_sim_{sim} died {years(left)} of {cause_name(cause)}")
+    return rows
+
+
+TEST_DATA = [
+    ("repository", world_reference.REPOSITORY),
+    ("mortal", MORTAL_DATA),
+    ("tie", TIE_DATA),
+    ("sick", SICK_DATA),
+    ("no_disease", NO_DISEASE_DATA),
+    ("partners", PARTNERS_DATA),
+    ("clan", CLAN_DATA),
+    ("fever", FEVER_DATA),
+    ("blight", BLIGHT_DATA),
+    ("afflicted", AFFLICTED_DATA),
+    ("fork", world_reference.FORK_DATA),
+]
+
+
 if __name__ == "__main__":
+    print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
+    for name, data in TEST_DATA:
+        (fa, fb), (ma, mb) = data.senescence[FEMALE], data.senescence[MALE]
+        print(
+            f"data_hash_{name} {data.hash:016x} accident {data.accident[FEMALE]!r} {data.accident[MALE]!r}"
+            f" senescence_a {fa!r} {ma!r} senescence_b {fb!r} {mb!r}"
+            f" diseases {[disease.code for disease in data.diseases]}"
+        )
+    print(f"cause_keys senescence {SENESCENCE_KEY:016x} accident {ACCIDENT_KEY:016x}")
     for name, data in [
         ("tiny_after_start", TINY_AFTER_START),
         ("tiny_year_0", TINY_YEAR_0),
@@ -832,35 +1005,42 @@ if __name__ == "__main__":
         ("pair_after_start", PAIR_AFTER_START),
         ("tiny_overridden", TINY_OVERRIDDEN),
         ("mortal_after_start", MORTAL_AFTER_START),
-        ("mortal_after_year_1", MORTAL_AFTER_YEAR_1),
+        ("mortal_after_year_5", MORTAL_AFTER_YEAR_5),
     ]:
         print(f"{name} bytes {data.hex()}")
         print(f"{name} hash {digest(data)}")
     print(f"data_hash {DATA_HASH:016x}")
-    print(f"data_hash_dummy_disease {world_reference.DUMMY_DISEASE_DATA.hash:016x}")
-    print(f"data_hash_fork {world_reference.FORK_DATA.hash:016x}")
     print(f"header {header(DATA_HASH).hex()}")
+    print(f"tiny_key {TINY_KEY:016x} due senescence {years(TINY_DUE[SENESCENCE])} accident {years(TINY_DUE[ACCIDENT])}")
     print(f"tiny_save_after_start {TINY_SAVE_AFTER_START.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
+    print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"tiny_log_hash {digest(b''.join(TINY_LOG))}")
+    print(f"tiny_input_log {TINY_INPUT_LOG.hex()}")
     print(f"tiny_save_after_year_0 {TINY_SAVE_AFTER_YEAR_0.hex()}")
     print(f"tiny_override_entry {TINY_OVERRIDE_ENTRY.hex()}")
     print(f"tiny_save_overridden {TINY_SAVE_OVERRIDDEN.hex()}")
+    for index, dues in enumerate(PAIR_DUE):
+        print(f"pair_sim_{index + 1} key {PAIR_KEYS[index]:016x} due senescence {years(dues[SENESCENCE])} accident {years(dues[ACCIDENT])}")
     print(f"mortal_save_after_start {MORTAL_SAVE_AFTER_START.hex()}")
-    print(f"mortal_keys {[format(founder_key('test:mortal', index), '016x') for index in range(2)]}")
-    cause_keys = [format(world_reference.str_key(code), "016x") for code, _ in MORTAL_CAUSES]
-    print(f"cause_keys {cause_keys}")
-    print(f"tie_key {TIE_KEY:016x} due {TIE_DUE} old_age_rate {TIE_OLD_AGE[1]!r}")
-    print(f"tie_base_first_save {TIE_BASE_FIRST.save().hex()}")
-    print(f"tie_old_age_first_save {TIE_OLD_AGE_FIRST.save().hex()}")
-    print(f"mortal_deaths_due {MORTAL_DEATHS}")
+    print(f"mortal_keys {[format(key, '016x') for key in MORTAL_KEYS]}")
+    print(f"mortal_budgets {[(code, world_reference.budget_of(0xFF, key, code)) for key in MORTAL_KEYS for code in (SENESCENCE, ACCIDENT)]}")
+    print(f"mortal_deaths_due (her senescence, her accident, his senescence, his accident) {MORTAL_DEATHS}")
     for number, line in enumerate(MORTAL.log, start=1):
         print(f"mortal_entry_{number} {line.hex()}")
     print(f"mortal_log_hash {digest(b''.join(MORTAL.log))}")
     print(f"mortal_year_hashes {[format(value, '016x') for value in MORTAL.year_hashes]}")
-    print(f"mortal_save_after_year_1 {MORTAL_SAVE_AFTER_YEAR_1.hex()}")
+    print(f"mortal_save_after_year_5 {MORTAL_SAVE_AFTER_YEAR_5.hex()}")
+    print(f"tie_key {TIE_KEY:016x} due {TIE_DUE} ({TIE_DUE / YEAR:.6f} years) accident {TIE_ACCIDENT!r} senescence_a {TIE_SENESCENCE_A!r} senescence_b 0.001")
+    print(f"tie_budgets senescence {world_reference.budget_of(0xFF, TIE_KEY, SENESCENCE)!r} accident {world_reference.budget_of(0xFF, TIE_KEY, ACCIDENT)!r}")
+    print(f"tie_save_after_start {TIE_SAVE_AFTER_START.hex()}")
+    print(f"tie_save {TIE_SAVE.hex()}")
+    print(f"tie_death_entry {TIE.log[-1].hex()}")
+    print(f"tie_year_hashes {[format(value, '016x') for value in TIE.year_hashes]}")
     print(f"sick_keys {[format(key, '016x') for key in SICK_KEYS]} disease_key {DISEASE_KEY:016x}")
-    print(f"sick_due his_disease {HIS_DISEASE} his_base {HIS_BASE} her_base {HER_BASE}")
+    print(f"sick_due his_disease {HIS_DISEASE} his_accident {HIS_ACCIDENT} her_accident {HER_ACCIDENT}")
+    fresh = sick_world(True)
+    print(f"sick_due_senescence his {fresh.cause_due(2, SENESCENCE)} her {fresh.cause_due(1, SENESCENCE)}")
     print(f"sick_on_save_after_start {SICK_ON_SAVE_AFTER_START.hex()}")
     print(f"sick_on_save_after_year_3 {SICK_ON_SAVE_AFTER_YEAR_3.hex()}")
     print(f"sick_on_his_death_entry {SICK_ON.log[-1].hex()}")
@@ -873,9 +1053,11 @@ if __name__ == "__main__":
     print(f"sick_used on_off_on {ON_OFF_ON_USED!r} two_periods {TWO_PERIODS_USED!r} off_at_due {OFF_AT_DUE_USED!r}")
     print(f"on_off_on_save {ON_OFF_ON_SAVE.hex()}")
     print(f"off_at_due_save {OFF_AT_DUE_SAVE.hex()}")
-    print(f"tie_switch {TIE_SWITCH}")
+    print(f"tie_switch {TIE_SWITCH} (disease and accident of him due in {HIS_ACCIDENT}; accident wins)")
+    print(f"accident_wins_his_death {ACCIDENT_WINS.log[-1].hex()}")
     print(f"no_disease_his_death {NO_DISEASE.log[-1].hex()}")
-    print(f"no_disease_his_ar_death {NO_DISEASE_HIS_AR_DEATH}")
+    print(f"no_disease_his_ar_death {NO_DISEASE_HIS_AR_DEATH} planned by entry {NO_DISEASE_OVERRIDE_ENTRY} at {YEAR}")
+    print(f"late_edge {LATE_EDGE}")
     print(f"partners_keys {[format(key, '016x') for key in PARTNERS_KEYS]}")
     print(f"partners_deaths {PARTNERS_DEATHS}")
     print(f"partners_save_after_start {PARTNERS_SAVE_AFTER_START.hex()}")
@@ -884,6 +1066,8 @@ if __name__ == "__main__":
     print(f"partners_save_after_arrange {PARTNERS_SAVE_AFTER_ARRANGE.hex()}")
     print(f"partners_save_after_year_4 {PARTNERS_SAVE_AFTER_YEAR_4.hex()}")
     print(f"partners_year_hashes {[format(value, '016x') for value in PARTNERS.year_hashes]}")
+    for row in death_rows("partners", PARTNERS):
+        print(row)
     print(f"clan_keys {[format(key, '016x') for key in CLAN_KEYS]}")
     print(f"clan_save_after_start {CLAN_SAVE_AFTER_START.hex()}")
     for number, line in enumerate(CLAN_CONCEPTION_ENTRIES):
@@ -891,11 +1075,16 @@ if __name__ == "__main__":
     print(f"clan_save_after_conception {CLAN_SAVE_AFTER_CONCEPTION.hex()}")
     print(f"clan_save_after_year_7 {CLAN_SAVE_AFTER_YEAR_7.hex()}")
     print(f"clan_pregnancies {[(mother, value[:4] + value[5:]) for mother, value in sorted(CLAN.pregnancies.items())]}")
+    print(f"clan_deaths {[(left, sim, cause_name(cause)) for left, sim, cause in CLAN_DEATHS]}")
+    for row in death_rows("clan", CLAN):
+        print(row)
     print(f"clan_fever_save_after_year_3 {CLAN_FEVER_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"clan_fever_deaths {[(left, sim, cause_name(cause)) for left, sim, cause in FEVER_DEATHS]}")
     print(f"clan_on_save_after_birth {CLAN_ON_SAVE_AFTER_BIRTH.hex()}")
     print(f"clan_on_ar_deaths {CLAN_ON_AR_DEATHS}")
-    print(f"clan_blight_save_after_year_0 {CLAN_BLIGHT_SAVE_AFTER_YEAR_0.hex()}")
-    print(f"clan_blight_her_death {BLIGHT.archive[1][1]}")
+    print(f"clan_blight_save_after_year_1 {CLAN_BLIGHT_SAVE_AFTER_YEAR_1.hex()}")
+    print(f"clan_blight_her_death {HER_BLIGHT}")
+    print(f"clan_blight_deaths {[(left, sim, cause_name(cause)) for left, sim, cause in BLIGHT_DEATHS]}")
     for number, line in enumerate(CLAN_BIRTH_ENTRIES):
         print(f"clan_birth_entry_{number} {line.hex()}")
     print(f"clan_save_after_birth {CLAN_SAVE_AFTER_BIRTH.hex()}")
@@ -905,6 +1094,7 @@ if __name__ == "__main__":
     for row in afflicted_rows():
         print(row)
     print(f"afflicted_deaths {AFFLICTED_DEATHS}")
+    print(f"afflicted_disease_deaths {AFFLICTED_DISEASE_DEATHS}")
     print(f"afflicted_after_start bytes {AFFLICTED_AFTER_START.hex()}")
     print(f"afflicted_after_start hash {digest(AFFLICTED_AFTER_START)}")
     print(f"afflicted_save_after_start {AFFLICTED_SAVE_AFTER_START.hex()}")

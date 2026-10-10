@@ -153,16 +153,6 @@ def f64(value: float) -> bytes:
     return struct.pack("<d", value)
 
 
-# AppliesTo: everyone = 0, its only variant since the hereditary diseases come from the
-# data (ADR-0017 section 3).
-APPLIES_TO = {"everyone": 0}
-
-
-def death_cause(code: str, per_year: float, applies_to: str = "everyone") -> bytes:
-    """DeathCause { cause: Code, per_year: FiniteF64, applies_to: AppliesTo }"""
-    return string(code) + f64(per_year) + variant(APPLIES_TO[applies_to])
-
-
 def exposure(value) -> bytes:
     """Option<Exposure>, Exposure { used: FiniteF64, since: Option<SimTime> }: the hazard
     used up in the closed periods of the switch and the time the current one began. The
@@ -226,13 +216,13 @@ def partnership(woman: int, man: int, formed: int, ended) -> bytes:
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, death_causes: [DeathCause], founders: [Founder], couples: [Couple] }
+# WorldParams, founders: [Founder], couples: [Couple], fertility: Fertility }: no causes
+# of death, they come from the data (ADR-0017 section 2).
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
     string("test:fork_no_density"),
     world_params(False),
-    seq([death_cause("test:base", 0.02)]),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
     fertility(0.05, 18, 45, 10),
@@ -261,7 +251,8 @@ SAMPLE_RANDOM_CAUSE = variant(
     4, varint(4), varint(0xCFD3D4551FB363C2), varint(0x0123456789ABCDEF), varint(0)
 )
 
-# LogPayload::Death (variant 4) { cause: Code }
+# LogPayload::Death (variant 4) { cause: Code }: any code; the world writes
+# `core:senescence`, `core:accident` or the code of a disease.
 SAMPLE_DEATH_PAYLOAD = variant(4, string("test:base"))
 
 # Input::ForkOverride (variant 1) { changes: [ParamChange] }: the switch goes on.
@@ -313,7 +304,6 @@ if __name__ == "__main__":
         ("sample_override", SAMPLE_OVERRIDE),
         ("sample_random_cause", SAMPLE_RANDOM_CAUSE),
         ("sample_death_payload", SAMPLE_DEATH_PAYLOAD),
-        ("death_cause", death_cause("test:base", 0.02)),
         ("affliction_lethal_off", affliction(0x0123456789ABCDEF, 0.0, (0.0, None))),
         ("affliction_lethal_on", affliction(0x0123456789ABCDEF, 18.0, (0.25, 5))),
         ("affliction_visible", affliction(0x0123456789ABCDEF, 25.5, None)),
