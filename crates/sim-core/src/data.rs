@@ -32,6 +32,8 @@ pub struct GeneticsCalibration {
     pub diseases: Vec<Disease>,
     /// The trait of longevity `g_L` (genetics specification 7.2), or none: then the genetic
     /// factor of death is 1 (11.1). The repository's data names none before the pre-run.
+    /// The field is required: the data name the trait or say `null` (ADR-0017 section 1).
+    #[serde(deserialize_with = "Option::deserialize")]
     pub longevity_trait: Option<DataId>,
 }
 

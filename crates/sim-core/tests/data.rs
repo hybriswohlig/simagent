@@ -1079,11 +1079,14 @@ fn death_values_reject() {
     );
     assert_ne!(named.hash(), 0x1374_3bd5_c4f3_44fc);
     assert_eq!(common::data().longevity_trait(), None);
-    // Like every optional field, a missing `longevity_trait` reads as none.
-    let (mut c, g) = common::files();
-    c.as_object_mut().expect("object").remove("longevity_trait");
-    let missing = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
-    assert_eq!(missing.hash(), DATA_HASH);
+    // The data name the trait or say `null` explicitly (ADR-0017 section 1).
+    let missing = checked(|c, _| {
+        c.as_object_mut().expect("object").remove("longevity_trait");
+    });
+    assert!(
+        missing.starts_with("serde: missing field `longevity_trait`"),
+        "{missing}"
+    );
 }
 
 /// ADR-0013 section 3: `k` and the windows of the nutrition loss.
