@@ -68,10 +68,11 @@ pub(crate) fn due(
     }
 }
 
-/// The dummy allele twice (C5): dose 2 at the locus `core:dummy` of the genome map. A map
-/// without that locus has nobody with the dummy allele twice.
+/// The allele of the recessive disease twice (C5): dose 2 at the locus `core:disease_ar` of
+/// the genome map, the dummy of step 5 renamed at its place. A map without that locus has
+/// nobody with the allele twice.
 pub(crate) fn dummy_homozygous(genome: &Genome, data: &Data) -> bool {
-    let id = DataId::new("core:dummy").unwrap_or_else(|_| panic!("invariant death.dummy_id"));
+    let id = DataId::new("core:disease_ar").unwrap_or_else(|_| panic!("invariant death.dummy_id"));
     data.locus(&id).is_some_and(|locus| genome.dose(locus) == 2)
 }
 

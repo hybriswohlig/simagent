@@ -23,162 +23,162 @@
       {
         "born": -628992000,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -723600000,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -661046400,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -755654400,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -693100800,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -787708800,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -725155200,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -631065600,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -757209600,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -663120000,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -789264000,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -695174400,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -632620800,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -727228800,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -664675200,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -759283200,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -696729600,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -791337600,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -728784000,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -634694400,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -760838400,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -666748800,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -792892800,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -698803200,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -636249600,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -730857600,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -668304000,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -762912000,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -700358400,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       },
       {
         "born": -794966400,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -732412800,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -638323200,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [0, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [0, 1] }]
       }
     ],
     "couples": [

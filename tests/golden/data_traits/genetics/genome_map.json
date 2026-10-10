@@ -33,7 +33,7 @@
   ],
   "loci": [
     {
-      "id": "core:dummy",
+      "id": "core:disease_ar",
       "chromosome": "autosome",
       "segment": 0,
       "slot": 0,

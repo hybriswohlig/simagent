@@ -1219,7 +1219,7 @@ pub(crate) mod testing {
         Data::new(definitions).expect("checked")
     }
 
-    /// The alleles of a founder at `core:dummy`: maternal, paternal; none for two
+    /// The alleles of a founder at `core:disease_ar`: maternal, paternal; none for two
     /// reference alleles.
     pub(crate) fn dummy(
         maternal: u8,
@@ -1229,7 +1229,7 @@ pub(crate) mod testing {
             return alloc::vec::Vec::new();
         }
         alloc::vec![crate::genome::LocusAlleles {
-            locus: super::DataId::new("core:dummy").expect("id"),
+            locus: super::DataId::new("core:disease_ar").expect("id"),
             copies: alloc::vec![maternal, paternal],
         }]
     }
@@ -1247,7 +1247,8 @@ mod tests {
         let mut other = two.loci[0].clone();
         other.id = DataId::new("test:other").expect("id");
         other.slot = 1;
-        two.loci.push(other);
+        // Next to the first locus, so the map stays in order.
+        two.loci.insert(1, other);
         assert_eq!(check_map(&two, str_key), Ok(()));
         assert_eq!(check_map(&two, |_| 7), Err(DataError::LocusKey));
     }
