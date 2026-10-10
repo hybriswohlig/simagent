@@ -15,9 +15,10 @@ Usage:
   python3 tools/life_reference.py --wa-scan    adds a scan of w_a at the fitted point
 
 Pure Python (standard library only); every number is fixed by the seeds below, so two runs
-print the same digits. The output is a table of the fitted values with the targets they
-reach and their Monte Carlo standard errors, the checks, a check run on towns of 100
-founders, and a JSON snippet for data/calibration/demography.json.
+print the same digits. The output is a table of the fitted values with approximate standard
+errors, the targets they reach in an independent check run with town-jackknife standard
+errors (the authoritative check), the checks, a check run on towns of 100 founders, and a
+JSON snippet for data/calibration/demography.json.
 
 What the tool fits (targets from the specification and Grok's decisions of 2026-10-08 and
 2026-10-09 on the earlier fits, ADR-0011, R6 to R8):
@@ -32,12 +33,14 @@ What the tool fits (targets from the specification and Grok's decisions of 2026-
 - `mu_a`, the preferred age gap (man older) of the age term, with `w_a` = 0.02 fixed
   (R8): the mean age gap man minus woman over all partnerships is 3.0 (band 2.5 to 4).
 - `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
-  live births on average, twins counting two. A wish mean above 3.0 stops the tool.
+  live births on average, twins counting two. A wish mean above 3.0 stops the tool. The
+  search solves it on an estimator (below); the check run checks the realized births.
 - `lambda_sep` per year (ADR-0018 section 3): one third of all partnerships end by
   separation, the rest by the first death.
 - `w_K` and `w_H` (11.2): in first partnerships (neither partner had one before) the
   correlation of the partners' adult phenotypes is 0.4 (cognition `z_K`) and 0.2 (height
-  `z_h`).
+  `z_h`) (P7). It is measured on the adult phenotypes (adult weights, s = 1 below), while
+  the market's utility reads `z_K` at each person's age at the round.
 
 The model, exactly as written in spec 7 and 11 unless stated:
 
@@ -54,9 +57,15 @@ The model, exactly as written in spec 7 and 11 unless stated:
   rule; men do not search. Searchers choose in the order of a random rank; the
   candidates are the single men of the snapshot in the order of a random rank per
   searcher, skipping those with `phi >= 1/8`, at most 12; utility `-w_K (dz_K)^2 - w_H
-  (dz_h)^2 - 0.02 (da - mu_a)^2 - 16 ln(10) phi + Gumbel`; the largest wins; a pair forms
-  if the chosen man is still single, else nothing; no counter check. A new partnership
-  tries to conceive from the next month start on (ADR-0018 section 1).
+  (dz_h)^2 - 0.02 (da - mu_a)^2 - 16 ln(10) phi + Gumbel`, `z_K` of both at their ages at
+  the round (4.2), the Gumbel noise `-ln(-ln(u))` with u by the open mapping of
+  PAIRING_NOISE (11.7); the largest wins; a pair forms if the chosen man is still single,
+  else nothing; no counter check. A new partnership tries to conceive from the next month
+  start on (ADR-0018 section 1).
+- Same-second order (ADR-0018 section 1: births, round, conception attempts, separations,
+  deaths): death and separation times are continuous, never on the month grid, so taking
+  those up to a month start before its births and round is that order; the attempts
+  before the round are equivalent to after it (comment in `simulate`).
 - The earlier market of R7 (`--r7`, cfg["market"] = "r7"): a single person enters the
   market with `e(a)` per sex and stays until a partnership forms; everyone on the market
   searches with q = 0.25 among the other sex on the market; `mu_a` = 2.5. It is kept to
@@ -85,12 +94,18 @@ The model, exactly as written in spec 7 and 11 unless stated:
 
 Modeling choices of this tool (not in the specification):
 
-- Phenotypes: each person's adult `z_K`, `z_h` and `z_p` are independent N(0, 1) draws at
-  birth, `z_K` and `z_h` constant from the market age on. There is no inheritance of
-  phenotypes in the tool, so no Bulmer increase of the variance (4.4): the fit holds for
-  a population at the equilibrium of 4.1, where `z` is N(0, 1) by construction of
-  `sigma_ref`. Relatives are not more alike than strangers here, so the kinship penalty
-  does not interact with similarity.
+- Phenotypes: no inheritance. Each person's `G`, `C` and `E` of cognition, `z_h` and `z_p`
+  are independent N(0, 1) draws at birth (no shared `C` among siblings, no shared `G`
+  among identical twins). Cognition follows 4.2 with age: `z_K(x) = sqrt(h2(x)) G +
+  sqrt(c2(x)) C + sqrt(e2(x)) E`, each weight `w(x) = w_child + (w_adult - w_child) s(x)`
+  with `s(x) = 1 / (1 + exp(-(x - 12) / 2))`, h2 from 0.5 to 0.75, c2 from 0.25 to 0.05, e2
+  the rest; the market reads it at the person's age at the round, P7 at the adult weights
+  (s = 1). Height's weights (0.8, 0.05) do not change with age, so `z_h` is one draw for
+  life. Without inheritance there is no Bulmer increase of the variance (4.4): the fit
+  holds for a population at the equilibrium of 4.1, where `z` is N(0, 1) by construction
+  of `sigma_ref` (at every age, since the squared weights sum to 1). Relatives are not
+  more alike than strangers here, so the kinship penalty does not interact with
+  similarity.
 - Random numbers are addressed by entity and occasion (a splitmix64 mixer over person
   keys built like lineage keys, not the core's draws). That makes a run independent of
   the order of evaluation, but it does not make nearby parameters comparable: one
@@ -106,10 +121,17 @@ Modeling choices of this tool (not in the specification):
   wish); partnerships formed after the burn-in (correlations, age gap, separation). The
   separation share counts the eventual ending of each partnership, which the tool knows
   even after the run's end because it draws death and separation times in advance.
-- Fitting statistics with less noise, same expectation: the mean live births of a woman
-  is averaged over her wish given her partnership history (which does not depend on her
-  wish), and the separation share over the separation budget given the time to the first
-  death (`1 - exp(-lambda * D)`). The realized values are printed next to them.
+- Search statistics with less noise: the separation share is averaged over the separation
+  budget given the time to the first death (`1 - exp(-lambda * D)`); `D` is known when the
+  budget is drawn, so this has the expectation of the realized share. The mean live
+  births of a woman is averaged over her wish given her history (her partnerships and
+  the conceptions the tool keeps simulating up to four births). That is not an exact
+  conditional expectation in a closed town: her wish changes her descendants and so,
+  through the market, later partnership chances, her own included. Its bias is not
+  known in advance; the check run measures the realized live births per woman reaching
+  50, and that is the check of `alpha`: if it misses 2.20 by more than 2 of its standard
+  errors (town jackknife), the tool stops with a finding and `alpha` has to be fitted on
+  realized births instead. The realized values are printed next to the estimators.
 
 - Town size: 1000 founders, growing to about 2000 to 2500 persons in 300 years. The
   market outcome depends on the number of singles, so the values hold for towns of this
@@ -129,13 +151,19 @@ there. Plain Newton steps do not work here: the women's search center `m_f` has 
 effect where women search little (most women pair by being chosen), the finite-difference
 Jacobian is nearly singular and noisy, and the steps cycle. The fitted values are the
 least-squares point of the final local model (its root when it has one; residuals
-weighted by the per-town standard deviations TSCALE), with standard errors from the
-model's intercepts. A check run at the fitted values on new towns gives the achieved
-targets, with standard errors by the delete-one-town jackknife (they include the
-dependence within a town).
+weighted by the per-town standard deviations TSCALE). Their standard errors are
+approximate, not full Monte Carlo errors: the six outer ones by the delta method from
+the covariance of the model's intercepts across the targets (kernel weights and the
+Jacobian's noise not modeled), `alpha`'s and `lambda_sep`'s by the delete-one-town
+jackknife of their solution on the settle run (without the uncertainty of the other
+six). The authoritative check is a check run at the fitted values on new towns: it gives
+the achieved targets (births as realized births), with standard errors by the
+delete-one-town jackknife (they include the dependence within a town).
 
-Exit status 1 when a target misses by more than 4 standard errors or a check of 11.2
-fails: per 11.2 the finding then goes back to Grok before the values are used.
+Exit status 1 when a target misses by more than 4 standard errors, a check of 11.2 fails
+(per 11.2 the finding then goes back to Grok before the values are used) or the realized
+births miss 2.20 by more than 2 standard errors (then `alpha` needs a fit on realized
+births).
 """
 
 import heapq
@@ -180,6 +208,13 @@ MENARCHE_RAMP = 3.0  # K5.6c
 WOMAN_DECLINE = (30.0, 50.0)  # K5.6d, K5.6e
 MAN_START, MAN_RAMP = 0.7, 2.0  # K5.6f, K5.6g
 MAN_DECLINE = (45.0, 70.0, 0.4)  # K5.6h, K5.6j, K5.6i
+# Cognition phenotype at age x (4.2): z_K(x) = sqrt(h2(x)) G + sqrt(c2(x)) C + sqrt(e2(x)) E,
+# each weight from its child to its adult value along s(x) = 1 / (1 + exp(-(x - 12) / 2)),
+# e2 the rest to 1. Height keeps 0.8 and 0.05 [K4.2a, K4.2b] at every age, so z_h does not
+# depend on age.
+COG_H2 = (0.5, 0.75)  # child, adult [K4.2d]
+COG_C2 = (0.25, 0.05)  # child, adult [K4.2e]
+COG_MID, COG_SPREAD = 12.0, 2.0  # years, the transition s(x) of 4.2
 U18_BAND = (0.001, 0.005)  # share of live births to mothers under 18 (Grok, 2026-10-08)
 GAP_BAND = (2.5, 4.0)  # 11.2
 
@@ -226,8 +261,17 @@ def salt(tag, a, b=0):
 
 
 def unit(w):
-    """Strictly between 0 and 1."""
+    """In (0, 1]: the top 2^11 words give 1.0, because 2^53 - 1/2 is not a double and
+    rounds up. That is harmless for the comparisons `unit(w) < p` with p <= 1, the wish
+    and `exp1` (a budget of 0); `normal` would raise there (probability 2^-53 per draw).
+    Draws that need 0 < u < 1 use `unit_open`."""
     return ((w >> 11) + 0.5) * U53
+
+
+def unit_open(w):
+    """Strictly between 0 and 1, the mapping of PAIRING_NOISE (11.7):
+    `u = (2 * (w >> 12) + 1) * 2^-53`, from 2^-53 to 1 - 2^-53, every value exact."""
+    return (2 * (w >> 12) + 1) * U53
 
 
 NORMAL = NormalDist()
@@ -334,6 +378,23 @@ def search_table(c, m, market_age, rho):
         if k < MINOR_UNTIL * MONTHS:
             out[k] *= rho
     return out
+
+
+def cognition_weights(s):
+    """(sqrt h2, sqrt c2, sqrt e2) of cognition at the transition value s (4.2):
+    w = w_child + (w_adult - w_child) * s for h2 and c2, e2 the rest to 1."""
+    h2 = COG_H2[0] + (COG_H2[1] - COG_H2[0]) * s
+    c2 = COG_C2[0] + (COG_C2[1] - COG_C2[0]) * s
+    return math.sqrt(h2), math.sqrt(c2), math.sqrt(1.0 - h2 - c2)
+
+
+# The weights on whole months of age (every age at a month start is whole months); from
+# 131 years on the last entry, where s(x) is 1 in double precision. The adult phenotype of
+# the correlation target P7 takes s = 1.
+COG_BY_AGE = [cognition_weights(1.0 / (1.0 + math.exp(-(k / MONTHS - COG_MID) / COG_SPREAD)))
+              for k in range(131 * MONTHS)]
+COG_LAST = len(COG_BY_AGE) - 1
+COG_ADULT = cognition_weights(1.0)
 
 
 def smoothstep(t):
@@ -454,7 +515,8 @@ def simulate(par, seed, cfg):
 
     # Person columns.
     sex, birth, death, key, mother, father = [], [], [], [], [], []
-    zk, zh, slot, first, npart, partner_of = [], [], [], [], [], []
+    kg, kc, ke = [], [], []  # cognition G, C, E (4.2), independent N(0, 1) per person here
+    zk, zh, slot, first, npart, partner_of = [], [], [], [], [], []  # zk: adult z_K (P7)
     wish, vcount, vpreg, vlast, nconc, cumv, actual, first_birth = [], [], [], [], [], [], [], []
     pend = []
     kin = Kinship(int(n0 * 1.6) + 64)
@@ -475,7 +537,11 @@ def simulate(par, seed, cfg):
         key.append(k)
         mother.append(mo)
         father.append(fa)
-        zk.append(normal(salt(TAG_ZK, k)))
+        g_k, c_k, e_k = (normal(salt(TAG_ZK, k, part)) for part in range(3))
+        kg.append(g_k)
+        kc.append(c_k)
+        ke.append(e_k)
+        zk.append(COG_ADULT[0] * g_k + COG_ADULT[1] * c_k + COG_ADULT[2] * e_k)
         zh.append(normal(salt(TAG_ZH, k)))
         first.append(-1)
         npart.append(0)
@@ -541,6 +607,7 @@ def simulate(par, seed, cfg):
             if min(d, t_sep) >= t_end:
                 sep_real[2] += 1
             if is_first:
+                # P7 is on the adult phenotypes (s = 1), whatever the ages at the round.
                 c = stats_corr
                 c[0] += 1
                 for off, (x, y) in ((1, (zk[w], zk[m])), (6, (zh[w], zh[m]))):
@@ -624,7 +691,17 @@ def simulate(par, seed, cfg):
 
     # The months.
     for t in range(t_end):
-        # Deaths and separations before this month start.
+        # Same-second order (ADR-0018 section 1): births, then the market round, then the
+        # conception attempts, then separations, then deaths. Death and separation times
+        # here are continuous (closed-form ages and Exp(1) budgets scaled to months, never
+        # rounded to the month grid), so one at exactly a month start t has probability
+        # zero (double rounding aside, about 1e-13 per event); taking those in (t - 1, t]
+        # before the births and the round at t is the ADR order. The one grid-aligned case,
+        # a budget of exactly 0 (`unit` giving 1.0, 2^-53), puts a newborn's death at its
+        # birth month start or a separation at its round, and both are taken at t + 1,
+        # after that round, as in the ADR. The conception attempts come before the round; that
+        # is the same as after it, because a partnership formed in the round tries only
+        # from the next month start and an attempt changes no one's single status.
         while heap and heap[0][0] <= t:
             _, kind, x = heapq.heappop(heap)
             if kind == 0:
@@ -774,15 +851,19 @@ def simulate(par, seed, cfg):
                 if not cands:
                     continue
                 ns = salt(TAG_NOISE, key[i], t)
-                zi_k, zi_h = zk[i], zh[i]
                 bi = birth[i]
+                # z_K of both at their ages at the round (4.2, 11.2); z_h is age-free.
+                cw = COG_BY_AGE[min(t - bi, COG_LAST)]
+                zi_k = cw[0] * kg[i] + cw[1] * kc[i] + cw[2] * ke[i]
+                zi_h = zh[i]
                 male_i = sex[i] == MALE
                 best, best_u = -1, -math.inf
                 for j in cands:
                     da = (birth[j] - bi) / MONTHS if male_i else (bi - birth[j]) / MONTHS
-                    dk = zi_k - zk[j]
+                    cw = COG_BY_AGE[min(t - birth[j], COG_LAST)]
+                    dk = zi_k - (cw[0] * kg[j] + cw[1] * kc[j] + cw[2] * ke[j])
                     dh = zi_h - zh[j]
-                    gumbel = -math.log(-math.log(unit(mix(ns ^ key[j]))))
+                    gumbel = -math.log(-math.log(unit_open(mix(ns ^ key[j]))))
                     u = (-w_k * dk * dk - w_h * dh * dh - w_a * (da - mu_a) ** 2
                          - KIN_PENALTY * q_kin[row + slot[j]] / ONE + gumbel)
                     if u > best_u:
@@ -1191,9 +1272,11 @@ def seeds_of(k, towns):
 def regress(points, xc, rho):
     """Weighted least squares of the outer residuals on (x - xc) / SCALE over all runs;
     weight = towns x Gaussian kernel of radius rho around xc. Returns the intercepts (the
-    model's residuals at xc), the Jacobian rows (per SCALE unit), the variances of the
-    intercepts and the effective number of runs. The residual variance includes any lack
-    of fit, so the variances err on the large side. The radius grows until at least
+    model's residuals at xc), the Jacobian rows (per SCALE unit), the covariance matrix of
+    the intercepts across the targets (one set of towns gives all of them) and the
+    effective number of runs. The residual (co)variance includes any lack of fit, and the
+    kernel weights are treated as precision weights, so the covariances are approximate
+    and the variances err on the large side. The radius grows until at least
     2 (nx + 1) runs count, so the model never rests on a handful of runs."""
     nx = len(SCALE)
     while True:
@@ -1224,12 +1307,12 @@ def regress_at(points, xc, rho):
     beta = [solve_linear(a, rhs[t]) for t in range(nout)]
     neff = sum(r[3] for r in rows)
     inv00 = solve_linear(a, [1.0] + [0.0] * (p - 1))[0]
-    var_a = []
-    for t in range(nout):
-        ss = sum(w * (g[t] - sum(b * r for b, r in zip(beta[t], row))) ** 2
-                 for row, g, w, _ in rows)
-        var_a.append(ss / max(neff - p, 1.0) * inv00)
-    return [b[0] for b in beta], [b[1:] for b in beta], var_a, neff
+    res = [[g[t] - sum(b * r for b, r in zip(beta[t], row)) for t in range(nout)]
+           for row, g, _, _ in rows]
+    f = inv00 / max(neff - p, 1.0)
+    cov_a = [[f * sum(r[2] * e[t] * e[s] for r, e in zip(rows, res)) for s in range(nout)]
+             for t in range(nout)]
+    return [b[0] for b in beta], [b[1:] for b in beta], cov_a, neff
 
 
 def lm_gain(jac, mu):
@@ -1299,17 +1382,22 @@ def fit(runner, x, alpha, lam, cfg):
         alpha, lam = inner(runs[-1][3])
         res = runner.evaluate([params(xc, alpha, lam)], seeds_of(k + 1, towns))[0]
         record(xc, alpha, lam, res, "it %d" % k)
-    a, jac, var_a, neff = regress(points, xc, RHO_MIN)
+    a, jac, cov_a, neff = regress(points, xc, RHO_MIN)
+    var_a = [cov_a[t][t] for t in range(nout)]
     d, short = lm_step(a, jac, MU_FINAL, RHO_MIN)
     clipped.append(short)
     x_fit = [c + s * v for c, s, v in zip(xc, SCALE, d)]
     x_fit[RHO_INDEX] = min(0.0, x_fit[RHO_INDEX])
     model = [a[t] + sum(jac[t][i] * d[i] for i in range(nx)) for t in range(nout)]
-    # Standard errors of the fitted point from the intercept variances (delta method on
-    # the weighted least-squares step).
+    # Approximate standard errors of the fitted point: the delta method on the weighted
+    # least-squares step with the intercepts' covariance across the targets; the
+    # Jacobian's own noise and the kernel weights are not modeled.
     gain = lm_gain(jac, MU_FINAL)
-    se_x = [SCALE[i] * math.sqrt(sum((gain[i][t] / TSCALE[t]) ** 2 * var_a[t]
-                                     for t in range(nout))) for i in range(nx)]
+    se_x = []
+    for i in range(nx):
+        gi = [gain[i][t] / TSCALE[t] for t in range(nout)]
+        v = sum(gi[t] * gi[s] * cov_a[t][s] for t in range(nout) for s in range(nout))
+        se_x.append(SCALE[i] * math.sqrt(max(v, 0.0)))
     # alpha and lambda_sep settled at the fitted point on new towns.
     log("Settling alpha and lambda_sep at the fitted point:")
     alpha, lam = inner(aggregate([o for r in runs[-4:] for o in r[5]]))
@@ -1319,23 +1407,35 @@ def fit(runner, x, alpha, lam, cfg):
     alpha, lam = inner(res[0], strict=True)
     fitted = {"x": x_fit, "alpha": alpha, "lam": lam, "model": model, "se_x": se_x,
               "model_se": [math.sqrt(v) for v in var_a], "jac": jac, "neff": neff,
-              "pooled": res[0], "runs": runs, "clipped": sum(clipped[-5:])}
+              "pooled": res[0], "settle": res[2], "runs": runs,
+              "clipped": sum(clipped[-5:])}
     return fitted
 
 
 def fit_errors(fitted, par):
-    """Monte Carlo standard errors of the fitted values."""
+    """Approximate standard errors of the fitted values, not full Monte Carlo errors. The
+    six outer ones come from the final local model (see `fit`). alpha's and lambda_sep's
+    are the delete-one-town jackknife of their solution on the settle run, so they carry
+    the dependence within a town but not the uncertainty of the outer six. The check run's
+    town jackknife on the targets is the authoritative check."""
     out = {}
     for name, lg, se in zip(XNAMES, LOGX, fitted["se_x"]):
         out[name] = par[name] * se if lg else se
-    agg = fitted["pooled"]
-    h = 1e-4
-    a = par["alpha"]
-    slope = (births_rb(agg, a + h)[0] - births_rb(agg, a - h)[0]) / (2 * h)
-    out["alpha"] = births_rb(agg, a)[1] / slope
-    lam = par["lam"]
-    slope = (sep_rb(agg, lam * (1 + h))[0] - sep_rb(agg, lam * (1 - h))[0]) / (2 * h * lam)
-    out["lam"] = sep_rb(agg, lam)[1] / slope
+    outs = fitted["settle"]
+    n = len(outs)
+    sols = {"alpha": [], "lam": []}
+    for i in range(n):
+        agg = aggregate(outs[:i] + outs[i + 1:])
+        sols["alpha"].append(root(lambda a: births_rb(agg, a)[0] - TARGET["births"], -5.0, 5.0))
+        ds = agg["sep_d"]
+        sols["lam"].append(root(lambda x: 1.0 - sum(math.exp(-x * d) for d in ds) / len(ds)
+                                - TARGET["sep"], 1e-7, 1.0))
+    for name, vals in sols.items():
+        if n < 3 or None in vals:
+            out[name] = math.nan
+            continue
+        mean = sum(vals) / n
+        out[name] = math.sqrt((n - 1) / n * sum((v - mean) ** 2 for v in vals))
     return out
 
 
@@ -1377,7 +1477,7 @@ def set_mode(mode):
     """Rebinds the fit's globals to a mode table (main process only; the towns read
     only their parameters and cfg)."""
     globals().update(mode)
-FIT_DATE = "2026-10-09"
+FIT_DATE = "2026-10-10"
 NAMES = ("c_f", "m_f", "c_m", "m_m", "rho", "mu_a", "alpha", "lam", "w_K", "w_H")
 MEANING = {
     "c_f": "height c of e(a), women, per month", "m_f": "center m of e(a), women, years",
@@ -1400,12 +1500,17 @@ LABELS = {
     "first_birth": "mean age of mothers at first birth",
     "tfr": "total fertility rate",
     "births": "mean live births, women reaching 50",
+    "births_real": "live births per woman reaching 50, realized",
     "sep": "share of partnerships ending by separation",
     "r_K": "partner correlation z_K, first partnerships",
     "r_H": "partner correlation z_h, first partnerships",
 }
 EXTRA = ("never_f", "med_m", "never_m", "gap", "first_birth", "tfr", "births_real", "sep_real",
          "drift_med_f", "drift_med_m", "drift_never_f", "drift_never_m", "drift_births")
+# The check run checks the births target on the realized live births, not on the search
+# estimator of alpha (see the module docstring).
+CHECKED_AS = {"births": "births_real"}
+BIRTHS_BIAS_SE = 2.0  # realized births within 2 SE of 2.20, else fit alpha on them (review)
 
 
 def sig(value, se):
@@ -1431,14 +1536,19 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     runs = fitted["runs"]
     log("")
     log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
-        "effective at the end); alpha and lambda_sep solved on %d new towns there; MC "
-        "standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
-    log("  %-6s %12s %10s  %s" % ("value", "fitted", "MC SE", "meaning"))
+        "effective at the end); alpha and lambda_sep solved on %d new towns there; "
+        "approximate standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
+    log("  %-6s %12s %10s  %s" % ("value", "fitted", "approx SE", "meaning"))
     for k in NAMES:
         if k in se_par:
             log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
     log("  wish P_0..P_4 = %s, mean %.4f (limit 3.0)" % (
         ", ".join("%.4f" % p for p in wish_probs(par["alpha"])), wish_mean(par["alpha"])))
+    log("  The standard errors are approximate, not full Monte Carlo errors: the outer values'")
+    log("  from the final local model (delta method with the intercepts' covariance across the")
+    log("  targets; kernel weights and the Jacobian's noise not modeled), alpha's and")
+    log("  lambda_sep's from the delete-one-town jackknife of the settle run (without the")
+    log("  uncertainty of the outer values). The authoritative check is the check run below.")
     log("")
     n_chk = cfg["check_towns"]
     log("Targets: the regression model at the fitted values (model; births and separation "
@@ -1451,11 +1561,12 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     reached = True
     for k in REPORTED:
         fit_mean = model[k]
-        v = value(m, k)
-        dev = (v - TARGET[k]) / se[k]
+        ck = CHECKED_AS.get(k, k)
+        v = value(m, ck)
+        dev = (v - TARGET[k]) / se[ck]
         reached = reached and abs(dev) <= 4.0
         log("  %-44s %8.4f %9.4f %9.4f %8.4f %7.2f" % (LABELS[k], TARGET[k], fit_mean, v,
-                                                       se[k], dev))
+                                                       se[ck], dev))
     missed = [k for k, v, s in zip(OUTER, fitted["model"], fitted["model_se"])
               if k != "never_f" and abs(v) > 3 * s]
     if "never_f" not in REPORTED:
@@ -1475,8 +1586,10 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     log("  Medians are Kaplan-Meier medians among persons reaching 50 (no other censoring),")
     log("  with each month's count spread over half a month on either side; plain (first")
     log("  month with half reached): women %.3f, men %.3f." % (m["km_f"], m["km_m"]))
-    log("  Births: the mean over the wish given each woman's history; realized %.4f +- %.4f." % (
-        m["births_real"], se["births_real"]))
+    log("  Births: the model column is the search estimator (the mean over the wish given each")
+    log("  woman's history, solved to 2.20 on the settle run); the check column is the realized")
+    log("  mean live births, the check of alpha. The search estimator on the check run: %.4f "
+        "+- %.4f." % (value(m, "births"), se["births"]))
     log("  Separation: partnerships formed in years %d-%d, each counted by its eventual end; "
         "realized share %.4f +- %.4f; %d of %d still open at the end of the run." % (
             cfg["burn_in"], cfg["years"], m["sep_real"], se["sep_real"], m["n_open"],
@@ -1505,6 +1618,13 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
             cfg["burn_in"], cfg["years"], u18, se["u18"], "ok" if ok else "FINDING"))
     if par["rho"] >= 1.0:
         log("    rho is at its bound 1: the share cannot rise further by rho")
+    b = m["births_real"]
+    births_dev = (b - TARGET["births"]) / se["births_real"]
+    births_ok = abs(births_dev) <= BIRTHS_BIAS_SE
+    verdict = "ok" if births_ok else "FINDING: fit alpha on realized births"
+    log("  realized live births per woman reaching 50, the check of alpha's search estimator "
+        "(not an exact conditional expectation in a closed town): %.4f +- %.4f, %+.2f SE from "
+        "2.20 (within %g SE) %s" % (b, se["births_real"], births_dev, BIRTHS_BIAS_SE, verdict))
     log("  candidates per searcher (after the burn-in): mean %.2f, none in "
         "%.3f of searches" % (m["cands_mean"], m["cands_none"]))
     log("  w_K scan at the fitted point (%d towns each): %s" % (
@@ -1532,8 +1652,8 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     sse = jackknife(souts, par, REPORTED + EXTRA)
     log("Town size: the fitted values on %d towns of %d founders (the check run has %d):" % (
         len(souts), SMALL_FOUNDERS, cfg["founders"]))
-    for k in REPORTED + tuple(k for k in ("never_f", "med_m", "never_m", "gap", "first_birth",
-                                           "tfr") if k not in REPORTED):
+    for k in REPORTED + tuple(k for k in ("births_real", "never_f", "med_m", "never_m", "gap",
+                                           "first_birth", "tfr") if k not in REPORTED):
         log("  %-44s %9.4f +- %.4f (check run %.4f)" % (
             LABELS.get(k, k), value(sm, k), sse.get(k, math.nan), value(m, k)))
     log("  candidates per searcher %.2f (check run %.2f)" % (sm["cands_mean"], m["cands_mean"]))
@@ -1610,13 +1730,13 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
             continue
         snippet[name] = {"value": rounded[k], "unit": unit_, "source": source,
                          "as_of": FIT_DATE,
-                         "note": "%s; Monte Carlo standard error %.2g" % (note, se_par[k])}
+                         "note": "%s; approximate standard error %.2g" % (note, se_par[k])}
     log("")
     log("JSON for data/calibration/demography.json (the key names are proposals):")
     log(json.dumps(snippet, indent=2, ensure_ascii=False))
     log("")
     log("%d town runs, %.0f s." % (towns_run, runtime))
-    return reached, all(checks)
+    return reached, all(checks), births_ok
 
 
 def main(argv):
@@ -1657,8 +1777,8 @@ def main(argv):
     if female and "--wa-scan" in argv:
         wa_scan = [r[1] for r in runner.evaluate(
             [dict(par, w_a=w) for w in WA_SCAN], seeds_of(cfg["iters"] + 4, cfg["settle_towns"]))]
-    reached, ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan], small,
-                         time.time() - t0, runner.towns, wa_scan)
+    reached, ok, births_ok = report(cfg, par, se_par, fitted, chk, [r[1] for r in scan], small,
+                                    time.time() - t0, runner.towns, wa_scan)
     status = 0
     if not reached:
         log("NOT REACHED: a target misses by more than 4 standard errors in the check run.")
@@ -1666,6 +1786,11 @@ def main(argv):
     if not ok:
         log("STOP: a check failed (age gap or births under 18); the finding goes back to Grok "
             "before these values enter the calibration.")
+        status = 1
+    if not births_ok:
+        log("STOP: the realized births miss 2.20 by more than %g standard errors; alpha's search "
+            "estimator is biased here and alpha has to be fitted on realized births." %
+            BIRTHS_BIAS_SE)
         status = 1
     return status
 
