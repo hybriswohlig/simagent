@@ -1671,7 +1671,7 @@ fn the_diseases_are_those_of_the_specification() {
 /// carrier that does not fit, `data.trait_named` for a trait of liability the map lacks.
 #[test]
 fn diseases_reject() {
-    let cases: [(Change, &str); 24] = [
+    let cases: [(Change, &str); 26] = [
         (|c, _| c["format_version"] = json!(3), "data.format_version"),
         // The carrier: a locus of the map, marked disease, recessive or dominant, one
         // disease per locus; codes unique.
@@ -1692,6 +1692,15 @@ fn diseases_reject() {
         ),
         (
             |c, _| c["diseases"][1]["code"] = json!("core:disease_ar"),
+            "data.disease",
+        ),
+        // The causes of death for everyone keep their names (ADR-0017 section 2).
+        (
+            |c, _| c["diseases"][1]["code"] = json!("core:accident"),
+            "data.disease",
+        ),
+        (
+            |c, _| c["diseases"][5]["code"] = json!("core:senescence"),
             "data.disease",
         ),
         // Penetrance, a fraction.

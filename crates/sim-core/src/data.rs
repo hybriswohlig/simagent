@@ -1142,7 +1142,7 @@ fn disease_number(c: &Calibrated, unit: Unit) -> Result<f64, DataError> {
 }
 
 /// The diseases (ADR-0017 section 1): codes with unique keys (the occasion of their
-/// draws); a carrier locus of the map, marked disease, recessive or dominant, at most one
+/// draws), none of them a cause of death for everyone; a carrier locus of the map, marked disease, recessive or dominant, at most one
 /// disease per locus; a trait of liability the map has; penetrances in [0, 1], a
 /// heritability in (0, 1), a prevalence in (0, 0.5]; ages from 0 to 130 with a positive
 /// spread and ordered bounds; hazards in the ranges of `mortality`, a death with some.
@@ -1156,7 +1156,14 @@ fn check_diseases(
     let age = |x: f64| (0.0..=CHANGE_AGE_RANGE.1).contains(&x);
     let hazard = |x: f64| (DISEASE_HAZARD_RANGE.0..=DISEASE_HAZARD_RANGE.1).contains(&x);
     let fits = |ok: bool| if ok { Ok(()) } else { Err(DataError::Disease) };
-    fits(keys_unique(diseases.iter().map(|d| &d.code), key))?;
+    // The causes of death for everyone come first in the list of causes (ADR-0017
+    // section 2) and share the budget address by key: no disease may take their names.
+    let reserved = ["core:senescence", "core:accident"]
+        .map(|code| DataId::new(code).unwrap_or_else(|_| panic!("invariant data.key")));
+    fits(keys_unique(
+        reserved.iter().chain(diseases.iter().map(|d| &d.code)),
+        key,
+    ))?;
     let mut carriers = BTreeMap::new();
     for disease in diseases {
         match &disease.carrier {

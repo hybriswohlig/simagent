@@ -913,7 +913,7 @@
           "penetrance_male": {
             "value": 0.1,
             "unit": "fraction",
-            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1 (Kuchenbaecker et al. 2017)",
+            "source": "docs/genetik-spezifikation.md 3.2, game value; Kuchenbaecker et al. 2017 followed women only",
             "as_of": "2026-10-10",
             "note": "penetrance of men"
           }
