@@ -58,6 +58,15 @@ pub const ENV_INDIVIDUAL: PurposeTag = PurposeTag::from_pinned_list(11);
 /// 20 the age).
 pub const BODY_CLAMP_SAMPLE: PurposeTag = PurposeTag::from_pinned_list(12);
 
+/// Whether a person with the genotype of a hereditary disease has it (genetics
+/// specification 3.1, ADR-0017 section 3). subject: the person's lineage key; occasion:
+/// `str_key` of the disease; detail: 0.
+pub const DISEASE_PENETRANCE: PurposeTag = PurposeTag::from_pinned_list(13);
+
+/// The onset of a hereditary disease a person has (genetics specification 3.1). subject:
+/// the person's lineage key; occasion: `str_key` of the disease; detail: 0.
+pub const DISEASE_ONSET: PurposeTag = PurposeTag::from_pinned_list(14);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -72,6 +81,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (ENV_SHARED, "ENV_SHARED"),
     (ENV_INDIVIDUAL, "ENV_INDIVIDUAL"),
     (BODY_CLAMP_SAMPLE, "BODY_CLAMP_SAMPLE"),
+    (DISEASE_PENETRANCE, "DISEASE_PENETRANCE"),
+    (DISEASE_ONSET, "DISEASE_ONSET"),
 ];
 
 /// Values of deleted tags; they are never used again.

@@ -1143,7 +1143,8 @@ fn disease_number(c: &Calibrated, unit: Unit) -> Result<f64, DataError> {
 
 /// The diseases (ADR-0017 section 1): codes with unique keys (the occasion of their
 /// draws), none of them a cause of death for everyone; a carrier locus of the map, marked disease, recessive or dominant, at most one
-/// disease per locus; a trait of liability the map has; penetrances in [0, 1], a
+/// disease per locus; no trait of liability yet (step 11), and a named one must be in the
+/// map; penetrances in [0, 1], a
 /// heritability in (0, 1), a prevalence in (0, 0.5]; ages from 0 to 130 with a positive
 /// spread and ordered bounds; hazards in the ranges of `mortality`, a death with some.
 fn check_diseases(
@@ -1192,10 +1193,14 @@ fn check_diseases(
                 let h2 = disease_number(heritability, Unit::Fraction)?;
                 let k = disease_number(prevalence, Unit::Fraction)?;
                 fits(h2 > 0.0 && h2 < 1.0 && k > 0.0 && k <= 0.5)?;
-                if let Some(t) = liability
-                    && !map.traits.iter().any(|known| &known.id == t)
-                {
-                    return Err(DataError::TraitNamed);
+                if let Some(t) = liability {
+                    if !map.traits.iter().any(|known| &known.id == t) {
+                        return Err(DataError::TraitNamed);
+                    }
+                    // The world reads a trait of liability with the traits of the pre-run
+                    // (step 11), which brings the inverse normal for the threshold; until
+                    // then nobody has a threshold disease (ADR-0017 section 3).
+                    return Err(DataError::Disease);
                 }
             }
         }

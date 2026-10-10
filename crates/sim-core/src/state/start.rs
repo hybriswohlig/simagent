@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, Slot, death, partnership, years_between};
+use super::{DomainState, Sim, Slot, death, disease, partnership, years_between};
 use crate::data::Data;
 use crate::genome::{AlleleError, Genome};
 use crate::input::{
@@ -30,7 +30,7 @@ pub(crate) fn check_start(
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
     .or_else(|| alleles_rejection(&start.founders, data))
-    .or_else(|| death_causes_rejection(&start.death_causes))
+    .or_else(|| death_causes_rejection(&start.death_causes, data))
     .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
     .or_else(|| fertility_rejection(&start.fertility))
     .or_else(|| nutrition_rejection(&start.world_params.nutrition));
@@ -94,13 +94,16 @@ fn alleles_rejection(founders: &[Founder], data: &Data) -> Option<RejectCode> {
     })
 }
 
-/// Why these causes of death are rejected, if at all: two with the same key, or a hazard
-/// so small that the years until death would not be a finite number.
-pub(crate) fn death_causes_rejection(causes: &[DeathCause]) -> Option<RejectCode> {
+/// Why these causes of death are rejected, if at all: two with the same key, also one
+/// with the key of a hereditary disease of the data (it would share its budget and its
+/// slot, ADR-0017 section 2), or a hazard so small that the years until death would not be
+/// a finite number.
+pub(crate) fn death_causes_rejection(causes: &[DeathCause], data: &Data) -> Option<RejectCode> {
     let twice = causes.iter().enumerate().any(|(index, cause)| {
         causes[..index]
             .iter()
             .any(|earlier| earlier.cause.key() == cause.cause.key())
+            || disease::of_key(data, cause.cause.key()).is_some()
     });
     if twice {
         return Some(RejectCode::DeathCauseTwice);
@@ -133,8 +136,8 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// 7). Then one creation entry per founder, in list order; the position in the list
 /// is the founder's index in its lineage key (ADR-0001 section 4). Per founder the first
 /// birthday is planned, then the deaths in the order of the causes; the causes act on a
-/// founder from the start on, a hereditary one only with the dummy allele twice and the
-/// switch on. Then the couples are paired, in list order.
+/// founder from the start on, a lethal disease from its onset and only with the switch
+/// on. Then the couples are paired, in list order.
 pub(crate) fn apply_start(
     domain: &mut DomainState,
     data: &Data,
@@ -176,8 +179,12 @@ pub(crate) fn apply_start(
                 lineage_key,
                 sex: founder.sex,
                 genome,
-                exposure: death::first_exposure(
-                    death::dummy_homozygous(&genome, data),
+                afflictions: disease::afflictions(
+                    data,
+                    start.world_seed,
+                    lineage_key,
+                    founder.sex,
+                    &genome,
                     start.world_params.hereditary_diseases,
                     SimTime::START,
                 ),
@@ -189,7 +196,7 @@ pub(crate) fn apply_start(
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: id }, added);
         domain.pending.insert((id, Slot::Birthday), handle);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });
-        death::plan_deaths(domain, id, 0, added, ctx);
+        death::plan_deaths(domain, data, id, added, ctx);
         ids.push(id);
     }
     for couple in &start.couples {

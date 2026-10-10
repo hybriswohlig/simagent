@@ -4,6 +4,7 @@
 use alloc::vec::Vec;
 
 use super::{DomainState, death};
+use crate::data::Data;
 use crate::input::{ForkOverride, InputRejected, RejectCode};
 use crate::log::{Causes, LogPayload};
 use crate::params::ParamChange;
@@ -48,6 +49,7 @@ pub(crate) fn block_rejection(block: &ForkOverride, stamp: SimTime) -> Option<Re
 /// its entry; one that keeps a value changes nothing else.
 pub(crate) fn apply_override(
     domain: &mut DomainState,
+    data: &Data,
     block: &ForkOverride,
     ctx: &mut SimCtx<'_, '_>,
 ) {
@@ -65,7 +67,7 @@ pub(crate) fn apply_override(
             Causes::new(ctx.trigger()),
         );
         if params.hereditary_diseases != before {
-            death::switch_diseases(domain, params.hereditary_diseases, entry, ctx);
+            death::switch_diseases(domain, data, params.hereditary_diseases, entry, ctx);
         }
     }
 }

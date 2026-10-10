@@ -31,14 +31,14 @@ fn barren() -> Fertility {
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0a01ff0101000000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
-const PAIR_AFTER_START: &str = "0a01ff0101000000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b90100000000010000000000000000000201aca1aef0de91d89d860101010000010000000100000100000000000000";
-const TINY_OVERRIDDEN: &str = "0a01ff0101010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const TINY_AFTER_START: &str = "0b01ff0101000000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const PAIR_AFTER_START: &str = "0b01ff0101000000010000000000000000122d0a01030103fc87ff1d0002010100fe87ff1d0003010200fe87ff1d000100018088ff1d040201038cf68c8181f39989b90100000000010000000000000000000201aca1aef0de91d89d86010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000000";
+const TINY_OVERRIDDEN: &str = "0b01ff0101010000010000000000000000122d0a01020102fe87ff1d0002010100fe87ff1d000100018088ff1d030101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
 const TINY_OVERRIDE_ENTRY: &str = "030000010202030001";
-const TINY_AFTER_START_HASH: u64 = 0xf8b0_db10_01f1_821b;
-const TINY_YEAR_0_HASH: u64 = 0xe5f7_04be_d88f_0564;
-const TINY_AFTER_YEAR_0: &str = "0a01ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0x53de_428c_baa3_34a1;
+const TINY_AFTER_START_HASH: u64 = 0x9ccc_1dd0_20d0_c6ee;
+const TINY_YEAR_0_HASH: u64 = 0x8425_7ad1_37ab_2448;
+const TINY_AFTER_YEAR_0: &str = "0b01ff0101000000010000000000000000122d0afe87ff1d020102fe8ffe3b0003010100fe8ffe3b000100018088ff1d040101019893ebf7f7b1d2ec5e0000000001000000000000000000000000";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0x0125_d3d0_af49_f020;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -129,7 +129,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0xb4fa_3ad6_abe2_ad77);
+    assert_eq!(world.state_hash(), 0x9666_a248_f587_8a60);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -144,7 +144,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0xc2a3_df00_64ef_fd33);
+    assert_eq!(world.state_hash(), 0x2fbd_5512_8ebb_7fe4);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -182,7 +182,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"e5f704bed88f0564"}"#
+        r#"{"year":0,"hash":"84257ad137ab2448"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

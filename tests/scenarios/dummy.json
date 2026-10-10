@@ -6,12 +6,7 @@
     "world_params": { "hereditary_diseases": false, "nutrition": [] },
     "death_causes": [
       { "cause": "test:base", "per_year": 0.04, "applies_to": "everyone" },
-      { "cause": "test:old_age", "per_year": 0.02, "applies_to": "everyone" },
-      {
-        "cause": "test:dummy_disease",
-        "per_year": 0.3,
-        "applies_to": "dummy_homozygous"
-      }
+      { "cause": "test:old_age", "per_year": 0.02, "applies_to": "everyone" }
     ],
     "founders": [
       {

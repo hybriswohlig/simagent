@@ -51,6 +51,13 @@ impl From<DataId> for String {
 #[serde(transparent)]
 pub struct Code(DataId);
 
+/// A data ID as a code, e.g. a hereditary disease named as a cause of death.
+impl From<DataId> for Code {
+    fn from(id: DataId) -> Code {
+        Code(id)
+    }
+}
+
 impl Code {
     pub fn new(text: &str) -> Result<Code, DataIdError> {
         DataId::new(text).map(Code)

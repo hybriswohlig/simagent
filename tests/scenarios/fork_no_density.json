@@ -12,11 +12,6 @@
         "cause": "test:base",
         "per_year": 0.02,
         "applies_to": "everyone"
-      },
-      {
-        "cause": "test:dummy_disease",
-        "per_year": 0.3,
-        "applies_to": "dummy_homozygous"
       }
     ],
     "founders": [

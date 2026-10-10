@@ -13,10 +13,11 @@ use super::{EventPayload, InputLog, World, WorldState};
 use crate::canonical::{
     self, LoadedState, PROJECTION_VERSION, ProjectedCause, QueueEntry, YearHash,
 };
+use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, SimId};
-use crate::input::{AppliesTo, DeathCause, Fertility, Input, InputRecord, Start};
+use crate::input::{DeathCause, Fertility, Input, InputRecord, Start};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
@@ -24,7 +25,7 @@ use crate::params::WorldParams;
 use crate::rng::{Draws, WorldSeed};
 use crate::state::conception;
 use crate::state::{
-    self, ArchivedSim, DomainState, Exposure, LeftBy, Parents, Pregnancy, Sim, Slot,
+    self, Affliction, ArchivedSim, DomainState, Exposure, LeftBy, Parents, Pregnancy, Sim, Slot,
 };
 use crate::time::{
     EventHandle, MONTH, Scheduler, SchedulerSnapshot, SimDuration, SimTime, SnapshotEntry, YEAR,
@@ -494,71 +495,122 @@ struct Rules<'a> {
 }
 
 impl Rules<'_> {
-    /// When a sim dies of `cause` if nothing else comes first.
-    fn due(
+    /// When a sim dies of a cause for everyone if nothing else comes first.
+    fn due(&self, born: SimTime, lineage_key: LineageKey, cause: &DeathCause) -> Option<SimTime> {
+        state::death::due(self.seed, lineage_key, cause, state::death::origin(born))
+    }
+
+    /// When a sim dies of a lethal affliction if nothing else comes first.
+    fn disease_due(
         &self,
         born: SimTime,
         lineage_key: LineageKey,
-        exposure: Option<Exposure>,
-        cause: &DeathCause,
+        affliction: &Affliction,
     ) -> Option<SimTime> {
-        let origin = state::death::origin(born);
-        state::death::due(self.seed, lineage_key, exposure, cause, origin)
+        let disease = state::disease::of_key(self.data, affliction.disease)?;
+        state::disease::due(self.seed, born, lineage_key, affliction, disease)
     }
 
-    /// The exposure the switch history gives a sim whose causes act from `origin` on (the
-    /// start for a founder, the birth for a child) at the second `at`: the closed periods
-    /// of the switch since `origin`, and since when it is on. A value that holds from
-    /// `origin` or earlier holds at `origin`.
-    fn exposure_at(&self, origin: i64, at: i64) -> (i64, Option<i64>) {
-        let mut before = 0_i64;
-        let mut since = None;
+    /// The causes of a sim in their order: the causes of `Start`, then its lethal
+    /// afflictions. Each with its key and when it is due.
+    fn dues(
+        &self,
+        born: SimTime,
+        lineage_key: LineageKey,
+        afflictions: &[Affliction],
+    ) -> Vec<(u64, Option<SimTime>)> {
+        let everyone = self
+            .causes
+            .iter()
+            .map(|cause| (cause.cause.key(), self.due(born, lineage_key, cause)));
+        let diseases = afflictions
+            .iter()
+            .filter(|affliction| affliction.exposure.is_some())
+            .map(|affliction| {
+                let due = self.disease_due(born, lineage_key, affliction);
+                (affliction.disease, due)
+            });
+        everyone.chain(diseases).collect()
+    }
+
+    /// The exposure the switch history gives a lethal affliction of a sim born `born`
+    /// whose diseases act from `origin` on, at the second `at`, built in the order the
+    /// world builds it: each closed period adds what it used. `None` if the sim would
+    /// have died of it within a closed period: its budget ran out before the switch went
+    /// off (exactly at that second is possible, the switch acts first).
+    fn exposure_at(
+        &self,
+        born: SimTime,
+        lineage_key: LineageKey,
+        affliction: &Affliction,
+        origin: i64,
+        at: i64,
+    ) -> Option<Exposure> {
+        let disease = state::disease::of_key(self.data, affliction.disease)?;
+        let hazard = state::disease::hazard(disease)?;
+        let mut exposure = Exposure {
+            used: FiniteF64::try_new(0.0).ok()?,
+            since: None,
+        };
         for &(from, on) in self.switch.iter().filter(|(from, _)| *from <= at) {
-            let from = from.max(origin);
-            match (since, on) {
-                (None, true) => since = Some(from),
+            let from = SimTime::from_secs(from.max(origin));
+            match (exposure.since, on) {
+                (None, true) => exposure.since = Some(from),
                 (Some(begin), false) => {
-                    before += from - begin;
-                    since = None;
+                    let open = Affliction {
+                        exposure: Some(exposure),
+                        ..*affliction
+                    };
+                    let due = state::disease::due(self.seed, born, lineage_key, &open, disease);
+                    if due.is_some_and(|due| due < from) {
+                        return None;
+                    }
+                    let used = state::disease::period_used(
+                        hazard,
+                        affliction.onset.get(),
+                        born,
+                        begin,
+                        from,
+                    );
+                    exposure.used = FiniteF64::try_new(exposure.used.get() + used).ok()?;
+                    exposure.since = None;
                 }
                 (None, false) | (Some(_), true) => {}
             }
         }
-        (before, since)
+        Some(exposure)
     }
 
-    /// A sim has an exposure exactly if it has the dummy allele twice, and then the one
-    /// the switch history gives it at `at` (now for the living, the death for the
-    /// archive). No hereditary cause has used up more than its budget: the sim would
-    /// have died of it. Exactly used up is possible: the switch went off in the very
-    /// second of the death.
-    fn exposure_consistent(
+    /// A sim has exactly the afflictions its genotype, sex and draws give it (the same
+    /// diseases with the same onsets, an exposure for each lethal one), and each exposure
+    /// is the one the switch history gives it at `at` (now for the living, the death for
+    /// the archive).
+    fn afflictions_consistent(
         &self,
-        genome: &Genome,
-        lineage_key: LineageKey,
-        exposure: Option<Exposure>,
+        facts: (SimTime, LineageKey, Sex, &Genome),
+        afflictions: &[Affliction],
         origin: i64,
         at: i64,
     ) -> bool {
-        match (state::death::dummy_homozygous(genome, self.data), exposure) {
-            (false, None) => true,
-            (true, Some(exposure)) => {
-                let held = (
-                    exposure.before.as_secs(),
-                    exposure.since.map(SimTime::as_secs),
-                );
-                held == self.exposure_at(origin, at)
-                    && self
-                        .causes
-                        .iter()
-                        .filter(|cause| cause.applies_to == AppliesTo::DummyHomozygous)
-                        .all(|cause| {
-                            state::death::needed(self.seed, lineage_key, cause)
-                                .is_none_or(|needed| exposure.before <= needed)
-                        })
-            }
-            (false, Some(_)) | (true, None) => false,
-        }
+        let (born, lineage_key, sex, genome) = facts;
+        let drawn = state::disease::afflictions(
+            self.data,
+            self.seed,
+            lineage_key,
+            sex,
+            genome,
+            false,
+            SimTime::from_secs(origin),
+        );
+        drawn.len() == afflictions.len()
+            && drawn.iter().zip(afflictions).all(|(drawn, held)| {
+                let same = drawn.disease == held.disease
+                    && drawn.onset == held.onset
+                    && drawn.exposure.is_some() == held.exposure.is_some();
+                same && held.exposure.is_none_or(|_| {
+                    self.exposure_at(born, lineage_key, held, origin, at) == held.exposure
+                })
+            })
     }
 }
 
@@ -599,27 +651,25 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data)
         })
 }
 
-/// Every exposure as the switch history gives it from the sim's origin on, for the
-/// archive at the death; a departure in a closed second (an event of the first open
-/// second has not run yet) and as the death rule gives it. The IDs are those of
-/// `born_consistent`.
+/// Every sim has the afflictions its genotype and draws give it, each exposure as the
+/// switch history gives it from the sim's origin on, for the archive at the death; a
+/// departure in a closed second (an event of the first open second has not run yet) and
+/// as the death rule gives it. The IDs are those of `born_consistent`.
 fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let origin = |born: SimTime| state::death::origin(born).as_secs();
     loaded.sims.values().all(|sim| {
-        rules.exposure_consistent(
-            &sim.genome,
-            sim.lineage_key,
-            sim.exposure,
+        rules.afflictions_consistent(
+            (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+            &sim.afflictions,
             origin(sim.born),
             now,
         )
     }) && loaded.archive.values().all(|sim| {
         let left = sim.left.as_secs();
         left < now
-            && rules.exposure_consistent(
-                &sim.genome,
-                sim.lineage_key,
-                sim.exposure,
+            && rules.afflictions_consistent(
+                (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+                &sim.afflictions,
                 origin(sim.born),
                 left,
             )
@@ -854,23 +904,19 @@ fn next_attempt(
 
 /// An archived sim died of a cause of the world, in the second its budget for that
 /// cause ran out, and no other cause was due before. Of two causes due in the same
-/// second the one earlier in the list wins: its event was planned first. A hereditary
-/// cause was due only if the exposure kept with the sim ran at the death.
+/// second the one earlier in the list wins: its event was planned first. A disease was
+/// due only if its exposure kept with the sim ran at the death.
 fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
     let LeftBy::Death { cause } = sim.left_by;
-    let causes = rules.causes;
-    let Some(position) = causes.iter().position(|other| other.cause.key() == cause) else {
+    let dues = rules.dues(sim.born, sim.lineage_key, &sim.afflictions);
+    let Some(position) = dues.iter().position(|(key, _)| *key == cause) else {
         return false;
     };
-    let due = |cause: &DeathCause| rules.due(sim.born, sim.lineage_key, sim.exposure, cause);
-    due(&causes[position]) == Some(sim.left)
-        && causes
-            .iter()
-            .enumerate()
-            .all(|(index, other)| match due(other) {
-                None => true,
-                Some(at) => at > sim.left || (at == sim.left && index >= position),
-            })
+    dues[position].1 == Some(sim.left)
+        && dues.iter().enumerate().all(|(index, (_, due))| match due {
+            None => true,
+            Some(at) => *at > sim.left || (*at == sim.left && index >= position),
+        })
 }
 
 /// One year end series, due at the next year end; one birthday per living sim, due at
@@ -878,7 +924,6 @@ fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
 /// budget for that cause runs out, and none where it never does; nothing for a sim that
 /// does not live.
 fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
-    let causes = rules.causes;
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
     let mut birthdays = BTreeSet::new();
@@ -887,10 +932,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut deaths = BTreeSet::new();
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
-    let death_due = |person: &Sim, key: u64| {
-        let cause = causes.iter().find(|cause| cause.cause.key() == key)?;
-        rules.due(person.born, person.lineage_key, person.exposure, cause)
-    };
+    let dues = |person: &Sim| rules.dues(person.born, person.lineage_key, &person.afflictions);
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
@@ -908,14 +950,13 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     })
             }
             EventPayload::Death { sim, cause } => {
-                let position = causes.iter().position(|other| other.cause.key() == *cause);
+                let person = loaded.sims.get(sim);
+                let all = person.map(dues).unwrap_or_default();
+                let position = all.iter().position(|(key, _)| key == cause);
                 planned.push((*sim, entry.seq, position));
                 entry.period.is_none()
                     && deaths.insert((*sim, *cause))
-                    && loaded
-                        .sims
-                        .get(sim)
-                        .is_some_and(|person| death_due(person, *cause) == Some(entry.time))
+                    && position.is_some_and(|place| all[place].1 == Some(entry.time))
             }
             EventPayload::Birth { mother } => {
                 entry.period.is_none()
@@ -938,10 +979,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     // Every death that is due is in the queue: a living sim whose budget has run out
     // has no event there, the scheduler holds none in the past.
     let all_deaths_planned = loaded.sims.iter().all(|(id, person)| {
-        causes.iter().all(|cause| {
-            let key = cause.cause.key();
-            death_due(person, key).is_none() || deaths.contains(&(*id, key))
-        })
+        dues(person)
+            .iter()
+            .all(|(key, due)| due.is_none() || deaths.contains(&(*id, *key)))
     });
     // The deaths of a sim were planned in the order of the causes: of two due in the same
     // second the earlier cause runs first, as `died_by_the_rule` expects.

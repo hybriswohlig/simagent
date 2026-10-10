@@ -183,7 +183,7 @@ impl WorldState {
                 state::start::apply_start(&mut self.domain, &self.data, start, &mut ctx);
             }
             Input::ForkOverride(block) => {
-                state::params::apply_override(&mut self.domain, block, &mut ctx);
+                state::params::apply_override(&mut self.domain, &self.data, block, &mut ctx);
             }
             Input::ArrangePartnership(pair) => {
                 state::partnership::apply_arrange(&mut self.domain, pair, &mut ctx);
@@ -265,7 +265,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::birthday::on_birthday(&mut self.domain, sim, &mut ctx);
             }
             EventPayload::Death { sim, cause } => {
-                state::death::on_death(&mut self.domain, sim, cause, &mut ctx);
+                state::death::on_death(&mut self.domain, &self.data, sim, cause, &mut ctx);
             }
             EventPayload::ConceptionAttempt { woman } => {
                 state::conception::on_attempt(&mut self.domain, &self.data, woman, &mut ctx);
@@ -363,7 +363,7 @@ mod tests {
             lineage_key: LineageKey::founder(&tag(), 1),
             sex: Sex::Male,
             genome: crate::genome::Genome::reference(Sex::Male),
-            exposure: None,
+            afflictions: Vec::new(),
             conceptions: 0,
             parents: None,
         }
@@ -513,7 +513,7 @@ mod tests {
                 lineage_key: key(0),
                 sex: Sex::Female,
                 genome: crate::genome::Genome::reference(Sex::Female),
-                exposure: None,
+                afflictions: Vec::new(),
                 conceptions: 0,
                 parents: None,
             },
