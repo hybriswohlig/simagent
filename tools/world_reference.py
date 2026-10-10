@@ -143,7 +143,7 @@ GENOME_MAP, RATES = _definitions()
 
 
 def founder_genome(sex: bytes, genes: tuple) -> dict:
-    """A founder whose only alternative alleles are at `core:dummy` (segment 0, slot 0)."""
+    """A founder whose only alternative alleles are at `core:disease_ar` (segment 0, slot 0)."""
     maternal = [[0] * 24 for _ in range(8)]
     paternal = [[0] * 24 for _ in range(8)]
     maternal[0][0], paternal[0][0] = genes
@@ -156,7 +156,7 @@ def founder_genome(sex: bytes, genes: tuple) -> dict:
 
 
 def dummy_alleles(person: dict) -> tuple:
-    """The alleles at `core:dummy`; every other slot must hold the reference allele, as in
+    """The alleles at `core:disease_ar`; every other slot must hold the reference allele, as in
     every scenario of these references, so that `genome` encodes the child exactly."""
     maternal, paternal = person["autosomes_maternal"], person["autosomes_paternal"]
     genes = (maternal[0][0], paternal[0][0])
@@ -175,7 +175,7 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 
 PROJECTION_VERSION = 10
-CORE_VERSION = 20
+CORE_VERSION = 21
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)

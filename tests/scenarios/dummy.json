@@ -17,17 +17,17 @@
       {
         "born": -943488000,
         "sex": "female",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       },
       {
         "born": -794880000,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 0] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 0] }]
       },
       {
         "born": -1,
         "sex": "male",
-        "alleles": [{ "locus": "core:dummy", "copies": [1, 1] }]
+        "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       }
     ],
     "couples": [{ "woman": 0, "man": 1 }],

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, DataError, Morgans, PerTransmission};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xce40_b4c9_64ff_15c8;
+const DATA_HASH: u64 = 0xc61d_c8e5_cf9b_c45f;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -85,7 +85,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x5d5c_2402_cbc8_8dac);
+    assert_eq!(data.hash(), 0x384b_2ae5_19b6_6207);
 }
 
 #[test]
@@ -96,7 +96,22 @@ fn the_calibration_is_read() {
     assert_eq!(genetics.map_length_x_female, Morgans(1.79));
     assert_eq!(genetics.mutation_rate, PerTransmission(5e-5));
     assert_eq!(genetics.mutation_rate_disease, PerTransmission(1e-6));
-    assert_eq!(common::data().genome_map().loci.len(), 1);
+    let ids: Vec<String> = common::data()
+        .genome_map()
+        .loci
+        .iter()
+        .map(|locus| locus.id.as_str().to_owned())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "core:disease_ar",
+            "core:disease_ad_late",
+            "core:disease_ad_partial",
+            "core:disease_xr",
+            "core:disease_mt"
+        ]
+    );
 }
 
 #[test]
@@ -109,7 +124,7 @@ fn the_hash_follows_every_value() {
     };
     let changes: [Change; 4] = [
         |c, _| c["values"]["core:map_length_x_female"]["value"] = json!(1.8),
-        |_, g| g["map_version"] = json!(3),
+        |_, g| g["map_version"] = json!(4),
         |_, g| g["loci"][0]["slot"] = json!(1),
         |_, g| with_traits(g),
     ];
@@ -253,13 +268,8 @@ fn genome_map_rejects() {
         }),
         "ok"
     );
-    assert_eq!(
-        checked(|_, g| {
-            g["loci"][0]["chromosome"] = json!("x");
-            g["loci"][0]["slot"] = json!(15);
-        }),
-        "ok"
-    );
+    // The last slot of X: the map's X locus moved there.
+    assert_eq!(checked(|_, g| g["loci"][3]["slot"] = json!(15)), "ok");
 }
 
 /// ADR-0008 section 5: traits, weights and loads.
@@ -284,8 +294,8 @@ fn traits_and_weights_reject() {
         (
             |_, g| {
                 with_traits(g);
-                g["traits"][0]["id"] = json!("core:dummy");
-                g["loci"][1]["action"]["additive"]["loads"] = json!([on("core:dummy", 1.0)]);
+                g["traits"][0]["id"] = json!("core:disease_ar");
+                g["loci"][1]["action"]["additive"]["loads"] = json!([on("core:disease_ar", 1.0)]);
             },
             "data.trait_key",
         ),

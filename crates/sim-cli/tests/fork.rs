@@ -21,9 +21,9 @@ const TEN_YEARS: &str = r#"{
     "world_params": {"hereditary_diseases": false, "nutrition": []},
     "death_causes": [],
     "founders": [
-      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:dummy", "copies": [0, 1]}]},
-      {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:dummy", "copies": [1, 0]}]},
-      {"born": -1, "sex": "male", "alleles": [{"locus": "core:dummy", "copies": [1, 1]}]}
+      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:disease_ar", "copies": [0, 1]}]},
+      {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 0]}]},
+      {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
     "couples": [],
     "fertility": {"per_month": 0.0, "from_years": 18, "until_years": 45, "pregnancy_months": 10}
@@ -345,21 +345,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":20"#, r#""core_version":21"#);
+    replace_in(&log, r#""core_version":21"#, r#""core_version":22"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 21, this is 20"
+            "error: fork_foreign_core_version: the parent run is of core version 22, this is 21"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":21"#, r#""core_version":20"#);
-    replace_in(&log, "ce40b4c964ff15c8", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":22"#, r#""core_version":21"#);
+    replace_in(&log, "c61dc8e5cf9bc45f", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is ce40b4c964ff15c8".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is c61dc8e5cf9bc45f".to_owned())
     );
-    replace_in(&log, "c3f04a38869c20d7", "ce40b4c964ff15c8");
+    replace_in(&log, "c3f04a38869c20d7", "c61dc8e5cf9bc45f");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -418,9 +418,9 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":20"#, r#""core_version":21"#),
+        (r#""core_version":21"#, r#""core_version":22"#),
         (
-            r#""data_hash":"ce40b4c964ff15c8""#,
+            r#""data_hash":"c61dc8e5cf9bc45f""#,
             r#""data_hash":"c3f04a38869c20d7""#,
         ),
         (

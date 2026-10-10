@@ -171,17 +171,17 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010a636f72653a64756d6d79020001009a9999999999a93f122d0a";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e7369747900000109746573743a626173657b14ae47e17a943f0001ffa3a0860700010f636f72653a646973656173655f6172020001009a9999999999a93f122d0a";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:dummy","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"death_causes":[{"cause":"test:base","per_year":0.02,"applies_to":"everyone"}],"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"fertility":{"per_month":0.05,"from_years":18,"until_years":45,"pregnancy_months":10}}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -318,7 +318,7 @@ fn sample_meiosis() -> LogPayload {
         ],
         sex_chromosome: SexChromosome::Y,
         mutations: vec![Mutation {
-            locus: DataId::new("core:dummy").expect("valid"),
+            locus: DataId::new("core:disease_ar").expect("valid"),
             old: 0,
             new: 1,
         }],
@@ -363,7 +363,7 @@ fn conception_forms_are_pinned() {
         postcard_round_trip(&sample_conception()),
         hex("06ef9bafcdf8acd19101")
     );
-    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[0.25,0.75]},{"segment":8,"start_strand":"maternal","crossovers":[]}],"sex_chromosome":"y","mutations":[{"locus":"core:dummy","old":0,"new":1}]}}"#;
+    let meiosis_json = r#"{"core:meiosis":{"genome_key":"0123456789abcdef","segments":[{"segment":0,"start_strand":"paternal","crossovers":[0.25,0.75]},{"segment":8,"start_strand":"maternal","crossovers":[]}],"sex_chromosome":"y","mutations":[{"locus":"core:disease_ar","old":0,"new":1}]}}"#;
     assert_eq!(json(&sample_meiosis()), meiosis_json);
     assert_eq!(
         from_json::<LogPayload>(meiosis_json).ok(),
@@ -372,7 +372,7 @@ fn conception_forms_are_pinned() {
     assert_eq!(
         postcard_round_trip(&sample_meiosis()),
         hex(
-            "07ef9bafcdf8acd1910102000102000000000000d03f000000000000e83f08000001010a636f72653a64756d6d790001"
+            "07ef9bafcdf8acd1910102000102000000000000d03f000000000000e83f08000001010f636f72653a646973656173655f61720001"
         )
     );
     let birth = LogPayload::Birth {
@@ -640,11 +640,11 @@ fn genome_forms_are_pinned() {
         assert_eq!(postcard_round_trip(&sex), [index]);
     }
     let dummy = |copies: Vec<u8>| LocusAlleles {
-        locus: DataId::new("core:dummy").expect("valid"),
+        locus: DataId::new("core:disease_ar").expect("valid"),
         copies,
     };
     let alleles = vec![dummy(vec![0, 1])];
-    let alleles_json = r#"[{"locus":"core:dummy","copies":[0,1]}]"#;
+    let alleles_json = r#"[{"locus":"core:disease_ar","copies":[0,1]}]"#;
     assert_eq!(json(&alleles), alleles_json);
     assert_eq!(
         from_json::<Vec<LocusAlleles>>(alleles_json).expect("parses"),
@@ -652,7 +652,7 @@ fn genome_forms_are_pinned() {
     );
     assert_eq!(
         postcard_round_trip(&alleles),
-        hex("010a636f72653a64756d6d79020001")
+        hex("010f636f72653a646973656173655f6172020001")
     );
     assert_eq!(postcard_round_trip(&Vec::<LocusAlleles>::new()), hex("00"));
     let data = common::data();
@@ -664,11 +664,11 @@ fn genome_forms_are_pinned() {
         assert!(from_json::<Sex>(rejected).is_err(), "{rejected}");
     }
     for rejected in [
-        r#"{"locus":"core:dummy"}"#,
+        r#"{"locus":"core:disease_ar"}"#,
         r#"{"copies":[0,1]}"#,
-        r#"{"locus":"core:dummy","copies":[0,1],"third":0}"#,
+        r#"{"locus":"core:disease_ar","copies":[0,1],"third":0}"#,
         r#"{"locus":"dummy","copies":[0,1]}"#,
-        r#"{"locus":"core:dummy","copies":[0,256]}"#,
+        r#"{"locus":"core:disease_ar","copies":[0,256]}"#,
     ] {
         assert!(from_json::<LocusAlleles>(rejected).is_err(), "{rejected}");
     }
@@ -814,7 +814,10 @@ fn formats_roundtrip_rejects_unknown_fields_and_variants() {
         INPUT_JSON.replace(r#"{"born""#, r#"{"age":1,"born""#),
         // No silent defaults: a founder without sex or alleles is no founder.
         INPUT_JSON.replace(r#","sex":"female""#, ""),
-        INPUT_JSON.replace(r#","alleles":[{"locus":"core:dummy","copies":[0,1]}]"#, ""),
+        INPUT_JSON.replace(
+            r#","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]"#,
+            "",
+        ),
         INPUT_JSON.replace(r#""copies":[0,1]"#, r#""copies":[0,1],"note":"x""#),
         INPUT_JSON.replace(r#""sex":"female""#, r#""sex":"unknown""#),
         INPUT_JSON.replace(r#"{"start""#, r#"{"begin""#),

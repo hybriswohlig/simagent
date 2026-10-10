@@ -93,7 +93,7 @@ pub fn data() -> Data {
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
 
-/// The alleles of a founder at the locus `core:dummy` of the walking skeleton: 1 for the
+/// The alleles of a founder at the locus `core:disease_ar` of the walking skeleton: 1 for the
 /// dummy allele, 0 for the reference allele, maternal then paternal; no entry for two
 /// reference alleles (genetics specification 2.1).
 #[allow(dead_code, reason = "not every test crate builds founders")]
@@ -102,7 +102,7 @@ pub fn dummy(maternal: u8, paternal: u8) -> Vec<sim_core::genome::LocusAlleles> 
         return Vec::new();
     }
     vec![sim_core::genome::LocusAlleles {
-        locus: sim_core::data_id::DataId::new("core:dummy").expect("id"),
+        locus: sim_core::data_id::DataId::new("core:disease_ar").expect("id"),
         copies: vec![maternal, paternal],
     }]
 }

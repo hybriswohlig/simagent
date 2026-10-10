@@ -48,13 +48,13 @@ def variant(index: int, *fields: bytes) -> bytes:
 # Enums without fields are their variant index. Sex: female = 0, male = 1.
 FEMALE, MALE = variant(0), variant(1)
 
-# The locus `core:dummy` of the walking skeleton (segment 0, slot 0 of the autosomes):
+# The locus `core:disease_ar` of the walking skeleton (segment 0, slot 0 of the autosomes):
 # 0 the reference allele, 1 the dummy allele. Every other slot holds 0 in these tests.
 WILD, DUMMY = 0, 1
 
 
 def genotype(maternal: int, paternal: int) -> tuple:
-    """The alleles at `core:dummy`, from the mother and from the father."""
+    """The alleles at `core:disease_ar`, from the mother and from the father."""
     return (maternal, paternal)
 
 
@@ -63,13 +63,13 @@ def founder_alleles(genes: tuple) -> bytes:
     with an alternative allele is listed; a u8 is one raw byte."""
     if genes == (0, 0):
         return seq([])
-    return seq([string("core:dummy") + varint(2) + bytes(genes)])
+    return seq([string("core:disease_ar") + varint(2) + bytes(genes)])
 
 
 def genome(sex: bytes, genes: tuple) -> bytes:
     """Genome { maternal: Autosomes, paternal: Autosomes, maternal_x: XChromosome,
     paternal_sex: PaternalSex, mt: Mitochondria }. Autosomes([u64; 3]) is three varints
-    without a length, `core:dummy` bit 0 of the first; XChromosome(u16) a varint; the
+    without a length, `core:disease_ar` bit 0 of the first; XChromosome(u16) a varint; the
     sex chromosome from the father X(XChromosome) = variant 0, Y(YChromosome(u8)) =
     variant 1 with one raw byte; Mitochondria(u8) one raw byte."""
     maternal, paternal = genes
@@ -202,7 +202,7 @@ SAMPLE_MEIOSIS_PAYLOAD = variant(
     varint(0x0123456789ABCDEF),
     seq([segment_meiosis(0, PATERNAL, [0.25, 0.75]), segment_meiosis(8, MATERNAL, [])]),
     Y_CHROMOSOME,
-    seq([mutation("core:dummy", 0, 1)]),
+    seq([mutation("core:disease_ar", 0, 1)]),
 )
 
 # Cause::Random (variant 4) { tag, subject, occasion, detail }: four plain u64.

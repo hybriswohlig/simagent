@@ -1,17 +1,57 @@
 {
   "format_version": 2,
-  "map_version": 2,
+  "map_version": 3,
   "traits": [],
   "loci": [
     {
-      "id": "core:dummy",
+      "id": "core:disease_ar",
       "chromosome": "autosome",
       "segment": 0,
       "slot": 0,
       "action": "recessive",
       "mark": "disease",
       "mutation": "to_alt",
-      "description": "The mendelian locus of the walking skeleton (step 5); the hereditary diseases of step 9 replace it."
+      "description": "Autosomal recessive disease (genetics specification 3.2, model: cystic fibrosis); the locus of the walking skeleton, renamed at the same place."
+    },
+    {
+      "id": "core:disease_ad_late",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease of late onset (genetics specification 3.2, model: Huntington's disease)."
+    },
+    {
+      "id": "core:disease_ad_partial",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease with partial penetrance by sex (genetics specification 3.2, model: BRCA1)."
+    },
+    {
+      "id": "core:disease_xr",
+      "chromosome": "x",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "X-linked recessive disease (genetics specification 3.2, model: haemophilia A); men with one copy on their X are affected."
+    },
+    {
+      "id": "core:disease_mt",
+      "chromosome": "mt",
+      "segment": 0,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Mitochondrial disease (genetics specification 3.2, model: Leber hereditary optic neuropathy); one copy, from the mother."
     }
   ]
 }

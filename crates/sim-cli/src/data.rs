@@ -132,7 +132,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0xce40_b4c9_64ff_15c8);
+        assert_eq!(core_data().expect("data").hash(), 0xc61d_c8e5_cf9b_c45f);
     }
 
     #[test]
@@ -167,8 +167,8 @@ mod tests {
     fn unknown_fields_and_text_in_the_wrong_place_are_rejected() {
         // A text field where the file has none stays and meets deny_unknown_fields.
         let misplaced = GENOME_MAP.replacen(
-            "\"map_version\": 2,",
-            "\"map_version\": 2, \"note\": \"x\",",
+            "\"map_version\": 3,",
+            "\"map_version\": 3, \"note\": \"x\",",
             1,
         );
         assert_ne!(misplaced, GENOME_MAP);
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn traits_have_their_text() {
         let data = data_from(TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x5d5c_2402_cbc8_8dac);
+        assert_eq!(data.hash(), 0x384b_2ae5_19b6_6207);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",
