@@ -15,10 +15,10 @@ What the model knows:
   list `diseases` and, for a scenario that gave a fertility in `Start` before, the
   fertility in the form `window` (design note of the fertility in the world, section 8:
   the rate, the window, the months of pregnancy, no pause, the wish always 40, no
-  twins), and for the acceptance scenario the market off and no separation (ADR-0017
-  section 5); the save names the hash of the data a world runs on. The map lengths, the sex
-  ratio, the map in the form of the meiosis reference and the mutation rates come from
-  the documents too.
+  twins; and no separation, design note of the separation, section 7), and for the
+  acceptance scenario the market off and no separation (ADR-0017 section 5); the save
+  names the hash of the data a world runs on. The map lengths, the sex ratio, the map in
+  the form of the meiosis reference and the mutation rates come from the documents too.
 - `Start` (world seed, founder tag, world parameters, founders, couples; no causes of
   death and no fertility any more, ADR-0017 sections 2 and 4) writes `core:started`,
   plans the year end series (insertion number 1, first at the last second of year 0,
@@ -91,7 +91,23 @@ What the model knows:
   woman and a man by their places among the founders); `ArrangePartnership` forms one
   between two living sims. Each gets the next PartnershipId and one entry
   `core:partnered` (subjects the woman and the man). A death ends the open partnership
-  of the sim: it keeps the second of the death.
+  of the sim: it keeps the second of the death and the reason `Death`
+  (`ended: Option<Ending { at, by }>`, design note of the separation, section 2).
+- Separation (ADR-0018 section 3, design note of the separation): `λ` is
+  `core:separation_rate` of the life course data (per year). A woman holds `partnerships`,
+  the number of partnerships she has formed (0 for every founder and newborn, always 0
+  for a man), right after `births`. When her partnership forms at `f`, `k` is her
+  `partnerships`, which then grows by one; after her series (so its insertion number
+  comes after the series') the event `separation { partnership }` (class general 500,
+  subject the partnership, kind 6) is planned by the entry `core:partnered` at
+  `f + max(from_years_ceil(B / λ), 1 s)` with `B = exponential(SEPARATION_BUDGET, 1)` at
+  (SEPARATION_BUDGET = 18, her lineage key, occasion `k`, detail his lineage key); nothing
+  if `λ` is 0, if `from_years_ceil` says never or the time leaves the clock. A separation
+  at `t` ends the partnership (`Ending { at: t, by: Separation }`) and her series (a
+  running pregnancy stays: the child is born with its father, and no series follows) and
+  writes `core:separated { partnership }` (subjects the woman and the man, causes the plan
+  and the draw). The death of either partner cancels the pending separation; one due in
+  the second of a death comes first (class 500 before 900).
 - Fertility (genetics specification 5.6 and 11.3, ADR-0017 section 4, design note of the
   fertility in the world): the data give the form of the curves (`puberty` or `window`),
   the adult rate, the pause after a birth and the months of pregnancy (whole months),
@@ -147,9 +163,9 @@ What the model knows:
 - Birth: per child in index order a new sim with the next SimId and its creation entry
   `core:birth` (subjects child, mother, father; the plan and the rule `core:gestation`),
   the entries one after the other; each born now, with parents and the conception
-  number, `births` 0, its afflictions from its genome and its own key with the birth as
-  origin. Then per child in index order its first birthday a year later and its deaths
-  from its birth on, planned by its own creation entry. The mother's `births` grows by
+  number, `births` 0, `partnerships` 0, its afflictions from its genome and its own key
+  with the birth as origin. Then per child in index order its first birthday a year
+  later and its deaths from its birth on, planned by its own creation entry. The mother's `births` grows by
   the number of children; then, if she is in an open partnership, her series after a
   birth, planned by the creation entry of child 0. The wish is checked only when a
   series is planned, so twins of the last birth may exceed it by one.
@@ -222,9 +238,12 @@ DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
 FERTILITY_MENARCHE, FERTILITY_WISH = 15, 16
 # New with the twins (design note of the twins, section 1; genetics specification 11.7).
 MULTIPLE_BIRTH = 17
+# New with the separation (design note of the separation, section 1; ADR-0018 section 3).
+SEPARATION_BUDGET = 18
 
-PROJECTION_VERSION = 14
-CORE_VERSION = 28
+# Design note of the separation, section 2.
+PROJECTION_VERSION = 15
+CORE_VERSION = 29
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -236,7 +255,11 @@ NONE = b"\x00"
 # Event classes and kinds (tests/golden/event_codes.txt).
 BIRTH, GENERAL, DEATH, OBSERVER = 200, 500, 900, 1000
 YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND, ATTEMPT_KIND, BIRTH_KIND = 1, 2, 3, 4, 5
-WORLD_SUBJECT, SIM_SUBJECT = 0, 1
+# New with the separation (design note of the separation, section 3).
+SEPARATION_KIND = 6
+WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
+# EndedBy (design note of the separation, section 2): the variant index after the time.
+ENDED_BY_DEATH, ENDED_BY_SEPARATION = 0, 1
 # The causes of death every sim has before its diseases, in this order (design note of
 # the death from the data, section 2).
 SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
@@ -372,6 +395,10 @@ class Data:
         self.wish_shape = [number(entry) for entry in life["fertility_wish_shape"]]
         self.twins = (number(life["values"]["core:twins_identical"]), number(life["values"]["core:twins_fraternal"]))
         assert all(0.0 <= rate <= 1.0 for rate in self.twins), self.twins
+        # `λ` of the separation, per year (design note of the separation, section 1); 0 is
+        # a world without separation.
+        self.separation_rate = number(life["values"]["core:separation_rate"])
+        assert math.isfinite(self.separation_rate) and self.separation_rate >= 0.0, self.separation_rate
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
         values = stripped["values"]
@@ -463,7 +490,8 @@ def window_fertility(demography: dict, calibration: dict, fertility: tuple) -> N
     `a`, until `b` years, `k` months) as the old `Start.fertility`; the form `window` from
     `a` until `b`, `core:fertility_adult_rate` = `r`, `core:pregnancy_length` = `k`,
     `core:fertility_pause` 0, the wish shape of `TEST_WISH` + 1 weights all 0 but the last
-    1 (the tilt stays), both rates of twins 0."""
+    1 (the tilt stays), both rates of twins 0, and `core:separation_rate` 0 (the old model
+    knows no separation, ADR-0017 section 5; design note of the separation, section 7)."""
     per_month, start, until, months = fertility
     assert per_month > 0.0
     calibration["fertility"] = {
@@ -475,6 +503,7 @@ def window_fertility(demography: dict, calibration: dict, fertility: tuple) -> N
     values["core:fertility_pause"]["value"] = 0.0
     values["core:twins_identical"]["value"] = 0.0
     values["core:twins_fraternal"]["value"] = 0.0
+    values["core:separation_rate"]["value"] = 0.0
     demography["fertility_wish_shape"] = [test_value(0.0, "fraction") for _ in range(TEST_WISH)] + [
         test_value(1.0, "fraction")
     ]
@@ -1019,10 +1048,13 @@ class World:
     alleles as for `founder_genome`, `couples` a list of (woman, man) by their places
     among the founders, `data` the definitions it runs on (the repository's by default,
     or test data). A sim is [born, lineage key, sex, genome (form of
-    tools/meiosis_reference.py), afflictions, conceptions, births, parents]; an archived
-    one (born, left, key of the cause, lineage key, sex, genome, afflictions,
-    conceptions, births, parents); a pregnancy, by the mother, (father, conception number,
-    children as [(lineage key, sex, genome)] in index order, conceived)."""
+    tools/meiosis_reference.py), afflictions, conceptions, births, parents, partnerships];
+    an archived one (born, left, key of the cause, lineage key, sex, genome, afflictions,
+    conceptions, births, parents, partnerships) (`partnerships` last in these lists, after
+    `births` in the projection); a partnership [woman, man, formed, ended] with `ended`
+    None or (at, ENDED_BY_DEATH or ENDED_BY_SEPARATION); a pregnancy, by the mother,
+    (father, conception number, children as [(lineage key, sex, genome)] in index order,
+    conceived)."""
 
     def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None):
         self.seed = seed
@@ -1046,6 +1078,11 @@ class World:
         # children as (key, sex)), for the stories of the tools; not state.
         self.attempts = []
         self.multiples = []
+        # Every separation planned (partnership, k, the budget B, due or None) and every
+        # one that came (time, partnership, its entry, the plan (by, planned_at), the key of
+        # the draw), for the stories of the tools; not state.
+        self.separation_plans = []
+        self.separations = []
         start = variant(
             0,
             varint(seed),
@@ -1153,13 +1190,101 @@ class World:
     # ------------------------------------------------------------------ inputs
 
     def _partner(self, woman: int, man: int, cause: bytes, now: int) -> None:
+        assert self.sims[woman][2] == FEMALE and self.sims[man][2] == MALE
+        assert self.partner_of(woman) is None and self.open_partnership(man) is None
         number_ = self.next_partnership_id
         self.next_partnership_id += 1
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
         entry = self._entry(now, subjects, [cause], variant(5, varint(number_)))
         self.partnerships[number_] = [woman, man, now, None]
-        # The series after a partnership forms (design note section 4).
+        # Her counter (design note of the separation, section 3): `k` before, then one
+        # more.
+        k = self.sims[woman][8]
+        self.sims[woman][8] += 1
+        # The series after a partnership forms (design note of the fertility in the world,
+        # section 4), then the separation, after her attempts.
         self._plan_series(woman, month_start_after(now), entry, now)
+        self._plan_separation(number_, k, entry, now)
+
+    # ------------------------------------------------------------------ separation
+
+    def separation_budget(self, woman_key: int, k: int, man_key: int) -> float:
+        """`B = exponential(SEPARATION_BUDGET, 1)` at (SEPARATION_BUDGET, her lineage key,
+        `k`, his lineage key) (design note of the separation, section 1)."""
+        return exponential_reference(words(chacha_key(self.seed, SEPARATION_BUDGET, woman_key, k, man_key))[0], 1.0)[1]
+
+    def separation_seconds(self, budget: float):
+        """`max(from_years_ceil(B / λ), 1 s)` (design note section 3), or None: `λ` = 0 or
+        never. Each due second is checked not to hang on the last bit of the budget (the
+        only libm in it, `ln`), so the pinned libm of the core gives the same second."""
+        rate = self.data.separation_rate
+        if rate == 0.0:
+            return None
+
+        def seconds(ulps: int):
+            years = step_ulps(budget, ulps) / rate
+            whole = from_years_ceil(years)
+            return None if whole is None else max(whole, 1)
+
+        nominal = seconds(0)
+        assert all(seconds(ulps) == nominal for ulps in (-1, 1)), f"a separation hangs on the last bit of {budget!r}"
+        return nominal
+
+    def separation_due(self, number_: int):
+        """When the partnership separates if nothing else happens first, or None (design
+        note section 3; section 6: `k` = the partnerships of the same woman with a smaller
+        PartnershipId)."""
+        woman, man, formed, _ = self.partnerships[number_]
+        k = sum(1 for other, value in self.partnerships.items() if other < number_ and value[0] == woman)
+        seconds = self.separation_seconds(self.separation_budget(self.key_of(woman), k, self.key_of(man)))
+        if seconds is None:
+            return None
+        due = formed + seconds
+        return due if abs(due) <= MAX_ABS_SECS else None
+
+    def _plan_separation(self, number_: int, k: int, by: int, now: int) -> None:
+        """The event `separation { partnership }` (variant 5, class general, subject the
+        partnership, kind 6) at its due, planned by the entry `by` (design note section
+        3)."""
+        woman, man = self.partnerships[number_][:2]
+        budget = self.separation_budget(self.key_of(woman), k, self.key_of(man))
+        due = self.separation_due(number_)
+        self.separation_plans.append((number_, k, budget, due))
+        if due is None:
+            return
+        payload = variant(5, varint(number_))
+        self._schedule(due, GENERAL, (PARTNERSHIP_SUBJECT, number_), SEPARATION_KIND, payload, None, by, now)
+
+    def open_partnership(self, sim: int):
+        """The number of the open partnership of the sim (woman or man), or None."""
+        open_ = [n for n, p in self.partnerships.items() if sim in p[:2] and p[3] is None]
+        assert len(open_) <= 1
+        return open_[0] if open_ else None
+
+    def pending_separation(self, number_: int):
+        """The time of the pending separation of the partnership, or None."""
+        times = [e.time for e in self.queue if e.kind == SEPARATION_KIND and e.subject == (PARTNERSHIP_SUBJECT, number_)]
+        assert len(times) <= 1
+        return times[0] if times else None
+
+    def _separate(self, event: Event, now: int, plan: bytes) -> None:
+        """A separation at `now` (design note section 4): the partnership ends by
+        separation, her series ends (a running pregnancy stays), one entry
+        `core:separated { partnership }` (variant 9) with the subjects her and him and the
+        causes the plan and the draw."""
+        number_ = event.subject[1]
+        couple_ = self.partnerships[number_]
+        woman, man, _, ended = couple_
+        assert ended is None
+        couple_[3] = (now, ENDED_BY_SEPARATION)
+        attempts = variant(3, varint(woman))
+        self.queue = [other for other in self.queue if other.payload != attempts]
+        k = sum(1 for other, value in self.partnerships.items() if other < number_ and value[0] == woman)
+        key = (SEPARATION_BUDGET, self.key_of(woman), k, self.key_of(man))
+        draw = variant(4, *(varint(word) for word in key))
+        subjects = [variant(0, varint(woman)), variant(0, varint(man))]
+        entry = self._entry(now, subjects, [plan, draw], variant(9, varint(number_)))
+        self.separations.append((now, number_, entry, event.plan, key))
 
     # ------------------------------------------------------------------ fertility
 
@@ -1320,7 +1445,7 @@ class World:
             subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
             entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
             afflictions = self.afflictions_of(key, sex, person, now)
-            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number)]
+            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0]
             born.append((child, entry))
         # Then per child in index order its first birthday and its deaths, by its own
         # creation entry.
@@ -1354,7 +1479,7 @@ class World:
             person = founder_genome(sex, genes, self.data.loci)
             # A founder's origin is the start (B19).
             afflictions = self.afflictions_of(key, sex, person, now)
-            self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None]
+            self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0]
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
@@ -1427,6 +1552,8 @@ class World:
                 self._attempt(event, now, plan)
             elif event.kind == BIRTH_KIND:
                 self._birth(event, now, plan)
+            elif event.kind == SEPARATION_KIND:
+                self._separate(event, now, plan)
             elif event.kind == BIRTHDAY_KIND:
                 sim = event.subject[1]
                 age = (now - self.sims[sim][0]) // YEAR
@@ -1439,7 +1566,7 @@ class World:
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
-        born, key, sex, person, afflictions, conceptions, births, parents = self.sims.pop(sim)
+        born, key, sex, person, afflictions, conceptions, births, parents, partnerships = self.sims.pop(sim)
         codes = [SENESCENCE, ACCIDENT] + [
             affliction.disease.code for affliction in afflictions if affliction.exposure is not None
         ]
@@ -1447,16 +1574,24 @@ class World:
         draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
         self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
         self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
-        for couple_ in self.partnerships.values():
+        for number_, couple_ in self.partnerships.items():
             if couple_[3] is None and sim in couple_[:2]:
-                couple_[3] = now
-                # The partnership ends, and with it her series of attempts.
+                couple_[3] = (now, ENDED_BY_DEATH)
+                # The partnership ends, and with it her series of attempts and its pending
+                # separation (design note of the separation, section 5).
                 attempts = variant(3, varint(couple_[0]))
-                self.queue = [other for other in self.queue if other.payload != attempts]
+                separation = (PARTNERSHIP_SUBJECT, number_)
+                self.queue = [
+                    other
+                    for other in self.queue
+                    if other.payload != attempts and not (other.kind == SEPARATION_KIND and other.subject == separation)
+                ]
         # Her pregnancy ends with her.
         self.pregnancies.pop(sim, None)
         # The afflictions stay as they were at the death.
-        self.archive[sim] = (born, now, str_key(code), key, sex, person, afflictions, conceptions, births, parents)
+        self.archive[sim] = (
+            born, now, str_key(code), key, sex, person, afflictions, conceptions, births, parents, partnerships
+        )
 
     # ------------------------------------------------------------------ views
 
@@ -1474,8 +1609,11 @@ class World:
             + afflictions_bytes([affliction.triple() for affliction in afflictions])
             + varint(conceptions)
             + varint(births)
+            + varint(partnerships)
             + parents_bytes(parents)
-            for sim, (born, key, sex, person, afflictions, conceptions, births, parents) in sorted(self.sims.items())
+            for sim, (born, key, sex, person, afflictions, conceptions, births, parents, partnerships) in sorted(
+                self.sims.items()
+            )
         ]
         archive = [
             varint(sim)
@@ -1488,8 +1626,9 @@ class World:
             + afflictions_bytes([affliction.triple() for affliction in afflictions])
             + varint(conceptions)
             + varint(births)
+            + varint(partnerships)
             + parents_bytes(parents)
-            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents) in sorted(
+            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents, partnerships) in sorted(
                 self.archive.items()
             )
         ]
@@ -1539,6 +1678,49 @@ def robust_seconds(seconds_of):
     for nudge in itertools.product((-1, 0, 1), repeat=3):
         assert seconds_of(nudge) == nominal, f"a due second hangs on the last bit: {nudge}"
     return nominal
+
+
+def check_separations(world: World) -> None:
+    """The load checks of the separation (design note of the separation, section 6;
+    ADR-0018 section 7; ADR-0006 section 5) on the state of `world`, as the loader would
+    see its save; a broken one is `Inconsistent` there, an assertion here:
+
+    - `partnerships` of each woman (living or archived) is the number of partnerships whose
+      woman she is; a man's is 0;
+    - per partnership, with `due` as in section 3 (`k` from the partnerships of the same
+      woman with a smaller PartnershipId): the first of {`due` if `due` <= the clock, the
+      first death of the two} decides, a tie going to the separation; `ended` is that
+      Ending, or None if neither has come;
+    - a pending `separation` exists exactly for each open partnership with a `due`, at
+      `due`, subject that partnership; none else;
+    - a series of attempts needs an open partnership (the check that stays)."""
+    people = {sim: (value[2], value[8]) for sim, value in world.sims.items()}
+    people.update({sim: (value[4], value[10]) for sim, value in world.archive.items()})
+    for sim, (sex, count) in people.items():
+        mine = sum(1 for value in world.partnerships.values() if value[0] == sim)
+        assert count == (mine if sex == FEMALE else 0) and (sex == FEMALE or mine == 0), (sim, count, mine)
+    pending = [event for event in world.queue if event.kind == SEPARATION_KIND]
+    for number_, (woman, man, formed, ended) in world.partnerships.items():
+        due = world.separation_due(number_)
+        deaths = [world.archive[sim][1] for sim in (woman, man) if sim in world.archive]
+        first_death = min(deaths) if deaths else None
+        came = due is not None and due <= world.closed
+        if came and (first_death is None or due <= first_death):
+            want = (due, ENDED_BY_SEPARATION)
+        elif first_death is not None:
+            want = (first_death, ENDED_BY_DEATH)
+        else:
+            want = None
+        assert ended == want, (number_, ended, want)
+        events = [event for event in pending if event.subject == (PARTNERSHIP_SUBJECT, number_)]
+        if ended is None and due is not None:
+            assert [(e.time, e.payload) for e in events] == [(due, variant(5, varint(number_)))], number_
+        else:
+            assert not events, number_
+    assert all(event.subject[0] == PARTNERSHIP_SUBJECT and event.subject[1] in world.partnerships for event in pending)
+    for event in world.queue:
+        if event.kind == ATTEMPT_KIND:
+            assert world.partner_of(event.subject[1]) is not None, event.subject
 
 
 def pregnancy_bytes(father: int, conception_number: int, children: list, conceived: int) -> bytes:
@@ -1602,7 +1784,12 @@ if __name__ == "__main__":
             f" wish_tilt {data.wish_tilt!r} wish_shape {data.wish_shape!r} twins {data.twins!r}"
         )
     print(f"life_values_fork {FORK_LIFE_VALUES}")
-    print(f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH} MULTIPLE_BIRTH {MULTIPLE_BIRTH}")
+    print(f"separation_rate repository {REPOSITORY.separation_rate!r} fork {FORK_DATA.separation_rate!r}")
+    print(
+        f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH} MULTIPLE_BIRTH {MULTIPLE_BIRTH}"
+        f" SEPARATION_BUDGET {SEPARATION_BUDGET}"
+    )
+    print(f"event kind separation {SEPARATION_KIND} class {GENERAL} subject partnership {PARTNERSHIP_SUBJECT}")
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")

@@ -38,6 +38,15 @@ names the draw MULTIPLE_BIRTH as its third cause. The test data of every scenari
 "twins" keep twins 0; "twins" is "clan" with the rates 0.3 and 0.7, so every conception
 gives twins.
 
+Separation (ADR-0018 section 3, design note of the separation): a woman holds
+`partnerships` right after `births`, a partnership ends with an `Ending { at, by }`, and
+each partnership plans its separation at its formation (projection version 15, core
+version 29). The test data of the old model (the form `window`: "clan" and its variants,
+"twins", the fork data) have `core:separation_rate` 0, so their stories stay; the
+scenarios on the repository's rate 0.00867 ("partners") plan each separation, which a
+death cancels. "split" is "clan" with a separation rate the reference picks and one
+`ArrangePartnership`.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -53,6 +62,7 @@ specification 7.1, 7.2:
 Usage: .venv/bin/python tools/state_reference.py
 """
 
+import json
 import math
 
 import xxhash
@@ -77,7 +87,7 @@ from postcard_reference import (
     varint,
     world_params,
 )
-from rng_reference import chacha_key, founder_key, str_key, unit, words
+from rng_reference import chacha_key, founder_key, str_key, unit, unit_open0, words
 
 import data_reference
 import world_reference
@@ -144,11 +154,13 @@ def death(time: int, insertion: int, sim: int, code: str) -> bytes:
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> bytes:
-    """Sim { born, lineage_key, sex, genome, afflictions, conceptions, births, parents }:
-    the afflictions as triples (disease, onset, exposure), none but for a sim with the
-    dummy allele twice (`core:disease_ar`, recessive, penetrance 1, onset 0); no
-    conceptions and no births yet (`births` right after `conceptions`, design note of the
-    fertility in the world, section 1); a founder has no parents."""
+    """Sim { born, lineage_key, sex, genome, afflictions, conceptions, births,
+    partnerships, parents }: the afflictions as triples (disease, onset, exposure), none
+    but for a sim with the dummy allele twice (`core:disease_ar`, recessive, penetrance 1,
+    onset 0); no conceptions and no births yet (`births` right after `conceptions`, design
+    note of the fertility in the world, section 1); no partnerships yet (`partnerships`
+    right after `births`, design note of the separation, section 2); a founder has no
+    parents."""
     return (
         signed(born)
         + lineage_key(key)
@@ -157,6 +169,7 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> by
         + afflictions(list(afflicted))
         + varint(0)  # conceptions
         + varint(0)  # births
+        + varint(0)  # partnerships
         + NONE
     )
 
@@ -712,6 +725,26 @@ assert death_of(SAVE_LOAD, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 # with one partner.
 
 CONCEPTION_ATTEMPT_TAG, FERTILITY_WISH_TAG = 3, 16  # tests/golden/rng_tags.txt, 11.7
+SEPARATION_BUDGET_TAG = 18  # tests/golden/rng_tags.txt, design note of the separation
+# The separation rate of the repository's data (data/calibration/demography.json), and
+# the reasons a partnership ends (EndedBy, design note of the separation, section 2).
+SEPARATION_RATE = 0.00867
+DEATH_ENDED, SEPARATION_ENDED = 0, 1
+assert world_reference.REPOSITORY.separation_rate == SEPARATION_RATE
+assert (world_reference.ENDED_BY_DEATH, world_reference.ENDED_BY_SEPARATION) == (DEATH_ENDED, SEPARATION_ENDED)
+
+
+def hand_separation(seed: int, her: int, k: int, him: int, rate: float, formed: int) -> int:
+    """When her partnership `k` (with him, formed at `formed`) separates if nothing else
+    happens first, by hand from the design note of the separation (sections 1 and 3) with
+    Python's math: `B = −ln(u)` with `u` = unit_open0 of the draw SEPARATION_BUDGET at
+    (her key, `k`, his key), due `formed + max(ceil(B / λ · YEAR), 1)`."""
+    u = unit_open0(words(chacha_key(seed, SEPARATION_BUDGET_TAG, her, k, him))[0])
+    budget = 0.0 - math.log(u)
+    years = budget / rate
+    assert years < 100_000.0
+    return formed + max(math.ceil(years * 31_449_600.0), 1)
+
 
 
 def hand_wish(seed: int, key: int, shape: list, tilt: float) -> int:
@@ -763,6 +796,11 @@ def hand_conceptions(seed: int, her: int, him: int, first: int, chance_at, pause
 # after the second YEAR in which the arrangement acts), ended by her death in month 24.2.
 # She is a baby (her menarche about 13.1 years, at least `θ − 1` = 11.3), so her factor
 # and every chance is 0: thirteen attempts draw and fail, nobody conceives.
+# Separation (design note of the separation, section 7): the data keep the repository's
+# rate 0.00867 per year, so each partnership plans its separation after her series, by its
+# entry `core:partnered`: partnership 1 (her `k` 0) after about 1.72 years, partnership 2
+# (her `k` 1, from year 1) about 24.6 years after it forms. Each death comes first and
+# cancels it, so the story stands; the two events take insertion numbers.
 PARTNERS_FOUNDERS = [
     (-1, FEMALE, genotype(WILD, DUMMY)),
     (-2, MALE, genotype(DUMMY, DUMMY)),
@@ -786,22 +824,35 @@ PARTNERS = partners_world()
 PARTNERS_WISH = hand_wish(0xFF, PARTNERS_KEYS[0], [0.10, 0.15, 0.40, 0.25, 0.10], 0.311)
 assert PARTNERS.wish_of(1) == PARTNERS_WISH == 3
 assert PARTNERS.pending_series(1) == MONTH
+# Her separations by hand (design note of the separation, sections 1 and 3).
+PARTNERS_SEPARATIONS = [
+    hand_separation(0xFF, PARTNERS_KEYS[0], 0, PARTNERS_KEYS[1], SEPARATION_RATE, 0),
+    hand_separation(0xFF, PARTNERS_KEYS[0], 1, PARTNERS_KEYS[2], SEPARATION_RATE, YEAR),
+]
+assert PARTNERS_DATA.separation_rate == SEPARATION_RATE
+assert PARTNERS_DEATHS[1] < PARTNERS_SEPARATIONS[0] and PARTNERS_DEATHS[0] < PARTNERS_SEPARATIONS[1]
+assert PARTNERS.pending_separation(1) == PARTNERS_SEPARATIONS[0]
+assert PARTNERS.sims[1][8] == 1 and PARTNERS.sims[2][8] == 0
 PARTNERS_SAVE_AFTER_START = PARTNERS.save()
 # Started, three founders, then the partnership.
 PARTNERS_STARTED_ENTRY = PARTNERS.log[4]
 PARTNERS.advance(YEAR - 1)
-assert PARTNERS.partnerships == {1: [1, 2, 0, PARTNERS_DEATHS[1]]}
+assert PARTNERS.partnerships == {1: [1, 2, 0, (PARTNERS_DEATHS[1], DEATH_ENDED)]}
 assert PARTNERS.archive[2][2] == SENESCENCE_KEY
-assert PARTNERS.pending_series(1) is None
+assert PARTNERS.pending_series(1) is None and PARTNERS.pending_separation(1) is None
 PARTNERS.arrange(1, 3)
 PARTNERS_ARRANGED_ENTRY = PARTNERS.log[-1]
 assert PARTNERS.pending_series(1) == 14 * MONTH
+assert PARTNERS.pending_separation(2) == PARTNERS_SEPARATIONS[1] and PARTNERS.sims[1][8] == 2
+world_reference.check_separations(PARTNERS)
 PARTNERS_SAVE_AFTER_ARRANGE = PARTNERS.save()
 PARTNERS.advance(5 * YEAR - 1)
 assert PARTNERS.partnerships == {
-    1: [1, 2, 0, PARTNERS_DEATHS[1]],
-    2: [1, 3, YEAR, PARTNERS_DEATHS[0]],
+    1: [1, 2, 0, (PARTNERS_DEATHS[1], DEATH_ENDED)],
+    2: [1, 3, YEAR, (PARTNERS_DEATHS[0], DEATH_ENDED)],
 }
+assert not PARTNERS.separations and PARTNERS.pending_separation(2) is None
+world_reference.check_separations(PARTNERS)
 assert sorted(PARTNERS.sims) == [3] and PARTNERS.archive[1][2] == ACCIDENT_KEY
 assert [(t // MONTH, p, success) for t, _, _, p, success in PARTNERS.attempts] == [
     (month, 0.0, False) for month in [1, 2] + list(range(14, 25))
@@ -825,7 +876,10 @@ PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 # birthday (month 78), then with 0.25; she dies of accident in month 83.9 without having
 # conceived, which ends it. The first child dies of accident in month 80.5, the man of 46
 # in month 98.7. The woman of 46 is past the end of the window (45 years): no series is
-# planned for her. Every woman's wish is 40.
+# planned for her. Every woman's wish is 40. The test data of the old model know no
+# separation (`core:separation_rate` 0, design note of the separation, section 7): no
+# separation is planned, every founder woman has `partnerships` 1, and the partnerships
+# of the girl and of the woman of 46 end by death.
 CLAN_FOUNDERS = [
     (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
     (-22 * YEAR, MALE, genotype(DUMMY, WILD)),
@@ -858,6 +912,8 @@ def deaths_in(world: world_reference.World) -> list:
 CLAN = clan_world()
 # The first two women have their series from month 1, the woman of 46 none.
 assert [CLAN.pending_series(sim) for sim in (1, 3, 5)] == [MONTH, MONTH, None]
+assert CLAN_DATA.separation_rate == 0.0 and all(due is None for *_, due in CLAN.separation_plans)
+assert [CLAN.sims[sim][8] for sim in range(1, 7)] == [1, 0, 1, 0, 1, 0]
 assert all(CLAN.wish_of(sim) == world_reference.TEST_WISH for sim in (1, 3, 5))
 CLAN_SAVE_AFTER_START = CLAN.save()
 CLAN.advance(5 * MONTH - 1)
@@ -888,6 +944,13 @@ assert [(sim, cause) for _, sim, cause in CLAN_DEATHS] == [(7, ACCIDENT_KEY), (3
 # The girl died after her 18th birthday (month 78), before she conceived.
 assert 78 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7:9] == (0, 0)
 assert [CLAN.archive[7][0]] + [CLAN.sims[sim][0] for sim in range(8, 14)] == [b * MONTH for _, b in CLAN_HAND[:7]]
+assert CLAN.partnerships == {
+    1: [1, 2, 0, None],
+    2: [3, 4, 0, (CLAN.archive[3][1], DEATH_ENDED)],
+    3: [5, 6, 0, (CLAN.archive[6][1], DEATH_ENDED)],
+}
+assert not CLAN.separations and CLAN.archive[7][10] == 0 and all(CLAN.sims[sim][8] == 0 for sim in range(8, 14))
+world_reference.check_separations(CLAN)
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
 
 # "clan" with the switch of the hereditary diseases on from the start (the same test
@@ -918,6 +981,7 @@ assert sorted(FEVER.sims) == [1, 4, 7, 8] and not FEVER.pregnancies
 assert FEVER.sims[8][7] == (1, 2, 1) and FEVER.sims[8][0] == 27 * MONTH
 assert 17 * MONTH < FEVER.archive[2][1] < 27 * MONTH and FEVER.archive[2][7] == 0
 assert FEVER.sims[1][5:7] == [2, 2] and FEVER.pending_series(1) is None
+world_reference.check_separations(FEVER)
 CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
 
 # "clan" with `test:blight` with 0.1 per year instead (the fertility of "clan"): the first
@@ -941,6 +1005,7 @@ assert BLIGHT.archive[1][1:3] == (HER_BLIGHT, ACCIDENT_KEY) and BLIGHT.archive[1
 assert 1 not in BLIGHT.pregnancies
 BLIGHT_DEATHS = deaths_in(BLIGHT)
 assert [(sim, cause) for _, sim, cause in BLIGHT_DEATHS] == [(3, ACCIDENT_KEY), (6, ACCIDENT_KEY), (1, ACCIDENT_KEY)]
+world_reference.check_separations(BLIGHT)
 CLAN_BLIGHT_SAVE_AFTER_YEAR_1 = BLIGHT.save()
 
 # "clan" with a pause (for the load rejections of the pause): the test data of "clan" with
@@ -1096,6 +1161,7 @@ assert sorted(TWINS.sims) == list(range(1, 13)) and not TWINS.archive
 assert [TWINS.sims[sim][0] for sim in range(7, 13)] == [b * MONTH for _, b in CLAN_HAND[:3] for _ in range(2)]
 assert [TWINS.sims[sim][7][2] for sim in range(7, 13)] == [0, 0, 1, 1, 2, 2]
 assert TWINS.sims[1][5:7] == [4, 6] and TWINS.pregnancies[1][1] == 3 and TWINS.pregnancies[1][3] == 42 * MONTH
+world_reference.check_separations(TWINS)
 TWINS_SAVE_AFTER_YEAR_3 = TWINS.save()
 
 
@@ -1107,6 +1173,256 @@ def twins_story(world: world_reference.World) -> list:
         kids = ", ".join(f"{key:016x} {'female' if sex == FEMALE else 'male'}" for key, sex in children)
         rows.append(f"twins_conception month {t // MONTH} woman {woman} man {man} number {number} u {u!r} {kind}: {kids}")
     return rows
+
+
+# Scenario "split" (design note of the separation, section 7): "clan" (seed 0xff, founder
+# tag `test:clan`, its founders and couples, the switch off) on the test data of "clan"
+# with the separation rate `λ`, and one input `ArrangePartnership` that pairs the first
+# woman (sim 1) anew with the man of her first partnership (sim 2). The reference picks
+# `λ`, the first of 0.05, 0.10, ..., 1.00 that gives in the first eight years: (a)
+# partnership 1 ends by separation while she is pregnant (the child is born after it, with
+# father sim 2, and no series follows the birth); (b) the girl's partnership 2 is still
+# open at her death (her accident in month 83.9), which cancels its separation; (c) the
+# input, acting at the first month start after that birth (stamped one second before,
+# as in "partners"), is accepted: her `k` is 1 for the new partnership 4, which plans a
+# new separation. 0.05 gives all three (so do 0.15 and 0.20; 0.10 and 0.25 separate her
+# between two pregnancies, 0.30 to 0.80 separate the girl before her death, from 0.85 on
+# partnership 1 ends before her first conception). With `λ` = 0.05 the budgets of the
+# three couples are about 0.311, 1.715 and 0.884: partnership 1 is due to separate in
+# month 80.93, partnership 2 in month 445.8, partnership 3 in month 229.9 (each planned
+# right after the series of its woman). Up to month 80 the story is that of "clan" (the
+# draws do not read `λ`); the first child dies in month 80.5. In month 80.93 partnership 1
+# ends by separation while the first woman is pregnant since month 74 (one entry
+# `core:separated`, the draw (18, her key, 0, his key)). The girl dies in month 83.86 with
+# partnership 2 open, which cancels its separation. The child (sim 12) is born in month 84
+# with father sim 2; no series follows. The input acts at month 85 (stamp one second
+# before, sequence 2): partnership 4 of sim 1 and sim 2, her `k` 1 (her `partnerships`
+# goes to 2), her series from month 86 and its separation in month 156.8 (budget about
+# 0.276), after the run. She conceives in month 90 (sim 13, born in month 100) and in
+# month 101, as in "clan" (the same pair, the same draws). The man of 46 dies in month
+# 98.7, which cancels the separation of partnership 3. Saves after the start, after the
+# separation (its second closed), right after the re-pairing and at the end of year 7.
+SPLIT_CANDIDATES = [index / 20 for index in range(1, 21)]
+assert SPLIT_CANDIDATES[0] == 0.05 and SPLIT_CANDIDATES[1] == 0.10 and SPLIT_CANDIDATES[-1] == 1.0
+SPLIT_END = 8 * YEAR - 1
+
+
+def split_data(rate: float) -> world_reference.Data:
+    """The test data of "clan" with `core:separation_rate` = `rate`."""
+    return world_reference.death_test_data(0.02, fertility=CLAN_FERTILITY, life_values={"core:separation_rate": rate})
+
+
+def split_parts(rate: float) -> tuple:
+    """((a), (b), (c)) for `rate` as booleans, and the time the input acts (None without
+    (a)): first a run without the input up to the end of year 7, then one with it."""
+    data = split_data(rate)
+    world = clan_world(data)
+    due = world.pending_separation(1)
+    if due is None or due > SPLIT_END:
+        a, birth = False, None
+    else:
+        world.advance(due)
+        pregnant = world.partnerships[1][3] == (due, SEPARATION_ENDED) and 1 in world.pregnancies
+        birth = world.pregnancies[1][3] + data.pregnancy_months * MONTH if pregnant else None
+        if birth is not None and birth <= SPLIT_END:
+            world.advance(birth)
+            born = [sim for sim, value in world.sims.items() if value[0] == birth and value[7][:2] == (1, 2)]
+            a = bool(born) and world.pending_series(1) is None
+        else:
+            a = False
+    world.advance(SPLIT_END)
+    girl = world.archive.get(3)
+    b = girl is not None and world.partnerships[2][3] == (girl[1], DEATH_ENDED) and world.separation_due(2) is not None
+    if not a:
+        return (a, b, False), None
+    at = world_reference.month_start_after(birth)
+    if at > SPLIT_END:
+        return (a, b, False), None
+    again = clan_world(data)
+    again.advance(at - 1)
+    alive = 1 in again.sims and 2 in again.sims
+    single = alive and again.open_partnership(1) is None and again.open_partnership(2) is None
+    if not single:
+        return (a, b, False), at
+    again.arrange(1, 2)
+    c = again.next_partnership_id == 5 and again.sims[1][8] == 2 and again.pending_separation(4) is not None
+    return (a, b, c), at
+
+
+SPLIT_SEARCH = [(rate, *split_parts(rate)) for rate in SPLIT_CANDIDATES]
+SPLIT_FULL = [row for row in SPLIT_SEARCH if all(row[1])]
+# The first `λ` with all three parts, else the one with the most (the first of those).
+SPLIT_RATE, SPLIT_PARTS, SPLIT_INPUT_AT = (SPLIT_FULL or [max(SPLIT_SEARCH, key=lambda row: sum(row[1]))])[0]
+SPLIT_MISSING = [name for name, got in zip(("a", "b", "c"), SPLIT_PARTS) if not got]
+SPLIT_DATA = split_data(SPLIT_RATE)
+assert SPLIT_DATA.separation_rate == SPLIT_RATE
+
+
+def split_world() -> world_reference.World:
+    return clan_world(SPLIT_DATA)
+
+
+SPLIT = split_world()
+# Each partnership plans its separation by hand: partnership n of the couples, her `k` 0.
+SPLIT_DUES = [
+    hand_separation(0xFF, CLAN_KEYS[woman], 0, CLAN_KEYS[man], SPLIT_RATE, 0) for woman, man in CLAN_COUPLES
+]
+assert [SPLIT.pending_separation(number) for number in (1, 2, 3)] == SPLIT_DUES
+assert [SPLIT.sims[sim][8] for sim in range(1, 7)] == [1, 0, 1, 0, 1, 0]
+# The separation is planned after her series (insertion numbers in this order).
+(SPLIT_SERIES_1,) = [e for e in SPLIT.queue if e.kind == world_reference.ATTEMPT_KIND and e.subject[1] == 1]
+(SPLIT_SEPARATION_1,) = [e for e in SPLIT.queue if e.kind == world_reference.SEPARATION_KIND and e.subject[1] == 1]
+assert SPLIT_SERIES_1.insertion + 1 == SPLIT_SEPARATION_1.insertion and SPLIT_SEPARATION_1.plan == (SPLIT_SERIES_1.plan[0], 0)
+world_reference.check_separations(SPLIT)
+SPLIT_SAVE_AFTER_START = SPLIT.save()
+SPLIT_SEPARATED_AT = SPLIT_DUES[0]
+SPLIT.advance(SPLIT_SEPARATED_AT - 1)
+assert 1 in SPLIT.pregnancies and SPLIT.partnerships[1][3] is None
+SPLIT_LOG_BEFORE = len(SPLIT.log)
+SPLIT.advance(SPLIT_SEPARATED_AT)
+SPLIT_SEPARATION_ENTRIES = SPLIT.log[SPLIT_LOG_BEFORE:]
+assert SPLIT.partnerships[1][3] == (SPLIT_SEPARATED_AT, SEPARATION_ENDED)
+assert 1 in SPLIT.pregnancies and SPLIT.pending_series(1) is None and SPLIT.pending_separation(1) is None
+world_reference.check_separations(SPLIT)
+SPLIT_SAVE_AFTER_SEPARATION = SPLIT.save()
+SPLIT_PREGNANCY = SPLIT.pregnancies[1]
+SPLIT_BIRTH = SPLIT_PREGNANCY[3] + SPLIT_DATA.pregnancy_months * MONTH
+SPLIT.advance(SPLIT_INPUT_AT - 1)
+SPLIT_CHILD = max(SPLIT.sims)
+assert SPLIT.sims[SPLIT_CHILD][0] == SPLIT_BIRTH and SPLIT.sims[SPLIT_CHILD][7][:2] == (1, 2)
+assert 1 not in SPLIT.pregnancies and SPLIT.pending_series(1) is None
+SPLIT.arrange(1, 2)
+SPLIT_REPAIRED_ENTRY = SPLIT.log[-1]
+assert SPLIT.partnerships[4] == [1, 2, SPLIT_INPUT_AT, None] and SPLIT.sims[1][8] == 2 and SPLIT.sims[2][8] == 0
+SPLIT_DUE_4 = hand_separation(0xFF, CLAN_KEYS[0], 1, CLAN_KEYS[1], SPLIT_RATE, SPLIT_INPUT_AT)
+assert SPLIT.pending_separation(4) == SPLIT_DUE_4
+assert SPLIT.pending_series(1) == world_reference.month_start_after(SPLIT_INPUT_AT)
+world_reference.check_separations(SPLIT)
+SPLIT_SAVE_AFTER_REPAIRING = SPLIT.save()
+SPLIT.advance(SPLIT_END)
+world_reference.check_separations(SPLIT)
+SPLIT_SAVE_AFTER_YEAR_7 = SPLIT.save()
+SPLIT_DEATHS = deaths_in(SPLIT)
+
+
+def separated_entry(entry_id: int, t: int, woman: int, man: int, plan: tuple, key: tuple, number: int) -> bytes:
+    """The entry `core:separated { partnership }` by hand (design note of the separation,
+    section 4; ADR-0004 section 7): subjects the woman and the man (Subject::Sim 0), causes
+    Plan (1) { by, planned_at } and Random (4) { tag, subject, occasion, detail }, the
+    payload variant 9 (the last)."""
+    causes = [variant(1, varint(plan[0]), signed(plan[1])), variant(4, *(varint(word) for word in key))]
+    return entry(entry_id, t, [variant(0, varint(woman)), variant(0, varint(man))], causes, variant(9, varint(number)))
+
+
+# The entries `core:separated` of the whole run, each as by hand: the plan is the entry
+# `core:partnered` of its partnership at its formation, the draw at (18, her key, `k`, his
+# key).
+def split_separated(world: world_reference.World) -> list:
+    """(partnership, entry bytes, fields) of each entry `core:separated` of the run, the
+    bytes checked against those by hand."""
+    found = []
+    for t, number, entry_id, plan, key in world.separations:
+        woman, man, formed, _ = world.partnerships[number]
+        k = sum(1 for other, value in world.partnerships.items() if other < number and value[0] == woman)
+        assert plan[1] == formed and world.log[plan[0] - 1].endswith(variant(5, varint(number)))
+        assert key == (SEPARATION_BUDGET_TAG, world.key_of(woman), k, world.key_of(man))
+        line = separated_entry(entry_id, t, woman, man, plan, key, number)
+        assert world.log[entry_id - 1] == line
+        found.append((number, line, (entry_id, t, woman, man, plan, key, number)))
+    return found
+
+
+SPLIT_SEPARATED = split_separated(SPLIT)
+if all(SPLIT_PARTS):
+    # (a) the separation while pregnant, the child of sim 2 after it, no series after the
+    # birth; (b) the girl's partnership ended by her death, its separation cancelled; (c)
+    # the new partnership with her `k` 1.
+    assert len(SPLIT_SEPARATION_ENTRIES) == 1 and SPLIT_SEPARATION_ENTRIES[0] == SPLIT_SEPARATED[0][1]
+    assert SPLIT.partnerships[2][3] == (SPLIT.archive[3][1], DEATH_ENDED) and SPLIT.archive[3][1] < SPLIT_DUES[1]
+    assert [plan for plan in SPLIT.separation_plans if plan[0] == 4][0][1] == 1
+
+
+def split_story() -> list:
+    """The story of "split" as readable rows: the search, the separations planned (with `k`
+    and the budget), the separations that came, the conceptions and births of sim 1, the
+    deaths and how each partnership ended."""
+    rows = []
+    for rate, parts, at in SPLIT_SEARCH:
+        input_text = "none" if at is None else f"{at} (month {at / MONTH:.4f})"
+        rows.append(f"split_search lambda {rate!r} parts (a, b, c) {parts} input_at {input_text}")
+    rows.append(f"split_lambda {SPLIT_RATE!r} parts {SPLIT_PARTS} missing {SPLIT_MISSING or 'none'}")
+    rows.append(f"split_input acts at {SPLIT_INPUT_AT} (month {SPLIT_INPUT_AT / MONTH:.4f}), stamp {SPLIT_INPUT_AT - 1}, sequence 2")
+    for number, k, budget, due in SPLIT.separation_plans:
+        woman, man, formed, ended = SPLIT.partnerships[number]
+        due_text = "never" if due is None else f"{due} (month {due / MONTH:.4f})"
+        rows.append(
+            f"split_partnership_{number} woman {woman} man {man} formed {formed} k {k} budget {budget!r}"
+            f" separation_due {due_text} ended {split_ended(ended)}"
+        )
+    for t, number, entry_id, _, _ in SPLIT.separations:
+        rows.append(f"split_separation partnership {number} at {t} (month {t / MONTH:.4f}) entry {entry_id}")
+    father, conception, _, conceived = SPLIT_PREGNANCY
+    rows.append(
+        f"split_pregnant_at_separation father {father} conception {conception} conceived month {conceived // MONTH}"
+        f" birth month {SPLIT_BIRTH // MONTH} child sim {SPLIT_CHILD}; no series after the birth"
+    )
+    for number, k, budget, due in SPLIT.separation_plans:
+        woman, man, formed, ended = SPLIT.partnerships[number]
+        if due is not None and ended is not None and ended[1] == DEATH_ENDED:
+            dead = [sim for sim in (woman, man) if sim in SPLIT.archive and SPLIT.archive[sim][1] == ended[0]]
+            rows.append(
+                f"split_cancelled partnership {number} separation due month {due / MONTH:.4f} cancelled by the death of"
+                f" sim {dead[0]} in month {ended[0] / MONTH:.4f}"
+            )
+    rows.append(
+        f"split_repairing partnership 4 woman 1 man 2 at month {SPLIT_INPUT_AT // MONTH} her k 1 (partnerships 1 -> 2)"
+        f" series from month {world_reference.month_start_after(SPLIT_INPUT_AT) // MONTH}"
+        f" separation due {SPLIT_DUE_4} (month {SPLIT_DUE_4 / MONTH:.4f})"
+    )
+    for t, woman, man, number, u, kind, children in SPLIT.multiples:
+        rows.append(f"split_conception month {t // MONTH} woman {woman} man {man} number {number} {kind}")
+    for sim in sorted(set(SPLIT.sims) | set(SPLIT.archive)):
+        value = SPLIT.sims[sim] if sim in SPLIT.sims else SPLIT.archive[sim]
+        parents = value[7] if sim in SPLIT.sims else value[9]
+        if parents is not None:
+            born = value[0]
+            rows.append(f"split_child {sim} born {born} (month {born / MONTH:.4f}) parents {parents}")
+    for left, sim, cause in SPLIT_DEATHS:
+        rows.append(f"split_death sim {sim} at {left} (month {left / MONTH:.4f}) of {cause_name(cause)}")
+    rows.append(f"split_her_counters conceptions {SPLIT.sims[1][5]} births {SPLIT.sims[1][6]} partnerships {SPLIT.sims[1][8]}")
+    pregnancy = SPLIT.pregnancies.get(1)
+    rows.append(
+        "split_end_of_year_7 pregnant "
+        + ("no" if pregnancy is None else f"father {pregnancy[0]} conception {pregnancy[1]} conceived month {pregnancy[3] // MONTH}")
+        + f" pending_series {SPLIT.pending_series(1)} pending_separation_4 {SPLIT.pending_separation(4)}"
+    )
+    return rows
+
+
+def split_ended(ended) -> str:
+    if ended is None:
+        return "open"
+    at, by = ended
+    return f"{at} (month {at / MONTH:.4f}) by {'separation' if by == SEPARATION_ENDED else 'death'}"
+
+
+def separated_json(entry_id: int, t: int, woman: int, man: int, plan: tuple, key: tuple, number: int) -> str:
+    """The JSON form of a `core:separated` entry as ADR-0004 sections 3 and 7 describe it
+    (the IDs and times as numbers, the four fields of the draw as 16 lower hex digits, the
+    payload externally tagged by its code); written from the ADR, not from the CLI."""
+    return json.dumps(
+        {
+            "id": entry_id,
+            "t": t,
+            "subjects": [{"sim": woman}, {"sim": man}],
+            "causes": [
+                {"plan": {"by": plan[0], "planned_at": plan[1]}},
+                {"random": {name: f"{word:016x}" for name, word in zip(("tag", "subject", "occasion", "detail"), key)}},
+            ],
+            "payload": {"core:separated": {"partnership": number}},
+        },
+        separators=(",", ":"),
+    )
 
 
 # Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
@@ -1302,6 +1618,7 @@ TEST_DATA = [
     ("clan_pause", CLAN_PAUSE_DATA),
     ("clan_wish", CLAN_WISH_DATA),
     ("twins", TWINS_DATA),
+    ("split", SPLIT_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
@@ -1321,6 +1638,8 @@ if __name__ == "__main__":
             f" fertility {form.kind}{window} adult_rate {data.adult_rate!r} pause_months {data.pause_months}"
             f" pregnancy_months {data.pregnancy_months} wish_weights {len(data.wish_shape)} twins {data.twins!r}"
         )
+    for name, data in TEST_DATA:
+        print(f"separation_rate_{name} {data.separation_rate!r}")
     print(f"cause_keys senescence {SENESCENCE_KEY:016x} accident {ACCIDENT_KEY:016x}")
     for name, data in [
         ("tiny_after_start", TINY_AFTER_START),
@@ -1445,6 +1764,23 @@ if __name__ == "__main__":
     print(f"twins_log_hash {digest(b''.join(TWINS.log))}")
     for row in death_rows("twins", TWINS):
         print(row)
+    print(f"split_data_hash {SPLIT_DATA.hash:016x} separation_rate {SPLIT_DATA.separation_rate!r}")
+    for row in split_story():
+        print(row)
+    print(f"split_save_after_start {SPLIT_SAVE_AFTER_START.hex()}")
+    print(f"split_save_after_separation {SPLIT_SAVE_AFTER_SEPARATION.hex()}")
+    for number, line, fields in SPLIT_SEPARATED:
+        label = "split_separation_entry" if number == 1 else f"split_separation_entry_partnership_{number}"
+        print(f"{label} {line.hex()}")
+        print(f"{label}_json {separated_json(*fields)}")
+    print(f"split_repaired_entry {SPLIT_REPAIRED_ENTRY.hex()}")
+    print(f"split_save_after_repairing {SPLIT_SAVE_AFTER_REPAIRING.hex()}")
+    print(f"split_save_after_year_7 {SPLIT_SAVE_AFTER_YEAR_7.hex()}")
+    print(f"split_year_hashes {[format(value, '016x') for value in SPLIT.year_hashes]}")
+    print(f"split_log_hash {digest(b''.join(SPLIT.log))}")
+    for row in death_rows("split", SPLIT):
+        print(row)
+    print(f"partners_separations_due {PARTNERS_SEPARATIONS}")
     print(f"afflicted_keys {[format(key, '016x') for key in AFFLICTED_KEYS]}")
     for row in afflicted_rows():
         print(row)

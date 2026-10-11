@@ -208,9 +208,16 @@ def segment_meiosis(segment: int, strand: bytes, crossovers: list) -> bytes:
     return bytes([segment]) + strand + seq([f64(c) for c in crossovers])
 
 
+def ending(at: int, by: int) -> bytes:
+    """Ending { at: SimTime, by: EndedBy }, EndedBy: Death = 0, Separation = 1 (design note
+    of the separation, section 2)."""
+    return signed(at) + variant(by)
+
+
 def partnership(woman: int, man: int, formed: int, ended) -> bytes:
-    """Partnership { woman: SimId, man: SimId, formed: SimTime, ended: Option<SimTime> }"""
-    return varint(woman) + varint(man) + signed(formed) + (b"\x00" if ended is None else b"\x01" + signed(ended))
+    """Partnership { woman: SimId, man: SimId, formed: SimTime, ended: Option<Ending> }
+    (projection version 15): `ended` None or (at, by) as for `ending`."""
+    return varint(woman) + varint(man) + signed(formed) + (b"\x00" if ended is None else b"\x01" + ending(*ended))
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
@@ -231,6 +238,20 @@ SAMPLE_ARRANGE = variant(2, varint(1), varint(2))
 
 # LogPayload::Partnered (variant 5) { partnership: PartnershipId }
 SAMPLE_PARTNERED_PAYLOAD = variant(5, varint(1))
+
+# LogPayload::Separated (variant 9, the last) { partnership: PartnershipId } (design note
+# of the separation, section 4).
+SAMPLE_SEPARATED_PAYLOAD = variant(9, varint(1))
+
+# Event::Separation (variant 5, the last) { partnership: PartnershipId } in the queue
+# (design note of the separation, section 3; kind `separation` 6).
+SAMPLE_SEPARATION_EVENT = variant(5, varint(1))
+
+# A partnership ended by separation and one ended by death (design note of the
+# separation, section 2): the option tag, the time, the variant of EndedBy.
+SAMPLE_PARTNERSHIP_SEPARATED = partnership(1, 2, 0, (86_400, 1))
+SAMPLE_PARTNERSHIP_DIED = partnership(1, 2, 0, (86_400, 0))
+SAMPLE_PARTNERSHIP_OPEN = partnership(1, 2, 0, None)
 
 # LogPayload::Conception (variant 6) { lineage_key } and Meiosis (variant 7) { genome_key,
 # segments: Vec<SegmentMeiosis>, sex_chromosome, mutations: Vec<Mutation> }: the keys are
@@ -307,6 +328,11 @@ if __name__ == "__main__":
         ("affliction_visible", affliction(0x0123456789ABCDEF, 25.5, None)),
         ("sample_arrange", SAMPLE_ARRANGE),
         ("sample_partnered_payload", SAMPLE_PARTNERED_PAYLOAD),
+        ("sample_separated_payload", SAMPLE_SEPARATED_PAYLOAD),
+        ("sample_separation_event", SAMPLE_SEPARATION_EVENT),
+        ("sample_partnership_separated", SAMPLE_PARTNERSHIP_SEPARATED),
+        ("sample_partnership_died", SAMPLE_PARTNERSHIP_DIED),
+        ("sample_partnership_open", SAMPLE_PARTNERSHIP_OPEN),
         ("couple", couple(0, 1)),
         ("sample_conception_payload", SAMPLE_CONCEPTION_PAYLOAD),
         ("sample_meiosis_payload", SAMPLE_MEIOSIS_PAYLOAD),
