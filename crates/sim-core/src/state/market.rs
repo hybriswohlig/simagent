@@ -192,7 +192,7 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             let gap = super::disease::age(born_of(domain, man), now) - her_age;
             let noise = draws.gumbel(noise_key(her_key, month, his_key));
             let u = utility(data, gap, kinship, noise);
-            if best.is_none_or(|(top, _, _)| u > top) {
+            if better(u, best.map(|(top, _, _)| top)) {
                 best = Some((u, man, his_key));
             }
         }
@@ -212,6 +212,13 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             ))));
         partnership::pair_up_with(domain, data, (woman, man), causes, ctx);
     }
+}
+
+/// Whether a candidate with the utility `u` beats the best so far (`None` before the
+/// first): only a larger utility does, so on a tie the earlier candidate, the one with the
+/// smaller rank, stays (11.2).
+fn better(u: f64, best: Option<f64>) -> bool {
+    best.is_none_or(|top| u > top)
 }
 
 /// The second of birth of a living sim.
@@ -240,6 +247,16 @@ mod tests {
         ));
         assert!(of_age(born, birthday, 16));
         assert!(!of_age(SimTime::from_secs(10), SimTime::from_secs(5), 0));
+    }
+
+    /// The first candidate is the best so far; a later one only with a larger utility, so
+    /// on a tie the smaller rank wins (11.2).
+    #[test]
+    fn a_tie_keeps_the_earlier_candidate() {
+        assert!(better(-3.0, None));
+        assert!(better(0.5, Some(0.25)));
+        assert!(!better(0.25, Some(0.25)));
+        assert!(!better(0.0, Some(0.25)));
     }
 
     /// The search chance and the utility on the repository's data, bit for bit as

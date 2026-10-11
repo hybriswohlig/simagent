@@ -483,8 +483,7 @@ fn partnerships_consistent(
                 .is_some();
             let round = formed.as_secs() > 0 && formed.as_secs().rem_euclid(MONTH.as_secs()) == 0;
             let by_market = !by_input && round && formed.as_secs() < now;
-            let in_order = previous
-                .is_none_or(|(at, market)| at < formed || (at == formed && (!market || by_market)));
+            let in_order = formed_in_order(previous, formed, by_market);
             previous = Some((formed, by_market));
             let of_age = [woman, man].iter().all(|sim| {
                 born_of(sim).is_some_and(|born| state::market::of_age(born, formed, age))
@@ -524,6 +523,14 @@ fn partnerships_consistent(
                     })
         });
     counted && all && inputs.next().is_none()
+}
+
+/// Whether a partnership formed at `formed` (by the market or not) may follow the previous
+/// one in ID order: in a later second, or in the same second unless the previous one came
+/// from the market and this one from an input (an input acts before the round of its
+/// second, ADR-0002).
+fn formed_in_order(previous: Option<(SimTime, bool)>, formed: SimTime, by_market: bool) -> bool {
+    previous.is_none_or(|(at, market)| at < formed || (at == formed && (!market || by_market)))
 }
 
 /// Birth and parents of a person of the save, for φ; a person the save does not hold has
@@ -1329,6 +1336,20 @@ mod tests {
         assert!(born_together(&[(key, at(5), 7), (key, at(5), 8)]));
         assert!(!born_together(&[(key, at(5), 7), (key, at(6), 8)]));
         assert!(!born_together(&[(key, at(5), 7), (key, at(5), 9)]));
+    }
+
+    /// In one second the partnerships of inputs come before those of the market round
+    /// (ADR-0018 section 7); a later second may follow anything, an earlier none.
+    #[test]
+    fn the_inputs_of_a_second_pair_before_its_round() {
+        let t = |secs: i64| SimTime::from_secs(secs);
+        assert!(formed_in_order(None, t(5), true));
+        assert!(formed_in_order(Some((t(5), false)), t(5), false));
+        assert!(formed_in_order(Some((t(5), false)), t(5), true));
+        assert!(formed_in_order(Some((t(5), true)), t(5), true));
+        assert!(!formed_in_order(Some((t(5), true)), t(5), false));
+        assert!(formed_in_order(Some((t(5), true)), t(6), false));
+        assert!(!formed_in_order(Some((t(6), false)), t(5), false));
     }
 
     #[test]
