@@ -679,3 +679,38 @@ fn save_load_continue_across_twins() {
         );
     }
 }
+
+/// The thresholds of the multiple birth are strict (11.3: identical if `u < p_id`,
+/// fraternal if `u < p_id + p_fr`). The draw of the first conception of "clan" is `u` =
+/// 0.9059764199227032 (`tools/state_reference.py`, `twins_by_hand`): a rate equal to it
+/// gives one child (a conception entry and its two meioses), one ulp above it twins
+/// (identical: the second entry without meioses; fraternal: with its own two).
+#[test]
+fn a_draw_on_the_threshold_gives_one_child() {
+    const U: f64 = 0.905_976_419_922_703_2;
+    let above = f64::from_bits(U.to_bits() + 1);
+    let cases = [
+        ((U, 0.0), 3),
+        ((0.0, U), 3),
+        ((above, 0.0), 4),
+        ((0.0, above), 6),
+    ];
+    for ((identical, fraternal), entries) in cases {
+        let data = windowed_with(0.02, None, 0.25, |demography| {
+            let values = &mut demography["values"];
+            values["core:twins_identical"]["value"] = serde_json::json!(identical);
+            values["core:twins_fraternal"]["value"] = serde_json::json!(fraternal);
+        });
+        let mut world = World::new(data);
+        world.submit(clan_start()).expect("accepted");
+        let mut run = Run::new(world);
+        run.advance(5 * MONTH - 1);
+        let before = run.log.len();
+        run.advance(5 * MONTH);
+        assert_eq!(
+            run.log.len() - before,
+            entries,
+            "identical {identical}, fraternal {fraternal}"
+        );
+    }
+}
