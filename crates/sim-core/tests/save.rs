@@ -2161,6 +2161,11 @@ fn load_checks_the_partnerships() {
             partners_arranged().with(|f| {
                 f.partnerships[1].1.2 = PARTNER_HIS_DEATH;
                 f.input_log[1].0 = PARTNER_HIS_DEATH - 1;
+                // All else as that pairing gives it: her series from the clock on (month
+                // 13), the separation as long after the pairing as before (B / λ).
+                f.queue[0].0 = 13 * MONTH;
+                f.queue[SECOND_SEPARATION_AT].0 =
+                    PARTNER_HIS_DEATH + (PARTNERS_SECOND_SEPARATION - Y);
             }),
         ),
         (
