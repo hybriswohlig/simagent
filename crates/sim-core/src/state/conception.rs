@@ -367,6 +367,42 @@ mod tests {
         assert_eq!(series_after_birth(t(5 * M + 7), 0), Some(t(6 * M)));
     }
 
+    /// The chance of an attempt on the repository's data (5.6, 11.3) for a young couple at
+    /// the start, seed 0xff, founders 0 and 1 of `test:chance`, from `tools/world_reference.py`:
+    /// her menarche at 12.8021 (`θ_i` 12.3 and the drawn offset 0.5021), his `θ_i` 14.02. The
+    /// chance rises with her ramp and with his.
+    #[test]
+    fn the_chance_of_a_young_couple() {
+        let data = crate::data::testing::data();
+        let tag = crate::data_id::DataId::new("test:chance").expect("id");
+        let (women, men) = (
+            Genome::reference(crate::genome::Sex::Female),
+            Genome::reference(crate::genome::Sex::Male),
+        );
+        let year = crate::time::YEAR.as_secs();
+        let person = |index: u64, years_tenths: i64, genome| Person {
+            born: t(-years_tenths * year / 10),
+            lineage_key: LineageKey::founder(&tag, index),
+            genome,
+            parents: None,
+        };
+        let chance_at = |her: i64, him: i64| {
+            chance(
+                &data,
+                0xff,
+                &person(0, her, &women),
+                &person(1, him, &men),
+                t(0),
+            )
+        };
+        assert_eq!(chance_at(130, 150), 0.002_324_437_937_216_047_3);
+        assert_eq!(chance_at(135, 150), 0.025_551_524_660_079_46);
+        assert_eq!(chance_at(140, 150), 0.065_380_556_293_989_41);
+        assert_eq!(chance_at(150, 135), 0.003_763_278_905_772_448_5);
+        assert_eq!(chance_at(170, 140), 0.053_638_399_999_999_954);
+        assert_eq!(chance_at(170, 170), 0.2);
+    }
+
     /// The end of her fertility: the end of the decline of 5.6, or of the window.
     #[test]
     fn the_end_of_fertility() {
