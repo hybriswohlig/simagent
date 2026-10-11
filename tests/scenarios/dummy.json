@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 3,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:dummy",
@@ -21,13 +21,7 @@
         "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
       }
     ],
-    "couples": [{ "woman": 0, "man": 1 }],
-    "fertility": {
-      "per_month": 0.05,
-      "from_years": 18,
-      "until_years": 45,
-      "pregnancy_months": 10
-    }
+    "couples": [{ "woman": 0, "man": 1 }]
   },
   "until": 943487999
 }
