@@ -8,7 +8,7 @@
 
 use alloc::vec;
 
-use super::{DomainState, Pregnancy, Slot, disease, partnership};
+use super::{DomainState, Pregnancy, Slot, Unborn, disease, partnership};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::fertility::{self, Curves};
@@ -261,8 +261,72 @@ pub(crate) fn on_attempt(
     conceive(domain, data, seed, woman, man, draw, ctx);
 }
 
-/// She conceives her next child with him now: the entries of the conception and of the
-/// two meioses (genetics specification 2.3), and the pregnancy.
+/// How many children a conception gives (spec 11.3): one, identical or fraternal twins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Multiple {
+    One,
+    Identical,
+    Fraternal,
+}
+
+/// The address of the draw that decides how many children a conception gives: by the key
+/// of its first child (11.7).
+pub(crate) fn multiple_key(first: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: tags::MULTIPLE_BIRTH,
+        subject: SubjectKey::from(first),
+        occasion: 0,
+        detail: 0,
+    }
+}
+
+/// One child, identical or fraternal twins (11.3): identical below the rate of identical
+/// twins, fraternal below the sum of both rates.
+pub(crate) fn multiple(data: &Data, seed: u64, first: LineageKey) -> Multiple {
+    let u = Draws::new(WorldSeed::new(seed)).unit(multiple_key(first));
+    let twins = data.demography().twins;
+    if u < twins.identical {
+        Multiple::Identical
+    } else if u < twins.identical + twins.fraternal {
+        Multiple::Fraternal
+    } else {
+        Multiple::One
+    }
+}
+
+/// The children of her conception number `number` with him (ADR-0001 section 4, 11.3):
+/// per child its lineage key, the genome key of its zygote and the zygote; identical twins
+/// share the zygote of the first child.
+pub(crate) fn children(
+    data: &Data,
+    seed: u64,
+    (her_key, her_genome): (LineageKey, &Genome),
+    (his_key, his_genome): (LineageKey, &Genome),
+    number: u32,
+) -> alloc::vec::Vec<(LineageKey, GenomeKey, Zygote)> {
+    let key = |index: u64| LineageKey::child(her_key, his_key, u64::from(number), index);
+    let draws = Draws::new(WorldSeed::new(seed));
+    let zygote = |genome: GenomeKey| Zygote::of(&draws, data, genome, her_genome, his_genome);
+    let first = (key(0), GenomeKey::of_zygote(key(0)));
+    let first = (first.0, first.1, zygote(first.1));
+    match multiple(data, seed, first.0) {
+        Multiple::One => vec![first],
+        Multiple::Identical => {
+            let twin = (key(1), first.1, first.2.clone());
+            vec![first, twin]
+        }
+        Multiple::Fraternal => {
+            let genome = GenomeKey::of_zygote(key(1));
+            let twin = (key(1), genome, zygote(genome));
+            vec![first, twin]
+        }
+    }
+}
+
+/// She conceives her next child or children with him now: per child in the order of the
+/// index the entry of the conception, after it the two meioses of its zygote (genetics
+/// specification 2.3; identical twins share those of the first), and the pregnancy. The
+/// birth is planned by the entry of the first child.
 fn conceive(
     domain: &mut DomainState,
     data: &Data,
@@ -286,46 +350,71 @@ fn conceive(
     her.conceptions = number
         .checked_add(1)
         .unwrap_or_else(|| panic!("invariant conception.count_range"));
-    let child = LineageKey::child(her.lineage_key, his_key, u64::from(number), 0);
-    let genome = GenomeKey::of_zygote(child);
-    let draws = Draws::new(WorldSeed::new(seed));
-    let zygote = Zygote::of(&draws, data, genome, &her.genome, &his_genome);
-    domain.lineage.insert(child);
-    let conception = ctx.emit(
-        LogPayload::Conception { lineage_key: child },
-        vec![Subject::Sim(woman), Subject::Sim(man)],
-        Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
+    let her_key = her.lineage_key;
+    let her_genome = her.genome;
+    let children = children(
+        data,
+        seed,
+        (her_key, &her_genome),
+        (his_key, &his_genome),
+        number,
     );
+    let causes = Causes::new(ctx.trigger())
+        .with(Cause::Random(DrawRef::from(draw)))
+        .with(Cause::Random(DrawRef::from(multiple_key(
+            LineageKey::child(her_key, his_key, u64::from(number), 0),
+        ))));
     // ADR-0004 section 7: the causes of a meiosis are the conception and the rule; its
     // draws follow from the genome key and the side (ADR-0001).
     let rule =
         Code::new("core:meiosis").unwrap_or_else(|_| panic!("invariant conception.rule_code"));
-    for (parent, meiosis) in [(woman, &zygote.mother), (man, &zygote.father)] {
-        ctx.emit(
-            LogPayload::Meiosis {
-                genome_key: genome,
-                segments: meiosis.segments.clone(),
-                sex_chromosome: meiosis.sex_chromosome,
-                mutations: meiosis.mutations.clone(),
+    let mut first_entry = None;
+    let mut unborn = alloc::vec::Vec::with_capacity(children.len());
+    let mut written: Option<GenomeKey> = None;
+    for (child, genome, zygote) in &children {
+        domain.lineage.insert(*child);
+        let conception = ctx.emit(
+            LogPayload::Conception {
+                lineage_key: *child,
             },
-            vec![Subject::Sim(parent)],
-            Causes::new(Cause::Event(conception)).with(Cause::Rule(rule.clone())),
+            vec![Subject::Sim(woman), Subject::Sim(man)],
+            causes.clone(),
         );
+        first_entry.get_or_insert(conception);
+        if written != Some(*genome) {
+            for (parent, meiosis) in [(woman, &zygote.mother), (man, &zygote.father)] {
+                ctx.emit(
+                    LogPayload::Meiosis {
+                        genome_key: *genome,
+                        segments: meiosis.segments.clone(),
+                        sex_chromosome: meiosis.sex_chromosome,
+                        mutations: meiosis.mutations.clone(),
+                    },
+                    vec![Subject::Sim(parent)],
+                    Causes::new(Cause::Event(conception)).with(Cause::Rule(rule.clone())),
+                );
+            }
+            written = Some(*genome);
+        }
+        unborn.push(Unborn {
+            lineage_key: *child,
+            sex: zygote.genome.sex(),
+            genome: zygote.genome,
+        });
     }
     let now = ctx.now();
     domain.pregnancies.insert(
         woman,
         Pregnancy {
             father: man,
-            lineage_key: child,
             conception: number,
-            sex: zygote.genome.sex(),
-            genome: zygote.genome,
+            children: unborn,
             conceived: now,
         },
     );
+    let first_entry = first_entry.unwrap_or_else(|| panic!("invariant conception.children"));
     let due = birth_of(data, now).unwrap_or_else(|| panic!("invariant time.out_of_range"));
-    let handle = ctx.schedule(due, EventPayload::Birth { mother: woman }, conception);
+    let handle = ctx.schedule(due, EventPayload::Birth { mother: woman }, first_entry);
     domain.pending.insert((woman, Slot::Birth), handle);
 }
 

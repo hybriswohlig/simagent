@@ -75,6 +75,11 @@ pub const FERTILITY_MENARCHE: PurposeTag = PurposeTag::from_pinned_list(15);
 /// her lineage key; occasion: 0; detail: 0.
 pub const FERTILITY_WISH: PurposeTag = PurposeTag::from_pinned_list(16);
 
+/// Whether a conception gives one child, identical or fraternal twins (genetics
+/// specification 11.3, 11.7). subject: the lineage key of the first child; occasion: 0;
+/// detail: 0.
+pub const MULTIPLE_BIRTH: PurposeTag = PurposeTag::from_pinned_list(17);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -93,6 +98,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (DISEASE_ONSET, "DISEASE_ONSET"),
     (FERTILITY_MENARCHE, "FERTILITY_MENARCHE"),
     (FERTILITY_WISH, "FERTILITY_WISH"),
+    (MULTIPLE_BIRTH, "MULTIPLE_BIRTH"),
 ];
 
 /// Values of deleted tags; they are never used again.
