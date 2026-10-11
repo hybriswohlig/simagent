@@ -14,3 +14,4 @@ kind death 3
 kind conception_attempt 4
 kind birth 5
 kind separation 6
+kind market_round 7
