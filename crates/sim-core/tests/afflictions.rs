@@ -18,25 +18,14 @@
 mod common;
 
 use sim_core::data_id::DataId;
-use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
-use sim_core::input::{Fertility, Founder, Input, Start};
+use sim_core::input::{Founder, Input, Start};
 use sim_core::log::LogEntry;
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
 use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
-
-/// A fertility under which nobody ever conceives.
-fn barren() -> Fertility {
-    Fertility {
-        per_month: FiniteF64::try_new(0.0).expect("finite"),
-        from_years: 18,
-        until_years: 45,
-        pregnancy_months: 10,
-    }
-}
 
 fn founder(born: i64, sex: Sex, locus: &str, copies: &[u8]) -> Founder {
     Founder {
@@ -62,7 +51,6 @@ fn afflicted(tag: &str, on: bool, founders: Vec<Founder>) -> World {
             },
             founders,
             couples: Vec::new(),
-            fertility: barren(),
         }))
         .expect("accepted");
     world
@@ -160,7 +148,7 @@ fn a_visible_disease_never_kills() {
 #[test]
 fn the_afflictions_are_those_of_the_reference() {
     let world = afflicted("test:afflicted", true, the_ten());
-    assert_eq!(world.state_hash(), 0x419a_f309_044b_5c18);
+    assert_eq!(world.state_hash(), 0x82bd_1428_9baa_0838);
 }
 
 /// A save of "afflicted" loads and gives the same bytes, at the start and after the first

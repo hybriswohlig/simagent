@@ -186,7 +186,7 @@ impl WorldState {
                 state::params::apply_override(&mut self.domain, &self.data, block, &mut ctx);
             }
             Input::ArrangePartnership(pair) => {
-                state::partnership::apply_arrange(&mut self.domain, pair, &mut ctx);
+                state::partnership::apply_arrange(&mut self.domain, &self.data, pair, &mut ctx);
             }
         }
     }
@@ -307,22 +307,11 @@ mod tests {
     use super::*;
     use crate::data::testing;
     use crate::data_id::DataId;
-    use crate::finite::FiniteF64;
     use crate::genome::Sex;
-    use crate::input::{Fertility, Founder, RejectCode, Start};
+    use crate::input::{Founder, RejectCode, Start};
     use crate::lineage::LineageKey;
     use crate::params::WorldParams;
     use crate::time::{SchedulerSnapshot, YEAR};
-
-    /// A fertility under which nobody ever conceives.
-    fn barren() -> Fertility {
-        Fertility {
-            per_month: FiniteF64::try_new(0.0).expect("finite"),
-            from_years: 18,
-            until_years: 45,
-            pregnancy_months: 10,
-        }
-    }
 
     fn tag() -> DataId {
         DataId::new("test:world").expect("valid")
@@ -345,7 +334,6 @@ mod tests {
                 })
                 .collect(),
             couples: Vec::new(),
-            fertility: barren(),
         })
     }
 
@@ -364,6 +352,7 @@ mod tests {
             genome: crate::genome::Genome::reference(Sex::Male),
             afflictions: Vec::new(),
             conceptions: 0,
+            births: 0,
             parents: None,
         }
     }
@@ -516,6 +505,7 @@ mod tests {
                 genome: crate::genome::Genome::reference(Sex::Female),
                 afflictions: Vec::new(),
                 conceptions: 0,
+                births: 0,
                 parents: None,
             },
         );
@@ -551,8 +541,8 @@ mod tests {
     /// of the cause with the key 7), the lineage key of founder 1
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
     /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
-    /// the Y as variant 1 with 0, mt 0), no exposure (0), no conception (0) and no
-    /// parents (0).
+    /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
+    /// birth (0) and no parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
@@ -568,7 +558,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
+        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

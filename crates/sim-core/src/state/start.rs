@@ -6,9 +6,7 @@ use alloc::vec::Vec;
 use super::{DomainState, Sim, Slot, death, disease, partnership, years_between};
 use crate::data::Data;
 use crate::genome::{AlleleError, Genome};
-use crate::input::{
-    Fertility, Founder, InputRejected, MAX_FERTILE_YEARS, MAX_PREGNANCY_MONTHS, RejectCode, Start,
-};
+use crate::input::{Founder, InputRejected, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::params::NutritionYear;
@@ -30,7 +28,6 @@ pub(crate) fn check_start(
     )
     .or_else(|| alleles_rejection(&start.founders, data))
     .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
-    .or_else(|| fertility_rejection(&start.fertility))
     .or_else(|| nutrition_rejection(&start.world_params.nutrition));
     match rejection {
         Some(code) => Err(InputRejected { code }),
@@ -92,18 +89,6 @@ fn alleles_rejection(founders: &[Founder], data: &Data) -> Option<RejectCode> {
     })
 }
 
-/// Why this fertility is rejected, if at all: a chance outside 0 to 1, no age at which a
-/// woman can conceive, an end of fertility after `MAX_FERTILE_YEARS`, or a pregnancy
-/// outside 1 to `MAX_PREGNANCY_MONTHS` months.
-pub(crate) fn fertility_rejection(fertility: &Fertility) -> Option<RejectCode> {
-    let chance = fertility.per_month.get();
-    let fits = (0.0..=1.0).contains(&chance)
-        && fertility.from_years < fertility.until_years
-        && fertility.until_years <= MAX_FERTILE_YEARS
-        && (1..=MAX_PREGNANCY_MONTHS).contains(&fertility.pregnancy_months);
-    (!fits).then_some(RejectCode::FertilityOutOfRange)
-}
-
 /// The number of founders as it stands in `core:started`.
 fn founder_count(founders: usize) -> Option<u32> {
     u32::try_from(founders).ok()
@@ -123,7 +108,6 @@ pub(crate) fn apply_start(
 ) {
     domain.world_seed = Some(start.world_seed);
     domain.world_params = Some(start.world_params.clone());
-    domain.fertility = Some(start.fertility);
     let founders = founder_count(start.founders.len())
         .unwrap_or_else(|| panic!("invariant start.founder_count_range"));
     let started = ctx.emit(
@@ -165,6 +149,7 @@ pub(crate) fn apply_start(
                     SimTime::START,
                 ),
                 conceptions: 0,
+                births: 0,
                 parents: None,
             },
         );
@@ -182,7 +167,13 @@ pub(crate) fn apply_start(
                 .and_then(|place| ids.get(place).copied())
                 .unwrap_or_else(|| panic!("invariant start.couple_place"))
         };
-        partnership::pair_up(domain, founder(couple.woman), founder(couple.man), ctx);
+        partnership::pair_up(
+            domain,
+            data,
+            founder(couple.woman),
+            founder(couple.man),
+            ctx,
+        );
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 3,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:fork_no_density",
@@ -234,13 +234,7 @@
         "woman": 30,
         "man": 31
       }
-    ],
-    "fertility": {
-      "per_month": 0.05,
-      "from_years": 18,
-      "until_years": 45,
-      "pregnancy_months": 10
-    }
+    ]
   },
   "until": 1886975999
 }

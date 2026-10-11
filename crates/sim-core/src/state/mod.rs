@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
 use crate::ids::{PartnershipId, SimId};
-use crate::input::Fertility;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
 use crate::time::{EventHandle, SimTime, YEAR};
@@ -36,6 +35,9 @@ pub(crate) struct Sim {
     /// How often she conceived (ADR-0001 section 4: the conception number of the next
     /// child); always 0 for a man.
     pub(crate) conceptions: u32,
+    /// How many children she bore alive (ADR-0017 section 4: the wish reads it); always
+    /// 0 for a man.
+    pub(crate) births: u32,
     /// The biological parents of a born sim; `None` for a founder.
     pub(crate) parents: Option<Parents>,
 }
@@ -110,6 +112,7 @@ pub(crate) struct ArchivedSim {
     /// was on.
     pub(crate) afflictions: Vec<Affliction>,
     pub(crate) conceptions: u32,
+    pub(crate) births: u32,
     pub(crate) parents: Option<Parents>,
 }
 
@@ -118,8 +121,6 @@ pub(crate) struct DomainState {
     pub(crate) world_seed: Option<u64>,
     /// The parameters of `Start` after every override; `None` until `Start`.
     pub(crate) world_params: Option<WorldParams>,
-    /// The fertility of `Start`; `None` until `Start`.
-    pub(crate) fertility: Option<Fertility>,
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) partnerships: BTreeMap<PartnershipId, Partnership>,
@@ -153,7 +154,6 @@ impl DomainState {
             world_seed: None,
             world_params: None,
             sims: BTreeMap::new(),
-            fertility: None,
             pregnancies: BTreeMap::new(),
             partnerships: BTreeMap::new(),
             archive: BTreeMap::new(),

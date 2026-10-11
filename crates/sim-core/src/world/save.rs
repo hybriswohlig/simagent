@@ -15,7 +15,7 @@ use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, SimId};
-use crate::input::{Fertility, Input, InputRecord, Start};
+use crate::input::{Input, InputRecord, Start};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
@@ -216,7 +216,6 @@ impl World {
                     world_params: loaded.world_params,
                     sims: loaded.sims,
                     partnerships: loaded.partnerships,
-                    fertility: loaded.fertility,
                     pregnancies: loaded.pregnancies,
                     archive: loaded.archive,
                     lineage,
@@ -299,7 +298,6 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
             && loaded.sims.is_empty()
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
-            && loaded.fertility.is_none()
             && loaded.archive.is_empty()
             && loaded.next_sim_id == 1
             && loaded.next_partnership_id == 1
@@ -316,7 +314,6 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         seed,
         data,
         switch: &history.switch,
-        fertility: history.fertility,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -329,6 +326,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && partnerships_consistent(loaded, &history.pairs)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
+        && births_consistent(loaded)
         && queue_consistent(loaded, now, &rules)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
@@ -342,8 +340,6 @@ struct InputHistory {
     switch: SwitchHistory,
     /// (woman, man, formed) of each partnership the inputs formed, in their order.
     pairs: Vec<(SimId, SimId, SimTime)>,
-    /// The fertility of `Start`.
-    fertility: Fertility,
     /// How many founders `Start` names: the sims 1 to N.
     founders: u64,
 }
@@ -375,7 +371,6 @@ fn input_log_consistent(
                 let unstarted = DomainState::new();
                 let fits = state::start::check_start(&unstarted, data, record.t, start).is_ok()
                     && start.world_seed == seed
-                    && loaded.fertility == Some(start.fertility)
                     && founders_are_the_first_sims(loaded, start, data);
                 if !fits {
                     return None;
@@ -418,7 +413,6 @@ fn input_log_consistent(
     (Some(params) == loaded.world_params).then_some(InputHistory {
         switch,
         pairs,
-        fertility: start.fertility,
         founders,
     })
 }
@@ -477,7 +471,6 @@ struct Rules<'a> {
     seed: u64,
     data: &'a Data,
     switch: &'a [(i64, bool)],
-    fertility: Fertility,
 }
 
 impl Rules<'_> {
@@ -696,7 +689,7 @@ fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: 
             let Some(parents) = child.parents else {
                 return false;
             };
-            let months = MONTH.checked_mul(i64::from(rules.fertility.pregnancy_months));
+            let months = MONTH.checked_mul(i64::from(pregnancy_months(rules)));
             let Some(conceived) = months.and_then(|months| child.born.checked_sub(months)) else {
                 return false;
             };
@@ -704,10 +697,12 @@ fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: 
         })
 }
 
-/// A conception the rule gives (ADR-0001, B18): a partnership of mother and father open
-/// at `conceived`, which lies at a month start at an age at which she can conceive, with
-/// a successful draw; the child's key comes from both parents and her number, its
-/// alleles and sex from the draws.
+/// A conception the rule gives (ADR-0017 section 4, B18): a partnership of mother and
+/// father open at `conceived`, which lies at a month start in her series of attempts
+/// (after the pairing and after the pause of her last birth in it), with fewer live births
+/// than she wishes and her fertility not ended, and a successful draw at the chance of the
+/// curves; the child's key comes from both parents and her number, its alleles and sex
+/// from the draws.
 fn conception_fits(
     loaded: &LoadedState,
     rules: &Rules<'_>,
@@ -719,22 +714,34 @@ fn conception_fits(
     else {
         return false;
     };
-    let fertility = rules.fertility;
     // A partnership pairs a woman and a man (`partnerships_consistent`).
-    let paired = loaded.partnerships.values().any(|partnership| {
-        (partnership.woman, partnership.man) == (parents.mother, parents.father)
+    let formed = loaded.partnerships.values().find_map(|partnership| {
+        ((partnership.woman, partnership.man) == (parents.mother, parents.father)
             && partnership.formed <= conceived
-            && partnership.ended.is_none_or(|ended| ended >= conceived)
+            && partnership.ended.is_none_or(|ended| ended >= conceived))
+        .then_some(partnership.formed)
     });
-    let of_age = conception::birthday(her.born, fertility.from_years)
-        .is_some_and(|from| from <= conceived)
-        && conception::birthday(her.born, fertility.until_years)
-            .is_some_and(|until| conceived < until);
     let at_a_month_start =
         conceived.as_secs() >= 0 && conceived.as_secs().rem_euclid(MONTH.as_secs()) == 0;
+    let in_her_series = formed.is_some_and(|formed| {
+        let born_before = children_born(loaded, parents.mother, conceived);
+        series_start(rules, formed, &born_before).is_some_and(|start| start <= conceived)
+            && conception::may_begin(
+                rules.data,
+                rules.seed,
+                her.born,
+                her.lineage_key,
+                u32::try_from(born_before.len()).unwrap_or(u32::MAX),
+                conceived,
+            )
+    });
     let drawn = conception::month_index(conceived).is_some_and(|month| {
         let key = conception::attempt_key(her.lineage_key, him.lineage_key, month);
-        Draws::new(WorldSeed::new(rules.seed)).bernoulli(key, fertility.per_month.get())
+        let (Some(woman), Some(man)) = (person(loaded, &her), person(loaded, &him)) else {
+            return false;
+        };
+        let p = conception::chance(rules.data, rules.seed, &woman, &man, conceived);
+        Draws::new(WorldSeed::new(rules.seed)).bernoulli(key, p)
     });
     let key = LineageKey::child(
         her.lineage_key,
@@ -753,13 +760,80 @@ fn conception_fits(
             &him.genome,
         )
     });
-    paired
-        && at_a_month_start
-        && of_age
+    at_a_month_start
+        && in_her_series
         && drawn
         && child.lineage_key == key
         && zygote
             .is_some_and(|zygote| child.genome == zygote.genome && child.sex == zygote.genome.sex())
+}
+
+/// The months of a pregnancy (11.3).
+fn pregnancy_months(rules: &Rules<'_>) -> u32 {
+    rules.data.demography().fertility.pregnancy_months
+}
+
+/// The birth times of her children born before `before`, in order.
+fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<SimTime> {
+    let mut born: Vec<SimTime> = loaded
+        .sims
+        .values()
+        .map(|sim| (sim.parents, sim.born))
+        .chain(loaded.archive.values().map(|sim| (sim.parents, sim.born)))
+        .filter(|(parents, born)| parents.is_some_and(|p| p.mother == mother) && *born < before)
+        .map(|(_, born)| born)
+        .collect();
+    born.sort_unstable();
+    born
+}
+
+/// Where her series of attempts in a partnership formed at `formed` begins, given the
+/// times of her births so far: after the pairing, or after the pause of her last birth in
+/// that partnership (ADR-0017 section 4).
+fn series_start(rules: &Rules<'_>, formed: SimTime, births: &[SimTime]) -> Option<SimTime> {
+    let pause = rules.data.demography().fertility.pause_months;
+    match births.iter().rev().find(|born| **born >= formed) {
+        Some(born) => conception::series_after_birth(*born, pause),
+        None => conception::series_after_pairing(formed),
+    }
+}
+
+/// What the conception rule reads of a sim: its facts and the lineage keys of its
+/// parents.
+fn person<'a>(loaded: &LoadedState, sim: &'a Facts) -> Option<conception::Person<'a>> {
+    let key_of = |id: SimId| facts(loaded, id).map(|parent| parent.lineage_key);
+    let parents = match sim.parents {
+        None => None,
+        Some(p) => Some(crate::phenotype::Parents {
+            mother: key_of(p.mother)?,
+            father: key_of(p.father)?,
+        }),
+    };
+    Some(conception::Person {
+        born: sim.born,
+        lineage_key: sim.lineage_key,
+        genome: &sim.genome,
+        parents,
+    })
+}
+
+/// Each sim has as many live births as there are sims whose mother it is; a man has none
+/// (ADR-0017 section 4).
+fn births_consistent(loaded: &LoadedState) -> bool {
+    let mut children: BTreeMap<SimId, u32> = BTreeMap::new();
+    for parents in loaded
+        .sims
+        .values()
+        .map(|sim| sim.parents)
+        .chain(loaded.archive.values().map(|sim| sim.parents))
+        .flatten()
+    {
+        let count = children.entry(parents.mother).or_default();
+        *count = count.saturating_add(1);
+    }
+    let own = |id: &SimId| children.get(id).copied().unwrap_or(0);
+    loaded.sims.iter().all(|(id, sim)| sim.births == own(id))
+        && loaded.archive.iter().all(|(id, sim)| sim.births == own(id))
 }
 
 /// Each pregnancy is one the conception rule gives, of a living mother, conceived in a
@@ -791,7 +865,7 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
 /// her running pregnancy, for one in the archive perhaps also a last one that ended with
 /// her death. Each conception comes after the birth of the one before. A man has none.
 fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
-    let months = MONTH.checked_mul(i64::from(rules.fertility.pregnancy_months));
+    let months = MONTH.checked_mul(i64::from(pregnancy_months(rules)));
     let Some(months) = months else {
         return false;
     };
@@ -849,9 +923,10 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     living && archived
 }
 
-/// When the next attempt of a living woman is due: from the first month start at or
-/// after now and her `from_years` birthday on, if she is in an open partnership, not
-/// pregnant and still younger than `until_years` then.
+/// When the next attempt of a living woman is due (ADR-0017 section 4): the first month
+/// start after now that lies in her series (after the pairing of her open partnership, or
+/// after the pause of her last birth in it), if she is not pregnant, has fewer live births
+/// than she wishes and her fertility has not ended by then.
 fn next_attempt(
     loaded: &LoadedState,
     now: i64,
@@ -859,14 +934,28 @@ fn next_attempt(
     woman: SimId,
 ) -> Option<SimTime> {
     let her = loaded.sims.get(&woman)?;
-    let paired = loaded
+    let formed = loaded
         .partnerships
         .values()
-        .any(|partnership| partnership.woman == woman && partnership.ended.is_none());
-    if !paired || loaded.pregnancies.contains_key(&woman) {
+        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?
+        .formed;
+    if loaded.pregnancies.contains_key(&woman) {
         return None;
     }
-    conception::first_attempt(&rules.fertility, her.born, SimTime::try_from(now).ok()?)
+    let clock = SimTime::try_from(now.checked_sub(1)?).ok()?;
+    let births = children_born(loaded, woman, SimTime::try_from(now).ok()?);
+    let start = series_start(rules, formed, &births)?;
+    let after_now = conception::month_start_after(clock)?;
+    let next = if start > after_now { start } else { after_now };
+    conception::may_begin(
+        rules.data,
+        rules.seed,
+        her.born,
+        her.lineage_key,
+        her.births,
+        next,
+    )
+    .then_some(next)
 }
 
 /// An archived sim died of a cause of the world, in the second its budget for that
@@ -937,8 +1026,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 entry.period.is_none()
                     && births.insert(*mother)
                     && loaded.pregnancies.get(mother).is_some_and(|pregnancy| {
-                        conception::birth_of(&rules.fertility, pregnancy.conceived)
-                            == Some(entry.time)
+                        conception::birth_of(rules.data, pregnancy.conceived) == Some(entry.time)
                     })
             }
             EventPayload::ConceptionAttempt { woman } => {

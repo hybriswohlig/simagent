@@ -8,7 +8,6 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::finite::FiniteF64;
 use crate::genome::{LocusAlleles, Sex};
 use crate::ids::{InputSeq, SimId};
 use crate::params::{ParamChange, WorldParams};
@@ -39,30 +38,10 @@ pub struct Start {
     /// The causes of death come from the data (ADR-0017 section 2), not from the scenario.
     pub founders: Vec<Founder>,
     /// The fixed couples of founders (ADR-0001, Durchstich), paired after all founders
-    /// entered the world, in list order.
+    /// entered the world, in list order. When they conceive comes from the data
+    /// (ADR-0017 section 4), not from the scenario.
     pub couples: Vec<Couple>,
-    pub fertility: Fertility,
 }
-
-/// When couples conceive (ADR-0001, Durchstich): one attempt per month while both live,
-/// the woman is at least `from_years` and below `until_years` old and not pregnant; a
-/// pregnancy lasts `pregnancy_months`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Fertility {
-    /// The chance of one attempt, from 0 to 1.
-    pub per_month: FiniteF64,
-    pub from_years: u32,
-    /// Above `from_years`, at most `MAX_FERTILE_YEARS`.
-    pub until_years: u32,
-    /// From 1 to `MAX_PREGNANCY_MONTHS`.
-    pub pregnancy_months: u32,
-}
-
-/// The highest age bound of fertility, in years.
-pub const MAX_FERTILE_YEARS: u32 = 1000;
-/// The longest pregnancy, in months (1000 years).
-pub const MAX_PREGNANCY_MONTHS: u32 = 13_000;
 
 /// A couple of founders, by their places in the list of founders.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,7 +155,8 @@ pub enum RejectCode {
     AlreadyPartnered,
     /// A couple of `Start` with a place beyond the list of founders.
     UnknownFounder,
-    /// A fertility of `Start` outside its ranges.
+    /// Retired with the fertility of `Start` (ADR-0017 section 4): never produced, its
+    /// index stays.
     FertilityOutOfRange,
     /// A founder names a locus the genome map does not have.
     FounderUnknownLocus,

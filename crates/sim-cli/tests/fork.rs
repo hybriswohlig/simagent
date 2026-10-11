@@ -14,7 +14,7 @@ const Y: i64 = 31_449_600;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 2,
+  "format_version": 3,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -24,8 +24,7 @@ const TEN_YEARS: &str = r#"{
       {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 0]}]},
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
-    "couples": [],
-    "fertility": {"per_month": 0.0, "from_years": 18, "until_years": 45, "pregnancy_months": 10}
+    "couples": []
   },
   "until": 314495999
 }"#;
@@ -344,15 +343,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":26"#, r#""core_version":27"#);
+    replace_in(&log, r#""core_version":27"#, r#""core_version":28"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 27, this is 26"
+            "error: fork_foreign_core_version: the parent run is of core version 28, this is 27"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":27"#, r#""core_version":26"#);
+    replace_in(&log, r#""core_version":28"#, r#""core_version":27"#);
     replace_in(&log, "1dca217a25090687", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -417,7 +416,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":26"#, r#""core_version":27"#),
+        (r#""core_version":27"#, r#""core_version":28"#),
         (
             r#""data_hash":"1dca217a25090687""#,
             r#""data_hash":"c3f04a38869c20d7""#,

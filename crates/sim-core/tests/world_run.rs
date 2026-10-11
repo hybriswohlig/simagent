@@ -15,24 +15,13 @@
 mod common;
 
 use sim_core::data_id::DataId;
-use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::ids::SimId;
-use sim_core::input::{Fertility, Founder, Input, RejectCode, Start};
+use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::params::WorldParams;
 use sim_core::time::{AdvanceOutcome, EventClass, SimDuration, SimTime, YEAR, year_start};
 use sim_core::world::{CensusRow, EventPayload, World, YearOut};
-
-/// A fertility under which nobody ever conceives.
-fn barren() -> Fertility {
-    Fertility {
-        per_month: FiniteF64::try_new(0.0).expect("finite"),
-        from_years: 18,
-        until_years: 45,
-        pregnancy_months: 10,
-    }
-}
 
 const Y: i64 = 31_449_600;
 const _: () = assert!(Y == YEAR.as_secs());
@@ -50,7 +39,6 @@ fn start_with(born: &[i64]) -> Input {
         },
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
-        fertility: barren(),
     })
 }
 

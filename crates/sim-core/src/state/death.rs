@@ -255,6 +255,7 @@ pub(crate) fn on_death(
             genome: person.genome,
             afflictions: person.afflictions,
             conceptions: person.conceptions,
+            births: person.births,
             parents: person.parents,
         },
     );

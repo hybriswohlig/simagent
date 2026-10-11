@@ -73,6 +73,7 @@ mod tests {
             genome: Genome::reference(Sex::Female),
             afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
+            births: 0,
             parents: None,
         }
     }
@@ -87,6 +88,7 @@ mod tests {
             genome: Genome::reference(Sex::Male),
             afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
+            births: 0,
             parents: None,
         }
     }

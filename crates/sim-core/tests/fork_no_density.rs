@@ -47,8 +47,10 @@ impl Run {
 }
 
 /// The test data of the scenario (ADR-0017 section 5): the repository's map and calibration
-/// with accident 0.02 and senescence `a` 1e-12, `b` 0.1 per year for both sexes, and the
-/// disease of the walking skeleton only, from 18 years on.
+/// with accident 0.02 and senescence `a` 1e-12, `b` 0.1 per year for both sexes, the
+/// disease of the walking skeleton only, from 18 years on, the fertility of the old model
+/// (the window 18 to 45, 0.05 per month, no pause, wish 40, no twins), the market off and no
+/// separation.
 fn fork_data() -> sim_core::data::Data {
     let (mut calibration, genome_map) = common::files();
     let values = &mut calibration["values"];
@@ -58,14 +60,20 @@ fn fork_data() -> sim_core::data::Data {
         values[format!("core:senescence_b_{sex}")]["value"] = serde_json::json!(0.1);
     }
     calibration["diseases"] = common::dummy_disease(18.0);
-    let definitions = common::definitions(calibration, genome_map).expect("definitions");
+    let mut demography = common::demography();
+    common::window_fertility(&mut calibration, &mut demography, 0.05);
+    // The market off and no separation (ADR-0017 section 5).
+    demography["values"]["core:market_search_height_female"]["value"] = serde_json::json!(0.0);
+    demography["values"]["core:separation_rate"]["value"] = serde_json::json!(0.0);
+    let definitions =
+        common::definitions_with(demography, calibration, genome_map).expect("definitions");
     sim_core::data::Data::new(definitions).expect("checked")
 }
 
 /// The data hash of the test data (`tools/state_reference.py`).
 #[test]
 fn the_test_data_are_those_of_the_reference() {
-    assert_eq!(fork_data().hash(), 0xa870_db8a_87d6_4611);
+    assert_eq!(fork_data().hash(), 0x79b4_5d91_8c81_b002);
 }
 
 /// The scenario: its `Start` and its end.

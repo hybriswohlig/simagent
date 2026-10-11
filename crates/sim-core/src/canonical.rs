@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::hash::stable_hash64;
 use crate::ids::{PartnershipId, SimId};
-use crate::input::Fertility;
 use crate::log::PlanRef;
 use crate::params::WorldParams;
 use crate::state::{ArchivedSim, Partnership, Pregnancy, Sim};
@@ -25,7 +24,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 12;
+pub const PROJECTION_VERSION: u32 = 13;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -46,7 +45,6 @@ pub(crate) struct LoadedState {
     pub(crate) projection_version: u32,
     pub(crate) world_seed: Option<u64>,
     pub(crate) world_params: Option<WorldParams>,
-    pub(crate) fertility: Option<Fertility>,
     pub(crate) closed_through: SimTime,
     pub(crate) next_sim_id: u64,
     pub(crate) next_partnership_id: u64,
@@ -65,7 +63,6 @@ pub struct CanonicalState<'a> {
     projection_version: u32,
     world_seed: Option<u64>,
     world_params: Option<WorldParams>,
-    fertility: Option<Fertility>,
     closed_through: SimTime,
     next_sim_id: u64,
     next_partnership_id: u64,
@@ -95,7 +92,6 @@ pub fn canonical_projection<'a>(
         projection_version: PROJECTION_VERSION,
         world_seed: domain.world_seed,
         world_params: domain.world_params.clone(),
-        fertility: domain.fertility,
         closed_through: snapshot.closed_through,
         next_sim_id: state.next_sim_id(),
         next_partnership_id: state.next_partnership_id(),

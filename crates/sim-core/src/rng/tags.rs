@@ -67,6 +67,14 @@ pub const DISEASE_PENETRANCE: PurposeTag = PurposeTag::from_pinned_list(13);
 /// the person's lineage key; occasion: `str_key` of the disease; detail: 0.
 pub const DISEASE_ONSET: PurposeTag = PurposeTag::from_pinned_list(14);
 
+/// The offset of a woman's menarche after her puberty timing (genetics specification
+/// 5.6, 11.7). subject: her lineage key; occasion: 0; detail: 0.
+pub const FERTILITY_MENARCHE: PurposeTag = PurposeTag::from_pinned_list(15);
+
+/// The draw of a woman's wish for children (genetics specification 11.3, 11.7). subject:
+/// her lineage key; occasion: 0; detail: 0.
+pub const FERTILITY_WISH: PurposeTag = PurposeTag::from_pinned_list(16);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -83,6 +91,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (BODY_CLAMP_SAMPLE, "BODY_CLAMP_SAMPLE"),
     (DISEASE_PENETRANCE, "DISEASE_PENETRANCE"),
     (DISEASE_ONSET, "DISEASE_ONSET"),
+    (FERTILITY_MENARCHE, "FERTILITY_MENARCHE"),
+    (FERTILITY_WISH, "FERTILITY_WISH"),
 ];
 
 /// Values of deleted tags; they are never used again.
