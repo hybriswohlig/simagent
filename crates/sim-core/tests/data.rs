@@ -9,7 +9,7 @@ use sim_core::data::{
 use sim_core::data_id::DataId;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0x1dca_217a_2509_0687;
+const DATA_HASH: u64 = 0xc466_265f_81ba_9819;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -98,7 +98,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0xbb14_1d36_8e5f_df4f);
+    assert_eq!(data.hash(), 0x7bd2_444d_9785_4563);
 }
 
 #[test]
@@ -913,8 +913,8 @@ fn individual_curve_values_reject() {
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
-        (|c, _| c["format_version"] = json!(5), "data.format_version"),
-        (|c, _| c["format_version"] = json!(7), "data.format_version"),
+        (|c, _| c["format_version"] = json!(6), "data.format_version"),
+        (|c, _| c["format_version"] = json!(8), "data.format_version"),
         (
             |c, _| {
                 c["values"]
@@ -1077,7 +1077,7 @@ fn death_values_reject() {
         named.longevity_trait().map(DataId::as_str),
         Some("test:growth")
     );
-    assert_ne!(named.hash(), 0xbb14_1d36_8e5f_df4f);
+    assert_ne!(named.hash(), 0x7bd2_444d_9785_4563);
     assert_eq!(common::data().longevity_trait(), None);
     // The data name the trait or say `null` explicitly (ADR-0017 section 1).
     let missing = checked(|c, _| {
@@ -1191,7 +1191,7 @@ fn fertility_curves_reject() {
     let (mut c, mut g) = common::files();
     window(18.0, 45.0)(&mut c, &mut g);
     let windowed = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
-    assert_eq!(windowed.hash(), 0x4fe2_72c0_c7b3_7a3c);
+    assert_eq!(windowed.hash(), 0xf296_75d7_f0f4_81e3);
     assert_eq!(
         checked_traits(|c, _| c["puberty_trait"] = json!("test:growth")),
         "ok"
@@ -1212,6 +1212,46 @@ fn fertility_curves_reject() {
         sim_core::fertility::Curves::Puberty(_)
     ));
     assert_eq!(data.puberty_trait(), None);
+}
+
+/// The traits the partner market compares (11.2, 11.1): required fields, `null` in the
+/// repository; a named one must be a trait of the map with phenotype weights.
+#[test]
+fn pairing_traits_reject() {
+    let data = common::data();
+    assert_eq!(data.pairing_traits(), [None, None]);
+    for field in ["cognition_trait", "height_trait"] {
+        let missing = checked_traits(|c, _| {
+            c.as_object_mut().expect("object").remove(field);
+        });
+        assert_eq!(
+            missing,
+            format!("serde: missing field `{field}`"),
+            "{field}"
+        );
+        // Not in the map; in the map but without phenotype weights; with them.
+        let named = |id: &'static str| checked_traits(move |c, _| c[field] = json!(id));
+        assert!(
+            named("test:nope").starts_with("data.trait_named"),
+            "{field}"
+        );
+        assert!(
+            named("test:growth").starts_with("data.trait_named"),
+            "{field}"
+        );
+        assert_eq!(named("test:mood"), "ok", "{field}");
+    }
+    let (mut c, g) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    c["cognition_trait"] = json!("test:mood");
+    c["height_trait"] = json!("test:face");
+    let named = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    assert_eq!(
+        named.pairing_traits().map(|t| t.map(DataId::as_str)),
+        [Some("test:mood"), Some("test:face")]
+    );
 }
 
 /// ADR-0013 section 3: `k` and the windows of the nutrition loss.

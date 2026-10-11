@@ -18,7 +18,7 @@ use crate::hash::stable_hash64;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
-pub const CALIBRATION_FORMAT_VERSION: u32 = 6;
+pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -41,6 +41,15 @@ pub struct GeneticsCalibration {
     /// like the trait of longevity (ADR-0017 section 1).
     #[serde(deserialize_with = "Option::deserialize")]
     pub puberty_trait: Option<DataId>,
+    /// The trait of cognitive ability `z_K` the partner market compares (11.2), or none:
+    /// then the term drops out (11.1). Required like the others; it needs phenotype
+    /// weights.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub cognition_trait: Option<DataId>,
+    /// The trait of the target height `z_h` the partner market compares (11.2), or none,
+    /// as `cognition_trait`.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub height_trait: Option<DataId>,
     /// The curves of fertility (5.6, ADR-0017 section 1).
     pub fertility: FertilityCurves,
 }
@@ -1432,6 +1441,8 @@ impl Data {
         let named = [
             &definitions.calibration.longevity_trait,
             &definitions.calibration.puberty_trait,
+            &definitions.calibration.cognition_trait,
+            &definitions.calibration.height_trait,
         ];
         for t in named.into_iter().flatten() {
             if !definitions
@@ -1439,6 +1450,21 @@ impl Data {
                 .traits
                 .iter()
                 .any(|known| &known.id == t)
+            {
+                return Err(DataError::TraitNamed);
+            }
+        }
+        // The market reads the phenotypes of the traits it compares (11.2).
+        let compared = [
+            &definitions.calibration.cognition_trait,
+            &definitions.calibration.height_trait,
+        ];
+        for t in compared.into_iter().flatten() {
+            if !definitions
+                .calibration
+                .traits
+                .iter()
+                .any(|row| &row.target == t)
             {
                 return Err(DataError::TraitNamed);
             }
@@ -1512,6 +1538,16 @@ impl Data {
     /// The trait of longevity, if the data name one (genetics specification 7.2, 11.1).
     pub fn longevity_trait(&self) -> Option<&DataId> {
         self.definitions.calibration.longevity_trait.as_ref()
+    }
+
+    /// The traits the partner market compares, cognition and the target height, each if
+    /// the data name it (genetics specification 11.2, 11.1).
+    pub fn pairing_traits(&self) -> [Option<&DataId>; 2] {
+        let calibration = &self.definitions.calibration;
+        [
+            calibration.cognition_trait.as_ref(),
+            calibration.height_trait.as_ref(),
+        ]
     }
 
     /// The hereditary diseases in the order of the data (ADR-0017 sections 1 and 2).

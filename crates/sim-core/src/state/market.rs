@@ -3,8 +3,8 @@
 //! searching woman, in the order of her rank, chooses among up to `k` single men of the
 //! market age by a utility with Gumbel noise. Men do not search (R8). Relatives with
 //! `φ ≥ 1/8` are skipped, nearer kin below that limit pays a penalty. The similarity terms
-//! of cognition and height need traits the base map does not have; without them they drop
-//! out (11.1).
+//! of cognition and height compare the phenotypes of the traits the data name (4.2); the
+//! base map has none, so there they drop out (11.1).
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -74,17 +74,55 @@ pub(crate) fn noise_key(her: LineageKey, month: u64, his: LineageKey) -> DrawKey
     }
 }
 
-/// The utility of a candidate (11.2) without the similarity terms:
-/// `U = −w_a · (Δa − μ_a)² − 16 · ln(odds) · φ + G`, evaluated in this order.
-fn utility(data: &Data, gap: f64, phi: f64, noise: f64) -> f64 {
+/// The utility of a candidate (11.2): `U = −w_K · dK² − w_H · dH² − w_a · (Δa − μ_a)² −
+/// 16 · ln(odds) · φ + G`, the penalties subtracted in this order; `differences` holds `dK`
+/// and `dH`, each `None` where the data name no trait, and then the term is left out.
+fn utility(data: &Data, differences: [Option<f64>; 2], gap: f64, phi: f64, noise: f64) -> f64 {
     let market = data.demography().market;
     let d = gap - market.age_gap;
     let kin = 16.0 * sim_math::ln(market.cousin_odds);
-    let u = (-(market.weight_age * (d * d)) - kin * phi) + noise;
+    let similarity = [market.weight_cognition, market.weight_height]
+        .into_iter()
+        .zip(differences)
+        .filter_map(|(weight, difference)| difference.map(|x| weight * (x * x)));
+    let mut penalties = similarity.chain([market.weight_age * (d * d), kin * phi]);
+    let first = penalties
+        .next()
+        .unwrap_or_else(|| panic!("invariant market.utility"));
+    let u = penalties.fold(-first, |sum, penalty| sum - penalty) + noise;
     if !u.is_finite() {
         panic!("invariant market.utility");
     }
     u
+}
+
+/// The phenotypes the market compares, cognition and the target height (4.2, 11.2), of a
+/// living sim at `at`; each `None` where the data name no such trait.
+fn compared(
+    domain: &DomainState,
+    data: &Data,
+    draws: &Draws,
+    sim: SimId,
+    at: SimTime,
+) -> [Option<f64>; 2] {
+    let person = super::conception::person(domain, sim);
+    let age = at
+        .checked_since(person.born)
+        .unwrap_or_else(|| panic!("invariant market.age"));
+    data.pairing_traits().map(|named| {
+        named.map(|t| {
+            crate::phenotype::phenotype(
+                draws,
+                data,
+                person.genome,
+                person.lineage_key,
+                person.parents,
+                t,
+                age,
+            )
+            .unwrap_or_else(|| panic!("invariant market.phenotype"))
+        })
+    })
 }
 
 /// Birth and parents of a person of the living or the archive, for φ.
@@ -187,11 +225,14 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
         }
         // 5. and 6. The largest utility; on a tie the earlier in the list.
         let her_age = super::disease::age(born_of(domain, woman), now);
+        let hers = compared(domain, data, &draws, woman, now);
         let mut best: Option<(f64, SimId, LineageKey)> = None;
         for (man, his_key, kinship) in candidates {
             let gap = super::disease::age(born_of(domain, man), now) - her_age;
+            let his = compared(domain, data, &draws, man, now);
+            let differences = [0, 1].map(|n| hers[n].zip(his[n]).map(|(a, b)| a - b));
             let noise = draws.gumbel(noise_key(her_key, month, his_key));
-            let u = utility(data, gap, kinship, noise);
+            let u = utility(data, differences, gap, kinship, noise);
             if better(u, best.map(|(top, _, _)| top)) {
                 best = Some((u, man, his_key));
             }
@@ -275,11 +316,17 @@ mod tests {
         assert_eq!(chance(793_473_408), 0.011_79);
         assert_eq!(chance(1_257_984_000), 0.001_272_777_747_205_707_1);
         assert_eq!(chance(1_886_976_000), 5.175_433_469_609_017_6e-8);
-        assert_eq!(utility(&data, 4.69, 0.0, 0.0), 0.0);
-        assert_eq!(utility(&data, 0.0, 0.0, 1.5), 1.060_077_999_999_999_9);
-        assert_eq!(utility(&data, 3.0, 0.0625, 0.0), -2.359_707_092_994_046);
+        assert_eq!(utility(&data, [None, None], 4.69, 0.0, 0.0), 0.0);
         assert_eq!(
-            utility(&data, 10.0, 0.031_25, -2.0),
+            utility(&data, [None, None], 0.0, 0.0, 1.5),
+            1.060_077_999_999_999_9
+        );
+        assert_eq!(
+            utility(&data, [None, None], 3.0, 0.0625, 0.0),
+            -2.359_707_092_994_046
+        );
+        assert_eq!(
+            utility(&data, [None, None], 10.0, 0.031_25, -2.0),
             -3.715_214_546_497_022_8
         );
     }
