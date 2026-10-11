@@ -19,6 +19,7 @@ pub mod canonical;
 pub mod data;
 pub mod data_id;
 pub mod demography;
+pub mod fertility;
 pub mod finite;
 pub mod genome;
 pub mod growth;

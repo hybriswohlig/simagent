@@ -65,7 +65,7 @@ fn fork_data() -> sim_core::data::Data {
 /// The data hash of the test data (`tools/state_reference.py`).
 #[test]
 fn the_test_data_are_those_of_the_reference() {
-    assert_eq!(fork_data().hash(), 0x0b17_8ece_a24a_92dd);
+    assert_eq!(fork_data().hash(), 0xa870_db8a_87d6_4611);
 }
 
 /// The scenario: its `Start` and its end.

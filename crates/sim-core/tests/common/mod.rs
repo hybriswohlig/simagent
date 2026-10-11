@@ -61,6 +61,7 @@ fn without_weights(mut calibration: Value) -> Value {
     {
         without_numbers(disease);
     }
+    without_numbers(&mut calibration["fertility"]);
     calibration
 }
 

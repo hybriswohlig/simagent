@@ -12,12 +12,13 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::DataId;
 use crate::data_id::str_key;
 use crate::demography::{Demography, DemographyCalibration, read_demography};
+use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
-pub const CALIBRATION_FORMAT_VERSION: u32 = 5;
+pub const CALIBRATION_FORMAT_VERSION: u32 = 6;
 
 /// Format version of the genome map (ADR-0008 section 5).
 pub const MAP_FORMAT_VERSION: u32 = 2;
@@ -36,6 +37,47 @@ pub struct GeneticsCalibration {
     /// The field is required: the data name the trait or say `null` (ADR-0017 section 1).
     #[serde(deserialize_with = "Option::deserialize")]
     pub longevity_trait: Option<DataId>,
+    /// The trait of the puberty timing `z_p` (5.2), or none: then `θ_i = θ` (11.1). Required
+    /// like the trait of longevity (ADR-0017 section 1).
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub puberty_trait: Option<DataId>,
+    /// The curves of fertility (5.6, ADR-0017 section 1).
+    pub fertility: FertilityCurves,
+}
+
+/// The curves of fertility in the file (ADR-0017 section 1): after 5.6, or the window of
+/// the test data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FertilityCurves {
+    Puberty(PubertyCurves),
+    Window(WindowCurve),
+}
+
+/// The twelve numbers of 5.6 (`crate::fertility::Puberty`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PubertyCurves {
+    pub menarche_mean: Calibrated,
+    pub menarche_sd: Calibrated,
+    pub menarche_low: Calibrated,
+    pub menarche_high: Calibrated,
+    pub female_ramp: Calibrated,
+    pub female_decline_from: Calibrated,
+    pub female_decline_to: Calibrated,
+    pub male_lead: Calibrated,
+    pub male_ramp: Calibrated,
+    pub male_decline_from: Calibrated,
+    pub male_floor: Calibrated,
+    pub male_decline_to: Calibrated,
+}
+
+/// The woman's window of the test data, in years.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowCurve {
+    pub from: Calibrated,
+    pub until: Calibrated,
 }
 
 /// A hereditary disease (genetics specification 3, ADR-0017 section 1): what carries it,
@@ -308,6 +350,8 @@ pub struct Genetics {
     pub accident_female: f64,
     pub accident_male: f64,
     pub longevity_sigma_g: f64,
+    /// The curves of fertility (5.6).
+    pub fertility: Curves,
 }
 
 /// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
@@ -1071,11 +1115,81 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             ACCIDENT_RANGE,
         )?,
         longevity_sigma_g: value("core:longevity_sigma_g", Unit::Logit, MAX_SIGMA_G)?,
+        fertility: read_fertility(&calibration.fertility)?,
     };
     if calibration.values.len() != 117 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
+}
+
+/// The curves of fertility, checked (ADR-0017 section 1): each number in its unit and
+/// range, the bounds of the menarche and the ages of each decline in order.
+fn read_fertility(curves: &FertilityCurves) -> Result<Curves, DataError> {
+    let number = |entry: &Calibrated, unit, (low, high): (f64, f64)| {
+        if entry.unit != unit {
+            return Err(DataError::CalibrationUnit);
+        }
+        let x = entry.value.get();
+        if (low..=high).contains(&x) {
+            Ok(x)
+        } else {
+            Err(DataError::CalibrationRange)
+        }
+    };
+    let positive = |entry: &Calibrated, high: f64| {
+        let x = number(entry, Unit::Year, (0.0, high))?;
+        if x > 0.0 {
+            Ok(x)
+        } else {
+            Err(DataError::CalibrationRange)
+        }
+    };
+    let ordered = |from: f64, to: f64| {
+        if from > 0.0 && from < to && to <= MAX_AGE {
+            Ok((from, to))
+        } else {
+            Err(DataError::CalibrationRange)
+        }
+    };
+    match curves {
+        FertilityCurves::Puberty(p) => {
+            let year = |entry| number(entry, Unit::Year, (-MAX_AGE, MAX_AGE));
+            let offset = |entry| number(entry, Unit::Year, (-10.0, 10.0));
+            let (menarche_low, menarche_high) =
+                (offset(&p.menarche_low)?, offset(&p.menarche_high)?);
+            if menarche_low >= menarche_high {
+                return Err(DataError::CalibrationRange);
+            }
+            let (female_decline_from, female_decline_to) =
+                ordered(year(&p.female_decline_from)?, year(&p.female_decline_to)?)?;
+            let (male_decline_from, male_decline_to) =
+                ordered(year(&p.male_decline_from)?, year(&p.male_decline_to)?)?;
+            Ok(Curves::Puberty(Puberty {
+                menarche_mean: offset(&p.menarche_mean)?,
+                menarche_sd: positive(&p.menarche_sd, 10.0)?,
+                menarche_low,
+                menarche_high,
+                female_ramp: positive(&p.female_ramp, 20.0)?,
+                female_decline_from,
+                female_decline_to,
+                male_lead: number(&p.male_lead, Unit::Year, (0.0, 10.0))?,
+                male_ramp: positive(&p.male_ramp, 20.0)?,
+                male_decline_from,
+                male_floor: number(&p.male_floor, Unit::Fraction, (0.0, 1.0))?,
+                male_decline_to,
+            }))
+        }
+        FertilityCurves::Window(w) => {
+            let from = number(&w.from, Unit::Year, (0.0, MAX_AGE))?;
+            let until = number(&w.until, Unit::Year, (0.0, MAX_AGE))?;
+            if from < until {
+                Ok(Curves::Window { from, until })
+            } else {
+                Err(DataError::CalibrationRange)
+            }
+        }
+    }
 }
 
 /// The mean growth curve of one sex from its eight values in the order of
@@ -1315,14 +1429,19 @@ impl Data {
             &definitions.genome_map,
             str_key,
         )?;
-        if let Some(t) = &definitions.calibration.longevity_trait
-            && !definitions
+        let named = [
+            &definitions.calibration.longevity_trait,
+            &definitions.calibration.puberty_trait,
+        ];
+        for t in named.into_iter().flatten() {
+            if !definitions
                 .genome_map
                 .traits
                 .iter()
                 .any(|known| &known.id == t)
-        {
-            return Err(DataError::TraitNamed);
+            {
+                return Err(DataError::TraitNamed);
+            }
         }
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
@@ -1382,6 +1501,12 @@ impl Data {
     pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64)> {
         let (terms, sigma) = self.traits.get(id)?;
         Some((terms, *sigma))
+    }
+
+    /// The trait of the puberty timing, if the data name one (genetics specification 5.2,
+    /// 11.1).
+    pub fn puberty_trait(&self) -> Option<&DataId> {
+        self.definitions.calibration.puberty_trait.as_ref()
     }
 
     /// The trait of longevity, if the data name one (genetics specification 7.2, 11.1).
@@ -1469,6 +1594,7 @@ pub(crate) mod testing {
         {
             without_numbers(disease);
         }
+        without_numbers(&mut calibration["fertility"]);
         for list in ["traits", "loci"] {
             for entry in genome_map[list].as_array_mut().expect("list") {
                 take(entry, "description");
