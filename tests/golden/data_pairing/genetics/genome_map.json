@@ -1,0 +1,1752 @@
+{
+  "format_version": 2,
+  "map_version": 3,
+  "traits": [
+    {
+      "id": "test:cognition",
+      "sigma_ref": 4.47213595499958,
+      "exclusive": false,
+      "includes": [],
+      "description": "Cognition of the test map of the partner market (P7): a factor of its own with 40 additive loci (effect 1, d_ref 1); sigma_ref sqrt(20), so G has variance 1 for alleles drawn with frequency 0.5."
+    },
+    {
+      "id": "test:height",
+      "sigma_ref": 4.47213595499958,
+      "exclusive": false,
+      "includes": [],
+      "description": "Height (target height) of the test map of the partner market (P7): a factor of its own with 40 additive loci (effect 1, d_ref 1); sigma_ref sqrt(20), so G has variance 1 for alleles drawn with frequency 0.5."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:disease_ar",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal recessive disease (genetics specification 3.2, model: cystic fibrosis); the locus of the walking skeleton, renamed at the same place."
+    },
+    {
+      "id": "test:cognition_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 1 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 1 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_02",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 2 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_02",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 2 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_03",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 3 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_03",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 3 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_04",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 4 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_04",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 4 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_05",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 5 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_05",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 5 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_06",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 6 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_06",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 6 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_07",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 7 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_07",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 7 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_08",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 8 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_08",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 8 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_09",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 9 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_09",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 9 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_10",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 10 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_10",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 10 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_ad_late",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease of late onset (genetics specification 3.2, model: Huntington's disease)."
+    },
+    {
+      "id": "test:cognition_11",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 11 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_11",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 11 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_12",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 12 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_12",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 12 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_13",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 13 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_13",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 13 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_14",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 14 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_14",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 14 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_15",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 15 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_15",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 15 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_16",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 16 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_16",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 16 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_17",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 17 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_17",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 17 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_18",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 18 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_18",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 18 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_19",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 19 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_19",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 19 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_20",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 20 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_20",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 20 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_ad_partial",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease with partial penetrance by sex (genetics specification 3.2, model: BRCA1)."
+    },
+    {
+      "id": "test:cognition_21",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 21 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_21",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 21 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_22",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 22 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_22",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 22 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_23",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 23 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_23",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 23 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_24",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 24 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_24",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 24 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_25",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 25 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_25",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 25 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_26",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 26 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_26",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 26 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_27",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 27 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_27",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 27 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_28",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 28 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_28",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 28 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_29",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 29 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_29",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 29 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_30",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 30 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_30",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 30 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_31",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 31 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_31",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 31 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_32",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 32 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_32",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 32 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_33",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 33 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_33",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 33 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_34",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 34 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_34",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 34 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_35",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 35 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_35",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 35 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_36",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 36 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_36",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 36 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_37",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 37 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_37",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 37 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_38",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 38 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_38",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 38 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_39",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 39 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_39",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 39 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:cognition_40",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 40 of test:cognition in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:height_40",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "test:height",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 40 of test:height in the test map of the partner market: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_xr",
+      "chromosome": "x",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "X-linked recessive disease (genetics specification 3.2, model: haemophilia A); men with one copy on their X are affected."
+    },
+    {
+      "id": "core:disease_mt",
+      "chromosome": "mt",
+      "segment": 0,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Mitochondrial disease (genetics specification 3.2, model: Leber hereditary optic neuropathy); one copy, from the mother."
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 7,
   "values": {
     "core:accident_female": {
       "value": 0.00015,
@@ -1193,6 +1193,8 @@
   ],
   "longevity_trait": null,
   "puberty_trait": null,
+  "cognition_trait": null,
+  "height_trait": null,
   "fertility": {
     "puberty": {
       "menarche_mean": {
