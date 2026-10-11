@@ -943,11 +943,16 @@ fn twins_complete(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
                 .iter()
                 .map(|(key, _, _)| *key)
                 .eq(expected.iter().map(|(key, _, _)| *key));
-            in_order
-                && children.windows(2).all(|pair| {
-                    pair[0].1 == pair[1].1 && pair[0].2.checked_add(1) == Some(pair[1].2)
-                })
+            in_order && born_together(&children)
         })
+}
+
+/// The children of one birth, by SimId: all born in the same second, with consecutive
+/// SimIds (a birth creates them one after the other).
+fn born_together(children: &[BornChild]) -> bool {
+    children
+        .windows(2)
+        .all(|pair| pair[0].1 == pair[1].1 && pair[0].2.checked_add(1) == Some(pair[1].2))
 }
 
 /// The conceptions of a woman are numbered from 0 without a gap: her born children and
@@ -1162,6 +1167,18 @@ mod tests {
     /// A mother who died before the second of a birth cannot have borne the child (her
     /// death ends the pregnancy, B18); in that second she still could, the birth runs
     /// before the death (ADR-0002).
+    /// Twins are born in one second with consecutive SimIds; one child alone is a birth.
+    #[test]
+    fn twins_are_born_together() {
+        let tag = crate::data_id::DataId::new("test:twins").expect("id");
+        let key = LineageKey::founder(&tag, 0);
+        let at = |secs: i64| SimTime::from_secs(secs);
+        assert!(born_together(&[(key, at(5), 7)]));
+        assert!(born_together(&[(key, at(5), 7), (key, at(5), 8)]));
+        assert!(!born_together(&[(key, at(5), 7), (key, at(6), 8)]));
+        assert!(!born_together(&[(key, at(5), 7), (key, at(5), 9)]));
+    }
+
     #[test]
     fn a_child_is_born_while_its_mother_lives() {
         let at = SimTime::from_secs(1_000);

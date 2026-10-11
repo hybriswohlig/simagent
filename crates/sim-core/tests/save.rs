@@ -2733,7 +2733,15 @@ fn a_save_keeps_the_twins() {
 #[test]
 fn load_checks_the_twins() {
     let twins = |bytes: Vec<u8>| load_error_with(twins_data(), &bytes);
-    let cases: [(&str, Vec<u8>); 4] = [
+    let cases: [(&str, Vec<u8>); 5] = [
+        (
+            "a pregnancy conceived in a second that is not closed",
+            twins_conceived().with(|f| {
+                // The clock one second earlier; the girl's next attempt is then month 5.
+                f.closed_through = 5 * MONTH - 1;
+                f.queue[0].0 = 5 * MONTH;
+            }),
+        ),
         (
             "a pregnancy with only the first of the twins",
             twins_conceived().with(|f| {
