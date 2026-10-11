@@ -306,6 +306,27 @@ NEGATIVE_STAMP = signed(-5) + varint((1 << 53) - 1)
 # InputRejected { code: RejectCode::AlreadyStarted (variant 0) }
 REJECTED = variant(0)
 
+# The two reject codes of the market at the end of the list (design note of the market,
+# section 4): PartnerTooYoung (21), then PartnersTooCloselyRelated (22).
+REJECTED_PARTNER_TOO_YOUNG = variant(21)
+REJECTED_PARTNERS_TOO_CLOSELY_RELATED = variant(22)
+
+# Event::MarketRound (variant 6, the last, no fields) in the queue (design note of the
+# market, section 2; kind `market_round` 7).
+SAMPLE_MARKET_ROUND_EVENT = variant(6)
+
+# The causes of a pairing of the market (design note of the market, section 3, step 6): the
+# plan of the round (by `core:started`, entry 1, at 0), Rule (variant 3) with the code
+# `core:partner_market`, Random (variant 4) with PAIRING_NOISE (21), her key, the month
+# index, his key.
+SAMPLE_MARKET_CAUSES = seq(
+    [
+        variant(1, varint(1), signed(0)),
+        variant(3, string("core:partner_market")),
+        variant(4, varint(21), varint(0xCFD3D4551FB363C2), varint(7), varint(0x0123456789ABCDEF)),
+    ]
+)
+
 # SimDuration at its lower bound, -1 000 000 years of 364 days.
 MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 
@@ -341,6 +362,10 @@ if __name__ == "__main__":
         ("sample_entry", SAMPLE_ENTRY),
         ("negative_stamp", NEGATIVE_STAMP),
         ("rejected", REJECTED),
+        ("rejected_partner_too_young", REJECTED_PARTNER_TOO_YOUNG),
+        ("rejected_partners_too_closely_related", REJECTED_PARTNERS_TOO_CLOSELY_RELATED),
+        ("sample_market_round_event", SAMPLE_MARKET_ROUND_EVENT),
+        ("sample_market_causes", SAMPLE_MARKET_CAUSES),
         ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),

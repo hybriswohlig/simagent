@@ -47,6 +47,16 @@ scenarios on the repository's rate 0.00867 ("partners") plan each separation, wh
 death cancels. "split" is "clan" with a separation rate the reference picks and one
 `ArrangePartnership`.
 
+The partner market (genetics specification 11.2, ADR-0018 section 1, design note of the
+market): `Start` plans the series of the rounds right after the year end series
+(insertion number 2, first at MONTH, period MONTH), so every later insertion number of
+`Start` is one higher; the projection is unchanged (version 15, core version 30). The
+test data of the old model have `c` = 0: their rounds run and write nothing. Couples under
+16 are rejected by `Start`, so "partners" has founders of 16 years and one to three
+seconds and "clan" a girl of 16 (she was 12); their stories change as written there. The
+null twin: "clan" with the round switched off (a switch of the reference) has the same log
+and census. "market" is a small town on the repository's data with `c` raised.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -54,16 +64,21 @@ one second before the start, female, with the alleles wild (from the mother) and
 of the tag (ADR-0001 section 4). By hand from ADR-0002, ADR-0004 and the genetics
 specification 7.1, 7.2:
 - the input is applied at now = 0; the year end series gets insertion number 1 (first at
-  YEAR - 1, period YEAR), the founder's first birthday insertion number 2 (at YEAR - 1),
-  her death of senescence 3 and of accident 4 (after about 85 and 16 990 years);
-- in the queue the birthday comes first: same second, domain phase before observers; the
-  deaths come last.
+  YEAR - 1, period YEAR), the series of the market rounds insertion number 2 (first at
+  MONTH, the first month start after the start, period MONTH; design note of the market,
+  section 2), the founder's first birthday insertion number 3 (at YEAR - 1), her death of
+  senescence 4 and of accident 5 (after about 85 and 16 990 years);
+- in the queue the round comes first (MONTH), then the birthday: same second as the year
+  end, domain phase before observers; the deaths come last. She is no single woman in the
+  market age (one second old), so the rounds draw nothing and write nothing.
 
 Usage: .venv/bin/python tools/state_reference.py
 """
 
+import copy
 import json
 import math
+from fractions import Fraction
 
 import xxhash
 
@@ -88,6 +103,7 @@ from postcard_reference import (
     world_params,
 )
 from rng_reference import chacha_key, founder_key, str_key, unit, unit_open0, words
+from rng_reference import rank as rng_rank, unit_open as rng_unit_open
 
 import data_reference
 import world_reference
@@ -108,6 +124,11 @@ def year_end() -> bytes:
 
 def birthday(sim: int) -> bytes:
     return variant(1, varint(sim))
+
+
+def market_round() -> bytes:
+    """Event::MarketRound (variant 6, no fields; kind 7, design note of the market)."""
+    return variant(6)
 
 
 def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
@@ -176,10 +197,10 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> by
 
 TINY_KEY = founder_key("test:tiny", 0)
 TINY_GENES = genotype(WILD, DUMMY)
-# Her deaths, planned by her creation entry 2 at the start (insertion numbers 3 and 4).
+# Her deaths, planned by her creation entry 2 at the start (insertion numbers 4 and 5).
 TINY_DUE = {code: hand_due(TINY_KEY, -1, code, SPEC_RATES[FEMALE]) for code in (SENESCENCE, ACCIDENT)}
 assert 80 * YEAR < TINY_DUE[SENESCENCE] < 90 * YEAR < TINY_DUE[ACCIDENT] < 100_000 * YEAR
-TINY_DEATHS = [death(TINY_DUE[SENESCENCE], 3, 1, SENESCENCE), death(TINY_DUE[ACCIDENT], 4, 1, ACCIDENT)]
+TINY_DEATHS = [death(TINY_DUE[SENESCENCE], 4, 1, SENESCENCE), death(TINY_DUE[ACCIDENT], 5, 1, ACCIDENT)]
 
 
 def projection(
@@ -205,44 +226,49 @@ def projection(
 TINY_AFTER_START = projection(
     -1,
     [
-        queue_entry(YEAR - 1, 2, birthday(1), None),
+        queue_entry(MONTH, 2, market_round(), MONTH),
+        queue_entry(YEAR - 1, 3, birthday(1), None),
         queue_entry(YEAR - 1, 1, year_end(), YEAR),
     ]
     + TINY_DEATHS,
-    5,
+    6,
 )
 
 # What the year end observer of year 0 sees at t = YEAR - 1: the clock stands at t - 1
 # (ADR-0002), the birthday of this second has run and planned the next one (insertion
-# number 5), the year end series already holds its next occurrence.
+# number 6), the year end series already holds its next occurrence; the twelve rounds of
+# months 1 to 12 have run, the next is at the start of month 13 (= YEAR, 13 months of 28
+# days).
 TINY_YEAR_0 = projection(
     YEAR - 2,
     [
-        queue_entry(2 * YEAR - 1, 5, birthday(1), None),
+        queue_entry(YEAR, 2, market_round(), MONTH),
+        queue_entry(2 * YEAR - 1, 6, birthday(1), None),
         queue_entry(2 * YEAR - 1, 1, year_end(), YEAR),
     ]
     + TINY_DEATHS,
-    6,
+    7,
 )
 
 # After advance_until(YEAR - 1): the same state with the second closed.
 TINY_AFTER_YEAR_0 = projection(
     YEAR - 1,
     [
-        queue_entry(2 * YEAR - 1, 5, birthday(1), None),
+        queue_entry(YEAR, 2, market_round(), MONTH),
+        queue_entry(2 * YEAR - 1, 6, birthday(1), None),
         queue_entry(2 * YEAR - 1, 1, year_end(), YEAR),
     ]
     + TINY_DEATHS,
-    6,
+    7,
 )
 
 
 # Scenario "pair": seed 0xff, founder tag `test:pair`, a woman born two seconds before
 # the start with the alleles wild and dummy, and a man born one second before it with
-# dummy twice. Right after Start: her first birthday (insertion number 2) is due at
-# YEAR - 2, her deaths of senescence and accident (3, 4) after about 92 and 436 years;
-# his first birthday (5) at YEAR - 1, in the same second as the year end, his deaths (6,
-# 7) after about 88 and 584 years. He has `core:disease_ar` (recessive, penetrance 1, so
+# dummy twice. Right after Start: the round series (insertion number 2) at MONTH; her
+# first birthday (3) is due at YEAR - 2, her deaths of senescence and accident (4, 5) after
+# about 92 and 436 years; his first birthday (6) at YEAR - 1, in the same second as the
+# year end, his deaths (7, 8) after about 88 and 584 years. He has `core:disease_ar` (recessive, penetrance 1, so
 # the draw always says yes; onset fixed at 0): an affliction with nothing used, the
 # switch off.
 AR_KEY = str_key("core:disease_ar")
@@ -253,10 +279,10 @@ PAIR_DUE = [
 ]
 PAIR_DEATHS = sorted(
     [
-        (PAIR_DUE[0][SENESCENCE], death(PAIR_DUE[0][SENESCENCE], 3, 1, SENESCENCE)),
-        (PAIR_DUE[0][ACCIDENT], death(PAIR_DUE[0][ACCIDENT], 4, 1, ACCIDENT)),
-        (PAIR_DUE[1][SENESCENCE], death(PAIR_DUE[1][SENESCENCE], 6, 2, SENESCENCE)),
-        (PAIR_DUE[1][ACCIDENT], death(PAIR_DUE[1][ACCIDENT], 7, 2, ACCIDENT)),
+        (PAIR_DUE[0][SENESCENCE], death(PAIR_DUE[0][SENESCENCE], 4, 1, SENESCENCE)),
+        (PAIR_DUE[0][ACCIDENT], death(PAIR_DUE[0][ACCIDENT], 5, 1, ACCIDENT)),
+        (PAIR_DUE[1][SENESCENCE], death(PAIR_DUE[1][SENESCENCE], 7, 2, SENESCENCE)),
+        (PAIR_DUE[1][ACCIDENT], death(PAIR_DUE[1][ACCIDENT], 8, 2, ACCIDENT)),
     ]
 )
 assert 2 * YEAR < PAIR_DEATHS[0][0] < PAIR_DEATHS[1][0] < PAIR_DEATHS[2][0] < PAIR_DEATHS[3][0]
@@ -269,13 +295,14 @@ PAIR_AFTER_START = (
     + varint(1)  # next PartnershipId
     + seq(
         [
-            queue_entry(YEAR - 2, 2, birthday(1), None),
-            queue_entry(YEAR - 1, 5, birthday(2), None),
+            queue_entry(MONTH, 2, market_round(), MONTH),
+            queue_entry(YEAR - 2, 3, birthday(1), None),
+            queue_entry(YEAR - 1, 6, birthday(2), None),
             queue_entry(YEAR - 1, 1, year_end(), YEAR),
         ]
         + [entry for _, entry in PAIR_DEATHS]
     )
-    + varint(8)
+    + varint(9)
     + seq(
         [
             varint(1) + sim_state(-2, PAIR_KEYS[0], FEMALE, genotype(WILD, DUMMY)),
@@ -318,13 +345,14 @@ TINY_INPUT_LOG = seq(
     ]
 )
 
-# Right after Start (the log taken): plan references in queue order (the birthday was
-# planned by the founder's entry 2, the year end series by `core:started`, entry 1, her
-# two deaths by her entry 2), the next EventId is 3, no year hashes yet.
+# Right after Start (the log taken): plan references in queue order (the round series and
+# the year end series were planned by `core:started`, entry 1, the birthday by the
+# founder's entry 2, her two deaths by her entry 2), the next EventId is 3, no year hashes
+# yet.
 TINY_SAVE_AFTER_START = (
     header(DATA_HASH)
     + TINY_AFTER_START
-    + seq([plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
+    + seq([plan_ref(1, 0), plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(3)
     + TINY_INPUT_LOG
     + seq([])
@@ -373,17 +401,18 @@ TINY_OVERRIDE_ENTRY = entry(3, 0, [], [variant(2, varint(2))], variant(3, param_
 TINY_OVERRIDDEN = projection(
     -1,
     [
-        queue_entry(YEAR - 1, 2, birthday(1), None),
+        queue_entry(MONTH, 2, market_round(), MONTH),
+        queue_entry(YEAR - 1, 3, birthday(1), None),
         queue_entry(YEAR - 1, 1, year_end(), YEAR),
     ]
     + TINY_DEATHS,
-    5,
+    6,
     diseases=True,
 )
 TINY_SAVE_OVERRIDDEN = (
     header(DATA_HASH)
     + TINY_OVERRIDDEN
-    + seq([plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
+    + seq([plan_ref(1, 0), plan_ref(2, 0), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(4)
     + seq(
         [
@@ -404,13 +433,14 @@ TINY_SAVE_OVERRIDDEN = (
 )
 
 # The save at the end of year 0: the birthday of that second planned the next one
-# (entry 3 at YEAR - 1), the year end series keeps the plan of `core:started`, her deaths
-# that of her entry 2; the next EventId is 4; one year hash.
+# (entry 3 at YEAR - 1), the round series and the year end series keep the plan of
+# `core:started`, her deaths that of her entry 2; the next EventId is 4 (the rounds wrote
+# nothing); one year hash.
 TINY_YEAR_0_HASH = xxhash.xxh3_64_intdigest(TINY_YEAR_0, seed=0)
 TINY_SAVE_AFTER_YEAR_0 = (
     header(DATA_HASH)
     + TINY_AFTER_YEAR_0
-    + seq([plan_ref(3, YEAR - 1), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
+    + seq([plan_ref(1, 0), plan_ref(3, YEAR - 1), plan_ref(1, 0), plan_ref(2, 0), plan_ref(2, 0)])
     + varint(4)
     + TINY_INPUT_LOG
     + seq([signed(0) + varint(TINY_YEAR_0_HASH)])
@@ -524,7 +554,7 @@ assert [TIE.cause_due(1, code) for code in (SENESCENCE, ACCIDENT)] == [TIE_DUE, 
 TIE_SAVE_AFTER_START = TIE.save()
 TIE.advance(4 * YEAR - 1)
 assert TIE.archive[1][1:3] == (TIE_DUE, SENESCENCE_KEY)
-assert [event.kind for event in TIE.queue] == [world_reference.YEAR_END_KIND]
+assert sorted(event.kind for event in TIE.queue) == [world_reference.YEAR_END_KIND, world_reference.MARKET_ROUND_KIND]
 TIE_SAVE = TIE.save()
 
 
@@ -709,6 +739,18 @@ assert sorted(event.time for event in ACCIDENT_WINS.queue if event.kind == world
 ) == 2
 ACCIDENT_WINS.advance(HIS_ACCIDENT)
 assert death_of(ACCIDENT_WINS, 2) == (HIS_ACCIDENT, ACCIDENT_KEY)
+# This run is long (58.8 years), and the data of "sick" keep the repository's market (they
+# are not of the old model; design note of the market, section 7): from her 16th birthday
+# (month 208) she is a single woman in the market age, he a single man. She searches first
+# in month 297 (at 22.8) and pairs with him, the only candidate (partnership 1, by the
+# market); she bears sims 3 to 6 (months 308, 335, 357, 385; sims 4 and 6 die of accident
+# in years 34.9 and 40.3), sim 5 (dummy twice) is exposed from the switch on. His death
+# ends the partnership. The tie is the same; only the EventId of his death entry is larger
+# than before the market (225, was 121).
+assert ACCIDENT_WINS.partnerships == {1: [1, 2, 297 * MONTH, (HIS_ACCIDENT, world_reference.ENDED_BY_DEATH)]}
+assert [(r["n"], c["woman"], c["chosen"], c["outcome"]) for r in ACCIDENT_WINS.rounds for c in r["choices"]][0] == (297, 1, 2, "paired")
+assert ACCIDENT_WINS.rounds[0]["n"] == 208
+world_reference.check_market(ACCIDENT_WINS)
 
 # Save, load and go on across the switch (crates/sim-core/tests/disease.rs): on, off at
 # the start of year 1, on at year 2, off at year 3, on at year 4, off at year 6; he dies
@@ -780,11 +822,14 @@ def hand_conceptions(seed: int, her: int, him: int, first: int, chance_at, pause
 
 
 # Scenario "partners": seed 0xff, founder tag `test:partners`, a woman (wild, dummy) and
-# two men (dummy twice; dummy, wild) born one, two and three seconds before the start.
+# two men (dummy twice; dummy, wild) born 16 years and one, two and three seconds before
+# the start (design note of the market, section 7: partnerships never begin below 16, so
+# the founders that were one to three seconds old became 16; all else stays).
 # `Start` pairs her with the first man (partnership 1). He dies of senescence after about
 # 0.2 years, which ends it; at the start of year 1 `ArrangePartnership` pairs her with the
-# second man (partnership 2, by the input with sequence number 2). She dies of accident
-# after about 1.86 years, which ends it; he lives on (senescence after about 13.0 years).
+# second man (partnership 2, by the input with sequence number 2; accepted: both are 17).
+# She dies of accident after about 1.86 years, which ends it; he lives on (senescence
+# after about 12.8 years).
 # The test data: accident 0.02 per year, senescence `a` = 0.5 and `b` = 0.001 for both
 # sexes (the data of "fever"), the repository's diseases and fertility (design note of the
 # fertility in the world, section 8). The rates of its old causes
@@ -794,17 +839,23 @@ def hand_conceptions(seed: int, her: int, him: int, first: int, chance_at, pause
 # first from month 1 (the first month start after the start), ended by his death in month
 # 2.6 after the attempts of months 1 and 2; the second from month 14 (the first month start
 # after the second YEAR in which the arrangement acts), ended by her death in month 24.2.
-# She is a baby (her menarche about 13.1 years, at least `θ − 1` = 11.3), so her factor
-# and every chance is 0: thirteen attempts draw and fail, nobody conceives.
+# She is 16 (her menarche about 13.13 years, her ramp of three years ends at about 16.13),
+# so the chance of month 1 is a little below 0.2 (her factor about 0.9992; his ramp is
+# over) and every later one 0.2: thirteen attempts draw and fail, nobody conceives (by
+# hand: no draw of these months lies below 0.2).
+# Market (design note of the market): the repository's values (`c` 0.01179). From his
+# death (month 2.6) to the arrangement she is a single woman in the market age, so the
+# rounds of months 3 to 12 draw her search (with `ρ`, she is under 18, about 0.00045
+# each); none says yes. Afterwards no single woman is left.
 # Separation (design note of the separation, section 7): the data keep the repository's
 # rate 0.00867 per year, so each partnership plans its separation after her series, by its
 # entry `core:partnered`: partnership 1 (her `k` 0) after about 1.72 years, partnership 2
 # (her `k` 1, from year 1) about 24.6 years after it forms. Each death comes first and
 # cancels it, so the story stands; the two events take insertion numbers.
 PARTNERS_FOUNDERS = [
-    (-1, FEMALE, genotype(WILD, DUMMY)),
-    (-2, MALE, genotype(DUMMY, DUMMY)),
-    (-3, MALE, genotype(DUMMY, WILD)),
+    (-16 * YEAR - 1, FEMALE, genotype(WILD, DUMMY)),
+    (-16 * YEAR - 2, MALE, genotype(DUMMY, DUMMY)),
+    (-16 * YEAR - 3, MALE, genotype(DUMMY, WILD)),
 ]
 PARTNERS_KEYS = [founder_key("test:partners", index) for index in range(3)]
 PARTNERS_DATA = world_reference.death_test_data(0.02, 0.5)
@@ -845,6 +896,7 @@ PARTNERS_ARRANGED_ENTRY = PARTNERS.log[-1]
 assert PARTNERS.pending_series(1) == 14 * MONTH
 assert PARTNERS.pending_separation(2) == PARTNERS_SEPARATIONS[1] and PARTNERS.sims[1][8] == 2
 world_reference.check_separations(PARTNERS)
+world_reference.check_market(PARTNERS)
 PARTNERS_SAVE_AFTER_ARRANGE = PARTNERS.save()
 PARTNERS.advance(5 * YEAR - 1)
 assert PARTNERS.partnerships == {
@@ -854,9 +906,17 @@ assert PARTNERS.partnerships == {
 assert not PARTNERS.separations and PARTNERS.pending_separation(2) is None
 world_reference.check_separations(PARTNERS)
 assert sorted(PARTNERS.sims) == [3] and PARTNERS.archive[1][2] == ACCIDENT_KEY
-assert [(t // MONTH, p, success) for t, _, _, p, success in PARTNERS.attempts] == [
-    (month, 0.0, False) for month in [1, 2] + list(range(14, 25))
+assert [(t // MONTH, success) for t, _, _, _, success in PARTNERS.attempts] == [
+    (month, False) for month in [1, 2] + list(range(14, 25))
 ]
+assert 0.199 < PARTNERS.attempts[0][3] < 0.2 and all(p == 0.2 for _, _, _, p, _ in PARTNERS.attempts[1:])
+assert hand_conceptions(0xFF, PARTNERS_KEYS[0], PARTNERS_KEYS[1], 1, lambda k: 0.2, 12, 10, 3, 2) == []
+assert hand_conceptions(0xFF, PARTNERS_KEYS[0], PARTNERS_KEYS[2], 14, lambda k: 0.2, 12, 10, 3, 24) == []
+# The rounds with a single woman in the market age: months 3 to 12, she never searches.
+assert [r["n"] for r in PARTNERS.rounds] == list(range(3, 13))
+assert all([(sim, searched) for sim, _, _, _, searched, _ in r["considered"]] == [(1, False)] for r in PARTNERS.rounds)
+assert all(r["men"] == [3] and not r["choices"] for r in PARTNERS.rounds)
+world_reference.check_market(PARTNERS)
 assert PARTNERS.archive[1][7:9] == (0, 0) and PARTNERS_DEATHS[1] < 3 * MONTH and 24 * MONTH < PARTNERS_DEATHS[0] < 25 * MONTH
 PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 
@@ -866,24 +926,31 @@ PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 # repository's diseases, and its old fertility as data (design note of the fertility in
 # the world, section 8): the form `window` from 18 until 45 years, 0.25 per month, ten
 # months of pregnancy, no pause, the wish always 40, no twins. Three founder couples: a
-# woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 12 (dummy twice) and
-# a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first woman's
-# series begins in month 1 (the first month start after the start); she conceives in
-# month 5 and has the child (sim 7) in month 15; without a pause her series begins again
-# in month 16, and by the end of year 7 she has conceived eight times (months 5, 17, 28,
-# 42, 59, 74, 90, 101), borne seven children (births 7) and is pregnant with the eighth.
-# The girl's series begins in month 1 as well and draws with chance 0 until her 18th
-# birthday (month 78), then with 0.25; she dies of accident in month 83.9 without having
-# conceived, which ends it. The first child dies of accident in month 80.5, the man of 46
-# in month 98.7. The woman of 46 is past the end of the window (45 years): no series is
-# planned for her. Every woman's wish is 40. The test data of the old model know no
-# separation (`core:separation_rate` 0, design note of the separation, section 7): no
-# separation is planned, every founder woman has `partnerships` 1, and the partnerships
-# of the girl and of the woman of 46 end by death.
+# woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 16 (dummy twice; she
+# was 12 before the market, design note of the market, section 7: partnerships never begin
+# below 16) and a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first
+# woman's series begins in month 1 (the first month start after the start); she conceives
+# in month 5 and has the child (sim 7) in month 15; without a pause her series begins
+# again in month 16, and by the end of year 7 she has conceived eight times (months 5, 17,
+# 28, 42, 59, 74, 90, 101), borne seven children (births 7: sims 7, 8, 10, 11, 14, 16, 17)
+# and is pregnant with the eighth. The girl's series begins in month 1 as well and draws
+# with chance 0 until her 18th birthday (month 26, two years after the start), then with
+# 0.25: she conceives in months 26, 42, 58 and 70 and bears sims 9, 12, 13 and 15 in
+# months 36, 52, 68 and 80 (in month 52 both women give birth, the first woman's child
+# first: subject sim 1 before sim 3); she dies of accident in month 83.9, not pregnant,
+# which ends her partnership and her series. The first child dies of accident in month
+# 80.5, the man of 46 in month 98.7. The woman of 46 is past the end of the window (45
+# years): no series is planned for her. Every woman's wish is 40. The test data of the old
+# model know no separation (`core:separation_rate` 0, design note of the separation,
+# section 7): no separation is planned, every founder woman has `partnerships` 1, and the
+# partnerships of the girl and of the woman of 46 end by death. Nor do they know the
+# market (`c` = 0, design note of the market, section 7): the round runs every month and
+# writes nothing; no woman searches (the widow of 46 is the only single woman in the
+# market age, from month 99 on).
 CLAN_FOUNDERS = [
     (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
     (-22 * YEAR, MALE, genotype(DUMMY, WILD)),
-    (-12 * YEAR, FEMALE, genotype(DUMMY, DUMMY)),
+    (-16 * YEAR, FEMALE, genotype(DUMMY, DUMMY)),
     (-30 * YEAR, MALE, genotype(WILD, WILD)),
     (-46 * YEAR, FEMALE, genotype(WILD, WILD)),
     (-46 * YEAR, MALE, genotype(WILD, WILD)),
@@ -893,15 +960,19 @@ CLAN_COUPLES = [(0, 1), (2, 3), (4, 5)]
 CLAN_FERTILITY = (0.25, 18, 45, 10)
 CLAN_DATA = world_reference.death_test_data(0.02, fertility=CLAN_FERTILITY)
 # By hand: the first woman's conceptions over the eight years (20 years old at the start,
-# the window open), and the girl's up to her death in month 83 (12 at the start, chance 0
-# before month 78).
+# the window open), and the girl's up to her death in month 83 (16 at the start, chance 0
+# before month 26).
 CLAN_HAND = hand_conceptions(0xFF, CLAN_KEYS[0], CLAN_KEYS[1], 1, lambda k: 0.25 if 18 <= 20 + k / 13 < 45 else 0.0, 0, 10, 40, 8 * 13 - 1)
 assert CLAN_HAND == [(5, 15), (17, 27), (28, 38), (42, 52), (59, 69), (74, 84), (90, 100), (101, 111)]
-assert hand_conceptions(0xFF, CLAN_KEYS[2], CLAN_KEYS[3], 1, lambda k: 0.25 if 12 + k / 13 >= 18 else 0.0, 0, 10, 40, 83) == []
+GIRL_HAND = hand_conceptions(0xFF, CLAN_KEYS[2], CLAN_KEYS[3], 1, lambda k: 0.25 if 16 + k / 13 >= 18 else 0.0, 0, 10, 40, 83)
+assert GIRL_HAND == [(26, 36), (42, 52), (58, 68), (70, 80)]
+# Her months with an attempt: from month 1 to each conception, again from the month after
+# each birth (no pause), up to her death in month 83.
+GIRL_ATTEMPT_MONTHS = list(range(1, 27)) + list(range(37, 43)) + list(range(53, 59)) + list(range(69, 71)) + list(range(81, 84))
 
 
-def clan_world(data=CLAN_DATA, on: bool = False) -> world_reference.World:
-    return world_reference.World(0xFF, "test:clan", on, CLAN_FOUNDERS, CLAN_COUPLES, data=data)
+def clan_world(data=CLAN_DATA, on: bool = False, market: bool = True) -> world_reference.World:
+    return world_reference.World(0xFF, "test:clan", on, CLAN_FOUNDERS, CLAN_COUPLES, data=data, market=market)
 
 
 def deaths_in(world: world_reference.World) -> list:
@@ -934,24 +1005,55 @@ CLAN_SAVE_AFTER_BIRTH = CLAN.save()
 CLAN.advance(8 * YEAR - 1)
 assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][1] == 7 and CLAN.sims[1][5:7] == [8, 7]
 assert CLAN.pregnancies[1][3] == 101 * MONTH
-assert [t // MONTH for t, woman, _, _, success in CLAN.attempts if success] == [c for c, _ in CLAN_HAND]
-# The girl's attempts: chance 0 before her 18th birthday, 0.25 from it, none succeeds.
+assert [t // MONTH for t, woman, _, _, success in CLAN.attempts if success and woman == 1] == [c for c, _ in CLAN_HAND]
+# The girl's attempts: chance 0 before her 18th birthday, 0.25 from it; her conceptions as
+# by hand.
 assert [(t // MONTH, p) for t, woman, _, p, _ in CLAN.attempts if woman == 3] == [
-    (month, 0.0 if month < 78 else 0.25) for month in range(1, 84)
+    (month, 0.0 if month < 26 else 0.25) for month in GIRL_ATTEMPT_MONTHS
 ]
+assert [t // MONTH for t, woman, _, _, success in CLAN.attempts if success and woman == 3] == [c for c, _ in GIRL_HAND]
 CLAN_DEATHS = deaths_in(CLAN)
 assert [(sim, cause) for _, sim, cause in CLAN_DEATHS] == [(7, ACCIDENT_KEY), (3, ACCIDENT_KEY), (6, ACCIDENT_KEY)]
-# The girl died after her 18th birthday (month 78), before she conceived.
-assert 78 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7:9] == (0, 0)
-assert [CLAN.archive[7][0]] + [CLAN.sims[sim][0] for sim in range(8, 14)] == [b * MONTH for _, b in CLAN_HAND[:7]]
+# The girl died after her fourth birth (month 80), not pregnant.
+assert 80 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7:9] == (4, 4) and 3 not in CLAN.pregnancies
+
+
+def children_of(world: world_reference.World, mother: int) -> list:
+    """(SimId, born) of her children, living or archived, by SimId."""
+    rows = [(sim, value[0]) for sim, value in world.sims.items() if value[7] is not None and value[7][0] == mother]
+    rows += [(sim, value[0]) for sim, value in world.archive.items() if value[9] is not None and value[9][0] == mother]
+    return sorted(rows)
+
+
+assert children_of(CLAN, 1) == list(zip([7, 8, 10, 11, 14, 16, 17], [b * MONTH for _, b in CLAN_HAND[:7]]))
+assert children_of(CLAN, 3) == list(zip([9, 12, 13, 15], [b * MONTH for _, b in GIRL_HAND]))
 assert CLAN.partnerships == {
     1: [1, 2, 0, None],
     2: [3, 4, 0, (CLAN.archive[3][1], DEATH_ENDED)],
     3: [5, 6, 0, (CLAN.archive[6][1], DEATH_ENDED)],
 }
-assert not CLAN.separations and CLAN.archive[7][10] == 0 and all(CLAN.sims[sim][8] == 0 for sim in range(8, 14))
+assert not CLAN.separations and CLAN.archive[7][10] == 0 and all(CLAN.sims[sim][8] == 0 for sim in range(8, 18))
 world_reference.check_separations(CLAN)
+world_reference.check_market(CLAN)
+# The rounds: every month, 103 in the eight years (cadence 13 a year, test rule 6); a
+# single woman in the market age only from the death of the man of 46 on, she never
+# searches (`c` = 0).
+assert [kind for _, kind in CLAN.ran].count(world_reference.MARKET_ROUND_KIND) == 8 * 13 - 1
+assert [r["n"] for r in CLAN.rounds] == list(range(99, 104))
+assert all([(sim, p, searched) for sim, _, p, _, searched, _ in r["considered"]] == [(5, 0.0, False)] for r in CLAN.rounds)
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
+
+# The null twin of the market (test rule 8; design note of the market, section 7): with
+# `c` = 0 and `λ_sep` = 0 the round changes nothing but the queue. "clan" with the round
+# switched off (a switch of this reference only, no round planned) has the same log and
+# the same census at every year end (the projection without the queue).
+CLAN_NULL = clan_world(market=False)
+CLAN_NULL.advance(8 * YEAR - 1)
+assert CLAN_DATA.market_height == 0.0 and CLAN_DATA.separation_rate == 0.0
+assert CLAN_NULL.log == CLAN.log and CLAN_NULL.census_hashes == CLAN.census_hashes
+assert CLAN_NULL.census() == CLAN.census() and CLAN_NULL.year_hashes != CLAN.year_hashes
+assert not [kind for _, kind in CLAN_NULL.ran if kind == world_reference.MARKET_ROUND_KIND]
+world_reference.check_market(CLAN_NULL)
 
 # "clan" with the switch of the hereditary diseases on from the start (the same test
 # data): the girl (dummy twice, `core:disease_ar`) is exposed from the start, the first
@@ -982,6 +1084,7 @@ assert FEVER.sims[8][7] == (1, 2, 1) and FEVER.sims[8][0] == 27 * MONTH
 assert 17 * MONTH < FEVER.archive[2][1] < 27 * MONTH and FEVER.archive[2][7] == 0
 assert FEVER.sims[1][5:7] == [2, 2] and FEVER.pending_series(1) is None
 world_reference.check_separations(FEVER)
+world_reference.check_market(FEVER)
 CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
 
 # "clan" with `test:blight` with 0.1 per year instead (the fertility of "clan"): the first
@@ -1006,6 +1109,7 @@ assert 1 not in BLIGHT.pregnancies
 BLIGHT_DEATHS = deaths_in(BLIGHT)
 assert [(sim, cause) for _, sim, cause in BLIGHT_DEATHS] == [(3, ACCIDENT_KEY), (6, ACCIDENT_KEY), (1, ACCIDENT_KEY)]
 world_reference.check_separations(BLIGHT)
+world_reference.check_market(BLIGHT)
 CLAN_BLIGHT_SAVE_AFTER_YEAR_1 = BLIGHT.save()
 
 # "clan" with a pause (for the load rejections of the pause): the test data of "clan" with
@@ -1065,10 +1169,13 @@ assert SECOND_PREGNANCY_BYTES in CLAN_SECOND.projection()
 # born ten months later; the draw of MULTIPLE_BIRTH at the key of child 0 of each
 # conception gives fraternal twins in month 5 (two sons, sims 7 and 8, born in month 15),
 # identical twins in month 17 (two daughters, sims 9 and 10, month 27), fraternal twins in
-# month 28 (a daughter and a son, sims 11 and 12, month 38) and in month 42 (two
-# daughters, born in month 52, after the end of year 3). Child 0 of the first conception
-# has the key of the first child of "clan". Saves after the first conception, after the
-# first birth and at the end of year 3 (pregnant with the fourth conception, births 6).
+# month 28 (a daughter and a son, sims 13 and 14, month 38) and in month 42 (two
+# daughters, born in month 52, after the end of year 3). The girl (16 at the start since
+# the market) conceives in the months of "clan" too, 26 and 42: fraternal twins both
+# times, sims 11 and 12 born in month 36 (before the first woman's third pair). Child 0 of
+# the first conception has the key of the first child of "clan". Saves after the first
+# conception, after the first birth and at the end of year 3 (the first woman pregnant
+# with her fourth conception, births 6; the girl with her second, births 2).
 TWINS_RATES = (0.3, 0.7)
 TWINS_DATA = world_reference.death_test_data(
     0.02,
@@ -1153,15 +1260,25 @@ assert TWINS_IDENTICAL_CHILDREN[0][1] == TWINS_IDENTICAL_CHILDREN[1][1]
 assert genome_of(TWINS_IDENTICAL_CHILDREN[0][2]) == genome_of(TWINS_IDENTICAL_CHILDREN[1][2])
 assert genome_of(TWINS_IDENTICAL_CHILDREN[0][2]) == genome_of(hand_zygote(TWINS_HAND[1][2][0], MOTHER_GENOME, FATHER_GENOME))
 TWINS.advance(4 * YEAR - 1)
-# The end of year 3: conceptions in the months of "clan", three twin births (sims 7 to 12),
-# pregnant with the fourth conception; nobody has died.
-assert [t // MONTH for t, *_ in TWINS.multiples] == [c for c, _ in CLAN_HAND[:4]]
-assert [(u, kind, [key for key, _ in children]) for *_, u, kind, children in TWINS.multiples] == TWINS_HAND
-assert sorted(TWINS.sims) == list(range(1, 13)) and not TWINS.archive
-assert [TWINS.sims[sim][0] for sim in range(7, 13)] == [b * MONTH for _, b in CLAN_HAND[:3] for _ in range(2)]
-assert [TWINS.sims[sim][7][2] for sim in range(7, 13)] == [0, 0, 1, 1, 2, 2]
+# The end of year 3: the first woman's conceptions in the months of "clan", three twin
+# births (sims 7 and 8, 9 and 10, 13 and 14), pregnant with the fourth conception; the
+# girl's in the months of "clan" too (26 and 42), fraternal twins both times (by hand),
+# sims 11 and 12 born in month 36, pregnant with the second; nobody has died.
+TWINS_GIRL_HAND = [hand_twins(0xFF, CLAN_KEYS[2], CLAN_KEYS[3], number, TWINS_RATES) for number in range(2)]
+assert [kind for _, kind, _ in TWINS_GIRL_HAND] == ["fraternal", "fraternal"]
+assert [t // MONTH for t, woman, *_ in TWINS.multiples if woman == 1] == [c for c, _ in CLAN_HAND[:4]]
+assert [t // MONTH for t, woman, *_ in TWINS.multiples if woman == 3] == [c for c, _ in GIRL_HAND[:2]]
+assert [(u, kind, [key for key, _ in children]) for _, woman, *_, u, kind, children in TWINS.multiples if woman == 1] == TWINS_HAND
+assert [(u, kind, [key for key, _ in children]) for _, woman, *_, u, kind, children in TWINS.multiples if woman == 3] == TWINS_GIRL_HAND
+assert sorted(TWINS.sims) == list(range(1, 15)) and not TWINS.archive
+TWINS_FIRST_WOMAN = [7, 8, 9, 10, 13, 14]
+assert [TWINS.sims[sim][0] for sim in TWINS_FIRST_WOMAN] == [b * MONTH for _, b in CLAN_HAND[:3] for _ in range(2)]
+assert [TWINS.sims[sim][7] for sim in TWINS_FIRST_WOMAN] == [(1, 2, n) for n in (0, 0, 1, 1, 2, 2)]
+assert [(TWINS.sims[sim][0], TWINS.sims[sim][7]) for sim in (11, 12)] == [(36 * MONTH, (3, 4, 0))] * 2
 assert TWINS.sims[1][5:7] == [4, 6] and TWINS.pregnancies[1][1] == 3 and TWINS.pregnancies[1][3] == 42 * MONTH
+assert TWINS.sims[3][5:7] == [2, 2] and TWINS.pregnancies[3][1] == 1 and TWINS.pregnancies[3][3] == 42 * MONTH
 world_reference.check_separations(TWINS)
+world_reference.check_market(TWINS)
 TWINS_SAVE_AFTER_YEAR_3 = TWINS.save()
 
 
@@ -1194,14 +1311,17 @@ def twins_story(world: world_reference.World) -> list:
 # draws do not read `λ`); the first child dies in month 80.5. In month 80.93 partnership 1
 # ends by separation while the first woman is pregnant since month 74 (one entry
 # `core:separated`, the draw (18, her key, 0, his key)). The girl dies in month 83.86 with
-# partnership 2 open, which cancels its separation. The child (sim 12) is born in month 84
-# with father sim 2; no series follows. The input acts at month 85 (stamp one second
+# partnership 2 open (she has borne four children by then, as in "clan"), which cancels
+# its separation. The child (sim 16) is born in month 84 with father sim 2; no series
+# follows. The input acts at month 85 (stamp one second
 # before, sequence 2): partnership 4 of sim 1 and sim 2, her `k` 1 (her `partnerships`
 # goes to 2), her series from month 86 and its separation in month 156.8 (budget about
-# 0.276), after the run. She conceives in month 90 (sim 13, born in month 100) and in
+# 0.276), after the run. She conceives in month 90 (sim 17, born in month 100) and in
 # month 101, as in "clan" (the same pair, the same draws). The man of 46 dies in month
-# 98.7, which cancels the separation of partnership 3. Saves after the start, after the
-# separation (its second closed), right after the re-pairing and at the end of year 7.
+# 98.7, which cancels the separation of partnership 3. The market (`c` = 0 on these data)
+# lets nobody search: the first woman and sim 2 are single from month 80.93 to 85 and are
+# not paired by it. Saves after the start, after the separation (its second closed), right
+# after the re-pairing and at the end of year 7.
 SPLIT_CANDIDATES = [index / 20 for index in range(1, 21)]
 assert SPLIT_CANDIDATES[0] == 0.05 and SPLIT_CANDIDATES[1] == 0.10 and SPLIT_CANDIDATES[-1] == 1.0
 SPLIT_END = 8 * YEAR - 1
@@ -1274,6 +1394,7 @@ assert [SPLIT.sims[sim][8] for sim in range(1, 7)] == [1, 0, 1, 0, 1, 0]
 (SPLIT_SEPARATION_1,) = [e for e in SPLIT.queue if e.kind == world_reference.SEPARATION_KIND and e.subject[1] == 1]
 assert SPLIT_SERIES_1.insertion + 1 == SPLIT_SEPARATION_1.insertion and SPLIT_SEPARATION_1.plan == (SPLIT_SERIES_1.plan[0], 0)
 world_reference.check_separations(SPLIT)
+world_reference.check_market(SPLIT)
 SPLIT_SAVE_AFTER_START = SPLIT.save()
 SPLIT_SEPARATED_AT = SPLIT_DUES[0]
 SPLIT.advance(SPLIT_SEPARATED_AT - 1)
@@ -1284,6 +1405,7 @@ SPLIT_SEPARATION_ENTRIES = SPLIT.log[SPLIT_LOG_BEFORE:]
 assert SPLIT.partnerships[1][3] == (SPLIT_SEPARATED_AT, SEPARATION_ENDED)
 assert 1 in SPLIT.pregnancies and SPLIT.pending_series(1) is None and SPLIT.pending_separation(1) is None
 world_reference.check_separations(SPLIT)
+world_reference.check_market(SPLIT)
 SPLIT_SAVE_AFTER_SEPARATION = SPLIT.save()
 SPLIT_PREGNANCY = SPLIT.pregnancies[1]
 SPLIT_BIRTH = SPLIT_PREGNANCY[3] + SPLIT_DATA.pregnancy_months * MONTH
@@ -1298,9 +1420,11 @@ SPLIT_DUE_4 = hand_separation(0xFF, CLAN_KEYS[0], 1, CLAN_KEYS[1], SPLIT_RATE, S
 assert SPLIT.pending_separation(4) == SPLIT_DUE_4
 assert SPLIT.pending_series(1) == world_reference.month_start_after(SPLIT_INPUT_AT)
 world_reference.check_separations(SPLIT)
+world_reference.check_market(SPLIT)
 SPLIT_SAVE_AFTER_REPAIRING = SPLIT.save()
 SPLIT.advance(SPLIT_END)
 world_reference.check_separations(SPLIT)
+world_reference.check_market(SPLIT)
 SPLIT_SAVE_AFTER_YEAR_7 = SPLIT.save()
 SPLIT_DEATHS = deaths_in(SPLIT)
 
@@ -1423,6 +1547,464 @@ def separated_json(entry_id: int, t: int, woman: int, man: int, plan: tuple, key
         },
         separators=(",", ":"),
     )
+
+
+# Scenario "market" (design note of the market, section 7): a small town on the
+# repository's data with only `c` (`core:market_search_height_female`) raised, so that
+# rounds have several searchers. Seed 0xff, founder tag `test:market`, the switch off, ten
+# founders with reference alleles only, forty years. Three founder couples whose children
+# reach 16 in the run (sims 1 and 2: a woman of 20 and a man of 24; sims 3 and 4: 21 and
+# 25; sims 5 and 6: 22 and 23), and four single founders: two women of 20 and 21 (sims 7
+# and 8) and two men of 25 and 40 (sims 9 and 10). The reference picks `c`, the first of
+# 0.5, 1.0, ..., 5.0 with which the forty years reach all six situations of the note: a
+# round with at least two searchers; a man chosen by two women in one round (the second
+# gets nobody); a skipped candidate with `φ ≥ 1/8` who is her brother; a first cousin in a
+# list (`φ` = 1/16, his penalty `16 · ln(10) · φ = ln(10)`); a woman of 16 or 17 searching
+# (with `ρ`); and a man under 16 never a candidate (every round with a searcher while a
+# boy under 16 lives leaves him out; a boy enters the list in the first round on or after
+# his 16th birthday). The story is printed by `market_story`.
+MARKET_TAG = "test:market"
+MARKET_FOUNDERS = [
+    (-20 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-24 * YEAR, MALE, genotype(WILD, WILD)),
+    (-21 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-25 * YEAR, MALE, genotype(WILD, WILD)),
+    (-22 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-23 * YEAR, MALE, genotype(WILD, WILD)),
+    (-20 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-21 * YEAR, FEMALE, genotype(WILD, WILD)),
+    (-25 * YEAR, MALE, genotype(WILD, WILD)),
+    (-40 * YEAR, MALE, genotype(WILD, WILD)),
+]
+MARKET_COUPLES = [(0, 1), (2, 3), (4, 5)]
+MARKET_KEYS = [founder_key(MARKET_TAG, index) for index in range(len(MARKET_FOUNDERS))]
+MARKET_YEARS = 40
+MARKET_END = MARKET_YEARS * YEAR - 1
+MARKET_HEIGHTS = [index / 2 for index in range(1, 11)]
+assert MARKET_HEIGHTS[0] == 0.5 and MARKET_HEIGHTS[-1] == 5.0
+MARKET_SITUATIONS = [
+    "two_searchers",
+    "chosen_twice",
+    "sibling_skipped",
+    "cousin_in_list",
+    "minor_searching",
+    "boy_never_candidate",
+]
+
+
+def market_data(height: float) -> world_reference.Data:
+    """The repository's data with `c` = `height`, nothing else changed."""
+    return world_reference.life_test_data({"core:market_search_height_female": height})
+
+
+def market_world(data: world_reference.Data) -> world_reference.World:
+    return world_reference.World(0xFF, MARKET_TAG, False, MARKET_FOUNDERS, MARKET_COUPLES, data=data)
+
+
+def parents_of(world: world_reference.World, sim: int):
+    return world.sims[sim][7] if sim in world.sims else world.archive[sim][9]
+
+
+def full_siblings(world: world_reference.World, a: int, b: int) -> bool:
+    pa, pb = parents_of(world, a), parents_of(world, b)
+    return a != b and pa is not None and pb is not None and pa[:2] == pb[:2]
+
+
+def first_cousins(world: world_reference.World, a: int, b: int) -> bool:
+    """A parent of one is a full sibling of a parent of the other."""
+    pa, pb = parents_of(world, a), parents_of(world, b)
+    return pa is not None and pb is not None and any(full_siblings(world, x, y) for x in pa[:2] for y in pb[:2])
+
+
+def market_situations(world: world_reference.World) -> dict:
+    """The first occurrence of each situation of the note in the rounds of `world`, as
+    (round n, details); and the rule that no man under 16 is ever in a list, checked over
+    every round."""
+    found = {}
+    adult = world.data.market_age * YEAR
+    for record in world.rounds:
+        n, t, choices = record["n"], record["t"], record["choices"]
+        assert all(t - world.born_of(man) >= adult for man in record["men"])
+        assert not set(record["boys"]) & set(record["men"])
+        if len(choices) >= 2:
+            found.setdefault("two_searchers", (n, [choice["woman"] for choice in choices]))
+        for index, choice in enumerate(choices):
+            woman = choice["woman"]
+            if choice["outcome"] == "taken":
+                first = next(other["woman"] for other in choices[:index] if other["chosen"] == choice["chosen"])
+                found.setdefault("chosen_twice", (n, choice["chosen"], first, woman))
+            for man, phi, skipped in choice["walked"]:
+                assert t - world.born_of(man) >= adult
+                if skipped and full_siblings(world, woman, man):
+                    found.setdefault("sibling_skipped", (n, woman, man, phi))
+                if not skipped and phi == Fraction(1, 16) and first_cousins(world, woman, man):
+                    found.setdefault("cousin_in_list", (n, woman, man, phi))
+        for woman, age, p, u, searched, minor in record["considered"]:
+            if searched and minor:
+                found.setdefault("minor_searching", (n, woman, f"age {age / YEAR:.4f}", p, u))
+        if choices and record["boys"]:
+            found.setdefault("boy_never_candidate", (n, record["boys"]))
+    return found
+
+
+def market_parts(height: float) -> tuple:
+    """(the situations reached in the forty years, the world) for `c` = `height`."""
+    world = market_world(market_data(height))
+    world.advance(MARKET_END)
+    return market_situations(world), world
+
+
+MARKET_TRIED = []
+for _height in MARKET_HEIGHTS:
+    _found, _world = market_parts(_height)
+    MARKET_TRIED.append((_height, sorted(_found, key=MARKET_SITUATIONS.index)))
+    if len(_found) == len(MARKET_SITUATIONS):
+        break
+MARKET_HEIGHT = MARKET_TRIED[-1][0]
+MARKET_FOUND = market_situations(_world)
+assert len(MARKET_FOUND) == len(MARKET_SITUATIONS), MARKET_TRIED
+MARKET_DATA = market_data(MARKET_HEIGHT)
+assert MARKET_DATA.market_height == MARKET_HEIGHT and MARKET_DATA.separation_rate == SEPARATION_RATE
+FROM_FOUNDERS = market_world(MARKET_DATA)
+assert world_reference.start_rejection(MARKET_FOUNDERS, MARKET_COUPLES, MARKET_DATA) is None
+
+# The times the run stops at, from the situations: the round of "chosen_twice" (a pairing
+# round with two searchers), the round of "cousin_in_list", and the 16th birthday of the
+# first daughter born in the run (an ArrangePartnership acting one second before it is too
+# young, one acting in it is accepted; design note of the market, section 4).
+MARKET_TWICE_ROUND = MARKET_FOUND["chosen_twice"][0] * MONTH
+MARKET_COUSIN_ROUND = MARKET_FOUND["cousin_in_list"][0] * MONTH
+MARKET_SIBLING_ROUND = MARKET_FOUND["sibling_skipped"][0] * MONTH
+_daughters = sorted(sim for sim in set(_world.sims) | set(_world.archive) if parents_of(_world, sim) is not None and _world.sex_of(sim) == FEMALE)
+MARKET_GIRL = _daughters[0]
+MARKET_BOY = next(
+    sim
+    for sim in sorted(set(_world.sims) | set(_world.archive))
+    if parents_of(_world, sim) is not None
+    and _world.sex_of(sim) == MALE
+    and _world.born_of(sim) <= _world.born_of(MARKET_GIRL)
+    and _world.kinship(MARKET_GIRL, sim) < Fraction(1, 8)
+)
+MARKET_GIRL_16 = _world.born_of(MARKET_GIRL) + 16 * YEAR
+assert MARKET_TWICE_ROUND < MARKET_GIRL_16 - 1 < MARKET_SIBLING_ROUND < MARKET_COUSIN_ROUND < MARKET_END
+
+MARKET = market_world(MARKET_DATA)
+world_reference.check_market(MARKET)
+world_reference.check_separations(MARKET)
+MARKET_SAVE_AFTER_START = MARKET.save()
+MARKET.advance(MARKET_TWICE_ROUND - 1)
+world_reference.check_market(MARKET)
+MARKET_SAVE_BEFORE_TWICE = MARKET.save()
+MARKET_LOG_BEFORE_TWICE = len(MARKET.log)
+MARKET.advance(MARKET_TWICE_ROUND)
+MARKET_TWICE_ENTRIES = MARKET.log[MARKET_LOG_BEFORE_TWICE:]
+world_reference.check_market(MARKET)
+world_reference.check_separations(MARKET)
+MARKET_SAVE_AFTER_TWICE = MARKET.save()
+(MARKET_TWICE_RECORD,) = [record for record in MARKET.rounds if record["t"] == MARKET_TWICE_ROUND]
+MARKET_TWICE_PAIRED = [choice for choice in MARKET_TWICE_RECORD["choices"] if choice["outcome"] == "paired"]
+assert len(MARKET_TWICE_PAIRED) == 1 and MARKET_TWICE_ENTRIES[0] == MARKET.log[MARKET_TWICE_PAIRED[0]["entry"] - 1]
+# Only the entry `core:partnered` (her series and the separation write nothing).
+assert len(MARKET_TWICE_ENTRIES) == 1
+
+
+def copy_world(world: world_reference.World) -> world_reference.World:
+    return copy.deepcopy(world, {id(world.data): world.data})
+
+
+# The rejections of ArrangePartnership (design note of the market, section 4) at the
+# girl's 16th birthday, on copies: stamped two seconds before it, the input acts one second
+# before it, she is too young; stamped one second before it, it acts in it and is accepted
+# (she is exactly 16 at `formed`).
+MARKET.advance(MARKET_GIRL_16 - 2)
+assert MARKET.open_partnership(MARKET_GIRL) is None and MARKET.open_partnership(MARKET_BOY) is None
+MARKET_TOO_YOUNG = copy_world(MARKET).try_arrange(MARKET_GIRL, MARKET_BOY)
+assert MARKET_TOO_YOUNG == world_reference.PARTNER_TOO_YOUNG
+MARKET.advance(MARKET_GIRL_16 - 1)
+_accepted = copy_world(MARKET)
+assert _accepted.try_arrange(MARKET_GIRL, MARKET_BOY) is None
+MARKET_ARRANGED = (_accepted.next_partnership_id - 1, _accepted.partnerships[_accepted.next_partnership_id - 1], _accepted.log[-1])
+assert MARKET_ARRANGED[1] == [MARKET_GIRL, MARKET_BOY, MARKET_GIRL_16, None]
+world_reference.check_market(_accepted)
+# In the second before the round of "sibling_skipped": her brother is too closely related.
+MARKET.advance(MARKET_SIBLING_ROUND - 1)
+_, MARKET_SISTER, MARKET_BROTHER, _ = MARKET_FOUND["sibling_skipped"]
+MARKET_SIBLINGS_REJECTED = MARKET.try_arrange(MARKET_SISTER, MARKET_BROTHER)
+assert MARKET_SIBLINGS_REJECTED == world_reference.PARTNERS_TOO_CLOSELY_RELATED
+MARKET.advance(MARKET_COUSIN_ROUND - 1)
+world_reference.check_market(MARKET)
+world_reference.check_separations(MARKET)
+MARKET_SAVE_BEFORE_COUSIN = MARKET.save()
+MARKET_LOG_BEFORE_COUSIN = len(MARKET.log)
+MARKET.advance(MARKET_COUSIN_ROUND)
+MARKET_COUSIN_ENTRIES = MARKET.log[MARKET_LOG_BEFORE_COUSIN:]
+world_reference.check_market(MARKET)
+MARKET_SAVE_AFTER_COUSIN = MARKET.save()
+MARKET.advance(MARKET_END)
+world_reference.check_market(MARKET)
+world_reference.check_separations(MARKET)
+MARKET_SAVE_END = MARKET.save()
+# The same run in steps and in one go (the stops and the copies change nothing).
+assert MARKET.log == _world.log and MARKET.year_hashes == _world.year_hashes and MARKET.save() == _world.save()
+assert market_situations(MARKET) == MARKET_FOUND
+# Cadence (test rule 6): 13 rounds a year.
+assert [kind for _, kind in MARKET.ran].count(world_reference.MARKET_ROUND_KIND) == MARKET_YEARS * 13 - 1
+MARKET_DEATHS = deaths_in(MARKET)
+# Every pairing of the market names the searching woman's key in its draw (ADR-0018,
+# acceptance test), and no partnership began below 16 (check_market).
+for _record in MARKET.rounds:
+    for _choice in _record["choices"]:
+        if _choice["outcome"] == "paired":
+            _line = MARKET.log[_choice["entry"] - 1]
+            assert _line.endswith(variant(5, varint(_choice["partnership"])))
+            assert variant(4, varint(21), varint(MARKET.key_of(_choice["woman"])), varint(_record["n"])) in _line
+
+
+# The load checks of the market can fail (ADR-0018 section 7: one rejected state per
+# invariant): each broken copy of the end of the run fails `check_market`.
+def broken_market_states() -> list:
+    def no_round(world):
+        world.queue = [event for event in world.queue if event.kind != world_reference.MARKET_ROUND_KIND]
+
+    def late_round(world):
+        (event,) = [event for event in world.queue if event.kind == world_reference.MARKET_ROUND_KIND]
+        event.time += MONTH
+
+    def two_rounds(world):
+        (event,) = [event for event in world.queue if event.kind == world_reference.MARKET_ROUND_KIND]
+        world.queue.append(copy.copy(event))
+
+    def off_round(world):
+        world.partnerships[7][2] += 1
+
+    def not_single(world):
+        world.partnerships[6][2] = 75 * MONTH
+
+    def too_young(world):
+        woman, man, formed, _ = world.partnerships[7]
+        world.sims[man][0] = formed - 16 * YEAR + 1
+
+    def kin(world):
+        world.partnerships[7][1] = 13
+
+    def lost_input(world):
+        world.input_pairings.append((YEAR, 1, 9))
+
+    names = []
+    for name, mutate in [
+        ("no round series", no_round),
+        ("round not at the first month start after the clock", late_round),
+        ("two round series", two_rounds),
+        ("a market partnership not in a round second", off_round),
+        ("a partner not single at formed", not_single),
+        ("a partner under 16 at formed", too_young),
+        ("partners with phi >= 1/8", kin),
+        ("an accepted input without its partnership", lost_input),
+    ]:
+        world = copy_world(MARKET)
+        mutate(world)
+        try:
+            world_reference.check_market(world)
+        except AssertionError:
+            names.append(name)
+            continue
+        raise AssertionError(f"check_market accepts a broken state: {name}")
+    return names
+
+
+MARKET_BROKEN = broken_market_states()
+
+
+# Round of "chosen_twice" by hand (11.2; design note of the market, section 3) with
+# Python's math, straight from the draws (tags 19, 20, 5, 21), not from the model: who
+# searches (`s = c · e^(−z²/2)`, `z = (a − 25.23) / 7`, below 1, times `ρ` under 18), the
+# order of the searchers by MARKET_ORDER, each one's candidates by PAIRING_RANK (founders:
+# φ 0), `U = −0.02 · (Δa − 4.69)² + G` with `G = −ln(−ln(u))`, the largest wins; a man
+# chosen before in the round is taken.
+def hand_round(world_before: world_reference.World, t: int) -> list:
+    n = t // MONTH
+    values = world_before.data
+    singles = [
+        sim
+        for sim in sorted(world_before.sims)
+        if world_before.open_partnership(sim) is None and t - world_before.sims[sim][0] >= 16 * YEAR
+    ]
+    women = [sim for sim in singles if world_before.sims[sim][2] == FEMALE]
+    men = [sim for sim in singles if world_before.sims[sim][2] == MALE]
+    key = lambda sim: world_before.sims[sim][1]
+    searchers = []
+    for woman in women:
+        age = t - world_before.sims[woman][0]
+        z = (age / 31_449_600.0 - values.market_center) / 7.0
+        p = min(1.0, values.market_height * math.exp(-0.5 * z * z)) * (values.market_minor if age < 18 * YEAR else 1.0)
+        if unit(words(chacha_key(0xFF, 19, key(woman), n, 0))[0]) < p:
+            searchers.append(woman)
+    searchers.sort(key=lambda woman: (rng_rank(0xFF, 20, 0, n, key(woman)), key(woman)))
+    taken, rows = set(), []
+    for woman in searchers:
+        candidates = sorted(men, key=lambda man: (rng_rank(0xFF, 5, key(woman), n, key(man)), key(man)))[:12]
+        scored = []
+        for man in candidates:
+            gap = (world_before.sims[woman][0] - world_before.sims[man][0]) / 31_449_600.0
+            g = -math.log(-math.log(rng_unit_open(words(chacha_key(0xFF, 21, key(woman), n, key(man)))[0])))
+            scored.append((-0.02 * (gap - 4.69) ** 2 + g, man))
+        assert all(parents_of(world_before, man) is None for man in candidates) and parents_of(world_before, woman) is None
+        best = max(scored)[1]
+        rows.append((woman, [man for _, man in scored], best, "taken" if best in taken else "paired"))
+        taken.add(best)
+    return rows
+
+
+assert market_world(MARKET_DATA).sims.keys() == FROM_FOUNDERS.sims.keys()
+_before_twice = market_world(MARKET_DATA)
+_before_twice.advance(MARKET_TWICE_ROUND - 1)
+MARKET_TWICE_HAND = hand_round(_before_twice, MARKET_TWICE_ROUND)
+assert MARKET_TWICE_HAND == [
+    (choice["woman"], [man for man, *_ in choice["candidates"]], choice["chosen"], choice["outcome"])
+    for choice in MARKET_TWICE_RECORD["choices"]
+]
+
+# The cousin by hand: his φ is 1/16 [W2.7f] and his penalty `16 · ln(10) · 1/16 = ln(10)`
+# [W11.2a] beside the rest of his utility.
+(MARKET_COUSIN_RECORD,) = [record for record in MARKET.rounds if record["t"] == MARKET_COUSIN_ROUND]
+_, MARKET_COUSIN_WOMAN, MARKET_COUSIN, _ = MARKET_FOUND["cousin_in_list"]
+(MARKET_COUSIN_CHOICE,) = [choice for choice in MARKET_COUSIN_RECORD["choices"] if choice["woman"] == MARKET_COUSIN_WOMAN]
+(MARKET_COUSIN_ROW,) = [row for row in MARKET_COUSIN_CHOICE["candidates"] if row[0] == MARKET_COUSIN]
+_, _gap, _phi, _g, _u = MARKET_COUSIN_ROW
+assert _phi == 1 / 16 and abs(_u - (-0.02 * (_gap - 4.69) ** 2 - math.log(10.0) + _g)) <= 1e-12
+
+
+def partnered_json(entry_id: int, t: int, woman: int, man: int, n: int, her_key: int, his_key: int, number: int) -> str:
+    """The JSON form of the entry `core:partnered` of a pairing of the market as ADR-0004
+    sections 3 and 7 describe it (causes the plan of the round, the rule, the draw with 16
+    lower hex digits per field); written from the ADR, not from the CLI."""
+    return json.dumps(
+        {
+            "id": entry_id,
+            "t": t,
+            "subjects": [{"sim": woman}, {"sim": man}],
+            "causes": [
+                {"plan": {"by": 1, "planned_at": 0}},
+                {"rule": world_reference.PARTNER_MARKET_RULE},
+                {"random": {name: f"{word:016x}" for name, word in zip(("tag", "subject", "occasion", "detail"), (21, her_key, n, his_key))}},
+            ],
+            "payload": {"core:partnered": {"partnership": number}},
+        },
+        separators=(",", ":"),
+    )
+
+
+def market_entry_rows(label: str, world: world_reference.World, choice: dict, n: int) -> list:
+    """The entry `core:partnered` of a pairing of the market: its bytes by hand and from the
+    model, and its JSON."""
+    woman, man, number = choice["woman"], choice["chosen"], choice["partnership"]
+    her_key, his_key = world.key_of(woman), world.key_of(man)
+    causes = [
+        variant(1, varint(1), signed(0)),
+        variant(3, string(world_reference.PARTNER_MARKET_RULE)),
+        variant(4, varint(21), varint(her_key), varint(n), varint(his_key)),
+    ]
+    line = entry(choice["entry"], n * MONTH, [variant(0, varint(woman)), variant(0, varint(man))], causes, variant(5, varint(number)))
+    assert world.log[choice["entry"] - 1] == line
+    return [
+        f"{label} {line.hex()}",
+        f"{label}_json {partnered_json(choice['entry'], n * MONTH, woman, man, n, her_key, his_key, number)}",
+    ]
+
+
+def market_origin(world: world_reference.World, number: int) -> str:
+    woman, man, formed, _ = world.partnerships[number]
+    if (formed, woman, man) in world.input_pairings:
+        return "Start" if formed == 0 else "input"
+    return f"market round {formed // MONTH}"
+
+
+def market_story(world: world_reference.World) -> list:
+    """The story of "market" as readable rows: the search for `c`, the founders, every round
+    with a searcher who had a candidate (the men, the order, per searcher the walked list,
+    the candidates with gap, φ, G and U, the choice), the rounds without a candidate per
+    woman, the partnerships, separations, deaths, children, and the situations reached."""
+    rows = [f"market_search c {height!r} situations {names}" for height, names in MARKET_TRIED]
+    rows.append(f"market_c {MARKET_HEIGHT!r} years {MARKET_YEARS} data_hash {MARKET_DATA.hash:016x}")
+    for index, (born, sex, _) in enumerate(MARKET_FOUNDERS):
+        couple = next((f" couple with sim {m + 1 if w == index else w + 1}" for w, m in MARKET_COUPLES if index in (w, m)), " single")
+        rows.append(f"market_founder sim {index + 1} {'female' if sex == FEMALE else 'male'} age {-born / YEAR:g}{couple} key {MARKET_KEYS[index]:016x}")
+    empty = {}
+    for record in world.rounds:
+        n, t = record["n"], record["t"]
+        if not record["choices"]:
+            continue
+        real = [choice for choice in record["choices"] if choice["outcome"] != "no candidate"]
+        for choice in record["choices"]:
+            if choice["outcome"] == "no candidate":
+                skipped = [man for man, _, s in choice["walked"] if s]
+                empty.setdefault(choice["woman"], []).append((n, skipped))
+        if not real:
+            continue
+        searched = {woman: (age, p, u, minor) for woman, age, p, u, ok, minor in record["considered"] if ok}
+        rows.append(
+            f"market_round {n} (year {t / YEAR:.3f}) men {record['men']} single_women {[c[0] for c in record['considered']]}"
+            f" searchers_in_order {[choice['woman'] for choice in record['choices']]} boys_under_16 {len(record['boys'])}"
+        )
+        for choice in record["choices"]:
+            woman = choice["woman"]
+            age, p, u, minor = searched[woman]
+            walked = ", ".join(f"{man} (phi {phi}{' skipped' if s else ''})" for man, phi, s in choice["walked"])
+            candidates = ", ".join(
+                f"{man} (gap {gap:.4f} phi {phi!r} G {g!r} U {u_!r})" for man, gap, phi, g, u_ in choice["candidates"]
+            )
+            outcome = choice["outcome"] + (f" partnership {choice['partnership']} entry {choice['entry']}" if choice["outcome"] == "paired" else "")
+            rows.append(
+                f"market_choice round {n} woman {woman} age {age / YEAR:.4f}{' (rho)' if minor else ''} p {p!r} u {u!r}"
+                f" walked [{walked}] candidates [{candidates}] chosen {choice['chosen']} {outcome}"
+            )
+    for woman, rounds in sorted(empty.items()):
+        skipped = sorted({man for _, men in rounds for man in men})
+        rows.append(
+            f"market_no_candidate woman {woman} in {len(rounds)} rounds (first {rounds[0][0]}, last {rounds[-1][0]})"
+            f" skipped kin {skipped}"
+        )
+    for number, (woman, man, formed, ended) in sorted(world.partnerships.items()):
+        rows.append(
+            f"market_partnership {number} woman {woman} man {man} formed {formed} (month {formed / MONTH:g}) by"
+            f" {market_origin(world, number)} phi {world.kinship(woman, man)} ended {split_ended(ended)}"
+        )
+    for t, number, entry_id, _, _ in world.separations:
+        rows.append(f"market_separation partnership {number} at {t} (month {t / MONTH:.4f}) entry {entry_id}")
+    for left, sim, cause in deaths_in(world):
+        rows.append(f"market_death sim {sim} at {left} (year {left / YEAR:.4f}) of {cause_name(cause)}")
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        parents = parents_of(world, sim)
+        if parents is not None:
+            sex = "female" if world.sex_of(sim) == FEMALE else "male"
+            rows.append(f"market_child {sim} {sex} born {world.born_of(sim)} (month {world.born_of(sim) / MONTH:g}) parents {parents}")
+    for name in MARKET_SITUATIONS:
+        rows.append(f"market_situation {name} reached: round {MARKET_FOUND[name][0]} {MARKET_FOUND[name][1:]}")
+    boys = []
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        birthday = world.born_of(sim) + 16 * YEAR
+        if world.sex_of(sim) == MALE and parents_of(world, sim) is not None and birthday <= MARKET_END:
+            listed = [record["n"] for record in world.rounds if sim in record["men"]]
+            before = [record["n"] for record in world.rounds if sim in record["boys"] and record["choices"]]
+            boys.append(
+                f"{sim} (16 in month {birthday / MONTH:g}; under 16 alive in {len(before)} rounds with a searcher,"
+                f" last {before[-1] if before else None}; first in the men list {listed[0] if listed else None})"
+            )
+    rows.append("market_boys " + "; ".join(boys))
+    rows.append(
+        f"market_reject partner_too_young: ArrangePartnership(woman {MARKET_GIRL}, man {MARKET_BOY}) stamped"
+        f" {MARKET_GIRL_16 - 2} acts at {MARKET_GIRL_16 - 1}, her age 16 years minus 1 s: code {MARKET_TOO_YOUNG}"
+    )
+    rows.append(
+        f"market_accepted ArrangePartnership(woman {MARKET_GIRL}, man {MARKET_BOY}) stamped {MARKET_GIRL_16 - 1} acts at"
+        f" {MARKET_GIRL_16} (her 16th birthday, month {MARKET_GIRL_16 / MONTH:g}) on a copy: partnership {MARKET_ARRANGED[0]}"
+        f" {MARKET_ARRANGED[1]} entry {MARKET_ARRANGED[2].hex()}"
+    )
+    rows.append(
+        f"market_reject partners_too_closely_related: ArrangePartnership(woman {MARKET_SISTER}, man {MARKET_BROTHER})"
+        f" stamped {MARKET_SIBLING_ROUND - 1}, phi {world.kinship(MARKET_SISTER, MARKET_BROTHER)}: code {MARKET_SIBLINGS_REJECTED}"
+    )
+    return rows
 
 
 # Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
@@ -1619,6 +2201,7 @@ TEST_DATA = [
     ("clan_wish", CLAN_WISH_DATA),
     ("twins", TWINS_DATA),
     ("split", SPLIT_DATA),
+    ("market", MARKET_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
@@ -1781,6 +2364,40 @@ if __name__ == "__main__":
     for row in death_rows("split", SPLIT):
         print(row)
     print(f"partners_separations_due {PARTNERS_SEPARATIONS}")
+    print(f"partners_rounds (month, her search chance, u) {[(r['n'], r['considered'][0][2], r['considered'][0][3]) for r in PARTNERS.rounds]}")
+    # The null twin of the market on "clan" (design note of the market, section 7).
+    print(f"clan_null_twin log_hash with_round {digest(b''.join(CLAN.log))} without_round {digest(b''.join(CLAN_NULL.log))}")
+    print(f"clan_null_twin census_hashes with_round {[format(value, '016x') for value in CLAN.census_hashes]}")
+    print(f"clan_null_twin census_hashes without_round {[format(value, '016x') for value in CLAN_NULL.census_hashes]}")
+    print(f"clan_null_twin census_end with_round {CLAN.census().hex()}")
+    print(f"clan_null_twin census_end without_round {CLAN_NULL.census().hex()}")
+    print(f"clan_null_twin year_hashes without_round {[format(value, '016x') for value in CLAN_NULL.year_hashes]}")
+    print(f"clan_log_hash {digest(b''.join(CLAN.log))}")
+    print(f"market_data_hash {MARKET_DATA.hash:016x} c {MARKET_DATA.market_height!r}")
+    for row in market_story(MARKET):
+        print(row)
+    print(f"market_save_after_start {MARKET_SAVE_AFTER_START.hex()}")
+    print(f"market_save_before_pairing_round (round {MARKET_TWICE_ROUND // MONTH}, clock {MARKET_TWICE_ROUND - 1}) {MARKET_SAVE_BEFORE_TWICE.hex()}")
+    print(f"market_save_after_pairing_round (clock {MARKET_TWICE_ROUND}) {MARKET_SAVE_AFTER_TWICE.hex()}")
+    print(f"market_pairing_round_by_hand (woman, candidates, chosen, outcome) {MARKET_TWICE_HAND}")
+    for row in market_entry_rows("market_partnered_entry", MARKET, MARKET_TWICE_PAIRED[0], MARKET_TWICE_ROUND // MONTH):
+        print(row)
+    print(f"market_save_before_cousin_round (round {MARKET_COUSIN_ROUND // MONTH}, clock {MARKET_COUSIN_ROUND - 1}) {MARKET_SAVE_BEFORE_COUSIN.hex()}")
+    print(f"market_save_after_cousin_round (clock {MARKET_COUSIN_ROUND}) {MARKET_SAVE_AFTER_COUSIN.hex()}")
+    for choice in MARKET_COUSIN_RECORD["choices"]:
+        if choice["outcome"] == "paired":
+            for row in market_entry_rows(f"market_cousin_round_partnered_entry_{choice['partnership']}", MARKET, choice, MARKET_COUSIN_ROUND // MONTH):
+                print(row)
+    print(
+        f"market_cousin woman {MARKET_COUSIN_WOMAN} cousin {MARKET_COUSIN} phi {_phi!r} penalty {world_reference.kinship_weight(MARKET_DATA) * _phi!r}"
+        f" gap {_gap!r} G {_g!r} U {_u!r}"
+    )
+    print(f"market_save_end_of_year_{MARKET_YEARS - 1} {MARKET_SAVE_END.hex()}")
+    print(f"market_year_hashes {[format(value, '016x') for value in MARKET.year_hashes]}")
+    print(f"market_load_checks_reject {MARKET_BROKEN}")
+    print(f"market_log_hash {digest(b''.join(MARKET.log))} entries {len(MARKET.log)}")
+    for row in death_rows("market", MARKET):
+        print(row)
     print(f"afflicted_keys {[format(key, '016x') for key in AFFLICTED_KEYS]}")
     for row in afflicted_rows():
         print(row)
