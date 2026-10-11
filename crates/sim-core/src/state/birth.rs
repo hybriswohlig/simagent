@@ -7,15 +7,15 @@ use crate::data::Data;
 use crate::data_id::Code;
 use crate::ids::SimId;
 use crate::log::{Cause, Causes, LogPayload};
-use crate::time::SimDuration;
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
 
 /// The pregnancy of `mother` ends: the child is born now. Its creation entry `core:birth`
 /// names child, mother and father, with the plan of the conception and the rule
 /// `core:gestation` as causes. The child's first birthday comes a year later, its causes
-/// of death act from now on, its diseases are fixed now (ADR-0017 section 3). If she is in an open partnership, her
-/// attempts begin again from the second after the birth.
+/// of death act from now on, its diseases are fixed now (ADR-0017 section 3). Her count of
+/// live births grows by one; if she is in an open partnership, her attempts begin again
+/// after the pause (ADR-0017 section 4).
 pub(crate) fn on_birth(
     domain: &mut DomainState,
     data: &Data,
@@ -62,6 +62,7 @@ pub(crate) fn on_birth(
                 now,
             ),
             conceptions: 0,
+            births: 0,
             parents: Some(Parents {
                 mother,
                 father: pregnancy.father,
@@ -74,10 +75,16 @@ pub(crate) fn on_birth(
     domain.pending.insert((child, Slot::Birthday), handle);
     ctx.trace(child, || TracePayload::BirthdayPlanned { next });
     death::plan_deaths(domain, data, child, born, ctx);
+    let Some(her) = domain.sims.get_mut(&mother) else {
+        panic!("invariant unknown_entity_id: sim {}", mother.get());
+    };
+    her.births = her
+        .births
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("invariant birth.count_range"));
     if partnership::open_partnership(domain, mother).is_some() {
-        let after = now
-            .checked_add(SimDuration::from_secs(1))
-            .unwrap_or_else(|| panic!("invariant time.out_of_range"));
-        conception::plan_attempts(domain, mother, born, after, ctx);
+        let pause = data.demography().fertility.pause_months;
+        let start = conception::series_after_birth(now, pause);
+        conception::plan_attempts(domain, data, mother, born, start, ctx);
     }
 }

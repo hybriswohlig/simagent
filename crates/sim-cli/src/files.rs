@@ -25,7 +25,7 @@ pub const PEDIGREE: &str = "pedigree.json";
 
 /// The format version of the files this program writes and reads: 2 since the causes of
 /// death left the scenario for the data (ADR-0017 sections 2 and 5).
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The resolved scenario of step 2: the `Start` input and how far to run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

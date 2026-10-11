@@ -10,25 +10,14 @@ mod common;
 use std::collections::BTreeSet;
 
 use sim_core::data_id::DataId;
-use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::ids::SimId;
-use sim_core::input::{Fertility, Founder, Input, Start};
+use sim_core::input::{Founder, Input, Start};
 use sim_core::log::log_hash;
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
 use sim_core::trace::{TraceEntry, TraceFilter};
 use sim_core::world::{World, YearOut};
-
-/// A fertility under which nobody ever conceives.
-fn barren() -> Fertility {
-    Fertility {
-        per_month: FiniteF64::try_new(0.0).expect("finite"),
-        from_years: 18,
-        until_years: 45,
-        pregnancy_months: 10,
-    }
-}
 
 const Y: i64 = 31_449_600;
 const END: i64 = 10 * Y - 1;
@@ -57,7 +46,6 @@ fn new_world(filter: TraceFilter) -> World {
                 })
                 .collect(),
             couples: Vec::new(),
-            fertility: barren(),
         }))
         .expect("accepted");
     world

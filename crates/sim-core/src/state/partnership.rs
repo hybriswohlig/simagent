@@ -3,6 +3,7 @@
 //! first death of the two and stays as history.
 
 use super::{DomainState, Partnership, conception};
+use crate::data::Data;
 use crate::genome::Sex;
 use crate::ids::{PartnershipId, SimId};
 use crate::input::{ArrangePartnership, Couple, Founder, InputRejected, RejectCode};
@@ -77,16 +78,19 @@ pub(crate) fn couples_rejection(founders: &[Founder], couples: &[Couple]) -> Opt
 
 pub(crate) fn apply_arrange(
     domain: &mut DomainState,
+    data: &Data,
     pair: &ArrangePartnership,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    pair_up(domain, pair.woman, pair.man, ctx);
+    pair_up(domain, data, pair.woman, pair.man, ctx);
 }
 
 /// A new partnership of two living sims, formed now, with its creation entry caused
-/// by what runs (the input). Her monthly attempts begin by that entry.
+/// by what runs (the input). Her monthly attempts begin by that entry, at the first
+/// month start after now (ADR-0017 section 4).
 pub(crate) fn pair_up(
     domain: &mut DomainState,
+    data: &Data,
     woman: SimId,
     man: SimId,
     ctx: &mut SimCtx<'_, '_>,
@@ -101,8 +105,8 @@ pub(crate) fn pair_up(
             ended: None,
         },
     );
-    let now = ctx.now();
-    conception::plan_attempts(domain, woman, entry, now, ctx);
+    let start = conception::series_after_pairing(ctx.now());
+    conception::plan_attempts(domain, data, woman, entry, start, ctx);
     id
 }
 

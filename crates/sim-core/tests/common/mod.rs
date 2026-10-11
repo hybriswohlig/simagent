@@ -100,6 +100,24 @@ pub fn demography() -> Value {
     )
 }
 
+/// The fertility of the old model as test data (ADR-0017 section 5): the woman's window
+/// from 18 until 45, `rate` per attempt, ten months of pregnancy, no pause, no twins, and
+/// the wish always 40, so that the wish never ends a series.
+#[allow(dead_code, reason = "not every test crate needs the window")]
+pub fn window_fertility(calibration: &mut Value, demography: &mut Value, rate: f64) {
+    let year = |value: f64| json!({"value": value, "unit": "year"});
+    calibration["fertility"] = json!({"window": {"from": year(18.0), "until": year(45.0)}});
+    let values = &mut demography["values"];
+    values["core:fertility_adult_rate"]["value"] = json!(rate);
+    values["core:pregnancy_length"]["value"] = json!(10.0);
+    values["core:fertility_pause"]["value"] = json!(0.0);
+    values["core:twins_identical"]["value"] = json!(0.0);
+    values["core:twins_fraternal"]["value"] = json!(0.0);
+    let mut shape = vec![json!({"value": 0.0, "unit": "fraction"}); 40];
+    shape.push(json!({"value": 1.0, "unit": "fraction"}));
+    demography["fertility_wish_shape"] = Value::Array(shape);
+}
+
 /// The two files of the repository as JSON values without their text.
 pub fn files() -> (Value, Value) {
     files_from(CALIBRATION, GENOME_MAP)
@@ -165,6 +183,13 @@ pub fn data_with_diseases(diseases: Value) -> Data {
     reason = "not every test crate needs its own causes of death"
 )]
 pub fn death_data(accident: f64, old_age: Option<f64>, diseases: Value) -> Data {
+    let (calibration, genome_map) = death_files(accident, old_age, diseases);
+    Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
+}
+
+/// The calibration and the map of `death_data`, to change further.
+#[allow(dead_code, reason = "not every test crate changes them further")]
+pub fn death_files(accident: f64, old_age: Option<f64>, diseases: Value) -> (Value, Value) {
     let (mut calibration, genome_map) = files();
     let values = &mut calibration["values"];
     for sex in ["female", "male"] {
@@ -173,7 +198,7 @@ pub fn death_data(accident: f64, old_age: Option<f64>, diseases: Value) -> Data 
         values[format!("core:senescence_b_{sex}")]["value"] = json!(0.001);
     }
     calibration["diseases"] = diseases;
-    Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
+    (calibration, genome_map)
 }
 
 /// The repository's six hereditary diseases (ADR-0017 section 1).
