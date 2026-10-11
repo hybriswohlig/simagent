@@ -680,9 +680,10 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
 }
 
 /// The SimIds are 1 to the counter without a gap, each in one place (`facts`): the
-/// founders first (`founders_are_the_first_sims`), then the born. Each born sim is the child of a
-/// conception the rule allows, born as many months later as a pregnancy lasts and in a
-/// closed second.
+/// founders first (`founders_are_the_first_sims`), then the born. Each born sim is the
+/// child of a conception the rule allows, born as many months later as a pregnancy lasts,
+/// in a closed second, while its mother lived (her death ends the pregnancy, B18; in the
+/// second of the birth she dies after it).
 fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: u64) -> bool {
     let below_counter = |id: &SimId| id.get() < loaded.next_sim_id;
     loaded
@@ -704,8 +705,20 @@ fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: 
             let Some(conceived) = months.and_then(|months| child.born.checked_sub(months)) else {
                 return false;
             };
-            child.born.as_secs() < now && conception_fits(loaded, rules, parents, conceived, &child)
+            let left = loaded
+                .archive
+                .get(&parents.mother)
+                .map(|mother| mother.left);
+            child.born.as_secs() < now
+                && lived_at(left, child.born)
+                && conception_fits(loaded, rules, parents, conceived, &child)
         })
+}
+
+/// Whether a sim that left at `left` (`None`: it lives) was alive in the second `at`; in
+/// the second of its death it still was (a birth comes before a death, ADR-0002).
+fn lived_at(left: Option<SimTime>, at: SimTime) -> bool {
+    left.is_none_or(|left| left >= at)
 }
 
 /// A conception the rule gives (ADR-0017 section 4, B18): a partnership of mother and
@@ -1140,4 +1153,21 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && in_order
         && all_attempts_planned
         && births.len() == loaded.pregnancies.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A mother who died before the second of a birth cannot have borne the child (her
+    /// death ends the pregnancy, B18); in that second she still could, the birth runs
+    /// before the death (ADR-0002).
+    #[test]
+    fn a_child_is_born_while_its_mother_lives() {
+        let at = SimTime::from_secs(1_000);
+        assert!(lived_at(None, at));
+        assert!(lived_at(Some(SimTime::from_secs(1_001)), at));
+        assert!(lived_at(Some(at), at));
+        assert!(!lived_at(Some(SimTime::from_secs(999)), at));
+    }
 }

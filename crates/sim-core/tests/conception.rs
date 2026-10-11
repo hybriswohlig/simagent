@@ -271,6 +271,8 @@ fn a_child_is_born_after_the_death_of_its_father() {
         run.world.state().born(child),
         Some(SimTime::from_secs(27 * MONTH))
     );
+    // A save with the father in the archive and his child born after his death loads.
+    World::load(&run.save(), clan_data(Some(0.5))).expect("loads");
     run.advance(4 * Y - 1);
     assert_eq!(run.save(), hex(CLAN_FEVER_SAVE_AFTER_YEAR_3));
 }
