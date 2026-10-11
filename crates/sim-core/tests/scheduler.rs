@@ -615,7 +615,7 @@ fn load_rejects_invalid_queue() {
 fn event_codes_pinned() {
     let golden = include_str!("../../../tests/golden/event_codes.txt");
     let actual = format!(
-        "class birth {}\nclass general {}\nclass death {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\n",
+        "class birth {}\nclass general {}\nclass death {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\nkind separation {}\n",
         EventClass::BIRTH.code(),
         EventClass::GENERAL.code(),
         EventClass::DEATH.code(),
@@ -629,6 +629,7 @@ fn event_codes_pinned() {
         sim_core::world::EventPayload::DEATH.0,
         sim_core::world::EventPayload::CONCEPTION_ATTEMPT.0,
         sim_core::world::EventPayload::BIRTH.0,
+        sim_core::world::EventPayload::SEPARATION.0,
     );
     let pinned: String = golden
         .lines()

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::SimId;
+use crate::ids::{PartnershipId, SimId};
 use crate::time::{EventClass, EventKind, EventSubject, Payload};
 
 /// What can be scheduled. Variants arrive with their handler and only go to the end;
@@ -23,6 +23,8 @@ pub enum EventPayload {
     ConceptionAttempt { woman: SimId },
     /// The pregnancy of `mother` ends in a birth.
     Birth { mother: SimId },
+    /// The budget of the separation of a partnership runs out (ADR-0018 section 3).
+    Separation { partnership: PartnershipId },
 }
 
 impl EventPayload {
@@ -31,15 +33,16 @@ impl EventPayload {
     pub const DEATH: EventKind = EventKind(3);
     pub const CONCEPTION_ATTEMPT: EventKind = EventKind(4);
     pub const BIRTH: EventKind = EventKind(5);
+    pub const SEPARATION: EventKind = EventKind(6);
 }
 
 impl Payload for EventPayload {
     fn class(&self) -> EventClass {
         match self {
             EventPayload::YearEnd => EventClass::OBSERVER,
-            EventPayload::Birthday { .. } | EventPayload::ConceptionAttempt { .. } => {
-                EventClass::GENERAL
-            }
+            EventPayload::Birthday { .. }
+            | EventPayload::ConceptionAttempt { .. }
+            | EventPayload::Separation { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
         }
@@ -52,6 +55,9 @@ impl Payload for EventPayload {
             | EventPayload::Death { sim, .. }
             | EventPayload::ConceptionAttempt { woman: sim }
             | EventPayload::Birth { mother: sim } => EventSubject::sim(sim.get()),
+            EventPayload::Separation { partnership } => {
+                EventSubject::partnership(partnership.get())
+            }
         }
     }
 
@@ -62,6 +68,7 @@ impl Payload for EventPayload {
             EventPayload::Death { .. } => EventPayload::DEATH,
             EventPayload::ConceptionAttempt { .. } => EventPayload::CONCEPTION_ATTEMPT,
             EventPayload::Birth { .. } => EventPayload::BIRTH,
+            EventPayload::Separation { .. } => EventPayload::SEPARATION,
         }
     }
 }

@@ -273,6 +273,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Birth { mother } => {
                 state::birth::on_birth(&mut self.domain, &self.data, mother, &mut ctx);
             }
+            EventPayload::Separation { partnership } => {
+                state::partnership::on_separation(&mut self.domain, partnership, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -295,7 +298,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Birthday { .. }
             | EventPayload::Death { .. }
             | EventPayload::ConceptionAttempt { .. }
-            | EventPayload::Birth { .. } => {
+            | EventPayload::Birth { .. }
+            | EventPayload::Separation { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -353,6 +357,7 @@ mod tests {
             afflictions: Vec::new(),
             conceptions: 0,
             births: 0,
+            partnerships: 0,
             parents: None,
         }
     }
@@ -506,6 +511,7 @@ mod tests {
                 afflictions: Vec::new(),
                 conceptions: 0,
                 births: 0,
+                partnerships: 0,
                 parents: None,
             },
         );
@@ -542,7 +548,7 @@ mod tests {
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
     /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
-    /// birth (0) and no parents (0).
+    /// birth (0), no partnership (0) and no parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
@@ -558,7 +564,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

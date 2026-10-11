@@ -88,7 +88,7 @@ impl crate::world::WorldState {
                 woman: partnership.woman,
                 man: partnership.man,
                 formed: partnership.formed,
-                ended: partnership.ended,
+                ended: partnership.ended.map(|ending| ending.at),
             })
             .collect();
         Pedigree {

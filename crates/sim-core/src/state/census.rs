@@ -74,6 +74,7 @@ mod tests {
             afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
             births: 0,
+            partnerships: 0,
             parents: None,
         }
     }
@@ -89,6 +90,7 @@ mod tests {
             afflictions: alloc::vec::Vec::new(),
             conceptions: 0,
             births: 0,
+            partnerships: 0,
             parents: None,
         }
     }

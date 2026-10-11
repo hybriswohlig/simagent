@@ -168,6 +168,10 @@ pub enum LogPayload {
     /// child, the mother and the father).
     #[serde(rename = "core:birth")]
     Birth { lineage_key: LineageKey },
+    /// A woman and a man (the subjects, in this order) separated: their partnership ended
+    /// (ADR-0018 section 3).
+    #[serde(rename = "core:separated")]
+    Separated { partnership: PartnershipId },
 }
 
 /// One entry of the domain log.

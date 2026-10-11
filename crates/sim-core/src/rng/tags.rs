@@ -80,6 +80,11 @@ pub const FERTILITY_WISH: PurposeTag = PurposeTag::from_pinned_list(16);
 /// detail: 0.
 pub const MULTIPLE_BIRTH: PurposeTag = PurposeTag::from_pinned_list(17);
 
+/// The budget of the separation of a partnership (ADR-0018 section 3). subject: the
+/// woman's lineage key; occasion: the number of partnerships she formed before this one;
+/// detail: the man's lineage key.
+pub const SEPARATION_BUDGET: PurposeTag = PurposeTag::from_pinned_list(18);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -99,6 +104,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (FERTILITY_MENARCHE, "FERTILITY_MENARCHE"),
     (FERTILITY_WISH, "FERTILITY_WISH"),
     (MULTIPLE_BIRTH, "MULTIPLE_BIRTH"),
+    (SEPARATION_BUDGET, "SEPARATION_BUDGET"),
 ];
 
 /// Values of deleted tags; they are never used again.
