@@ -9,11 +9,12 @@ tests come from it.
 
 What the model knows:
 
-- A world runs on its data (ADR-0007): the calibration and the genome map as documents,
-  by default those under data/ (`REPOSITORY`). Test data (`death_test_data`) differ from
-  them only in the rates of senescence and accident and the list `diseases`; the save
-  names the hash of the data a world runs on. The map lengths, the sex ratio, the map in
-  the form of the meiosis reference and the mutation rates come from the documents too.
+- A world runs on its data (ADR-0007): the life course data, the calibration and the
+  genome map as documents, by default those under data/ (`REPOSITORY`). Test data
+  (`death_test_data`) differ from them only in the rates of senescence and accident and
+  the list `diseases` (the life course data are the repository's); the save names the
+  hash of the data a world runs on. The map lengths, the sex ratio, the map in the form
+  of the meiosis reference and the mutation rates come from the documents too.
 - `Start` (world seed, founder tag, world parameters, founders, couples, fertility; no
   causes of death any more) writes `core:started`, plans the year end series (insertion
   number 1, first at the last second of year 0, period one year) and then per founder,
@@ -172,7 +173,7 @@ MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3
 DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
 
 PROJECTION_VERSION = 12
-CORE_VERSION = 24
+CORE_VERSION = 25
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -268,15 +269,16 @@ def within(x: float, bounds: tuple) -> bool:
 
 
 class Data:
-    """The definitions a world runs on: the calibration and the genome map as documents
-    (parsed JSON with their texts), their data hash (tools/data_reference.py), the loci
+    """The definitions a world runs on: the life course data, the calibration and the
+    genome map as documents (parsed JSON with their texts, in the order of their data
+    IDs), their data hash (tools/data_reference.py), the loci
     by ID, the diseases in data order, the rates of death per sex (Gompertz `a` and `b`,
     the Makeham term `λ`), `σ_g` and the trait of longevity, and what the meiosis
     reference reads: the map lengths, the sex ratio at birth, the map in its form and
     the mutation rates."""
 
-    def __init__(self, calibration: dict, genome_map: dict):
-        self.hash = data_reference.documents_hash(calibration, genome_map)
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict):
+        self.hash = data_reference.documents_hash(demography, calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
@@ -333,13 +335,13 @@ def repository_data() -> Data:
 
 def death_test_data(accident: float, senescence_a: float = 1e-15, senescence_b: float = 0.001, diseases=None) -> Data:
     """Test data for the deaths (design note of the death from the data, section 4): the
-    repository's calibration and map with the Makeham term `accident` and the Gompertz
-    `a`, `b` for both sexes, and `diseases` (a list of disease documents) instead of the
-    repository's six if given. A scenario that had causes of `Start` takes the rate of
+    repository's life course data, calibration and map with the Makeham term `accident`
+    and the Gompertz `a`, `b` for both sexes, and `diseases` (a list of disease
+    documents) instead of the repository's six if given. A scenario that had causes of `Start` takes the rate of
     its first cause as `accident` and that of its second as `senescence_a` with `b` =
     0.001; without a second cause `a` = 1e-15 and `b` = 0.001, senescence practically
     off (its death lies some 20 000 years ahead)."""
-    calibration, genome_map = data_reference.documents(ROOT / "data")
+    demography, calibration, genome_map = data_reference.documents(ROOT / "data")
     values = calibration["values"]
     for sex in ("female", "male"):
         values[f"core:accident_{sex}"]["value"] = accident
@@ -347,7 +349,7 @@ def death_test_data(accident: float, senescence_a: float = 1e-15, senescence_b: 
         values[f"core:senescence_b_{sex}"]["value"] = senescence_b
     if diseases is not None:
         calibration["diseases"] = diseases
-    return Data(calibration, genome_map)
+    return Data(demography, calibration, genome_map)
 
 
 def dummy_disease(onset_years: float) -> dict:

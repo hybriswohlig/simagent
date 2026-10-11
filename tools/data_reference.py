@@ -2,15 +2,20 @@
 """Reference data hash of the definitions under data/ (ADR-0007), independent of the Rust code.
 
 The core sees each file without its text fields (`source`, `as_of`, `note`, `description`) and
-hashes the postcard bytes of the two definition sets in the order of their data IDs:
-`core:calibration_genetics`, then `core:genome_map`, with xxh3-64 and seed 0 over the
-concatenation (ADR-0003 StableHasher, ADR-0004 section 2).
+hashes the postcard bytes of the three definition sets in the string order of their data IDs:
+`core:calibration_demography` (calibration/demography.json, ADR-0017 section 1), then
+`core:calibration_genetics` (calibration/genetics.json), then `core:genome_map`
+(genetics/genome_map.json), with xxh3-64 and seed 0 over the concatenation (ADR-0003
+StableHasher, ADR-0004 section 2). A data directory without its own demography file (the
+fixtures tests/golden/data_traits and tests/golden/data_body) takes the repository's.
 
 Layout of the core types (postcard: structs as their fields in order, enums as the variant
 index as varint, strings and sequences with a varint length, maps as a varint length and the
 pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight bytes little
 endian; an enum variant with data is its index followed by the data; ADR-0008):
 
+  DemographyCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
+                          fertility_wish_shape: Vec<Calibrated> }   (ADR-0017 section 1)
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
                         traits: Vec<PhenotypeWeights>,
                         sex_differences: Vec<SexDifference>,   (ADR-0014)
@@ -34,7 +39,9 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
                      h2_adult: Calibrated, c2_adult: Calibrated }   (ADR-0009)
   Unit: morgan, per_transmission, fraction, centimeter, year, per_year (ADR-0010),
         centimeter_per_year (ADR-0012), centimeter_per_year_squared,
-        standard_deviation, ratio (ADR-0014), logit, stage (ADR-0015)
+        standard_deviation, ratio (ADR-0014), logit, stage (ADR-0015),
+        month, count, hour, per_standard_deviation (ADR-0017 section 1); one enum for
+        both calibration files
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
   Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
   Load { trait: DataId, weight: f64 }
@@ -70,6 +77,10 @@ UNITS = [
     "ratio",
     "logit",
     "stage",
+    "month",
+    "count",
+    "hour",
+    "per_standard_deviation",
 ]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
 SEX_DIFFERENCE = ("shift", "variance_ratio")
@@ -116,9 +127,13 @@ def filled(entry, names) -> None:
         assert isinstance(text, str) and text.strip(), f"text field {name} missing or blank"
 
 
-def check_text(calibration, genome_map) -> None:
-    """The text fields of every calibration value, every number of a phenotype row and of a
-    sex difference (ADR-0009, ADR-0014), and of every trait and locus (ADR-0008)."""
+def check_text(demography, calibration, genome_map) -> None:
+    """The text fields of every number of the life course data (each value and each entry
+    of the wish shape, ADR-0017 section 1), of every calibration value, every number of a
+    phenotype row and of a sex difference (ADR-0009, ADR-0014), and of every trait and
+    locus (ADR-0008)."""
+    for entry in list(demography["values"].values()) + demography["fertility_wish_shape"]:
+        filled(entry, CALIBRATED_TEXT)
     for entry in calibration["values"].values():
         filled(entry, CALIBRATED_TEXT)
     for row in calibration["traits"]:
@@ -164,6 +179,19 @@ def strip(value):
 
 def calibrated_bytes(entry) -> bytes:
     return f64(float(entry["value"])) + varint(UNITS.index(entry["unit"]))
+
+
+def demography_bytes(doc) -> bytes:
+    """DemographyCalibration: format_version, the values in key order, the wish shape in
+    file order."""
+    values = doc["values"]
+    out = varint(doc["format_version"]) + varint(len(values))
+    for key in sorted(values):
+        out += string(key) + calibrated_bytes(values[key])
+    out += varint(len(doc["fertility_wish_shape"]))
+    for entry in doc["fertility_wish_shape"]:
+        out += calibrated_bytes(entry)
+    return out
 
 
 def calibration_bytes(doc) -> bytes:
@@ -270,22 +298,33 @@ def genome_map_bytes(doc) -> bytes:
     return out
 
 
+REPOSITORY_DATA = Path(__file__).resolve().parent.parent / "data"
+
+
 def documents(data_dir: Path):
-    """The calibration and the genome map under `data_dir` as parsed JSON, text fields and
-    all."""
+    """The life course data, the calibration and the genome map under `data_dir` as parsed
+    JSON, text fields and all, in the order of their data IDs. Without its own
+    calibration/demography.json the directory takes the repository's."""
+    demography_path = data_dir / "calibration" / "demography.json"
+    if not demography_path.exists():
+        demography_path = REPOSITORY_DATA / "calibration" / "demography.json"
+    demography = json.loads(demography_path.read_text())
     calibration = json.loads((data_dir / "calibration" / "genetics.json").read_text())
     genome_map = json.loads((data_dir / "genetics" / "genome_map.json").read_text())
-    return calibration, genome_map
+    return demography, calibration, genome_map
 
 
-def documents_hash(calibration, genome_map) -> int:
-    """The data hash of a calibration and a genome map given as parsed JSON (test data
-    built in memory, or the files): the text fields checked, then stripped, as the core
-    sees them."""
-    check_text(calibration, genome_map)
+def documents_hash(demography, calibration, genome_map) -> int:
+    """The data hash of the life course data, a calibration and a genome map given as
+    parsed JSON (test data built in memory, or the files): the text fields checked, then
+    stripped, as the core sees them."""
+    check_text(demography, calibration, genome_map)
     check_named_traits(calibration, genome_map)
-    calibration, genome_map = strip(calibration), strip(genome_map)
-    return xxhash.xxh3_64_intdigest(calibration_bytes(calibration) + genome_map_bytes(genome_map), seed=0)
+    demography, calibration, genome_map = strip(demography), strip(calibration), strip(genome_map)
+    return xxhash.xxh3_64_intdigest(
+        demography_bytes(demography) + calibration_bytes(calibration) + genome_map_bytes(genome_map),
+        seed=0,
+    )
 
 
 def data_hash(data_dir: Path) -> int:
@@ -293,7 +332,7 @@ def data_hash(data_dir: Path) -> int:
 
 
 def main(argv):
-    data_dir = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent / "data"
+    data_dir = Path(argv[1]) if len(argv) > 1 else REPOSITORY_DATA
     print(f"data_hash {data_hash(data_dir):016x}")
 
 

@@ -992,7 +992,7 @@ LONGEVITY_VALUES = [(FEMALE, 0.125), (MALE, -0.375)]
 def longevity_dues() -> list:
     """Per founder of "longevity": (senescence with the trait, without it, accident), in
     seconds after the start."""
-    calibration, _ = data_reference.documents(world_reference.ROOT / "tests" / "golden" / "data_traits")
+    _, calibration, _ = data_reference.documents(world_reference.ROOT / "tests" / "golden" / "data_traits")
     values = {key: entry["value"] for key, entry in calibration["values"].items()}
     sigma_g = values["core:longevity_sigma_g"]
     x0 = world_reference.as_years(0 - LONGEVITY_BORN)
