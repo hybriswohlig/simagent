@@ -230,3 +230,11 @@ fn the_values_of_the_python_reference() {
         assert_eq!(wish(at, &SHAPE, 0.311), n + 1, "at threshold {n}");
     }
 }
+
+/// A shape without a positive weight breaks the invariant (the data check rules it out):
+/// the wish never divides by a total of 0.
+#[test]
+#[should_panic(expected = "invariant fertility.wish")]
+fn a_wish_without_a_positive_weight_breaks_the_invariant() {
+    wish(0.5, &[0.0, 0.0], 0.0);
+}

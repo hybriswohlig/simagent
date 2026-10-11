@@ -1196,6 +1196,16 @@ fn fertility_curves_reject() {
         checked_traits(|c, _| c["puberty_trait"] = json!("test:growth")),
         "ok"
     );
+    let (mut c, g) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    c["puberty_trait"] = json!("test:growth");
+    let named = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    assert_eq!(
+        named.puberty_trait().map(DataId::as_str),
+        Some("test:growth")
+    );
     let data = common::data();
     assert!(matches!(
         data.genetics().fertility,
