@@ -1,5 +1,5 @@
 {
-  "format_version": 5,
+  "format_version": 6,
   "values": {
     "core:accident_female": {
       "value": 0.00015,
@@ -905,5 +905,94 @@
     }
   ],
   "diseases": [],
-  "longevity_trait": null
+  "longevity_trait": null,
+  "puberty_trait": null,
+  "fertility": {
+    "puberty": {
+      "menarche_mean": {
+        "value": 0.2,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6a]",
+        "as_of": "2026-10-11",
+        "note": "Mean offset of the menarche after the puberty timing theta_i (delta ~ normal(0.2, 0.6), FERTILITY_MENARCHE); a play value: the menarche lies about a year after the growth peak."
+      },
+      "menarche_sd": {
+        "value": 0.6,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6b]",
+        "as_of": "2026-10-11",
+        "note": "Standard deviation of the offset of the menarche."
+      },
+      "menarche_low": {
+        "value": -1.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6",
+        "as_of": "2026-10-11",
+        "note": "The menarche is held on [theta_i - 1, theta_i + 3]: the lower bound relative to theta_i."
+      },
+      "menarche_high": {
+        "value": 3.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6",
+        "as_of": "2026-10-11",
+        "note": "The upper bound of the menarche relative to theta_i."
+      },
+      "female_ramp": {
+        "value": 3.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6c]",
+        "as_of": "2026-10-11",
+        "note": "The woman's factor rises from 0 at the menarche to 1 over this many years (smoothstep); 0.5 after 1.5 years [W5.6a]."
+      },
+      "female_decline_from": {
+        "value": 30.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6d]",
+        "as_of": "2026-10-11",
+        "note": "From this age the woman's factor declines linearly."
+      },
+      "female_decline_to": {
+        "value": 50.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6e]",
+        "as_of": "2026-10-11",
+        "note": "At this age the woman's factor is 0; at 40 it is 0.5 [W5.6b]."
+      },
+      "male_lead": {
+        "value": 0.7,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6f]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor is 0 until this long before theta_i (at the growth peak of the mean curve)."
+      },
+      "male_ramp": {
+        "value": 2.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6g]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor rises to 1 over this many years (smoothstep); no draw of its own, the spread lies in theta_i."
+      },
+      "male_decline_from": {
+        "value": 45.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6h]",
+        "as_of": "2026-10-11",
+        "note": "From this age the man's factor declines linearly."
+      },
+      "male_floor": {
+        "value": 0.4,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6i]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor declines to this value and stays there; at 57.5 it is 0.7 [W5.6c]."
+      },
+      "male_decline_to": {
+        "value": 70.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6j]",
+        "as_of": "2026-10-11",
+        "note": "At this age the man's factor reaches its floor."
+      }
+    }
+  }
 }
