@@ -9,7 +9,7 @@ use sim_core::data::{
 use sim_core::data_id::DataId;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0x5bb6_ebe1_6061_394b;
+const DATA_HASH: u64 = 0xb763_e0c4_dc51_1af5;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -98,7 +98,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x1374_3bd5_c4f3_44fc);
+    assert_eq!(data.hash(), 0x8c5e_3639_5980_5be8);
 }
 
 #[test]
@@ -1077,7 +1077,7 @@ fn death_values_reject() {
         named.longevity_trait().map(DataId::as_str),
         Some("test:growth")
     );
-    assert_ne!(named.hash(), 0x1374_3bd5_c4f3_44fc);
+    assert_ne!(named.hash(), 0x8c5e_3639_5980_5be8);
     assert_eq!(common::data().longevity_trait(), None);
     // The data name the trait or say `null` explicitly (ADR-0017 section 1).
     let missing = checked(|c, _| {

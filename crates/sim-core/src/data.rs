@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::data_id::str_key;
+use crate::demography::{Demography, DemographyCalibration, read_demography};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
@@ -150,6 +151,11 @@ pub enum Unit {
     Ratio,
     Logit,
     Stage,
+    /// The life course data (ADR-0017 section 1).
+    Month,
+    Count,
+    Hour,
+    PerStandardDeviation,
 }
 
 /// The genome map (`core:genome_map`, B9): the traits in the order of their data IDs,
@@ -258,9 +264,11 @@ pub enum MutationDirection {
 }
 
 /// The definitions of one world, before the check. Its postcard bytes are what the data
-/// hash covers (ADR-0007 section 3): the sets in the order of their data IDs.
+/// hash covers (ADR-0007 section 3): the sets in the order of their data IDs,
+/// `core:calibration_demography`, `core:calibration_genetics`, `core:genome_map`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Definitions {
+    pub demography: DemographyCalibration,
     pub calibration: GeneticsCalibration,
     pub genome_map: GenomeMap,
 }
@@ -459,6 +467,7 @@ const MAX_SEX_RATIO: f64 = 10.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Data {
     definitions: Definitions,
+    demography: Demography,
     genetics: Genetics,
     hash: u64,
     /// The position of each locus in the map, by its data ID.
@@ -503,6 +512,9 @@ pub enum DataError {
     Disease,
     /// A trait named by the calibration is not in the map (ADR-0017 section 1).
     TraitNamed,
+    /// A value of the life course data outside its range, or a contradiction (ADR-0017
+    /// section 1).
+    Demography,
 }
 
 impl fmt::Display for DataError {
@@ -532,6 +544,7 @@ impl fmt::Display for DataError {
             DataError::BodyTraits => "data.body_traits",
             DataError::Disease => "data.disease",
             DataError::TraitNamed => "data.trait_named",
+            DataError::Demography => "data.demography",
         })
     }
 }
@@ -1289,6 +1302,7 @@ fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 impl Data {
     /// Checks the definitions and computes their data hash (ADR-0007).
     pub fn new(definitions: Definitions) -> Result<Data, DataError> {
+        let demography = read_demography(&definitions.demography)?;
         let genetics = read_genetics(&definitions.calibration)?;
         check_map(&definitions.genome_map, str_key)?;
         check_weights_of_traits(&definitions.calibration.traits, &definitions.genome_map)?;
@@ -1341,6 +1355,7 @@ impl Data {
             .collect();
         Ok(Data {
             definitions,
+            demography,
             genetics,
             hash,
             loci,
@@ -1390,6 +1405,11 @@ impl Data {
 
     pub const fn genetics(&self) -> Genetics {
         self.genetics
+    }
+
+    /// The checked values of the life course (ADR-0017 section 1).
+    pub const fn demography(&self) -> &Demography {
+        &self.demography
     }
 
     /// The locus with this data ID, if the map has it.
@@ -1483,7 +1503,21 @@ pub(crate) mod testing {
             read(include_str!("../../../data/calibration/genetics.json")),
             read(include_str!("../../../data/genetics/genome_map.json")),
         );
+        let mut demography = read(include_str!("../../../data/calibration/demography.json"));
+        for list in ["values", "fertility_wish_shape"] {
+            let entries: alloc::vec::Vec<&mut Value> = match &mut demography[list] {
+                Value::Object(values) => values.values_mut().collect(),
+                Value::Array(weights) => weights.iter_mut().collect(),
+                _ => panic!("entries"),
+            };
+            for entry in entries {
+                for name in ["source", "as_of", "note"] {
+                    entry.as_object_mut().expect("entry").remove(name);
+                }
+            }
+        }
         let definitions = Definitions {
+            demography: serde_json::from_value(demography).expect("demography"),
             calibration: serde_json::from_value(calibration).expect("calibration"),
             genome_map: serde_json::from_value(genome_map).expect("genome map"),
         };

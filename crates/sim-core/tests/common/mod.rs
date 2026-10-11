@@ -5,6 +5,7 @@
 use serde_json::{Value, json};
 use sim_core::data::{Data, Definitions};
 
+const DEMOGRAPHY: &str = include_str!("../../../../data/calibration/demography.json");
 const CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../../data/genetics/genome_map.json");
 
@@ -83,6 +84,21 @@ fn without_numbers(value: &mut Value) {
     }
 }
 
+/// The life course data of the repository (ADR-0017 section 1) as a JSON value without its
+/// text: each value and each weight of the wish.
+#[allow(
+    dead_code,
+    reason = "not every test crate changes the life course data"
+)]
+pub fn demography() -> Value {
+    let read: Value = serde_json::from_str(DEMOGRAPHY).expect("json");
+    without(
+        without(read, "values", &["source", "as_of", "note"]),
+        "fertility_wish_shape",
+        &["source", "as_of", "note"],
+    )
+}
+
 /// The two files of the repository as JSON values without their text.
 pub fn files() -> (Value, Value) {
     files_from(CALIBRATION, GENOME_MAP)
@@ -107,7 +123,17 @@ pub fn files_from(calibration: &str, genome_map: &str) -> (Value, Value) {
 
 /// Definitions from two JSON values; `Err` if serde rejects one.
 pub fn definitions(calibration: Value, genome_map: Value) -> Result<Definitions, String> {
+    definitions_with(demography(), calibration, genome_map)
+}
+
+/// The definitions from the three files.
+pub fn definitions_with(
+    demography: Value,
+    calibration: Value,
+    genome_map: Value,
+) -> Result<Definitions, String> {
     Ok(Definitions {
+        demography: serde_json::from_value(demography).map_err(|e| e.to_string())?,
         calibration: serde_json::from_value(calibration).map_err(|e| e.to_string())?,
         genome_map: serde_json::from_value(genome_map).map_err(|e| e.to_string())?,
     })

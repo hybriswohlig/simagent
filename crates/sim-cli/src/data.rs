@@ -7,6 +7,7 @@ use sim_core::data::{Data, Definitions};
 
 use crate::error::CliError;
 
+const DEMOGRAPHY: &str = include_str!("../../../data/calibration/demography.json");
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
 
@@ -17,12 +18,18 @@ const LOCUS_TEXT: [&str; 1] = ["description"];
 
 /// The checked definitions of the base game.
 pub fn core_data() -> Result<Data, CliError> {
-    data_from(CALIBRATION, GENOME_MAP)
+    data_from(DEMOGRAPHY, CALIBRATION, GENOME_MAP)
 }
 
-/// The checked definitions from the text of the two files.
-pub fn data_from(calibration: &str, genome_map: &str) -> Result<Data, CliError> {
+/// The checked definitions from the text of the three files.
+pub fn data_from(demography: &str, calibration: &str, genome_map: &str) -> Result<Data, CliError> {
     let definitions = Definitions {
+        demography: read(
+            demography,
+            "calibration/demography.json",
+            demography_entries,
+            &CALIBRATION_TEXT,
+        )?,
         calibration: read(
             calibration,
             "calibration/genetics.json",
@@ -77,6 +84,23 @@ fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
         }
     }
     (lists == 4).then_some(all)
+}
+
+/// The values of the life course data and the weights of the wish, with their text fields
+/// (ADR-0017 section 1); `None` unless both lists are there.
+fn demography_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
+    let mut all = Vec::new();
+    let mut lists = 0;
+    for (name, list) in file.as_object_mut()? {
+        if name == "values" {
+            all.extend(list.as_object_mut()?.values_mut());
+            lists += 1;
+        } else if name == "fertility_wish_shape" {
+            all.extend(list.as_array_mut()?.iter_mut());
+            lists += 1;
+        }
+    }
+    (lists == 2).then_some(all)
 }
 
 /// Every number inside a disease: an object with a unit, however deep it sits.
@@ -151,7 +175,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0x5bb6_ebe1_6061_394b);
+        assert_eq!(core_data().expect("data").hash(), 0xb763_e0c4_dc51_1af5);
     }
 
     #[test]
@@ -161,9 +185,47 @@ mod tests {
         let described = GENOME_MAP.replacen("walking skeleton", "Durchstich", 1);
         assert_ne!(described, GENOME_MAP);
         let hash = |calibration: &str, genome_map: &str| {
-            data_from(calibration, genome_map).expect("data").hash()
+            data_from(DEMOGRAPHY, calibration, genome_map)
+                .expect("data")
+                .hash()
         };
         assert_eq!(hash(&noted, &described), hash(CALIBRATION, GENOME_MAP));
+    }
+
+    /// The life course data have their text like the calibration (ADR-0017 section 1): each
+    /// value and each weight of the wish; it does not change the hash.
+    #[test]
+    fn the_life_course_data_have_their_text() {
+        let noted = DEMOGRAPHY.replacen("play value", "a value for the game", 1);
+        assert_ne!(noted, DEMOGRAPHY);
+        let hash = |demography: &str| {
+            data_from(demography, CALIBRATION, GENOME_MAP)
+                .expect("data")
+                .hash()
+        };
+        assert_eq!(hash(&noted), hash(DEMOGRAPHY));
+        let blank = DEMOGRAPHY.replacen("\"as_of\": \"2026-10-10\"", "\"as_of\": \" \"", 1);
+        assert_ne!(blank, DEMOGRAPHY);
+        assert_eq!(
+            code(data_from(&blank, CALIBRATION, GENOME_MAP)),
+            "calibration/demography.json: as_of missing or blank"
+        );
+        let unsourced = DEMOGRAPHY.replacen(
+            "\"source\": \"docs/genetik-spezifikation.md 11.3 [K11.3d]\"",
+            "\"x\": 1",
+            1,
+        );
+        assert_ne!(unsourced, DEMOGRAPHY);
+        assert_eq!(
+            code(data_from(&unsourced, CALIBRATION, GENOME_MAP)),
+            "calibration/demography.json: source missing or blank"
+        );
+        let without = DEMOGRAPHY.replacen("\"fertility_wish_shape\"", "\"wish\"", 1);
+        assert_ne!(without, DEMOGRAPHY);
+        assert_eq!(
+            code(data_from(&without, CALIBRATION, GENOME_MAP)),
+            "calibration/demography.json: no entries"
+        );
     }
 
     #[test]
@@ -171,13 +233,13 @@ mod tests {
         let blank = CALIBRATION.replacen("\"as_of\": \"2026-10-07\"", "\"as_of\": \"  \"", 1);
         assert_ne!(blank, CALIBRATION);
         assert_eq!(
-            code(data_from(&blank, GENOME_MAP)),
+            code(data_from(DEMOGRAPHY, &blank, GENOME_MAP)),
             "calibration/genetics.json: as_of missing or blank"
         );
         let missing = GENOME_MAP.replacen("\"description\":", "\"comment\":", 1);
         assert_ne!(missing, GENOME_MAP);
         assert_eq!(
-            code(data_from(CALIBRATION, &missing)),
+            code(data_from(DEMOGRAPHY, CALIBRATION, &missing)),
             "genetics/genome_map.json: description missing or blank"
         );
     }
@@ -192,13 +254,13 @@ mod tests {
         );
         assert_ne!(misplaced, GENOME_MAP);
         assert!(
-            code(data_from(CALIBRATION, &misplaced))
+            code(data_from(DEMOGRAPHY, CALIBRATION, &misplaced))
                 .starts_with("genetics/genome_map.json: unknown field `note`")
         );
         let typo = GENOME_MAP.replacen("\"slot\":", "\"slots\":", 1);
         assert_ne!(typo, GENOME_MAP);
         assert!(
-            code(data_from(CALIBRATION, &typo))
+            code(data_from(DEMOGRAPHY, CALIBRATION, &typo))
                 .starts_with("genetics/genome_map.json: unknown field `slots`")
         );
     }
@@ -213,8 +275,8 @@ mod tests {
     /// a map without the list of traits, are rejected.
     #[test]
     fn traits_have_their_text() {
-        let data = data_from(TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x1374_3bd5_c4f3_44fc);
+        let data = data_from(DEMOGRAPHY, TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
+        assert_eq!(data.hash(), 0x8c5e_3639_5980_5be8);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",
@@ -223,7 +285,7 @@ mod tests {
         );
         assert_ne!(blank, TRAITS_MAP);
         assert_eq!(
-            code(data_from(TRAITS_CALIBRATION, &blank)),
+            code(data_from(DEMOGRAPHY, TRAITS_CALIBRATION, &blank)),
             "genetics/genome_map.json: description missing or blank"
         );
         // The weights of a phenotype row have their text too (ADR-0009 section 2).
@@ -231,7 +293,7 @@ mod tests {
             TRAITS_CALIBRATION.replacen("\"source\": \"fixture: a face axis\"", "\"x\": 1", 1);
         assert_ne!(unsourced, TRAITS_CALIBRATION);
         assert_eq!(
-            code(data_from(&unsourced, TRAITS_MAP)),
+            code(data_from(DEMOGRAPHY, &unsourced, TRAITS_MAP)),
             "calibration/genetics.json: source missing or blank"
         );
         // Text on the row instead of on a weight, and an unknown field on a weight.
@@ -242,7 +304,7 @@ mod tests {
         );
         assert_ne!(on_row, TRAITS_CALIBRATION);
         assert!(
-            code(data_from(&on_row, TRAITS_MAP))
+            code(data_from(DEMOGRAPHY, &on_row, TRAITS_MAP))
                 .starts_with("calibration/genetics.json: unknown field `note`")
         );
         let unknown = TRAITS_CALIBRATION.replacen(
@@ -252,13 +314,13 @@ mod tests {
         );
         assert_ne!(unknown, TRAITS_CALIBRATION);
         assert!(
-            code(data_from(&unknown, TRAITS_MAP))
+            code(data_from(DEMOGRAPHY, &unknown, TRAITS_MAP))
                 .starts_with("calibration/genetics.json: unknown field `x`")
         );
         let without = GENOME_MAP.replacen("\"traits\": [],", "", 1);
         assert_ne!(without, GENOME_MAP);
         assert_eq!(
-            code(data_from(CALIBRATION, &without)),
+            code(data_from(DEMOGRAPHY, CALIBRATION, &without)),
             "genetics/genome_map.json: no entries"
         );
     }
