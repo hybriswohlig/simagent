@@ -25,6 +25,9 @@ pub enum EventPayload {
     Birth { mother: SimId },
     /// The budget of the separation of a partnership runs out (ADR-0018 section 3).
     Separation { partnership: PartnershipId },
+    /// Monthly series: a round of the partner market (genetics specification 11.2,
+    /// ADR-0018 section 1).
+    MarketRound,
 }
 
 impl EventPayload {
@@ -34,6 +37,7 @@ impl EventPayload {
     pub const CONCEPTION_ATTEMPT: EventKind = EventKind(4);
     pub const BIRTH: EventKind = EventKind(5);
     pub const SEPARATION: EventKind = EventKind(6);
+    pub const MARKET_ROUND: EventKind = EventKind(7);
 }
 
 impl Payload for EventPayload {
@@ -42,7 +46,8 @@ impl Payload for EventPayload {
             EventPayload::YearEnd => EventClass::OBSERVER,
             EventPayload::Birthday { .. }
             | EventPayload::ConceptionAttempt { .. }
-            | EventPayload::Separation { .. } => EventClass::GENERAL,
+            | EventPayload::Separation { .. }
+            | EventPayload::MarketRound => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
         }
@@ -50,7 +55,7 @@ impl Payload for EventPayload {
 
     fn subject(&self) -> EventSubject {
         match self {
-            EventPayload::YearEnd => EventSubject::WORLD,
+            EventPayload::YearEnd | EventPayload::MarketRound => EventSubject::WORLD,
             EventPayload::Birthday { sim }
             | EventPayload::Death { sim, .. }
             | EventPayload::ConceptionAttempt { woman: sim }
@@ -69,6 +74,7 @@ impl Payload for EventPayload {
             EventPayload::ConceptionAttempt { .. } => EventPayload::CONCEPTION_ATTEMPT,
             EventPayload::Birth { .. } => EventPayload::BIRTH,
             EventPayload::Separation { .. } => EventPayload::SEPARATION,
+            EventPayload::MarketRound => EventPayload::MARKET_ROUND,
         }
     }
 }

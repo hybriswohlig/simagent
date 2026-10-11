@@ -3,11 +3,12 @@
 //! first death of the two or with their separation, whose time a budget fixes when it
 //! forms (ADR-0018 section 3), and stays as history.
 
-use super::{DomainState, EndedBy, Ending, Partnership, Slot, conception};
+use super::{DomainState, EndedBy, Ending, Partnership, Slot, conception, market};
 use crate::data::Data;
 use crate::genome::Sex;
 use crate::ids::{EventId, PartnershipId, SimId};
 use crate::input::{ArrangePartnership, Couple, Founder, InputRejected, RejectCode};
+use crate::kinship::KinshipCache;
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
@@ -16,12 +17,19 @@ use crate::world::{EventPayload, SimCtx};
 
 pub(crate) fn check_arrange(
     domain: &DomainState,
+    data: &Data,
+    closed_through: SimTime,
     pair: &ArrangePartnership,
 ) -> Result<(), InputRejected> {
     let code = if domain.world_seed.is_none() {
         Some(RejectCode::NotStarted)
     } else {
+        // The input acts in the second after the clock: the partnership forms there.
+        let formed = closed_through
+            .checked_add(SimDuration::from_secs(1))
+            .unwrap_or_else(|| panic!("invariant partnership.clock"));
         arrange_rejection(domain, pair)
+            .or_else(|| kin_or_age_rejection(domain, data, (pair.woman, pair.man), formed))
     };
     match code {
         Some(code) => Err(InputRejected { code }),
@@ -30,7 +38,8 @@ pub(crate) fn check_arrange(
 }
 
 /// Why these two cannot be paired, if at all, in this order: a sim never handed out,
-/// one in the archive, not a woman and a man, one in a partnership.
+/// one in the archive, not a woman and a man, one in a partnership, one under the market
+/// age, too closely related (ADR-0018 section 1).
 fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<RejectCode> {
     let both = [pair.woman, pair.man];
     let known = |id: &SimId| domain.sims.contains_key(id) || domain.archive.contains_key(id);
@@ -53,9 +62,38 @@ fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<
     None
 }
 
+/// Why two living sims of the right sexes and without a partnership cannot be paired now,
+/// if at all: one under the market age, then too closely related (ADR-0018 section 1).
+pub(crate) fn kin_or_age_rejection(
+    domain: &DomainState,
+    data: &Data,
+    (woman, man): (SimId, SimId),
+    now: SimTime,
+) -> Option<RejectCode> {
+    let age = market::market_age(data);
+    let young = [woman, man].into_iter().any(|sim| {
+        domain
+            .sims
+            .get(&sim)
+            .is_none_or(|person| !market::of_age(person.born, now, age))
+    });
+    if young {
+        return Some(RejectCode::PartnerTooYoung);
+    }
+    let limit = data.demography().market.kinship_limit;
+    let phi = market::phi_with(&mut KinshipCache::new(), domain, woman, man);
+    (phi >= limit).then_some(RejectCode::PartnersTooCloselyRelated)
+}
+
 /// Why the couples of `Start` are rejected, if at all, in this order: a place beyond
-/// the founders, not a woman and a man, a founder in two couples.
-pub(crate) fn couples_rejection(founders: &[Founder], couples: &[Couple]) -> Option<RejectCode> {
+/// the founders, not a woman and a man, a founder in two couples, a founder under the
+/// market age `age` (in whole years) at the start (ADR-0018 section 1). Founders are
+/// unrelated, so no couple is too closely related.
+pub(crate) fn couples_rejection(
+    founders: &[Founder],
+    couples: &[Couple],
+    age: i64,
+) -> Option<RejectCode> {
     let founder = |place: u32| usize::try_from(place).ok().and_then(|i| founders.get(i));
     if couples
         .iter()
@@ -76,7 +114,15 @@ pub(crate) fn couples_rejection(founders: &[Founder], couples: &[Couple]) -> Opt
             .iter()
             .any(|earlier| earlier.woman == couple.woman || earlier.man == couple.man)
     });
-    twice.then_some(RejectCode::AlreadyPartnered)
+    if twice {
+        return Some(RejectCode::AlreadyPartnered);
+    }
+    let young = couples.iter().any(|couple| {
+        [couple.woman, couple.man].into_iter().any(|place| {
+            founder(place).is_some_and(|f| !market::of_age(f.born, SimTime::START, age))
+        })
+    });
+    young.then_some(RejectCode::PartnerTooYoung)
 }
 
 pub(crate) fn apply_arrange(
@@ -98,7 +144,22 @@ pub(crate) fn pair_up(
     man: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> PartnershipId {
-    let (id, entry) = ctx.create_partnership(woman, man, Causes::new(ctx.trigger()));
+    let causes = Causes::new(ctx.trigger());
+    pair_up_with(domain, data, (woman, man), causes, ctx)
+}
+
+/// As `pair_up`, with the causes of the creation entry given (the market names its rule
+/// and the draw of the chosen candidate, ADR-0018 section 1).
+pub(crate) fn pair_up_with(
+    domain: &mut DomainState,
+    data: &Data,
+    (woman, man): (SimId, SimId),
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) -> PartnershipId {
+    let (id, entry) = ctx.create_partnership(woman, man, causes);
+    domain.open.insert(woman, id);
+    domain.open.insert(man, id);
     domain.partnerships.insert(
         id,
         Partnership {
@@ -193,6 +254,8 @@ pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &m
         by: EndedBy::Separation,
     });
     let (woman, man) = (partnership.woman, partnership.man);
+    domain.open.remove(&woman);
+    domain.open.remove(&man);
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(woman, Slot::Separation));
     let (her, his) = (lineage_key(domain, woman), lineage_key(domain, man));
@@ -211,15 +274,10 @@ pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &m
     conception::stop_attempts(domain, woman, ctx);
 }
 
-/// The partnership of `sim` that has not ended, if any; a sim has at most one.
+/// The partnership of `sim` that has not ended, if any; a sim has at most one. Read from
+/// the index of open partnerships (ADR-0018 section 2).
 pub(crate) fn open_partnership(domain: &DomainState, sim: SimId) -> Option<PartnershipId> {
-    domain
-        .partnerships
-        .iter()
-        .find(|(_, partnership)| {
-            partnership.ended.is_none() && (partnership.woman == sim || partnership.man == sim)
-        })
-        .map(|(id, _)| *id)
+    domain.open.get(&sim).copied()
 }
 
 /// `sim` died now: its open partnership ends in this second, and with it her attempts and
@@ -233,7 +291,9 @@ pub(crate) fn end_with_death(domain: &mut DomainState, sim: SimId, ctx: &mut Sim
             at: now,
             by: EndedBy::Death,
         });
-        let woman = partnership.woman;
+        let (woman, man) = (partnership.woman, partnership.man);
+        domain.open.remove(&woman);
+        domain.open.remove(&man);
         conception::stop_attempts(domain, woman, ctx);
         if let Some(handle) = domain.pending.remove(&(woman, Slot::Separation)) {
             ctx.cancel(handle);

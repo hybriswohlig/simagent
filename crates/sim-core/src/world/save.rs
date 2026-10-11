@@ -16,6 +16,7 @@ use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, PartnershipId, SimId};
 use crate::input::{Input, InputRecord, Start};
+use crate::kinship::{Kin, KinshipCache};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
@@ -209,6 +210,7 @@ impl World {
         // differ exactly where the uninterrupted run had them differ.
         let lineage = lineage_index(&loaded.sims, &loaded.archive, &loaded.pregnancies);
         let pending = pending_index(&loaded.queue, &loaded.partnerships);
+        let open = open_index(&loaded.partnerships);
         let world = World {
             sched,
             state: WorldState {
@@ -221,6 +223,8 @@ impl World {
                     archive: loaded.archive,
                     lineage,
                     pending,
+                    open,
+                    kinship: KinshipCache::new(),
                 },
                 ids: IdCounters::restore(
                     counter(loaded.next_sim_id)?,
@@ -277,7 +281,7 @@ pub(super) fn pending_index(
     let mut index = BTreeMap::new();
     for entry in queue {
         let slot = match &entry.payload {
-            EventPayload::YearEnd => continue,
+            EventPayload::YearEnd | EventPayload::MarketRound => continue,
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
@@ -436,8 +440,11 @@ fn input_log_consistent(
     })
 }
 
-/// The partnerships are those the input log formed, with the IDs from 1 in that order,
-/// and the counter follows them. Each pairs a woman and a man; it ended by the first of
+/// The partnerships are those the input log formed and those the market formed, with the
+/// IDs from 1 in the order they were formed, and the counter follows them (ADR-0018
+/// section 7): the inputs' in the order of the log; the market's in a closed round second
+/// (a positive multiple of `MONTH`), after the inputs' of that second. Each pairs a woman
+/// and a man of at least the market age with `φ` below the limit; it ended by the first of
 /// its due separation (if that second is closed) and the first death of the two, the
 /// separation first in a tie (ADR-0018 section 3), and is open while neither has come;
 /// never ended before it was formed. Each of the two was free when it was formed: an
@@ -449,55 +456,100 @@ fn partnerships_consistent(
     rules: &Rules<'_>,
     pairs: &[(SimId, SimId, SimTime)],
 ) -> bool {
-    let counted = u64::try_from(pairs.len())
+    let counted = u64::try_from(loaded.partnerships.len())
         .ok()
         .and_then(|count| count.checked_add(1))
         == Some(loaded.next_partnership_id);
-    let sex_of = |id: &SimId| {
-        loaded
-            .sims
-            .get(id)
-            .map(|sim| sim.sex)
-            .or_else(|| loaded.archive.get(id).map(|sim| sim.sex))
-    };
+    let sex_of = |id: &SimId| facts(loaded, *id).map(|person| person.sex);
+    let born_of = |id: &SimId| facts(loaded, *id).map(|person| person.born);
     let left_of = |id: &SimId| loaded.archive.get(id).map(|sim| sim.left);
+    let age = state::market::market_age(rules.data);
+    let limit = rules.data.demography().market.kinship_limit;
+    let mut kinship = KinshipCache::new();
+    let mut inputs = pairs.iter().peekable();
+    // The second of the previous partnership and whether the market formed it.
+    let mut previous: Option<(SimTime, bool)> = None;
     // Per sim the end of its latest partnership so far (`None` while it is open); the
     // partnerships come in the order they were formed.
     let mut latest: BTreeMap<SimId, Option<SimTime>> = BTreeMap::new();
-    counted
-        && loaded.partnerships.len() == pairs.len()
-        && loaded.partnerships.iter().zip(pairs).zip(1_u64..).all(
-            |(((id, partnership), &(woman, man, formed)), number)| {
-                let first_death = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
-                let separation = separation_due(loaded, rules, *id, partnership)
-                    .filter(|due| due.as_secs() < now);
-                let ending = match (separation, first_death) {
-                    (Some(at), death) if death.is_none_or(|death| at <= death) => Some(Ending {
-                        at,
-                        by: EndedBy::Separation,
-                    }),
-                    (_, Some(at)) => Some(Ending {
-                        at,
-                        by: EndedBy::Death,
-                    }),
-                    (_, None) => None,
-                };
-                let ended = partnership.ended.map(|ending| ending.at);
-                id.get() == number
-                    && (partnership.woman, partnership.man, partnership.formed)
-                        == (woman, man, formed)
-                    && sex_of(&woman) == Some(Sex::Female)
-                    && sex_of(&man) == Some(Sex::Male)
-                    && partnership.ended == ending
-                    && first_death.is_none_or(|death| death >= formed)
-                    && [woman, man]
-                        .into_iter()
-                        .all(|sim| match latest.insert(sim, ended) {
-                            None => true,
-                            Some(earlier) => earlier.is_some_and(|end| end < formed),
-                        })
-            },
-        )
+    let all = loaded
+        .partnerships
+        .iter()
+        .zip(1_u64..)
+        .all(|((id, partnership), number)| {
+            let (woman, man, formed) = (partnership.woman, partnership.man, partnership.formed);
+            let by_input = inputs
+                .next_if(|pair| **pair == (woman, man, formed))
+                .is_some();
+            let round = formed.as_secs() > 0 && formed.as_secs().rem_euclid(MONTH.as_secs()) == 0;
+            let by_market = !by_input && round && formed.as_secs() < now;
+            let in_order = previous
+                .is_none_or(|(at, market)| at < formed || (at == formed && (!market || by_market)));
+            previous = Some((formed, by_market));
+            let of_age = [woman, man].iter().all(|sim| {
+                born_of(sim).is_some_and(|born| state::market::of_age(born, formed, age))
+            });
+            let related = sex_of(&woman).is_some()
+                && sex_of(&man).is_some()
+                && kinship.phi(woman, man, |sim| kin(loaded, sim)) >= limit;
+            let first_death = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
+            let separation =
+                separation_due(loaded, rules, *id, partnership).filter(|due| due.as_secs() < now);
+            let ending = match (separation, first_death) {
+                (Some(at), death) if death.is_none_or(|death| at <= death) => Some(Ending {
+                    at,
+                    by: EndedBy::Separation,
+                }),
+                (_, Some(at)) => Some(Ending {
+                    at,
+                    by: EndedBy::Death,
+                }),
+                (_, None) => None,
+            };
+            let ended = partnership.ended.map(|ending| ending.at);
+            id.get() == number
+                && (by_input || by_market)
+                && in_order
+                && sex_of(&woman) == Some(Sex::Female)
+                && sex_of(&man) == Some(Sex::Male)
+                && of_age
+                && !related
+                && partnership.ended == ending
+                && first_death.is_none_or(|death| death >= formed)
+                && [woman, man]
+                    .into_iter()
+                    .all(|sim| match latest.insert(sim, ended) {
+                        None => true,
+                        Some(earlier) => earlier.is_some_and(|end| end < formed),
+                    })
+        });
+    counted && all && inputs.next().is_none()
+}
+
+/// Birth and parents of a person of the save, for φ; a person the save does not hold has
+/// neither (the checks of the IDs reject such a save).
+fn kin(loaded: &LoadedState, sim: SimId) -> Kin {
+    facts(loaded, sim).map_or(
+        Kin {
+            born: SimTime::START,
+            parents: None,
+        },
+        |person| Kin {
+            born: person.born,
+            parents: person.parents.map(|p| (p.mother, p.father)),
+        },
+    )
+}
+
+/// The open partnership of each sim in one, from the partnerships (ADR-0018 section 2).
+pub(super) fn open_index(
+    partnerships: &BTreeMap<PartnershipId, Partnership>,
+) -> BTreeMap<SimId, PartnershipId> {
+    partnerships
+        .iter()
+        .filter(|(_, partnership)| partnership.ended.is_none())
+        .flat_map(|(id, partnership)| [(partnership.woman, *id), (partnership.man, *id)])
+        .collect()
 }
 
 /// When the partnership `id` separates if both live (ADR-0018 section 3): her partnership
@@ -1153,6 +1205,7 @@ fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
 fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
+    let mut round_seen = false;
     let mut birthdays = BTreeSet::new();
     let mut births = BTreeSet::new();
     let mut attempts = BTreeSet::new();
@@ -1174,6 +1227,16 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 let first = !year_end_seen;
                 year_end_seen = true;
                 first && entry.period == Some(YEAR) && due == next_year_end
+            }
+            EventPayload::MarketRound => {
+                // One series of rounds, due at the first month start after the clock, and
+                // never before the first month start after the start (ADR-0018 section 1).
+                let first = !round_seen;
+                round_seen = true;
+                let from = loaded.closed_through.max(SimTime::START);
+                first
+                    && entry.period == Some(MONTH)
+                    && conception::month_start_after(from) == Some(entry.time)
             }
             EventPayload::Birthday { sim } => {
                 entry.period.is_none()
@@ -1240,6 +1303,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             || separations.contains(id)
     });
     year_end_seen
+        && round_seen
         && birthdays.len() == loaded.sims.len()
         && all_separations_planned
         && all_deaths_planned

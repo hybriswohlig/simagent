@@ -93,7 +93,9 @@ fn deaths(log: &[LogEntry]) -> Vec<(i64, u64, String)> {
 /// dominant late diseases after their onsets (drawn and held, 3.1), the man with cystic
 /// fibrosis. The carriers, the mitochondrial disease (visible, and here not penetrant)
 /// and the man with `core:disease_ad_partial` (penetrance 0.1, not penetrant) never die
-/// of a disease; with no cause of `Start` they live on.
+/// of a disease; with no cause of `Start` they live on. Over these 170 years the market
+/// pairs the founders once they are 16 and children are born; only the founders count
+/// here (their deaths are planned at the start, `tools/state_reference.py`).
 #[test]
 fn the_lethal_diseases_kill_by_genotype_sex_and_onset() {
     let mut world = afflicted("test:afflicted", true, the_ten());
@@ -102,8 +104,12 @@ fn the_lethal_diseases_kill_by_genotype_sex_and_onset() {
     world.advance_until(&mut out, SimTime::from_secs(5_373_003_592), &mut |_| false);
     log.extend(world.take_log());
     let died = |t: i64, sim: u64, code: &str| (t, sim, code.to_owned());
+    let founders: Vec<(i64, u64, String)> = deaths(&log)
+        .into_iter()
+        .filter(|(_, sim, _)| *sim <= 10)
+        .collect();
     assert_eq!(
-        deaths(&log),
+        founders,
         [
             died(1_193_979_596, 9, "core:disease_ar"),
             died(1_519_743_745, 6, "core:disease_ad_late"),
@@ -112,11 +118,21 @@ fn the_lethal_diseases_kill_by_genotype_sex_and_onset() {
             died(5_373_003_592, 7, "core:disease_ad_partial"),
         ]
     );
-    assert_eq!(world.state().living(), 5);
+    let alive = |sim: u64| {
+        world
+            .state()
+            .pedigree()
+            .persons
+            .iter()
+            .any(|person| person.sim.get() == sim && person.died.is_none())
+    };
+    let living: Vec<u64> = (1..=10).filter(|sim| alive(*sim)).collect();
+    assert_eq!(living, [2, 4, 5, 8, 10]);
 }
 
 /// The same founders with the switch off: the diseases are fixed at the start all the
-/// same (the draws do not depend on the switch, 3.1), but nobody dies of one.
+/// same (the draws do not depend on the switch, 3.1), but nobody dies of one, neither a
+/// founder nor a child of theirs.
 #[test]
 fn with_the_switch_off_nobody_dies_of_a_disease() {
     let mut world = afflicted("test:afflicted", false, the_ten());
@@ -124,7 +140,14 @@ fn with_the_switch_off_nobody_dies_of_a_disease() {
     let mut out = YearOut::default();
     world.advance_until(&mut out, SimTime::from_secs(5_400_000_000), &mut |_| false);
     assert_eq!(deaths(&world.take_log()), []);
-    assert_eq!(world.state().living(), 10);
+    let founders_alive = world
+        .state()
+        .pedigree()
+        .persons
+        .iter()
+        .filter(|person| person.sim.get() <= 10 && person.died.is_none())
+        .count();
+    assert_eq!(founders_alive, 10);
 }
 
 /// A visible disease never kills (3.1): forty men with the mitochondrial allele, half of
@@ -148,7 +171,7 @@ fn a_visible_disease_never_kills() {
 #[test]
 fn the_afflictions_are_those_of_the_reference() {
     let world = afflicted("test:afflicted", true, the_ten());
-    assert_eq!(world.state_hash(), 0x834f_855f_4b73_66ee);
+    assert_eq!(world.state_hash(), 0x86e2_35f3_a027_17ba);
 }
 
 /// A save of "afflicted" loads and gives the same bytes, at the start and after the first

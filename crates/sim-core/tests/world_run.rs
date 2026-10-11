@@ -151,8 +151,8 @@ fn ten_years_of_birthdays_are_pinned() {
     // (senescence and accident, ADR-0017 section 2).
     assert_eq!(
         world.pending_events(),
-        10,
-        "year end series, 3 birthdays and 6 deaths"
+        11,
+        "year end series, market rounds, 3 birthdays and 6 deaths"
     );
 }
 
@@ -190,7 +190,9 @@ fn log_and_census_independent_of_step_width() {
             AdvanceOutcome::ReachedLimit => break,
         }
     }
-    assert_eq!(stops, 30, "30 seconds with events in 10 years");
+    // 30 seconds with birthdays and year ends, 129 market rounds (one per month start
+    // from month 1, ADR-0018 section 1), of which 9 share the second of sim 1's birthday.
+    assert_eq!(stops, 150, "150 seconds with events in 10 years");
     assert_eq!(log, expected_log);
     assert_eq!(out.census, expected_census());
 }
@@ -202,13 +204,20 @@ fn stop_ends_after_the_whole_second() {
     world.take_log();
     let mut out = YearOut::default();
     let limit = SimTime::from_secs(END);
-    for second in [0, 22_809_600] {
+    // Sim 1's birthday, the market rounds of months 1 to 9 (they write nothing without a
+    // single man), sim 2's birthday, the rounds of months 10 to 12.
+    let month = |k: i64| k * 2_419_200;
+    let mut seconds = vec![(0, 1)];
+    seconds.extend((1..=9).map(|k| (month(k), 0)));
+    seconds.push((22_809_600, 1));
+    seconds.extend((10..=12).map(|k| (month(k), 0)));
+    for (second, entries) in seconds {
         let outcome = world.advance_until(&mut out, limit, &mut |_| true);
         let second = SimTime::from_secs(second);
         assert_eq!(outcome, AdvanceOutcome::Stopped { second });
         assert_eq!(world.closed_through(), second);
         assert!(out.census.is_empty());
-        assert_eq!(world.take_log().len(), 1);
+        assert_eq!(world.take_log().len(), entries);
     }
     // Sim 3's birthday and the year end share the last second of year 0.
     let outcome = world.advance_until(&mut out, limit, &mut |_| true);
@@ -227,8 +236,9 @@ fn stop_ends_after_the_whole_second() {
 }
 
 /// ADR-0002 `no_second_time_loop` on the dummy world: per game year exactly the events
-/// that follow from the plans (3 birthdays, 1 year end), one context per domain call
-/// plus one for the input, and the same in every decomposition.
+/// that follow from the plans (3 birthdays, 1 year end, the market rounds: 12 in year 0
+/// from month 1, then 13 a year), one context per domain call plus one for the input,
+/// and the same in every decomposition.
 #[test]
 fn no_second_time_loop_in_the_dummy_world() {
     for width in [Y, 86_400, 7_919] {
@@ -244,16 +254,20 @@ fn no_second_time_loop_in_the_dummy_world() {
             let stats = world.stats();
             let birthdays = stats.events_of(EventClass::GENERAL, EventPayload::BIRTHDAY);
             let year_ends = stats.events_of(EventClass::OBSERVER, EventPayload::YEAR_END);
+            let rounds = stats.events_of(EventClass::GENERAL, EventPayload::MARKET_ROUND);
             assert_eq!(birthdays, 3 * done, "width {width}, year {year}");
             assert_eq!(year_ends, done, "width {width}, year {year}");
-            assert_eq!(stats.domain_calls, 3 * done, "width {width}, year {year}");
+            assert_eq!(rounds, 13 * done - 1, "width {width}, year {year}");
+            let domain = 3 * done + 13 * done - 1;
+            assert_eq!(stats.domain_calls, domain, "width {width}, year {year}");
             assert_eq!(stats.observer_calls, done, "width {width}, year {year}");
-            assert_eq!(stats.contexts, 1 + 3 * done, "width {width}, year {year}");
+            assert_eq!(stats.contexts, 1 + domain, "width {width}, year {year}");
         }
     }
 }
 
-/// Zero-effect twin: without founders only the year ends run.
+/// Zero-effect twin: without founders only the year ends and the market rounds run, and
+/// the rounds write nothing.
 #[test]
 fn an_empty_world_runs_only_year_ends() {
     let mut world = started(&[]);
@@ -269,10 +283,12 @@ fn an_empty_world_runs_only_year_ends() {
     assert_eq!(out.census, rows);
     assert_eq!(world.take_log().len(), 1, "only core:started");
     let stats = world.stats();
-    assert_eq!(stats.domain_calls, 0);
+    // 129 rounds in ten years: months 1 to 129.
+    assert_eq!(stats.domain_calls, 129);
     assert_eq!(stats.observer_calls, 10);
-    assert_eq!(stats.contexts, 1);
-    assert_eq!(world.pending_events(), 1);
+    assert_eq!(stats.contexts, 130);
+    // The series of the year end and of the market rounds.
+    assert_eq!(world.pending_events(), 2);
 }
 
 /// Lever test: the founders of the input show in the first census row.

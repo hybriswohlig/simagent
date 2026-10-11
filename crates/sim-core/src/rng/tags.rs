@@ -85,6 +85,20 @@ pub const MULTIPLE_BIRTH: PurposeTag = PurposeTag::from_pinned_list(17);
 /// detail: the man's lineage key.
 pub const SEPARATION_BUDGET: PurposeTag = PurposeTag::from_pinned_list(18);
 
+/// Whether a single woman of the market age searches in a round (genetics specification
+/// 11.2, 11.7). subject: her lineage key; occasion: the month index of the round; detail: 0.
+pub const MARKET_SEARCH: PurposeTag = PurposeTag::from_pinned_list(19);
+
+/// The order in which the searching women of a round choose: a rank (11.2, 11.7, ADR-0018
+/// section 1). subject: the world; occasion: the month index of the round; detail: her
+/// lineage key.
+pub const MARKET_ORDER: PurposeTag = PurposeTag::from_pinned_list(20);
+
+/// The Gumbel noise of the utility of a candidate (11.2, 11.7). subject: the searching
+/// woman's lineage key; occasion: the month index of the round; detail: the candidate's
+/// lineage key.
+pub const PAIRING_NOISE: PurposeTag = PurposeTag::from_pinned_list(21);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -105,6 +119,9 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (FERTILITY_WISH, "FERTILITY_WISH"),
     (MULTIPLE_BIRTH, "MULTIPLE_BIRTH"),
     (SEPARATION_BUDGET, "SEPARATION_BUDGET"),
+    (MARKET_SEARCH, "MARKET_SEARCH"),
+    (MARKET_ORDER, "MARKET_ORDER"),
+    (PAIRING_NOISE, "PAIRING_NOISE"),
 ];
 
 /// Values of deleted tags; they are never used again.

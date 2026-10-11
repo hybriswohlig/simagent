@@ -929,6 +929,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::NutritionOrder,
         RejectCode::NutritionOutOfRange,
         RejectCode::NutritionYearPast,
+        RejectCode::PartnerTooYoung,
+        RejectCode::PartnersTooCloselyRelated,
     ];
     for code in &codes {
         match code {
@@ -952,7 +954,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::FounderCopies
             | RejectCode::NutritionOrder
             | RejectCode::NutritionOutOfRange
-            | RejectCode::NutritionYearPast => {}
+            | RejectCode::NutritionYearPast
+            | RejectCode::PartnerTooYoung
+            | RejectCode::PartnersTooCloselyRelated => {}
         }
     }
     codes

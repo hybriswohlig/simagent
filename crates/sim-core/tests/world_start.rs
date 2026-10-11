@@ -148,8 +148,8 @@ fn start_records_seed_and_founders() {
     assert_eq!(state.born(sim(4)), None);
     assert_eq!(
         world.pending_events(),
-        10,
-        "the year end series, three first birthdays and two deaths each"
+        11,
+        "the series of the year end and the rounds, three first birthdays and two deaths each"
     );
     assert_eq!(world.stats().contexts, 1, "one applied input");
     assert_eq!(world.closed_through(), SimTime::from_secs(-1));
@@ -210,7 +210,8 @@ fn a_start_without_founders_writes_only_started() {
     );
     assert_eq!(world.state().living(), 0);
     assert_eq!(world.state().world_seed(), Some(SEED));
-    assert_eq!(world.pending_events(), 1);
+    // The series of the year end and of the market rounds.
+    assert_eq!(world.pending_events(), 2);
 }
 
 /// ADR-0004 section 6: the log buffer is handed over, the core keeps nothing.

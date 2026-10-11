@@ -171,6 +171,11 @@ pub enum RejectCode {
     NutritionOutOfRange,
     /// An override sets the nutrition index of a year before the fork year.
     NutritionYearPast,
+    /// A partner under the market age of 16 in the second the partnership would form
+    /// (ADR-0018 section 1; Dario: never below 16).
+    PartnerTooYoung,
+    /// A woman and a man with `φ ≥ 1/8` (ADR-0018 section 1).
+    PartnersTooCloselyRelated,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

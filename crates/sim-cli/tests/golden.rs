@@ -240,6 +240,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 partnership: sim_core::ids::PartnershipId::try_from(1).expect("valid"),
             },
         ),
+        ("market_round", EventPayload::MarketRound),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -249,7 +250,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Death { .. }
                 | EventPayload::ConceptionAttempt { .. }
                 | EventPayload::Birth { .. }
-                | EventPayload::Separation { .. } => {}
+                | EventPayload::Separation { .. }
+                | EventPayload::MarketRound => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -342,7 +344,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 6);
+    assert_eq!(kinds.len(), 7);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")

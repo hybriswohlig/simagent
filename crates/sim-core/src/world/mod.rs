@@ -165,7 +165,9 @@ fn check(
     match input {
         Input::Start(start) => state::start::check_start(domain, data, closed_through, start),
         Input::ForkOverride(block) => state::params::check_override(domain, closed_through, block),
-        Input::ArrangePartnership(pair) => state::partnership::check_arrange(domain, pair),
+        Input::ArrangePartnership(pair) => {
+            state::partnership::check_arrange(domain, data, closed_through, pair)
+        }
     }
 }
 
@@ -276,6 +278,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Separation { partnership } => {
                 state::partnership::on_separation(&mut self.domain, partnership, &mut ctx);
             }
+            EventPayload::MarketRound => {
+                state::market::on_round(&mut self.domain, &self.data, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -299,7 +304,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Death { .. }
             | EventPayload::ConceptionAttempt { .. }
             | EventPayload::Birth { .. }
-            | EventPayload::Separation { .. } => {
+            | EventPayload::Separation { .. }
+            | EventPayload::MarketRound => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -363,7 +369,8 @@ mod tests {
     }
 
     /// ADR-0002: the year end series starts at `year_start(1) - 1 s` with period YEAR,
-    /// planned by `Start` with `core:started` (entry 1) as its `by`. Each founder's first
+    /// planned by `Start` with `core:started` (entry 1) as its `by`, then the series of
+    /// the market rounds from the first month start. Each founder's first
     /// birthday is a single event with the founder's creation entry as its `by`; its two
     /// deaths follow it in the insertion numbers (tests/death.rs checks them).
     #[test]
@@ -371,7 +378,7 @@ mod tests {
         let mut world = World::new(testing::data());
         world.submit(start(&[-5, -1])).expect("accepted");
         let snapshot = world.sched.snapshot();
-        assert_eq!(snapshot.next_seq, 8);
+        assert_eq!(snapshot.next_seq, 9);
         let sim = |n: u64| SimId::try_from(n).expect("valid");
         let seen: Vec<_> = snapshot
             .entries
@@ -387,20 +394,29 @@ mod tests {
                 )
             })
             .collect();
-        // Queue order: sim 1 turns one at -5 + YEAR; sim 2 shares the last second of
-        // year 0 with the year end and runs first (domain phase before observers).
+        // Queue order: the first market round at the first month start (ADR-0018
+        // section 1), planned right after the year end series; sim 1 turns one at
+        // -5 + YEAR; sim 2 shares the last second of year 0 with the year end and runs
+        // first (domain phase before observers).
         let plan = |by: u64| std::format!(r#"{{"by":{by},"planned_at":0}}"#);
         let expected = [
             (
-                31_449_595,
+                2_419_200,
                 2,
+                EventPayload::MarketRound,
+                Some(crate::time::MONTH),
+                plan(1),
+            ),
+            (
+                31_449_595,
+                3,
                 EventPayload::Birthday { sim: sim(1) },
                 None,
                 plan(2),
             ),
             (
                 31_449_599,
-                5,
+                6,
                 EventPayload::Birthday { sim: sim(2) },
                 None,
                 plan(3),

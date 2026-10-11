@@ -30,10 +30,10 @@ const MONTH: i64 = 2_419_200;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e54011d878da4a8a2af88e51d";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e54011d878da4a8a2af88e51d0f01ff0101000001020104fe87ff1d0002010100fe87ff1d000100018088ff1dd0a5dcfc1300030201a0bb8ca1c58498a01c00b8f4e5ff8c1f0004020185d2bc82f8b2ead44d00050101019893ebf7f7b1d2ec5e000000000100000000000000000000000000000402000100020002000301010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e54011d878da4a8a2af88e51d0f01ff0101010001020104fe87ff1d0002010100fe87ff1d000100018088ff1dd0a5dcfc1300030201a0bb8ca1c58498a01c00b8f4e5ff8c1f0004020185d2bc82f8b2ead44d00050101019893ebf7f7b1d2ec5e000000000100000000000000000000000000000402000100020002000402010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010001020101000100";
-const EMPTY_SAVE: &str = "53494d4147454e54011d878da4a8a2af88e51d0f000001010100010000000000010000";
+const HEADER: &str = "53494d4147454e54011e878da4a8a2af88e51d";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e54011e878da4a8a2af88e51d0f01ff010100000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010002000100020002000301010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e54011e878da4a8a2af88e51d0f01ff010101000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010002000100020002000402010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010001020101000100";
+const EMPTY_SAVE: &str = "53494d4147454e54011e878da4a8a2af88e51d0f000001010100010000000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -130,6 +130,7 @@ enum Payload {
     ConceptionAttempt { woman: u64 },
     Birth { mother: u64 },
     Separation { partnership: u64 },
+    MarketRound,
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -361,8 +362,26 @@ fn pregnant(
     (father, conception, vec![(key, sex, genes)], conceived)
 }
 
+/// Where the encoder puts the series of the market rounds (ADR-0018 section 1).
+#[derive(Clone, Copy)]
+enum Round {
+    /// At the first month start after the clock, as the rule gives it.
+    Due,
+    /// At this second.
+    At(i64),
+    /// Not at all (its insertion number stays taken).
+    Missing,
+}
+
+/// A save as the tests build it. The builders number the insertion numbers as a world
+/// without the market would: the year end series 1, then the rest in the order they were
+/// planned. `Start` plans the series of the market rounds right after the year end
+/// (ADR-0018 section 1), so in the encoded save of a started world the round has the
+/// number 2 and every later number is one higher; `bytes` puts it there.
 #[derive(Clone, Serialize)]
 struct File {
+    #[serde(skip)]
+    round: Round,
     // Header.
     magic: [u8; 8],
     format_version: u32,
@@ -400,9 +419,10 @@ impl File {
     fn tiny() -> File {
         let (senescence, accident) = TINY_DEATHS[0];
         File {
+            round: Round::Due,
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 29,
+            core_version: 30,
             data_hash: DATA_HASH,
             projection_version: 15,
             world_seed: Some(0xff),
@@ -439,7 +459,37 @@ impl File {
     }
 
     fn bytes(&self) -> Vec<u8> {
-        postcard::to_allocvec(self).expect("encodes")
+        postcard::to_allocvec(&self.with_round()).expect("encodes")
+    }
+
+    /// The file with the round series in its place, the later insertion numbers moved up.
+    fn with_round(&self) -> File {
+        let mut file = self.clone();
+        if file.world_seed.is_none() {
+            return file;
+        }
+        for entry in &mut file.queue {
+            if entry.2 >= 2 {
+                entry.2 += 1;
+            }
+        }
+        file.next_event_seq += 1;
+        let at = match file.round {
+            Round::Missing => return file,
+            Round::At(at) => at,
+            Round::Due => (file.closed_through.max(0).div_euclid(MONTH) + 1) * MONTH,
+        };
+        // In its second only births (class 200) come before the round (class 500, the
+        // world before every sim and partnership, ADR-0002).
+        let place = file
+            .queue
+            .iter()
+            .position(|e| e.0 > at || (e.0 == at && !matches!(e.3, Payload::Birth { .. })))
+            .unwrap_or(file.queue.len());
+        file.queue
+            .insert(place, (at, 0, 2, Payload::MarketRound, Some(MONTH)));
+        file.plan_refs.insert(place, (1, 0));
+        file
     }
 
     fn with(mut self, change: impl FnOnce(&mut File)) -> Vec<u8> {
@@ -452,7 +502,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 29);
+    assert_eq!(CORE_VERSION, 30);
 }
 
 // ---------------------------------------------------------------------------------
@@ -668,7 +718,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [28, 30] {
+    for version in [29, 31] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -702,7 +752,7 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 30;
+        f.core_version = 31;
         f.data_hash = 7;
         f.projection_version = 16;
     };
@@ -718,7 +768,7 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 29;
+        f.core_version = 30;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
@@ -773,18 +823,19 @@ fn load_rejects_malformed_bytes() {
     // A time outside the range of the simulation.
     let far = File::tiny().with(|f| f.sims = vec![(1, living(0, i64::MIN))]);
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
-    // An unknown event variant: index 2 where 0 and 1 exist.
+    // An unknown event variant: index 7 where 0 to 6 exist.
     let mut unknown = good.clone();
     // Behind the header: version, seed (3 bytes), world parameters (3 bytes: the switch
     // and no nutrition year), clock, sim counter, partnership counter, queue length, then
-    // the first entry with its time (4 bytes), micro step and insertion number.
+    // the first entry with its time (4 bytes), micro step and insertion number: the first
+    // market round (variant 6, no fields), then its period (some).
     let payload_at = header + 11 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
-        [1, 1],
-        "birthday of sim 1"
+        [6, 1],
+        "the first market round"
     );
-    unknown[payload_at] = 2;
+    unknown[payload_at] = 7;
     assert_eq!(load_error(&unknown), Some(LoadError::Malformed));
 }
 
@@ -840,7 +891,7 @@ fn load_rejects_non_canonical_bytes() {
     // partnership counter lies between.
     assert_eq!(good[at + 1], 1, "next_partnership_id of the tiny world");
     let queue_len = at + 2;
-    assert_eq!(good[queue_len], 4, "four pending events");
+    assert_eq!(good[queue_len], 5, "five pending events");
     let mut huge = good.clone();
     huge.splice(queue_len..=queue_len, [0xff, 0xff, 0xff, 0xff, 0x0f]);
     assert_eq!(load_error(&huge), Some(LoadError::Malformed));
@@ -985,6 +1036,8 @@ fn a_save_keeps_the_nutrition_years() {
     ] {
         let last = File::tiny().with(|f| {
             f.closed_through = sim_core::time::MAX_ABS_SECS;
+            // No series fits behind the last second.
+            f.round = Round::Missing;
             f.queue = Vec::new();
             f.plan_refs = Vec::new();
             f.world_params = Some(params);
@@ -1122,8 +1175,8 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs), on test data with
 // accident 0.5 and senescence `a` 0.05, `b` 0.001 per year: she dies of accident in year 4,
 // he of accident in year 5.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54011de5bfa2a2e5ba84fca7010f01ff0101000001030107fc87ff1d0005010200fe87ff1d0002010100fe87ff1d000100018088ff1daaa1e380010004020185d2bc82f8b2ead44d00aea2e2a9010007020285d2bc82f8b2ead44d009ae1f9c50100060202a0bb8ca1c58498a01c009aadc9f70100030201a0bb8ca1c58498a01c0008020101dded90d1a3f7cbf6b301000000000100000000000000000000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000000000703000200010002000300030002000401010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
-const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54011de5bfa2a2e5ba84fca7010f01ff01010000feaffab301030101feb7f9d101000100018088ff1d11000000020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000101000f01010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000600c79ccbb8f4dce7babf010282d3cfe1ba9ddbceac0104e6e0aaf5b6c3cf9c810106dfadccead4cafade8f0108c89eecfe9299dbcfd0010a81b5fd86f9c8e5e12c";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54011ee5bfa2a2e5ba84fca7010f01ff010100000103010880a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c0009020101dded90d1a3f7cbf6b301000000000100000000000000000000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000000000008010003000200010002000300030002000401010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
+const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54011ee5bfa2a2e5ba84fca7010f01ff01010000feaffab30103010280b0fab3010002060180a8a702feb7f9d101000100018088ff1d12000000020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000002010001000f01010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000600edf3e6d0f1cebaf33902ebac82a7c480e8e1840104b1cbaab6e3b3aaa3f00106a0e7f798afb18a813208b9f8b599b3afb6a689010aaabc9e84e4d489a9ba01";
 /// The data hash of the test data of "mortal" (`tools/state_reference.py`).
 const MORTAL_DATA_HASH: u64 = 0xa7f8_11d6_5448_9fe5;
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
@@ -1135,12 +1188,12 @@ const HER_SENESCENCE: i64 = 259_599_181;
 const HIS_DEATH: i64 = 178_014_359;
 const HIS_SENESCENCE: i64 = 207_566_925;
 const MORTAL_YEAR_HASHES: [u64; 6] = [
-    0xbf75_9ee7_4712_ce47,
-    0xac9d_6ceb_ac33_e982,
-    0x8139_3e1b_6eaa_b066,
-    0x8fbd_ea55_4d53_16df,
-    0xd09f_6cc9_2fdb_0f48,
-    0x2cc3_9647_90df_5a81,
+    0x39e6_ea77_1a19_b9ed,
+    0x84c3_a004_44e0_966b,
+    0xf046_a99e_36ca_a5b1,
+    0x3202_298a_f31d_f3a0,
+    0x894c_d97b_332d_7c39,
+    0xba52_26a6_4087_9e2a,
 ];
 
 /// The test data of "mortal".
@@ -1272,7 +1325,7 @@ fn mortal_after_her_death() -> File {
 
 // Scenario "tie" of tools/state_reference.py: her senescence and her accident are due in
 // the same second (test data: accident 0.2, senescence `a` 0.8046949992648321, `b` 0.001).
-const TIE_SAVE_AFTER_START: &str = "53494d4147454e54011debf7b8c7f0b0cbcfb0010f01ff0101000001020104fe87ff1d0002010100fe87ff1d000100018088ff1dc8ddf17000030201a0bb8ca1c58498a01c00c8ddf1700004020185d2bc82f8b2ead44d0005010101f0da979a8fd9f18a9501000000000100000000000000000000000000000402000100020002000301010100ff0108746573743a7469650000010100010f636f72653a646973656173655f61720200010000";
+const TIE_SAVE_AFTER_START: &str = "53494d4147454e54011eebf7b8c7f0b0cbcfb0010f01ff010100000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dc8ddf17000040201a0bb8ca1c58498a01c00c8ddf1700005020185d2bc82f8b2ead44d0006010101f0da979a8fd9f18a95010000000001000000000000000000000000000005010002000100020002000301010100ff0108746573743a7469650000010100010f636f72653a646973656173655f61720200010000";
 /// The data hash of the test data of "tie" (`tools/state_reference.py`).
 const TIE_DATA_HASH: u64 = 0xb09f_2d87_08ee_3beb;
 /// The lineage key of founder 0 of `test:tie` (tools/rng_reference.py).
@@ -1567,9 +1620,9 @@ fn load_checks_the_deaths() {
 // Scenario "sick" of tools/state_reference.py, on test data with accident 0.02 per year,
 // senescence practically off and `test:dummy_disease` with 0.3 per year from birth on for
 // the homozygous, while the switch is on. She has one dummy allele, he has two.
-const SWITCHED_ON_SAVE: &str = "53494d4147454e54011d908ce7acabcfdc946c0f01ff01010100fe87ff1d030108fc8ffe3b0008010200fe8ffe3b0009010100fe8ffe3b000100018088ff1dc6d6ae7e000a0202dd90d4c2cac3a7bbf40100eedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c000b020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d000000000000000804fc87ff1d05fe87ff1d0100068088ff1d03000200030002000702010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100fe87ff1d02010100010100e887ade3c18fb0efea01";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e54011d908ce7acabcfdc946c0f01ff01010100fe9ffc77030104fea7fb9501000f010100fea7fb9501000100018088ff1da695b0d0280004020185d2bc82f8b2ead44d00dc84cbc8823300030201a0bb8ca1c58498a01c0010010101abd4f19caceffaefab01000000000100000000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000010000000000040bfe9ffc770100020002000c01010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010004008fdfcba4a2d7e9e8800102d9f2c6facfacbbe39f01048292fa83a088ea954306ffaef5da84afffeb21";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e54011d908ce7acabcfdc946c0f01ff01010000fea7fb9501030107fcaffab3010011010200feaffab3010012010100feaffab301000100018088ff1deedadbe40d0007020285d2bc82f8b2ead44d00a695b0d0280004020185d2bc82f8b2ead44d00bc87cbdac42a00060202a0bb8ca1c58498a01c00dc84cbc8823300030201a0bb8ca1c58498a01c0013020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f0000000000000000070dfca7fb95010efea7fb9501010003000200030002000f02010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100c4ceaf60020101000005008fdfcba4a2d7e9e8800102d9f2c6facfacbbe39f01048292fa83a088ea954306bce8eae388828eaa2808b7d7b885d7ecd09f8e01";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e54011e908ce7acabcfdc946c0f01ff01010100fe87ff1d0301098088ff1d0002060180a8a702fc8ffe3b0009010200fe8ffe3b000a010100fe8ffe3b000100018088ff1dc6d6ae7e000b0202dd90d4c2cac3a7bbf40100eedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c000c020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d0000000000000009010004fc87ff1d05fe87ff1d0100068088ff1d03000200030002000702010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100fe87ff1d02010100010100f4f2a3d2f7fcebb90d";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e54011e908ce7acabcfdc946c0f01ff01010100fe9ffc7703010580a0fc770002060180a8a702fea7fb95010010010100fea7fb9501000100018088ff1da695b0d0280005020185d2bc82f8b2ead44d00dc84cbc8823300040201a0bb8ca1c58498a01c0011010101abd4f19caceffaefab01000000000100000000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf40100000000000000000100000000000000000100000000000501000bfe9ffc770100020002000c01010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000400d6af92cffaa5d9f9800102d7b5e5a78bc6fda5c001049ff6c3c1df99dcc33f0690febb8fc7afb7e03a";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e54011e908ce7acabcfdc946c0f01ff01010000fea7fb950103010880a8fb95010002060180a8a702fcaffab3010012010200feaffab3010013010100feaffab301000100018088ff1deedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c0014020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f00000000000000000801000dfca7fb95010efea7fb9501010003000200030002000f02010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100c4ceaf6002010100000500d6af92cffaa5d9f9800102d7b5e5a78bc6fda5c001049ff6c3c1df99dcc33f068dec8fd2feb2b5de2e08abb5e3c8d080b2c241";
 /// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
 const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
 /// The `str_key` of `test:dummy_disease`.
@@ -1684,7 +1737,7 @@ fn sick_switched_on() -> File {
     file.sims = vec![(1, sick_she()), (2, sick_he((0.0, Some(Y))))];
     file.next_event_id = 7;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0xeade_c07c_1c6b_43e8)];
+    file.year_hashes = vec![(0, 0x0d73_afe7_7a48_f974)];
     file
 }
 
@@ -1706,10 +1759,10 @@ fn sick_on_after_year_3() -> File {
     file.next_event_id = 12;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0x80d1_a6ba_2492_ef8f),
-        (1, 0x9fc6_ed64_ff51_b959),
-        (2, 0x432b_a842_007e_8902),
-        (3, 0x21d7_fd78_4b5d_577f),
+        (0, 0x80f3_652f_a9e4_97d6),
+        (1, 0xc04b_f630_b4f9_5ad7),
+        (2, 0x3f87_70cd_f830_fb1f),
+        (3, 0x3ac0_dd7c_71ee_ff10),
     ];
     file
 }
@@ -1740,11 +1793,11 @@ fn sick_off_at_due() -> File {
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0x80d1_a6ba_2492_ef8f),
-        (1, 0x9fc6_ed64_ff51_b959),
-        (2, 0x432b_a842_007e_8902),
-        (3, 0x2854_3810_8c7a_b43c),
-        (4, 0x8e3f_4365_70ae_2bb7),
+        (0, 0x80f3_652f_a9e4_97d6),
+        (1, 0xc04b_f630_b4f9_5ad7),
+        (2, 0x3f87_70cd_f830_fb1f),
+        (3, 0x2ebc_d597_ea43_f60d),
+        (4, 0x4184_c805_0918_daab),
     ];
     file
 }
@@ -1888,8 +1941,8 @@ fn load_checks_the_afflictions() {
 // senescence `a` 0.5, `b` 0.001 per year: a woman and two men. `Start` pairs her with the
 // first man; he dies of senescence in year 0, at the start of year 1 `ArrangePartnership`
 // pairs her with the second, and that partnership ends with her death of accident.
-const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e54011dcb8c83fcf58e94edce010f01ff01010000fe87ff1d04030980b0a620000f03010180a8a702cce2e6370004020185d2bc82f8b2ead44d00fa8ffe3b000d010300fe8ffe3b000e010100fe8ffe3b000100018088ff1d9ce4ac3f00030201a0bb8ca1c58498a01c0096e1f7860300090203a0bb8ca1c58498a01c00e2c8e9e2050010050200aea1c18a0a000a020385d2bc82f8b2ead44d0011020101aa90d4c3eeedd09bdb01000000000100000000000000000002000305a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001a2b58906000201038088ff1d0000010203a2b5890600a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000009098088ff1d020007fa87ff1d08fe87ff1d010002000400098088ff1d04000a02010100ff010d746573743a706172746e6572730000030100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010501010f636f72653a646973656173655f6172020100010001fe87ff1d02020103010082a1dc84daddb5f7df01";
-const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e54011dcb8c83fcf58e94edce010f01ff01010000fea7fb9501040304faaffab3010014010300feaffab301000100018088ff1d96e1f7860300090203a0bb8ca1c58498a01c00aea1c18a0a000a020385d2bc82f8b2ead44d0015010305a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001a2b58906000201038088ff1d01cce2e6370000020101cce2e6370085d2bc82f8b2ead44daa90d4c3eeedd09bdb01000000000100000000000000000002000203a2b5890600a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000000040efaa7fb95010100040004000f02010100ff010d746573743a706172746e6572730000030100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010501010f636f72653a646973656173655f6172020100010001fe87ff1d02020103050082a1dc84daddb5f7df01029fe2f2b0e7d2cdf4380496afc7d1c1f4ffe1870106c8ea8183bfa0e2b1690895f09898d1e5cbe20c";
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e54011ecb8c83fcf58e94edce010f01ff01010000fe87ff1d04030a8088ff1d0002060180a8a70280b0a620001003010180a8a702cce2e6370005020185d2bc82f8b2ead44d00fa8ffe3b000e010300fe8ffe3b000f010100fe8ffe3b000100018088ff1dd89aac3e00040201a0bb8ca1c58498a01c00c8c8e28003000a0203a0bb8ca1c58498a01c00e2c8e9e2050011050200aea1c18a0a000b020385d2bc82f8b2ead44d001202018180f1df03aa90d4c3eeedd09bdb0100000000010000000000000000000200038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001fa89fd05000201038088ff1d000001028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000a0100098088ff1d020007fa87ff1d08fe87ff1d010002000400098088ff1d04000a02010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030100e2e2f6a381bc9eddda01";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e54011ecb8c83fcf58e94edce010f01ff01010000fea7fb950104030580a8fb95010002060180a8a702faaffab3010015010300feaffab301000100018088ff1dc8c8e28003000a0203a0bb8ca1c58498a01c00aea1c18a0a000b020385d2bc82f8b2ead44d001601038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001fa89fd05000201038088ff1d01cce2e637000002018180f1df03cce2e6370085d2bc82f8b2ead44daa90d4c3eeedd09bdb0100000000010000000000000000000200028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000501000efaa7fb95010100040004000f02010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030500e2e2f6a381bc9eddda0102b39fc084b480eced070490ccbc9f84a5aa8dc60106a7cfd0bc9fb5ee86a701089addd9ce8ccffaa04e";
 /// The lineage keys of the founders 0 to 2 of `test:partners` (tools/rng_reference.py).
 const PARTNERS_KEYS: [u64; 3] = [
     0xdb37_436e_e875_082a,
@@ -1899,7 +1952,7 @@ const PARTNERS_KEYS: [u64; 3] = [
 /// The data hash of the test data of "partners" (`tools/state_reference.py`).
 const PARTNERS_DATA_HASH: u64 = 0xceda_5077_5f80_c64b;
 /// When each of the three dies of senescence and of accident, if nothing comes first.
-const PARTNER_SENESCENCE: [i64; 3] = [66_427_150, 6_368_593, 409_925_707];
+const PARTNER_SENESCENCE: [i64; 3] = [65_373_868, 6_267_517, 403_460_644];
 const PARTNER_ACCIDENT: [i64; 3] = [58_513_574, 273_890_542, 1_353_197_655];
 /// When she and the first man die.
 const PARTNER_HER_DEATH: i64 = PARTNER_ACCIDENT[0];
@@ -1924,9 +1977,9 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
         founder_tag: "test:partners".to_owned(),
         world_params: params(false),
         founders: vec![
-            (-1, FEMALE, Alleles(WILD, DUMMY)),
-            (-2, MALE, Alleles(DUMMY, DUMMY)),
-            (-3, MALE, Alleles(DUMMY, WILD)),
+            (-16 * Y - 1, FEMALE, Alleles(WILD, DUMMY)),
+            (-16 * Y - 2, MALE, Alleles(DUMMY, DUMMY)),
+            (-16 * Y - 3, MALE, Alleles(DUMMY, WILD)),
         ],
         couples,
     }
@@ -1936,7 +1989,7 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
 fn partner(index: usize) -> Living {
     match index {
         0 => (
-            -1,
+            -16 * Y - 1,
             PARTNERS_KEYS[0],
             FEMALE,
             Genes(FEMALE, WILD, DUMMY),
@@ -1947,7 +2000,7 @@ fn partner(index: usize) -> Living {
             None,
         ),
         1 => (
-            -2,
+            -16 * Y - 2,
             PARTNERS_KEYS[1],
             MALE,
             Genes(MALE, DUMMY, DUMMY),
@@ -1958,7 +2011,7 @@ fn partner(index: usize) -> Living {
             None,
         ),
         _ => (
-            -3,
+            -16 * Y - 3,
             PARTNERS_KEYS[2],
             MALE,
             Genes(MALE, DUMMY, WILD),
@@ -1983,7 +2036,7 @@ fn partners_arranged() -> File {
     file.queue = vec![
         // Her attempts from the first month start after the pairing (the series of the
         // first partnership ended with his death), by the entry of the second partnership;
-        // a girl of one, she tries at chance 0.
+        // she tries at chance 0.2 and never conceives.
         (
             14 * MONTH,
             0,
@@ -2034,7 +2087,7 @@ fn partners_arranged() -> File {
         (-1, 1, partners_start(vec![(0, 1)])),
         (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
     ];
-    file.year_hashes = vec![(0, 0xdfee_d6ed_a097_1082)];
+    file.year_hashes = vec![(0, 0xdaba_79e0_147d_b162)];
     file
 }
 
@@ -2060,11 +2113,11 @@ fn partners_after_year_4() -> File {
     file.plan_refs = vec![(14, 5 * Y - 3), (1, 0), (4, 0), (4, 0)];
     file.next_event_id = 15;
     file.year_hashes = vec![
-        (0, 0xdfee_d6ed_a097_1082),
-        (1, 0x38e9_3696_761c_b11f),
-        (2, 0x87c3_ffa4_1a31_d796),
-        (3, 0x6963_8903_f060_7548),
-        (4, 0x0cc5_2f2d_1306_3815),
+        (0, 0xdaba_79e0_147d_b162),
+        (1, 0x07db_b003_4090_0fb3),
+        (2, 0xc61a_a928_43ef_2610),
+        (3, 0xa70d_b9a9_f794_27a7),
+        (4, 0x4e41_ea78_c9d6_6e9a),
     ];
     file
 }
@@ -2122,6 +2175,55 @@ fn load_checks_the_separations() {
         .map(|(name, _)| *name)
         .collect();
     assert_eq!(accepted, Vec::<&str>::new());
+}
+
+/// One series of market rounds, at the first month start after the clock; a partnership
+/// not formed by an input was formed by the market in a closed round second (ADR-0018
+/// sections 1 and 7).
+#[test]
+fn load_checks_the_market() {
+    let without_input = |f: &mut File| {
+        f.input_log.pop();
+    };
+    let cases: [(&str, Vec<u8>); 5] = [
+        (
+            "no series of rounds",
+            partners_arranged().with(|f| f.round = Round::Missing),
+        ),
+        (
+            "the next round a month late",
+            partners_arranged().with(|f| f.round = Round::At(14 * MONTH)),
+        ),
+        (
+            "two series of rounds",
+            partners_arranged().with(|f| {
+                let second = (14 * MONTH, 0, 99, Payload::MarketRound, Some(MONTH));
+                insert_event(f, second, (1, 0));
+                f.next_event_seq = 100;
+            }),
+        ),
+        (
+            "a partnership without its input in a round second not yet closed",
+            partners_arranged().with(without_input),
+        ),
+        (
+            "a partnership without its input off the month starts",
+            partners_after_year_4().with(|f| {
+                without_input(f);
+                f.partnerships[1].1.2 = Y + 1;
+            }),
+        ),
+    ];
+    let accepted: Vec<&str> = cases
+        .iter()
+        .filter(|(_, bytes)| partners_load_error(bytes) != Some(LoadError::Inconsistent))
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(accepted, Vec::<&str>::new());
+    // The control: the same partnership in the closed round second of month 13, formed
+    // by the market (the loader does not recompute the choice).
+    let by_market = partners_after_year_4().with(without_input);
+    assert_eq!(partners_load_error(&by_market), None);
 }
 
 /// The saves of "partners" from the reference and the test encoder are the same bytes,
@@ -2269,7 +2371,7 @@ fn load_checks_the_partnerships() {
 // senescence practically off and the fertility of the old model (ADR-0017 section 5: the
 // woman's window 18 to 45, 0.25 per attempt, ten months, no pause, wish 40): three founder
 // couples; the first woman conceives in month 5.
-const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011db4a8e1fce0cffc8a7c0f01ff0101000080c8c40b07041580f0eb0d001503030180a8a702fe87ff1d000100018088ff1d8088ff1d00160101008088ff1d00170102008088ff1d00180103008088ff1d00190104008088ff1d001a0105008088ff1d001b01060080d8cd22001c040100c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c001d0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020001f3c89ad6cdbbe183cd01010100000100000001000080c8c40b0015090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001401010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
+const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011eeedfcbb5c4dde088300f01ff0101000080c8c40b07041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020001f3c89ad6cdbbe183cd01010100000100000001000080c8c40b00160100090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001401010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
 /// The lineage keys of the founders 0 to 5 of `test:clan` (tools/rng_reference.py).
 const CLAN_KEYS: [u64; 6] = [
     0xd0a1_58c1_6220_f6dd,
@@ -2280,14 +2382,14 @@ const CLAN_KEYS: [u64; 6] = [
     0xedfa_4535_9651_22f1,
 ];
 /// The data hash of the test data of "clan" (`tools/state_reference.py`).
-const CLAN_DATA_HASH: u64 = 0x7c15_f27e_0f98_5434;
+const CLAN_DATA_HASH: u64 = 0x3011_82ec_46b2_efee;
 /// The child she conceived in month 5, and when each of the six dies of senescence and of
 /// accident, if nothing comes first.
 const CLAN_CHILD: u64 = 0xcd07_85dc_dac6_a473;
 const CLAN_DEATHS: [(i64, i64); 6] = [
     (907_935_702_918, 268_745_466),
     (862_060_665_770, 8_593_994_419),
-    (832_656_345_650, 202_873_442),
+    (832_530_547_250, 202_873_442),
     (933_906_912_654, 2_245_201_776),
     (788_832_578_077, 1_419_704_888),
     (890_777_146_436, 238_752_803),
@@ -2338,7 +2440,7 @@ fn clan_start() -> TestInput {
         founders: vec![
             founder(20, FEMALE, Alleles(WILD, DUMMY)),
             founder(22, MALE, Alleles(DUMMY, WILD)),
-            founder(12, FEMALE, Alleles(DUMMY, DUMMY)),
+            founder(16, FEMALE, Alleles(DUMMY, DUMMY)),
             founder(30, MALE, Alleles(WILD, WILD)),
             founder(46, FEMALE, Alleles(WILD, WILD)),
             founder(46, MALE, Alleles(WILD, WILD)),
@@ -2347,7 +2449,7 @@ fn clan_start() -> TestInput {
     }
 }
 
-/// The founders of "clan" as living sims: the girl has the dummy allele twice.
+/// The founders of "clan" as living sims: the young woman of 16 has the dummy allele twice.
 fn clan_sims() -> Vec<(u64, Living)> {
     let sim = |n: usize, years: i64, sex: u8, genes: Genes| {
         let afflictions = if genes == Genes(sex, DUMMY, DUMMY) {
@@ -2374,7 +2476,7 @@ fn clan_sims() -> Vec<(u64, Living)> {
     vec![
         sim(0, 20, FEMALE, Genes(FEMALE, WILD, DUMMY)),
         sim(1, 22, MALE, Genes(MALE, DUMMY, WILD)),
-        sim(2, 12, FEMALE, Genes(FEMALE, DUMMY, DUMMY)),
+        sim(2, 16, FEMALE, Genes(FEMALE, DUMMY, DUMMY)),
         sim(3, 30, MALE, Genes(MALE, WILD, WILD)),
         sim(4, 46, FEMALE, Genes(FEMALE, WILD, WILD)),
         sim(5, 46, MALE, Genes(MALE, WILD, WILD)),
@@ -2383,8 +2485,9 @@ fn clan_sims() -> Vec<(u64, Living)> {
 
 /// "clan" right after the conception in month 5: the first woman is pregnant with her
 /// first conception (a boy with the dummy allele twice, born in month 15) and her
-/// attempts have ended; the girl's attempts run since month 1 (at chance 0 until her 18th
-/// birthday), the next in month 6; the birthdays of year 0 have planned those of year 1.
+/// attempts have ended; the attempts of the woman of 16 run since month 1 (at chance 0
+/// until her 18th birthday), the next in month 6; the birthdays of year 0 have planned
+/// those of year 1.
 fn clan_conceived() -> File {
     let mut file = File::tiny();
     file.data_hash = CLAN_DATA_HASH;
@@ -2489,7 +2592,7 @@ fn a_save_keeps_the_pregnancy() {
     assert_eq!(clan_load_error(&clan_conceived().bytes()), None);
 }
 
-const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011db4a8e1fce0cffc8a7c0f01ff0101000080d8cd220804188080f524002603010180a8a7028080f524001503030180a8a702fe8ffe3b000100018088ff1d8090fe3b001d0101008090fe3b001e0102008090fe3b001f0103008090fe3b00200104008090fe3b00210105008090fe3b002201060080e0cc400023010700b0d0e5b9010025020785d2bc82f8b2ead44d00c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c00ee8dcd9aeb3300240207a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c00270701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000001010200030101020000020304000003050600000000181a80d8cd2209000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100bef7ae9fc581d5dbee01";
+const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011eeedfcbb5c4dde088300f01ff0101000080d8cd220804198080f5240002060180a8a7028080f524002703010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00280701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000301010200000203040000030506000000001901001a80d8cd2209000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
 /// When the child (sim 7) dies of senescence and of accident, if nothing comes first.
 const CHILD_DEATHS: (i64, i64) = (890_562_519_927, 194_819_096);
 
@@ -2548,7 +2651,7 @@ fn clan_born() -> File {
     file.sims[0].1.6 = 1;
     file.pregnancies.clear();
     file.next_event_id = 27;
-    file.year_hashes = vec![(0, 0xeeb7_540c_53eb_bbbe)];
+    file.year_hashes = vec![(0, 0x1341_2887_bc1b_485e)];
     file
 }
 
@@ -2563,10 +2666,10 @@ fn a_save_keeps_the_child() {
 // Two variants of "clan" with a pause and with a wish (tools/state_reference.py): the
 // pause of 12 months, and the wish always 1 (`fertility_wish_shape` [0, 1]); each saved
 // right after the first birth in month 15.
-const CLAN_PAUSE_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011d89bc8ca6e7c79fa2f3010f01ff0101000080d8cd220804188080f524001503030180a8a702fe8ffe3b000100018088ff1d8090fe3b001d0101008090fe3b001e0102008090fe3b001f0103008090fe3b00200104008090fe3b00210105008090fe3b002201060080b8a53e002603010180a8a70280e0cc400023010700b0d0e5b9010025020785d2bc82f8b2ead44d00c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c00ee8dcd9aeb3300240207a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c00270701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000301010200000203040000030506000000001809000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100bef7ae9fc581d5dbee01";
-const CLAN_WISH_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011ddfe1fdada99beab7240f01ff0101000080d8cd220804178080f524001503030180a8a702fe8ffe3b000100018088ff1d8090fe3b001d0101008090fe3b001e0102008090fe3b001f0103008090fe3b00200104008090fe3b00210105008090fe3b002201060080e0cc400023010700b0d0e5b9010025020785d2bc82f8b2ead44d00c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c00ee8dcd9aeb3300240207a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c00260701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000301010200000203040000030506000000001709000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100bef7ae9fc581d5dbee01";
-const CLAN_PAUSE_DATA_HASH: u64 = 0xf344_7e3e_74c3_1e09;
-const CLAN_WISH_DATA_HASH: u64 = 0x246f_a8da_95bf_70df;
+const CLAN_PAUSE_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011edfcf91aa80c4c8a44c0f01ff0101000080d8cd220804198080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080b8a53e002703010180a8a70280e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00280701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000101020003010102000002030400000305060000000019010009000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
+const CLAN_WISH_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011ed3ab83b9e2ca8db8e2010f01ff0101000080d8cd220804188080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00270701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000101020003010102000002030400000305060000000018010009000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
+const CLAN_PAUSE_DATA_HASH: u64 = 0x4c49_2220_0544_67df;
+const CLAN_WISH_DATA_HASH: u64 = 0xe270_3656_2720_d5d3;
 
 /// "clan" with one value of its life course data changed.
 fn clan_data_with(change: impl FnOnce(&mut serde_json::Value)) -> Data {
@@ -2718,9 +2821,9 @@ fn load_checks_the_pause_and_the_wish() {
 // (identical 0.3, fraternal 0.7). The first conception in month 5 gives fraternal twins, two
 // boys: the first with the key of clan's first child, the second with its own key and its
 // own zygote (both wild alleles).
-const TWINS_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011d8c86afa193fac8ab5c0f01ff0101000080c8c40b07041580f0eb0d001503030180a8a702fe87ff1d000100018088ff1d8088ff1d00160101008088ff1d00170102008088ff1d00180103008088ff1d00190104008088ff1d001a0105008088ff1d001b01060080d8cd22001c040100c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c001d0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020002f3c89ad6cdbbe183cd010101000001000000010000ab8392d4eefb94f8c601010000000000000001000080c8c40b0015090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001701010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
-const TWINS_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011d8c86afa193fac8ab5c0f01ff0101000080d8cd2209041b8080f524002903010180a8a7028080f524001503030180a8a702fe8ffe3b000100018088ff1d8090fe3b001d0101008090fe3b001e0102008090fe3b001f0103008090fe3b00200104008090fe3b00210105008090fe3b002201060080e0cc40002301070080e0cc400026010800b0d0e5b9010025020785d2bc82f8b2ead44d00c4e9bcc101000a020385d2bc82f8b2ead44d00c6d0d8e3010013020685d2bc82f8b2ead44d00f4eba580020004020185d2bc82f8b2ead44d00828fc7ad020028020885d2bc82f8b2ead44d00f0e8f7c90a0010020585d2bc82f8b2ead44d00e0bd98dd10000d020485d2bc82f8b2ead44d00e6caef83400007020285d2bc82f8b2ead44d00baa8afa1f52d000f0205a0bb8ca1c58498a01c00e4a8fce2bb3000090203a0bb8ca1c58498a01c00bc9987fe8e3200270208a0bb8ca1c58498a01c00d4ee8eed963200060202a0bb8ca1c58498a01c00ee8dcd9aeb3300240207a0bb8ca1c58498a01c0088d1a4e7ec3300120206a0bb8ca1c58498a01c008cfefad2ec3400030201a0bb8ca1c58498a01c009cd68493ae36000c0204a0bb8ca1c58498a01c002a0801ff9fedd704dded83919698d6d0d0010000000001000000000000000102010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003ffdff4e70285b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000880d8cd22ab8392d4eefb94f8c601010000000000000001000000000000010102000301010200000203040000030506000000001b1d80d8cd2209000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221e80d8cd221d80d8cd220400070002001e80d8cd22060005000300060004001e80d8cd2203001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100ffdff4e70200010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100f7b3bf80e4a08de90d";
-const TWINS_DATA_HASH: u64 = 0x5c57_23d1_342b_c30c;
+const TWINS_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011ed7d8f7f7f6f1ee880a0f01ff0101000080c8c40b07041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020002f3c89ad6cdbbe183cd010101000001000000010000ab8392d4eefb94f8c601010000000000000001000080c8c40b00160100090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001701010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
+const TWINS_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011ed7d8f7f7f6f1ee880a0f01ff0101000080d8cd2209041c8080f5240002060180a8a7028080f524002a03010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc40002401070080e0cc400027010800b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00828fc7ad020029020885d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00bc9987fe8e3200280208a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c002b0801ff9fedd704dded83919698d6d0d0010000000001000000000000000102010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000880d8cd22ab8392d4eefb94f8c601010000000000000001000000000000010102000301010200000203040000030506000000001c01001d80d8cd2209000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221e80d8cd221d80d8cd220400070002001e80d8cd22060005000300060004001e80d8cd2203001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100fda1e88b819f88cc1c";
+const TWINS_DATA_HASH: u64 = 0x0a11_bb8f_6efd_ec57;
 /// The second twin of the first conception.
 const SECOND_TWIN: u64 = 0xc6f0_53de_ea84_81ab;
 /// When the second twin dies of senescence and of accident, if nothing comes first.
@@ -2816,7 +2919,7 @@ fn twins_born_in(order: [usize; 2]) -> File {
     file.sims[0].1.6 = 2;
     file.pregnancies.clear();
     file.next_event_id = 31;
-    file.year_hashes = vec![(0, 0x0dd2_3506_400f_d9f7)];
+    file.year_hashes = vec![(0, 0x1c98_20f8_117a_10fd)];
     file
 }
 
