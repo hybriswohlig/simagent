@@ -8,8 +8,10 @@ The scenario (format 3, design note of the fertility in the world, section 1): s
 founder tag `test:dummy`, the switch off, neither causes of death nor a fertility of its
 own; it runs on the repository data (the CLI embeds them): senescence and accident with
 the rates of the genetics specification 7.2 (ADR-0017 section 2), its six hereditary
-diseases (ADR-0017 section 3), and the fertility of 5.6 and 11.3 (ADR-0017 section 4: the
-curves, the adult rate 0.20, the wish, the pause of 12 months, ten months of pregnancy).
+diseases (ADR-0017 section 3), the fertility of 5.6 and 11.3 (ADR-0017 section 4: the
+curves, the adult rate 0.20, the wish, the pause of 12 months, ten months of pregnancy),
+the separation (ADR-0018 section 3) and the partner market of 11.2 (ADR-0018 section 1,
+design note of the market) with the values of the data.
 Six founders born 30 years (sim 1), 25 years and 100 days (sim 2), one second (sim 3), 20
 years (sim 4) and 25 years (sims 5 and 6) before the start, thirty years (long enough for
 the first death, so that the goldens cover every event and log kind). Sim 1 is female
@@ -81,12 +83,34 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   her series) has the budget about 0.259: it is due at 940 727 538 s, after about 29.91
   years (month 388.9), and runs, in the run and in the fork: the partnership ends by
   separation, one entry `core:separated` (subjects sims 5 and 6, causes the plan and the
-  draw). Sim 5 is not pregnant then and has no series (her wish is reached); both stay
-  single (no partner market yet).
+  draw). Sim 5 is not pregnant then and has no series (her wish is reached); both are
+  single again.
+- The partner market (genetics specification 11.2, design note of the market): `Start`
+  plans the series of the rounds right after the year end series (insertion number 2,
+  every later one of `Start` one higher), the first at the start of month 1, then every
+  month (389 rounds in the thirty years). A round runs only for the single women of 16 or
+  more; up to month 224 there are none (sims 1 and 5 are partnered, every child younger).
+  Sim 8 (sim 1's daughter, born in month 17) is 16 in month 225: from that round on she
+  is drawn (MARKET_SEARCH, `c` 0.01179, `m` 25.23, `w` 7, under 18 times `ρ` 0.0918, so
+  about 0.0005 a round before 18 and 0.007 at 18) and searches first in month 260, at
+  18.7. The single men of 16 or more then are sims 3 and 4 (founders), 7 and 9 (sim 5's
+  sons) and her brother sim 10 (sims 11 and 12 are under 16; sims 2 and 6 are partnered).
+  In the order of PAIRING_RANK the list is 7, 3, 4, 9, 10; her brother (φ = 1/4) is
+  skipped. With `U = −0.02 · (Δa − 4.69)² + G` she chooses sim 7 (19.1 years old, `G`
+  about 2.68, `U` about 2.31): partnership 3 at month 260, its entry `core:partnered` with
+  the causes the plan of the round (entry 1 at 0), the rule `core:partner_market` and the
+  draw PAIRING_NOISE (her key, 260, his key); her `partnerships` goes to 1, her series
+  begins in month 261 and its separation is planned (budget about 2.128, due about 245.5
+  years later, after the run). With the chance 0.2 (both ramps over) she conceives in
+  month 270 and bears sim 13 (a son, one child) in month 280; her wish is 1, so no series
+  follows. After the separation of sim 5 (month 388.9) the round of month 389 draws her
+  search at 54.9 (chance about 1.5e-6), which says no. Nobody else ever searches; no man
+  under 16 is ever in a list.
 - The golden save is taken on day 100 of year 3: nobody has died, sims 7 to 10 are born;
   sim 1 is not pregnant (births 2) and her series waits for month 54, twelve months after
   the birth in month 42; sim 5 is not pregnant (births 2) and her series waits for month
-  53, twelve months after the birth in month 41; both separations wait in the queue.
+  53, twelve months after the birth in month 41; both separations wait in the queue, and
+  the round series waits for month 43.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
 input `ForkOverride` with the stamp T_5 - 1 s. It acts at T_5 before every event of
@@ -97,13 +121,17 @@ that second and writes one entry `core:param_changed` with the input (sequence n
 after about 42.9 years of exposure, at about 77.9 years of age; sim 3 about 87.0 years
 after the start. Sim 1 dies of senescence first, in year 27 as in the run, which cancels
 her death of the disease; sim 3's lies beyond the thirty years. The fertility is the
-same: the switch changes no chance. Sims 4 to 6 and the children of sims 5 and 6 have no
-affliction, and partnership 2 separates in the same second as in the run. So the fork
-has one entry more than the run (the override), and its year hashes differ from year 5
-on (the switch and the exposures are state, the planned deaths are in the queue). After
-the fork point the fork runs every event kind (birthdays, sim 1's attempts, her
-conception in month 74 and birth in month 84, the year ends, the separation of
-partnership 2 in year 29, sim 1's death in year 27).
+same: the switch changes no chance, and the market reads no disease: sim 8 is paired
+with sim 7 in month 260 as in the run (sim 8 has one dummy allele, sim 7 none, so sim 13
+carries at most one and has no affliction). Sims 4 to 6 and the children of sims 5 and 6
+have no affliction, and partnership 2 separates in the same second as in the run. So the
+fork has one entry more than the run (the override), and its year hashes differ from
+year 5 on (the switch and the exposures are state, the planned deaths are in the
+queue). After the fork point the fork runs every event kind (birthdays, sim 1's
+attempts, her conception in month 74 and birth in month 84, the year ends, the
+separation of partnership 2 in year 29, sim 1's death in year 27, the rounds of the
+market), and the fork's log has every log kind (the run's all but `core:param_changed`);
+both are checked here (the coverage of ADR-0003 6.3).
 
 Writes tests/golden/dummy.json, tests/golden/dummy.save and tests/golden/dummy_fork.json
 (protected list, ADR-0000). Prints the pedigree values of the CLI export test as well.
@@ -113,6 +141,7 @@ Usage: .venv/bin/python tools/golden_reference.py [--check]
 import json
 import math
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype
@@ -123,16 +152,18 @@ from world_reference import (
     DEATH_KIND,
     ENDED_BY_DEATH,
     ENDED_BY_SEPARATION,
+    MARKET_ROUND_KIND,
     MONTH,
     REPOSITORY,
     YEAR,
     World,
     budget_of,
+    check_market,
     check_separations,
     copies_at,
     death_key,
 )
-from rng_reference import chacha_key, child_key, founder_key, str_key, unit, unit_open0, words
+from rng_reference import chacha_key, child_key, founder_key, rank, str_key, unit, unit_open, unit_open0, words
 
 ROOT = Path(__file__).resolve().parent.parent
 DAY = 86_400
@@ -266,14 +297,14 @@ def second_chance(month: int) -> float:
     return ADULT_RATE * (1.0 if a <= 30.0 else (50.0 - a) / 20.0)
 
 
-def hand_conceptions(her: int, him: int, chance, wish: int) -> list:
+def hand_conceptions(her: int, him: int, chance, wish: int, first: int = 1) -> list:
     """(month of the conception, month of the birth) of a woman with one partner (design
-    note sections 4 to 6): her series begins in month 1, an attempt per month succeeds if
-    the unit of its draw (subject her key, occasion the month, detail his key) is below
-    `chance(month)`; the birth ten months later; with fewer births than her wish the next
-    series twelve months after the birth (the pause); up to the end of the thirty
+    note sections 4 to 6): her series begins in month `first`, an attempt per month
+    succeeds if the unit of its draw (subject her key, occasion the month, detail his key)
+    is below `chance(month)`; the birth ten months later; with fewer births than her wish
+    the next series twelve months after the birth (the pause); up to the end of the thirty
     years."""
-    found, month = [], 1
+    found, month = [], first
     while month < YEARS * 13 and len(found) < wish:
         if unit(words(chacha_key(SEED, 3, her, month, him))[0]) < chance(month):
             found.append((month, month + 10))
@@ -323,6 +354,72 @@ assert FORK_YEAR * YEAR < SECOND_SEPARATION_DUE <= YEARS * YEAR - 1
 assert 29 * YEAR < SECOND_SEPARATION_DUE < DUE[(5, SENESCENCE)] and SECOND_SEPARATION_DUE < DUE[(6, SENESCENCE)]
 
 
+# The market by hand (genetics specification 11.2; design note of the market, section 3)
+# with Python's math, straight from the draws (tags 19 MARKET_SEARCH, 5 PAIRING_RANK, 21
+# PAIRING_NOISE), not from the model. Sim 1's daughter (sim 8, born in month 17, her key
+# that of the first child of sims 1 and 2) is single and in the market age from month 225
+# (her 16th birthday) on; in a round `n` she searches if `u < p` with `p = c · e^(−z²/2)`,
+# `z = (a − m) / 7`, below 1, times `ρ` before 18. The first `n` where she does: her
+# candidates are the single men of 16 or more then, by their rank (sims 3 and 4, sims 7 and
+# 9 of sim 5, her brother sim 10; sims 11 and 12 are under 16, sims 2 and 6 partnered); her
+# brother (φ = 1/4 [W2.7b]) is skipped; `U = −0.02 · (Δa − 4.69)² + G`, `G = −ln(−ln(u))`.
+MARKET_C, MARKET_M, MARKET_RHO, MARKET_GAP = 0.01179, 25.23, 0.0918, 4.69
+assert (REPOSITORY.market_height, REPOSITORY.market_center, REPOSITORY.market_minor) == (MARKET_C, MARKET_M, MARKET_RHO)
+assert REPOSITORY.pairing_gap == MARKET_GAP and REPOSITORY.pairing_weight_age == 0.02 and REPOSITORY.market_width == 7.0
+DAUGHTER, DAUGHTER_KEY = 8, child_key(HER_KEY, HIS_KEY, 0, 0)
+DAUGHTER_BORN = HAND_CONCEPTIONS[0][1] * MONTH
+assert DAUGHTER_BORN + 16 * YEAR == 225 * MONTH
+
+
+def hand_search_chance(age_seconds: int) -> float:
+    z = (age_seconds / 31_449_600.0 - MARKET_M) / 7.0
+    return min(1.0, MARKET_C * math.exp(-0.5 * z * z)) * (MARKET_RHO if age_seconds < 18 * YEAR else 1.0)
+
+
+def searches(key: int, born: int, n: int) -> bool:
+    return unit(words(chacha_key(SEED, 19, key, n, 0))[0]) < hand_search_chance(n * MONTH - born)
+
+
+DAUGHTER_SEARCH = next(n for n in range(225, YEARS * 13) if searches(DAUGHTER_KEY, DAUGHTER_BORN, n))
+assert DAUGHTER_SEARCH == 260 and (DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN) >= 18 * YEAR
+# The men by SimId and their keys and births (sims 7, 9 and 11 of sim 5, 10 and 12 of sim 1).
+MEN = {
+    3: (founder_key(TAG, 2), BORN[2]),
+    4: (founder_key(TAG, 3), BORN[3]),
+    7: (child_key(SECOND_KEY, SECOND_HIS_KEY, 0, 0), SECOND_CONCEPTIONS[0][1] * MONTH),
+    9: (child_key(SECOND_KEY, SECOND_HIS_KEY, 1, 0), SECOND_CONCEPTIONS[1][1] * MONTH),
+    10: (child_key(HER_KEY, HIS_KEY, 1, 0), HAND_CONCEPTIONS[1][1] * MONTH),
+}
+assert all(DAUGHTER_SEARCH * MONTH - born >= 16 * YEAR for _, born in MEN.values())
+assert DAUGHTER_SEARCH * MONTH - SECOND_CONCEPTIONS[2][1] * MONTH < 16 * YEAR and DAUGHTER_SEARCH * MONTH - HAND_CONCEPTIONS[2][1] * MONTH < 16 * YEAR
+DAUGHTER_RANKED = sorted(MEN, key=lambda man: (rank(SEED, 5, DAUGHTER_KEY, DAUGHTER_SEARCH, MEN[man][0]), MEN[man][0]))
+DAUGHTER_CANDIDATES = [man for man in DAUGHTER_RANKED if man != 10]
+
+
+def hand_utility(man: int) -> float:
+    key, born = MEN[man]
+    gap = (DAUGHTER_BORN - born) / 31_449_600.0
+    g = -math.log(-math.log(unit_open(words(chacha_key(SEED, 21, DAUGHTER_KEY, DAUGHTER_SEARCH, key))[0])))
+    return -0.02 * (gap - MARKET_GAP) ** 2 + g
+
+
+DAUGHTER_UTILITIES = {man: hand_utility(man) for man in DAUGHTER_CANDIDATES}
+DAUGHTER_PARTNER = max(DAUGHTER_CANDIDATES, key=DAUGHTER_UTILITIES.get)
+assert DAUGHTER_PARTNER == 7
+# Her conceptions with him by hand: at 18.7 her ramp is long over (her menarche is at most
+# `θ + 3` = 15.3) and her decline begins at 30, his ramp is over (19 years): chance 0.2;
+# her series from the month after the pairing, the pause of 12 months, her wish.
+DAUGHTER_WISH = hand_wish(unit(words(chacha_key(SEED, 16, DAUGHTER_KEY, 0, 0))[0]))
+DAUGHTER_CONCEPTIONS = hand_conceptions(DAUGHTER_KEY, MEN[7][0], lambda month: ADULT_RATE, DAUGHTER_WISH, DAUGHTER_SEARCH + 1)
+assert all((month * MONTH - DAUGHTER_BORN) / 31_449_600.0 < 30.0 for month, _ in DAUGHTER_CONCEPTIONS)
+assert DAUGHTER_CONCEPTIONS == [(270, 280)]
+DAUGHTER_MULTIPLE = unit(words(chacha_key(SEED, 17, child_key(DAUGHTER_KEY, MEN[7][0], 0, 0), 0, 0))[0])
+assert DAUGHTER_MULTIPLE >= TWINS_RATES[0] + TWINS_RATES[1]
+# Sim 5 is single again after her separation (month 388.9), at 54.9: the round of month 389
+# draws her search, which says no; nobody else is a single woman of 16 or more.
+assert not searches(SECOND_KEY, BORN[4], 389)
+
+
 def dummy_world() -> World:
     return World(SEED, TAG, False, FOUNDERS, COUPLES)
 
@@ -350,9 +447,11 @@ def run(fork: bool) -> World:
     return world
 
 
-# SimIds by birth: sim 5's children (months 12, 41, 73) and sim 1's (17, 42, 84) alternate.
+# SimIds by birth: sim 5's children (months 12, 41, 73) and sim 1's (17, 42, 84) alternate;
+# sim 8's son (month 280) is sim 13.
 CHILDREN = [8, 10, 12]
 SECOND_CHILDREN = [7, 9, 11]
+THIRD_CHILDREN = [13]
 CHILD_MONTHS = [birth for _, birth in HAND_CONCEPTIONS]
 SECOND_CHILD_MONTHS = [birth for _, birth in SECOND_CONCEPTIONS]
 assert sorted(zip(CHILD_MONTHS + SECOND_CHILD_MONTHS, CHILDREN + SECOND_CHILDREN)) == sorted(
@@ -362,6 +461,7 @@ FIRST = dummy_world()
 assert all(FIRST.cause_due(sim, code) == DUE[(sim, code)] for sim, code in DUE)
 assert FIRST.pending_separation(1) == SEPARATION_DUE and FIRST.pending_separation(2) == SECOND_SEPARATION_DUE
 assert [FIRST.sims[sim][8] for sim in range(1, 7)] == [1, 0, 0, 0, 1, 0]
+check_market(FIRST)
 PARENT = run(fork=False)
 FORK = run(fork=True)
 assert len(PARENT.year_hashes) == YEARS and len(FORK.year_hashes) == YEARS
@@ -375,21 +475,36 @@ assert len(FORK.log) == len(PARENT.log) + 1, "the override; the same death"
 HER_DEATH = DUE[(1, SENESCENCE)]
 for world in (PARENT, FORK):
     assert sorted(world.archive) == [1] and world.archive[1][1:3] == (HER_DEATH, str_key(SENESCENCE))
-    assert sorted(world.sims) == list(range(2, 13))
+    assert sorted(world.sims) == list(range(2, 14))
     # Her death comes before the separation (year 49) and cancels it; partnership 2
-    # separates in year 29, in the run and in the fork.
+    # separates in year 29, in the run and in the fork. The market pairs sim 8 with sim 7
+    # in month 260 (partnership 3); its separation lies beyond the run.
     assert world.partnerships == {
         1: [1, 2, 0, (HER_DEATH, ENDED_BY_DEATH)],
         2: [5, 6, 0, (SECOND_SEPARATION_DUE, ENDED_BY_SEPARATION)],
+        3: [DAUGHTER, DAUGHTER_PARTNER, DAUGHTER_SEARCH * MONTH, None],
     }
     assert HER_DEATH < SEPARATION_DUE and world.pending_separation(1) is None
     assert [(t, number) for t, number, *_ in world.separations] == [(SECOND_SEPARATION_DUE, 2)]
-    assert all(world.sims[sim][8] == 0 for sim in world.sims if sim != 5) and world.sims[5][8] == 1
+    assert all(world.sims[sim][8] == 0 for sim in world.sims if sim not in (5, 8))
+    assert world.sims[5][8] == 1 and world.sims[8][8] == 1
     check_separations(world)
+    check_market(world)
+    # The rounds (cadence, test rule 6): every month, 13 a year; sim 8's choice as by hand.
+    assert [kind for _, kind in world.ran].count(MARKET_ROUND_KIND) == YEARS * 13 - 1
+    choices = [(record["n"], choice) for record in world.rounds for choice in record["choices"]]
+    assert [(n, choice["woman"]) for n, choice in choices] == [(DAUGHTER_SEARCH, DAUGHTER)]
+    ((_, choice),) = choices
+    assert choice["walked"] == [(man, Fraction(1, 4) if man == 10 else Fraction(0), man == 10) for man in DAUGHTER_RANKED]
+    assert [man for man, *_ in choice["candidates"]] == DAUGHTER_CANDIDATES and choice["outcome"] == "paired"
+    assert all(abs(u - DAUGHTER_UTILITIES[man]) <= 1e-12 for man, _, _, _, u in choice["candidates"])
+    assert [record["n"] for record in world.rounds] == list(range(225, DAUGHTER_SEARCH + 1)) + [389]
 assert [PARENT.sims[sim][0] for sim in CHILDREN] == [month * MONTH for month in CHILD_MONTHS]
 assert [PARENT.sims[sim][0] for sim in SECOND_CHILDREN] == [month * MONTH for month in SECOND_CHILD_MONTHS]
 assert [PARENT.sims[sim][7] for sim in CHILDREN] == [(1, 2, number) for number in range(3)]
 assert [PARENT.sims[sim][7] for sim in SECOND_CHILDREN] == [(5, 6, number) for number in range(3)]
+assert [PARENT.sims[sim][0] for sim in THIRD_CHILDREN] == [birth * MONTH for _, birth in DAUGHTER_CONCEPTIONS]
+assert [PARENT.sims[sim][7] for sim in THIRD_CHILDREN] == [(DAUGHTER, DAUGHTER_PARTNER, 0)]
 assert [PARENT.sims[sim][2] for sim in CHILDREN] == [FEMALE, MALE, MALE]
 assert [PARENT.sims[sim][2] for sim in SECOND_CHILDREN] == [MALE, MALE, MALE]
 # The conceptions, births and wishes as by hand, the chance of every attempt too; sim 1's
@@ -402,7 +517,12 @@ ATTEMPT_MONTHS = list(range(1, 8)) + list(range(29, 33)) + list(range(54, 75))
 SECOND_ATTEMPT_MONTHS = list(range(1, 3)) + list(range(24, 32)) + list(range(53, 64))
 HER_ATTEMPTS = [attempt for attempt in PARENT.attempts if attempt[1] == 1]
 SECOND_ATTEMPTS = [attempt for attempt in PARENT.attempts if attempt[1] == 5]
-assert len(HER_ATTEMPTS) + len(SECOND_ATTEMPTS) == len(PARENT.attempts)
+THIRD_ATTEMPTS = [attempt for attempt in PARENT.attempts if attempt[1] == DAUGHTER]
+assert len(HER_ATTEMPTS) + len(SECOND_ATTEMPTS) + len(THIRD_ATTEMPTS) == len(PARENT.attempts)
+# Sim 8's attempts: from the month after the pairing to her conception, from twelve months
+# after the birth on if her wish allows, each with the chance 0.2.
+assert [t // MONTH for t, _, _, _, success in THIRD_ATTEMPTS if success] == [c for c, _ in DAUGHTER_CONCEPTIONS]
+assert all(p == ADULT_RATE for _, _, _, p, _ in THIRD_ATTEMPTS) and THIRD_ATTEMPTS[0][0] == (DAUGHTER_SEARCH + 1) * MONTH
 assert [t // MONTH for t, *_ in HER_ATTEMPTS] == ATTEMPT_MONTHS
 assert [t // MONTH for t, *_ in SECOND_ATTEMPTS] == SECOND_ATTEMPT_MONTHS
 assert [t // MONTH for t, _, _, _, success in HER_ATTEMPTS if success] == [c for c, _ in HAND_CONCEPTIONS]
@@ -430,13 +550,31 @@ FORK_AR_DEATHS = ar_deaths(FORK)
 assert [sim for sim, *_ in FORK_AR_DEATHS] == LETHAL
 assert all(plan == (FORK_OVERRIDE_ENTRY, FORK_YEAR * YEAR) for _, _, plan in FORK_AR_DEATHS)
 assert all(time > YEARS * YEAR for _, time, _ in FORK_AR_DEATHS)
+# The rounds of the fork are those of the run (the switch changes no draw of the market);
+# only the EventId of the pairing's entry is one more (the override).
+assert [
+    (r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in FORK.rounds
+] == [(r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in PARENT.rounds]
+
+# Coverage (ADR-0003 6.3): after the fork point the fork runs every event kind
+# (tests/golden/event_codes.txt: year_end 1 to market_round 7), and the fork writes every
+# log kind (tests/golden/log_codes.txt: payloads 0 to 9; the run all but
+# `core:param_changed`).
+EVENT_KINDS, LOG_KINDS = set(range(1, 8)), set(range(10))
+assert {kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR} == EVENT_KINDS
+assert set(FORK.entry_kinds) == LOG_KINDS and set(PARENT.entry_kinds) == LOG_KINDS - {3}
 
 
 def golden_save() -> bytes:
     """The save on day 100 of year 3: nobody pregnant, sim 1's series pending in month 54,
-    sim 5's in month 53, both separations pending."""
+    sim 5's in month 53, both separations pending, the next round at the start of month 43
+    (no single woman of 16 or more yet)."""
     world = dummy_world()
     world.advance(SAVE_AT)
+    assert not world.rounds and world.next_event_id == len(world.log) + 1
+    (series,) = [event for event in world.queue if event.kind == MARKET_ROUND_KIND]
+    assert series.time == 43 * MONTH and SAVE_AT < 43 * MONTH
+    check_market(world)
     assert not world.archive and sorted(world.sims) == list(range(1, 11))
     assert not world.pregnancies and world.sims[1][5:7] == [2, 2] and world.sims[5][5:7] == [2, 2]
     assert world.pending_series(1) == (CHILD_MONTHS[1] + 12) * MONTH
@@ -525,6 +663,17 @@ if __name__ == "__main__":
     )
     print(f"fertility: children's wishes {[(sim, PARENT.wish_of(sim)) for sim in CHILDREN + SECOND_CHILDREN if PARENT.sims[sim][2] == FEMALE]}")
     print(f"fork: death of sim 1 of core:disease_ar due at {HER_AR_DEATH} (age {HER_AR_AGE!r}), planned by entry {FORK_OVERRIDE_ENTRY}")
+    print(f"market: rounds {[kind for _, kind in PARENT.ran].count(MARKET_ROUND_KIND)} in the run; rounds with a single woman of 16 or more {[r['n'] for r in PARENT.rounds][:3]} ... {[r['n'] for r in PARENT.rounds][-3:]}")
+    print(f"market: sim 8 searches first in round {DAUGHTER_SEARCH} at {(DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN) / YEAR:.4f} years, chance {hand_search_chance(DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN)!r}")
+    print(f"market: her list by rank {DAUGHTER_RANKED} (sim 10 her brother skipped), utilities by hand {DAUGHTER_UTILITIES}")
+    for record in PARENT.rounds:
+        for choice in record["choices"]:
+            print(f"market: round {record['n']} woman {choice['woman']} walked {[(m, str(phi), skipped) for m, phi, skipped in choice['walked']]} candidates (man, gap, phi, G, U) {choice['candidates']} chosen {choice['chosen']} {choice['outcome']} partnership {choice.get('partnership')} entry {choice.get('entry')}")
+    plan = [plan for plan in PARENT.separation_plans if plan[0] == 3][0]
+    print(f"market: partnership 3 separation (number, k, budget, due) {plan} ({plan[3] / YEAR:.4f} years)")
+    print(f"market: sim 8 wish {DAUGHTER_WISH} conceptions {DAUGHTER_CONCEPTIONS} attempts {[(t // MONTH, ok) for t, _, _, _, ok in THIRD_ATTEMPTS]}")
+    print(f"market: sim 5 at round 389 chance {hand_search_chance(389 * MONTH - BORN[4])!r}")
+    print(f"coverage: event kinds after the fork point {sorted({kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR})}, log kinds fork {sorted(set(FORK.entry_kinds))} run {sorted(set(PARENT.entry_kinds))}")
     print(f"fork: deaths of core:disease_ar (sim, time, plan) {FORK_AR_DEATHS}")
     for row in pedigree_rows():
         print(row)

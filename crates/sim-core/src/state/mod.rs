@@ -7,6 +7,7 @@ pub(crate) mod census;
 pub(crate) mod conception;
 pub(crate) mod death;
 pub(crate) mod disease;
+pub(crate) mod market;
 pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod start;
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
 use crate::ids::{PartnershipId, SimId};
+use crate::kinship::KinshipCache;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
 use crate::time::{EventHandle, SimTime, YEAR};
@@ -161,6 +163,12 @@ pub(crate) struct DomainState {
     /// dies can be cancelled. Not part of the projection: the queue holds the events,
     /// loading builds the index again.
     pub(crate) pending: BTreeMap<(SimId, Slot), EventHandle>,
+    /// The open partnership of each sim in one (ADR-0018 section 2). Not part of the
+    /// projection: loading builds it again from the partnerships.
+    pub(crate) open: BTreeMap<SimId, PartnershipId>,
+    /// The values of φ computed so far (ADR-0018 section 2). Not part of the projection
+    /// and not saved: a cached value is the value computed without it.
+    pub(crate) kinship: KinshipCache,
 }
 
 /// What a pending event of a sim is. A sim has at most one of each.
@@ -188,6 +196,8 @@ impl DomainState {
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),
             pending: BTreeMap::new(),
+            open: BTreeMap::new(),
+            kinship: KinshipCache::new(),
         }
     }
 }

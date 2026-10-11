@@ -10,7 +10,7 @@ use crate::input::{Founder, InputRejected, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::params::NutritionYear;
-use crate::time::{SimDuration, SimTime, YEAR, year_start};
+use crate::time::{MONTH, SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
 
@@ -27,7 +27,10 @@ pub(crate) fn check_start(
         start.founders.iter().any(|f| f.born >= SimTime::START),
     )
     .or_else(|| alleles_rejection(&start.founders, data))
-    .or_else(|| partnership::couples_rejection(&start.founders, &start.couples))
+    .or_else(|| {
+        let age = super::market::market_age(data);
+        partnership::couples_rejection(&start.founders, &start.couples, age)
+    })
     .or_else(|| nutrition_rejection(&start.world_params.nutrition));
     match rejection {
         Some(code) => Err(InputRejected { code }),
@@ -119,6 +122,14 @@ pub(crate) fn apply_start(
         year_start(1) - SimDuration::from_secs(1),
         YEAR,
         EventPayload::YearEnd,
+        started,
+    );
+    // The rounds of the partner market, from the first month start after the start
+    // (ADR-0018 section 1).
+    ctx.schedule_periodic(
+        SimTime::START + MONTH,
+        MONTH,
+        EventPayload::MarketRound,
         started,
     );
     let mut ids = Vec::with_capacity(start.founders.len());

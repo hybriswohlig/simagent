@@ -15,19 +15,26 @@ What the model knows:
   list `diseases` and, for a scenario that gave a fertility in `Start` before, the
   fertility in the form `window` (design note of the fertility in the world, section 8:
   the rate, the window, the months of pregnancy, no pause, the wish always 40, no
-  twins; and no separation, design note of the separation, section 7), and for the
-  acceptance scenario the market off and no separation (ADR-0017 section 5); the save
-  names the hash of the data a world runs on. The map lengths, the sex ratio, the map in
+  twins; no separation, design note of the separation, section 7; and the market off,
+  `c` = 0, design note of the market, section 7), and for the acceptance scenario the
+  market off and no separation (ADR-0017 section 5); `life_test_data` changes values of
+  the life course data only (the scenario "market"); the save names the hash of the data
+  a world runs on. The map lengths, the sex ratio, the map in
   the form of the meiosis reference and the mutation rates come from the documents too.
 - `Start` (world seed, founder tag, world parameters, founders, couples; no causes of
   death and no fertility any more, ADR-0017 sections 2 and 4) writes `core:started`,
   plans the year end series (insertion number 1, first at the last second of year 0,
-  period one year) and then per founder, in list order: the creation entry, the first
-  birthday (the first anniversary at or after the start) and the deaths in the order of
-  its causes.
+  period one year), the series of the market rounds (insertion number 2, first at MONTH,
+  period MONTH; design note of the market, section 2) and then per founder, in list
+  order: the creation entry, the first birthday (the first anniversary at or after the
+  start) and the deaths in the order of its causes. A couple with a founder under 16 at
+  the start (`0 − born < 16 · YEAR`) rejects `Start` with `partner_too_young`
+  (`start_rejection`).
 - Events run in the order of their key: time, phase (0 domain, 1 observer), micro step,
-  class (general 500, death 900, observer 1000), subject (kind, ID), kind (year end 1,
-  birthday 2, death 3), insertion number.
+  class (birth 200, general 500, death 900, observer 1000), subject (kind: world 0, sim 1,
+  partnership 2; ID), kind (year end 1, birthday 2, death 3, attempt 4, birth 5,
+  separation 6, market round 7), insertion number. In one second: births, the round
+  (500, the world), the attempts (500, sims), separations (500, partnerships), deaths.
 - A birthday writes `core:birthday` and plans the next one a year later. The year end
   observer sees the clock one second before its own second, with its next occurrence
   already in the queue.
@@ -89,8 +96,12 @@ What the model knows:
   keeps the switch as it is changes nothing but the log.
 - Couples: after the founders, `Start` forms a partnership per couple of its list (a
   woman and a man by their places among the founders); `ArrangePartnership` forms one
-  between two living sims. Each gets the next PartnershipId and one entry
-  `core:partnered` (subjects the woman and the man). A death ends the open partnership
+  between two living sims, unless it is rejected (`arrange_rejection`, in this order:
+  `unknown_sim`, `sim_not_alive`, `partners_of_wrong_sex`, `already_partnered`, each for
+  both, then `partner_too_young` (either under 16 in the second the input acts, the stamp
+  plus one) and `partners_too_closely_related` (`φ ≥ 1/8`); a rejected input changes
+  nothing and takes no sequence number). Each gets the next PartnershipId and one entry
+  `core:partnered` (subjects the woman and the man; cause the input). A death ends the open partnership
   of the sim: it keeps the second of the death and the reason `Death`
   (`ended: Option<Ending { at, by }>`, design note of the separation, section 2).
 - Separation (ADR-0018 section 3, design note of the separation): `λ` is
@@ -108,6 +119,27 @@ What the model knows:
   writes `core:separated { partnership }` (subjects the woman and the man, causes the plan
   and the draw). The death of either partner cancels the pending separation; one due in
   the second of a death comes first (class 500 before 900).
+- The partner market (genetics specification 11.2, ADR-0018 section 1, design note of the
+  market): the values of the life course data (`core:market_age` 16, `c`, `m`, the width
+  `w` 7, `ρ`, `k` 12, `w_a`, `μ_a`, the limit 1/8, the odds of a cousin 10). A round at
+  `t` (`n = t / MONTH`): the living men without an open partnership with `t − born ≥ 16
+  · YEAR`, held for the round; every such woman searches iff `bernoulli(p)` at
+  (MARKET_SEARCH = 19, her key, `n`, 0) with `p = s_f` (`ρ · s_f` while `t − born < 18 ·
+  YEAR`), `s_f = min(1, c · exp(((−0.5) · z) · z))`, `z = (a − m) / w`, `a` her age in
+  years (`search_chance`); the searchers in the order of `(rank(MARKET_ORDER = 20,
+  WORLD, n, her key), her key)`; each in turn walks the men by `(rank(PAIRING_RANK = 5,
+  her key, n, his key), his key)`, skipping `φ ≥ 1/8`, until `k` are kept; the utility
+  `U = ((−(w_a · (d · d))) − (K · φ)) + G` with `d = Δa − μ_a`, `Δa` his age minus hers,
+  `K = 16 · ln(odds)`, `G = gumbel` of (PAIRING_NOISE = 21, her key, `n`, his key); the
+  largest `U` wins, a tie the earlier in the list; if he has no open partnership now the
+  partnership forms at `t` as any pairing (entry `core:partnered` with the causes the
+  plan of the round, the rule `core:partner_market` and the draw; her series from the
+  next month start; the separation), else nothing. `φ` is the kinship of the genetics
+  specification 2.7 over the pedigree of every sim, living or archived (the recursion of
+  `spec_reference.Pedigree`), exact. Each search draw keeps `DRAW_MARGIN` from its chance
+  and the best utility `UTILITY_MARGIN` from every other, so the pinned libm of the core
+  makes the same choices. `market=False` (a switch of this reference only) plans no
+  round: the null twin.
 - Fertility (genetics specification 5.6 and 11.3, ADR-0017 section 4, design note of the
   fertility in the world): the data give the form of the curves (`puberty` or `window`),
   the adult rate, the pause after a birth and the months of pregnancy (whole months),
@@ -170,15 +202,17 @@ What the model knows:
   birth, planned by the creation entry of child 0. The wish is checked only when a
   series is planned, so twins of the last birth may exceed it by one.
 
-Usage: .venv/bin/python tools/world_reference.py (prints the data hashes and the checks
-of the step hazard; the other tools use the model)
+Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
+the step hazard and pure values of the market; the other tools use the model)
 """
 
 import copy
 import itertools
 import math
+from fractions import Fraction
 from pathlib import Path
 
+import mpmath
 import xxhash
 
 import data_reference
@@ -212,7 +246,9 @@ from rng_reference import (
     child_key,
     exponential_reference,
     founder_key,
+    gumbel_reference,
     normal_reference,
+    rank,
     str_key,
     unit,
     words,
@@ -221,6 +257,16 @@ from rng_reference import (
 from kat_reference import exp_reference, ln_reference
 
 import meiosis_reference
+
+# The kinship of the genetics specification 2.7 (the recursion of tools/spec_reference.py
+# over a pedigree, exact as fractions). That module sets the precision of mpmath to 40
+# digits when it is imported; the correctly rounded exp and ln here need the 60 of
+# tools/kat_reference.py, so the precision is put back (Pedigree reads no mpmath).
+_PRECISION = mpmath.mp.dps
+from spec_reference import Pedigree  # noqa: E402
+
+mpmath.mp.dps = _PRECISION
+assert mpmath.mp.dps == 60
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -240,10 +286,24 @@ FERTILITY_MENARCHE, FERTILITY_WISH = 15, 16
 MULTIPLE_BIRTH = 17
 # New with the separation (design note of the separation, section 1; ADR-0018 section 3).
 SEPARATION_BUDGET = 18
+# The partner market (design note of the market, section 1; genetics specification 11.7):
+# PAIRING_RANK is old, the other three are new.
+PAIRING_RANK = 5
+MARKET_SEARCH, MARKET_ORDER, PAIRING_NOISE = 19, 20, 21
+# SubjectKey::WORLD, the subject of the worldwide rank MARKET_ORDER (ADR-0018 section 1).
+WORLD_KEY = 0
+# The rule a pairing of the market names as its cause (design note of the market, section
+# 3, step 6).
+PARTNER_MARKET_RULE = "core:partner_market"
+# The margin the best utility keeps from every other of the list, so that the last bits
+# of `gumbel` (2^-45 against the reference, ADR-0018 section 6) and of `ln` cannot change
+# the choice.
+UTILITY_MARGIN = 1e-9
 
-# Design note of the separation, section 2.
+# The projection is that of the separation (design note of the separation, section 2): the
+# round is a queue entry only. The core version goes up with the market.
 PROJECTION_VERSION = 15
-CORE_VERSION = 29
+CORE_VERSION = 30
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -257,7 +317,24 @@ BIRTH, GENERAL, DEATH, OBSERVER = 200, 500, 900, 1000
 YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND, ATTEMPT_KIND, BIRTH_KIND = 1, 2, 3, 4, 5
 # New with the separation (design note of the separation, section 3).
 SEPARATION_KIND = 6
+# New with the market (design note of the market, section 2): a periodic world event.
+MARKET_ROUND_KIND = 7
+# The queue payload of the round: the next variant after Separation (5), without fields.
+MARKET_ROUND_PAYLOAD = variant(6)
 WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
+# Reject codes of the inputs (tests/golden/log_codes.txt); the two of the market come at
+# the end of the list (design note of the market, section 4).
+UNKNOWN_FOUNDER, UNKNOWN_SIM, SIM_NOT_ALIVE, PARTNERS_OF_WRONG_SEX, ALREADY_PARTNERED = 13, 9, 10, 11, 12
+PARTNER_TOO_YOUNG, PARTNERS_TOO_CLOSELY_RELATED = 21, 22
+REJECT_NAMES = {
+    UNKNOWN_SIM: "unknown_sim",
+    SIM_NOT_ALIVE: "sim_not_alive",
+    PARTNERS_OF_WRONG_SEX: "partners_of_wrong_sex",
+    ALREADY_PARTNERED: "already_partnered",
+    UNKNOWN_FOUNDER: "unknown_founder",
+    PARTNER_TOO_YOUNG: "partner_too_young",
+    PARTNERS_TOO_CLOSELY_RELATED: "partners_too_closely_related",
+}
 # EndedBy (design note of the separation, section 2): the variant index after the time.
 ENDED_BY_DEATH, ENDED_BY_SEPARATION = 0, 1
 # The causes of death every sim has before its diseases, in this order (design note of
@@ -371,6 +448,15 @@ def whole_months(entry) -> int:
     return int(value)
 
 
+def whole_number(entry, unit: str) -> int:
+    """A number of the life course data the market counts whole (the market age in years,
+    the number of candidates): its value as an integer."""
+    assert entry["unit"] == unit, entry
+    value = number(entry)
+    assert value >= 0.0 and value.is_integer(), f"{value} is no whole number"
+    return int(value)
+
+
 class Data:
     """The definitions a world runs on: the life course data, the calibration and the
     genome map as documents (parsed JSON with their texts, in the order of their data
@@ -399,6 +485,26 @@ class Data:
         # a world without separation.
         self.separation_rate = number(life["values"]["core:separation_rate"])
         assert math.isfinite(self.separation_rate) and self.separation_rate >= 0.0, self.separation_rate
+        # The market (design note of the market, section 1; genetics specification 11.2):
+        # the market age in whole years, `c`, `m`, the width `w`, `ρ`, `k`, `w_a`, `μ_a`, the
+        # limit of the kinship and the odds of a cousin.
+        market = life["values"]
+        self.market_age = whole_number(market["core:market_age"], "year")
+        self.market_height = number(market["core:market_search_height_female"])
+        self.market_center = number(market["core:market_search_center_female"])
+        self.market_width = number(market["core:market_search_width"])
+        self.market_minor = number(market["core:market_search_factor_minor"])
+        self.market_candidates = whole_number(market["core:market_candidates"], "count")
+        self.pairing_weight_age = number(market["core:pairing_weight_age"])
+        self.pairing_gap = number(market["core:pairing_age_gap_preferred"])
+        self.kinship_limit = number(market["core:pairing_kinship_limit"])
+        self.cousin_odds = number(market["core:pairing_cousin_odds"])
+        assert self.market_age == 16 and self.kinship_limit == 0.125, "the note fixes 16 years and 1/8"
+        assert math.isfinite(self.market_height) and self.market_height >= 0.0, self.market_height
+        assert math.isfinite(self.market_center) and self.market_width > 0.0 and math.isfinite(self.market_width)
+        assert 0.0 < self.market_minor <= 1.0 and self.market_candidates >= 1
+        assert math.isfinite(self.pairing_weight_age) and self.pairing_weight_age >= 0.0
+        assert math.isfinite(self.pairing_gap) and math.isfinite(self.cousin_odds) and self.cousin_odds >= 1.0
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
         values = stripped["values"]
@@ -490,8 +596,10 @@ def window_fertility(demography: dict, calibration: dict, fertility: tuple) -> N
     `a`, until `b` years, `k` months) as the old `Start.fertility`; the form `window` from
     `a` until `b`, `core:fertility_adult_rate` = `r`, `core:pregnancy_length` = `k`,
     `core:fertility_pause` 0, the wish shape of `TEST_WISH` + 1 weights all 0 but the last
-    1 (the tilt stays), both rates of twins 0, and `core:separation_rate` 0 (the old model
-    knows no separation, ADR-0017 section 5; design note of the separation, section 7)."""
+    1 (the tilt stays), both rates of twins 0, `core:separation_rate` 0 (the old model
+    knows no separation, ADR-0017 section 5; design note of the separation, section 7) and
+    `core:market_search_height_female` (`c`) 0: no woman ever searches, the round runs and
+    writes nothing (design note of the market, section 7)."""
     per_month, start, until, months = fertility
     assert per_month > 0.0
     calibration["fertility"] = {
@@ -504,6 +612,7 @@ def window_fertility(demography: dict, calibration: dict, fertility: tuple) -> N
     values["core:twins_identical"]["value"] = 0.0
     values["core:twins_fraternal"]["value"] = 0.0
     values["core:separation_rate"]["value"] = 0.0
+    values["core:market_search_height_female"]["value"] = 0.0
     demography["fertility_wish_shape"] = [test_value(0.0, "fraction") for _ in range(TEST_WISH)] + [
         test_value(1.0, "fraction")
     ]
@@ -542,6 +651,17 @@ def death_test_data(
         demography["values"][code]["value"] = value
     if wish_shape is not None:
         demography["fertility_wish_shape"] = [test_value(float(weight), "fraction") for weight in wish_shape]
+    return Data(demography, calibration, genome_map)
+
+
+def life_test_data(life_values: dict) -> Data:
+    """The repository's data with values of the life course data changed (`life_values`, a
+    dict of code to value) and nothing else: the rates of death, the diseases and the
+    fertility stay those of data/ (the scenario "market", design note of the market,
+    section 7)."""
+    demography, calibration, genome_map = data_reference.documents(ROOT / "data")
+    for code, value in life_values.items():
+        demography["values"][code]["value"] = value
     return Data(demography, calibration, genome_map)
 
 
@@ -940,6 +1060,55 @@ WISH_SHAPE_SPEC = [0.10, 0.15, 0.40, 0.25, 0.10]
 check_fertility_spec(REPOSITORY.fertility, REPOSITORY.puberty_curve, WISH_SHAPE_SPEC)
 
 
+# ---------------------------------------------------------------------------------------
+# The partner market (genetics specification 11.2; design note of the market, section 3):
+# pure functions of the data, ages as `(t − born).as_years()`.
+
+
+def search_chance(age_seconds: int, data: Data) -> float:
+    """The chance that a single woman of `age_seconds` (at least the market age) searches in
+    a round (step 2): `a = as_years(age)`, `z = (a − m) / w`, `s = c · exp(((−0.5) · z) · z)`
+    with the correctly rounded exp, `s_f = s` if `s < 1` else 1, times `ρ` while she is
+    under 18 (integer seconds)."""
+    a = as_years(age_seconds)
+    z = (a - data.market_center) / data.market_width
+    s = data.market_height * exp_reference(((-0.5) * z) * z)[1]
+    s_f = s if s < 1.0 else 1.0
+    return data.market_minor * s_f if age_seconds < 18 * YEAR else s_f
+
+
+def kinship_weight(data: Data) -> float:
+    """`K = 16 · ln(cousin_odds)` with the correctly rounded ln (step 5)."""
+    return 16.0 * ln_reference(data.cousin_odds)[1]
+
+
+def utility(gap: float, phi: float, noise: float, data: Data) -> float:
+    """The utility of a candidate without similarity terms (step 5): with `d = Δa − μ_a`,
+    `U = ((−(w_a · (d · d))) − (K · φ)) + G`."""
+    d = gap - data.pairing_gap
+    return ((-(data.pairing_weight_age * (d * d))) - (kinship_weight(data) * phi)) + noise
+
+
+def ranked(seed: int, tag: int, subject: int, n: int, keys: list) -> list:
+    """The keys ascending by `(rank(tag, subject, n, key), key)` (ADR-0001 section 5,
+    `rank = absorb(RANK, 0, [seed, tag, subject, n, key])`)."""
+    return sorted(keys, key=lambda key: (rank(seed, tag, subject, n, key), key))
+
+
+def noise_of(seed: int, her_key: int, n: int, his_key: int) -> float:
+    """`G = gumbel(w)` of the draw PAIRING_NOISE (her key, `n`, his key): `0 − ln(0 −
+    ln(unit_open(w)))` with the correctly rounded ln (tools/rng_reference.py)."""
+    return gumbel_reference(words(chacha_key(seed, PAIRING_NOISE, her_key, n, his_key))[0])[1]
+
+
+# Spec 11.2 by hand: a cousin's penalty is ln(10) = 2.303 [W11.2a], so with the same rest a
+# stranger is chosen ten times as often; at φ = 1/32 the odds are √10 = 3.162 [W11.2b].
+assert abs(kinship_weight(REPOSITORY) / 16.0 - math.log(10.0)) <= 1e-15
+assert abs(utility(3.0, 0.0625, 0.0, REPOSITORY) - utility(3.0, 0.0, 0.0, REPOSITORY) + math.log(10.0)) <= 1e-14
+assert abs(math.exp(kinship_weight(REPOSITORY) / 32.0) - 3.1622776601683795) <= 1e-14
+assert search_chance(18 * YEAR, life_test_data({"core:market_search_height_female": 0.0})) == 0.0
+
+
 def budget_of(seed: int, key: int, code: str) -> float:
     """The budget `B` of the cause or disease with this code for this lineage key."""
     return exponential_reference(words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), 0))[0], 1.0)[1]
@@ -1056,11 +1225,32 @@ class World:
     (father, conception number, children as [(lineage key, sex, genome)] in index order,
     conceived)."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True):
         self.seed = seed
         self.tag = tag
         self.switch = switch
         self.data = REPOSITORY if data is None else data
+        # `market` False is a switch of this reference only, not of the core: no round is
+        # planned (the null twin of the market, design note of the market, section 7).
+        self.market = market
+        rejection = start_rejection(founders, couples, self.data)
+        assert rejection is None, f"Start is rejected: {REJECT_NAMES[rejection]}"
+        # The pedigree of every sim, living or archived, for the kinship (spec 2.7): not
+        # state, it follows from the parents; a cache of its values, keyed by the pair.
+        self.pedigree = Pedigree()
+        self.kinships = {}
+        # Every event that ran (time, kind), for the coverage of the goldens; every round
+        # with at least one single woman in the market age (its record, see
+        # `_market_round`); the census at each year end (`census`); not state.
+        self.ran = []
+        self.rounds = []
+        self.census_hashes = []
+        # The payload variant of every log entry, in log order (the coverage of the log
+        # kinds); not state.
+        self.entry_kinds = []
+        # The accepted inputs ArrangePartnership as (the second they acted, woman, man), and
+        # the couples of Start as SimIds: what a loader reads from the input log.
+        self.input_pairings = [(0, woman + 1, man + 1) for woman, man in couples]
         self.closed = -1
         self.queue = []
         self.next_insertion = 1
@@ -1094,7 +1284,7 @@ class World:
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
         for woman, man in couples:
-            self._partner(woman + 1, man + 1, variant(2, varint(1)), 0)
+            self._partner(woman + 1, man + 1, [variant(2, varint(1))], 0)
 
     # ------------------------------------------------------------------ afflictions
 
@@ -1189,13 +1379,19 @@ class World:
 
     # ------------------------------------------------------------------ inputs
 
-    def _partner(self, woman: int, man: int, cause: bytes, now: int) -> None:
+    def _partner(self, woman: int, man: int, causes: list, now: int) -> int:
+        """A partnership of the woman and the man at `now`, its entry `core:partnered` with
+        `causes` (the input; or the plan of the round, the rule and the draw)."""
         assert self.sims[woman][2] == FEMALE and self.sims[man][2] == MALE
         assert self.partner_of(woman) is None and self.open_partnership(man) is None
+        # Partnerships never begin below the market age, never between close kin (design
+        # note of the market, section 4; ADR-0018 section 5).
+        assert all(now - self.sims[sim][0] >= self.data.market_age * YEAR for sim in (woman, man))
+        assert self.kinship(woman, man) < Fraction(self.data.kinship_limit)
         number_ = self.next_partnership_id
         self.next_partnership_id += 1
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
-        entry = self._entry(now, subjects, [cause], variant(5, varint(number_)))
+        entry = self._entry(now, subjects, causes, variant(5, varint(number_)))
         self.partnerships[number_] = [woman, man, now, None]
         # Her counter (design note of the separation, section 3): `k` before, then one
         # more.
@@ -1205,6 +1401,7 @@ class World:
         # section 4), then the separation, after her attempts.
         self._plan_series(woman, month_start_after(now), entry, now)
         self._plan_separation(number_, k, entry, now)
+        return entry
 
     # ------------------------------------------------------------------ separation
 
@@ -1285,6 +1482,145 @@ class World:
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
         entry = self._entry(now, subjects, [plan, draw], variant(9, varint(number_)))
         self.separations.append((now, number_, entry, event.plan, key))
+
+    # ------------------------------------------------------------------ market
+
+    def kinship(self, x: int, y: int) -> Fraction:
+        """`φ(x, y)` of the genetics specification 2.7 over all known ancestors, living or
+        archived (missing parents count 0, founders are unrelated): the recursion of
+        `spec_reference.Pedigree` on the SimIds, the later SimId the younger. Exact."""
+        pair = (min(x, y), max(x, y))
+        if pair not in self.kinships:
+            self.kinships[pair] = self.pedigree.phi(x, y)
+        return self.kinships[pair]
+
+    def phi_float(self, x: int, y: int) -> float:
+        """φ as f64: a sum of powers of two, exact."""
+        phi = self.kinship(x, y)
+        value = float(phi)
+        assert Fraction(value) == phi
+        return value
+
+    def born_of(self, sim: int) -> int:
+        return self.sims[sim][0] if sim in self.sims else self.archive[sim][0]
+
+    def sex_of(self, sim: int) -> bytes:
+        return self.sims[sim][2] if sim in self.sims else self.archive[sim][4]
+
+    def _market_round(self, now: int, plan: bytes) -> None:
+        """A round at `now` (design note of the market, section 3), `n = now / MONTH`: the
+        single men in the market age, held for the round; the single women in it who
+        search (MARKET_SEARCH); their order (MARKET_ORDER); per searcher in turn her
+        candidates (PAIRING_RANK, skipping `φ ≥ 1/8`, up to `k`), the utility and the
+        choice; a pairing if the chosen man has no open partnership now."""
+        data = self.data
+        n = now // MONTH
+        assert now == n * MONTH and n >= 1
+        adult = data.market_age * YEAR
+
+        def single_in_market(sim: int, sex: bytes) -> bool:
+            born, _, sim_sex = self.sims[sim][:3]
+            return sim_sex == sex and self.open_partnership(sim) is None and now - born >= adult
+
+        men = [sim for sim in sorted(self.sims) if single_in_market(sim, MALE)]
+        women = [sim for sim in sorted(self.sims) if single_in_market(sim, FEMALE)]
+        if not women:
+            return
+        considered, searchers = [], []
+        for woman in women:
+            age = now - self.sims[woman][0]
+            p = search_chance(age, data)
+            word = words(chacha_key(self.seed, MARKET_SEARCH, self.key_of(woman), n, 0))[0]
+            u = unit(word)
+            # A chance from exp keeps the margin; 0 and 1 cannot be moved by libm.
+            assert p in (0.0, 1.0) or abs(u - p) > DRAW_MARGIN, f"a search hangs on the last bits of {p!r}"
+            searched = bernoulli(word, p)
+            considered.append((woman, age, p, u, searched, age < 18 * YEAR))
+            if searched:
+                searchers.append(woman)
+        order = ranked(self.seed, MARKET_ORDER, WORLD_KEY, n, [self.key_of(woman) for woman in searchers])
+        by_key = {self.key_of(woman): woman for woman in searchers}
+        boys = [sim for sim in sorted(self.sims) if self.sims[sim][2] == MALE and now - self.sims[sim][0] < adult]
+        record = {"t": now, "n": n, "men": men, "considered": considered, "boys": boys, "choices": []}
+        self.rounds.append(record)
+        for key in order:
+            record["choices"].append(self._choose(by_key[key], men, now, n, plan))
+
+    def _choose(self, woman: int, men: list, now: int, n: int, plan: bytes) -> dict:
+        """Her candidates, the utilities and her choice (design note of the market, section
+        3, steps 4 to 6); the record of it."""
+        data = self.data
+        her_key, her_born = self.key_of(woman), self.sims[woman][0]
+        by_key = {self.key_of(man): man for man in men}
+        walked, kept = [], []
+        for key in ranked(self.seed, PAIRING_RANK, her_key, n, list(by_key)):
+            if len(kept) == data.market_candidates:
+                break
+            man = by_key[key]
+            phi = self.kinship(woman, man)
+            skipped = phi >= Fraction(data.kinship_limit)
+            walked.append((man, phi, skipped))
+            if not skipped:
+                kept.append(man)
+        record = {"woman": woman, "walked": walked, "candidates": [], "chosen": None, "outcome": "no candidate"}
+        if not kept:
+            return record
+        best = None
+        for index, man in enumerate(kept):
+            gap = as_years(now - self.sims[man][0]) - as_years(now - her_born)
+            phi = self.phi_float(woman, man)
+            g = noise_of(self.seed, her_key, n, self.key_of(man))
+            u = utility(gap, phi, g, data)
+            assert math.isfinite(u), "market.utility"
+            record["candidates"].append((man, gap, phi, g, u))
+            # The largest; on a tie the earlier in the list (the smaller rank).
+            if best is None or u > record["candidates"][best][4]:
+                best = index
+        top = record["candidates"][best][4]
+        assert all(abs(top - u) > UTILITY_MARGIN for i, (*_, u) in enumerate(record["candidates"]) if i != best), (
+            "a choice hangs on the last bits of the utility"
+        )
+        man = kept[best]
+        record["chosen"] = man
+        if self.open_partnership(man) is not None:
+            # Chosen earlier in this round: no second try (11.2).
+            record["outcome"] = "taken"
+            return record
+        draw = variant(4, varint(PAIRING_NOISE), varint(her_key), varint(n), varint(self.key_of(man)))
+        record["outcome"] = "paired"
+        record["partnership"] = self.next_partnership_id
+        record["entry"] = self._partner(woman, man, [plan, variant(3, string(PARTNER_MARKET_RULE)), draw], now)
+        return record
+
+    def arrange_rejection(self, woman: int, man: int):
+        """The reject code of `ArrangePartnership { woman, man }` submitted now, or None
+        (ADR-0004 section 4; design note of the market, section 4): the existing checks in
+        their order, each for both (unknown, not alive, the sexes, already partnered), then
+        `PartnerTooYoung` (either under the market age in the second the input acts, the
+        stamp plus one), then `PartnersTooCloselyRelated` (`φ ≥ 1/8`)."""
+        acts = self.closed + 1
+        pair = (woman, man)
+        if any(sim not in self.sims and sim not in self.archive for sim in pair):
+            return UNKNOWN_SIM
+        if any(sim not in self.sims for sim in pair):
+            return SIM_NOT_ALIVE
+        if self.sims[woman][2] != FEMALE or self.sims[man][2] != MALE:
+            return PARTNERS_OF_WRONG_SEX
+        if any(self.open_partnership(sim) is not None for sim in pair):
+            return ALREADY_PARTNERED
+        if any(acts - self.sims[sim][0] < self.data.market_age * YEAR for sim in pair):
+            return PARTNER_TOO_YOUNG
+        if self.kinship(woman, man) >= Fraction(self.data.kinship_limit):
+            return PARTNERS_TOO_CLOSELY_RELATED
+        return None
+
+    def try_arrange(self, woman: int, man: int):
+        """`ArrangePartnership` submitted now: its reject code (nothing changes, no sequence
+        number, ADR-0004 section 4), or None when it is accepted and applied."""
+        code = self.arrange_rejection(woman, man)
+        if code is None:
+            self.arrange(woman, man)
+        return code
 
     # ------------------------------------------------------------------ fertility
 
@@ -1446,6 +1782,7 @@ class World:
             entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
             afflictions = self.afflictions_of(key, sex, person, now)
             self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0]
+            self.pedigree.add(child, mother, father)
             born.append((child, entry))
         # Then per child in index order its first birthday and its deaths, by its own
         # creation entry.
@@ -1460,16 +1797,25 @@ class World:
         self._plan_series(mother, month_start_at_or_after(now + pause), born[0][1], now)
 
     def arrange(self, woman: int, man: int) -> None:
-        """`ArrangePartnership` of two living sims, submitted right now."""
+        """`ArrangePartnership` of two living sims, submitted right now; it must be
+        accepted (`try_arrange` for one that may be rejected)."""
+        code = self.arrange_rejection(woman, man)
+        assert code is None, f"ArrangePartnership is rejected: {REJECT_NAMES[code]}"
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(2, varint(woman), varint(man)))
-        self._partner(woman, man, variant(2, varint(sequence)), self.closed + 1)
+        self.input_pairings.append((self.closed + 1, woman, man))
+        self._partner(woman, man, [variant(2, varint(sequence))], self.closed + 1)
 
     def _start(self, founders: list) -> None:
         now = 0
         by_input = variant(2, varint(1))
         started = self._entry(now, [], [by_input], variant(0, varint(len(founders))))
         self._schedule(YEAR - 1, OBSERVER, (WORLD_SUBJECT, 0), YEAR_END_KIND, variant(0), YEAR, started, now)
+        # The rounds of the market, right after the year end series (seq 2): the first at the
+        # first month start after the start, then every month (design note of the market,
+        # section 2).
+        if self.market:
+            self._schedule(month_start_after(now), GENERAL, (WORLD_SUBJECT, 0), MARKET_ROUND_KIND, MARKET_ROUND_PAYLOAD, MONTH, started, now)
         for index, (born, sex, genes) in enumerate(founders):
             sim = self.next_sim_id
             self.next_sim_id += 1
@@ -1480,6 +1826,7 @@ class World:
             # A founder's origin is the start (B19).
             afflictions = self.afflictions_of(key, sex, person, now)
             self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0]
+            self.pedigree.add(sim)
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
@@ -1520,6 +1867,8 @@ class World:
     def _entry(self, time: int, subjects: list, causes: list, payload: bytes) -> int:
         event_id = self.next_event_id
         self.next_event_id += 1
+        assert payload[0] < 0x80
+        self.entry_kinds.append(payload[0])
         self.log.append(varint(event_id) + signed(time) + seq(subjects) + seq(causes) + payload)
         return event_id
 
@@ -1541,11 +1890,18 @@ class World:
             self.queue.remove(event)
             now = event.time
             plan = variant(1, varint(event.plan[0]), signed(event.plan[1]))
+            self.ran.append((now, event.kind))
             if event.kind == YEAR_END_KIND:
                 # The next occurrence is in the queue before the observer looks.
                 event.time += event.period
                 self.queue.append(event)
                 self.year_hashes.append(hash64(self.projection(now - 1)))
+                self.census_hashes.append(hash64(self.census(now - 1)))
+            elif event.kind == MARKET_ROUND_KIND:
+                # Periodic: the next round is in the queue before this one runs.
+                event.time += event.period
+                self.queue.append(event)
+                self._market_round(now, plan)
             elif event.kind == ATTEMPT_KIND:
                 event.time += event.period
                 self.queue.append(event)
@@ -1650,6 +2006,17 @@ class World:
             + seq(archive)
         )
 
+    def census(self, closed=None) -> bytes:
+        """The census of the null twin (test rule 8; design note of the market, section 7):
+        the projection without the queue and its next insertion number, so the domain
+        state only (seed, switch, clock, the counters of SimId and PartnershipId, sims,
+        partnerships, pregnancies, archive). A round that changes nothing changes none of
+        it."""
+        projection = self.projection(closed)
+        queue = seq([event.queue_bytes() for event in self.ordered_queue()]) + varint(self.next_insertion)
+        assert projection.count(queue) == 1
+        return projection.replace(queue, b"")
+
     def state_hash(self) -> int:
         return hash64(self.projection())
 
@@ -1668,6 +2035,75 @@ class World:
             + seq(self.inputs)
             + seq(years)
         )
+
+
+def start_rejection(founders: list, couples, data: Data):
+    """The reject code of the couples of `Start`, or None (design note of the market,
+    section 4): a couple naming no founder (`unknown_founder`), of the wrong sexes, a
+    founder in two couples (`already_partnered`), then a founder of a couple under the
+    market age at the start (second 0: `0 − born < 16 · YEAR`, `partner_too_young`).
+    Founders are unrelated (φ 0)."""
+    paired = set()
+    for woman, man in couples:
+        if not (0 <= woman < len(founders) and 0 <= man < len(founders)):
+            return UNKNOWN_FOUNDER
+        if founders[woman][1] != FEMALE or founders[man][1] != MALE:
+            return PARTNERS_OF_WRONG_SEX
+        if woman in paired or man in paired:
+            return ALREADY_PARTNERED
+        paired.update((woman, man))
+    for woman, man in couples:
+        if any(0 - founders[index][0] < data.market_age * YEAR for index in (woman, man)):
+            return PARTNER_TOO_YOUNG
+    return None
+
+
+def check_market(world: World) -> None:
+    """The load checks of the market (design note of the market, section 6; ADR-0018
+    section 7; ADR-0006 section 5) on the state of `world`, as the loader would see its save
+    with its input log; a broken one is `Inconsistent` there, an assertion here:
+
+    - exactly one `market_round` series: period MONTH, at the first month start after the
+      clock (after the start: `max(clock, 0)`, so MONTH right after Start), subject the
+      world, planned by `core:started` at 0;
+    - each partnership was formed by an accepted input (a couple of Start at 0, an
+      ArrangePartnership in the second after its stamp) or in a round second (`formed` a
+      positive multiple of MONTH) by the market; in one second the partnerships of inputs
+      come before those of the round (PartnershipId order);
+    - both were single then: an earlier partnership of either ended before `formed`;
+    - both were at least 16 at `formed`, and `φ < 1/8`."""
+    rounds = [event for event in world.queue if event.kind == MARKET_ROUND_KIND]
+    if world.market:
+        assert len(rounds) == 1, rounds
+        (series,) = rounds
+        assert series.time == month_start_after(max(world.closed, 0)) and series.period == MONTH
+        assert series.subject == (WORLD_SUBJECT, 0) and series.cls == GENERAL and series.payload == MARKET_ROUND_PAYLOAD
+        assert series.plan == (1, 0)
+    else:
+        assert not rounds
+    pending = list(world.input_pairings)
+    origin = {}
+    for number_, (woman, man, formed, _) in sorted(world.partnerships.items()):
+        if pending and pending[0] == (formed, woman, man):
+            pending.pop(0)
+            origin[number_] = "input"
+        else:
+            assert formed > 0 and formed % MONTH == 0, (number_, formed)
+            origin[number_] = "market"
+        assert all(formed - world.born_of(sim) >= world.data.market_age * YEAR for sim in (woman, man)), number_
+        assert world.kinship(woman, man) < Fraction(world.data.kinship_limit), number_
+        assert world.sex_of(woman) == FEMALE and world.sex_of(man) == MALE
+    assert not pending, pending
+    numbers = sorted(world.partnerships)
+    for first in numbers:
+        for later in numbers:
+            if later <= first:
+                continue
+            a, b = world.partnerships[first], world.partnerships[later]
+            if a[2] == b[2]:
+                assert not (origin[first] == "market" and origin[later] == "input"), (first, later)
+            if set(a[:2]) & set(b[:2]):
+                assert a[3] is not None and a[3][0] < b[2], (first, later)
 
 
 def robust_seconds(seconds_of):
@@ -1790,7 +2226,75 @@ if __name__ == "__main__":
         f" SEPARATION_BUDGET {SEPARATION_BUDGET}"
     )
     print(f"event kind separation {SEPARATION_KIND} class {GENERAL} subject partnership {PARTNERSHIP_SUBJECT}")
+    print(
+        f"tags PAIRING_RANK {PAIRING_RANK} MARKET_SEARCH {MARKET_SEARCH} MARKET_ORDER {MARKET_ORDER}"
+        f" PAIRING_NOISE {PAIRING_NOISE}"
+    )
+    print(
+        f"event kind market_round {MARKET_ROUND_KIND} class {GENERAL} subject world {WORLD_SUBJECT}"
+        f" payload {MARKET_ROUND_PAYLOAD.hex()} period {MONTH}"
+    )
+    print(f"reject partner_too_young {PARTNER_TOO_YOUNG} partners_too_closely_related {PARTNERS_TOO_CLOSELY_RELATED}")
+    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+        print(
+            f"market_{name} age {data.market_age} c {data.market_height!r} m {data.market_center!r}"
+            f" w {data.market_width!r} rho {data.market_minor!r} k {data.market_candidates}"
+            f" w_a {data.pairing_weight_age!r} mu_a {data.pairing_gap!r} limit {data.kinship_limit!r}"
+            f" cousin_odds {data.cousin_odds!r} K {kinship_weight(data)!r}"
+        )
+    # Pure values of the market on the repository's data, for unit tests: a woman born at 0
+    # at `t = age · YEAR` seconds (17.999 · YEAR is no whole second: rounded down, and the
+    # last second before 18 as well).
+    for label, t in [
+        ("16", 16 * YEAR),
+        ("17.5", 35 * YEAR // 2),
+        ("17.999", math.floor(Fraction(17_999, 1000) * YEAR)),
+        ("18*YEAR-1", 18 * YEAR - 1),
+        ("18", 18 * YEAR),
+        ("25.23", 2523 * YEAR // 100),
+        ("40", 40 * YEAR),
+        ("60", 60 * YEAR),
+    ]:
+        print(f"market_search_chance age {label} t {t} a {as_years(t)!r} p {search_chance(t, REPOSITORY)!r}")
+    for gap, phi, noise in [(4.69, 0.0, 0.0), (0.0, 0.0, 1.5), (3.0, 0.0625, 0.0), (10.0, 0.03125, -2.0)]:
+        print(f"market_utility gap {gap!r} phi {phi!r} noise {noise!r} U {utility(gap, phi, noise, REPOSITORY)!r}")
+    clan_keys = [founder_key("test:clan", index) for index in range(6)]
+    order = ranked(0xFF, MARKET_ORDER, WORLD_KEY, 7, clan_keys)
+    print(
+        "market_order seed 0xff month 7 founders 0-5 of test:clan: "
+        + " ".join(f"{key:016x} (founder {clan_keys.index(key)})" for key in order)
+    )
+    candidates = ranked(0xFF, PAIRING_RANK, clan_keys[0], 7, clan_keys[1:])
+    print(
+        "market_candidates seed 0xff month 7 seeker founder 0 of test:clan, founders 1-5: "
+        + " ".join(f"{key:016x} (founder {clan_keys.index(key)})" for key in candidates)
+    )
+    print(
+        "market_ranks MARKET_ORDER "
+        + " ".join(f"{rank(0xFF, MARKET_ORDER, WORLD_KEY, 7, key):016x}" for key in clan_keys)
+        + " PAIRING_RANK "
+        + " ".join(f"{rank(0xFF, PAIRING_RANK, clan_keys[0], 7, key):016x}" for key in clan_keys[1:])
+    )
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
+    # The constants of this model against the code lists of tests/golden.
+    golden = ROOT / "tests" / "golden"
+    lines = {tuple(line.split()) for path in ("rng_tags.txt", "event_codes.txt", "log_codes.txt") for line in (golden / path).read_text().splitlines()}
+    wanted = {
+        ("tag", str(PAIRING_RANK), "PAIRING_RANK"),
+        ("tag", str(MARKET_SEARCH), "MARKET_SEARCH"),
+        ("tag", str(MARKET_ORDER), "MARKET_ORDER"),
+        ("tag", str(PAIRING_NOISE), "PAIRING_NOISE"),
+        ("tag", str(SEPARATION_BUDGET), "SEPARATION_BUDGET"),
+        ("kind", "market_round", str(MARKET_ROUND_KIND)),
+        ("kind", "separation", str(SEPARATION_KIND)),
+        ("subject", "world", str(WORLD_SUBJECT)),
+        ("class", "general", str(GENERAL)),
+        ("payload", "5", "core:partnered"),
+        ("cause", "3", "rule"),
+        ("cause", "4", "random"),
+    } | {("reject", str(code), name) for code, name in REJECT_NAMES.items()}
+    missing = sorted(wanted - lines)
+    print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
     print("closed form checks (senescence_age, accident_age against mortality.rs W7.1): ok")

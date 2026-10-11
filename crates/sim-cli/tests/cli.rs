@@ -133,7 +133,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":3,"core_version":29,"data_hash":"1dca217a25090687","build_commit":"unknown"}"#,
+            r#"{"format_version":3,"core_version":30,"data_hash":"1dca217a25090687","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]}}}"#,
             "\n",
@@ -160,7 +160,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":3,"core_version":29,"data_hash":"1dca217a25090687","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"ca6f1684553a9844"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":3,"core_version":30,"data_hash":"1dca217a25090687","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"2b98b1f26cea913d"}],"log_hash":"6bed3b6ab04c2db0"}"#,
             "\n",
         )
     );
@@ -171,7 +171,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e54011d878da4a8a2af88e51d0f01ff01010000fe87ff1d020104fe8ffe3b0005010100fe8ffe3b000100018088ff1dd0a5dcfc1300030201a0bb8ca1c58498a01c00b8f4e5ff8c1f0004020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e000000000100000000000000000000000000000403fe87ff1d0100020002000401010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100c4b0eaa9c5d0c5b7ca01"
+        "53494d4147454e54011e878da4a8a2af88e51d0f01ff01010000fe87ff1d0201058088ff1d0002060180a8a702fe8ffe3b0006010100fe8ffe3b000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010003fe87ff1d0100020002000401010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100bda2aae7a6beaccc2b"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -457,9 +457,10 @@ fn command_schema_matches_direct_call() {
 /// every sim of a run with its parents, its birth and its death, and every partnership,
 /// into `pedigree.json`. The dummy scenario after thirty years: the founders 1 to 6 (sim 1
 /// has died of senescence), the three children of sims 5 and 6 and the three of sims 1 and
-/// 2 (both wished for three, spec 11.3), and the two partnerships: the first ended with
-/// her death, the second with their separation (ADR-0018 section 3). Values from
-/// tools/golden_reference.py.
+/// 2 (both wished for three, spec 11.3), the son of sims 8 and 7, whom the partner market
+/// paired in month 260 (ADR-0018 section 1), and the three partnerships: the first ended
+/// with her death, the second with their separation (ADR-0018 section 3), the third is
+/// open. Values from tools/golden_reference.py.
 #[test]
 fn export_writes_the_pedigree() {
     let dir = scratch("export");
@@ -488,6 +489,7 @@ fn export_writes_the_pedigree() {
     let founder = r#""died":null,"cause_of_death":null,"mother":null,"father":null"#;
     let child = r#""died":null,"cause_of_death":null,"mother":1,"father":2"#;
     let second = r#""died":null,"cause_of_death":null,"mother":5,"father":6"#;
+    let third = r#""died":null,"cause_of_death":null,"mother":8,"father":7"#;
     let her_death =
         r#""died":854634065,"cause_of_death":"core:senescence","mother":null,"father":null"#;
     let persons = [
@@ -510,10 +512,12 @@ fn export_writes_the_pedigree() {
         person(10, "633a53f95f45349a", "male", (1, 0), 101_606_400, child),
         plain(11, "49b606a5ead12b80", "male", 176_601_600, second),
         person(12, "3b95377839225a93", "male", (1, 0), 203_212_800, child),
+        plain(13, "1f999a92e10e057c", "male", 677_376_000, third),
     ];
     let partnerships = [
         r#"{"partnership":1,"woman":1,"man":2,"formed":0,"ended":854634065}"#,
         r#"{"partnership":2,"woman":5,"man":6,"formed":0,"ended":940727538}"#,
+        r#"{"partnership":3,"woman":8,"man":7,"formed":628992000,"ended":null}"#,
     ];
     let expected = format!(
         r#"{{"persons":[{}],"partnerships":[{}]}}"#,
@@ -617,12 +621,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":29"#, r#""core_version":30"#);
+    replace_in(&log, r#""core_version":30"#, r#""core_version":31"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 30, this is 29"
+        "error: replay_foreign_core_version: the input log is of core version 31, this is 30"
     );
-    replace_in(&log, r#""core_version":30"#, r#""core_version":29"#);
+    replace_in(&log, r#""core_version":31"#, r#""core_version":30"#);
     replace_in(&log, "1dca217a25090687", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -1102,8 +1106,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 29, "the core version in the header of the save");
-    bytes[9] = 30;
+    assert_eq!(bytes[9], 30, "the core version in the header of the save");
+    bytes[9] = 31;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

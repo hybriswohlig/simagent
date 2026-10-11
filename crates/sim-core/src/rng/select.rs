@@ -4,14 +4,14 @@
 
 use alloc::vec::Vec;
 
-use super::{Draws, PurposeTag, RANK, WorldSeed, absorb};
+use super::{Draws, PurposeTag, RANK, SubjectKey, WorldSeed, absorb};
 use crate::lineage::LineageKey;
 
-/// The rank of `candidate` for `seeker` on `occasion`.
+/// The rank of `candidate` for `seeker` (a lineage key or the world) on `occasion`.
 fn rank(
     seed: WorldSeed,
     tag: PurposeTag,
-    seeker: LineageKey,
+    seeker: impl Into<SubjectKey>,
     occasion: u64,
     candidate: LineageKey,
 ) -> u64 {
@@ -21,7 +21,7 @@ fn rank(
         &[
             seed.get(),
             tag.get(),
-            seeker.get(),
+            seeker.into().get(),
             occasion,
             candidate.get(),
         ],
@@ -49,6 +49,29 @@ impl Draws {
         ranked.truncate(k);
         ranked.into_iter().map(|(_, candidate)| candidate).collect()
     }
+
+    /// All `candidates` ascending by `(rank, lineage key)` with the derivation of
+    /// `k_smallest` for the subject `subject` (ADR-0018 section 1: `SubjectKey::WORLD` for
+    /// the order of a round; a seeker's key for her list of candidates).
+    pub fn ranked(
+        &self,
+        tag: PurposeTag,
+        subject: SubjectKey,
+        occasion: u64,
+        candidates: impl IntoIterator<Item = LineageKey>,
+    ) -> Vec<LineageKey> {
+        let mut ranked: Vec<(u64, LineageKey)> = candidates
+            .into_iter()
+            .map(|candidate| {
+                (
+                    rank(self.seed, tag, subject, occasion, candidate),
+                    candidate,
+                )
+            })
+            .collect();
+        ranked.sort_unstable();
+        ranked.into_iter().map(|(_, candidate)| candidate).collect()
+    }
 }
 
 #[cfg(test)]
@@ -65,6 +88,47 @@ mod tests {
         (0..8)
             .map(|index| LineageKey::founder(&tag, index))
             .collect()
+    }
+
+    /// The order of a round and a list of candidates (ADR-0018 section 1), from
+    /// `tools/world_reference.py` (`market_order`, `market_candidates`): seed 0xff, month
+    /// 7, the founders of `test:clan`.
+    #[test]
+    fn ranked_orders_like_the_reference() {
+        let tag = DataId::new("test:clan").expect("valid");
+        let key = |index: u64| LineageKey::founder(&tag, index);
+        let draws = Draws::new(WorldSeed::new(0xff));
+        let order = draws.ranked(tags::MARKET_ORDER, SubjectKey::WORLD, 7, (0..6).map(key));
+        let ids: Vec<u64> = order.iter().map(|k| k.get()).collect();
+        assert_eq!(
+            ids,
+            [
+                0x030f_c55b_9597_25fa,
+                0xc4f5_6b66_3468_9905,
+                0xa7fc_4f83_dacf_d279,
+                0x3e8b_5cde_ad66_f5f6,
+                0xedfa_4535_9651_22f1,
+                0xd0a1_58c1_6220_f6dd,
+            ]
+        );
+        let seeker = SubjectKey::from(key(0));
+        let list = draws.ranked(tags::PAIRING_RANK, seeker, 7, (1..6).map(key));
+        let ids: Vec<u64> = list.iter().map(|k| k.get()).collect();
+        assert_eq!(
+            ids,
+            [
+                0xa7fc_4f83_dacf_d279,
+                0xc4f5_6b66_3468_9905,
+                0xedfa_4535_9651_22f1,
+                0x3e8b_5cde_ad66_f5f6,
+                0x030f_c55b_9597_25fa,
+            ]
+        );
+        // With a seeker's key the order is that of `k_smallest`.
+        assert_eq!(
+            draws.k_smallest(tags::PAIRING_RANK, key(0), 7, (1..6).map(key), 5),
+            list
+        );
     }
 
     /// Values from tools/rng_reference.py (lines `ranks` and `k_smallest`): seed 0x5eed,

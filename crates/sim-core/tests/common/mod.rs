@@ -114,6 +114,7 @@ pub fn window_fertility(calibration: &mut Value, demography: &mut Value, rate: f
     values["core:twins_identical"]["value"] = json!(0.0);
     values["core:twins_fraternal"]["value"] = json!(0.0);
     values["core:separation_rate"]["value"] = json!(0.0);
+    values["core:market_search_height_female"]["value"] = json!(0.0);
     let mut shape = vec![json!({"value": 0.0, "unit": "fraction"}); 40];
     shape.push(json!({"value": 1.0, "unit": "fraction"}));
     demography["fertility_wish_shape"] = Value::Array(shape);
