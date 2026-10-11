@@ -185,11 +185,6 @@ def couple(woman: int, man: int) -> bytes:
     return varint(woman) + varint(man)
 
 
-def fertility(per_month: float, from_years: int, until_years: int, pregnancy_months: int) -> bytes:
-    """Fertility { per_month: FiniteF64, from_years: u32, until_years: u32, pregnancy_months: u32 }"""
-    return f64(per_month) + varint(from_years) + varint(until_years) + varint(pregnancy_months)
-
-
 # Strand: maternal = 0, paternal = 1. SexChromosome: x = 0, y = 1.
 MATERNAL, PATERNAL = variant(0), variant(1)
 X, Y_CHROMOSOME = variant(0), variant(1)
@@ -216,8 +211,9 @@ def partnership(woman: int, man: int, formed: int, ended) -> bytes:
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, founders: [Founder], couples: [Couple], fertility: Fertility }: no causes
-# of death, they come from the data (ADR-0017 section 2).
+# WorldParams, founders: [Founder], couples: [Couple] }: no causes of death and no
+# fertility, they come from the data (ADR-0017 sections 2 and 4; design note of the
+# fertility in the world, section 1).
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
@@ -225,7 +221,6 @@ SAMPLE_INPUT = variant(
     world_params(False),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
-    fertility(0.05, 18, 45, 10),
 )
 
 # Input::ArrangePartnership (variant 2) { woman: SimId, man: SimId }
@@ -310,7 +305,6 @@ if __name__ == "__main__":
         ("sample_arrange", SAMPLE_ARRANGE),
         ("sample_partnered_payload", SAMPLE_PARTNERED_PAYLOAD),
         ("couple", couple(0, 1)),
-        ("fertility", fertility(0.05, 18, 45, 10)),
         ("sample_conception_payload", SAMPLE_CONCEPTION_PAYLOAD),
         ("sample_meiosis_payload", SAMPLE_MEIOSIS_PAYLOAD),
         ("sample_stamp", SAMPLE_STAMP),

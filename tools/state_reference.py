@@ -22,6 +22,16 @@ scenario had them (the dummy disease for "sick", the repository's six otherwise)
 `core:senescence` and `core:accident`. With the switch off a sim keeps its afflictions
 but no disease is planned to kill it.
 
+`Start` has no fertility any more either (ADR-0017 section 4; design note of the
+fertility in the world): a world reads it from its data, and a sim holds `births` right
+after `conceptions` (projection version 13, core version 27). The scenarios that gave a
+fertility of their own ("clan" and its variants) run on test data with the old values as
+the form `window` (design note section 8: 0.25 per month from 18 until 45 years, ten
+months, no pause, the wish always 40, no twins; `world_reference.window_fertility`). The
+scenario with couples and no fertility ("partners") runs on the repository's fertility
+(5.6: her series runs with chance 0 while she is a child); the scenarios without couples
+on the repository's fertility as well, which they never read.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -48,9 +58,9 @@ from postcard_reference import (
     SAMPLE_ENTRY,
     WILD,
     afflictions,
-    fertility,
     founder,
     genome,
+    genome_of,
     genotype,
     lineage_key,
     param_change,
@@ -67,6 +77,7 @@ import data_reference
 import world_reference
 
 YEAR = 364 * 86_400
+MONTH = world_reference.MONTH
 
 NONE = b"\x00"
 
@@ -92,9 +103,6 @@ def queue_entry(time: int, insertion: int, payload: bytes, period) -> bytes:
 PROJECTION_VERSION = world_reference.PROJECTION_VERSION
 # The version of the model, so that the two references never drift apart.
 CORE_VERSION = world_reference.CORE_VERSION
-
-# The fertility of a scenario without its own: nobody ever conceives.
-BARREN = fertility(0.0, 18, 45, 10)
 
 SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
 SENESCENCE_KEY, ACCIDENT_KEY = str_key(SENESCENCE), str_key(ACCIDENT)
@@ -130,11 +138,21 @@ def death(time: int, insertion: int, sim: int, code: str) -> bytes:
 
 
 def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=()) -> bytes:
-    """Sim { born, lineage_key, sex, genome, afflictions, conceptions, parents }: the
-    afflictions as triples (disease, onset, exposure), none but for a sim with the dummy
-    allele twice (`core:disease_ar`, recessive, penetrance 1, onset 0); no conceptions
-    yet; a founder has no parents."""
-    return signed(born) + lineage_key(key) + sex + genome(sex, genes) + afflictions(list(afflicted)) + varint(0) + NONE
+    """Sim { born, lineage_key, sex, genome, afflictions, conceptions, births, parents }:
+    the afflictions as triples (disease, onset, exposure), none but for a sim with the
+    dummy allele twice (`core:disease_ar`, recessive, penetrance 1, onset 0); no
+    conceptions and no births yet (`births` right after `conceptions`, design note of the
+    fertility in the world, section 1); a founder has no parents."""
+    return (
+        signed(born)
+        + lineage_key(key)
+        + sex
+        + genome(sex, genes)
+        + afflictions(list(afflicted))
+        + varint(0)  # conceptions
+        + varint(0)  # births
+        + NONE
+    )
 
 
 TINY_KEY = founder_key("test:tiny", 0)
@@ -152,7 +170,6 @@ def projection(
         varint(PROJECTION_VERSION)
         + some(varint(0xFF))  # world_seed
         + some(world_params(diseases))
-        + some(BARREN)
         + signed(closed_through)
         + varint(2)  # next SimId
         + varint(1)  # next PartnershipId
@@ -228,7 +245,6 @@ PAIR_AFTER_START = (
     varint(PROJECTION_VERSION)
     + some(varint(0xFF))
     + some(world_params(False))
-    + some(BARREN)
     + signed(-1)
     + varint(3)  # next SimId
     + varint(1)  # next PartnershipId
@@ -279,7 +295,6 @@ TINY_INPUT_LOG = seq(
             world_params(False),
             seq([founder(-1, FEMALE, TINY_GENES)]),
             seq([]),  # couples
-            BARREN,
         )
     ]
 )
@@ -301,7 +316,6 @@ EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
     + NONE  # world_seed
     + NONE  # world_params
-    + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
     + varint(1)  # next PartnershipId
@@ -363,7 +377,6 @@ TINY_SAVE_OVERRIDDEN = (
                 world_params(False),
                 seq([founder(-1, FEMALE, TINY_GENES)]),
                 seq([]),  # couples
-                BARREN,
             ),
             signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
         ]
@@ -686,6 +699,47 @@ SAVE_LOAD.advance(7 * YEAR - 1)
 assert death_of(SAVE_LOAD, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 
 
+# ---------------------------------------------------------------------------------------
+# Fertility by hand (genetics specification 5.6 and 11.3; design note of the fertility in
+# the world, sections 3 to 6), straight from the draws of tools/rng_reference.py and
+# Python's math, not from the model: a woman's wish and the months of her conceptions
+# with one partner.
+
+CONCEPTION_ATTEMPT_TAG, FERTILITY_WISH_TAG = 3, 16  # tests/golden/rng_tags.txt, 11.7
+
+
+def hand_wish(seed: int, key: int, shape: list, tilt: float) -> int:
+    """Her wish (11.3): `u` = unit of the draw FERTILITY_WISH at her lineage key (occasion
+    0, detail 0), `P_n ∝ p_n · e^(α · n)`, the smallest `n` with `u < P_0 + … + P_n`, the
+    last `n` if none."""
+    u = unit(words(chacha_key(seed, FERTILITY_WISH_TAG, key, 0, 0))[0])
+    weights = [p * math.exp(tilt * n) for n, p in enumerate(shape)]
+    total, acc = sum(weights), 0.0
+    for n, weight in enumerate(weights):
+        acc += weight / total
+        if u < acc:
+            return n
+    return len(shape) - 1
+
+
+def hand_conceptions(seed: int, her: int, him: int, first: int, chance_at, pause: int, pregnancy: int, wish_: int, last: int) -> list:
+    """(month of the conception, month of the birth) of a woman with one partner by hand
+    (design note sections 4 to 6): her series begins in month `first`; the attempt in
+    month `k` succeeds if `unit(draw) < chance_at(k)` (CONCEPTION_ATTEMPT at her key,
+    occasion `k`, detail his key); the birth is `pregnancy` months later; with fewer
+    births than `wish_` her next series begins `max(pause, 1)` months after the birth.
+    Nothing after month `last`."""
+    found, month = [], first
+    while month <= last and len(found) < wish_:
+        word = words(chacha_key(seed, CONCEPTION_ATTEMPT_TAG, her, month, him))[0]
+        if unit(word) < chance_at(month):
+            found.append((month, month + pregnancy))
+            month += pregnancy + max(pause, 1)
+        else:
+            month += 1
+    return found
+
+
 # Scenario "partners": seed 0xff, founder tag `test:partners`, a woman (wild, dummy) and
 # two men (dummy twice; dummy, wild) born one, two and three seconds before the start.
 # `Start` pairs her with the first man (partnership 1). He dies of senescence after about
@@ -693,9 +747,16 @@ assert death_of(SAVE_LOAD, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 # second man (partnership 2, by the input with sequence number 2). She dies of accident
 # after about 1.86 years, which ends it; he lives on (senescence after about 13.0 years).
 # The test data: accident 0.02 per year, senescence `a` = 0.5 and `b` = 0.001 for both
-# sexes (the data of "fever"), the repository's diseases. The rates of its old causes
+# sexes (the data of "fever"), the repository's diseases and fertility (design note of the
+# fertility in the world, section 8). The rates of its old causes
 # (those of "mortal": accident 0.5, `a` = 0.05) cannot keep the idea: with the new budgets
 # she would die first, after 0.07 years, and nobody could be paired with her at year 1.
+# Fertility (5.6, 11.3): her wish is 3, so each partnership plans her monthly series, the
+# first from month 1 (the first month start after the start), ended by his death in month
+# 2.6 after the attempts of months 1 and 2; the second from month 14 (the first month start
+# after the second YEAR in which the arrangement acts), ended by her death in month 24.2.
+# She is a baby (her menarche about 13.1 years, at least `θ − 1` = 11.3), so her factor
+# and every chance is 0: thirteen attempts draw and fail, nobody conceives.
 PARTNERS_FOUNDERS = [
     (-1, FEMALE, genotype(WILD, DUMMY)),
     (-2, MALE, genotype(DUMMY, DUMMY)),
@@ -716,14 +777,19 @@ def partners_world() -> world_reference.World:
 
 
 PARTNERS = partners_world()
+PARTNERS_WISH = hand_wish(0xFF, PARTNERS_KEYS[0], [0.10, 0.15, 0.40, 0.25, 0.10], 0.311)
+assert PARTNERS.wish_of(1) == PARTNERS_WISH == 3
+assert PARTNERS.pending_series(1) == MONTH
 PARTNERS_SAVE_AFTER_START = PARTNERS.save()
 # Started, three founders, then the partnership.
 PARTNERS_STARTED_ENTRY = PARTNERS.log[4]
 PARTNERS.advance(YEAR - 1)
 assert PARTNERS.partnerships == {1: [1, 2, 0, PARTNERS_DEATHS[1]]}
 assert PARTNERS.archive[2][2] == SENESCENCE_KEY
+assert PARTNERS.pending_series(1) is None
 PARTNERS.arrange(1, 3)
 PARTNERS_ARRANGED_ENTRY = PARTNERS.log[-1]
+assert PARTNERS.pending_series(1) == 14 * MONTH
 PARTNERS_SAVE_AFTER_ARRANGE = PARTNERS.save()
 PARTNERS.advance(5 * YEAR - 1)
 assert PARTNERS.partnerships == {
@@ -731,21 +797,29 @@ assert PARTNERS.partnerships == {
     2: [1, 3, YEAR, PARTNERS_DEATHS[0]],
 }
 assert sorted(PARTNERS.sims) == [3] and PARTNERS.archive[1][2] == ACCIDENT_KEY
+assert [(t // MONTH, p, success) for t, _, _, p, success in PARTNERS.attempts] == [
+    (month, 0.0, False) for month in [1, 2] + list(range(14, 25))
+]
+assert PARTNERS.archive[1][7:9] == (0, 0) and PARTNERS_DEATHS[1] < 3 * MONTH and 24 * MONTH < PARTNERS_DEATHS[0] < 25 * MONTH
 PARTNERS_SAVE_AFTER_YEAR_4 = PARTNERS.save()
 
 
-# Scenario "clan": seed 0xff, founder tag `test:clan`, a fertility of 0.25 per month, the
-# mother 18 to 45 years old, ten months, on the test data of its old cause (`test:base`
-# 0.02 per year): accident 0.02 per year, senescence practically off, the repository's
-# diseases. Three founder couples: a woman of 20 (wild, dummy) and a man of 22 (dummy,
-# wild); a girl of 12 (dummy twice) and a man of 30 (wild twice); a woman and a man of 46
-# (wild twice). The first couple tries from month 0, conceives in month 5 and has the
-# child (sim 7) in month 15; her attempts begin again in month 16, and by the end of year
-# 7 she has conceived eight times (months 5, 17, 28, 42, 59, 74, 90, 101) and is pregnant
-# with the eighth child. The girl's attempts begin at her 18th birthday (month 78); she
-# dies of accident in month 83.9 without having conceived, which ends them. The first
-# child dies of accident in month 80.5, the man of 46 in month 98.7. The third couple
-# never tries.
+# Scenario "clan": seed 0xff, founder tag `test:clan`, on the test data of its old cause
+# (`test:base` 0.02 per year): accident 0.02 per year, senescence practically off, the
+# repository's diseases, and its old fertility as data (design note of the fertility in
+# the world, section 8): the form `window` from 18 until 45 years, 0.25 per month, ten
+# months of pregnancy, no pause, the wish always 40, no twins. Three founder couples: a
+# woman of 20 (wild, dummy) and a man of 22 (dummy, wild); a girl of 12 (dummy twice) and
+# a man of 30 (wild twice); a woman and a man of 46 (wild twice). The first woman's
+# series begins in month 1 (the first month start after the start); she conceives in
+# month 5 and has the child (sim 7) in month 15; without a pause her series begins again
+# in month 16, and by the end of year 7 she has conceived eight times (months 5, 17, 28,
+# 42, 59, 74, 90, 101), borne seven children (births 7) and is pregnant with the eighth.
+# The girl's series begins in month 1 as well and draws with chance 0 until her 18th
+# birthday (month 78), then with 0.25; she dies of accident in month 83.9 without having
+# conceived, which ends it. The first child dies of accident in month 80.5, the man of 46
+# in month 98.7. The woman of 46 is past the end of the window (45 years): no series is
+# planned for her. Every woman's wish is 40.
 CLAN_FOUNDERS = [
     (-20 * YEAR, FEMALE, genotype(WILD, DUMMY)),
     (-22 * YEAR, MALE, genotype(DUMMY, WILD)),
@@ -757,12 +831,17 @@ CLAN_FOUNDERS = [
 CLAN_KEYS = [founder_key("test:clan", index) for index in range(6)]
 CLAN_COUPLES = [(0, 1), (2, 3), (4, 5)]
 CLAN_FERTILITY = (0.25, 18, 45, 10)
-CLAN_DATA = world_reference.death_test_data(0.02)
-MONTH = world_reference.MONTH
+CLAN_DATA = world_reference.death_test_data(0.02, fertility=CLAN_FERTILITY)
+# By hand: the first woman's conceptions over the eight years (20 years old at the start,
+# the window open), and the girl's up to her death in month 83 (12 at the start, chance 0
+# before month 78).
+CLAN_HAND = hand_conceptions(0xFF, CLAN_KEYS[0], CLAN_KEYS[1], 1, lambda k: 0.25 if 18 <= 20 + k / 13 < 45 else 0.0, 0, 10, 40, 8 * 13 - 1)
+assert CLAN_HAND == [(5, 15), (17, 27), (28, 38), (42, 52), (59, 69), (74, 84), (90, 100), (101, 111)]
+assert hand_conceptions(0xFF, CLAN_KEYS[2], CLAN_KEYS[3], 1, lambda k: 0.25 if 12 + k / 13 >= 18 else 0.0, 0, 10, 40, 83) == []
 
 
 def clan_world(data=CLAN_DATA, on: bool = False) -> world_reference.World:
-    return world_reference.World(0xFF, "test:clan", on, CLAN_FOUNDERS, CLAN_COUPLES, CLAN_FERTILITY, data=data)
+    return world_reference.World(0xFF, "test:clan", on, CLAN_FOUNDERS, CLAN_COUPLES, data=data)
 
 
 def deaths_in(world: world_reference.World) -> list:
@@ -771,6 +850,9 @@ def deaths_in(world: world_reference.World) -> list:
 
 
 CLAN = clan_world()
+# The first two women have their series from month 1, the woman of 46 none.
+assert [CLAN.pending_series(sim) for sim in (1, 3, 5)] == [MONTH, MONTH, None]
+assert all(CLAN.wish_of(sim) == world_reference.TEST_WISH for sim in (1, 3, 5))
 CLAN_SAVE_AFTER_START = CLAN.save()
 CLAN.advance(5 * MONTH - 1)
 assert not CLAN.pregnancies
@@ -783,17 +865,23 @@ CLAN_SAVE_AFTER_CONCEPTION = CLAN.save()
 CLAN.advance(15 * MONTH - 1)
 CLAN_LOG_BEFORE_BIRTH = len(CLAN.log)
 CLAN.advance(15 * MONTH)
-assert 7 in CLAN.sims and CLAN.sims[7][6] == (1, 2, 0) and not CLAN.pregnancies
+assert 7 in CLAN.sims and CLAN.sims[7][7] == (1, 2, 0) and not CLAN.pregnancies
+assert CLAN.sims[1][6] == 1 and CLAN.sims[7][6] == 0 and CLAN.pending_series(1) == 16 * MONTH
 CLAN_BIRTH_ENTRIES = CLAN.log[CLAN_LOG_BEFORE_BIRTH:]
 CLAN_SAVE_AFTER_BIRTH = CLAN.save()
 CLAN.advance(8 * YEAR - 1)
-assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][2] == 7 and CLAN.sims[1][5] == 8
+assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][2] == 7 and CLAN.sims[1][5:7] == [8, 7]
 assert CLAN.pregnancies[1][5] == 101 * MONTH
+assert [t // MONTH for t, woman, _, _, success in CLAN.attempts if success] == [c for c, _ in CLAN_HAND]
+# The girl's attempts: chance 0 before her 18th birthday, 0.25 from it, none succeeds.
+assert [(t // MONTH, p) for t, woman, _, p, _ in CLAN.attempts if woman == 3] == [
+    (month, 0.0 if month < 78 else 0.25) for month in range(1, 84)
+]
 CLAN_DEATHS = deaths_in(CLAN)
 assert [(sim, cause) for _, sim, cause in CLAN_DEATHS] == [(7, ACCIDENT_KEY), (3, ACCIDENT_KEY), (6, ACCIDENT_KEY)]
 # The girl died after her 18th birthday (month 78), before she conceived.
-assert 78 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7] == 0
-assert [CLAN.sims[sim][0] for sim in range(8, 14)] == [m * MONTH for m in (27, 38, 52, 69, 84, 100)]
+assert 78 * MONTH < CLAN.archive[3][1] < 84 * MONTH and CLAN.archive[3][7:9] == (0, 0)
+assert [CLAN.archive[7][0]] + [CLAN.sims[sim][0] for sim in range(8, 14)] == [b * MONTH for _, b in CLAN_HAND[:7]]
 CLAN_SAVE_AFTER_YEAR_7 = CLAN.save()
 
 # "clan" with the switch of the hereditary diseases on from the start (the same test
@@ -809,46 +897,95 @@ assert all(due > 40 * YEAR for due in CLAN_ON_AR_DEATHS.values())
 CLAN_ON_SAVE_AFTER_BIRTH = CLAN_ON.save()
 
 # "clan" with a second cause, `test:fever` with 0.5 per year, as test data: accident 0.02
-# per year, senescence `a` = 0.5 and `b` = 0.001. The woman of 46 dies of senescence in
-# month 2.0, the girl in month 8.2 (her attempts end before they begin), the father in
-# month 20.9: the first woman is pregnant since month 17, the pregnancy goes on, his child
-# (sim 8) is born in month 27. The man of 46 dies in month 51.9. At the end of year 3 the
-# first woman, the girl's partner and the two children live.
-FEVER_DATA = world_reference.death_test_data(0.02, 0.5)
+# per year, senescence `a` = 0.5 and `b` = 0.001, the fertility of "clan". The woman of 46
+# dies of senescence in month 2.0, the girl in month 8.2 (her series drew with chance 0 in
+# months 1 to 8), the father in month 20.9: the first woman is pregnant since month 17,
+# the pregnancy goes on, his child (sim 8) is born in month 27; her partnership has
+# ended, so no series follows the birth (births 2). The man of 46 dies in month 51.9. At
+# the end of year 3 the first woman, the girl's partner and the two children live.
+FEVER_DATA = world_reference.death_test_data(0.02, 0.5, fertility=CLAN_FERTILITY)
 FEVER = clan_world(FEVER_DATA)
 FEVER.advance(4 * YEAR - 1)
 FEVER_DEATHS = deaths_in(FEVER)
 assert [(sim, cause) for _, sim, cause in FEVER_DEATHS] == [(sim, SENESCENCE_KEY) for sim in (5, 3, 2, 6)]
 assert sorted(FEVER.sims) == [1, 4, 7, 8] and not FEVER.pregnancies
-assert FEVER.sims[8][6] == (1, 2, 1) and FEVER.sims[8][0] == 27 * MONTH
+assert FEVER.sims[8][7] == (1, 2, 1) and FEVER.sims[8][0] == 27 * MONTH
 assert 17 * MONTH < FEVER.archive[2][1] < 27 * MONTH and FEVER.archive[2][7] == 0
+assert FEVER.sims[1][5:7] == [2, 2] and FEVER.pending_series(1) is None
 CLAN_FEVER_SAVE_AFTER_YEAR_3 = FEVER.save()
 
-# "clan" with `test:blight` with 0.1 per year instead: the first woman dies of accident
-# in month 22.2, pregnant since month 17 with her second child; the pregnancy ends with
-# her, her conception stays counted. Before her the girl (month 16.8) and the man of 46
+# "clan" with `test:blight` with 0.1 per year instead (the fertility of "clan"): the first
+# woman dies of accident in month 22.2, pregnant since month 17 with her second child; the
+# pregnancy ends with her, her conception stays counted, her births stay 1. Before her the
+# girl (month 16.8) and the man of 46
 # (month 19.7) die of accident. The test data take the two old rates the other way round:
 # accident 0.1 per year (the old `test:blight`), senescence `a` = 0.02 (the old
 # `test:base`) and `b` = 0.001. With them in the order of section 4 (accident 0.02, `a` =
 # 0.1) no woman dies pregnant: the first woman dies in month 111.09, just after the birth
 # in month 111, and with `b` = 0.001 no `a` up to 1 lets her die within a pregnancy while
 # her partner lives. The run goes to the end of year 1.
-BLIGHT_DATA = world_reference.death_test_data(0.1, 0.02)
+BLIGHT_DATA = world_reference.death_test_data(0.1, 0.02, fertility=CLAN_FERTILITY)
 BLIGHT = clan_world(BLIGHT_DATA)
 HER_BLIGHT = BLIGHT.cause_due(1, ACCIDENT)
 assert 22 * MONTH < HER_BLIGHT < 23 * MONTH < BLIGHT.cause_due(1, SENESCENCE)
 BLIGHT.advance(HER_BLIGHT - 1)
 assert BLIGHT.pregnancies[1][2] == 1 and BLIGHT.pregnancies[1][5] == 17 * MONTH
 BLIGHT.advance(2 * YEAR - 1)
-assert BLIGHT.archive[1][1:3] == (HER_BLIGHT, ACCIDENT_KEY) and BLIGHT.archive[1][7] == 2
+assert BLIGHT.archive[1][1:3] == (HER_BLIGHT, ACCIDENT_KEY) and BLIGHT.archive[1][7:9] == (2, 1)
 assert 1 not in BLIGHT.pregnancies
 BLIGHT_DEATHS = deaths_in(BLIGHT)
 assert [(sim, cause) for _, sim, cause in BLIGHT_DEATHS] == [(3, ACCIDENT_KEY), (6, ACCIDENT_KEY), (1, ACCIDENT_KEY)]
 CLAN_BLIGHT_SAVE_AFTER_YEAR_1 = BLIGHT.save()
 
+# "clan" with a pause (for the load rejections of the pause): the test data of "clan" with
+# `core:fertility_pause` 12 months, the wish still always 40. The first birth in month 15
+# plans her next series at `15 + 12` = month 27 (design note section 4), not month 16.
+CLAN_PAUSE_DATA = world_reference.death_test_data(0.02, fertility=CLAN_FERTILITY, life_values={"core:fertility_pause": 12.0})
+assert CLAN_PAUSE_DATA.pause_months == 12 and CLAN_PAUSE_DATA.wish_shape == CLAN_DATA.wish_shape
+CLAN_PAUSE = clan_world(CLAN_PAUSE_DATA)
+CLAN_PAUSE.advance(15 * MONTH)
+assert 7 in CLAN_PAUSE.sims and CLAN_PAUSE.sims[1][5:7] == [1, 1] and not CLAN_PAUSE.pregnancies
+assert CLAN_PAUSE.pending_series(1) == 27 * MONTH and CLAN_PAUSE.wish_of(1) == world_reference.TEST_WISH
+CLAN_PAUSE_SAVE_AFTER_BIRTH = CLAN_PAUSE.save()
+
+# "clan" with a wish of one (for the load rejections of the wish): the test data of "clan"
+# with the wish shape [0, 1] (`P_1` = 1, so every wish is 1), no pause. Her series from
+# month 1 and her conception in month 5 are those of "clan"; with the first birth in month
+# 15 her births reach her wish, so no series follows.
+CLAN_WISH_DATA = world_reference.death_test_data(0.02, fertility=CLAN_FERTILITY, wish_shape=[0.0, 1.0])
+assert CLAN_WISH_DATA.pause_months == 0 and CLAN_WISH_DATA.wish_shape == [0.0, 1.0]
+CLAN_WISH = clan_world(CLAN_WISH_DATA)
+assert [CLAN_WISH.pending_series(sim) for sim in (1, 3, 5)] == [MONTH, MONTH, None]
+CLAN_WISH.advance(15 * MONTH)
+assert 7 in CLAN_WISH.sims and CLAN_WISH.sims[1][5:7] == [1, 1] and not CLAN_WISH.pregnancies
+assert CLAN_WISH.pending_series(1) is None and all(CLAN_WISH.wish_of(sim) == 1 for sim in (1, 3, 5))
+CLAN_WISH_SAVE_AFTER_BIRTH = CLAN_WISH.save()
+
+# The first woman's second conception in "clan" (month 17), for tests that build a
+# conception by hand: her pregnancy as the projection holds it, and the draw of the attempt
+# against the chance 0.25 of the window.
+CLAN_SECOND = clan_world()
+CLAN_SECOND.advance(17 * MONTH)
+SECOND_FATHER, SECOND_KEY, SECOND_NUMBER, SECOND_SEX, SECOND_PERSON, SECOND_CONCEIVED = CLAN_SECOND.pregnancies[1]
+assert (SECOND_FATHER, SECOND_NUMBER, SECOND_CONCEIVED) == (2, 1, 17 * MONTH)
+assert SECOND_KEY == world_reference.child_key(CLAN_KEYS[0], CLAN_KEYS[1], 1, 0)
+SECOND_ALLELES = world_reference.copies_at(SECOND_PERSON, CLAN_DATA.loci["core:disease_ar"])
+SECOND_UNIT = unit(words(chacha_key(0xFF, CONCEPTION_ATTEMPT_TAG, CLAN_KEYS[0], 17, CLAN_KEYS[1]))[0])
+assert SECOND_UNIT < 0.25
+SECOND_PREGNANCY_BYTES = (
+    varint(1)
+    + varint(SECOND_FATHER)
+    + varint(SECOND_KEY)
+    + varint(SECOND_NUMBER)
+    + SECOND_SEX
+    + genome_of(SECOND_PERSON)
+    + signed(SECOND_CONCEIVED)
+)
+assert SECOND_PREGNANCY_BYTES in CLAN_SECOND.projection()
+
 
 # Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
-# start, barren, no couples, on test data with the repository's six diseases and both
+# start, no couples, on test data with the repository's six diseases and both
 # causes for everyone practically off, so that only the diseases kill: accident 1e-9 per
 # year (the smallest of the range; a budget lasts 100 000 years or more, so never) and
 # senescence `a` = 1e-15, `b` = 0.001 (some 24 000 to 29 000 years) for both sexes. Ten founders born one second before the start (sim 9 thirty years before it),
@@ -1037,6 +1174,8 @@ TEST_DATA = [
     ("clan", CLAN_DATA),
     ("fever", FEVER_DATA),
     ("blight", BLIGHT_DATA),
+    ("clan_pause", CLAN_PAUSE_DATA),
+    ("clan_wish", CLAN_WISH_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
@@ -1047,10 +1186,14 @@ if __name__ == "__main__":
     print(f"longevity_dues (senescence with the trait, without, accident) {LONGEVITY_DUES}")
     for name, data in TEST_DATA:
         (fa, fb), (ma, mb) = data.senescence[FEMALE], data.senescence[MALE]
+        form = data.fertility
+        window = f" from {form.start!r} until {form.until!r}" if form.kind == "window" else ""
         print(
             f"data_hash_{name} {data.hash:016x} accident {data.accident[FEMALE]!r} {data.accident[MALE]!r}"
             f" senescence_a {fa!r} {ma!r} senescence_b {fb!r} {mb!r}"
             f" diseases {[disease.code for disease in data.diseases]}"
+            f" fertility {form.kind}{window} adult_rate {data.adult_rate!r} pause_months {data.pause_months}"
+            f" pregnancy_months {data.pregnancy_months} wish_weights {len(data.wish_shape)} twins {data.twins!r}"
         )
     print(f"cause_keys senescence {SENESCENCE_KEY:016x} accident {ACCIDENT_KEY:016x}")
     for name, data in [
@@ -1123,7 +1266,11 @@ if __name__ == "__main__":
     print(f"partners_year_hashes {[format(value, '016x') for value in PARTNERS.year_hashes]}")
     for row in death_rows("partners", PARTNERS):
         print(row)
+    print(f"partners_wish {PARTNERS_WISH} menarche {PARTNERS.menarche_of(1)!r}")
+    print(f"partners_attempts (month, chance, success) {[(t // MONTH, p, ok) for t, _, _, p, ok in PARTNERS.attempts]}")
     print(f"clan_keys {[format(key, '016x') for key in CLAN_KEYS]}")
+    print(f"clan_conceptions_by_hand (conception month, birth month) {CLAN_HAND}")
+    print(f"clan_births_and_conceptions {[(sim, CLAN.sims[sim][5], CLAN.sims[sim][6]) for sim in (1, 5)]} girl {CLAN.archive[3][7:9]}")
     print(f"clan_save_after_start {CLAN_SAVE_AFTER_START.hex()}")
     for number, line in enumerate(CLAN_CONCEPTION_ENTRIES):
         print(f"clan_conception_entry_{number} {line.hex()}")
@@ -1143,6 +1290,15 @@ if __name__ == "__main__":
     for number, line in enumerate(CLAN_BIRTH_ENTRIES):
         print(f"clan_birth_entry_{number} {line.hex()}")
     print(f"clan_save_after_birth {CLAN_SAVE_AFTER_BIRTH.hex()}")
+    print(f"clan_pause_save_after_birth {CLAN_PAUSE_SAVE_AFTER_BIRTH.hex()}")
+    print(f"clan_wish_save_after_birth {CLAN_WISH_SAVE_AFTER_BIRTH.hex()}")
+    sex_name = "female" if SECOND_SEX == FEMALE else "male"
+    print(
+        f"clan_second_pregnancy mother 1 father {SECOND_FATHER} lineage_key {SECOND_KEY:016x} conception {SECOND_NUMBER}"
+        f" sex {sex_name} core:disease_ar maternal {SECOND_ALLELES[0]} paternal {SECOND_ALLELES[1]} conceived {SECOND_CONCEIVED}"
+    )
+    print(f"clan_second_pregnancy genome {genome_of(SECOND_PERSON).hex()} bytes {SECOND_PREGNANCY_BYTES.hex()}")
+    print(f"clan_second_attempt month 17 u {SECOND_UNIT!r} chance 0.25 success {SECOND_UNIT < 0.25}")
     print(f"clan_fever_archive {[(sim, left) for sim, (_, left, *_ ) in sorted(FEVER.archive.items())]}")
     print(f"clan_year_hashes {[format(value, '016x') for value in CLAN.year_hashes]}")
     print(f"afflicted_keys {[format(key, '016x') for key in AFFLICTED_KEYS]}")

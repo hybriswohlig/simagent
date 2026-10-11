@@ -11,15 +11,20 @@ What the model knows:
 
 - A world runs on its data (ADR-0007): the life course data, the calibration and the
   genome map as documents, by default those under data/ (`REPOSITORY`). Test data
-  (`death_test_data`) differ from them only in the rates of senescence and accident and
-  the list `diseases` (the life course data are the repository's); the save names the
-  hash of the data a world runs on. The map lengths, the sex ratio, the map in the form
-  of the meiosis reference and the mutation rates come from the documents too.
-- `Start` (world seed, founder tag, world parameters, founders, couples, fertility; no
-  causes of death any more) writes `core:started`, plans the year end series (insertion
-  number 1, first at the last second of year 0, period one year) and then per founder,
-  in list order: the creation entry, the first birthday (the first anniversary at or
-  after the start) and the deaths in the order of its causes.
+  (`death_test_data`) differ from them only in the rates of senescence and accident, the
+  list `diseases` and, for a scenario that gave a fertility in `Start` before, the
+  fertility in the form `window` (design note of the fertility in the world, section 8:
+  the rate, the window, the months of pregnancy, no pause, the wish always 40, no
+  twins), and for the acceptance scenario the market off and no separation (ADR-0017
+  section 5); the save names the hash of the data a world runs on. The map lengths, the sex
+  ratio, the map in the form of the meiosis reference and the mutation rates come from
+  the documents too.
+- `Start` (world seed, founder tag, world parameters, founders, couples; no causes of
+  death and no fertility any more, ADR-0017 sections 2 and 4) writes `core:started`,
+  plans the year end series (insertion number 1, first at the last second of year 0,
+  period one year) and then per founder, in list order: the creation entry, the first
+  birthday (the first anniversary at or after the start) and the deaths in the order of
+  its causes.
 - Events run in the order of their key: time, phase (0 domain, 1 observer), micro step,
   class (general 500, death 900, observer 1000), subject (kind, ID), kind (year end 1,
   birthday 2, death 3), insertion number.
@@ -87,32 +92,47 @@ What the model knows:
   between two living sims. Each gets the next PartnershipId and one entry
   `core:partnered` (subjects the woman and the man). A death ends the open partnership
   of the sim: it keeps the second of the death.
-- Conception (ADR-0001 scenario `fork_no_density`, ADR-0004 section 7): a partnership
-  plans a monthly series of attempts (period MONTH, by its entry) from the first month
-  start at or after the forming and her `from_years` birthday, if she is younger than
-  `until_years` then and not pregnant. An attempt draws
-  `bernoulli(CONCEPTION_ATTEMPT, per_month)` (subject
-  her lineage key, occasion the month index, detail his lineage key); on success she
-  conceives her conception number n: the child key `child(her, his, n, 0)`, per parent
-  the start strand `uniform_below(MEIOSIS_START_STRAND, 2)` (subject the genome key,
-  occasion 0 mother and 1 father) and the sex `bernoulli(SEX_CHROMOSOME, p_Y)`
-  (occasion 1, true for a son; `p_Y = r / (1 + r)` from `core:sex_ratio_at_birth`,
-  genetics specification 2.3 and 11.3). Entries: `core:conception` (her, him; plan and draw), then
-  `core:meiosis` of her and of him (event, rule `core:meiosis`, the strand draw, for him
-  also the sex draw). The series ends; the pregnancy is state, and the birth is planned
-  `pregnancy_months` months later (class birth 200, by the conception). A failed attempt
-  ends the series if the next month start is her `until_years` birthday or later. The
+- Fertility (genetics specification 5.6 and 11.3, ADR-0017 section 4, design note of the
+  fertility in the world): the data give the form of the curves (`puberty` or `window`),
+  the adult rate, the pause after a birth and the months of pregnancy (whole months),
+  the wish shape and its tilt. Per woman, pure and not held: her menarche
+  `menarche(θ_i, δ, form)` with `δ` the draw FERTILITY_MENARCHE (15; her lineage key,
+  occasion 0, detail 0; the form `puberty` only) and her wish `wish(u, shape, tilt)` with
+  `u` the draw FERTILITY_WISH (16; the same key). `θ_i` of a sim is that of the curve of
+  its sex with `z_p` = 0 (the data of these tests name no trait of the puberty timing;
+  this model refuses one). The end of her fertility `E` is `female_decline_to` (puberty)
+  or `until` (window). A sim holds `births`, the children it bore alive (0 for every
+  founder, every newborn and every man), right after `conceptions`.
+- The series of attempts (design note section 4): a woman has at most one monthly series
+  (period MONTH). It is planned at `s` if and only if, then, she has an open
+  partnership, is not pregnant, `births < wish` and `age(w, s) < E`: after a partnership
+  forms at `f` (a couple of `Start` at 0, `ArrangePartnership` in the second after its
+  stamp) at `s` = the first month start strictly after `f`, by the entry
+  `core:partnered`; after a birth at `b` in an open partnership at `s` = the first month
+  start at or after `b + max(pause · MONTH, 1 s)`, by the entry `core:birth`. It ends
+  when she conceives, when the partnership ends, or after an attempt at `t` that fails
+  when `age(w, t + MONTH) >= E`.
+- An attempt at `t` (design note section 5): with `m` her partner in the open
+  partnership, `p = chance(adult_rate, female_factor(age(w, t), menarche(w)),
+  male_factor(age(m, t), θ_i(m)))`, drawn `bernoulli(p)` at (CONCEPTION_ATTEMPT, her
+  lineage key, the month index of `t`, his lineage key); a chance of 0 draws like any
+  other and fails. Each draw is checked not to lie within 1e-12 of its chance (and each
+  wish draw not within 1e-12 of a threshold), so the pinned libm of the core gives the
+  same outcome. On success she conceives her conception number n: the child key
+  `child(her, his, n, 0)`, per parent the start strand `uniform_below(MEIOSIS_START_STRAND, 2)`
+  (subject the genome key, occasion 0 mother and 1 father) and the sex
+  `bernoulli(SEX_CHROMOSOME, p_Y)` (occasion 1, true for a son; `p_Y = r / (1 + r)` from
+  `core:sex_ratio_at_birth`, genetics specification 2.3 and 11.3). Entries:
+  `core:conception` (her, him; plan and draw), then `core:meiosis` of her and of him
+  (event, rule `core:meiosis`, the strand draw, for him also the sex draw). The series
+  ends; the pregnancy is state, and the birth is planned `pregnancy_months` months later
+  (class birth 200, by the conception). One child per conception (no twins yet). The
   death of either ends the series; her death ends the pregnancy.
 - Birth: a new sim with the next SimId and the entry `core:birth` (subjects child, mother,
   father; the plan and the rule `core:gestation`); born now, with parents and the
-  conception number, its afflictions from its genome with the birth as origin. Its first
-  birthday a year later, its deaths from its birth on. If the mother is in an open
-  partnership, her attempts begin again from the first month start after the birth second.
-- The curves of fertility (genetics specification 5.6 and 11.3, design note of the
-  fertility curves, section 2) are pure functions here (`theta_i`, `menarche`,
-  `female_factor`, `male_factor`, `chance`, `wish`); `Data` reads their form and the trait
-  of the puberty timing, but no world rule uses them yet (tools/fertility_values.py
-  prints their values).
+  conception number, `births` 0, its afflictions from its genome with the birth as origin.
+  Its first birthday a year later, its deaths from its birth on. The mother's `births`
+  grows by one; then, if she is in an open partnership, her series after a birth.
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes and the checks
 of the step hazard; the other tools use the model)
@@ -135,7 +155,6 @@ from postcard_reference import (
     Y_CHROMOSOME,
     afflictions as afflictions_bytes,
     couple,
-    fertility,
     genome_of,
     founder,
     lineage_key,
@@ -177,15 +196,17 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
-# New with the fertility curves (design note, section 2; genetics specification 11.7).
+# New with the fertility in the world (design note of the fertility in the world, section
+# 1; genetics specification 11.7).
 FERTILITY_MENARCHE, FERTILITY_WISH = 15, 16
 
-PROJECTION_VERSION = 12
-CORE_VERSION = 26
+PROJECTION_VERSION = 13
+CORE_VERSION = 27
 
-# A scenario without its own fertility: nobody ever conceives.
-BARREN = (0.0, 18, 45, 10)
 FORMAT_VERSION = 1
+# The margin a draw keeps from what it is compared with (the chance of an attempt, a
+# threshold of the wish), so that a last bit of libm in the core cannot flip it.
+DRAW_MARGIN = 1e-12
 
 NONE = b"\x00"
 
@@ -294,19 +315,39 @@ def within(x: float, bounds: tuple) -> bool:
     return bounds[0] <= x <= bounds[1]
 
 
+def whole_months(entry) -> int:
+    """A number of the life course data in months that the world counts in whole months
+    (the pause after a birth, the months of pregnancy): its value as an integer. This
+    model takes whole months only (a fraction would need a rounding rule)."""
+    assert entry["unit"] == "month", entry
+    value = number(entry)
+    assert value >= 0.0 and value.is_integer(), f"{value} is no whole number of months"
+    return int(value)
+
+
 class Data:
     """The definitions a world runs on: the life course data, the calibration and the
     genome map as documents (parsed JSON with their texts, in the order of their data
     IDs), their data hash (tools/data_reference.py), the loci
     by ID, the diseases in data order, the rates of death per sex (Gompertz `a` and `b`,
     the Makeham term `λ`), `σ_g` and the trait of longevity, the fertility (its form, the
-    trait of the puberty timing and per sex the curve `(θ, σ_θ)` of 5.2 that `θ_i` reads;
-    no world rule uses them yet), and what the meiosis reference reads: the map lengths,
-    the sex ratio at birth, the map in its form and the mutation rates."""
+    end of a woman's fertility `E`, the trait of the puberty timing and per sex the curve
+    `(θ, σ_θ)` of 5.2 that `θ_i` reads; from the life course data the adult rate, the
+    pause after a birth and the months of pregnancy, the wish shape and its tilt, and the
+    rates of twins, which no world rule reads yet), and what the meiosis reference reads:
+    the map lengths, the sex ratio at birth, the map in its form and the mutation rates."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict):
         self.hash = data_reference.documents_hash(demography, calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
+        life = data_reference.strip(demography)
+        self.adult_rate = number(life["values"]["core:fertility_adult_rate"])
+        self.pause_months = whole_months(life["values"]["core:fertility_pause"])
+        self.pregnancy_months = whole_months(life["values"]["core:pregnancy_length"])
+        assert self.pregnancy_months >= 1
+        self.wish_tilt = number(life["values"]["core:fertility_wish_tilt"])
+        self.wish_shape = [number(entry) for entry in life["fertility_wish_shape"]]
+        self.twins = (number(life["values"]["core:twins_identical"]), number(life["values"]["core:twins_fraternal"]))
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
         values = stripped["values"]
@@ -330,6 +371,12 @@ class Data:
         self.puberty_trait = stripped["puberty_trait"]
         assert self.puberty_trait is None, "a trait of the puberty timing is not modelled by this reference"
         self.fertility = FertilityForm(stripped["fertility"])
+        # The end of her fertility (design note of the fertility in the world, section 2):
+        # from this age on her factor stays 0.
+        if self.fertility.kind == "puberty":
+            self.fertility_end = self.fertility.female_decline_to
+        else:
+            self.fertility_end = self.fertility.until
         self.puberty_curve = {
             sex: (number(values[f"core:growth_theta_{name}"]), number(values[f"core:growth_theta_sd_{name}"]))
             for sex, name in ((FEMALE, "female"), (MALE, "male"))
@@ -369,14 +416,65 @@ def repository_data() -> Data:
     return Data(*data_reference.documents(ROOT / "data"))
 
 
-def death_test_data(accident: float, senescence_a: float = 1e-15, senescence_b: float = 0.001, diseases=None) -> Data:
+def test_value(value: float, unit: str) -> dict:
+    """A number of test data with its texts (they do not enter the data hash)."""
+    return {
+        "value": value,
+        "unit": unit,
+        "source": "test data (ADR-0017 section 5)",
+        "as_of": "2026-10-11",
+        "note": "test value, not calibrated",
+    }
+
+
+# The wish of the test data with the window: always 40 (41 weights for 0 to 40 children,
+# all 0 but the last), so the wish never stops a series (design note of the fertility in
+# the world, section 8; ADR-0017 section 5).
+TEST_WISH = 40
+
+
+def window_fertility(demography: dict, calibration: dict, fertility: tuple) -> None:
+    """The fertility of a scenario that gave one in `Start` (design note of the fertility in
+    the world, section 8), written into the documents: `fertility` is (per month `r`, from
+    `a`, until `b` years, `k` months) as the old `Start.fertility`; the form `window` from
+    `a` until `b`, `core:fertility_adult_rate` = `r`, `core:pregnancy_length` = `k`,
+    `core:fertility_pause` 0, the wish shape of `TEST_WISH` + 1 weights all 0 but the last
+    1 (the tilt stays), both rates of twins 0."""
+    per_month, start, until, months = fertility
+    assert per_month > 0.0
+    calibration["fertility"] = {
+        "window": {"from": test_value(float(start), "year"), "until": test_value(float(until), "year")}
+    }
+    values = demography["values"]
+    values["core:fertility_adult_rate"]["value"] = per_month
+    values["core:pregnancy_length"]["value"] = float(months)
+    values["core:fertility_pause"]["value"] = 0.0
+    values["core:twins_identical"]["value"] = 0.0
+    values["core:twins_fraternal"]["value"] = 0.0
+    demography["fertility_wish_shape"] = [test_value(0.0, "fraction") for _ in range(TEST_WISH)] + [
+        test_value(1.0, "fraction")
+    ]
+
+
+def death_test_data(
+    accident: float,
+    senescence_a: float = 1e-15,
+    senescence_b: float = 0.001,
+    diseases=None,
+    fertility=None,
+    life_values=None,
+    wish_shape=None,
+) -> Data:
     """Test data for the deaths (design note of the death from the data, section 4): the
     repository's life course data, calibration and map with the Makeham term `accident`
     and the Gompertz `a`, `b` for both sexes, and `diseases` (a list of disease
     documents) instead of the repository's six if given. A scenario that had causes of `Start` takes the rate of
     its first cause as `accident` and that of its second as `senescence_a` with `b` =
     0.001; without a second cause `a` = 1e-15 and `b` = 0.001, senescence practically
-    off (its death lies some 20 000 years ahead)."""
+    off (its death lies some 20 000 years ahead). A scenario that had a fertility in
+    `Start` gives it as `fertility` (`window_fertility`); otherwise the fertility is the
+    repository's. `life_values` (a dict of code to value) sets values of the life course
+    data after that, `wish_shape` (a list of weights) the wish shape."""
     demography, calibration, genome_map = data_reference.documents(ROOT / "data")
     values = calibration["values"]
     for sex in ("female", "male"):
@@ -385,6 +483,12 @@ def death_test_data(accident: float, senescence_a: float = 1e-15, senescence_b: 
         values[f"core:senescence_b_{sex}"]["value"] = senescence_b
     if diseases is not None:
         calibration["diseases"] = diseases
+    if fertility is not None:
+        window_fertility(demography, calibration, fertility)
+    for code, value in (life_values or {}).items():
+        demography["values"][code]["value"] = value
+    if wish_shape is not None:
+        demography["fertility_wish_shape"] = [test_value(float(weight), "fraction") for weight in wish_shape]
     return Data(demography, calibration, genome_map)
 
 
@@ -419,8 +523,14 @@ def dummy_disease(onset_years: float) -> dict:
 REPOSITORY = repository_data()
 # The "fork data" of the acceptance scenario `fork_no_density` (ADR-0017 section 5): the
 # old model, accident 0.02 per year, senescence practically off (`a` = 1e-12, `b` = 0.1),
-# the dummy disease from 18.
-FORK_DATA = death_test_data(0.02, 1e-12, 0.1, [dummy_disease(18.0)])
+# the dummy disease from 18; the fertility `window` from 18 until 45 with 0.05 per month,
+# ten months of pregnancy, no pause, the wish always 40, no twins (design note of the
+# fertility in the world, section 8); the market off (`c` = 0) and no separation.
+FORK_FERTILITY = (0.05, 18, 45, 10)
+FORK_LIFE_VALUES = {"core:market_search_height_female": 0.0, "core:separation_rate": 0.0}
+FORK_DATA = death_test_data(
+    0.02, 1e-12, 0.1, [dummy_disease(18.0)], fertility=FORK_FERTILITY, life_values=FORK_LIFE_VALUES
+)
 # The data hash of the definitions under data/ (ADR-0007), from their own reference.
 DATA_HASH = REPOSITORY.hash
 assert DATA_HASH == data_reference.data_hash(ROOT / "data")
@@ -568,8 +678,24 @@ for low, high, want in [(0.0, 18.0, 0.02), (10.0, 30.0, 0.180_756_254_138_236_62
 
 # ---------------------------------------------------------------------------------------
 # Fertility (genetics specification 5.6 and 11.3; design note of the fertility curves,
-# section 2): pure functions, ages in years as f64 (11.1: `(t − born).as_years()`). No
-# world rule uses them yet.
+# section 2): pure functions, ages in years as f64 (11.1: `(t − born).as_years()`). The
+# world reads them in its attempts (design note of the fertility in the world).
+
+
+def month_start_after(t: int) -> int:
+    """The smallest `k · MONTH > t`, k an integer (design note of the fertility in the
+    world, section 2)."""
+    return (t // MONTH + 1) * MONTH
+
+
+def month_start_at_or_after(t: int) -> int:
+    """The smallest `k · MONTH >= t`, k an integer."""
+    return -(-t // MONTH) * MONTH
+
+
+assert month_start_after(0) == MONTH and month_start_after(-1) == 0 and month_start_after(MONTH - 1) == MONTH
+assert month_start_at_or_after(0) == 0 and month_start_at_or_after(1) == MONTH and month_start_at_or_after(-1) == 0
+assert month_start_at_or_after(-MONTH - 1) == -MONTH and month_start_after(-MONTH) == 0
 
 # The bound of the inputs of the individual curve (ADR-0012 section 1).
 CURVE_INPUT_BOUND = 6.0
@@ -836,9 +962,12 @@ class World:
     `founders` a list of (born, sex, alleles) with the sex as postcard bytes and the
     alleles as for `founder_genome`, `couples` a list of (woman, man) by their places
     among the founders, `data` the definitions it runs on (the repository's by default,
-    or test data)."""
+    or test data). A sim is [born, lineage key, sex, genome (form of
+    tools/meiosis_reference.py), afflictions, conceptions, births, parents]; an archived
+    one (born, left, key of the cause, lineage key, sex, genome, afflictions,
+    conceptions, births, parents)."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), fertility_=BARREN, data=None):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None):
         self.seed = seed
         self.tag = tag
         self.switch = switch
@@ -850,14 +979,14 @@ class World:
         self.next_sim_id = 1
         self.next_partnership_id = 1
         self.partnerships = {}
-        self.fertility = fertility_
         self.pregnancies = {}
-        # born, lineage key, sex, genome (form of tools/meiosis_reference.py),
-        # afflictions, conceptions, parents
         self.sims = {}
         self.archive = {}
         self.log = []
         self.year_hashes = []
+        # Every attempt (time, woman, man, chance, success), for the stories of the tools;
+        # not state.
+        self.attempts = []
         start = variant(
             0,
             varint(seed),
@@ -865,7 +994,6 @@ class World:
             world_params(switch),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
-            fertility(*fertility_),
         )
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
@@ -971,30 +1099,95 @@ class World:
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
         entry = self._entry(now, subjects, [cause], variant(5, varint(number_)))
         self.partnerships[number_] = [woman, man, now, None]
-        self._plan_attempts(woman, entry, now, now)
+        # The series after a partnership forms (design note section 4).
+        self._plan_series(woman, month_start_after(now), entry, now)
 
-    def _plan_attempts(self, woman: int, by: int, now: int, from_: int) -> None:
-        """The monthly series of a woman in a partnership from `from_` on, if she can
-        conceive at all."""
-        _, from_years, until_years, _ = self.fertility
-        born = self.sims[woman][0]
-        earliest = max(from_, born + from_years * YEAR)
-        first = -(-earliest // MONTH) * MONTH
-        if woman in self.pregnancies or first >= born + until_years * YEAR:
+    # ------------------------------------------------------------------ fertility
+
+    def key_of(self, sim: int) -> int:
+        """The lineage key of a living or archived sim."""
+        return self.sims[sim][1] if sim in self.sims else self.archive[sim][3]
+
+    def wish_of(self, woman: int) -> int:
+        """Her wish (genetics specification 11.3, design note section 3): `wish(u, shape,
+        tilt)` with `u` the draw FERTILITY_WISH at her lineage key; pure, not held. The
+        draw keeps `DRAW_MARGIN` from every threshold."""
+        data = self.data
+        u = wish_unit(self.seed, self.key_of(woman))
+        assert all(abs(u - acc) > DRAW_MARGIN for acc in wish_thresholds(data.wish_shape, data.wish_tilt)), u
+        return wish(u, data.wish_shape, data.wish_tilt)
+
+    def theta_of(self, sim: int) -> float:
+        """`θ_i` of a sim: the curve of its sex with `z_p` = 0 (no trait of the puberty
+        timing in these data, 11.1)."""
+        sex = self.sims[sim][2] if sim in self.sims else self.archive[sim][4]
+        return theta_i(self.data.puberty_curve[sex], 0.0)
+
+    def menarche_of(self, woman: int) -> float:
+        """Her menarche (5.6, design note section 3): `menarche(θ_i, δ)` with `δ` the draw
+        FERTILITY_MENARCHE at her lineage key; the form `puberty` only, pure, not held."""
+        form = self.data.fertility
+        assert form.kind == "puberty"
+        return menarche(self.theta_of(woman), menarche_delta(self.seed, self.key_of(woman), form), form)
+
+    def partner_of(self, woman: int):
+        """Her partner in the open partnership, or None."""
+        open_ = [p[1] for p in self.partnerships.values() if p[0] == woman and p[3] is None]
+        assert len(open_) <= 1
+        return open_[0] if open_ else None
+
+    def factors(self, woman: int, man: int, t: int) -> tuple:
+        """`(F_w, F_m)` at `t` (design note section 5): her factor at her age from her
+        menarche (the window does not read it), his at his age from his `θ_i`."""
+        form = self.data.fertility
+        her_age = as_years(t - self.sims[woman][0])
+        his_age = as_years(t - self.sims[man][0])
+        her_menarche = self.menarche_of(woman) if form.kind == "puberty" else 0.0
+        return female_factor(her_age, her_menarche, form), male_factor(his_age, self.theta_of(man), form)
+
+    def attempt_chance(self, woman: int, man: int, t: int) -> float:
+        """The chance of her attempt at `t`: `chance(adult_rate, F_w, F_m)`."""
+        f_w, f_m = self.factors(woman, man, t)
+        return chance(self.data.adult_rate, f_w, f_m)
+
+    def series_allowed(self, woman: int, s: int) -> bool:
+        """Whether her series may be planned at `s` now (design note section 4): an open
+        partnership, not pregnant, `births < wish`, `age(w, s) < E`."""
+        her = self.sims[woman]
+        return (
+            self.partner_of(woman) is not None
+            and woman not in self.pregnancies
+            and her[6] < self.wish_of(woman)
+            and as_years(s - her[0]) < self.data.fertility_end
+        )
+
+    def _plan_series(self, woman: int, s: int, by: int, now: int) -> None:
+        """Her monthly series from `s` on, planned by the entry `by`, if the rule allows it
+        at this moment."""
+        if not self.series_allowed(woman, s):
             return
         payload = variant(3, varint(woman))
-        self._schedule(first, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, payload, MONTH, by, now)
+        self._schedule(s, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, payload, MONTH, by, now)
+
+    def pending_series(self, woman: int):
+        """The time of her pending series, or None."""
+        times = [event.time for event in self.queue if event.kind == ATTEMPT_KIND and event.subject == (SIM_SUBJECT, woman)]
+        assert len(times) <= 1
+        return times[0] if times else None
 
     def _attempt(self, event: Event, now: int, plan: bytes) -> None:
         woman = event.subject[1]
-        per_month, _, until_years, _ = self.fertility
         her = self.sims[woman]
-        man = next(p[1] for p in self.partnerships.values() if p[0] == woman and p[3] is None)
+        man = self.partner_of(woman)
         him = self.sims[man]
+        p = self.attempt_chance(woman, man, now)
         draw = (CONCEPTION_ATTEMPT, her[1], now // MONTH, him[1])
-        if not bernoulli(words(chacha_key(self.seed, *draw))[0], per_month):
-            # Her last attempt: the next one would be at or after her `until_years` birthday.
-            if now + MONTH >= her[0] + until_years * YEAR:
+        word = words(chacha_key(self.seed, *draw))[0]
+        assert abs(unit(word) - p) > DRAW_MARGIN, f"an attempt hangs on the last bits of its chance {p!r}"
+        self.attempts.append((now, woman, man, p, bernoulli(word, p)))
+        if not bernoulli(word, p):
+            # Her last attempt: the next one would be at or after the end of her fertility.
+            if as_years(now + MONTH - her[0]) >= self.data.fertility_end:
                 self.queue.remove(event)
             return
         self.queue.remove(event)
@@ -1031,7 +1224,7 @@ class World:
             self._entry(now, [variant(0, varint(parent))], causes, payload)
         sex = MALE if "y" in person["paternal_sex"] else FEMALE
         self.pregnancies[woman] = (man, child, conception_number, sex, person, now)
-        months = self.fertility[3]
+        months = self.data.pregnancy_months
         payload = variant(4, varint(woman))
         self._schedule(now + months * MONTH, BIRTH, (SIM_SUBJECT, woman), BIRTH_KIND, payload, None, conception, now)
 
@@ -1043,11 +1236,14 @@ class World:
         subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
         born = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
         afflictions = self.afflictions_of(key, sex, person, now)
-        self.sims[child] = [now, key, sex, person, afflictions, 0, (mother, father, conception_number)]
+        self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number)]
         self._plan_birthday(child, now + YEAR, born, now)
         self._plan_deaths(child, born, now)
-        if any(p[0] == mother and p[3] is None for p in self.partnerships.values()):
-            self._plan_attempts(mother, born, now, now + 1)
+        # She bore a child alive; then the series after a birth (design note sections 4
+        # and 6), if her partnership is open.
+        self.sims[mother][6] += 1
+        pause = max(self.data.pause_months * MONTH, 1)
+        self._plan_series(mother, month_start_at_or_after(now + pause), born, now)
 
     def arrange(self, woman: int, man: int) -> None:
         """`ArrangePartnership` of two living sims, submitted right now."""
@@ -1069,7 +1265,7 @@ class World:
             person = founder_genome(sex, genes, self.data.loci)
             # A founder's origin is the start (B19).
             afflictions = self.afflictions_of(key, sex, person, now)
-            self.sims[sim] = [born, key, sex, person, afflictions, 0, None]
+            self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None]
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
             age = whole if on_the_day and whole >= 1 else whole + 1
@@ -1154,7 +1350,7 @@ class World:
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
-        born, key, sex, person, afflictions, conceptions, parents = self.sims.pop(sim)
+        born, key, sex, person, afflictions, conceptions, births, parents = self.sims.pop(sim)
         codes = [SENESCENCE, ACCIDENT] + [
             affliction.disease.code for affliction in afflictions if affliction.exposure is not None
         ]
@@ -1171,7 +1367,7 @@ class World:
         # Her pregnancy ends with her.
         self.pregnancies.pop(sim, None)
         # The afflictions stay as they were at the death.
-        self.archive[sim] = (born, now, str_key(code), key, sex, person, afflictions, conceptions, parents)
+        self.archive[sim] = (born, now, str_key(code), key, sex, person, afflictions, conceptions, births, parents)
 
     # ------------------------------------------------------------------ views
 
@@ -1188,8 +1384,9 @@ class World:
             + genome_of(person)
             + afflictions_bytes([affliction.triple() for affliction in afflictions])
             + varint(conceptions)
+            + varint(births)
             + parents_bytes(parents)
-            for sim, (born, key, sex, person, afflictions, conceptions, parents) in sorted(self.sims.items())
+            for sim, (born, key, sex, person, afflictions, conceptions, births, parents) in sorted(self.sims.items())
         ]
         archive = [
             varint(sim)
@@ -1201,8 +1398,9 @@ class World:
             + genome_of(person)
             + afflictions_bytes([affliction.triple() for affliction in afflictions])
             + varint(conceptions)
+            + varint(births)
             + parents_bytes(parents)
-            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, parents) in sorted(
+            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents) in sorted(
                 self.archive.items()
             )
         ]
@@ -1220,7 +1418,6 @@ class World:
             varint(PROJECTION_VERSION)
             + some(varint(self.seed))
             + some(world_params(self.switch))
-            + some(fertility(*self.fertility))
             + signed(closed)
             + varint(self.next_sim_id)
             + varint(self.next_partnership_id)
@@ -1280,7 +1477,6 @@ EMPTY_PROJECTION = (
     varint(PROJECTION_VERSION)
     + NONE  # world_seed
     + NONE  # world_params
-    + NONE  # fertility
     + signed(-1)
     + varint(1)  # next SimId
     + varint(1)  # next PartnershipId
@@ -1306,5 +1502,17 @@ if __name__ == "__main__":
             for sex, sex_name in ((FEMALE, "female"), (MALE, "male"))
         )
         print(f"death_rates_{name} {rates} sigma_g {data.sigma_g!r} longevity_trait {data.longevity_trait}")
+    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+        form = data.fertility
+        window = f" from {form.start!r} until {form.until!r}" if form.kind == "window" else ""
+        print(
+            f"fertility_{name} form {form.kind}{window} end {data.fertility_end!r} adult_rate {data.adult_rate!r}"
+            f" pause_months {data.pause_months} pregnancy_months {data.pregnancy_months}"
+            f" wish_tilt {data.wish_tilt!r} wish_shape {data.wish_shape!r} twins {data.twins!r}"
+        )
+    print(f"life_values_fork {FORK_LIFE_VALUES}")
+    print(f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH}")
+    print(f"empty_projection {EMPTY_PROJECTION.hex()}")
+    print(f"empty_save {EMPTY_SAVE.hex()}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
     print("closed form checks (senescence_age, accident_age against mortality.rs W7.1): ok")

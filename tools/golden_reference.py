@@ -4,20 +4,21 @@ the Rust code (ADR-0003 6.3) by the model in tools/world_reference.py: year hash
 hash and the golden save, and the goldens of its fork at year 5 with the override
 "hereditary diseases on".
 
-The scenario: seed 1, founder tag `test:dummy`, the switch off, no causes of death of its
-own (they come from the data: senescence and accident with the rates of the genetics
-specification 7.2, ADR-0017 section 2), on the repository data with its six hereditary
-diseases (ADR-0017 section 3), three founders born 30 years (sim 1), 25 years and 100
-days (sim 2) and one second (sim 3) before the start, thirty years (long enough for the
-first death, so that the goldens cover every event and log kind). Sim 1 is female with the
-dummy allele twice at `core:disease_ar`, sim 2 male with dummy and wild (from mother and
-father), sim 3 male with dummy twice. Their lineage keys are those of the founders 0 to 2
-of the tag (ADR-0001 section 4). Sims 1 and 2 are a couple from the start (partnership
-1, entry `core:partnered` after the founders). Fertility as in the acceptance scenario
-of ADR-0001: an attempt per month with 0.05, the mother 18 to 45 years old, ten months of
-pregnancy.
+The scenario (format 3, design note of the fertility in the world, section 1): seed 1,
+founder tag `test:dummy`, the switch off, neither causes of death nor a fertility of its
+own; it runs on the repository data (the CLI embeds them): senescence and accident with
+the rates of the genetics specification 7.2 (ADR-0017 section 2), its six hereditary
+diseases (ADR-0017 section 3), and the fertility of 5.6 and 11.3 (ADR-0017 section 4: the
+curves, the adult rate 0.20, the wish, the pause of 12 months, ten months of pregnancy).
+Three founders born 30 years (sim 1), 25 years and 100 days (sim 2) and one second (sim
+3) before the start, thirty years (long enough for the first death, so that the goldens
+cover every event and log kind). Sim 1 is female with the dummy allele twice at
+`core:disease_ar`, sim 2 male with dummy and wild (from mother and father), sim 3 male
+with dummy twice. Their lineage keys are those of the founders 0 to 2 of the tag (ADR-0001
+section 4). Sims 1 and 2 are a couple from the start (partnership 1, entry
+`core:partnered` after the founders).
 
-What happens (a year has 364 days of 86 400 seconds):
+What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
 
 - Every founder has its deaths of senescence and accident planned at the start, from its
   age then (B19): sim 1 dies of senescence after about 27.2 years (at about 57), sim 2
@@ -28,29 +29,37 @@ What happens (a year has 364 days of 86 400 seconds):
   each an affliction with nothing used, its exposure not running while the switch is
   off, so no death of it is planned. Sim 2 carries one copy and is healthy (no draw).
   No founder has an allele at another disease locus.
-- Sim 1 conceives in month 7 (entries `core:conception` and two `core:meiosis`) and has
-  the child (sim 4, entry `core:birth`) in month 17; six more follow, in months 38, 49,
-  63, 101, 125 and 164 (sims 5 to 10), the last before she turns 45. Sims 7 and 10 got the
-  dummy allele from their father as well and have `core:disease_ar` (not exposed); the
-  other five got the wild allele from him and are carriers without an affliction. Each
-  child has its deaths of senescence (after 77 to 101 years) and accident planned from its
-  birth.
-- The golden save is taken on day 100 of year 3: nobody has died, sims 4 and 5 are born
-  and sim 1 is pregnant with her third child.
+- Fertility: sim 1's wish is 3 (`u` of FERTILITY_WISH about 0.741, between the
+  thresholds 0.517 and 0.829 of 2 and 3 children with the tilt 0.311). At 30 her ramp is long over (her menarche,
+  about 12.8 years, is at most `θ + 3` = 15.3) and the decline of 5.6 acts: her factor is
+  `(50 − a) / 20`; sim 2 (25 to 31 years old while she tries) has the factor 1. So the
+  chance of the attempt in month `k` is `0.2 · (50 − a) / 20` with `a = 30 + k / 13`,
+  0.199 in month 1. Her series begins in month 1 (the first month start after the
+  partnership at 0); she conceives in month 7 (entries `core:conception` and two
+  `core:meiosis`, chance 0.195) and has the child (sim 4, a daughter, entry `core:birth`)
+  in month 17; after the pause of 12 months her series begins again in month 29, she
+  conceives in month 32 (0.175) and bears sim 5 (a son) in month 42; then from month 54
+  on, she conceives in month 74 (0.143) and bears sim 6 (a son) in month 84. With three
+  births her wish is reached: no series follows (32 attempts in all). All three children
+  got the wild allele from their father and carry `core:disease_ar` without an
+  affliction; each has its deaths of senescence and accident planned from its birth.
+  Nobody else is in a partnership, so nobody else tries.
+- The golden save is taken on day 100 of year 3: nobody has died, sims 4 and 5 are born,
+  sim 1 is not pregnant (births 2) and her series waits for month 54, twelve months after
+  the birth in month 42.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
 input `ForkOverride` with the stamp T_5 - 1 s. It acts at T_5 before every event of
 that second and writes one entry `core:param_changed` with the input (sequence number
 2) as its cause. The switch is on from then on: the living sims with a lethal affliction
-(sims 1, 3 and 7) are exposed since T_5, and that entry plans their deaths of
+(sims 1 and 3) are exposed since T_5, and that entry plans their deaths of
 `core:disease_ar` from their whole budgets: sim 1 (at 35 years, past the change at 18)
-after about 42.9 years of exposure, at about 77.9 years of age; sims 3 and 7 about 87
-and 94 years after the start. Sim 10 is exposed from its birth on, its birth plans its
-death of the disease about 35.8 years after the start. Sim 1 dies of senescence first, in
-year 27 as in the run, which cancels her death of the disease; the others lie beyond the
-thirty years. So the fork has one entry more than the run (the override), and its year
-hashes differ from year 5 on (the switch and the exposures are state, the planned deaths
-are in the queue).
+after about 42.9 years of exposure, at about 77.9 years of age; sim 3 about 87.0 years
+after the start. Sim 1 dies of senescence first, in year 27 as in the run, which cancels
+her death of the disease; sim 3's lies beyond the thirty years. Her fertility is the
+same: the switch changes no chance. So the fork has one entry more than the run (the
+override), and its year hashes differ from year 5 on (the switch and the exposures are
+state, the planned deaths are in the queue).
 
 Writes tests/golden/dummy.json, tests/golden/dummy.save and tests/golden/dummy_fork.json
 (protected list, ADR-0000). Prints the pedigree values of the CLI export test as well.
@@ -76,7 +85,7 @@ from world_reference import (
     copies_at,
     death_key,
 )
-from rng_reference import founder_key, str_key
+from rng_reference import chacha_key, founder_key, str_key, unit, words
 
 ROOT = Path(__file__).resolve().parent.parent
 DAY = 86_400
@@ -87,7 +96,6 @@ SEX = [FEMALE, MALE, MALE]
 GENES = [genotype(DUMMY, DUMMY), genotype(DUMMY, WILD), genotype(DUMMY, DUMMY)]
 FOUNDERS = list(zip(BORN, SEX, GENES))
 COUPLES = [(0, 1)]
-FERTILITY = (0.05, 18, 45, 10)
 YEARS = 30
 SAVE_AT = 3 * YEAR + 100 * DAY
 FORK_YEAR = 5
@@ -132,8 +140,62 @@ HER_AR_DEATH = FORK_YEAR * YEAR + math.ceil((HER_AR_AGE - FORK_AGE) * 31_449_600
 assert 47 * YEAR < HER_AR_DEATH < 48 * YEAR
 
 
+# Her fertility by hand from the genetics specification 5.6 and 11.3 with Python's math,
+# straight from the draws (tags 3 CONCEPTION_ATTEMPT and 16 FERTILITY_WISH, 11.7), not from
+# the model. The wish shape is K11.3d, the tilt and the adult rate those of the data.
+WISH_SHAPE, WISH_TILT, ADULT_RATE = [0.10, 0.15, 0.40, 0.25, 0.10], 0.311, 0.20
+assert (REPOSITORY.wish_shape, REPOSITORY.wish_tilt, REPOSITORY.adult_rate) == (WISH_SHAPE, WISH_TILT, ADULT_RATE)
+HER_KEY, HIS_KEY = founder_key(TAG, 0), founder_key(TAG, 1)
+HER_WISH_UNIT = unit(words(chacha_key(SEED, 16, HER_KEY, 0, 0))[0])
+
+
+def hand_wish(u: float) -> int:
+    """11.3: `P_n ∝ p_n · e^(α · n)`, the smallest `n` with `u < P_0 + … + P_n`."""
+    weights = [p * math.exp(WISH_TILT * n) for n, p in enumerate(WISH_SHAPE)]
+    total, acc = sum(weights), 0.0
+    for n, weight in enumerate(weights):
+        acc += weight / total
+        if u < acc:
+            return n
+    return len(WISH_SHAPE) - 1
+
+
+HER_WISH = hand_wish(HER_WISH_UNIT)
+assert HER_WISH == 3
+
+
+def hand_chance(month: int) -> float:
+    """The chance of her attempt in `month`: she is `a = 30 + month / 13` years old, past
+    30, so her factor is the decline `(50 − a) / (50 − 30)` (her ramp ended three years
+    after her menarche, at most `θ + 3` = 15.3); his factor is 1 (younger than 45, his ramp
+    ended at `θ − 0.7 + 2` = 15.32)."""
+    a = 30.0 + month / 13.0
+    assert 30.0 < a < 50.0 and -BORN[1] / YEAR + month / 13.0 < 45.0
+    return ADULT_RATE * ((50.0 - a) / 20.0)
+
+
+def hand_conceptions() -> list:
+    """(month of the conception, month of the birth) of sim 1 (design note sections 4 to
+    6): her series begins in month 1, an attempt per month succeeds if the unit of its draw
+    (subject her key, occasion the month, detail his key) is below `hand_chance`; the birth
+    ten months later; with fewer births than her wish the next series twelve months after
+    the birth (the pause); up to the end of the thirty years."""
+    found, month = [], 1
+    while month < YEARS * 13 and len(found) < HER_WISH:
+        if unit(words(chacha_key(SEED, 3, HER_KEY, month, HIS_KEY))[0]) < hand_chance(month):
+            found.append((month, month + 10))
+            month += 10 + 12
+        else:
+            month += 1
+    return found
+
+
+HAND_CONCEPTIONS = hand_conceptions()
+assert HAND_CONCEPTIONS == [(7, 17), (32, 42), (74, 84)]
+
+
 def dummy_world() -> World:
-    return World(SEED, TAG, False, FOUNDERS, COUPLES, FERTILITY)
+    return World(SEED, TAG, False, FOUNDERS, COUPLES)
 
 
 def ar_deaths(world: World) -> list:
@@ -159,8 +221,8 @@ def run(fork: bool) -> World:
     return world
 
 
-CHILDREN = range(4, 11)
-CHILD_MONTHS = [17, 38, 49, 63, 101, 125, 164]
+CHILDREN = range(4, 7)
+CHILD_MONTHS = [birth for _, birth in HAND_CONCEPTIONS]
 FIRST = dummy_world()
 assert all(FIRST.cause_due(sim, code) == DUE[(sim, code)] for sim, code in DUE)
 PARENT = run(fork=False)
@@ -179,30 +241,40 @@ for world in (PARENT, FORK):
     assert sorted(world.sims) == [2, 3, *CHILDREN]
     assert world.partnerships == {1: [1, 2, 0, HER_DEATH]}
 assert [PARENT.sims[sim][0] for sim in CHILDREN] == [month * MONTH for month in CHILD_MONTHS]
-assert all(PARENT.sims[sim][6] == (1, 2, sim - 4) for sim in CHILDREN)
-assert not PARENT.pregnancies and PARENT.archive[1][7] == len(CHILDREN)
+assert all(PARENT.sims[sim][7] == (1, 2, sim - 4) for sim in CHILDREN)
+assert [PARENT.sims[sim][2] for sim in CHILDREN] == [FEMALE, MALE, MALE]
+# Her conceptions, births and wish as by hand, the chance of every attempt too; the
+# attempts run from month 1 to her third conception, with the pauses after the births.
+assert not PARENT.pregnancies and PARENT.archive[1][7:9] == (len(CHILDREN), len(CHILDREN))
+assert PARENT.wish_of(1) == HER_WISH
+ATTEMPT_MONTHS = list(range(1, 8)) + list(range(29, 33)) + list(range(54, 75))
+assert [t // MONTH for t, *_ in PARENT.attempts] == ATTEMPT_MONTHS
+assert [t // MONTH for t, _, _, _, success in PARENT.attempts if success] == [c for c, _ in HAND_CONCEPTIONS]
+assert all(abs(p - hand_chance(t // MONTH)) <= 1e-15 for t, _, _, p, _ in PARENT.attempts)
+assert FORK.attempts == PARENT.attempts
 LETHAL = [sim for sim in sorted(PARENT.sims) if PARENT.sims[sim][4]]
-assert LETHAL == [3, 7, 10]
+assert LETHAL == [3]
 assert all([a.triple() for a in PARENT.sims[sim][4]] == [(AR_KEY, 0.0, (0.0, None))] for sim in LETHAL)
-assert all(copies_at(PARENT.sims[sim][3], CYSTIC.locus) == [1, 1 if sim in (7, 10) else 0] for sim in CHILDREN)
-# In the fork sims 3 and 7 are exposed since T_5, sim 10 since its birth; its birth
-# planned its death. The override is the first entry the fork writes differently.
+assert all(copies_at(PARENT.sims[sim][3], CYSTIC.locus) == [1, 0] for sim in CHILDREN)
+# In the fork sims 1 and 3 are exposed since T_5, and the override planned their deaths
+# of the disease; hers went with her death. The override is the first entry the fork
+# writes differently.
 FORK_OVERRIDE_ENTRY = next(i for i, (ours, theirs) in enumerate(zip(FORK.log, PARENT.log)) if ours != theirs) + 1
-SINCE = {3: FORK_YEAR * YEAR, 7: FORK_YEAR * YEAR, 10: CHILD_MONTHS[-1] * MONTH}
-assert all([a.triple() for a in FORK.sims[sim][4]] == [(AR_KEY, 0.0, (0.0, SINCE[sim]))] for sim in LETHAL)
+assert [a.triple() for a in FORK.archive[1][6]] == [(AR_KEY, 0.0, (0.0, FORK_YEAR * YEAR))]
+assert [a.triple() for a in FORK.sims[3][4]] == [(AR_KEY, 0.0, (0.0, FORK_YEAR * YEAR))]
 FORK_AR_DEATHS = ar_deaths(FORK)
 assert [sim for sim, *_ in FORK_AR_DEATHS] == LETHAL
-assert all(plan == (FORK_OVERRIDE_ENTRY, FORK_YEAR * YEAR) for sim, _, plan in FORK_AR_DEATHS if sim != 10)
-assert FORK_AR_DEATHS[-1][2][1] == SINCE[10]
+assert all(plan == (FORK_OVERRIDE_ENTRY, FORK_YEAR * YEAR) for _, _, plan in FORK_AR_DEATHS)
 assert all(time > YEARS * YEAR for _, time, _ in FORK_AR_DEATHS)
 
 
 def golden_save() -> bytes:
-    """The save on day 100 of year 3."""
+    """The save on day 100 of year 3: not pregnant, her series pending in month 54."""
     world = dummy_world()
     world.advance(SAVE_AT)
     assert not world.archive and sorted(world.sims) == [1, 2, 3, 4, 5]
-    assert [value[2] for value in world.pregnancies.values()] == [2]
+    assert not world.pregnancies and world.sims[1][5:7] == [2, 2]
+    assert world.pending_series(1) == (CHILD_MONTHS[1] + 12) * MONTH
     return world.save()
 
 
@@ -227,10 +299,10 @@ def pedigree_rows() -> list:
     rows = []
     for sim in sorted(set(PARENT.sims) | set(PARENT.archive)):
         if sim in PARENT.sims:
-            born, key, sex, person, _, _, parents = PARENT.sims[sim]
+            born, key, sex, person, _, _, _, parents = PARENT.sims[sim]
             died = "null"
         else:
-            born, left, cause, key, sex, person, _, _, parents = PARENT.archive[sim]
+            born, left, cause, key, sex, person, _, _, _, parents = PARENT.archive[sim]
             died = f"{left} of {cause:016x}"
         alleles = [(locus, copies_at(person, PARENT.data.loci[locus])) for locus in PARENT.data.loci]
         alleles = [(locus, copies) for locus, copies in alleles if any(copies)]
@@ -265,6 +337,10 @@ if __name__ == "__main__":
     print(f"founder deaths due (seconds after the start): {DUE}")
     children = {sim: PARENT.cause_due(sim, SENESCENCE) for sim in CHILDREN}
     print(f"children: born (months) {CHILD_MONTHS}, senescence due (seconds) {children}")
+    print(f"fertility: her wish {HER_WISH} (u {HER_WISH_UNIT!r}), menarche {PARENT.menarche_of(1)!r}")
+    print(f"fertility: conceptions and births (months) {HAND_CONCEPTIONS}")
+    print(f"fertility: attempts (month, chance, success) {[(t // MONTH, p, ok) for t, _, _, p, ok in PARENT.attempts]}")
+    print(f"fertility: children's wishes {[(sim, PARENT.wish_of(sim)) for sim in CHILDREN if PARENT.sims[sim][2] == FEMALE]}")
     print(f"fork: death of sim 1 of core:disease_ar due at {HER_AR_DEATH} (age {HER_AR_AGE!r}), planned by entry {FORK_OVERRIDE_ENTRY}")
     print(f"fork: deaths of core:disease_ar (sim, time, plan) {FORK_AR_DEATHS}")
     for row in pedigree_rows():
