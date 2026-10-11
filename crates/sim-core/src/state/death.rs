@@ -259,9 +259,11 @@ pub(crate) fn on_death(
             parents: person.parents,
         },
     );
-    // Her pregnancy ends with her; her conception stays counted.
+    // Her pregnancy ends with her, with all its children; her conception stays counted.
     if let Some(pregnancy) = domain.pregnancies.remove(&sim) {
-        domain.lineage.remove(pregnancy.lineage_key);
+        for unborn in &pregnancy.children {
+            domain.lineage.remove(unborn.lineage_key);
+        }
     }
     partnership::end_with_death(domain, sim, ctx);
 }

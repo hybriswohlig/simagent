@@ -50,16 +50,23 @@ pub(crate) struct Parents {
     pub(crate) conception: u32,
 }
 
-/// A running pregnancy, fixed at conception (B18): the father, the child's lineage key,
-/// the mother's conception number, sex and genome.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A running pregnancy, fixed at conception (B18): the father, the mother's conception
+/// number, the one or two children (spec 11.3) and when she conceived.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Pregnancy {
     pub(crate) father: SimId,
-    pub(crate) lineage_key: LineageKey,
     pub(crate) conception: u32,
+    /// In the order of their multiple index (ADR-0001 section 4).
+    pub(crate) children: Vec<Unborn>,
+    pub(crate) conceived: SimTime,
+}
+
+/// A child of a pregnancy: its lineage key, sex and genome, fixed at conception.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Unborn {
+    pub(crate) lineage_key: LineageKey,
     pub(crate) sex: Sex,
     pub(crate) genome: Genome,
-    pub(crate) conceived: SimTime,
 }
 
 /// A hereditary disease a sim has (genetics specification 3.1, ADR-0017 section 3): the

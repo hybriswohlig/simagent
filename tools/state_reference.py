@@ -32,6 +32,12 @@ scenario with couples and no fertility ("partners") runs on the repository's fer
 (5.6: her series runs with chance 0 while she is a child); the scenarios without couples
 on the repository's fertility as well, which they never read.
 
+Twins (genetics specification 11.3, design note of the twins): a pregnancy holds its one
+or two children (projection version 14, core version 28), and every conception entry
+names the draw MULTIPLE_BIRTH as its third cause. The test data of every scenario but
+"twins" keep twins 0; "twins" is "clan" with the rates 0.3 and 0.7, so every conception
+gives twins.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -858,7 +864,7 @@ CLAN.advance(5 * MONTH - 1)
 assert not CLAN.pregnancies
 CLAN_LOG_BEFORE = len(CLAN.log)
 CLAN.advance(5 * MONTH)
-assert list(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][5] == 5 * MONTH
+assert list(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][3] == 5 * MONTH and len(CLAN.pregnancies[1][2]) == 1
 CLAN_CONCEPTION_ENTRIES = CLAN.log[CLAN_LOG_BEFORE:]
 assert len(CLAN_CONCEPTION_ENTRIES) == 3
 CLAN_SAVE_AFTER_CONCEPTION = CLAN.save()
@@ -870,8 +876,8 @@ assert CLAN.sims[1][6] == 1 and CLAN.sims[7][6] == 0 and CLAN.pending_series(1) 
 CLAN_BIRTH_ENTRIES = CLAN.log[CLAN_LOG_BEFORE_BIRTH:]
 CLAN_SAVE_AFTER_BIRTH = CLAN.save()
 CLAN.advance(8 * YEAR - 1)
-assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][2] == 7 and CLAN.sims[1][5:7] == [8, 7]
-assert CLAN.pregnancies[1][5] == 101 * MONTH
+assert sorted(CLAN.pregnancies) == [1] and CLAN.pregnancies[1][1] == 7 and CLAN.sims[1][5:7] == [8, 7]
+assert CLAN.pregnancies[1][3] == 101 * MONTH
 assert [t // MONTH for t, woman, _, _, success in CLAN.attempts if success] == [c for c, _ in CLAN_HAND]
 # The girl's attempts: chance 0 before her 18th birthday, 0.25 from it, none succeeds.
 assert [(t // MONTH, p) for t, woman, _, p, _ in CLAN.attempts if woman == 3] == [
@@ -929,7 +935,7 @@ BLIGHT = clan_world(BLIGHT_DATA)
 HER_BLIGHT = BLIGHT.cause_due(1, ACCIDENT)
 assert 22 * MONTH < HER_BLIGHT < 23 * MONTH < BLIGHT.cause_due(1, SENESCENCE)
 BLIGHT.advance(HER_BLIGHT - 1)
-assert BLIGHT.pregnancies[1][2] == 1 and BLIGHT.pregnancies[1][5] == 17 * MONTH
+assert BLIGHT.pregnancies[1][1] == 1 and BLIGHT.pregnancies[1][3] == 17 * MONTH
 BLIGHT.advance(2 * YEAR - 1)
 assert BLIGHT.archive[1][1:3] == (HER_BLIGHT, ACCIDENT_KEY) and BLIGHT.archive[1][7:9] == (2, 1)
 assert 1 not in BLIGHT.pregnancies
@@ -966,22 +972,141 @@ CLAN_WISH_SAVE_AFTER_BIRTH = CLAN_WISH.save()
 # against the chance 0.25 of the window.
 CLAN_SECOND = clan_world()
 CLAN_SECOND.advance(17 * MONTH)
-SECOND_FATHER, SECOND_KEY, SECOND_NUMBER, SECOND_SEX, SECOND_PERSON, SECOND_CONCEIVED = CLAN_SECOND.pregnancies[1]
+SECOND_FATHER, SECOND_NUMBER, SECOND_CHILDREN, SECOND_CONCEIVED = CLAN_SECOND.pregnancies[1]
+((SECOND_KEY, SECOND_SEX, SECOND_PERSON),) = SECOND_CHILDREN
 assert (SECOND_FATHER, SECOND_NUMBER, SECOND_CONCEIVED) == (2, 1, 17 * MONTH)
 assert SECOND_KEY == world_reference.child_key(CLAN_KEYS[0], CLAN_KEYS[1], 1, 0)
 SECOND_ALLELES = world_reference.copies_at(SECOND_PERSON, CLAN_DATA.loci["core:disease_ar"])
 SECOND_UNIT = unit(words(chacha_key(0xFF, CONCEPTION_ATTEMPT_TAG, CLAN_KEYS[0], 17, CLAN_KEYS[1]))[0])
 assert SECOND_UNIT < 0.25
+# Pregnancy { father, conception, children: [Unborn { lineage_key, sex, genome }],
+# conceived } (projection version 14, design note of the twins, section 4): one child.
 SECOND_PREGNANCY_BYTES = (
     varint(1)
     + varint(SECOND_FATHER)
-    + varint(SECOND_KEY)
     + varint(SECOND_NUMBER)
-    + SECOND_SEX
-    + genome_of(SECOND_PERSON)
+    + seq([lineage_key(SECOND_KEY) + SECOND_SEX + genome_of(SECOND_PERSON)])
     + signed(SECOND_CONCEIVED)
 )
 assert SECOND_PREGNANCY_BYTES in CLAN_SECOND.projection()
+
+
+# Scenario "twins" (design note of the twins, section 6): "clan" (seed 0xff, founder tag
+# `test:clan`, its founders and couples, the switch off) on the test data of "clan" (the
+# window from 18 until 45, 0.25 per month, ten months, no pause, the wish always 40) with
+# `core:twins_identical` 0.3 and `core:twins_fraternal` 0.7, so every conception gives
+# twins (`u < 0.3 + 0.7 = 1.0` always). The attempt draws do not read the children, so
+# the first woman conceives in the months of "clan" (5, 17, 28, 42, ...), her children
+# born ten months later; the draw of MULTIPLE_BIRTH at the key of child 0 of each
+# conception gives fraternal twins in month 5 (two sons, sims 7 and 8, born in month 15),
+# identical twins in month 17 (two daughters, sims 9 and 10, month 27), fraternal twins in
+# month 28 (a daughter and a son, sims 11 and 12, month 38) and in month 42 (two
+# daughters, born in month 52, after the end of year 3). Child 0 of the first conception
+# has the key of the first child of "clan". Saves after the first conception, after the
+# first birth and at the end of year 3 (pregnant with the fourth conception, births 6).
+TWINS_RATES = (0.3, 0.7)
+TWINS_DATA = world_reference.death_test_data(
+    0.02,
+    fertility=CLAN_FERTILITY,
+    life_values={"core:twins_identical": TWINS_RATES[0], "core:twins_fraternal": TWINS_RATES[1]},
+)
+assert TWINS_DATA.twins == TWINS_RATES and TWINS_DATA.pause_months == 0 and TWINS_DATA.wish_shape == CLAN_DATA.wish_shape
+MULTIPLE_BIRTH_TAG = 17  # tests/golden/rng_tags.txt, 11.7
+
+
+def hand_twins(seed: int, her: int, him: int, number: int, rates: tuple) -> tuple:
+    """(u, kind, keys) of her conception `number` with him by hand (11.3, design note of the
+    twins sections 1 and 2): `u` = unit of the draw MULTIPLE_BIRTH at the key of the first
+    child `child(her, him, number, 0)` (occasion 0, detail 0); identical below `p_id`,
+    fraternal below `p_id + p_fr`, else one child; the keys of the children 0 (and 1)."""
+    first = world_reference.child_key(her, him, number, 0)
+    u = unit(words(chacha_key(seed, MULTIPLE_BIRTH_TAG, first, 0, 0))[0])
+    kind = "identical" if u < rates[0] else "fraternal" if u < rates[0] + rates[1] else "single"
+    keys = [first] if kind == "single" else [first, world_reference.child_key(her, him, number, 1)]
+    return u, kind, keys
+
+
+TWINS_HAND = [hand_twins(0xFF, CLAN_KEYS[0], CLAN_KEYS[1], number, TWINS_RATES) for number in range(4)]
+assert [kind for _, kind, _ in TWINS_HAND] == ["fraternal", "identical", "fraternal", "fraternal"]
+
+
+def hand_zygote(genome_key: int, mother: dict, father: dict) -> dict:
+    """The genome of the zygote under `genome_key` from the meiosis reference directly."""
+    data = TWINS_DATA
+    person, _ = world_reference.meiosis_reference.child_with_mutation(
+        0xFF, genome_key, mother, father, data.map_lengths, data.sex_ratio, data.genome_map, data.rates
+    )
+    return person
+
+
+def twins_world() -> world_reference.World:
+    return clan_world(TWINS_DATA)
+
+
+TWINS = twins_world()
+TWINS_SAVE_AFTER_START = TWINS.save()
+TWINS.advance(5 * MONTH - 1)
+TWINS_LOG_BEFORE = len(TWINS.log)
+TWINS.advance(5 * MONTH)
+# The first conception: fraternal twins, a conception entry per child, each followed by
+# the two meioses of its own zygote (six entries).
+TWINS_FIRST_ENTRIES = TWINS.log[TWINS_LOG_BEFORE:]
+assert len(TWINS_FIRST_ENTRIES) == 6
+TWINS_FATHER, TWINS_NUMBER, TWINS_FIRST_CHILDREN, TWINS_CONCEIVED = TWINS.pregnancies[1]
+assert (TWINS_FATHER, TWINS_NUMBER, TWINS_CONCEIVED) == (2, 0, 5 * MONTH)
+assert [key for key, _, _ in TWINS_FIRST_CHILDREN] == TWINS_HAND[0][2]
+MOTHER_GENOME, FATHER_GENOME = TWINS.sims[1][3], TWINS.sims[2][3]
+assert all(
+    genome_of(person) == genome_of(hand_zygote(key, MOTHER_GENOME, FATHER_GENOME)) for key, _, person in TWINS_FIRST_CHILDREN
+)
+assert TWINS_FIRST_CHILDREN[0][0] == world_reference.child_key(CLAN_KEYS[0], CLAN_KEYS[1], 0, 0)
+TWINS_SAVE_AFTER_CONCEPTION = TWINS.save()
+TWINS.advance(15 * MONTH - 1)
+TWINS_LOG_BEFORE_BIRTH = len(TWINS.log)
+TWINS.advance(15 * MONTH)
+# The first birth: two creation entries one after the other, consecutive SimIds in
+# index order, both born in month 15; her births 2 and her series from month 16 (no
+# pause), planned by the creation entry of child 0.
+TWINS_BIRTH_ENTRIES = TWINS.log[TWINS_LOG_BEFORE_BIRTH:TWINS_LOG_BEFORE_BIRTH + 2]
+assert [TWINS.sims[sim][1] for sim in (7, 8)] == TWINS_HAND[0][2]
+assert all(TWINS.sims[sim][0] == 15 * MONTH and TWINS.sims[sim][7] == (1, 2, 0) for sim in (7, 8))
+assert TWINS.sims[1][5:7] == [1, 2] and not TWINS.pregnancies and TWINS.next_sim_id == 9
+assert TWINS.pending_series(1) == 16 * MONTH
+(TWINS_SERIES,) = [event for event in TWINS.queue if event.kind == world_reference.ATTEMPT_KIND and event.subject[1] == 1]
+assert TWINS_SERIES.plan == (TWINS_LOG_BEFORE_BIRTH + 1, 15 * MONTH)
+TWINS_SAVE_AFTER_BIRTH = TWINS.save()
+TWINS.advance(17 * MONTH - 1)
+TWINS_LOG_BEFORE_IDENTICAL = len(TWINS.log)
+TWINS.advance(17 * MONTH)
+# The second conception: identical twins, the entry of child 0, its two meioses, the
+# entry of child 1 (four entries); one genome, one sex.
+TWINS_IDENTICAL_ENTRIES = TWINS.log[TWINS_LOG_BEFORE_IDENTICAL:]
+assert len(TWINS_IDENTICAL_ENTRIES) == 4
+_, _, TWINS_IDENTICAL_CHILDREN, _ = TWINS.pregnancies[1]
+assert [key for key, _, _ in TWINS_IDENTICAL_CHILDREN] == TWINS_HAND[1][2]
+assert TWINS_IDENTICAL_CHILDREN[0][1] == TWINS_IDENTICAL_CHILDREN[1][1]
+assert genome_of(TWINS_IDENTICAL_CHILDREN[0][2]) == genome_of(TWINS_IDENTICAL_CHILDREN[1][2])
+assert genome_of(TWINS_IDENTICAL_CHILDREN[0][2]) == genome_of(hand_zygote(TWINS_HAND[1][2][0], MOTHER_GENOME, FATHER_GENOME))
+TWINS.advance(4 * YEAR - 1)
+# The end of year 3: conceptions in the months of "clan", three twin births (sims 7 to 12),
+# pregnant with the fourth conception; nobody has died.
+assert [t // MONTH for t, *_ in TWINS.multiples] == [c for c, _ in CLAN_HAND[:4]]
+assert [(u, kind, [key for key, _ in children]) for *_, u, kind, children in TWINS.multiples] == TWINS_HAND
+assert sorted(TWINS.sims) == list(range(1, 13)) and not TWINS.archive
+assert [TWINS.sims[sim][0] for sim in range(7, 13)] == [b * MONTH for _, b in CLAN_HAND[:3] for _ in range(2)]
+assert [TWINS.sims[sim][7][2] for sim in range(7, 13)] == [0, 0, 1, 1, 2, 2]
+assert TWINS.sims[1][5:7] == [4, 6] and TWINS.pregnancies[1][1] == 3 and TWINS.pregnancies[1][3] == 42 * MONTH
+TWINS_SAVE_AFTER_YEAR_3 = TWINS.save()
+
+
+def twins_story(world: world_reference.World) -> list:
+    """Per conception: the month, the woman, the conception number, the draw u, the kind,
+    the keys and sexes of the children."""
+    rows = []
+    for t, woman, man, number, u, kind, children in world.multiples:
+        kids = ", ".join(f"{key:016x} {'female' if sex == FEMALE else 'male'}" for key, sex in children)
+        rows.append(f"twins_conception month {t // MONTH} woman {woman} man {man} number {number} u {u!r} {kind}: {kids}")
+    return rows
 
 
 # Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
@@ -1176,6 +1301,7 @@ TEST_DATA = [
     ("blight", BLIGHT_DATA),
     ("clan_pause", CLAN_PAUSE_DATA),
     ("clan_wish", CLAN_WISH_DATA),
+    ("twins", TWINS_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
@@ -1276,7 +1402,7 @@ if __name__ == "__main__":
         print(f"clan_conception_entry_{number} {line.hex()}")
     print(f"clan_save_after_conception {CLAN_SAVE_AFTER_CONCEPTION.hex()}")
     print(f"clan_save_after_year_7 {CLAN_SAVE_AFTER_YEAR_7.hex()}")
-    print(f"clan_pregnancies {[(mother, value[:4] + value[5:]) for mother, value in sorted(CLAN.pregnancies.items())]}")
+    print(f"clan_pregnancies {[(mother, (father, key, number, sex, conceived)) for mother, (father, number, ((key, sex, _),), conceived) in sorted(CLAN.pregnancies.items())]}")
     print(f"clan_deaths {[(left, sim, cause_name(cause)) for left, sim, cause in CLAN_DEATHS]}")
     for row in death_rows("clan", CLAN):
         print(row)
@@ -1301,6 +1427,24 @@ if __name__ == "__main__":
     print(f"clan_second_attempt month 17 u {SECOND_UNIT!r} chance 0.25 success {SECOND_UNIT < 0.25}")
     print(f"clan_fever_archive {[(sim, left) for sim, (_, left, *_ ) in sorted(FEVER.archive.items())]}")
     print(f"clan_year_hashes {[format(value, '016x') for value in CLAN.year_hashes]}")
+    print(f"twins_data_hash {TWINS_DATA.hash:016x} twins {TWINS_DATA.twins!r}")
+    print(f"twins_by_hand (u, kind, keys) {[(u, kind, [format(key, '016x') for key in keys]) for u, kind, keys in TWINS_HAND]}")
+    for row in twins_story(TWINS):
+        print(row)
+    print(f"twins_save_after_start {TWINS_SAVE_AFTER_START.hex()}")
+    for number, line in enumerate(TWINS_FIRST_ENTRIES):
+        print(f"twins_conception_entry_{number} {line.hex()}")
+    print(f"twins_save_after_conception {TWINS_SAVE_AFTER_CONCEPTION.hex()}")
+    for number, line in enumerate(TWINS_BIRTH_ENTRIES):
+        print(f"twins_birth_entry_{number} {line.hex()}")
+    print(f"twins_save_after_birth {TWINS_SAVE_AFTER_BIRTH.hex()}")
+    for number, line in enumerate(TWINS_IDENTICAL_ENTRIES):
+        print(f"twins_identical_conception_entry_{number} {line.hex()}")
+    print(f"twins_save_after_year_3 {TWINS_SAVE_AFTER_YEAR_3.hex()}")
+    print(f"twins_year_hashes {[format(value, '016x') for value in TWINS.year_hashes]}")
+    print(f"twins_log_hash {digest(b''.join(TWINS.log))}")
+    for row in death_rows("twins", TWINS):
+        print(row)
     print(f"afflicted_keys {[format(key, '016x') for key in AFFLICTED_KEYS]}")
     for row in afflicted_rows():
         print(row)

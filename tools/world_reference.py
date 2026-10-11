@@ -118,26 +118,47 @@ What the model knows:
   lineage key, the month index of `t`, his lineage key); a chance of 0 draws like any
   other and fails. Each draw is checked not to lie within 1e-12 of its chance (and each
   wish draw not within 1e-12 of a threshold), so the pinned libm of the core gives the
-  same outcome. On success she conceives her conception number n: the child key
-  `child(her, his, n, 0)`, per parent the start strand `uniform_below(MEIOSIS_START_STRAND, 2)`
-  (subject the genome key, occasion 0 mother and 1 father) and the sex
-  `bernoulli(SEX_CHROMOSOME, p_Y)` (occasion 1, true for a son; `p_Y = r / (1 + r)` from
-  `core:sex_ratio_at_birth`, genetics specification 2.3 and 11.3). Entries:
-  `core:conception` (her, him; plan and draw), then `core:meiosis` of her and of him
-  (event, rule `core:meiosis`, the strand draw, for him also the sex draw). The series
-  ends; the pregnancy is state, and the birth is planned `pregnancy_months` months later
-  (class birth 200, by the conception). One child per conception (no twins yet). The
-  death of either ends the series; her death ends the pregnancy.
-- Birth: a new sim with the next SimId and the entry `core:birth` (subjects child, mother,
-  father; the plan and the rule `core:gestation`); born now, with parents and the
-  conception number, `births` 0, its afflictions from its genome with the birth as origin.
-  Its first birthday a year later, its deaths from its birth on. The mother's `births`
-  grows by one; then, if she is in an open partnership, her series after a birth.
+  same outcome. On success she conceives her conception number n.
+- Twins (genetics specification 11.3, ADR-0017 section 4, design note of the twins): at
+  every conception `u = unit(draw)` at (MULTIPLE_BIRTH = 17, the lineage key of the first
+  child `child(her, his, n, 0)`, occasion 0, detail 0); with `p_id` =
+  `core:twins_identical` and `p_fr` = `core:twins_fraternal` of the life course data,
+  identical twins if `u < p_id`, fraternal twins if `u < p_id + p_fr` (the sum as
+  written), else one child; no triplets. (A unit draw against a data value needs no
+  margin: no libm enters.) Child `i` (0, and 1 for twins) has the key `child(her, his, n,
+  i)`. A zygote under a genome key gives, per parent, the start strands
+  `uniform_below(MEIOSIS_START_STRAND, 2)` (subject the genome key, occasion 0 mother and 1
+  father) and the sex `bernoulli(SEX_CHROMOSOME, p_Y)` (occasion 1, true for a son;
+  `p_Y = r / (1 + r)` from `core:sex_ratio_at_birth`, genetics specification 2.3 and
+  11.3). One child: one zygote under its own key. Identical twins: one zygote under the
+  key of child 0, the same genome and sex for both. Fraternal twins: one zygote per child
+  under its own key.
+- The entries of a conception, all with the same subjects (her, him): per child in index
+  order `core:conception` (its key; causes the plan of the attempt, the attempt draw, the
+  draw of MULTIPLE_BIRTH, in this order, the same for both twins); after the entry of a
+  child with its own zygote (child 0; child 1 of fraternal twins) the two `core:meiosis`
+  of that zygote, her side then his (causes the event of that conception entry and the
+  rule `core:meiosis`; payload the genome key of the zygote). Identical twins share the
+  two meioses of child 0. The series ends; the pregnancy is state (father, conception
+  number, the children as (key, sex, genome) in index order, conceived), and one birth is
+  planned `pregnancy_months` months later (class birth 200, by the conception entry of
+  child 0). The death of either ends the series; her death ends the pregnancy and forgets
+  all its keys.
+- Birth: per child in index order a new sim with the next SimId and its creation entry
+  `core:birth` (subjects child, mother, father; the plan and the rule `core:gestation`),
+  the entries one after the other; each born now, with parents and the conception
+  number, `births` 0, its afflictions from its genome and its own key with the birth as
+  origin. Then per child in index order its first birthday a year later and its deaths
+  from its birth on, planned by its own creation entry. The mother's `births` grows by
+  the number of children; then, if she is in an open partnership, her series after a
+  birth, planned by the creation entry of child 0. The wish is checked only when a
+  series is planned, so twins of the last birth may exceed it by one.
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes and the checks
 of the step hazard; the other tools use the model)
 """
 
+import copy
 import itertools
 import math
 from pathlib import Path
@@ -199,9 +220,11 @@ DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
 # New with the fertility in the world (design note of the fertility in the world, section
 # 1; genetics specification 11.7).
 FERTILITY_MENARCHE, FERTILITY_WISH = 15, 16
+# New with the twins (design note of the twins, section 1; genetics specification 11.7).
+MULTIPLE_BIRTH = 17
 
-PROJECTION_VERSION = 13
-CORE_VERSION = 27
+PROJECTION_VERSION = 14
+CORE_VERSION = 28
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -334,7 +357,7 @@ class Data:
     end of a woman's fertility `E`, the trait of the puberty timing and per sex the curve
     `(θ, σ_θ)` of 5.2 that `θ_i` reads; from the life course data the adult rate, the
     pause after a birth and the months of pregnancy, the wish shape and its tilt, and the
-    rates of twins, which no world rule reads yet), and what the meiosis reference reads:
+    rates of twins `(p_id, p_fr)`), and what the meiosis reference reads:
     the map lengths, the sex ratio at birth, the map in its form and the mutation rates."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict):
@@ -348,6 +371,7 @@ class Data:
         self.wish_tilt = number(life["values"]["core:fertility_wish_tilt"])
         self.wish_shape = [number(entry) for entry in life["fertility_wish_shape"]]
         self.twins = (number(life["values"]["core:twins_identical"]), number(life["values"]["core:twins_fraternal"]))
+        assert all(0.0 <= rate <= 1.0 for rate in self.twins), self.twins
         stripped = data_reference.strip(calibration)
         self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
         values = stripped["values"]
@@ -575,6 +599,12 @@ def founder_genome(sex: bytes, genes, loci=None) -> dict:
     else:
         person["paternal_sex"] = {"y": y}
     return person
+
+
+def copy_genome(person: dict) -> dict:
+    """A genome of the form of tools/meiosis_reference.py, copied (identical twins have
+    equal genomes, each its own)."""
+    return copy.deepcopy(person)
 
 
 def from_father(person: dict) -> tuple:
@@ -819,6 +849,32 @@ def wish_unit(seed: int, key: int) -> float:
     return unit(words(chacha_key(seed, FERTILITY_WISH, key, 0, 0))[0])
 
 
+SINGLE, IDENTICAL, FRATERNAL = "single", "identical", "fraternal"
+
+
+def multiple_unit(seed: int, first_child: int) -> float:
+    """`u = unit(draw)` of the twins at the key (MULTIPLE_BIRTH, the lineage key of the
+    first child of the conception, occasion 0, detail 0; 11.7)."""
+    return unit(words(chacha_key(seed, MULTIPLE_BIRTH, first_child, 0, 0))[0])
+
+
+def multiple_kind(u: float, twins: tuple) -> str:
+    """The kind of a conception (11.3, design note of the twins section 1): identical if
+    `u < p_id`, fraternal if `u < p_id + p_fr` (the sum computed as written), else one
+    child."""
+    p_id, p_fr = twins
+    if u < p_id:
+        return IDENTICAL
+    if u < p_id + p_fr:
+        return FRATERNAL
+    return SINGLE
+
+
+assert multiple_kind(0.0, (0.0, 0.0)) == SINGLE and multiple_kind(0.0039, (0.004, 0.010)) == IDENTICAL
+assert multiple_kind(0.004, (0.004, 0.010)) == FRATERNAL and multiple_kind(0.014, (0.004, 0.010)) == SINGLE
+assert multiple_kind(0.3, (0.3, 0.7)) == FRATERNAL and multiple_kind(0.9999999, (0.3, 0.7)) == FRATERNAL
+
+
 def wish_mean(shape: list, alpha: float) -> float:
     """The expected wish `Σ n · w_n / total`: the products `n · w_n` summed in order,
     divided by `total` once."""
@@ -965,7 +1021,8 @@ class World:
     or test data). A sim is [born, lineage key, sex, genome (form of
     tools/meiosis_reference.py), afflictions, conceptions, births, parents]; an archived
     one (born, left, key of the cause, lineage key, sex, genome, afflictions,
-    conceptions, births, parents)."""
+    conceptions, births, parents); a pregnancy, by the mother, (father, conception number,
+    children as [(lineage key, sex, genome)] in index order, conceived)."""
 
     def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None):
         self.seed = seed
@@ -984,9 +1041,11 @@ class World:
         self.archive = {}
         self.log = []
         self.year_hashes = []
-        # Every attempt (time, woman, man, chance, success), for the stories of the tools;
-        # not state.
+        # Every attempt (time, woman, man, chance, success) and every conception (time,
+        # woman, man, conception number, the draw u of MULTIPLE_BIRTH, the kind, the
+        # children as (key, sex)), for the stories of the tools; not state.
         self.attempts = []
+        self.multiples = []
         start = variant(
             0,
             varint(seed),
@@ -1193,19 +1252,43 @@ class World:
         self.queue.remove(event)
         conception_number = her[5]
         her[5] += 1
-        child = child_key(her[1], him[1], conception_number, 0)
+        # The twins (design note of the twins, sections 1 and 2): the draw at the key of
+        # the first child decides one child, identical or fraternal twins.
+        first = child_key(her[1], him[1], conception_number, 0)
+        u = multiple_unit(self.seed, first)
+        kind = multiple_kind(u, self.data.twins)
+        keys = [first] if kind == SINGLE else [first, child_key(her[1], him[1], conception_number, 1)]
         random = lambda key: variant(4, *(varint(word) for word in key))
-        conception = self._entry(
-            now,
-            [variant(0, varint(woman)), variant(0, varint(man))],
-            [plan, random(draw)],
-            variant(6, varint(child)),
-        )
+        causes = [plan, random(draw), random((MULTIPLE_BIRTH, first, 0, 0))]
+        subjects = [variant(0, varint(woman)), variant(0, varint(man))]
+        children, entries = [], []
+        for index, key in enumerate(keys):
+            # Per child in index order its conception entry (section 3), the same causes
+            # for both.
+            entries.append(self._entry(now, subjects, causes, variant(6, varint(key))))
+            if kind == IDENTICAL and index == 1:
+                # Identical twins share the zygote of child 0 and its two meioses.
+                _, sex, person = children[0]
+                children.append((key, sex, copy_genome(person)))
+                continue
+            sex, person = self._zygote(key, woman, man, entries[-1], now)
+            children.append((key, sex, person))
+        self.multiples.append((now, woman, man, conception_number, u, kind, [(key, sex) for key, sex, _ in children]))
+        self.pregnancies[woman] = (man, conception_number, children, now)
+        months = self.data.pregnancy_months
+        payload = variant(4, varint(woman))
+        # One birth, planned by the conception entry of child 0.
+        self._schedule(now + months * MONTH, BIRTH, (SIM_SUBJECT, woman), BIRTH_KIND, payload, None, entries[0], now)
+
+    def _zygote(self, genome_key: int, woman: int, man: int, conception: int, now: int) -> tuple:
+        """(sex, genome) of the zygote under `genome_key`, with its two entries
+        `core:meiosis` (her side, then his), caused by the conception entry
+        `conception` and the rule."""
         # The meiosis of the independent reference (tools/meiosis_reference.py, written
         # from the genetics specification 2.3 by another model).
         data = self.data
         person, records = meiosis_reference.child_with_mutation(
-            self.seed, child, her[3], him[3], data.map_lengths, data.sex_ratio, data.genome_map, data.rates
+            self.seed, genome_key, self.sims[woman][3], self.sims[man][3], data.map_lengths, data.sex_ratio, data.genome_map, data.rates
         )
         for side, parent in ((0, woman), (1, man)):
             record = records["mother" if side == 0 else "father"]
@@ -1220,30 +1303,36 @@ class World:
             # ADR-0004 section 7: the conception and the rule; the draws follow from the
             # genome key and the side.
             causes = [variant(0, varint(conception)), variant(3, string("core:meiosis"))]
-            payload = variant(7, varint(child), segments, chromosome, mutations)
+            payload = variant(7, varint(genome_key), segments, chromosome, mutations)
             self._entry(now, [variant(0, varint(parent))], causes, payload)
         sex = MALE if "y" in person["paternal_sex"] else FEMALE
-        self.pregnancies[woman] = (man, child, conception_number, sex, person, now)
-        months = self.data.pregnancy_months
-        payload = variant(4, varint(woman))
-        self._schedule(now + months * MONTH, BIRTH, (SIM_SUBJECT, woman), BIRTH_KIND, payload, None, conception, now)
+        return sex, person
 
     def _birth(self, event: Event, now: int, plan: bytes) -> None:
         mother = event.subject[1]
-        father, key, conception_number, sex, person, _ = self.pregnancies.pop(mother)
-        child = self.next_sim_id
-        self.next_sim_id += 1
-        subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
-        born = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
-        afflictions = self.afflictions_of(key, sex, person, now)
-        self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number)]
-        self._plan_birthday(child, now + YEAR, born, now)
-        self._plan_deaths(child, born, now)
-        # She bore a child alive; then the series after a birth (design note sections 4
-        # and 6), if her partnership is open.
-        self.sims[mother][6] += 1
+        father, conception_number, children, _ = self.pregnancies.pop(mother)
+        # Per child in index order: the next SimId and its creation entry, one after the
+        # other (design note of the twins, sections 3 and 4).
+        born = []
+        for key, sex, person in children:
+            child = self.next_sim_id
+            self.next_sim_id += 1
+            subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
+            entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
+            afflictions = self.afflictions_of(key, sex, person, now)
+            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number)]
+            born.append((child, entry))
+        # Then per child in index order its first birthday and its deaths, by its own
+        # creation entry.
+        for child, entry in born:
+            self._plan_birthday(child, now + YEAR, entry, now)
+            self._plan_deaths(child, entry, now)
+        # She bore them alive; then the series after a birth (design note of the fertility
+        # in the world, sections 4 and 6), if her partnership is open, planned by the
+        # creation entry of child 0.
+        self.sims[mother][6] += len(children)
         pause = max(self.data.pause_months * MONTH, 1)
-        self._plan_series(mother, month_start_at_or_after(now + pause), born, now)
+        self._plan_series(mother, month_start_at_or_after(now + pause), born[0][1], now)
 
     def arrange(self, woman: int, man: int) -> None:
         """`ArrangePartnership` of two living sims, submitted right now."""
@@ -1405,14 +1494,7 @@ class World:
             )
         ]
         pregnancies = [
-            varint(mother)
-            + varint(father)
-            + varint(key)
-            + varint(conception_number)
-            + sex
-            + genome_of(person)
-            + signed(conceived)
-            for mother, (father, key, conception_number, sex, person, conceived) in sorted(self.pregnancies.items())
+            varint(mother) + pregnancy_bytes(*value) for mother, value in sorted(self.pregnancies.items())
         ]
         return (
             varint(PROJECTION_VERSION)
@@ -1457,6 +1539,15 @@ def robust_seconds(seconds_of):
     for nudge in itertools.product((-1, 0, 1), repeat=3):
         assert seconds_of(nudge) == nominal, f"a due second hangs on the last bit: {nudge}"
     return nominal
+
+
+def pregnancy_bytes(father: int, conception_number: int, children: list, conceived: int) -> bytes:
+    """Pregnancy { father: SimId, conception: u32, children: Vec<Unborn>, conceived:
+    SimTime } with Unborn { lineage_key, sex, genome }, the children in index order (design
+    note of the twins, section 4)."""
+    unborn = [lineage_key(key) + sex + genome_of(person) for key, sex, person in children]
+    assert len(unborn) in (1, 2)
+    return varint(father) + varint(conception_number) + seq(unborn) + signed(conceived)
 
 
 def parents_bytes(parents) -> bytes:
@@ -1511,7 +1602,7 @@ if __name__ == "__main__":
             f" wish_tilt {data.wish_tilt!r} wish_shape {data.wish_shape!r} twins {data.twins!r}"
         )
     print(f"life_values_fork {FORK_LIFE_VALUES}")
-    print(f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH}")
+    print(f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH} MULTIPLE_BIRTH {MULTIPLE_BIRTH}")
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
