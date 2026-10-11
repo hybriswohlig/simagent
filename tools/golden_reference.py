@@ -44,6 +44,11 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   got the wild allele from their father and carry `core:disease_ar` without an
   affliction; each has its deaths of senescence and accident planned from its birth.
   Nobody else is in a partnership, so nobody else tries.
+- Twins (11.3, design note of the twins): each conception draws MULTIPLE_BIRTH at the key
+  of its first child against the repository's rates 0.004 (identical) and 0.010
+  (fraternal); the draws are about 0.088, 0.685 and 0.405, all at or above 0.014, so every
+  conception gives one child and the story is that of one child per conception. Each
+  conception entry names the draw as its third cause.
 - The golden save is taken on day 100 of year 3: nobody has died, sims 4 and 5 are born,
   sim 1 is not pregnant (births 2) and her series waits for month 54, twelve months after
   the birth in month 42.
@@ -85,7 +90,7 @@ from world_reference import (
     copies_at,
     death_key,
 )
-from rng_reference import chacha_key, founder_key, str_key, unit, words
+from rng_reference import chacha_key, child_key, founder_key, str_key, unit, words
 
 ROOT = Path(__file__).resolve().parent.parent
 DAY = 86_400
@@ -193,6 +198,18 @@ def hand_conceptions() -> list:
 HAND_CONCEPTIONS = hand_conceptions()
 assert HAND_CONCEPTIONS == [(7, 17), (32, 42), (74, 84)]
 
+# Twins (11.3, design note of the twins, section 1) by hand: per conception `n` the unit of
+# the draw MULTIPLE_BIRTH (tag 17) at the key of the first child `child(her, his, n, 0)`;
+# identical below 0.004 [K11.3f], fraternal below 0.004 + 0.010 [K11.3g], else one child.
+# All three draw one child, so the story above stands with the twins.
+TWINS_RATES = (0.004, 0.010)
+assert REPOSITORY.twins == TWINS_RATES
+MULTIPLE_UNITS = [
+    unit(words(chacha_key(SEED, 17, child_key(HER_KEY, HIS_KEY, number, 0), 0, 0))[0])
+    for number in range(len(HAND_CONCEPTIONS))
+]
+assert all(u >= TWINS_RATES[0] + TWINS_RATES[1] for u in MULTIPLE_UNITS)
+
 
 def dummy_world() -> World:
     return World(SEED, TAG, False, FOUNDERS, COUPLES)
@@ -252,6 +269,9 @@ assert [t // MONTH for t, *_ in PARENT.attempts] == ATTEMPT_MONTHS
 assert [t // MONTH for t, _, _, _, success in PARENT.attempts if success] == [c for c, _ in HAND_CONCEPTIONS]
 assert all(abs(p - hand_chance(t // MONTH)) <= 1e-15 for t, _, _, p, _ in PARENT.attempts)
 assert FORK.attempts == PARENT.attempts
+assert [(t // MONTH, u, kind) for t, _, _, _, u, kind, _ in PARENT.multiples] == [
+    (month, u, "single") for (month, _), u in zip(HAND_CONCEPTIONS, MULTIPLE_UNITS)
+]
 LETHAL = [sim for sim in sorted(PARENT.sims) if PARENT.sims[sim][4]]
 assert LETHAL == [3]
 assert all([a.triple() for a in PARENT.sims[sim][4]] == [(AR_KEY, 0.0, (0.0, None))] for sim in LETHAL)
@@ -339,6 +359,7 @@ if __name__ == "__main__":
     print(f"children: born (months) {CHILD_MONTHS}, senescence due (seconds) {children}")
     print(f"fertility: her wish {HER_WISH} (u {HER_WISH_UNIT!r}), menarche {PARENT.menarche_of(1)!r}")
     print(f"fertility: conceptions and births (months) {HAND_CONCEPTIONS}")
+    print(f"fertility: twins draw u per conception (month, u, kind) {[(t // MONTH, u, kind) for t, _, _, _, u, kind, _ in PARENT.multiples]}")
     print(f"fertility: attempts (month, chance, success) {[(t // MONTH, p, ok) for t, _, _, p, ok in PARENT.attempts]}")
     print(f"fertility: children's wishes {[(sim, PARENT.wish_of(sim)) for sim in CHILDREN if PARENT.sims[sim][2] == FEMALE]}")
     print(f"fork: death of sim 1 of core:disease_ar due at {HER_AR_DEATH} (age {HER_AR_AGE!r}), planned by entry {FORK_OVERRIDE_ENTRY}")

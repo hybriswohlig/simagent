@@ -190,9 +190,12 @@ MATERNAL, PATERNAL = variant(0), variant(1)
 X, Y_CHROMOSOME = variant(0), variant(1)
 
 
-def pregnancy(father: int, key: int, conception: int, sex: bytes, genes: tuple, conceived: int) -> bytes:
-    """Pregnancy { father: SimId, lineage_key, conception: u32, sex, genome, conceived: SimTime }"""
-    return varint(father) + varint(key) + varint(conception) + sex + genome(sex, genes) + signed(conceived)
+def pregnancy(father: int, conception: int, children: list, conceived: int) -> bytes:
+    """Pregnancy { father: SimId, conception: u32, children: Vec<Unborn>, conceived:
+    SimTime }, Unborn { lineage_key, sex, genome } (projection version 14, design note of
+    the twins section 4): `children` one or two (key, sex, genes) in index order."""
+    unborn = [lineage_key(key) + sex + genome(sex, genes) for key, sex, genes in children]
+    return varint(father) + varint(conception) + seq(unborn) + signed(conceived)
 
 
 def mutation(locus: str, old: int, new: int) -> bytes:
