@@ -234,6 +234,12 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             EventPayload::ConceptionAttempt { woman: sim },
         ),
         ("birth", EventPayload::Birth { mother: sim }),
+        (
+            "separation",
+            EventPayload::Separation {
+                partnership: sim_core::ids::PartnershipId::try_from(1).expect("valid"),
+            },
+        ),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -242,7 +248,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Birthday { .. }
                 | EventPayload::Death { .. }
                 | EventPayload::ConceptionAttempt { .. }
-                | EventPayload::Birth { .. } => {}
+                | EventPayload::Birth { .. }
+                | EventPayload::Separation { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -260,10 +267,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Conception { .. } => "core:conception",
         LogPayload::Meiosis { .. } => "core:meiosis",
         LogPayload::Birth { .. } => "core:birth",
+        LogPayload::Separated { .. } => "core:separated",
     }
 }
 
-const LOG_KINDS: [&str; 9] = [
+const LOG_KINDS: [&str; 10] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -273,6 +281,7 @@ const LOG_KINDS: [&str; 9] = [
     "core:conception",
     "core:meiosis",
     "core:birth",
+    "core:separated",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -333,7 +342,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 5);
+    assert_eq!(kinds.len(), 6);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -341,7 +350,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 9);
+    assert_eq!(logs.len(), 10);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -387,6 +396,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event death",
             "event conception_attempt",
             "event birth",
+            "event separation",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -394,7 +404,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:partnered",
             "log core:conception",
             "log core:meiosis",
-            "log core:birth"
+            "log core:birth",
+            "log core:separated"
         ]
     );
 }

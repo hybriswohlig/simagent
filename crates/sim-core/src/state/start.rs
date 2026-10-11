@@ -150,6 +150,7 @@ pub(crate) fn apply_start(
                 ),
                 conceptions: 0,
                 births: 0,
+                partnerships: 0,
                 parents: None,
             },
         );

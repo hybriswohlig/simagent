@@ -398,6 +398,17 @@ fn partnership_forms_are_pinned() {
         Some(partnered.clone())
     );
     assert_eq!(postcard_round_trip(&partnered), hex("0501"));
+    // The separation (ADR-0018 section 3): the last variant, 9 (tools/postcard_reference.py).
+    let separated = LogPayload::Separated {
+        partnership: PartnershipId::try_from(1).expect("valid"),
+    };
+    let separated_json = r#"{"core:separated":{"partnership":1}}"#;
+    assert_eq!(json(&separated), separated_json);
+    assert_eq!(
+        from_json::<LogPayload>(separated_json).ok(),
+        Some(separated.clone())
+    );
+    assert_eq!(postcard_round_trip(&separated), hex("0901"));
 
     for rejected in [
         r#"{"woman":0}"#,
@@ -873,6 +884,9 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Birth {
             lineage_key: lineage_key_of(0x0123_4567_89ab_cdef),
         },
+        LogPayload::Separated {
+            partnership: PartnershipId::try_from(1).expect("valid"),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -885,7 +899,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Partnered { .. }
             | LogPayload::Conception { .. }
             | LogPayload::Meiosis { .. }
-            | LogPayload::Birth { .. } => {}
+            | LogPayload::Birth { .. }
+            | LogPayload::Separated { .. } => {}
         }
     }
     payloads

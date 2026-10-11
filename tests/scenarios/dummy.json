@@ -19,9 +19,12 @@
         "born": -1,
         "sex": "male",
         "alleles": [{ "locus": "core:disease_ar", "copies": [1, 1] }]
-      }
+      },
+      { "born": -628992000, "sex": "male", "alleles": [] },
+      { "born": -786240000, "sex": "female", "alleles": [] },
+      { "born": -786240000, "sex": "male", "alleles": [] }
     ],
-    "couples": [{ "woman": 0, "man": 1 }]
+    "couples": [{ "woman": 0, "man": 1 }, { "woman": 4, "man": 5 }]
   },
   "until": 943487999
 }

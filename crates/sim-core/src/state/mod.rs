@@ -38,6 +38,9 @@ pub(crate) struct Sim {
     /// How many children she bore alive (ADR-0017 section 4: the wish reads it); always
     /// 0 for a man.
     pub(crate) births: u32,
+    /// How many partnerships she formed (ADR-0018 section 3: the address of the budget of
+    /// a separation); always 0 for a man.
+    pub(crate) partnerships: u32,
     /// The biological parents of a born sim; `None` for a founder.
     pub(crate) parents: Option<Parents>,
 }
@@ -88,14 +91,30 @@ pub(crate) struct Exposure {
 }
 
 /// A woman and a man paired by `Start` or `ArrangePartnership`. It ends with the first
-/// death of the two and stays as history.
+/// death of the two or with their separation (ADR-0018 section 3) and stays as history.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Partnership {
     pub(crate) woman: SimId,
     pub(crate) man: SimId,
     pub(crate) formed: SimTime,
-    /// The second of the first death of the two; `None` while both live.
-    pub(crate) ended: Option<SimTime>,
+    /// How it ended; `None` while it is open.
+    pub(crate) ended: Option<Ending>,
+}
+
+/// The end of a partnership: the second and the reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Ending {
+    pub(crate) at: SimTime,
+    pub(crate) by: EndedBy,
+}
+
+/// Why a partnership ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum EndedBy {
+    /// The first death of the two.
+    Death,
+    /// Their separation came due (ADR-0018 section 3).
+    Separation,
 }
 
 /// Why a sim left the active population.
@@ -120,6 +139,7 @@ pub(crate) struct ArchivedSim {
     pub(crate) afflictions: Vec<Affliction>,
     pub(crate) conceptions: u32,
     pub(crate) births: u32,
+    pub(crate) partnerships: u32,
     pub(crate) parents: Option<Parents>,
 }
 
@@ -151,6 +171,8 @@ pub(crate) enum Slot {
     Conception,
     /// The birth that ends her pregnancy.
     Birth,
+    /// The separation of her open partnership (ADR-0018 section 3).
+    Separation,
     /// The death of the cause with this `str_key`.
     Death(u64),
 }

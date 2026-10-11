@@ -256,6 +256,7 @@ pub(crate) fn on_death(
             afflictions: person.afflictions,
             conceptions: person.conceptions,
             births: person.births,
+            partnerships: person.partnerships,
             parents: person.parents,
         },
     );

@@ -14,7 +14,7 @@ use crate::canonical::{self, LoadedState, PROJECTION_VERSION, QueueEntry, YearHa
 use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
-use crate::ids::{Counter, SimId};
+use crate::ids::{Counter, PartnershipId, SimId};
 use crate::input::{Input, InputRecord, Start};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
@@ -23,7 +23,8 @@ use crate::params::WorldParams;
 use crate::rng::{Draws, WorldSeed};
 use crate::state::conception;
 use crate::state::{
-    self, Affliction, ArchivedSim, DomainState, Exposure, LeftBy, Parents, Pregnancy, Sim, Slot,
+    self, Affliction, ArchivedSim, DomainState, EndedBy, Ending, Exposure, LeftBy, Parents,
+    Partnership, Pregnancy, Sim, Slot,
 };
 use crate::time::{
     EventHandle, MONTH, Scheduler, SchedulerSnapshot, SimDuration, SimTime, SnapshotEntry, YEAR,
@@ -207,7 +208,7 @@ impl World {
         // Every sim is a founder with the key of its index (`consistent`), so the keys
         // differ exactly where the uninterrupted run had them differ.
         let lineage = lineage_index(&loaded.sims, &loaded.archive, &loaded.pregnancies);
-        let pending = pending_index(&loaded.queue);
+        let pending = pending_index(&loaded.queue, &loaded.partnerships);
         let world = World {
             sched,
             state: WorldState {
@@ -267,8 +268,12 @@ fn lineage_keys<'a>(
 }
 
 /// The handle of every pending event of a sim, from the queue: the handle is the
-/// insertion number (ADR-0002). The index is not saved, loading builds it again.
-pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), EventHandle> {
+/// insertion number (ADR-0002). The index is not saved, loading builds it again. The
+/// separation of a partnership is a pending event of its woman.
+pub(super) fn pending_index(
+    queue: &[QueueEntry],
+    partnerships: &BTreeMap<PartnershipId, Partnership>,
+) -> BTreeMap<(SimId, Slot), EventHandle> {
     let mut index = BTreeMap::new();
     for entry in queue {
         let slot = match &entry.payload {
@@ -277,6 +282,12 @@ pub(super) fn pending_index(queue: &[QueueEntry]) -> BTreeMap<(SimId, Slot), Eve
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
             EventPayload::Birth { mother } => (*mother, Slot::Birth),
+            EventPayload::Separation { partnership } => {
+                let Some(partnership) = partnerships.get(partnership) else {
+                    panic!("invariant save.separation_of_unknown_partnership");
+                };
+                (partnership.woman, Slot::Separation)
+            }
         };
         index.insert(slot, EventHandle::from_seq(entry.seq));
     }
@@ -330,7 +341,8 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && born_consistent(loaded, now, &rules, history.founders)
         && twins_complete(loaded, &rules)
         && sims_consistent(loaded, now, &rules)
-        && partnerships_consistent(loaded, &history.pairs)
+        && partnerships_consistent(loaded, now, &rules, &history.pairs)
+        && partnership_counts_consistent(loaded)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
         && births_consistent(loaded)
@@ -425,11 +437,18 @@ fn input_log_consistent(
 }
 
 /// The partnerships are those the input log formed, with the IDs from 1 in that order,
-/// and the counter follows them. Each pairs a woman and a man; it is open while both
-/// live and ended in the second of the first death of the two, never before it was
-/// formed. Each of the two was free when it was formed: an earlier partnership of theirs
-/// had ended in an earlier second (a pairing acts before the events of its second).
-fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime)]) -> bool {
+/// and the counter follows them. Each pairs a woman and a man; it ended by the first of
+/// its due separation (if that second is closed) and the first death of the two, the
+/// separation first in a tie (ADR-0018 section 3), and is open while neither has come;
+/// never ended before it was formed. Each of the two was free when it was formed: an
+/// earlier partnership of theirs had ended in an earlier second (a pairing acts before
+/// the events of its second).
+fn partnerships_consistent(
+    loaded: &LoadedState,
+    now: i64,
+    rules: &Rules<'_>,
+    pairs: &[(SimId, SimId, SimTime)],
+) -> bool {
     let counted = u64::try_from(pairs.len())
         .ok()
         .and_then(|count| count.checked_add(1))
@@ -450,21 +469,74 @@ fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime
         && loaded.partnerships.iter().zip(pairs).zip(1_u64..).all(
             |(((id, partnership), &(woman, man, formed)), number)| {
                 let first_death = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
+                let separation = separation_due(loaded, rules, *id, partnership)
+                    .filter(|due| due.as_secs() < now);
+                let ending = match (separation, first_death) {
+                    (Some(at), death) if death.is_none_or(|death| at <= death) => Some(Ending {
+                        at,
+                        by: EndedBy::Separation,
+                    }),
+                    (_, Some(at)) => Some(Ending {
+                        at,
+                        by: EndedBy::Death,
+                    }),
+                    (_, None) => None,
+                };
+                let ended = partnership.ended.map(|ending| ending.at);
                 id.get() == number
                     && (partnership.woman, partnership.man, partnership.formed)
                         == (woman, man, formed)
                     && sex_of(&woman) == Some(Sex::Female)
                     && sex_of(&man) == Some(Sex::Male)
-                    && partnership.ended == first_death
+                    && partnership.ended == ending
                     && first_death.is_none_or(|death| death >= formed)
-                    && [woman, man].into_iter().all(|sim| {
-                        match latest.insert(sim, partnership.ended) {
+                    && [woman, man]
+                        .into_iter()
+                        .all(|sim| match latest.insert(sim, ended) {
                             None => true,
                             Some(earlier) => earlier.is_some_and(|end| end < formed),
-                        }
-                    })
+                        })
             },
         )
+}
+
+/// When the partnership `id` separates if both live (ADR-0018 section 3): her partnership
+/// number is the count of her partnerships with a smaller ID.
+fn separation_due(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    id: PartnershipId,
+    partnership: &Partnership,
+) -> Option<SimTime> {
+    let earlier = loaded
+        .partnerships
+        .range(..id)
+        .filter(|(_, other)| other.woman == partnership.woman)
+        .count();
+    let k = u32::try_from(earlier).ok()?;
+    let her = facts(loaded, partnership.woman)?.lineage_key;
+    let his = facts(loaded, partnership.man)?.lineage_key;
+    let address = (her, k, his);
+    state::partnership::separation_due(rules.data, rules.seed, partnership.formed, address)
+}
+
+/// Each woman has formed as many partnerships as there are partnerships whose woman she
+/// is; a man has none (ADR-0018 section 3).
+fn partnership_counts_consistent(loaded: &LoadedState) -> bool {
+    let mut formed: BTreeMap<SimId, u32> = BTreeMap::new();
+    for partnership in loaded.partnerships.values() {
+        let count = formed.entry(partnership.woman).or_default();
+        *count = count.saturating_add(1);
+    }
+    let own = |id: &SimId| formed.get(id).copied().unwrap_or(0);
+    loaded
+        .sims
+        .iter()
+        .all(|(id, sim)| sim.partnerships == own(id))
+        && loaded
+            .archive
+            .iter()
+            .all(|(id, sim)| sim.partnerships == own(id))
 }
 
 /// The switch of the hereditary diseases: each value with the second from which it holds.
@@ -742,7 +814,7 @@ fn conception_fits(
     let formed = loaded.partnerships.values().find_map(|partnership| {
         ((partnership.woman, partnership.man) == (parents.mother, parents.father)
             && partnership.formed <= conceived
-            && partnership.ended.is_none_or(|ended| ended >= conceived))
+            && partnership.ended.is_none_or(|ended| ended.at >= conceived))
         .then_some(partnership.formed)
     });
     let at_a_month_start =
@@ -1084,6 +1156,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut birthdays = BTreeSet::new();
     let mut births = BTreeSet::new();
     let mut attempts = BTreeSet::new();
+    let mut separations = BTreeSet::new();
     let mut deaths = BTreeSet::new();
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
@@ -1130,6 +1203,14 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && attempts.insert(*woman)
                     && next_attempt(loaded, now, rules, *woman) == Some(entry.time)
             }
+            EventPayload::Separation { partnership: id } => {
+                entry.period.is_none()
+                    && separations.insert(*id)
+                    && loaded.partnerships.get(id).is_some_and(|partnership| {
+                        partnership.ended.is_none()
+                            && separation_due(loaded, rules, *id, partnership) == Some(entry.time)
+                    })
+            }
         };
         if !expected {
             return false;
@@ -1152,8 +1233,15 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let all_attempts_planned = loaded.sims.keys().all(|woman| {
         next_attempt(loaded, now, rules, *woman).is_none() || attempts.contains(woman)
     });
+    // Every open partnership that separates has its separation.
+    let all_separations_planned = loaded.partnerships.iter().all(|(id, partnership)| {
+        partnership.ended.is_some()
+            || separation_due(loaded, rules, *id, partnership).is_none()
+            || separations.contains(id)
+    });
     year_end_seen
         && birthdays.len() == loaded.sims.len()
+        && all_separations_planned
         && all_deaths_planned
         && in_order
         && all_attempts_planned
