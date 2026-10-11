@@ -469,6 +469,10 @@ fn partnerships_consistent(loaded: &LoadedState, pairs: &[(SimId, SimId, SimTime
 
 /// The switch of the hereditary diseases: each value with the second from which it holds.
 type SwitchHistory = Vec<(i64, bool)>;
+/// A conception: the mother, the father and her conception number.
+type Conception = (SimId, SimId, u32);
+/// A born child: its lineage key, its birth and its SimId.
+type BornChild = (LineageKey, SimTime, u64);
 
 /// What the sims are checked against: the seed, the causes of death of `Start`, and the
 /// history of the switch of the hereditary diseases from the input log, as the second
@@ -894,7 +898,7 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
 /// conception whose pregnancy ended with the mother's death has none born.
 fn twins_complete(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     // Per (mother, father, conception): the born children with their birth, by SimId.
-    let mut born: BTreeMap<(SimId, SimId, u32), Vec<(LineageKey, SimTime, u64)>> = BTreeMap::new();
+    let mut born: BTreeMap<Conception, Vec<BornChild>> = BTreeMap::new();
     let all = loaded
         .sims
         .iter()
