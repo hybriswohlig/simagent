@@ -9,7 +9,7 @@ use sim_core::data::{
 use sim_core::data_id::DataId;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xb763_e0c4_dc51_1af5;
+const DATA_HASH: u64 = 0x1dca_217a_2509_0687;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -98,7 +98,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x8c5e_3639_5980_5be8);
+    assert_eq!(data.hash(), 0xbb14_1d36_8e5f_df4f);
 }
 
 #[test]
@@ -913,8 +913,8 @@ fn individual_curve_values_reject() {
 fn calibration_rejects() {
     let cases: [(Change, &str); 12] = [
         (|c, _| c["format_version"] = json!(0), "data.format_version"),
-        (|c, _| c["format_version"] = json!(4), "data.format_version"),
-        (|c, _| c["format_version"] = json!(6), "data.format_version"),
+        (|c, _| c["format_version"] = json!(5), "data.format_version"),
+        (|c, _| c["format_version"] = json!(7), "data.format_version"),
         (
             |c, _| {
                 c["values"]
@@ -1077,7 +1077,7 @@ fn death_values_reject() {
         named.longevity_trait().map(DataId::as_str),
         Some("test:growth")
     );
-    assert_ne!(named.hash(), 0x8c5e_3639_5980_5be8);
+    assert_ne!(named.hash(), 0xbb14_1d36_8e5f_df4f);
     assert_eq!(common::data().longevity_trait(), None);
     // The data name the trait or say `null` explicitly (ADR-0017 section 1).
     let missing = checked(|c, _| {
@@ -1087,6 +1087,131 @@ fn death_values_reject() {
         missing.starts_with("serde: missing field `longevity_trait`"),
         "{missing}"
     );
+}
+
+/// The curves of fertility (genetics specification 5.6, ADR-0017 section 1): each number
+/// in its unit and range, the bounds of the menarche and the ages of each decline in
+/// order; the window of the test data; the trait of the puberty timing.
+#[test]
+fn fertility_curves_reject() {
+    let curve = |field: &'static str, x: f64| {
+        move |c: &mut Value, _: &mut Value| c["fertility"]["puberty"][field]["value"] = json!(x)
+    };
+    let mut cases: Vec<(BoxedChange, &str)> = vec![
+        (
+            Box::new(|c, _| c["fertility"]["puberty"]["female_ramp"]["unit"] = json!("fraction")),
+            "data.calibration_unit",
+        ),
+        (
+            Box::new(|c, _| c["fertility"]["puberty"]["male_floor"]["unit"] = json!("year")),
+            "data.calibration_unit",
+        ),
+        (
+            Box::new(|c, _| c["puberty_trait"] = json!("test:puberty")),
+            "data.trait_named",
+        ),
+        (
+            Box::new(|c, _| {
+                c.as_object_mut().expect("object").remove("puberty_trait");
+            }),
+            "serde: missing field `puberty_trait`",
+        ),
+        (
+            Box::new(|c, _| {
+                c.as_object_mut().expect("object").remove("fertility");
+            }),
+            "serde: missing field `fertility`",
+        ),
+        (
+            Box::new(|c, _| {
+                c["fertility"]["puberty"]
+                    .as_object_mut()
+                    .expect("puberty")
+                    .remove("male_lead");
+            }),
+            "serde: missing field `male_lead`",
+        ),
+    ];
+    for (field, x) in [
+        ("menarche_mean", 10.5),
+        ("menarche_sd", 0.0),
+        ("menarche_sd", 10.5),
+        ("menarche_low", 3.0),
+        ("menarche_high", -1.0),
+        ("menarche_low", -10.5),
+        ("female_ramp", 0.0),
+        ("female_ramp", 20.5),
+        ("female_decline_from", 0.0),
+        ("female_decline_from", 50.0),
+        ("female_decline_to", 130.5),
+        ("male_lead", -0.1),
+        ("male_lead", 10.5),
+        ("male_ramp", 0.0),
+        ("male_decline_from", 70.0),
+        ("male_decline_to", 131.0),
+        ("male_floor", -0.1),
+        ("male_floor", 1.1),
+    ] {
+        cases.push((Box::new(curve(field, x)), "data.calibration_range"));
+    }
+    let window = |from: f64, until: f64| {
+        move |c: &mut Value, _: &mut Value| {
+            c["fertility"] = json!({"window": {
+                "from": {"value": from, "unit": "year"},
+                "until": {"value": until, "unit": "year"}
+            }});
+        }
+    };
+    for (from, until) in [(45.0, 18.0), (18.0, 18.0), (-1.0, 45.0), (18.0, 130.5)] {
+        cases.push((Box::new(window(from, until)), "data.calibration_range"));
+    }
+    let count = cases.len();
+    for (change, code) in cases {
+        let result = checked(change);
+        assert!(result.starts_with(code), "{code}: {result}");
+    }
+    assert_eq!(count, 28);
+    // The limits, a window and a named trait of the map are allowed; the repository uses
+    // the curves of 5.6 (ADR-0017 section 1).
+    let limits = checked(|c, _| {
+        let p = &mut c["fertility"]["puberty"];
+        p["menarche_mean"]["value"] = json!(-10.0);
+        p["menarche_sd"]["value"] = json!(10.0);
+        p["menarche_low"]["value"] = json!(-10.0);
+        p["menarche_high"]["value"] = json!(10.0);
+        p["female_ramp"]["value"] = json!(20.0);
+        p["female_decline_to"]["value"] = json!(130.0);
+        p["male_lead"]["value"] = json!(0.0);
+        p["male_floor"]["value"] = json!(0.0);
+    });
+    assert_eq!(limits, "ok");
+    assert_eq!(checked(window(0.0, 130.0)), "ok");
+    // The window is variant 1 in the data hash (`tools/data_reference.py` on the
+    // repository's data with the window 18 to 45).
+    let (mut c, mut g) = common::files();
+    window(18.0, 45.0)(&mut c, &mut g);
+    let windowed = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    assert_eq!(windowed.hash(), 0x4fe2_72c0_c7b3_7a3c);
+    assert_eq!(
+        checked_traits(|c, _| c["puberty_trait"] = json!("test:growth")),
+        "ok"
+    );
+    let (mut c, g) = common::files_from(
+        include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+        include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+    );
+    c["puberty_trait"] = json!("test:growth");
+    let named = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
+    assert_eq!(
+        named.puberty_trait().map(DataId::as_str),
+        Some("test:growth")
+    );
+    let data = common::data();
+    assert!(matches!(
+        data.genetics().fertility,
+        sim_core::fertility::Curves::Puberty(_)
+    ));
+    assert_eq!(data.puberty_trait(), None);
 }
 
 /// ADR-0013 section 3: `k` and the windows of the nutrition loss.

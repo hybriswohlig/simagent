@@ -51,9 +51,9 @@ fn rejected(detail: &str) -> CliError {
 }
 
 /// The calibration values, each of the four weights of each phenotype row, the two
-/// numbers of each sex difference and every number of each disease, with their text
-/// fields (ADR-0009 section 2, ADR-0014, ADR-0017 section 1); `None` unless all four lists
-/// are there.
+/// numbers of each sex difference, every number of each disease and of the curves of
+/// fertility, with their text fields (ADR-0009 section 2, ADR-0014, ADR-0017 section 1);
+/// `None` unless all five are there.
 fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
     let mut all = Vec::new();
     let mut lists = 0;
@@ -81,9 +81,12 @@ fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
                 numbers(disease, &mut all);
             }
             lists += 1;
+        } else if name == "fertility" {
+            numbers(list, &mut all);
+            lists += 1;
         }
     }
-    (lists == 4).then_some(all)
+    (lists == 5).then_some(all)
 }
 
 /// The values of the life course data and the weights of the wish, with their text fields
@@ -175,7 +178,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0xb763_e0c4_dc51_1af5);
+        assert_eq!(core_data().expect("data").hash(), 0x1dca_217a_2509_0687);
     }
 
     #[test]
@@ -276,7 +279,7 @@ mod tests {
     #[test]
     fn traits_have_their_text() {
         let data = data_from(DEMOGRAPHY, TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x8c5e_3639_5980_5be8);
+        assert_eq!(data.hash(), 0xbb14_1d36_8e5f_df4f);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",

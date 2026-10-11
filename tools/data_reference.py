@@ -20,8 +20,20 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
                         traits: Vec<PhenotypeWeights>,
                         sex_differences: Vec<SexDifference>,   (ADR-0014)
                         diseases: Vec<Disease>,   (ADR-0017)
-                        longevity_trait: Option<DataId> }   (format 5, ADR-0017 section 1:
+                        longevity_trait: Option<DataId>,   (format 5, ADR-0017 section 1:
                         a trait of the map or none, 0 for none, 1 then the ID)
+                        puberty_trait: Option<DataId>,   (format 6, the trait of the
+                        puberty timing z_p, genetics specification 5.2: as longevity_trait)
+                        fertility: Fertility }   (format 6, ADR-0017 section 1)
+  Fertility: puberty { menarche_mean: Calibrated, menarche_sd: Calibrated,
+                       menarche_low: Calibrated, menarche_high: Calibrated,
+                       female_ramp: Calibrated, female_decline_from: Calibrated,
+                       female_decline_to: Calibrated, male_lead: Calibrated,
+                       male_ramp: Calibrated, male_decline_from: Calibrated,
+                       male_floor: Calibrated, male_decline_to: Calibrated }
+                       (genetics specification 5.6),
+             window { from: Calibrated, until: Calibrated }   (test data only, ADR-0017
+                       section 5)
   Disease { code: DataId, carrier: Carrier, onset: Onset, effect: Effect }
   Carrier: locus { locus: DataId, penetrance_female: Calibrated,
                    penetrance_male: Calibrated },
@@ -84,6 +96,28 @@ UNITS = [
 ]
 WEIGHTS = ("h2_child", "c2_child", "h2_adult", "c2_adult")
 SEX_DIFFERENCE = ("shift", "variance_ratio")
+# The forms of the fertility and their numbers in the order of the enum (design note of
+# the fertility curves, section 1): variant 0 `puberty` (5.6), variant 1 `window`.
+FERTILITY_FORMS = ["puberty", "window"]
+FERTILITY_FIELDS = [
+    (
+        "menarche_mean",
+        "menarche_sd",
+        "menarche_low",
+        "menarche_high",
+        "female_ramp",
+        "female_decline_from",
+        "female_decline_to",
+        "male_lead",
+        "male_ramp",
+        "male_decline_from",
+        "male_floor",
+        "male_decline_to",
+    ),
+    ("from", "until"),
+]
+# The calibration's fields that name a trait of the map, or none (ADR-0017 section 1).
+NAMED_TRAITS = ("longevity_trait", "puberty_trait")
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -130,8 +164,9 @@ def filled(entry, names) -> None:
 def check_text(demography, calibration, genome_map) -> None:
     """The text fields of every number of the life course data (each value and each entry
     of the wish shape, ADR-0017 section 1), of every calibration value, every number of a
-    phenotype row and of a sex difference (ADR-0009, ADR-0014), and of every trait and
-    locus (ADR-0008)."""
+    phenotype row and of a sex difference (ADR-0009, ADR-0014), of every number of a
+    disease and of the fertility (ADR-0017 section 1), and of every trait and locus
+    (ADR-0008)."""
     for entry in list(demography["values"].values()) + demography["fertility_wish_shape"]:
         filled(entry, CALIBRATED_TEXT)
     for entry in calibration["values"].values():
@@ -146,6 +181,9 @@ def check_text(demography, calibration, genome_map) -> None:
         filled(entry, ("description",))
     for disease in calibration["diseases"]:
         check_numbers(disease)
+    index, form = variant(calibration["fertility"], FERTILITY_FORMS)
+    for name in FERTILITY_FIELDS[index]:
+        filled(form[name], CALIBRATED_TEXT)
 
 
 def check_numbers(value) -> None:
@@ -161,11 +199,13 @@ def check_numbers(value) -> None:
 
 
 def check_named_traits(calibration, genome_map) -> None:
-    """A trait the calibration names (the trait of longevity) is a trait of the map
-    (ADR-0017 section 1, `data.trait_named`); none is allowed."""
-    named = calibration["longevity_trait"]
+    """A trait the calibration names (the trait of longevity, the trait of the puberty
+    timing) is a trait of the map (ADR-0017 section 1, `data.trait_named`); none is
+    allowed."""
     traits = {entry["id"] for entry in genome_map["traits"]}
-    assert named is None or named in traits, f"longevity_trait {named} is no trait of the map"
+    for field in NAMED_TRAITS:
+        named = calibration[field]
+        assert named is None or named in traits, f"{field} {named} is no trait of the map"
 
 
 def strip(value):
@@ -213,6 +253,20 @@ def calibration_bytes(doc) -> bytes:
     for disease in doc["diseases"]:
         out += disease_bytes(disease)
     out += option_id(doc["longevity_trait"])
+    out += option_id(doc["puberty_trait"])
+    out += fertility_bytes(doc["fertility"])
+    return out
+
+
+def fertility_bytes(fertility) -> bytes:
+    """Fertility: the variant index, then its numbers in the order of the enum (the twelve
+    of `puberty` in the order of the design note's table, or `from`, `until`)."""
+    index, form = variant(fertility, FERTILITY_FORMS)
+    names = FERTILITY_FIELDS[index]
+    assert set(form) == set(names), f"fertility {FERTILITY_FORMS[index]}: fields {sorted(form)}"
+    out = varint(index)
+    for name in names:
+        out += calibrated_bytes(form[name])
     return out
 
 

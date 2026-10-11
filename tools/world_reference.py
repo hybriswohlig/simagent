@@ -108,6 +108,11 @@ What the model knows:
   conception number, its afflictions from its genome with the birth as origin. Its first
   birthday a year later, its deaths from its birth on. If the mother is in an open
   partnership, her attempts begin again from the first month start after the birth second.
+- The curves of fertility (genetics specification 5.6 and 11.3, design note of the
+  fertility curves, section 2) are pure functions here (`theta_i`, `menarche`,
+  `female_factor`, `male_factor`, `chance`, `wish`); `Data` reads their form and the trait
+  of the puberty timing, but no world rule uses them yet (tools/fertility_values.py
+  prints their values).
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes and the checks
 of the step hazard; the other tools use the model)
@@ -153,6 +158,7 @@ from rng_reference import (
     founder_key,
     normal_reference,
     str_key,
+    unit,
     words,
 )
 
@@ -171,9 +177,11 @@ MAX_ABS_SECS = 1_000_000 * YEAR
 # tests/golden/rng_tags.txt
 MEIOSIS_START_STRAND, SEX_CHROMOSOME, CONCEPTION_ATTEMPT, DEATH_BUDGET = 1, 2, 3, 4
 DISEASE_PENETRANCE, DISEASE_ONSET = 13, 14
+# New with the fertility curves (design note, section 2; genetics specification 11.7).
+FERTILITY_MENARCHE, FERTILITY_WISH = 15, 16
 
 PROJECTION_VERSION = 12
-CORE_VERSION = 25
+CORE_VERSION = 26
 
 # A scenario without its own fertility: nobody ever conceives.
 BARREN = (0.0, 18, 45, 10)
@@ -254,6 +262,24 @@ class Disease:
                 self.hazard = tuple(number(numbers[name]) for name in ("before", "change_age", "after"))
 
 
+class FertilityForm:
+    """The calibration's `fertility` (ADR-0017 section 1; design note of the fertility
+    curves, section 1) without its texts. `kind` "puberty": the twelve numbers of the
+    genetics specification 5.6 as attributes of their names (`menarche_mean` to
+    `male_decline_to`; years, `male_floor` a fraction). `kind` "window" (test data only,
+    ADR-0017 section 5): `start` (the field `from`) and `until` in years."""
+
+    def __init__(self, entry: dict):
+        self.kind, fields = only(entry)
+        names = data_reference.FERTILITY_FIELDS[data_reference.FERTILITY_FORMS.index(self.kind)]
+        assert set(fields) == set(names), f"fertility {self.kind}: fields {sorted(fields)}"
+        if self.kind == "puberty":
+            for name in names:
+                setattr(self, name, number(fields[name]))
+        else:
+            self.start, self.until = number(fields["from"]), number(fields["until"])
+
+
 # The ranges `mortality` accepts (crates/sim-core/src/mortality.rs, a contract of the
 # merged pure functions): a world never calls them outside, the data keep inside.
 GOMPERTZ_A_RANGE = (1e-15, 1.0)
@@ -273,9 +299,10 @@ class Data:
     genome map as documents (parsed JSON with their texts, in the order of their data
     IDs), their data hash (tools/data_reference.py), the loci
     by ID, the diseases in data order, the rates of death per sex (Gompertz `a` and `b`,
-    the Makeham term `λ`), `σ_g` and the trait of longevity, and what the meiosis
-    reference reads: the map lengths, the sex ratio at birth, the map in its form and
-    the mutation rates."""
+    the Makeham term `λ`), `σ_g` and the trait of longevity, the fertility (its form, the
+    trait of the puberty timing and per sex the curve `(θ, σ_θ)` of 5.2 that `θ_i` reads;
+    no world rule uses them yet), and what the meiosis reference reads: the map lengths,
+    the sex ratio at birth, the map in its form and the mutation rates."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict):
         self.hash = data_reference.documents_hash(demography, calibration, genome_map)
@@ -298,6 +325,15 @@ class Data:
         # data of these tests name none (`m` = 1 exactly, 11.1).
         self.longevity_trait = stripped["longevity_trait"]
         assert self.longevity_trait is None, "a trait of longevity is not modelled by this reference"
+        # Likewise `θ_i` with a trait of the puberty timing needs its phenotype `z_p`; the
+        # data of these tests name none (`z_p` = 0, `θ_i = θ` exactly, 11.1).
+        self.puberty_trait = stripped["puberty_trait"]
+        assert self.puberty_trait is None, "a trait of the puberty timing is not modelled by this reference"
+        self.fertility = FertilityForm(stripped["fertility"])
+        self.puberty_curve = {
+            sex: (number(values[f"core:growth_theta_{name}"]), number(values[f"core:growth_theta_sd_{name}"]))
+            for sex, name in ((FEMALE, "female"), (MALE, "male"))
+        }
         self.map_lengths = {
             "autosome_female": values["core:map_length_autosome_female"]["value"],
             "autosome_male": values["core:map_length_autosome_male"]["value"],
@@ -528,6 +564,169 @@ assert disease_age(0.0, 1.5, (0.1, 10.0, 0.0)) is None and disease_age(12.0, 0.1
 assert disease_age(0.0, 0.0, (1e-9, 0.25, 0.0)) == 0.0
 for low, high, want in [(0.0, 18.0, 0.02), (10.0, 30.0, 0.180_756_254_138_236_62), (25.0, 40.0, 0.214_834_206_561_684_64), (7.0, 7.0, 0.0)]:
     assert abs(disease_hazard_used(CYSTIC, low, high) - want) <= 1e-15 + 1e-13 * want, (low, high)
+
+
+# ---------------------------------------------------------------------------------------
+# Fertility (genetics specification 5.6 and 11.3; design note of the fertility curves,
+# section 2): pure functions, ages in years as f64 (11.1: `(t − born).as_years()`). No
+# world rule uses them yet.
+
+# The bound of the inputs of the individual curve (ADR-0012 section 1).
+CURVE_INPUT_BOUND = 6.0
+
+
+def smoothstep(u: float) -> float:
+    """`s(u)` of 5.1 and 6.2 as `growth::puberty_progress` evaluates it: 0 for `u <= 0`,
+    1 for `u >= 1`, else `3.0 * (u * u) - 2.0 * ((u * u) * u)`."""
+    if u <= 0.0:
+        return 0.0
+    if u >= 1.0:
+        return 1.0
+    return 3.0 * (u * u) - 2.0 * ((u * u) * u)
+
+
+def theta_i(curve: tuple, z_p: float) -> float:
+    """The puberty timing `θ_i = θ + σ_θ · ẑ_p` (5.2) on the curve `(θ, σ_θ)` of a sex
+    (`Data.puberty_curve`), with `ẑ_p` the phenotype `z_p` held on [−6, 6] (above 6 is 6,
+    below −6 is −6, ADR-0012 section 1): `IndividualCurve::new(curve, 0.0, z_p).theta`.
+    Without a trait of the puberty timing `z_p` is 0 and `θ_i = θ` exactly (11.1)."""
+    theta, sigma_theta = curve
+    if z_p > CURVE_INPUT_BOUND:
+        z_p = CURVE_INPUT_BOUND
+    elif z_p < -CURVE_INPUT_BOUND:
+        z_p = -CURVE_INPUT_BOUND
+    return theta + sigma_theta * z_p
+
+
+def menarche(theta: float, delta: float, form: FertilityForm) -> float:
+    """The menarche `m_i` of a woman with the puberty timing `theta` (5.6): `m = θ_i + δ`,
+    then held, `m = max(m, θ_i + menarche_low)`, then `m = min(m, θ_i + menarche_high)`.
+    `δ` is `menarche_delta`; the menarche is a pure function, not state."""
+    assert form.kind == "puberty"
+    m = theta + delta
+    m = max(m, theta + form.menarche_low)
+    return min(m, theta + form.menarche_high)
+
+
+def menarche_delta(seed: int, key: int, form: FertilityForm) -> float:
+    """`δ = normal(menarche_mean, menarche_sd)` at the key (FERTILITY_MENARCHE, the
+    woman's lineage key, occasion 0, detail 0; 11.7)."""
+    draw = words(chacha_key(seed, FERTILITY_MENARCHE, key, 0, 0))
+    return normal_reference(draw[0], draw[1], form.menarche_mean, form.menarche_sd)[1]
+
+
+def female_factor(age: float, m: float, form: FertilityForm) -> float:
+    """The woman's factor `F_w` at the age `age` (5.6). `puberty`: the ramp
+    `s((age − m) / female_ramp)` from her menarche `m`, times the decline, 1 for
+    `age <= female_decline_from`, 0 for `age >= female_decline_to`, else
+    `(to − age) / (to − from)`. `window`: 1 if `from <= age < until`, else 0 (`m` is not
+    read)."""
+    if form.kind == "window":
+        return 1.0 if form.start <= age < form.until else 0.0
+    ramp = smoothstep((age - m) / form.female_ramp)
+    start, end = form.female_decline_from, form.female_decline_to
+    if age <= start:
+        decline = 1.0
+    elif age >= end:
+        decline = 0.0
+    else:
+        decline = (end - age) / (end - start)
+    return ramp * decline
+
+
+def male_factor(age: float, theta: float, form: FertilityForm) -> float:
+    """The man's factor `F_m` at the age `age` with his puberty timing `theta` (5.6).
+    `puberty`: the ramp `s((age − (θ_i − male_lead)) / male_ramp)`, times the decline, 1
+    for `age <= male_decline_from`, `male_floor` for `age >= male_decline_to`, else
+    `1.0 - (1.0 - floor) * ((age - from) / (to - from))`. `window`: 1."""
+    if form.kind == "window":
+        return 1.0
+    ramp = smoothstep((age - (theta - form.male_lead)) / form.male_ramp)
+    start, end, floor = form.male_decline_from, form.male_decline_to, form.male_floor
+    if age <= start:
+        decline = 1.0
+    elif age >= end:
+        decline = floor
+    else:
+        decline = 1.0 - (1.0 - floor) * ((age - start) / (end - start))
+    return ramp * decline
+
+
+def chance(adult_rate: float, f_w: float, f_m: float) -> float:
+    """The chance of an attempt (11.3): `(adult_rate * f_w) * f_m`."""
+    return (adult_rate * f_w) * f_m
+
+
+def wish_weights(shape: list, alpha: float) -> tuple:
+    """`(w, total)` of the wish (11.3): `w_n = p_n * exp(α * n)` with `n` as f64 and the
+    correctly rounded exp (`sim_math::exp`), `total = w_0 + w_1 + …` in order."""
+    weights = [p * exp_reference(alpha * float(n))[1] for n, p in enumerate(shape)]
+    total = 0.0
+    for w in weights:
+        total += w
+    return weights, total
+
+
+def wish_thresholds(shape: list, alpha: float) -> list:
+    """The thresholds of the wish (11.3): `acc += w_n / total` in order, `acc` after each
+    `n`."""
+    weights, total = wish_weights(shape, alpha)
+    thresholds, acc = [], 0.0
+    for w in weights:
+        acc += w / total
+        thresholds.append(acc)
+    return thresholds
+
+
+def wish(u: float, shape: list, alpha: float) -> int:
+    """The wish of a woman (11.3): the smallest `n` with `u < acc` after `n`
+    (`wish_thresholds`), the last `n` if none."""
+    for n, acc in enumerate(wish_thresholds(shape, alpha)):
+        if u < acc:
+            return n
+    return len(shape) - 1
+
+
+def wish_unit(seed: int, key: int) -> float:
+    """`u = unit(draw)` of the wish at the key (FERTILITY_WISH, the woman's lineage key,
+    occasion 0, detail 0; 11.7)."""
+    return unit(words(chacha_key(seed, FERTILITY_WISH, key, 0, 0))[0])
+
+
+def wish_mean(shape: list, alpha: float) -> float:
+    """The expected wish `Σ n · w_n / total`: the products `n · w_n` summed in order,
+    divided by `total` once."""
+    weights, total = wish_weights(shape, alpha)
+    acc = 0.0
+    for n, w in enumerate(weights):
+        acc += float(n) * w
+    return acc / total
+
+
+def check_fertility_spec(form: FertilityForm, curves: dict, shape: list) -> None:
+    """The values the genetics specification states, by hand: `s(1/2) = 3/4 − 2/8 = 1/2`,
+    so 1.5 years after the menarche (before 30) the woman's factor is 0.5 [W5.6a]; with
+    40 the ramp is over for `m <= 37` and the decline is `(50 − 40) / (50 − 30) = 0.5`
+    [W5.6b]; with 57.5 the man's ramp is over and his decline is
+    `1 − 0.6 · 12.5 / 25 = 0.7` [W5.6c]; at `α` = 0 the wish has the shape's mean
+    `0.15 + 0.80 + 0.75 + 0.40 = 2.10` [W11.3a]."""
+    assert form.kind == "puberty"
+    assert smoothstep(0.5) == 0.5
+    assert female_factor(12.5 + 1.5, 12.5, form) == 0.5
+    for tenth in range(60, 280):
+        m = tenth / 10.0
+        assert abs(female_factor(m + 1.5, m, form) - 0.5) <= 1e-12, m
+    for tenth in range(60, 371):
+        assert female_factor(40.0, tenth / 10.0, form) == 0.5, tenth
+    for curve in curves.values():
+        for z_p in (-7.0, -6.0, -1.0, 0.0, 1.0, 6.0, 7.0):
+            assert male_factor(57.5, theta_i(curve, z_p), form) == 0.7, (curve, z_p)
+    assert abs(wish_mean(shape, 0.0) - 2.10) <= 1e-12
+
+
+# The wish shape p_0 to p_4 of the genetics specification 11.3 [K11.3d].
+WISH_SHAPE_SPEC = [0.10, 0.15, 0.40, 0.25, 0.10]
+check_fertility_spec(REPOSITORY.fertility, REPOSITORY.puberty_curve, WISH_SHAPE_SPEC)
 
 
 def budget_of(seed: int, key: int, code: str) -> float:
