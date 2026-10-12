@@ -11,6 +11,7 @@ mod contract;
 mod contract_base;
 mod kat;
 mod map4;
+mod ordered;
 mod release_run;
 mod results;
 mod scan;
@@ -51,7 +52,12 @@ fn main() -> ExitCode {
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
         Some("map4-template") => {
-            let dir = std::env::args().nth(2).unwrap_or_default();
+            // No default: an empty or missing directory would write into the current one,
+            // perhaps over the repository's data (review).
+            let Some(dir) = std::env::args().nth(2).filter(|dir| !dir.is_empty()) else {
+                eprintln!("usage: cargo xtask map4-template <dir>");
+                return ExitCode::from(2);
+            };
             return report(
                 "map4-template",
                 workspace_root().and_then(|root| map4::write(&root, Path::new(&dir))),

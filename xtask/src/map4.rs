@@ -7,9 +7,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use serde_json::{Value, json};
-
 use crate::Result;
+use crate::ordered::Json;
 
 /// A trait of the template: its own additive loci and the factor it includes.
 struct TraitSpec {
@@ -150,41 +149,56 @@ fn place(
     Ok(all)
 }
 
-fn read(root: &Path, path: &str) -> Result<Value> {
+fn read(root: &Path, path: &str) -> Result<Json> {
     let text = std::fs::read_to_string(root.join(path))
         .map_err(|error| format!("cannot read {path}: {error}"))?;
-    serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))
+    Json::parse(&text).map_err(|error| format!("{path}: {error}"))
 }
 
 /// The position of a locus as the map orders it: autosomes by segment and slot, then X,
 /// Y, mt.
-fn position(locus: &Value) -> (u32, u64, u64) {
-    let rank = match locus["chromosome"].as_str() {
+fn position(locus: &Json) -> (u32, u64, u64) {
+    let rank = match locus.get("chromosome").and_then(Json::as_str) {
         Some("autosome") => 0,
         Some("x") => 1,
         Some("y") => 2,
         _ => 3,
     };
-    (
-        rank,
-        locus["segment"].as_u64().unwrap_or(0),
-        locus["slot"].as_u64().unwrap_or(0),
-    )
+    let at = |key: &str| locus.get(key).and_then(Json::as_u64).unwrap_or(0);
+    (rank, at("segment"), at("slot"))
+}
+
+/// A locus of the template in the field order of the data files.
+fn locus(id: &str, segment: u32, slot: u32, action: Json, mark: &str, description: String) -> Json {
+    Json::object(vec![
+        ("id", Json::str(id)),
+        ("chromosome", Json::str("autosome")),
+        ("segment", Json::int(u64::from(segment))),
+        ("slot", Json::int(u64::from(slot))),
+        ("action", action),
+        ("mark", Json::str(mark)),
+        ("mutation", Json::str("both")),
+        ("description", Json::str(description)),
+    ])
 }
 
 /// The template (calibration, genome map) from the repository's files.
-pub fn template(root: &Path) -> Result<(Value, Value)> {
+pub fn template(root: &Path) -> Result<(Json, Json)> {
     let map3 = read(root, "data/genetics/genome_map.json")?;
     let mut calibration = read(root, "data/calibration/genetics.json")?;
     let specs = specs();
     let own_of: BTreeMap<&str, u32> = specs.iter().map(|spec| (spec.id, spec.own)).collect();
-    let mut loci: Vec<Value> = map3["loci"].as_array().cloned().unwrap_or_default();
+    let mut loci: Vec<Json> = map3
+        .get("loci")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut taken = std::collections::BTreeSet::new();
-    for locus in &loci {
-        if locus["chromosome"] == "autosome" {
+    for old in &loci {
+        if old.get("chromosome").and_then(Json::as_str) == Some("autosome") {
             let at = |key: &str| {
-                locus[key]
-                    .as_u64()
+                old.get(key)
+                    .and_then(Json::as_u64)
                     .and_then(|n| u32::try_from(n).ok())
                     .ok_or_else(|| format!("map 3: a locus without {key}"))
             };
@@ -193,76 +207,104 @@ pub fn template(root: &Path) -> Result<(Value, Value)> {
     }
     for (id, segment) in [("core:mc1r", 1), ("core:herc2", 3)] {
         taken.insert((segment, 12));
-        loci.push(json!({
-            "id": id,
-            "chromosome": "autosome",
-            "segment": segment,
-            "slot": 12,
-            "action": "recessive",
-            "mark": "large",
-            "mutation": "both",
-            "description": texts::pigment_locus(id),
-        }));
+        loci.push(locus(
+            id,
+            segment,
+            12,
+            Json::str("recessive"),
+            "large",
+            texts::pigment_locus(id),
+        ));
     }
     let places = place(&specs, &mut taken)?;
     for (spec, mine) in specs.iter().filter(|spec| spec.own > 0).zip(&places) {
         for (i, (segment, slot)) in (1_u32..).zip(mine) {
-            loci.push(json!({
-                "id": format!("{}_{i:02}", spec.id),
-                "chromosome": "autosome",
-                "segment": segment,
-                "slot": slot,
-                "action": {"additive": {
-                    "effect": 1.0,
-                    "d_ref": 1.0,
-                    "loads": [{"trait": spec.id, "weight": 1.0}],
-                }},
-                "mark": "small",
-                "mutation": "both",
-                "description": texts::additive_locus(spec.id, i),
-            }));
+            let action = Json::object(vec![(
+                "additive",
+                Json::object(vec![
+                    ("effect", Json::float(1.0)),
+                    ("d_ref", Json::float(1.0)),
+                    (
+                        "loads",
+                        Json::Array(vec![Json::object(vec![
+                            ("trait", Json::str(spec.id)),
+                            ("weight", Json::float(1.0)),
+                        ])]),
+                    ),
+                ]),
+            )]);
+            loci.push(locus(
+                &format!("{}_{i:02}", spec.id),
+                *segment,
+                *slot,
+                action,
+                "small",
+                texts::additive_locus(spec.id, i),
+            ));
         }
     }
     loci.sort_by_key(position);
-    let traits: Vec<Value> = specs
+    let traits: Vec<Json> = specs
         .iter()
         .map(|spec| {
-            let includes: Vec<Value> = spec
+            let includes = spec
                 .include
                 .iter()
-                .map(|(factor, weight)| json!({"trait": factor, "weight": weight}))
+                .map(|(factor, weight)| {
+                    Json::object(vec![
+                        ("trait", Json::str(*factor)),
+                        ("weight", Json::float(*weight)),
+                    ])
+                })
                 .collect();
-            json!({
-                "id": spec.id,
-                "sigma_ref": sigma_start(spec, &own_of),
-                "exclusive": spec.exclusive,
-                "includes": includes,
-                "description": texts::trait_description(spec),
-            })
+            Json::object(vec![
+                ("id", Json::str(spec.id)),
+                ("sigma_ref", Json::float(sigma_start(spec, &own_of))),
+                ("exclusive", Json::Bool(spec.exclusive)),
+                ("includes", Json::Array(includes)),
+                ("description", Json::str(texts::trait_description(spec))),
+            ])
         })
         .collect();
-    let map = json!({
-        "format_version": map3["format_version"],
-        "map_version": 4,
-        "traits": traits,
-        "loci": loci,
-    });
-    calibration["traits"] = Value::Array(
-        specs
-            .iter()
-            .filter(|spec| spec.id != "core:longevity")
-            .map(|spec| phenotype_row(spec.id))
-            .collect(),
+    let map = Json::object(vec![
+        (
+            "format_version",
+            map3.get("format_version").cloned().unwrap_or(Json::Null),
+        ),
+        ("map_version", Json::int(4)),
+        ("traits", Json::Array(traits)),
+        ("loci", Json::Array(loci)),
+    ]);
+    calibration.set(
+        "traits",
+        Json::Array(
+            specs
+                .iter()
+                .filter(|spec| spec.id != "core:longevity")
+                .map(|spec| phenotype_row(spec.id))
+                .collect(),
+        ),
     );
-    calibration["cognition_trait"] = json!("core:cognition");
-    calibration["height_trait"] = json!("core:growth");
-    calibration["puberty_trait"] = json!("core:puberty");
-    calibration["longevity_trait"] = json!("core:longevity");
-    calibration["sex_differences"] = json!([texts::cognition_difference()]);
-    if let Some(diseases) = calibration["diseases"].as_array_mut() {
+    calibration.set(
+        "sex_differences",
+        Json::Array(vec![texts::cognition_difference()]),
+    );
+    for (name, value) in [
+        ("cognition_trait", "core:cognition"),
+        ("height_trait", "core:growth"),
+        ("puberty_trait", "core:puberty"),
+        ("longevity_trait", "core:longevity"),
+    ] {
+        calibration.set(name, Json::str(value));
+    }
+    if let Some(diseases) = calibration.get_mut("diseases").and_then(Json::as_array_mut) {
         for disease in diseases {
-            if disease["code"] == "core:disease_liability" {
-                disease["carrier"]["threshold"]["liability"] = json!("core:disease_liability");
+            if disease.get("code").and_then(Json::as_str) == Some("core:disease_liability")
+                && let Some(threshold) = disease
+                    .get_mut("carrier")
+                    .and_then(|carrier| carrier.get_mut("threshold"))
+            {
+                threshold.set("liability", Json::str("core:disease_liability"));
             }
         }
     }
@@ -283,31 +325,35 @@ fn weights(id: &str) -> [f64; 4] {
     }
 }
 
-fn phenotype_row(id: &str) -> Value {
+fn phenotype_row(id: &str) -> Json {
     let [h2_child, c2_child, h2_adult, c2_adult] = weights(id);
-    let number = |value: f64, name: &str| texts::weight(name, value);
-    json!({
-        "trait": id,
-        "h2_child": number(h2_child, "h2_child"),
-        "c2_child": number(c2_child, "c2_child"),
-        "h2_adult": number(h2_adult, "h2_adult"),
-        "c2_adult": number(c2_adult, "c2_adult"),
-    })
+    Json::object(vec![
+        ("trait", Json::str(id)),
+        ("h2_child", texts::weight("h2_child", h2_child)),
+        ("c2_child", texts::weight("c2_child", c2_child)),
+        ("h2_adult", texts::weight("h2_adult", h2_adult)),
+        ("c2_adult", texts::weight("c2_adult", c2_adult)),
+    ])
+}
+
+/// The two files of the template as text, in the layout of the data files.
+pub fn texts_of(root: &Path) -> Result<(String, String)> {
+    let (calibration, map) = template(root)?;
+    Ok((calibration.pretty()?, map.pretty()?))
 }
 
 /// Writes the template into `dir` (`calibration/genetics.json`, `genetics/genome_map.json`).
 pub fn write(root: &Path, dir: &Path) -> Result {
-    let (calibration, map) = template(root)?;
-    for (path, value) in [
-        ("calibration/genetics.json", &calibration),
-        ("genetics/genome_map.json", &map),
+    let (calibration, map) = texts_of(root)?;
+    for (path, text) in [
+        ("calibration/genetics.json", calibration),
+        ("genetics/genome_map.json", map),
     ] {
         let file = dir.join(path);
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
         }
-        let text = serde_json::to_string_pretty(value).map_err(|error| error.to_string())? + "\n";
         std::fs::write(&file, text)
             .map_err(|error| format!("cannot write {}: {error}", file.display()))?;
     }
@@ -317,9 +363,8 @@ pub fn write(root: &Path, dir: &Path) -> Result {
 /// The texts of the template (descriptions, sources and notes); fixed so that the
 /// reference writes the same.
 mod texts {
-    use serde_json::{Value, json};
-
     use super::TraitSpec;
+    use crate::ordered::Json;
 
     pub fn additive_locus(t: &str, i: u32) -> String {
         format!("Additive locus {i} of {t} (ADR-0020 section 1).")
@@ -344,40 +389,53 @@ mod texts {
         )
     }
 
-    pub fn weight(name: &str, value: f64) -> Value {
+    fn number(value: f64, unit: &str, source: &str, note: String) -> Json {
+        Json::object(vec![
+            ("value", Json::float(value)),
+            ("unit", Json::str(unit)),
+            ("source", Json::str(source)),
+            ("as_of", Json::str("2026-10-12")),
+            ("note", Json::str(note)),
+        ])
+    }
+
+    pub fn weight(name: &str, value: f64) -> Json {
         let (h_or_c, age) = name.split_once('_').unwrap_or((name, ""));
         let age = if age == "child" {
             "the child"
         } else {
             "the adult"
         };
-        json!({
-            "value": value,
-            "unit": "fraction",
-            "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
-            "as_of": "2026-10-12",
-            "note": format!("{h_or_c} of {age}, template of map 4"),
-        })
+        number(
+            value,
+            "fraction",
+            "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+            format!("{h_or_c} of {age}, template of map 4"),
+        )
     }
 
-    pub fn cognition_difference() -> Value {
-        json!({
-            "trait": "core:cognition",
-            "shift": {
-                "value": 0.0,
-                "unit": "standard_deviation",
-                "source": "docs/genetik-spezifikation.md 6.2 (K6.2b), Deary et al. (2003)",
-                "as_of": "2026-10-12",
-                "note": "no shift of men against women, template of map 4",
-            },
-            "variance_ratio": {
-                "value": 1.12,
-                "unit": "ratio",
-                "source": "docs/genetik-spezifikation.md 6.2 (K6.2c), Deary et al. (2003)",
-                "as_of": "2026-10-12",
-                "note": "variance of men over women, template of map 4",
-            },
-        })
+    pub fn cognition_difference() -> Json {
+        Json::object(vec![
+            ("trait", Json::str("core:cognition")),
+            (
+                "shift",
+                number(
+                    0.0,
+                    "standard_deviation",
+                    "docs/genetik-spezifikation.md 6.2 (K6.2b), Deary et al. (2003)",
+                    "no shift of men against women, template of map 4".to_owned(),
+                ),
+            ),
+            (
+                "variance_ratio",
+                number(
+                    1.12,
+                    "ratio",
+                    "docs/genetik-spezifikation.md 6.2 (K6.2c), Deary et al. (2003)",
+                    "variance of men over women, template of map 4".to_owned(),
+                ),
+            ),
+        ])
     }
 }
 
@@ -393,17 +451,17 @@ mod tests {
     }
 
     /// The template is the reference's (`tools/map4_reference.py`, the golden
-    /// `tests/golden/map4_template`), value for value and every float bit for bit: the
-    /// placement, `σ_start`, the rows and the texts.
+    /// `tests/golden/map4_template`) byte for byte: the placement, `σ_start`, the rows, the
+    /// texts and the layout of the data files (keys in their order; review).
     #[test]
     fn the_template_is_the_references() {
-        let (calibration, map) = template(&root()).expect("a template");
-        let golden = |path: &str| read(&root(), &format!("tests/golden/map4_template/{path}"));
-        assert_eq!(map, golden("genetics/genome_map.json").expect("golden map"));
-        assert_eq!(
-            calibration,
-            golden("calibration/genetics.json").expect("golden calibration")
-        );
+        let (calibration, map) = texts_of(&root()).expect("a template");
+        let golden = |path: &str| {
+            std::fs::read_to_string(root().join("tests/golden/map4_template").join(path))
+                .expect("golden")
+        };
+        assert_eq!(map, golden("genetics/genome_map.json"));
+        assert_eq!(calibration, golden("calibration/genetics.json"));
     }
 
     /// ADR-0020 section 1: 128 loci (121 additive, 126 autosomal), 38 traits; the growth
@@ -411,25 +469,26 @@ mod tests {
     #[test]
     fn the_template_has_the_counts_of_the_adr() {
         let (_, map) = template(&root()).expect("a template");
-        let loci = map["loci"].as_array().expect("loci");
+        let loci = map.get("loci").and_then(Json::as_array).expect("loci");
         let additive = loci
             .iter()
-            .filter(|l| l["action"].get("additive").is_some());
-        let autosomal = loci.iter().filter(|l| l["chromosome"] == "autosome");
+            .filter(|l| l.get("action").and_then(|a| a.get("additive")).is_some());
+        let autosomal = loci
+            .iter()
+            .filter(|l| l.get("chromosome").and_then(Json::as_str) == Some("autosome"));
         assert_eq!(
             (loci.len(), additive.count(), autosomal.count()),
             (128, 121, 126)
         );
-        assert_eq!(map["traits"].as_array().expect("traits").len(), 38);
-        let face = map["traits"]
-            .as_array()
-            .expect("traits")
+        let traits = map.get("traits").and_then(Json::as_array).expect("traits");
+        assert_eq!(traits.len(), 38);
+        let face = traits
             .iter()
-            .find(|t| t["id"] == "core:face_01")
+            .find(|t| t.get("id").and_then(Json::as_str) == Some("core:face_01"))
             .expect("a face");
         assert_eq!(
-            face["sigma_ref"].as_f64().map(f64::to_bits),
-            Some(0x3fea_634b_d77f_e1a4)
+            face.get("sigma_ref"),
+            Some(&Json::float(f64::from_bits(0x3fea_634b_d77f_e1a4)))
         );
     }
 }
