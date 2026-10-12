@@ -2,6 +2,7 @@
 //! hook and every agent run exactly this command.
 
 mod arch;
+mod bench;
 mod budget;
 mod canary;
 mod checks;
@@ -41,6 +42,12 @@ fn main() -> ExitCode {
         Some("ci") => gate(true),
         Some("check") => gate(false),
         Some("kat-record") => return report("kat-record", kat_record()),
+        Some("bench") => {
+            return report(
+                "bench",
+                workspace_root().and_then(|root| bench::bench(&root)),
+            );
+        }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
         Some("codegen") => {
             return report(
@@ -66,7 +73,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs"
             );
             return ExitCode::from(2);
         }

@@ -1,0 +1,43 @@
+{
+  "format_version": 3,
+  "start": {
+    "world_seed": "00000000000000b1",
+    "founder_tag": "test:bench",
+    "world_params": { "hereditary_diseases": true, "nutrition": [] },
+    "founders": [
+      { "born": -628992000, "sex": "female", "alleles": [] },
+      { "born": -691891200, "sex": "male", "alleles": [] },
+      { "born": -660441600, "sex": "female", "alleles": [] },
+      { "born": -723340800, "sex": "male", "alleles": [] },
+      { "born": -691891200, "sex": "female", "alleles": [] },
+      { "born": -754790400, "sex": "male", "alleles": [] },
+      { "born": -723340800, "sex": "female", "alleles": [] },
+      { "born": -786240000, "sex": "male", "alleles": [] },
+      { "born": -754790400, "sex": "female", "alleles": [] },
+      { "born": -817689600, "sex": "male", "alleles": [] },
+      { "born": -786240000, "sex": "female", "alleles": [] },
+      { "born": -849139200, "sex": "male", "alleles": [] },
+      { "born": -817689600, "sex": "female", "alleles": [] },
+      { "born": -880588800, "sex": "male", "alleles": [] },
+      { "born": -849139200, "sex": "female", "alleles": [] },
+      { "born": -912038400, "sex": "male", "alleles": [] },
+      { "born": -880588800, "sex": "female", "alleles": [] },
+      { "born": -943488000, "sex": "male", "alleles": [] },
+      { "born": -912038400, "sex": "female", "alleles": [] },
+      { "born": -974937600, "sex": "male", "alleles": [] }
+    ],
+    "couples": [
+      { "woman": 0, "man": 1 },
+      { "woman": 2, "man": 3 },
+      { "woman": 4, "man": 5 },
+      { "woman": 6, "man": 7 },
+      { "woman": 8, "man": 9 },
+      { "woman": 10, "man": 11 },
+      { "woman": 12, "man": 13 },
+      { "woman": 14, "man": 15 },
+      { "woman": 16, "man": 17 },
+      { "woman": 18, "man": 19 }
+    ]
+  },
+  "until": 6289919999
+}
