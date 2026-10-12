@@ -23,6 +23,7 @@ fn main() {
             ("ln", [x]) => sim_math::ln(float(x)),
             ("cos", [x]) => sim_math::cos(float(x)),
             ("pow", [x, y]) => sim_math::pow(float(x), float(y)),
+            ("probit", [x]) => sim_math::probit(float(x)),
             ("exponential", [w, rate]) => dist::exponential(bits(w), float(rate)),
             ("normal", [w0, w1, mean, sd]) => {
                 dist::normal(bits(w0), bits(w1), float(mean), float(sd))

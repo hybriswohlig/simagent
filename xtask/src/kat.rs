@@ -8,7 +8,8 @@
 pub enum Bound {
     /// In ulp: the libm functions (ADR-0003 section 3.3).
     Ulp(u128),
-    /// 2^-48 times the reference: `exponential` (ADR-0001 section 3).
+    /// 2^-48 times the reference: `exponential` (ADR-0001 section 3) and `probit`
+    /// (ADR-0019).
     Relative,
     /// 2^-45, and only at mean 0 and sd 1: `normal` (ADR-0001 section 3). Rounded
     /// intermediate values near a zero of the cosine may cost many ulp.
@@ -22,7 +23,7 @@ pub enum Bound {
 
 /// The functions with class P rows and the bound of each against its reference. A
 /// function without an entry cannot have a class P row.
-pub const CLASS_P: [(&str, Bound); 7] = [
+pub const CLASS_P: [(&str, Bound); 8] = [
     ("exp", Bound::Ulp(1)),
     ("ln", Bound::Ulp(1)),
     ("cos", Bound::Ulp(1)),
@@ -30,6 +31,7 @@ pub const CLASS_P: [(&str, Bound); 7] = [
     ("exponential", Bound::Relative),
     ("normal", Bound::AbsoluteStandardNormal),
     ("gumbel", Bound::Absolute),
+    ("probit", Bound::Relative),
 ];
 
 const TWO_POW_MINUS_48: f64 = f64::from_bits(0x3cf0_0000_0000_0000);
@@ -44,13 +46,14 @@ const HEADER: &str = "input_bits,expected_bits,class,reference_bits";
 
 /// Every known-answer file with its header line. Readers skip that line, so a file
 /// without it would lose its first row unnoticed.
-pub const HEADERS: [(&str, &str); 18] = [
+pub const HEADERS: [(&str, &str); 19] = [
     ("ceil", HEADER),
     ("exp", HEADER),
     ("ln", HEADER),
     ("cos", HEADER),
     ("sqrt", HEADER),
     ("pow", HEADER),
+    ("probit", HEADER),
     ("to_i64_exact", "input_bits,expected,class"),
     ("i64_to_f64_exact", "input,expected_bits,class"),
     ("xxh3_64", "input_hex,xxh3_64"),
