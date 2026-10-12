@@ -3970,6 +3970,18 @@ fn load_rejects_inconsistent_saves() {
             "year hashes that start at year 1",
             two_years().with(|f| f.year_hashes = vec![(1, 7), (2, 7)]),
         ),
+        // Review finding: before the start there are no households.
+        (
+            "a household before the start",
+            never_started().with(|f| {
+                f.households = vec![(1, (0, None))];
+                f.next_household_id = 2;
+            }),
+        ),
+        (
+            "a household counter ahead before the start",
+            never_started().with(|f| f.next_household_id = 2),
+        ),
     ];
     for (name, bytes) in cases {
         assert_eq!(load_error(&bytes), Some(LoadError::Inconsistent), "{name}");

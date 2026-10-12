@@ -505,3 +505,40 @@ fn orphans_move_together_into_a_household_of_their_own() {
     assert_eq!(run.save(), hex(ORPHANS_SAVE_END));
     assert_loads(&homes_data(0.05), &run.save());
 }
+
+/// Review finding: an input pairs a single mother in the second her eldest child comes of
+/// age (sim 2 with sim 7, a second before the 18th birthday of sim 8). The child stays in
+/// her household, of age in that second; its carer clears only when its birthday runs
+/// later in it. A save right after the input loads, and the run goes on as without it.
+#[test]
+fn a_save_after_pairing_a_mother_as_her_child_comes_of_age_loads() {
+    let born: i64 = 29_030_400;
+    let stamp = born + 18 * Y - 1;
+    let pair = Input::ArrangePartnership(ArrangePartnership {
+        woman: sim(2),
+        man: sim(7),
+    });
+    let mut run = Run::homes();
+    run.play(stamp);
+    run.world.submit(pair).expect("accepted");
+    run.log.extend(run.world.take_log());
+    let bytes = run.save();
+    let (loaded, years) = World::load(&bytes, homes_data(0.01)).expect("loads");
+    assert_eq!(loaded.save(&years).expect("saves"), bytes);
+    let mut resumed = Run {
+        world: loaded,
+        out: YearOut {
+            census: run.out.census.clone(),
+            year_hashes: years,
+        },
+        log: Vec::new(),
+        input: false,
+    };
+    let before = run.log.len();
+    run.play(END);
+    resumed.play(END);
+    assert_eq!(resumed.out.year_hashes, run.out.year_hashes);
+    assert_eq!(log_hash(&resumed.log), log_hash(&run.log[before..]));
+    assert_eq!(resumed.log.len(), run.log.len() - before);
+    assert_eq!(resumed.save(), run.save());
+}

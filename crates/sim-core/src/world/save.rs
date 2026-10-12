@@ -320,8 +320,10 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
             && loaded.archive.is_empty()
+            && loaded.households.is_empty()
             && loaded.next_sim_id == 1
             && loaded.next_partnership_id == 1
+            && loaded.next_household_id == 1
             && loaded.next_event_seq == 1
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
@@ -615,9 +617,21 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         let home = loaded.households.get(&sim.household);
         let at_home = home.is_some_and(|household| household.ended.is_none());
         let carer_fits = if state::household::dependent(sim, t) {
+            // An input in the second the clock acts in may pair the carer of a child who
+            // comes of age in that second: the child stays, and its carer clears only when
+            // its birthday runs later in that second (ADR-0018 section 4).
+            let of_age_next = clock
+                .checked_add(SimDuration::from_secs(1))
+                .is_some_and(|next| !state::household::dependent(sim, next));
             match sim.carer {
                 Some(carer) => loaded.sims.get(&carer).is_some_and(|c| {
-                    c.household == sim.household && !state::household::dependent(c, t)
+                    let paired_away = of_age_next
+                        && loaded
+                            .households
+                            .get(&c.household)
+                            .is_some_and(|home| home.formed.as_secs() == acted);
+                    (c.household == sim.household || paired_away)
+                        && !state::household::dependent(c, t)
                 }),
                 None => members.get(&sim.household).is_some_and(|set| {
                     set.iter().all(|other| {
