@@ -84,6 +84,7 @@ pub(crate) fn on_birth(
                     father: pregnancy.father,
                     conception: pregnancy.conception,
                 }),
+                social_parents: alloc::vec::Vec::new(),
             },
         );
         household::born_into(domain, child, mother, ctx);

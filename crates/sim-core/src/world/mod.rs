@@ -375,6 +375,7 @@ mod tests {
             household: crate::ids::HouseholdId::try_from(1).expect("valid"),
             moved_out: false,
             parents: None,
+            social_parents: Vec::new(),
         }
     }
 
@@ -548,6 +549,7 @@ mod tests {
                 moved_out: false,
                 carer: None,
                 parents: None,
+                social_parents: Vec::new(),
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();
@@ -583,7 +585,8 @@ mod tests {
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
     /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
-    /// birth (0), no partnership (0), household 1, not moved out (0) and no parents (0).
+    /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0) and no
+    /// social parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
@@ -599,7 +602,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

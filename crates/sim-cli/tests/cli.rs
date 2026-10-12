@@ -133,7 +133,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":3,"core_version":32,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
+            r#"{"format_version":3,"core_version":33,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":3,"core_version":32,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"2ae282337239f9ea"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":3,"core_version":33,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"59a7875e76c6a7a1"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540120dc88d0bdf584d4d5ad011001ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e000000000100000000000000000000010000000001010000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100eaf3e791b7c6a0f12a"
+        "53494d4147454e540121dc88d0bdf584d4d5ad011101ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00000000010000000000000000000001000000000001010000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100a1cf9ab6e7ebe1d359"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -623,12 +623,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":32"#, r#""core_version":33"#);
+    replace_in(&log, r#""core_version":33"#, r#""core_version":34"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 33, this is 32"
+        "error: replay_foreign_core_version: the input log is of core version 34, this is 33"
     );
-    replace_in(&log, r#""core_version":33"#, r#""core_version":32"#);
+    replace_in(&log, r#""core_version":34"#, r#""core_version":33"#);
     replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -1109,8 +1109,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 32, "the core version in the header of the save");
-    bytes[9] = 33;
+    assert_eq!(bytes[9], 33, "the core version in the header of the save");
+    bytes[9] = 34;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

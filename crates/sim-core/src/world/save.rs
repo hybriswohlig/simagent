@@ -642,13 +642,11 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
                     let away = of_age_next && paired_away(acted, home, pairing);
                     (c.household == sim.household || away) && !state::household::dependent(c, t)
                 }),
+                // The orphan rule's own households only ever take in people who are not
+                // moved out: the orphans, and later relatives who never left home.
                 None => members.get(&sim.household).is_some_and(|set| {
-                    set.iter().all(|other| {
-                        loaded
-                            .sims
-                            .get(other)
-                            .is_some_and(|o| !o.moved_out && o.carer.is_none())
-                    })
+                    set.iter()
+                        .all(|other| loaded.sims.get(other).is_some_and(|o| !o.moved_out))
                 }),
             }
         } else {
@@ -666,7 +664,33 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
                 sim.left,
             )
     });
-    ids_complete && households_fit && archived_known && living_fit && archived_fit
+    let social_fit = loaded
+        .sims
+        .iter()
+        .map(|(id, sim)| (id, sim.parents, &sim.social_parents))
+        .chain(
+            loaded
+                .archive
+                .iter()
+                .map(|(id, sim)| (id, sim.parents, &sim.social_parents)),
+        )
+        .all(|(id, parents, social)| social_parents_fit(loaded, *id, parents, social));
+    ids_complete && households_fit && archived_known && living_fit && archived_fit && social_fit
+}
+
+/// The social parents of `id` (ADR-0018 section 4): each a person of the world, living or
+/// archived, not `id` itself, not a biological parent, listed once.
+fn social_parents_fit(
+    loaded: &LoadedState,
+    id: SimId,
+    parents: Option<Parents>,
+    social: &[SimId],
+) -> bool {
+    let known = |sim: &SimId| loaded.sims.contains_key(sim) || loaded.archive.contains_key(sim);
+    let biological = |sim: &SimId| parents.is_some_and(|p| p.mother == *sim || p.father == *sim);
+    social.iter().enumerate().all(|(place, sim)| {
+        known(sim) && *sim != id && !biological(sim) && !social[..place].contains(sim)
+    })
 }
 
 /// A founder of this age at the start is moved out (ADR-0018 section 4).

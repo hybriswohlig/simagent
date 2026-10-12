@@ -170,6 +170,7 @@ pub(crate) fn apply_start(
                 moved_out: false,
                 carer: None,
                 parents: None,
+                social_parents: Vec::new(),
             },
         );
         let next = first_birthday(born, ctx.now());

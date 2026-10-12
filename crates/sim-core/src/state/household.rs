@@ -1,16 +1,18 @@
-//! Households, part 1 (ADR-0018 section 4): every living person lives in one household.
-//! The couples of `Start` and the adult founders found theirs at the start, a child is born
+//! Households (ADR-0018 section 4): every living person lives in one household. The
+//! couples of `Start` and the adult founders found theirs at the start, a child is born
 //! into its mother's, a couple founds a new one when it pairs and takes the dependent
 //! children each of them cares for, the man founds a new one at a separation and takes the
 //! children he cares for, and a person founds his own when he leaves home at the age drawn
 //! from the table of the data. A dependent child (under 18, not moved out) has a carer in
-//! its household; when the carer dies, the other parent or the dead carer's partner in the
-//! household takes over, else the child gets a household of its own (the last stage of the
-//! orphan rule; part 2 adds relatives and foster homes).
+//! its household; when the carer dies or leaves home without it, the other parent or the
+//! carer's partner in the household takes over, else the orphan rule places the children:
+//! with their nearest relative of 18 or more, else with a foster mother, else in a household
+//! of their own.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+use super::conception::month_index;
 use super::{DomainState, Household, Sim, Slot, market};
 use crate::data::Data;
 use crate::data_id::Code;
@@ -181,9 +183,11 @@ fn found(
 
 /// The households of `Start` (ADR-0018 section 4), after the founders and the couples:
 /// each couple in list order, then each other founder of 18 or more, then each other
-/// founder under 18 (alone; moved out if the drawn age of leaving is reached at the start,
-/// else with his leaving home planned by his creation entry). `founders` holds each
-/// founder's SimId and creation entry; `couples` the couples as places in the list.
+/// founder under 18: moved out and alone if the drawn age of leaving is reached at the
+/// start, else placed by the orphan rule (founders are not related: a foster mother, else
+/// a household of his own), with his leaving home planned by his creation entry after
+/// that. `founders` holds each founder's SimId and creation entry; `couples` the couples
+/// as places in the list.
 pub(crate) fn start_households(
     domain: &mut DomainState,
     data: &Data,
@@ -224,12 +228,24 @@ pub(crate) fn start_households(
         }
         let person = living(domain, sim);
         let leaves = leave_second(data, seed, person.born, person.lineage_key);
-        let moved_out = leaves <= now;
-        living_mut(domain, sim).moved_out = moved_out;
-        settle(domain, &[sim], ctx);
-        if !moved_out {
-            plan_leave(domain, data, sim, added, ctx);
+        if leaves <= now {
+            living_mut(domain, sim).moved_out = true;
+            settle(domain, &[sim], ctx);
+            continue;
         }
+        match placement(domain, sim, now) {
+            Placement::Alone => settle(domain, &[sim], ctx),
+            taken => {
+                let home = take_in(domain, &[sim], &taken);
+                join(domain, sim, home);
+                ctx.emit(
+                    LogPayload::Moved { household: home },
+                    alloc::vec![Subject::Sim(sim)],
+                    causes.clone(),
+                );
+            }
+        }
+        plan_leave(domain, data, sim, added, ctx);
     }
 }
 
@@ -305,7 +321,8 @@ pub(crate) fn separation_moves(
     let mut members = alloc::vec![man];
     let mut stay = Vec::new();
     for (id, person) in &domain.sims {
-        if *id == woman || *id == man || person.household != household || !dependent(person, now) {
+        // The two partners are moved out, so never dependent.
+        if person.household != household || !dependent(person, now) {
             continue;
         }
         if person.carer == Some(man) {
@@ -321,7 +338,8 @@ pub(crate) fn separation_moves(
     found(domain, &members, &causes, ctx);
 }
 
-/// `sim` leaves home now: a household of its own, moved out, no carer.
+/// `sim` leaves home now: a household of its own, moved out, no carer. Each dependent
+/// child it cared for, left behind, gets a successor or the orphan rule.
 pub(crate) fn on_leave_home(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::LeaveHome));
@@ -330,13 +348,14 @@ pub(crate) fn on_leave_home(domain: &mut DomainState, sim: SimId, ctx: &mut SimC
     person.carer = None;
     let causes = Causes::new(ctx.trigger()).with(Cause::Rule(rule()));
     found(domain, &[sim], &causes, ctx);
+    // Moved out only now, so never in a partnership: no partner to take over.
+    let orphans = succeed(domain, sim, None, ctx.now());
+    place(domain, &orphans, &causes, ctx);
 }
 
 /// `dead` died now (already in the archive, its partnership ended): it leaves its
-/// household, and each dependent child it cared for gets the other biological parent, else
-/// the partner of the partnership the death ended (`partner`), if he lives in the child's
-/// household and is fit to care; the others get a household of their own together, the
-/// eldest moving first (part 1 of the orphan rule), without a carer.
+/// household, and each dependent child it cared for gets a successor or the orphan rule.
+/// `partner` is the partner of the partnership the death ended.
 pub(crate) fn death_moves(
     domain: &mut DomainState,
     dead: SimId,
@@ -347,10 +366,25 @@ pub(crate) fn death_moves(
 ) {
     let now = ctx.now();
     leave(domain, dead, household, now);
+    let orphans = succeed(domain, dead, partner, now);
+    let causes = Causes::new(Cause::Event(death)).with(Cause::Rule(rule()));
+    place(domain, &orphans, &causes, ctx);
+}
+
+/// The succession for the dependent children `gone` cared for (ADR-0018 section 4): the
+/// other biological parent, else `partner`, if he lives in the child's household and is
+/// fit to care. Returns the children without a successor, the eldest first (born, then
+/// lineage key), for the orphan rule.
+fn succeed(
+    domain: &mut DomainState,
+    gone: SimId,
+    partner: Option<SimId>,
+    now: SimTime,
+) -> Vec<SimId> {
     let children: Vec<SimId> = domain
         .sims
         .iter()
-        .filter(|(_, person)| person.carer == Some(dead) && dependent(person, now))
+        .filter(|(_, person)| person.carer == Some(gone) && dependent(person, now))
         .map(|(id, _)| *id)
         .collect();
     let fit = |domain: &DomainState, carer: SimId, child_home: HouseholdId| {
@@ -367,7 +401,8 @@ pub(crate) fn death_moves(
             .parents
             .map(|p| alloc::vec![p.mother, p.father])
             .unwrap_or_default();
-        // The dead is in the archive already, so never fit to care.
+        // `gone` is never fit here: the dead is in the archive already, and who left home
+        // lives in a new household.
         let parent = parents.into_iter().find(|&p| fit(domain, p, home));
         let successor = parent.or_else(|| partner.filter(|&p| fit(domain, p, home)));
         match successor {
@@ -375,23 +410,171 @@ pub(crate) fn death_moves(
             None => orphans.push(child),
         }
     }
-    if orphans.is_empty() {
-        return;
-    }
     orphans.sort_by_key(|sim| {
         let person = living(domain, *sim);
         (person.born, person.lineage_key)
     });
-    for orphan in &orphans {
-        living_mut(domain, *orphan).carer = None;
+    orphans
+}
+
+/// Where the orphan rule puts a group (ADR-0018 section 4).
+enum Placement {
+    /// With the nearest relative of 18 or more, its carer and social parent.
+    Relative(SimId),
+    /// With the foster mother the draw chooses (the carer) and the man of her open
+    /// partnership; both become social parents.
+    Foster(SimId, SimId),
+    /// In a household of their own, without a carer.
+    Alone,
+}
+
+/// The placement of a group whose eldest child is `representative`, at `now`.
+fn placement(domain: &mut DomainState, representative: SimId, now: SimTime) -> Placement {
+    if let Some(relative) = nearest_relative(domain, representative, now) {
+        return Placement::Relative(relative);
     }
-    let causes = Causes::new(Cause::Event(death)).with(Cause::Rule(rule()));
-    found(domain, &orphans, &causes, ctx);
+    match foster_mother(domain, representative, now) {
+        Some((woman, man)) => Placement::Foster(woman, man),
+        None => Placement::Alone,
+    }
+}
+
+/// Among the living of 18 or more related to `representative` (φ above 0), the one with
+/// the greatest φ; tie: the smaller lineage key.
+fn nearest_relative(
+    domain: &mut DomainState,
+    representative: SimId,
+    now: SimTime,
+) -> Option<SimId> {
+    let adults: Vec<(SimId, LineageKey)> = domain
+        .sims
+        .iter()
+        .filter(|(id, person)| {
+            **id != representative && market::of_age(person.born, now, ADULT_YEARS)
+        })
+        .map(|(id, person)| (*id, person.lineage_key))
+        .collect();
+    let mut nearest: Option<(f64, LineageKey, SimId)> = None;
+    for (id, key) in adults {
+        let phi = market::phi(domain, representative, id);
+        if phi <= 0.0 {
+            continue;
+        }
+        if nearest.is_none_or(|(best, best_key, _)| closer((phi, key), (best, best_key))) {
+            nearest = Some((phi, key, id));
+        }
+    }
+    nearest.map(|(_, _, id)| id)
+}
+
+/// Whether a relative `(φ, lineage key)` comes before the best so far: the greater φ, and
+/// at the same φ the smaller key.
+fn closer((phi, key): (f64, LineageKey), (best, best_key): (f64, LineageKey)) -> bool {
+    phi > best || (phi == best && key < best_key)
+}
+
+/// Among the living women of 18 or more in an open partnership, the one `FOSTER_RANK`
+/// ranks first for `representative` in the month of `now`, with her partner.
+fn foster_mother(
+    domain: &DomainState,
+    representative: SimId,
+    now: SimTime,
+) -> Option<(SimId, SimId)> {
+    let seed = domain
+        .world_seed
+        .unwrap_or_else(|| panic!("invariant household.before_start"));
+    let month = month_index(now).unwrap_or_else(|| panic!("invariant household.before_start"));
+    let candidates: Vec<(LineageKey, SimId, SimId)> =
+        domain
+            .open
+            .iter()
+            .filter_map(|(sim, id)| {
+                let partnership = domain.partnerships.get(id)?;
+                let woman = domain.sims.get(sim)?;
+                (partnership.woman == *sim && market::of_age(woman.born, now, ADULT_YEARS))
+                    .then_some((woman.lineage_key, *sim, partnership.man))
+            })
+            .collect();
+    let key = living(domain, representative).lineage_key;
+    let draws = Draws::new(WorldSeed::new(seed));
+    let chosen = draws.k_smallest(
+        tags::FOSTER_RANK,
+        key,
+        month,
+        candidates.iter().map(|(key, _, _)| *key),
+        1,
+    );
+    let first = chosen.first()?;
+    candidates
+        .iter()
+        .find(|(key, _, _)| key == first)
+        .map(|&(_, woman, man)| (woman, man))
+}
+
+/// Gives each child of `group` the carer and the social parents of `placement` (a relative
+/// or a foster home); returns the carer's household.
+fn take_in(domain: &mut DomainState, group: &[SimId], placement: &Placement) -> HouseholdId {
+    let (carer, social): (SimId, Vec<SimId>) = match *placement {
+        Placement::Relative(relative) => (relative, alloc::vec![relative]),
+        Placement::Foster(woman, man) => (woman, alloc::vec![woman, man]),
+        Placement::Alone => panic!("invariant household.take_in_alone"),
+    };
+    for child in group {
+        let person = living_mut(domain, *child);
+        person.carer = Some(carer);
+        let parents = person.parents.map(|p| [p.mother, p.father]);
+        for adult in &social {
+            let biological = parents.is_some_and(|both| both.contains(adult));
+            if !biological && !person.social_parents.contains(adult) {
+                person.social_parents.push(*adult);
+            }
+        }
+    }
+    living(domain, carer).household
+}
+
+/// The orphan rule for `group` (the eldest first): its placement decides once for all;
+/// each child moves into the carer's household unless it lives there already, the eldest
+/// first; alone, they found a household of their own together, without a carer.
+fn place(domain: &mut DomainState, group: &[SimId], causes: &Causes, ctx: &mut SimCtx<'_, '_>) {
+    let Some(&representative) = group.first() else {
+        return;
+    };
+    match placement(domain, representative, ctx.now()) {
+        Placement::Alone => {
+            for child in group {
+                living_mut(domain, *child).carer = None;
+            }
+            found(domain, group, causes, ctx);
+        }
+        taken => {
+            let home = take_in(domain, group, &taken);
+            for child in group {
+                if living(domain, *child).household != home {
+                    move_into(domain, *child, home, causes.clone(), ctx);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The nearest relative: the greater φ first, then the smaller lineage key; one that
+    /// is not closer does not replace the best so far.
+    #[test]
+    fn the_nearest_relative_has_the_greater_kinship_then_the_smaller_key() {
+        let tag = crate::data_id::DataId::new("test:kin").expect("id");
+        let [low, high] = [0, 1].map(|n| LineageKey::founder(&tag, n));
+        let (low, high) = if low < high { (low, high) } else { (high, low) };
+        assert!(closer((0.25, high), (0.125, low)));
+        assert!(!closer((0.125, low), (0.25, high)));
+        assert!(closer((0.125, low), (0.125, high)));
+        assert!(!closer((0.125, high), (0.125, low)));
+        assert!(!closer((0.125, low), (0.125, low)));
+    }
 
     /// Dario's table and the ages at and around its thresholds (`leave_home_age` of
     /// `tools/world_reference.py`); no share lies above 1, so the last age.

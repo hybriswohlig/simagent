@@ -79,6 +79,7 @@ mod tests {
             moved_out: false,
             carer: None,
             parents: None,
+            social_parents: alloc::vec::Vec::new(),
         }
     }
 
@@ -97,6 +98,7 @@ mod tests {
             household: crate::ids::HouseholdId::try_from(1).expect("valid"),
             moved_out: false,
             parents: None,
+            social_parents: alloc::vec::Vec::new(),
         }
     }
 

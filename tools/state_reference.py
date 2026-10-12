@@ -79,6 +79,18 @@ reference) and has the same births, deaths, partnerships, separations, attempts 
 choices, and the very log of the model before. "homes" is the scenario of the note's
 section 8; "homes_orphans" adds the orphan rule after the start.
 
+Households, part 2 (ADR-0018 section 4 "Waisen", "Pflege", section 7; design note of the
+households, part 2): a sim and an archived sim hold `social_parents` after `parents`
+(projection version 17, core version 33; every save changes by one byte per sim, the data
+hashes stay). The orphan rule places a group with its nearest relative of 18 or more, else
+in a foster household (FOSTER_RANK, tag 23), else in a household of its own; it runs for a
+minor founder at the start, at the death of a carer and after a carer's `leave_home`. A
+scenario without a minor founder beside a couple and without orphans keeps its log byte for
+byte (only its saves and year hashes change). "homes" (the boy of 12 now in a foster
+household) and "homes_orphans" (the orphans now with their father) change; "homes_kin",
+"homes_step" and "homes_neither" are new (section 7 and the coordinator's three
+separations); `section_6_broken_states` holds one rejected state per new load check.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -204,7 +216,8 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=(), house
     (`births` right after `conceptions`, design note of the fertility in the world, section
     1); no partnerships yet (`partnerships` right after `births`, design note of the
     separation, section 2); then its household, `moved_out` (one byte) and its carer, an
-    option (design note of the households, section 2); a founder has no parents."""
+    option (design note of the households, section 2); a founder has no parents; then its
+    social parents, a list (part 2, section 2), empty for a founder housed alone."""
     return (
         signed(born)
         + lineage_key(key)
@@ -217,7 +230,8 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=(), house
         + varint(household)
         + (b"\x01" if moved_out else b"\x00")
         + (NONE if carer is None else some(varint(carer)))
-        + NONE
+        + NONE  # parents
+        + seq([])  # social parents
     )
 
 
@@ -2598,7 +2612,7 @@ assert LONGEVITY_DUES[0][0] > LONGEVITY_DUES[0][1] and LONGEVITY_DUES[1][0] < LO
 #   sim 2  woman 21  couple with sim 7 (partnership 2)
 #   sim 3  man 22
 #   sim 4  man 30    single
-#   sim 5  boy 12    single, under 18: a household of his own by the orphan rule
+#   sim 5  boy 12    single, under 18: by the orphan rule (part 2) into a foster household
 #   sim 6  woman 25  single
 #   sim 7  man 23
 # and one input `ArrangePartnership` that pairs the first daughter born in the run who is
@@ -2608,8 +2622,12 @@ assert LONGEVITY_DUES[0][0] > LONGEVITY_DUES[0][1] and LONGEVITY_DUES[1][0] < LO
 # with children; a child born in the run who leaves home by its drawn age; a girl of 16 or
 # 17 paired by the input who moves out with her partner (her `leave_home` cancelled); a
 # separation in which a dependent child stays with the mother; a mother who dies so that
-# the father in the household becomes the carer; a minor founder alone who gets a
-# household of his own at the start. The story is printed by `homes_story`.
+# the father in the household becomes the carer; and (part 2, section 7, which replaces part
+# 1's "a minor founder alone who gets a household of his own at the start") the boy of 12 in
+# a foster household at the start: founders are unrelated, so the women of the couples of 18
+# or more (sims 1 and 2) are the candidates of FOSTER_RANK; he joins the household of the
+# chosen one with one `core:moved` (no `core:household_formed` of his own), she is his carer,
+# she and her partner his social parents. The story is printed by `homes_story`.
 HOMES_TAG = "test:homes"
 HOMES_YEARS = 24
 HOMES_END = HOMES_YEARS * YEAR - 1
@@ -2639,7 +2657,7 @@ HOMES_SITUATIONS = [
     "minor_pairs_and_moves_out",
     "separation_child_stays",
     "mother_dies_father_carer",
-    "minor_founder_alone",
+    "minor_founder_fostered",
 ]
 
 
@@ -2701,8 +2719,6 @@ def homes_situations(world: world_reference.World, girl, acts) -> dict:
         if kind == "formed" and why == "leave_home" and parents_of(world, sims[0]) is not None:
             sim = sims[0]
             found.setdefault("child_leaves_home", (t, sim, (t - world.born_of(sim)) // YEAR, household, entry_id))
-        if kind == "formed" and why == "start minor, orphan rule":
-            found.setdefault("minor_founder_alone", (sims[0], household, entry_id))
     if girl is not None:
         moves = [(t, household, entry_id) for t, kind, household, sims, why, entry_id in world.home_log if kind == "moved" and sims == [girl] and t == acts and why.startswith("partnership")]
         if moves and 16 * YEAR <= acts - world.born_of(girl) < 18 * YEAR:
@@ -2714,6 +2730,14 @@ def homes_situations(world: world_reference.World, girl, acts) -> dict:
     for t, woman, man, stayed, moved in world.separation_homes:
         if stayed:
             found.setdefault("separation_child_stays", (t, woman, man, stayed, moved))
+    for record in world.placements:
+        if record["t"] == 0 and record["stage"] == "foster":
+            (sim,) = record["group"]
+            carer = record["carer"]
+            found.setdefault(
+                "minor_founder_fostered",
+                (sim, carer, world.partnerships[next(n for n, v in world.partnerships.items() if v[0] == carer)][1], record["household"], record["entries"], record["added"][sim]),
+            )
     return found
 
 
@@ -2771,9 +2795,10 @@ _keep(HOMES, "end")
 # The run in steps is the run in one go.
 assert HOMES.log == _world.log and HOMES.save() == _world.save()
 assert homes_situations(HOMES, HOMES_GIRL, HOMES_ACTS) == HOMES_FOUND
-# The minor founder at the start: sim 5 alone in his household, not moved out, no carer,
-# his `leave_home` planned by his creation entry.
-assert HOMES_FOUND["minor_founder_alone"][0] == HOMES_BOY and HOMES.sims[HOMES_BOY][10]
+# The minor founder at the start (part 2): sim 5 fostered, both foster parents his social
+# parents, one `core:moved` at the start, not moved out then (he has left home by the end).
+assert HOMES_FOUND["minor_founder_fostered"][0] == HOMES_BOY and HOMES.sims[HOMES_BOY][10]
+assert HOMES.sims[HOMES_BOY][12] == list(HOMES_FOUND["minor_founder_fostered"][1:3]) == HOMES_FOUND["minor_founder_fostered"][5]
 HOMES_STORY_TWIN = world_reference.check_story_kept(HOMES)
 
 
@@ -2864,18 +2889,28 @@ def homes_broken_states() -> list:
 
 HOMES_BROKEN = homes_broken_states()
 
-# "homes_orphans" (beyond the note's list, for section 6 after the start): the founders and
-# couples of "homes" without the input, `λ` = 0.05, 24 years. Partnership 1 separates in
-# year 6.1, so sim 1 lives alone with her children when she dies in year 22.4; the two
-# children still dependent then have no fit carer in her household (their father lives
-# elsewhere, she has no partner): the orphan rule moves both into one new household, the
-# elder first, both without a carer and still dependent. The load check accepts that
-# household of two (section 7 says "alone"; see `check_households`).
+
+# "homes_orphans" (part 1 beyond the note's list; part 2, section 7: orphans now go to a
+# relative): the founders and couples of "homes" without the input, `λ` = 0.05, 24 years.
+# Partnership 1 separates in year 6.1, so sim 1 lives alone with her children when she dies
+# in year 22.4; the two children still dependent then (sims 15 and 16) have no successor in
+# her household (their father lives elsewhere, she has no partner): one group for the orphan
+# rule. Their nearest relatives of 18 or more are their father sim 3 and their adult full
+# siblings sims 11 and 14, all with `φ` = 1/4; the smallest lineage key is the father's: he
+# becomes their carer, a biological parent and so no social parent, and both move into his
+# household (part 2, section 7: "a biological parent chosen as relative gets no edge"; the
+# orphans "move to their nearest relative in another household").
 HOMES_ORPHANS_RATE = 0.05
 HOMES_ORPHANS_DATA = homes_data(HOMES_ORPHANS_RATE)
 _orphans_once = homes_world(HOMES_ORPHANS_DATA)
 _orphans_once.advance(HOMES_END)
-((HOMES_ORPHANED_AT, _, HOMES_ORPHANS_HOUSEHOLD, HOMES_ORPHANS, _, _),) = [row for row in _orphans_once.home_log if row[4] == "orphan rule" and row[1] == "formed"]
+(HOMES_ORPHANS_PLACEMENT,) = [record for record in _orphans_once.placements if record["t"] > 0]
+HOMES_ORPHANED_AT = HOMES_ORPHANS_PLACEMENT["t"]
+HOMES_ORPHANS = HOMES_ORPHANS_PLACEMENT["group"]
+HOMES_ORPHANS_HOUSEHOLD = HOMES_ORPHANS_PLACEMENT["household"]
+assert HOMES_ORPHANS_PLACEMENT["stage"] == "relative" and HOMES_ORPHANS_PLACEMENT["carer"] == 3
+assert all(parents_of(_orphans_once, sim)[1] == 3 and HOMES_ORPHANS_PLACEMENT["added"][sim] == [] for sim in HOMES_ORPHANS)
+assert HOMES_ORPHANS_PLACEMENT["home"] != HOMES_ORPHANS_HOUSEHOLD
 HOMES_ORPHANS_WORLD = homes_world(HOMES_ORPHANS_DATA)
 HOMES_ORPHANS_WORLD.advance(HOMES_ORPHANED_AT - 1)
 world_reference.check_households(HOMES_ORPHANS_WORLD)
@@ -2887,13 +2922,529 @@ world_reference.check_households(HOMES_ORPHANS_WORLD)
 world_reference.check_separations(HOMES_ORPHANS_WORLD)
 world_reference.check_market(HOMES_ORPHANS_WORLD)
 HOMES_ORPHANS_SAVE_AFTER = HOMES_ORPHANS_WORLD.save()
-assert len(HOMES_ORPHANS) >= 2 and HOMES_ORPHANS_WORLD.members(HOMES_ORPHANS_HOUSEHOLD) == HOMES_ORPHANS
-assert all(HOMES_ORPHANS_WORLD.sims[sim][11] is None and HOMES_ORPHANS_WORLD.dependent(sim, HOMES_ORPHANED_AT) for sim in HOMES_ORPHANS)
+assert len(HOMES_ORPHANS) >= 2 and set(HOMES_ORPHANS) <= set(HOMES_ORPHANS_WORLD.members(HOMES_ORPHANS_HOUSEHOLD))
+assert all(HOMES_ORPHANS_WORLD.sims[sim][11] == 3 and HOMES_ORPHANS_WORLD.sims[sim][12] == [] for sim in HOMES_ORPHANS)
 HOMES_ORPHANS_WORLD.advance(HOMES_END)
 world_reference.check_households(HOMES_ORPHANS_WORLD)
 assert HOMES_ORPHANS_WORLD.log == _orphans_once.log
 world_reference.check_story_kept(HOMES_ORPHANS_WORLD)
 HOMES_ORPHANS_SAVE_END = HOMES_ORPHANS_WORLD.save()
+
+
+# ---------------------------------------------------------------------------------------
+# Households, part 2 (design note, section 7): three new scenarios, each run in steps
+# (`staged`) with saves and entries around its seconds, and in one go (the same log and
+# save). The founders' places among the founders were searched (their lineage keys fix
+# their deaths, separations and draws), see the notes of the reference.
+
+
+def check_all(world: world_reference.World) -> None:
+    for check in (world_reference.check_households, world_reference.check_separations, world_reference.check_market):
+        check(world)
+
+
+def staged(make, inputs: list, marks: dict, end: int) -> tuple:
+    """The world `make()` run to `end` with `inputs` (label, the second it acts, woman, man;
+    each stamped one second before) and stops around each second of `marks` (label: second):
+    the save at the second before (`before_<label>`) and at the second (`after_<label>`) and
+    the entries of the second; around each input the save before and after it (both with the
+    clock one second before it acts) and the entries it wrote. Every save passes the load
+    checks. Returns (world, saves, entries); `saves` starts with `after_start` and ends with
+    `end`."""
+    world = make()
+    check_all(world)
+    saves, entries = {"after_start": world.save()}, {"start": list(world.log)}
+    stops = []
+    for label, t in marks.items():
+        stops.append((t - 1, 0, "before", label))
+        stops.append((t, 1, "after", label))
+    for label, acts, woman, man in inputs:
+        stops.append((acts - 1, 2, "input", (label, woman, man)))
+    mark = {}
+    for clock, _, kind, what in sorted(stops, key=lambda row: (row[0], row[1])):
+        if clock > world.closed:
+            world.advance(clock)
+        assert world.closed == clock
+        if kind == "before":
+            check_all(world)
+            saves[f"before_{what}"] = world.save()
+            mark[what] = len(world.log)
+        elif kind == "after":
+            check_all(world)
+            saves[f"after_{what}"] = world.save()
+            entries[what] = world.log[mark[what]:]
+        else:
+            label, woman, man = what
+            check_all(world)
+            saves[f"before_{label}"] = world.save()
+            before = len(world.log)
+            world.arrange(woman, man)
+            entries[label] = world.log[before:]
+            check_all(world)
+            saves[f"after_{label}"] = world.save()
+    world.advance(end)
+    check_all(world)
+    saves["end"] = world.save()
+    once = make()
+    for _, acts, woman, man in sorted(inputs, key=lambda row: row[1]):
+        once.advance(acts - 1)
+        once.arrange(woman, man)
+    once.advance(end)
+    assert once.log == world.log and once.save() == world.save(), "the run in steps is the run in one go"
+    world_reference.check_story_kept(world)
+    return world, saves, entries
+
+
+def placements_of(world: world_reference.World, **match) -> list:
+    return [record for record in world.placements if all(record[key] == value for key, value in match.items())]
+
+
+def biological(world: world_reference.World, child: int) -> tuple:
+    parents = parents_of(world, child)
+    return parents[:2] if parents is not None else ()
+
+
+# "homes_kin" (part 2, section 7: a placement in a foster household after the start, an adult
+# relative in the same household who takes over without a move, a carer who is not moved out
+# leaves home and the children follow the rule; the coordinator's (a): a separation while an
+# adult child lives in the couple's household). Seed 0xff, tag `test:kin9`, clan's test data
+# with `λ` = 0.025, 32 years, no input. Seven founders with reference alleles:
+#   sim 1  woman 20  couple with sim 7 (partnership 2)
+#   sim 2  man 40    single (fills a place)
+#   sim 3  woman 18  couple with sim 5 (partnership 1)
+#   sim 4  man 40    single
+#   sim 5  man 20
+#   sim 6  man 40    single
+#   sim 7  man 22
+# Sim 7 dies in year 3.75, sim 1 in year 5.19: her children have no relative of 18 or more
+# and go to the foster household of sim 3 (the only woman of 18 or more in an open
+# partnership), she and sim 5 their social parents. Partnership 1 separates in year 21.14
+# with two adults not moved out in the household (a foster child and her own). Sim 3 dies in
+# year 30.01: the representative's (sim 19) nearest relatives (`φ` = 1/4) are her adult full
+# siblings and her father; the smallest key is her sister sim 17, who still lives in the
+# household: she takes over without a move. She leaves home in year 30.85: the children she cared for have no
+# other parent in the household; the rule chooses her again and they follow her.
+KIN_TAG = "test:kin9"
+KIN_RATE = 0.025
+KIN_YEARS = 32
+KIN_END = KIN_YEARS * YEAR - 1
+KIN_FOUNDERS = [
+    _founder(20, FEMALE),
+    _founder(40, MALE),
+    _founder(18, FEMALE),
+    _founder(40, MALE),
+    _founder(20, MALE),
+    _founder(40, MALE),
+    _founder(22, MALE),
+]
+KIN_COUPLES = [(2, 4), (0, 6)]
+KIN_DATA = homes_data(KIN_RATE)
+KIN_KEYS = [founder_key(KIN_TAG, index) for index in range(len(KIN_FOUNDERS))]
+
+
+def kin_world() -> world_reference.World:
+    return world_reference.World(0xFF, KIN_TAG, False, KIN_FOUNDERS, KIN_COUPLES, data=KIN_DATA)
+
+
+_kin_once = kin_world()
+_kin_once.advance(KIN_END)
+(KIN_FOSTER,) = placements_of(_kin_once, stage="foster")
+(KIN_SAME,) = [r for r in placements_of(_kin_once, stage="relative", trigger="death of the carer") if r["home"] == r["household"]]
+(KIN_LEFT,) = placements_of(_kin_once, trigger="carer left home")
+(KIN_SEPARATION,) = [d for d in _kin_once.separation_details if d["adults_at_home"]]
+assert KIN_FOSTER["t"] > 0 and KIN_FOSTER["relatives"] == [] and KIN_FOSTER["carer"] == 3
+assert all(KIN_FOSTER["added"][child] == [3, 5] for child in KIN_FOSTER["group"]) and KIN_FOSTER["home"] != KIN_FOSTER["household"]
+assert KIN_LEFT["carer"] == KIN_SAME["carer"] and KIN_LEFT["home"] != KIN_LEFT["household"]
+KIN_MARKS = {"foster": KIN_FOSTER["t"], "separation": KIN_SEPARATION["t"], "relative_same_household": KIN_SAME["t"], "carer_leaves_home": KIN_LEFT["t"]}
+KIN, KIN_SAVES, KIN_ENTRIES = staged(kin_world, [], KIN_MARKS, KIN_END)
+assert KIN.log == _kin_once.log
+
+
+# "homes_step" (part 2, section 7 from ADR-0018's acceptance list: a mother of 17 keeps her
+# child; the mother dies, the stepfather cares on, he pairs anew and the child moves with
+# him, he separates and the child goes with him (the coordinator's (b)); and a group with
+# neither a relative nor a foster woman: a household of their own after the start). Seed
+# 0xff, tag `test:step`, the repository's data with accident 0.02 for both sexes,
+# senescence practically off, the fertility window from 16 (0.25 per month from 16 until 45,
+# ten months, no pause, the wish always 40, no twins, `c` 0) and `λ` = 0.05, 14 years.
+# Seven founders with reference alleles:
+#   sim 1  man 26    single at the start (the stepfather)
+#   sim 2  woman 16.5 couple with sim 7 (partnership 1)
+#   sim 3  woman 24  single at the start
+#   sims 4 to 6  men 40, single (they fill places)
+#   sim 7  man 18
+# and two inputs `ArrangePartnership`: sim 2 with sim 1 one month after the first month
+# start after partnership 1 ends (sim 7 dies in year 0.87), and sim 3 with sim 1 one month
+# after the first month start after sim 2's death (year 2.28).
+STEP_TAG = "test:step"
+STEP_RATE = 0.05
+STEP_FERTILITY = (0.25, 16, 45, 10)
+STEP_YEARS = 14
+STEP_END = STEP_YEARS * YEAR - 1
+STEP_FOUNDERS = [
+    _founder(26, MALE),
+    (-(16 * YEAR + YEAR // 2), FEMALE, genotype(WILD, WILD)),
+    _founder(24, FEMALE),
+    _founder(40, MALE),
+    _founder(40, MALE),
+    _founder(40, MALE),
+    _founder(18, MALE),
+]
+STEP_COUPLES = [(1, 6)]
+STEP_DATA = world_reference.death_test_data(0.02, fertility=STEP_FERTILITY, life_values={"core:separation_rate": STEP_RATE})
+STEP_KEYS = [founder_key(STEP_TAG, index) for index in range(len(STEP_FOUNDERS))]
+STEP_MOTHER, STEP_FATHER, STEP_STEPFATHER, STEP_SECOND = 2, 7, 1, 3
+
+
+def step_world() -> world_reference.World:
+    return world_reference.World(0xFF, STEP_TAG, False, STEP_FOUNDERS, STEP_COUPLES, data=STEP_DATA)
+
+
+def step_inputs() -> list:
+    """The two inputs by their rule: (label, the second each acts, woman, man)."""
+    probe = step_world()
+    while probe.partnerships[1][3] is None:
+        probe.advance(probe.closed + MONTH)
+    first = world_reference.month_start_after(probe.partnerships[1][3][0]) + MONTH
+    probe.advance(first - 1)
+    probe.arrange(STEP_MOTHER, STEP_STEPFATHER)
+    while STEP_MOTHER in probe.sims:
+        probe.advance(probe.closed + MONTH)
+    second = world_reference.month_start_after(probe.archive[STEP_MOTHER][1]) + MONTH
+    return [("input_1", first, STEP_MOTHER, STEP_STEPFATHER), ("input_2", second, STEP_SECOND, STEP_STEPFATHER)]
+
+
+STEP_INPUTS = step_inputs()
+_step_once = step_world()
+for _, _acts, _woman, _man in STEP_INPUTS:
+    _step_once.advance(_acts - 1)
+    _step_once.arrange(_woman, _man)
+_step_once.advance(STEP_END)
+STEP_CHILD = min(sim for sim in set(_step_once.sims) | set(_step_once.archive) if parents_of(_step_once, sim) is not None and parents_of(_step_once, sim)[:2] == (STEP_MOTHER, STEP_FATHER))
+STEP_BIRTH = _step_once.born_of(STEP_CHILD)
+STEP_MOTHER_DIES = _step_once.archive[STEP_MOTHER][1]
+(STEP_STEP_SUCCESSION,) = [row for row in _step_once.carer_log if row[1] == STEP_CHILD and row[4] == "succession: the partner (step-parent)"]
+(STEP_SEPARATION,) = _step_once.separation_details
+(STEP_OWN,) = placements_of(_step_once, stage="own household")
+assert 17 * YEAR <= STEP_BIRTH - _step_once.born_of(STEP_MOTHER) < 18 * YEAR, "a mother of 17"
+assert STEP_STEP_SUCCESSION[0] == STEP_MOTHER_DIES and STEP_STEP_SUCCESSION[3] == STEP_STEPFATHER
+assert STEP_CHILD in STEP_SEPARATION["moved"] and STEP_SEPARATION["man"] == STEP_STEPFATHER
+assert STEP_OWN["t"] > 0 and STEP_CHILD in STEP_OWN["group"] and STEP_OWN["relatives"] == [] and STEP_OWN["women"] == []
+STEP_MARKS = {
+    "birth_mother_17": STEP_BIRTH,
+    "mother_dies": STEP_MOTHER_DIES,
+    "separation": STEP_SEPARATION["t"],
+    "own_household": STEP_OWN["t"],
+}
+STEP, STEP_SAVES, STEP_ENTRIES = staged(step_world, STEP_INPUTS, STEP_MARKS, STEP_END)
+assert STEP.log == _step_once.log
+
+
+# "homes_neither" (part 2, section 7: orphans who move to their nearest relative in another
+# household, their social parent; the coordinator's (c): a separation in which a dependent
+# child in the couple's household is cared for by neither partner, and (a) again). Seed 0xff,
+# tag `test:neither17`, the data of "homes" (`λ` = 0.01), 34 years. Seven founders with
+# reference alleles: sim 6 woman 18 and sim 2 man 20 a couple (partnership 1), sims 1, 3, 4,
+# 5, 7 men of 20, single. One input `ArrangePartnership`: their daughter sim 10 with sim 5
+# at the first month start after her 18th birthday. Sim 5 dies in year 27.41, sim 10 in year
+# 30.32: her children's nearest relatives of 18 or more are their grandparents and their
+# aunts and uncles (`φ` = 1/8); the smallest key is an aunt, sim 17, who still lives at home
+# with the couple: the children move into the couple's household, sim 17 their carer and
+# social parent. Partnership 1 separates in year 33.02: the children's carer is neither
+# partner; literally (part 1, section 4, kept by part 2, section 5) the woman takes over;
+# adults not moved out stay without a carer.
+NEITHER_TAG = "test:neither17"
+NEITHER_YEARS = 34
+NEITHER_END = NEITHER_YEARS * YEAR - 1
+NEITHER_FOUNDERS = [_founder(20, MALE)] * 5 + [_founder(18, FEMALE), _founder(20, MALE)]
+NEITHER_COUPLES = [(5, 1)]
+NEITHER_DATA = homes_data(0.01)
+assert NEITHER_DATA.hash == HOMES_DATA.hash
+NEITHER_KEYS = [founder_key(NEITHER_TAG, index) for index in range(len(NEITHER_FOUNDERS))]
+NEITHER_DAUGHTER, NEITHER_PARTNER = 10, 5
+
+
+def neither_world() -> world_reference.World:
+    return world_reference.World(0xFF, NEITHER_TAG, False, NEITHER_FOUNDERS, NEITHER_COUPLES, data=NEITHER_DATA)
+
+
+_probe = neither_world()
+_probe.advance(NEITHER_END)
+assert parents_of(_probe, NEITHER_DAUGHTER)[:2] == (6, 2) and _probe.sex_of(NEITHER_DAUGHTER) == FEMALE
+NEITHER_INPUTS = [("input", world_reference.month_start_after(_probe.born_of(NEITHER_DAUGHTER) + 18 * YEAR), NEITHER_DAUGHTER, NEITHER_PARTNER)]
+_neither_once = neither_world()
+_neither_once.advance(NEITHER_INPUTS[0][1] - 1)
+_neither_once.arrange(NEITHER_DAUGHTER, NEITHER_PARTNER)
+_neither_once.advance(NEITHER_END)
+(NEITHER_PLACED,) = placements_of(_neither_once, trigger="death of the carer")
+(NEITHER_SEPARATION,) = _neither_once.separation_details
+assert NEITHER_PLACED["stage"] == "relative" and NEITHER_PLACED["home"] != NEITHER_PLACED["household"]
+assert all(NEITHER_PLACED["added"][child] == [NEITHER_PLACED["carer"]] for child in NEITHER_PLACED["group"])
+assert NEITHER_SEPARATION["cared_by_neither"] and all(carer == NEITHER_PLACED["carer"] for _, carer in NEITHER_SEPARATION["cared_by_neither"])
+assert NEITHER_PLACED["carer"] in NEITHER_SEPARATION["adults_at_home"]
+NEITHER_MARKS = {"relative_elsewhere": NEITHER_PLACED["t"], "separation": NEITHER_SEPARATION["t"]}
+NEITHER, NEITHER_SAVES, NEITHER_ENTRIES = staged(neither_world, NEITHER_INPUTS, NEITHER_MARKS, NEITHER_END)
+assert NEITHER.log == _neither_once.log
+
+
+# The review exception of part 1 (part 2, section 6): "homes" up to one second before the
+# 18th birthday of sim 8 (a son of sims 2 and 7, cared for by his mother since the
+# separation), then `ArrangePartnership(2, 7)` stamped in that second: it acts in his
+# birthday second, sims 2 and 7 found a new household there, he (of age then) stays and
+# keeps his carer until his birthday later in that second. The save at that clock loads
+# (`check_households` accepts it); two broken copies of it are rejected.
+REVIEW_CHILD, REVIEW_MOTHER, REVIEW_FATHER = 8, 2, 7
+REVIEW_STAMP = HOMES.born_of(REVIEW_CHILD) + 18 * YEAR - 1
+assert REVIEW_STAMP < HOMES_END and REVIEW_STAMP != HOMES_ACTS - 1
+REVIEW = homes_world(HOMES_DATA)
+REVIEW.advance(HOMES_ACTS - 1)
+REVIEW.arrange(HOMES_GIRL, HOMES_BOY)
+REVIEW.advance(REVIEW_STAMP)
+assert REVIEW.sims[REVIEW_CHILD][11] == REVIEW_MOTHER and REVIEW.dependent(REVIEW_CHILD, REVIEW_STAMP)
+assert REVIEW.arrange_rejection(REVIEW_MOTHER, REVIEW_FATHER) is None
+REVIEW.arrange(REVIEW_MOTHER, REVIEW_FATHER)
+check_all(REVIEW)
+REVIEW_SAVE = REVIEW.save()
+REVIEW_HOUSEHOLD = REVIEW.sims[REVIEW_MOTHER][9]
+assert REVIEW.households[REVIEW_HOUSEHOLD][0] == REVIEW_STAMP + 1 and REVIEW.sims[REVIEW_CHILD][9] != REVIEW_HOUSEHOLD
+assert REVIEW.sims[REVIEW_CHILD][11] == REVIEW_MOTHER
+
+
+def section_6_broken_states() -> list:
+    """One rejected state per load check of part 2, section 6: the social parents (on the end
+    of "homes": sim 5 has the social parents [2, 7]), the review exception (on `REVIEW`) and
+    the world that never started (`check_unstarted_households`)."""
+    child = next(sim for sim in sorted(HOMES.sims) if parents_of(HOMES, sim) is not None)
+    other = next(
+        sim for sim in sorted(REVIEW.sims)
+        if REVIEW.dependent(sim, REVIEW.closed + 1) and REVIEW.sims[sim][9] != REVIEW_HOUSEHOLD and REVIEW.sims[sim][11] is not None
+    )
+
+    def social(value):
+        def mutate(world):
+            world.sims[HOMES_BOY][12] = list(value)
+        return mutate
+
+    def mother_as_social(world):
+        world.sims[child][12] = [parents_of(world, child)[0]]
+
+    def archived_twice(world):
+        sim = next(sim for sim in sorted(world.archive) if world.archive[sim][9] is not None)
+        stranger = 6
+        assert stranger not in world.archive[sim][9][:2] and stranger != sim
+        value = list(world.archive[sim])
+        value[13] = (stranger, stranger)
+        world.archive[sim] = tuple(value)
+
+    def dependent_next_second(world):
+        world.sims[other][11] = REVIEW_MOTHER
+
+    def formed_before(world):
+        world.households[REVIEW_HOUSEHOLD][0] = REVIEW_STAMP
+
+    cases = [
+        ("a social parent who is no person (SimId 0)", HOMES, social([0, 7])),
+        ("a social parent not below the SimId counter", HOMES, social([2, HOMES.next_sim_id])),
+        ("a person her own social parent", HOMES, social([2, HOMES_BOY])),
+        ("a biological parent as a social parent", HOMES, mother_as_social),
+        ("a social parent listed twice", HOMES, social([2, 7, 2])),
+        ("an archived person with a social parent listed twice", HOMES, archived_twice),
+        ("a carer in a household formed in the second after the clock, the child still dependent then", REVIEW, dependent_next_second),
+        ("a carer in another household formed before the second after the clock, the child of age then", REVIEW, formed_before),
+    ]
+    names = []
+    for name, world0, mutate in cases:
+        world = copy_world(world0)
+        mutate(world)
+        try:
+            world_reference.check_households(world)
+        except AssertionError:
+            names.append(name)
+            continue
+        raise AssertionError(f"check_households accepts a broken state: {name}")
+    for name, counter, households in [
+        ("a world that never started with the household counter at 2", 2, {}),
+        ("a world that never started with a household", 2, {1: [0, None]}),
+    ]:
+        try:
+            world_reference.check_unstarted_households(counter, households)
+        except AssertionError:
+            names.append(name)
+            continue
+        raise AssertionError(f"check_unstarted_households accepts a broken state: {name}")
+    world_reference.check_unstarted_households(1, {})
+    return names
+
+
+SECTION_6_BROKEN = section_6_broken_states()
+
+
+def loosened_carer_check() -> list:
+    """The coordinator's decision on finding (c) of part 2: a dependent child without a carer
+    is valid if no member of its household is moved out. Accepted (in memory, not reached by
+    a run): "homes_kin" at the second sim 17 took over without a move (943744849), with the
+    carer of the youngest of her group cleared: a child without a carer beside children
+    cared for by an adult relative who never left home, the shape of finding (c); part 1's
+    check (every member without a carer) rejected it. Rejected: the end of "homes", a
+    dependent child of household 1 (where its father, moved out, lives) with its carer
+    cleared."""
+    world = kin_world()
+    world.advance(KIN_SAME["t"])
+    child = KIN_SAME["group"][-1]
+    home = world.sims[child][9]
+    assert all(not world.sims[other][10] for other in world.members(home))
+    world.sims[child][11] = None
+    world_reference.check_households(world)
+    members = world.members(home)
+    assert not all(world.sims[other][11] is None for other in members), "part 1's check would accept it too"
+    accepted = (
+        f"homes_kin at {KIN_SAME['t']} with the carer of sim {child} cleared: household {home} members {members},"
+        f" none moved out, carers {[(other, world.sims[other][11]) for other in members]}"
+    )
+    broken = copy_world(HOMES)
+    (child,) = [sim for sim in sorted(broken.members(1)) if broken.dependent(sim, broken.closed) and broken.sims[sim][11] is not None][:1]
+    broken.sims[child][11] = None
+    assert any(broken.sims[other][10] for other in broken.members(1))
+    try:
+        world_reference.check_households(broken)
+    except AssertionError:
+        return [accepted, f"rejected: end of homes, sim {child} of household 1 (members {broken.members(1)}, moved out {[o for o in broken.members(1) if broken.sims[o][10]]}) with its carer cleared"]
+    raise AssertionError("check_households accepts a dependent child without a carer beside a moved-out member")
+
+
+LOOSENED_CARER_CHECK = loosened_carer_check()
+# The bytes of the two saves of a world that never started that the loader rejects.
+UNSTARTED_COUNTER_2 = EMPTY_SAVE.replace(EMPTY_PROJECTION, EMPTY_PROJECTION[:6] + varint(2) + EMPTY_PROJECTION[7:])
+UNSTARTED_WITH_HOUSEHOLD = EMPTY_SAVE.replace(
+    EMPTY_PROJECTION, EMPTY_PROJECTION[:6] + varint(2) + EMPTY_PROJECTION[7:11] + seq([varint(1) + household_state(0)]) + EMPTY_PROJECTION[12:]
+)
+
+def summary(record: dict) -> tuple:
+    """(second, group, stage, carer, household before -> after, social parents added, entries)."""
+    return (record["t"], record["group"], record["stage"], record["carer"], f"{record['home']} -> {record['household']}", record["added"], record["entries"])
+
+
+HOMES_ORPHANS_SITUATIONS = {
+    "orphans_to_their_father_in_another_household_no_edge": summary(HOMES_ORPHANS_PLACEMENT),
+}
+
+
+def _moves_of(world, child: int, why_prefix: str) -> list:
+    return [(t, household, entry) for t, kind, household, sims, why, entry in world.home_log if kind == "moved" and sims == [child] and why.startswith(why_prefix)]
+
+
+KIN_SITUATIONS = {
+    "foster_household_after_start": summary(KIN_FOSTER) + (f"foster parents (she, then her partner) {KIN_FOSTER['added'][KIN_FOSTER['representative']]}",),
+    "separation_adult_child_stays": (KIN_SEPARATION["t"], KIN_SEPARATION["woman"], KIN_SEPARATION["man"], f"adults not moved out {KIN_SEPARATION['adults_at_home']} stay in household {KIN_SEPARATION['home']}", f"moved with him {KIN_SEPARATION['moved']}"),
+    "adult_relative_same_household_no_move": summary(KIN_SAME),
+    "carer_leaves_home_rule_chooses_her_again": summary(KIN_LEFT),
+}
+assert KIN_SAME["entries"] == [] and KIN_LEFT["entries"]
+
+STEP_GROUP_AT_DEATH = [row for row in STEP.carer_log if row[0] == STEP_MOTHER_DIES]
+STEP_SITUATIONS = {
+    "mother_of_17_keeps_her_child": (
+        STEP_BIRTH, f"mother {STEP_MOTHER} age {(STEP_BIRTH - STEP.born_of(STEP_MOTHER)) / YEAR:.4f}", f"child {STEP_CHILD}",
+        [row for row in STEP.carer_log if row[1] == STEP_CHILD and row[0] == STEP_BIRTH], "no placement" if not placements_of(STEP, t=STEP_BIRTH) else "PLACEMENT",
+    ),
+    "stepfather_cares_on": (STEP_MOTHER_DIES, STEP_GROUP_AT_DEATH, f"social parents of {STEP_CHILD}: {STEP.sims[STEP_CHILD][12] if STEP_CHILD in STEP.sims else STEP.archive[STEP_CHILD][13]}"),
+    "stepfather_pairs_child_moves": (STEP_INPUTS[1][1], f"partnership {[n for n, v in STEP.partnerships.items() if v[:2] == [STEP_SECOND, STEP_STEPFATHER]]}", _moves_of(STEP, STEP_CHILD, "partnership")),
+    "stepfather_separates_child_goes": (STEP_SEPARATION["t"], STEP_SEPARATION["woman"], STEP_SEPARATION["man"], f"moved with him {STEP_SEPARATION['moved']}", f"stayed with her {STEP_SEPARATION['stayed']}", _moves_of(STEP, STEP_CHILD, "separation")),
+    "own_household_after_start": summary(STEP_OWN),
+}
+assert STEP_SITUATIONS["mother_of_17_keeps_her_child"][4] == "no placement"
+assert all(row[3] == STEP_STEPFATHER for row in STEP_GROUP_AT_DEATH)
+
+NEITHER_SITUATIONS = {
+    "orphans_to_relative_in_another_household_social_parent": summary(NEITHER_PLACED),
+    "separation_child_cared_for_by_neither": (
+        NEITHER_SEPARATION["t"], NEITHER_SEPARATION["woman"], NEITHER_SEPARATION["man"], f"(child, carer) {NEITHER_SEPARATION['cared_by_neither']}",
+        [row for row in NEITHER.carer_log if row[0] == NEITHER_SEPARATION["t"]],
+    ),
+    "separation_adult_child_stays": (NEITHER_SEPARATION["t"], f"adults not moved out {NEITHER_SEPARATION['adults_at_home']}", f"moved with him {NEITHER_SEPARATION['moved']}"),
+}
+
+
+def placement_row(world: world_reference.World, record: dict) -> str:
+    """One application of the orphan rule as a readable row."""
+    if record["stage"] == "relative":
+        candidates = " relatives (sim, phi, key) " + str([(sim, str(phi), f"{key:016x}") for sim, phi, key in record["relatives"]])
+    elif record["stage"] == "foster":
+        candidates = " foster women (sim, key, FOSTER_RANK) " + str([(sim, f"{key:016x}", f"{value:016x}") for sim, key, value in record["ranks"]])
+        candidates += f" month {record['t'] // MONTH}"
+    else:
+        candidates = f" no relative, foster women {record['women']}"
+    bio = {child: biological(world, child) for child in record["group"]}
+    return (
+        f"t {record['t']} (year {record['t'] / YEAR:.4f}) trigger {record['trigger']} group {record['group']} representative"
+        f" {record['representative']} (key {world.key_of(record['representative']):016x}) stage {record['stage']}{candidates}"
+        f" carer {record['carer']} household {record['home']} -> {record['household']} biological parents {bio}"
+        f" social parents added {record['added']} entries {record['entries']}"
+    )
+
+
+def scenario_rows(name: str, world: world_reference.World, founders: list, couples: list, keys: list, inputs: list, situations: dict) -> list:
+    """The story of a scenario of the households, part 2, as readable rows."""
+    rows = []
+    for index, (born, sex, _) in enumerate(founders):
+        sim = index + 1
+        couple = next((f" couple with sim {m + 1 if w == index else w + 1}" for w, m in couples if index in (w, m)), " single")
+        rows.append(
+            f"{name}_founder sim {sim} {'female' if sex == FEMALE else 'male'} born {born} (age {-born / YEAR:g}){couple} key {keys[index]:016x}"
+            f" leave_age {hand_leave_age(0xFF, keys[index])}"
+        )
+    for label, acts, woman, man in inputs:
+        rows.append(f"{name}_{label} ArrangePartnership(woman {woman}, man {man}) stamped {acts - 1} acts at {acts} (year {acts / YEAR:.4f})")
+    for key, value in situations.items():
+        rows.append(f"{name}_situation {key} reached: {value}")
+    for record in world.placements:
+        rows.append(f"{name}_placement {placement_row(world, record)}")
+    for number, (formed, ended) in sorted(world.households.items()):
+        members = sorted({sim for t, kind, household, sims, *_ in world.home_log if household == number and kind in ("formed", "moved") for sim in sims})
+        rows.append(f"{name}_household {number} formed {formed} (year {formed / YEAR:.4f}) ended {'open' if ended is None else f'{ended} (year {ended / YEAR:.4f})'} ever {members} now {world.members(number)}")
+    for t, kind, household, sims, why, entry_id in world.home_log:
+        rows.append(f"{name}_home_event year {t / YEAR:.4f} t {t} {kind} household {household} sims {sims} ({why}) entry {entry_id}")
+    for t, child, old, new, why in world.carer_log:
+        rows.append(f"{name}_carer year {t / YEAR:.4f} t {t} child {child} {old} -> {new} ({why})")
+    for number, (woman, man, formed, ended) in sorted(world.partnerships.items()):
+        rows.append(f"{name}_partnership {number} woman {woman} man {man} formed {formed} ended {split_ended(ended)}")
+    for detail in world.separation_details:
+        rows.append(
+            f"{name}_separation year {detail['t'] / YEAR:.4f} t {detail['t']} woman {detail['woman']} man {detail['man']} household {detail['home']}"
+            f" stayed_with_her {detail['stayed']} moved_with_him {detail['moved']} adults_not_moved_out_staying {detail['adults_at_home']}"
+            f" cared_for_by_neither (child, carer) {detail['cared_by_neither']}"
+        )
+    for left, sim, cause in deaths_in(world):
+        rows.append(f"{name}_death sim {sim} at {left} (year {left / YEAR:.4f}) of {cause_name(cause)}")
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        parents = parents_of(world, sim)
+        value = world.sims.get(sim)
+        state = (
+            f" household {value[9]} moved_out {value[10]} carer {value[11]} social_parents {value[12]}"
+            if value is not None
+            else f" archived household {world.archive[sim][11]} moved_out {world.archive[sim][12]} social_parents {list(world.archive[sim][13])}"
+        )
+        if parents is not None:
+            rows.append(
+                f"{name}_child {sim} {'female' if world.sex_of(sim) == FEMALE else 'male'} born {world.born_of(sim)} (year {world.born_of(sim) / YEAR:.4f})"
+                f" parents {parents} leave_age {hand_leave_age(0xFF, world.key_of(sim))} at the end:{state}"
+            )
+        else:
+            rows.append(f"{name}_founder_end sim {sim} at the end:{state}")
+    return rows
+
+
+def scenario_output(name: str, world: world_reference.World, saves: dict, entries: dict) -> list:
+    """Saves, entries (bytes and JSON), year hashes and the log hash of a scenario."""
+    rows = [f"{name}_save_{label} {save.hex()}" for label, save in saves.items()]
+    for label, lines in entries.items():
+        for line in lines:
+            rows.append(f"{name}_{label}_entry {line.hex()}")
+            if entry_json(line) is not None:
+                rows.append(f"{name}_{label}_entry_json {entry_json(line)}")
+    rows.append(f"{name}_year_hashes {[format(value, '016x') for value in world.year_hashes]}")
+    rows.append(f"{name}_log_hash {digest(b''.join(world.log))} entries {len(world.log)}")
+    return rows
 
 
 def entry_json(line: bytes) -> str:
@@ -3086,6 +3637,8 @@ TEST_DATA = [
     ("similar_without_terms", SIMILAR_WITHOUT_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("homes", HOMES_DATA),
+    ("homes_kin", KIN_DATA),
+    ("homes_step", STEP_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
 
@@ -3348,12 +3901,21 @@ if __name__ == "__main__":
     print(f"homes_year_hashes {[format(value, '016x') for value in HOMES.year_hashes]}")
     print(f"homes_log_hash {digest(b''.join(HOMES.log))} entries {len(HOMES.log)}")
     print(f"homes_load_checks_reject {HOMES_BROKEN}")
+    print(f"homes_load_checks_reject_part_2 {SECTION_6_BROKEN}")
+    print(f"homes_load_check_no_carer accepted: {LOOSENED_CARER_CHECK[0]}; {LOOSENED_CARER_CHECK[1]}")
+    print(f"homes_review stamp {REVIEW_STAMP} acts {REVIEW_STAMP + 1}: ArrangePartnership({REVIEW_MOTHER}, {REVIEW_FATHER}) on top of the input of homes; household {REVIEW_HOUSEHOLD} formed at {REVIEW_STAMP + 1}; sim {REVIEW_CHILD} (born {REVIEW.born_of(REVIEW_CHILD)}) stays in household {REVIEW.sims[REVIEW_CHILD][9]} with carer {REVIEW.sims[REVIEW_CHILD][11]}; loads")
+    print(f"homes_review_save_after_input {REVIEW_SAVE.hex()}")
+    print(f"unstarted_save_household_counter_2 (rejected) {UNSTARTED_COUNTER_2.hex()}")
+    print(f"unstarted_save_with_household (rejected) {UNSTARTED_WITH_HOUSEHOLD.hex()}")
     world = HOMES_ORPHANS_WORLD
     print(f"homes_orphans lambda {HOMES_ORPHANS_RATE!r} data_hash {HOMES_ORPHANS_DATA.hash:016x} separations {[(t, number) for t, number, *_ in world.separations]}")
     print(
-        f"homes_orphans death of sim 1 at {HOMES_ORPHANED_AT} (year {HOMES_ORPHANED_AT / YEAR:.4f}): household {HOMES_ORPHANS_HOUSEHOLD}"
-        f" with {HOMES_ORPHANS} (born {[world.born_of(sim) for sim in HOMES_ORPHANS]}), carers none"
+        f"homes_orphans death of sim 1 at {HOMES_ORPHANED_AT} (year {HOMES_ORPHANED_AT / YEAR:.4f}): {HOMES_ORPHANS} (born {[world.born_of(sim) for sim in HOMES_ORPHANS]})"
+        f" move into household {HOMES_ORPHANS_HOUSEHOLD} of their father sim 3, their carer, no social parent"
     )
+    for key, value in HOMES_ORPHANS_SITUATIONS.items():
+        print(f"homes_orphans_situation {key} reached: {value}")
+    print(f"homes_orphans_placement {placement_row(world, HOMES_ORPHANS_PLACEMENT)}")
     for row in [row for row in world.carer_log if row[0] == HOMES_ORPHANED_AT]:
         print(f"homes_orphans_carer {row}")
     for line in HOMES_ORPHANS_ENTRIES:
@@ -3365,6 +3927,17 @@ if __name__ == "__main__":
     print(f"homes_orphans_save_end {HOMES_ORPHANS_SAVE_END.hex()}")
     print(f"homes_orphans_year_hashes {[format(value, '016x') for value in world.year_hashes]}")
     print(f"homes_orphans_log_hash {digest(b''.join(world.log))} entries {len(world.log)}")
+    # The households, part 2: the new scenarios (design note, section 7).
+    for name, world, data, founders, couples, keys, inputs, situations, saves, entries, extra in [
+        ("homes_kin", KIN, KIN_DATA, KIN_FOUNDERS, KIN_COUPLES, KIN_KEYS, [], KIN_SITUATIONS, KIN_SAVES, KIN_ENTRIES, f"tag {KIN_TAG} lambda {KIN_RATE!r} years {KIN_YEARS} clan's test data"),
+        ("homes_step", STEP, STEP_DATA, STEP_FOUNDERS, STEP_COUPLES, STEP_KEYS, STEP_INPUTS, STEP_SITUATIONS, STEP_SAVES, STEP_ENTRIES, f"tag {STEP_TAG} lambda {STEP_RATE!r} years {STEP_YEARS} fertility window {STEP_FERTILITY}"),
+        ("homes_neither", NEITHER, NEITHER_DATA, NEITHER_FOUNDERS, NEITHER_COUPLES, NEITHER_KEYS, NEITHER_INPUTS, NEITHER_SITUATIONS, NEITHER_SAVES, NEITHER_ENTRIES, f"tag {NEITHER_TAG} lambda 0.01 years {NEITHER_YEARS} the data of homes"),
+    ]:
+        print(f"{name}_data_hash {data.hash:016x} {extra}")
+        for row in scenario_rows(name, world, founders, couples, keys, inputs, situations):
+            print(row)
+        for row in scenario_output(name, world, saves, entries):
+            print(row)
     # Log hash: xxh3-64 over the postcard bytes of all entries in order (ADR-0004).
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")
