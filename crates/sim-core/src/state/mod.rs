@@ -7,19 +7,20 @@ pub(crate) mod census;
 pub(crate) mod conception;
 pub(crate) mod death;
 pub(crate) mod disease;
+pub(crate) mod household;
 pub(crate) mod market;
 pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod start;
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
-use crate::ids::{PartnershipId, SimId};
+use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::kinship::KinshipCache;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::params::WorldParams;
@@ -43,6 +44,14 @@ pub(crate) struct Sim {
     /// How many partnerships she formed (ADR-0018 section 3: the address of the budget of
     /// a separation); always 0 for a man.
     pub(crate) partnerships: u32,
+    /// The household it lives in (ADR-0018 section 4).
+    pub(crate) household: HouseholdId,
+    /// Whether it has moved out: by leaving home, by a partnership, or as a founder of 18
+    /// or in a couple; never falls back (ADR-0018 section 4).
+    pub(crate) moved_out: bool,
+    /// The person caring for it while it is dependent (under 18, not moved out); `None`
+    /// otherwise, or alone in a household of its own (the orphan rule's last stage).
+    pub(crate) carer: Option<SimId>,
     /// The biological parents of a born sim; `None` for a founder.
     pub(crate) parents: Option<Parents>,
 }
@@ -142,7 +151,19 @@ pub(crate) struct ArchivedSim {
     pub(crate) conceptions: u32,
     pub(crate) births: u32,
     pub(crate) partnerships: u32,
+    /// The household it lived in last.
+    pub(crate) household: HouseholdId,
+    pub(crate) moved_out: bool,
     pub(crate) parents: Option<Parents>,
+}
+
+/// A household (ADR-0018 section 4): from its forming until its last member leaves; it
+/// stays as history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Household {
+    pub(crate) formed: SimTime,
+    /// The second its last member left; `None` while it has one.
+    pub(crate) ended: Option<SimTime>,
 }
 
 pub(crate) struct DomainState {
@@ -153,6 +174,7 @@ pub(crate) struct DomainState {
     /// The living, by ID.
     pub(crate) sims: BTreeMap<SimId, Sim>,
     pub(crate) partnerships: BTreeMap<PartnershipId, Partnership>,
+    pub(crate) households: BTreeMap<HouseholdId, Household>,
     /// The running pregnancies, by mother.
     pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
@@ -169,6 +191,9 @@ pub(crate) struct DomainState {
     /// The values of φ computed so far (ADR-0018 section 2). Not part of the projection
     /// and not saved: a cached value is the value computed without it.
     pub(crate) kinship: KinshipCache,
+    /// The living members of each household that has not ended (ADR-0018 section 4). Not
+    /// part of the projection: loading builds it again from the sims.
+    pub(crate) members: BTreeMap<HouseholdId, BTreeSet<SimId>>,
 }
 
 /// What a pending event of a sim is. A sim has at most one of each.
@@ -181,6 +206,8 @@ pub(crate) enum Slot {
     Birth,
     /// The separation of her open partnership (ADR-0018 section 3).
     Separation,
+    /// Leaving home at the drawn age (ADR-0018 section 4).
+    LeaveHome,
     /// The death of the cause with this `str_key`.
     Death(u64),
 }
@@ -193,11 +220,13 @@ impl DomainState {
             sims: BTreeMap::new(),
             pregnancies: BTreeMap::new(),
             partnerships: BTreeMap::new(),
+            households: BTreeMap::new(),
             archive: BTreeMap::new(),
             lineage: LineageIndex::new(),
             pending: BTreeMap::new(),
             open: BTreeMap::new(),
             kinship: KinshipCache::new(),
+            members: BTreeMap::new(),
         }
     }
 }

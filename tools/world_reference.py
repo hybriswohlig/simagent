@@ -215,6 +215,35 @@ What the model knows:
   birth, planned by the creation entry of child 0. The wish is checked only when a
   series is planned, so twins of the last birth may exceed it by one.
 
+- Households, part 1 (ADR-0018 section 4, design note of the households): the life course
+  data (format 2) hold `leave_home_ages`, ten weights for the ages 16 to 25; a person's age
+  of leaving is `16 + n` for the smallest `n` with `u < (w_0 + … + w_n) / W` (`u` = unit of
+  LEAVE_HOME = 22 at its lineage key, occasion 0, detail 0; pure, not held). A household
+  is [formed, ended] under the next HouseholdId; a sim holds its household, `moved_out`
+  and its carer (an archived one its last household and `moved_out`). Dependent: living,
+  under 18 and not moved out; fit to care: living and not dependent. `Start`, after the
+  founders and the couples, writes one `core:household_formed` per household (causes the
+  input and the rule `core:household`): the couples in list order (moved out), the
+  founders of 18 or more in founder order (moved out), then the others in founder order,
+  each alone: moved out if its drawn second of leaving is not after the start, else by
+  the orphan rule (not moved out, no carer) with its `leave_home` (kind 8, class general,
+  subject the sim, queue payload variant 7) planned by its creation entry. A birth moves
+  each child into its mother's household right after its `core:birth` (`core:moved`,
+  causes the plan of the birth and the rule; carer the mother) and plans its `leave_home`
+  after its deaths. A later pairing founds a household (she moves, then he, then each
+  dependent child either cares for, by SimId; both moved out, `leave_home` cancelled, no
+  carer); a separation one for the man and the dependent children he cares for (the
+  others stay, the woman becomes the carer of any cared for by neither); `leave_home` one
+  for the person alone (moved out, no carer). These entries name the entry that caused
+  them (`core:partnered`, `core:separated`) or the plan of the event, and the rule. A
+  household ends in the second its last member leaves it. The 18th birthday ends the
+  carer. A death leaves the household, then each dependent child the dead cared for gets
+  the other biological parent, else the partner of the partnership the death ended (each
+  if he lives in the child's household and is fit to care), else the orphan rule of part
+  1: those children move together into one new household, the eldest first (tie: the
+  smaller lineage key), no carer (entries caused by the `core:death`). `check_households`
+  holds the load checks.
+
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
 """
@@ -240,7 +269,9 @@ from postcard_reference import (
     afflictions as afflictions_bytes,
     couple,
     genome_of,
+    flag,
     founder,
+    household as household_bytes,
     lineage_key,
     param_change,
     partnership,
@@ -316,13 +347,20 @@ PARTNER_MARKET_RULE = "core:partner_market"
 # the choice.
 UTILITY_MARGIN = 1e-9
 
-# The projection is that of the separation (design note of the separation, section 2): the
-# round is a queue entry only, and the phenotypes of the similarity terms are pure
-# functions, not state (ADR-0009 section 4). The core version goes up with the market (30)
-# and with the similarity terms (31: the calibration of format 7 changes the data hash of
-# the repository, design note of the similarity, section 1).
-PROJECTION_VERSION = 15
-CORE_VERSION = 31
+# The draw of the age of leaving home (design note of the households, section 1; ADR-0018
+# section 4): subject the lineage key, occasion 0, detail 0, `u = unit`.
+LEAVE_HOME = 22
+# The rule every entry of the households names (design note of the households, section 3).
+HOUSEHOLD_RULE = "core:household"
+
+# The projection of the households (design note of the households, section 2): the
+# counter of HouseholdId after that of PartnershipId, the households after the
+# partnerships, per sim its household, `moved_out` and its carer after `partnerships`, per
+# archived sim its last household and `moved_out` (16). The core version goes up with the
+# market (30), the similarity terms (31) and the households (32: the life course data of
+# format 2 change every data hash, and the projection).
+PROJECTION_VERSION = 16
+CORE_VERSION = 32
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -340,6 +378,13 @@ SEPARATION_KIND = 6
 MARKET_ROUND_KIND = 7
 # The queue payload of the round: the next variant after Separation (5), without fields.
 MARKET_ROUND_PAYLOAD = variant(6)
+# New with the households (design note of the households, section 3): `leave_home { sim }`,
+# class general, subject the sim, kind 8, the next queue payload after MarketRound (6).
+LEAVE_HOME_KIND = 8
+LEAVE_HOME_VARIANT = 7
+# The log payloads of the households, the next variants after Separated (9):
+# `core:household_formed { household }` and `core:moved { household }`.
+HOUSEHOLD_FORMED_VARIANT, MOVED_VARIANT = 10, 11
 WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
 # Reject codes of the inputs (tests/golden/log_codes.txt); the two of the market come at
 # the end of the list (design note of the market, section 4).
@@ -627,6 +672,13 @@ class Data:
         assert self.pregnancy_months >= 1
         self.wish_tilt = number(life["values"]["core:fertility_wish_tilt"])
         self.wish_shape = [number(entry) for entry in life["fertility_wish_shape"]]
+        # The table of leaving home (design note of the households, section 1): ten weights
+        # for the ages 16 to 25, each in [0, 1], at least one above 0 (data_reference checks
+        # the same when it hashes the documents).
+        self.leave_home_weights = [number(entry) for entry in life["leave_home_ages"]]
+        assert len(self.leave_home_weights) == 10, self.leave_home_weights
+        assert all(0.0 <= weight <= 1.0 for weight in self.leave_home_weights), self.leave_home_weights
+        assert any(weight > 0.0 for weight in self.leave_home_weights), self.leave_home_weights
         self.twins = (number(life["values"]["core:twins_identical"]), number(life["values"]["core:twins_fraternal"]))
         assert all(0.0 <= rate <= 1.0 for rate in self.twins), self.twins
         # `λ` of the separation, per year (design note of the separation, section 1); 0 is
@@ -1236,6 +1288,47 @@ check_fertility_spec(REPOSITORY.fertility, REPOSITORY.puberty_curve, WISH_SHAPE_
 
 
 # ---------------------------------------------------------------------------------------
+# Leaving home (design note of the households, section 1; ADR-0018 section 4): a pure
+# function of the person's lineage key and the data, not state.
+
+
+def leave_home_unit(seed: int, key: int) -> float:
+    """`u = unit(draw)` at (LEAVE_HOME, the lineage key, occasion 0, detail 0)."""
+    return unit(words(chacha_key(seed, LEAVE_HOME, key, 0, 0))[0])
+
+
+def leave_home_thresholds(weights: list) -> list:
+    """`(w_0 + … + w_n) / W` for n = 0 to 9: the partial sums left to right, each divided
+    by `W`, the sum of the ten weights left to right."""
+    total = 0.0
+    for weight in weights:
+        total = total + weight
+    thresholds, acc = [], 0.0
+    for weight in weights:
+        acc = acc + weight
+        thresholds.append(acc / total)
+    return thresholds
+
+
+def leave_home_age(u: float, weights: list) -> int:
+    """The age of leaving home in whole years: `16 + n` for the smallest `n` with `u <
+    (w_0 + … + w_n) / W`; 25 (`n` = 9) if no partial sum exceeds `u`."""
+    for n, threshold in enumerate(leave_home_thresholds(weights)):
+        if u < threshold:
+            return 16 + n
+    return 16 + 9
+
+
+# Dario's table (2026-10-11): `W` is 1 exactly, and reading the shape like the wish of 11.3
+# (`acc += w_n / W`) gives the same ten thresholds bit for bit.
+assert leave_home_thresholds([0.02, 0.03, 0.30, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]) == [
+    0.02, 0.05, 0.35, 0.55, 0.7000000000000001, 0.8, 0.88, 0.93, 0.9700000000000001, 1.0
+]
+assert leave_home_age(0.0, [0.0] * 9 + [1.0]) == 25 and leave_home_age(0.5, [1.0] + [0.0] * 9) == 16
+assert leave_home_age(0.35, [0.02, 0.03, 0.30, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]) == 19
+
+
+# ---------------------------------------------------------------------------------------
 # The partner market (genetics specification 11.2; design note of the market, section 3):
 # pure functions of the data, ages as `(t − born).as_years()`.
 
@@ -1410,15 +1503,18 @@ class World:
     alleles as for `founder_genome`, `couples` a list of (woman, man) by their places
     among the founders, `data` the definitions it runs on (the repository's by default,
     or test data). A sim is [born, lineage key, sex, genome (form of
-    tools/meiosis_reference.py), afflictions, conceptions, births, parents, partnerships];
-    an archived one (born, left, key of the cause, lineage key, sex, genome, afflictions,
-    conceptions, births, parents, partnerships) (`partnerships` last in these lists, after
-    `births` in the projection); a partnership [woman, man, formed, ended] with `ended`
-    None or (at, ENDED_BY_DEATH or ENDED_BY_SEPARATION); a pregnancy, by the mother,
-    (father, conception number, children as [(lineage key, sex, genome)] in index order,
-    conceived)."""
+    tools/meiosis_reference.py), afflictions, conceptions, births, parents, partnerships,
+    household, moved_out, carer]; an archived one (born, left, key of the cause, lineage
+    key, sex, genome, afflictions, conceptions, births, parents, partnerships, household,
+    moved_out) (`partnerships` after `births` in the projection, then the household fields,
+    then the parents); a partnership [woman, man, formed, ended] with `ended` None or (at,
+    ENDED_BY_DEATH or ENDED_BY_SEPARATION); a household [formed, ended] with `ended` None or
+    the time; a pregnancy, by the mother, (father, conception number, children as
+    [(lineage key, sex, genome)] in index order, conceived). `households` False is a
+    switch of this reference only (no household, no `leave_home`, no entry of them): the
+    world of the similarity, for the check that the households change no story."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True):
         self.seed = seed
         self.tag = tag
         self.switch = switch
@@ -1444,6 +1540,8 @@ class World:
         # The accepted inputs ArrangePartnership as (the second they acted, woman, man), and
         # the couples of Start as SimIds: what a loader reads from the input log.
         self.input_pairings = [(0, woman + 1, man + 1) for woman, man in couples]
+        # The couples of Start as SimIds (the loader reads them from the input log).
+        self.start_couples = [(woman + 1, man + 1) for woman, man in couples]
         self.closed = -1
         self.queue = []
         self.next_insertion = 1
@@ -1466,6 +1564,25 @@ class World:
         # the draw), for the stories of the tools; not state.
         self.separation_plans = []
         self.separations = []
+        # The households (design note of the households): the switch of this reference, the
+        # counter, the households; every household entry as (time, kind, household, sims,
+        # what caused it) and every change of a carer as (time, child, old, new, why), for
+        # the stories of the tools; the creation entry of each sim (the plan of its
+        # `leave_home`); not state.
+        self.households_on = households
+        # The arguments and every call that changes the world (advance, an accepted
+        # ArrangePartnership, an override), so that `without_households` can run the same
+        # world again with the switch off; not state.
+        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market)
+        self.script = []
+        self.next_household_id = 1
+        self.households = {}
+        self.home_log = []
+        self.carer_log = []
+        # Per separation (time, woman, man, the dependent children who stay with her, those
+        # who move with him), for the stories; not state.
+        self.separation_homes = []
+        self.created_by = {}
         start = variant(
             0,
             varint(seed),
@@ -1477,7 +1594,9 @@ class World:
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
         for woman, man in couples:
-            self._partner(woman + 1, man + 1, [variant(2, varint(1))], 0)
+            self._partner(woman + 1, man + 1, [variant(2, varint(1))], 0, at_start=True)
+        if self.households_on:
+            self._house_founders(couples)
 
     # ------------------------------------------------------------------ afflictions
 
@@ -1572,9 +1691,11 @@ class World:
 
     # ------------------------------------------------------------------ inputs
 
-    def _partner(self, woman: int, man: int, causes: list, now: int) -> int:
+    def _partner(self, woman: int, man: int, causes: list, now: int, at_start: bool = False) -> int:
         """A partnership of the woman and the man at `now`, its entry `core:partnered` with
-        `causes` (the input; or the plan of the round, the rule and the draw)."""
+        `causes` (the input; or the plan of the round, the rule and the draw). Any pairing
+        but a couple of `Start` (`at_start`, housed by `_house_founders`) then founds the
+        couple's household (design note of the households, section 4)."""
         assert self.sims[woman][2] == FEMALE and self.sims[man][2] == MALE
         assert self.partner_of(woman) is None and self.open_partnership(man) is None
         # Partnerships never begin below the market age, never between close kin (design
@@ -1594,7 +1715,183 @@ class World:
         # section 4), then the separation, after her attempts.
         self._plan_series(woman, month_start_after(now), entry, now)
         self._plan_separation(number_, k, entry, now)
+        if self.households_on and not at_start:
+            self._house_couple(woman, man, entry, now)
         return entry
+
+    # ------------------------------------------------------------------ households
+
+    def dependent(self, sim: int, now: int) -> bool:
+        """Living, under 18 (`now − born < 18 · YEAR`) and not moved out (design note of the
+        households, section 2)."""
+        if sim not in self.sims:
+            return False
+        her = self.sims[sim]
+        return now - her[0] < 18 * YEAR and not her[10]
+
+    def fit_to_care(self, sim: int, now: int) -> bool:
+        """Living and not dependent."""
+        return sim in self.sims and not self.dependent(sim, now)
+
+    def members(self, household: int) -> list:
+        """The living members of a household, by SimId."""
+        return [sim for sim in sorted(self.sims) if self.sims[sim][9] == household]
+
+    def leave_home_second(self, sim: int) -> int:
+        """`born + age · YEAR` with the drawn age of leaving (design note of the households,
+        section 1), for a living or archived sim."""
+        age = leave_home_age(leave_home_unit(self.seed, self.key_of(sim)), self.data.leave_home_weights)
+        return self.born_of(sim) + age * YEAR
+
+    def _home_entry(self, now: int, subjects: list, causes: list, variant_: int, household: int) -> int:
+        return self._entry(now, [variant(0, varint(sim)) for sim in subjects], causes, variant(variant_, varint(household)))
+
+    def _found(self, movers: list, now: int, causes: list, why: str, moves: bool = True) -> int:
+        """A new household at `now` with `movers`: its entry `core:household_formed`
+        (subjects the members it starts with, by SimId), then, if `moves` (always but at the
+        start), one `core:moved` per mover in the order given, each leaving its household
+        (which ends if it was the last member there). Both kinds of entry have `causes`."""
+        number_ = self.next_household_id
+        self.next_household_id += 1
+        self.households[number_] = [now, None]
+        formed = self._home_entry(now, sorted(movers), causes, HOUSEHOLD_FORMED_VARIANT, number_)
+        self.home_log.append((now, "formed", number_, sorted(movers), why, formed))
+        for sim in movers:
+            old = self.sims[sim][9]
+            self.sims[sim][9] = number_
+            if moves:
+                moved = self._home_entry(now, [sim], causes, MOVED_VARIANT, number_)
+                self.home_log.append((now, "moved", number_, [sim], why, moved))
+            if old is not None:
+                self._end_if_empty(old, now)
+        return number_
+
+    def _end_if_empty(self, household: int, now: int) -> None:
+        """A household ends in the second its last member leaves it (death or move)."""
+        if not self.members(household):
+            assert self.households[household][1] is None
+            self.households[household][1] = now
+            self.home_log.append((now, "ended", household, [], "", None))
+
+    def _set_carer(self, child: int, carer, now: int, why: str) -> None:
+        old = self.sims[child][11]
+        self.sims[child][11] = carer
+        self.carer_log.append((now, child, old, carer, why))
+
+    def _plan_leave_home(self, sim: int, by: int, now: int) -> None:
+        """Its `leave_home` at the drawn second, planned by the entry `by`."""
+        payload = variant(LEAVE_HOME_VARIANT, varint(sim))
+        self._schedule(self.leave_home_second(sim), GENERAL, (SIM_SUBJECT, sim), LEAVE_HOME_KIND, payload, None, by, now)
+
+    def _cancel_leave_home(self, sim: int) -> None:
+        self.queue = [event for event in self.queue if not (event.kind == LEAVE_HOME_KIND and event.subject == (SIM_SUBJECT, sim))]
+
+    def _house_founders(self, couples) -> None:
+        """`Start`, after the founders and the couples (design note of the households,
+        section 4): each couple of `couples` in list order founds a household with its two
+        (both moved out); then each other founder of 18 or more in founder order one of his
+        own (moved out); then each other founder (under 18) in founder order one of his own,
+        moved out if its drawn second of leaving is not after the start, else by the orphan
+        rule (part 1: not moved out, carer None) with its `leave_home` planned by its
+        creation entry. One `core:household_formed` per household (causes the input and the
+        rule), no `core:moved`."""
+        now = 0
+        causes = [variant(2, varint(1)), variant(3, string(HOUSEHOLD_RULE))]
+        paired = []
+        for woman, man in couples:
+            pair = [woman + 1, man + 1]
+            self._found(pair, now, causes, "start couple", moves=False)
+            paired += pair
+        founders = sorted(self.created_by)
+        others = [sim for sim in founders if sim not in paired]
+        adults = [sim for sim in others if now - self.sims[sim][0] >= 18 * YEAR]
+        minors = [sim for sim in others if now - self.sims[sim][0] < 18 * YEAR]
+        for sim in paired + adults:
+            self.sims[sim][10] = True
+        for sim in adults:
+            self._found([sim], now, causes, "start adult", moves=False)
+        for sim in minors:
+            if self.leave_home_second(sim) <= now:
+                self.sims[sim][10] = True
+                self._found([sim], now, causes, "start minor past its age of leaving", moves=False)
+            else:
+                self._found([sim], now, causes, "start minor, orphan rule", moves=False)
+                self._plan_leave_home(sim, self.created_by[sim], now)
+
+    def _house_couple(self, woman: int, man: int, entry: int, now: int) -> None:
+        """A partnership (not of `Start`): the couple founds a new household; she moves,
+        then he, then each dependent child either of them cares for (by SimId); both are
+        moved out from now on (their `leave_home` cancelled, no carer)."""
+        children = sorted(
+            sim for sim in self.sims if sim not in (woman, man) and self.sims[sim][11] in (woman, man) and self.dependent(sim, now)
+        )
+        causes = [variant(0, varint(entry)), variant(3, string(HOUSEHOLD_RULE))]
+        for sim in (woman, man):
+            if self.sims[sim][11] is not None:
+                self._set_carer(sim, None, now, "moved out by a partnership")
+            self.sims[sim][10] = True
+            self._cancel_leave_home(sim)
+        self._found([woman, man] + children, now, causes, f"partnership {self.next_partnership_id - 1}")
+
+    def _house_separation(self, woman: int, man: int, entry: int, now: int) -> None:
+        """A separation: the man founds a new household and moves, each dependent child in
+        the couple's household whose carer is he moves with him (by SimId); every dependent
+        child there whose carer is neither stays and the woman becomes its carer."""
+        home = self.sims[man][9]
+        assert self.sims[woman][9] == home, "a couple lives together"
+        dependent = [sim for sim in self.members(home) if self.dependent(sim, now)]
+        children = [sim for sim in dependent if self.sims[sim][11] == man]
+        causes = [variant(0, varint(entry)), variant(3, string(HOUSEHOLD_RULE))]
+        self._found([man] + children, now, causes, "separation")
+        for sim in dependent:
+            if self.sims[sim][11] not in (woman, man):
+                assert self.sims[sim][11] is not None, "an orphan household holds no couple"
+                self._set_carer(sim, woman, now, "separation, the children stay with the mother")
+        stayed = [sim for sim in dependent if sim not in children]
+        self.separation_homes.append((now, woman, man, stayed, children))
+
+    def _leave_home(self, event: Event, now: int, plan: bytes) -> None:
+        """`leave_home`: the person founds a household of his own and moves (causes the plan
+        of the event and the rule); moved out from now on; carer None."""
+        sim = event.subject[1]
+        assert sim in self.sims and not self.sims[sim][10]
+        assert all(value[11] != sim for value in self.sims.values()), "a person who leaves home cares for nobody"
+        self.sims[sim][10] = True
+        if self.sims[sim][11] is not None:
+            self._set_carer(sim, None, now, "left home")
+        self._found([sim], now, [plan, variant(3, string(HOUSEHOLD_RULE))], "leave_home")
+
+    def _succession(self, dead: int, partner, entry: int, now: int) -> None:
+        """The succession of the carer (design note of the households, section 5): each
+        dependent child the dead person cared for (by SimId) gets at once the other
+        biological parent if he lives in the child's household and is fit to care, else
+        the dead carer's partner in the partnership his death ended (`partner`) if he lives
+        there and is fit to care, else the orphan rule (section 6, part 1): the children of
+        that household it applies to move together into one new household of their own,
+        the eldest first (tie: the smaller lineage key), carer None, still dependent."""
+        cared = sorted(sim for sim in self.sims if self.sims[sim][11] == dead and self.dependent(sim, now))
+        orphans = []
+        for child in cared:
+            home = self.sims[child][9]
+            parents = self.sims[child][7]
+            heir, why = None, ""
+            for parent in parents[:2] if parents is not None else ():
+                if parent != dead and parent in self.sims and self.sims[parent][9] == home and self.fit_to_care(parent, now):
+                    heir, why = parent, "succession: the other parent"
+                    break
+            if heir is None and partner is not None and partner in self.sims and self.sims[partner][9] == home and self.fit_to_care(partner, now):
+                heir, why = partner, "succession: the partner (step-parent)"
+            if heir is None:
+                orphans.append(child)
+            else:
+                self._set_carer(child, heir, now, why)
+        if orphans:
+            assert len({self.sims[child][9] for child in orphans}) == 1
+            group = sorted(orphans, key=lambda child: (self.sims[child][0], self.sims[child][1]))
+            for child in group:
+                self._set_carer(child, None, now, "orphan rule, a household of its own")
+            causes = [variant(0, varint(entry)), variant(3, string(HOUSEHOLD_RULE))]
+            self._found(group, now, causes, "orphan rule")
 
     # ------------------------------------------------------------------ separation
 
@@ -1675,6 +1972,8 @@ class World:
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
         entry = self._entry(now, subjects, [plan, draw], variant(9, varint(number_)))
         self.separations.append((now, number_, entry, event.plan, key))
+        if self.households_on:
+            self._house_separation(woman, man, entry, now)
 
     # ------------------------------------------------------------------ market
 
@@ -1998,20 +2297,33 @@ class World:
         # Per child in index order: the next SimId and its creation entry, one after the
         # other (design note of the twins, sections 3 and 4).
         born = []
+        home = self.sims[mother][9]
         for key, sex, person in children:
             child = self.next_sim_id
             self.next_sim_id += 1
             subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
             entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
             afflictions = self.afflictions_of(key, sex, person, now)
-            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0]
+            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0, None, False, None]
+            self.created_by[child] = entry
             self.pedigree.add(child, mother, father)
             born.append((child, entry))
-        # Then per child in index order its first birthday and its deaths, by its own
-        # creation entry.
+            if self.households_on:
+                # The child joins the mother's household, right after its `core:birth`
+                # (causes the plan of the birth and the rule), carer the mother, not moved
+                # out (design note of the households, section 4).
+                assert self.fit_to_care(mother, now)
+                self.sims[child][9] = home
+                self._set_carer(child, mother, now, "birth")
+                moved = self._home_entry(now, [child], [plan, variant(3, string(HOUSEHOLD_RULE))], MOVED_VARIANT, home)
+                self.home_log.append((now, "moved", home, [child], "birth", moved))
+        # Then per child in index order its first birthday, its deaths and its `leave_home`,
+        # by its own creation entry.
         for child, entry in born:
             self._plan_birthday(child, now + YEAR, entry, now)
             self._plan_deaths(child, entry, now)
+            if self.households_on:
+                self._plan_leave_home(child, entry, now)
         # She bore them alive; then the series after a birth (design note of the fertility
         # in the world, sections 4 and 6), if her partnership is open, planned by the
         # creation entry of child 0.
@@ -2024,6 +2336,7 @@ class World:
         accepted (`try_arrange` for one that may be rejected)."""
         code = self.arrange_rejection(woman, man)
         assert code is None, f"ArrangePartnership is rejected: {REJECT_NAMES[code]}"
+        self.script.append(("arrange", woman, man))
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(2, varint(woman), varint(man)))
         self.input_pairings.append((self.closed + 1, woman, man))
@@ -2048,7 +2361,10 @@ class World:
             person = founder_genome(sex, genes, self.data.loci)
             # A founder's origin is the start (B19).
             afflictions = self.afflictions_of(key, sex, person, now)
-            self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0]
+            # Household, moved out and carer are set after the founders and the couples
+            # (`_house_founders`).
+            self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0, None, False, None]
+            self.created_by[sim] = added
             self.pedigree.add(sim)
             whole = (now - born) // YEAR
             on_the_day = born + whole * YEAR == now
@@ -2058,6 +2374,7 @@ class World:
 
     def override(self, switch: bool) -> None:
         """An override block with the one change, submitted right now."""
+        self.script.append(("override", switch))
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(1, seq([param_change(switch)])))
         now = self.closed + 1
@@ -2105,6 +2422,7 @@ class World:
 
     def advance(self, limit: int) -> None:
         """Runs every event up to and including `limit`."""
+        self.script.append(("advance", limit))
         while True:
             due = [event for event in self.queue if event.time <= limit]
             if not due:
@@ -2133,28 +2451,38 @@ class World:
                 self._birth(event, now, plan)
             elif event.kind == SEPARATION_KIND:
                 self._separate(event, now, plan)
+            elif event.kind == LEAVE_HOME_KIND:
+                self._leave_home(event, now, plan)
             elif event.kind == BIRTHDAY_KIND:
                 sim = event.subject[1]
                 age = (now - self.sims[sim][0]) // YEAR
                 subject = variant(0, varint(sim))
                 entry = self._entry(now, [subject], [plan], variant(2, varint(age)))
                 self._plan_birthday(sim, now + YEAR, entry, now)
+                # The 18th birthday: no longer dependent, no carer (no entry, no move).
+                if self.sims[sim][11] is not None and not self.dependent(sim, now):
+                    assert age == 18, (sim, age)
+                    self._set_carer(sim, None, now, "18th birthday")
             else:
                 self._die(event, now, plan)
         self.closed = limit
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
-        born, key, sex, person, afflictions, conceptions, births, parents, partnerships = self.sims.pop(sim)
+        born, key, sex, person, afflictions, conceptions, births, parents, partnerships, household, moved_out, _ = self.sims.pop(sim)
         codes = [SENESCENCE, ACCIDENT] + [
             affliction.disease.code for affliction in afflictions if affliction.exposure is not None
         ]
         code = next(code for code in codes if event.payload == death_payload(sim, str_key(code)))
         draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
-        self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
+        death_entry = self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
+        # Every pending event of the sim goes, its `leave_home` too.
         self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
+        # The partner in the partnership this death ends (the step-parent of section 5).
+        partner = None
         for number_, couple_ in self.partnerships.items():
             if couple_[3] is None and sim in couple_[:2]:
+                partner = couple_[1] if couple_[0] == sim else couple_[0]
                 couple_[3] = (now, ENDED_BY_DEATH)
                 # The partnership ends, and with it her series of attempts and its pending
                 # separation (design note of the separation, section 5).
@@ -2167,10 +2495,18 @@ class World:
                 ]
         # Her pregnancy ends with her.
         self.pregnancies.pop(sim, None)
-        # The afflictions stay as they were at the death.
+        # The afflictions stay as they were at the death; the household is the last one.
         self.archive[sim] = (
-            born, now, str_key(code), key, sex, person, afflictions, conceptions, births, parents, partnerships
+            born, now, str_key(code), key, sex, person, afflictions, conceptions, births, parents, partnerships,
+            household, moved_out,
         )
+        if self.households_on:
+            # He leaves his household (it ends if he was its last member); then the
+            # succession for each dependent child he cared for (design note of the
+            # households, sections 4 and 5).
+            self.home_log.append((now, "left by death", household, [sim], "death", death_entry))
+            self._end_if_empty(household, now)
+            self._succession(sim, partner, death_entry, now)
 
     # ------------------------------------------------------------------ views
 
@@ -2179,6 +2515,7 @@ class World:
 
     def projection(self, closed=None) -> bytes:
         closed = self.closed if closed is None else closed
+        # Without households (the switch of this reference) the fields hold 0, false, none.
         sims = [
             varint(sim)
             + signed(born)
@@ -2189,8 +2526,11 @@ class World:
             + varint(conceptions)
             + varint(births)
             + varint(partnerships)
+            + varint(household or 0)
+            + flag(moved_out)
+            + (NONE if carer is None else some(varint(carer)))
             + parents_bytes(parents)
-            for sim, (born, key, sex, person, afflictions, conceptions, births, parents, partnerships) in sorted(
+            for sim, (born, key, sex, person, afflictions, conceptions, births, parents, partnerships, household, moved_out, carer) in sorted(
                 self.sims.items()
             )
         ]
@@ -2206,10 +2546,15 @@ class World:
             + varint(conceptions)
             + varint(births)
             + varint(partnerships)
+            + varint(household or 0)
+            + flag(moved_out)
             + parents_bytes(parents)
-            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents, partnerships) in sorted(
+            for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents, partnerships, household, moved_out) in sorted(
                 self.archive.items()
             )
+        ]
+        households = [
+            varint(number_) + household_bytes(formed, ended) for number_, (formed, ended) in sorted(self.households.items())
         ]
         pregnancies = [
             varint(mother) + pregnancy_bytes(*value) for mother, value in sorted(self.pregnancies.items())
@@ -2221,10 +2566,12 @@ class World:
             + signed(closed)
             + varint(self.next_sim_id)
             + varint(self.next_partnership_id)
+            + varint(self.next_household_id)
             + seq([event.queue_bytes() for event in self.ordered_queue()])
             + varint(self.next_insertion)
             + seq(sims)
             + seq([varint(n) + partnership(*value) for n, value in sorted(self.partnerships.items())])
+            + seq(households)
             + seq(pregnancies)
             + seq(archive)
         )
@@ -2232,9 +2579,9 @@ class World:
     def census(self, closed=None) -> bytes:
         """The census of the null twin (test rule 8; design note of the market, section 7):
         the projection without the queue and its next insertion number, so the domain
-        state only (seed, switch, clock, the counters of SimId and PartnershipId, sims,
-        partnerships, pregnancies, archive). A round that changes nothing changes none of
-        it."""
+        state only (seed, switch, clock, the counters of SimId, PartnershipId and
+        HouseholdId, sims, partnerships, households, pregnancies, archive). A round that
+        changes nothing changes none of it."""
         projection = self.projection(closed)
         queue = seq([event.queue_bytes() for event in self.ordered_queue()]) + varint(self.next_insertion)
         assert projection.count(queue) == 1
@@ -2382,6 +2729,118 @@ def check_separations(world: World) -> None:
             assert world.partner_of(event.subject[1]) is not None, event.subject
 
 
+def check_households(world: World) -> None:
+    """The load checks of the households (design note of the households, section 7;
+    ADR-0018 section 7; ADR-0006 section 5) on the state of `world`, as the loader would see
+    its save with its input log (the couples of `Start`); a broken one is `Inconsistent`
+    there, an assertion here. `t` is the clock, but 0 right after `Start` (clock −1), as for
+    the round of the market; an input acts in the second after the clock, so a household
+    may be formed or ended there (`clock + 1`).
+
+    - every living person in exactly one household that has not ended; every household that
+      has not ended has at least one living member; the counter above every ID (and every
+      ID below it is a household: they stay as history, formed and ended within the clock);
+      an archived person's household is a household that existed;
+    - `moved_out` as the rule gives it, for the living and the archived: true for every
+      founder in a couple of `Start`, every founder of 18 or more at the start, every person
+      who has formed a partnership, every person whose `leave_home` second has passed (at
+      or before `t` for the living, at or before the death for the archived; a founder's
+      second at or before 0 is passed at the start); else false;
+    - a `leave_home` event exactly for each living person who is not moved out, at its
+      drawn second, after the clock (class general, subject the sim, payload variant 7);
+      none for others;
+    - each dependent person has a carer who lives, lives in the same household and is fit
+      to care, or has none and lives in a household of the orphan rule: alone, or (several
+      siblings moved together, design note section 6) a household whose every member is
+      not moved out and has no carer; a person who is not dependent has no carer."""
+    t = max(world.closed, 0)
+    households = world.households
+    if not world.households_on:
+        assert not households and not [event for event in world.queue if event.kind == LEAVE_HOME_KIND]
+        return
+    assert set(households) == set(range(1, world.next_household_id)), (sorted(households), world.next_household_id)
+    for number_, (formed, ended) in households.items():
+        assert 0 <= formed <= world.closed + 1 and (ended is None or formed <= ended <= world.closed + 1), (number_, formed, ended)
+    for sim, value in world.sims.items():
+        assert value[9] in households and households[value[9]][1] is None, (sim, value[9])
+    homes = {value[9] for value in world.sims.values()}
+    for number_, (_, ended) in households.items():
+        assert ended is not None or number_ in homes, number_
+    for sim, value in world.archive.items():
+        assert value[11] in households and households[value[11]][0] <= value[1], (sim, value[11])
+    in_start_couples = {sim for pair in world.start_couples for sim in pair}
+    partnered = {sim for value in world.partnerships.values() for sim in value[:2]}
+    people = {sim: (value[0], value[7], value[10], t) for sim, value in world.sims.items()}
+    people.update({sim: (value[0], value[9], value[12], value[1]) for sim, value in world.archive.items()})
+    for sim, (born, parents, moved_out, limit) in people.items():
+        founder = parents is None
+        want = (
+            (founder and sim in in_start_couples)
+            or (founder and 0 - born >= 18 * YEAR)
+            or sim in partnered
+            or world.leave_home_second(sim) <= limit
+        )
+        assert moved_out == want, (sim, moved_out, want)
+    pending = [event for event in world.queue if event.kind == LEAVE_HOME_KIND]
+    for event in pending:
+        assert event.cls == GENERAL and event.subject[0] == SIM_SUBJECT and event.period is None
+        assert event.payload == variant(LEAVE_HOME_VARIANT, varint(event.subject[1])) and event.time > world.closed
+    wanted = sorted((sim, world.leave_home_second(sim)) for sim, value in world.sims.items() if not value[10])
+    assert sorted((event.subject[1], event.time) for event in pending) == wanted, (pending, wanted)
+    for sim, value in world.sims.items():
+        carer = value[11]
+        if not world.dependent(sim, t):
+            assert carer is None, (sim, carer)
+        elif carer is None:
+            home = world.members(value[9])
+            assert len(home) == 1 or all(not world.sims[other][10] and world.sims[other][11] is None for other in home), (sim, home)
+        else:
+            assert carer in world.sims and world.sims[carer][9] == value[9] and world.fit_to_care(carer, t), (sim, carer)
+
+
+def story(world: World) -> tuple:
+    """What the households must not change (design note of the households, section 8: the
+    stories stay): every sim with its birth, key, sex and parents; every death with its time
+    and cause; the partnerships; the separations; every attempt with its chance and
+    outcome; every conception with its kind and children; the pregnancies; every choice of
+    the market; the counters of SimId and PartnershipId and the clock."""
+    return (
+        sorted((sim, value[0], value[1], value[2], value[7]) for sim, value in world.sims.items()),
+        sorted((sim, value[0], value[1], value[2], value[3], value[9]) for sim, value in world.archive.items()),
+        {number_: list(value) for number_, value in world.partnerships.items()},
+        [(t, number_) for t, number_, *_ in world.separations],
+        list(world.attempts),
+        [row[:6] + ([(key, sex) for key, sex in row[6]],) for row in world.multiples],
+        sorted((mother, value[0], value[1], [key for key, _, _ in value[2]], value[3]) for mother, value in world.pregnancies.items()),
+        [(record["n"], [(choice["woman"], choice["chosen"], choice["outcome"]) for choice in record["choices"]]) for record in world.rounds],
+        (world.next_sim_id, world.next_partnership_id, world.closed),
+    )
+
+
+def without_households(world: World) -> World:
+    """The same world (its arguments and its calls) with the households switched off (a
+    switch of this reference only): the model of the similarity."""
+    twin = World(**world.args, households=False)
+    for call in world.script:
+        if call[0] == "advance":
+            twin.advance(call[1])
+        elif call[0] == "arrange":
+            twin.arrange(call[1], call[2])
+        else:
+            twin.override(call[1])
+    return twin
+
+
+def check_story_kept(world: World) -> World:
+    """The households change no story: `story` of the world equals that of its twin without
+    households (whose log is the log before the households, entry for entry). Returns the
+    twin."""
+    twin = without_households(world)
+    assert story(world) == story(twin), "the households changed the story"
+    assert not [kind for kind in twin.entry_kinds if kind in (HOUSEHOLD_FORMED_VARIANT, MOVED_VARIANT)]
+    return twin
+
+
 def pregnancy_bytes(father: int, conception_number: int, children: list, conceived: int) -> bytes:
     """Pregnancy { father: SimId, conception: u32, children: Vec<Unborn>, conceived:
     SimTime } with Unborn { lineage_key, sex, genome }, the children in index order (design
@@ -2412,10 +2871,12 @@ EMPTY_PROJECTION = (
     + signed(-1)
     + varint(1)  # next SimId
     + varint(1)  # next PartnershipId
+    + varint(1)  # next HouseholdId
     + seq([])
     + varint(1)
     + seq([])  # sims
     + seq([])  # partnerships
+    + seq([])  # households
     + seq([])  # pregnancies
     + seq([])  # archive
 )
@@ -2515,6 +2976,27 @@ if __name__ == "__main__":
             f" penalties {penalties(gap, phi, REPOSITORY, [(w_k, d_k), (w_h, d_h)])!r}"
             f" U both {both!r} cognition_only {cognition!r} height_only {height!r} neither {utility(gap, phi, noise, REPOSITORY)!r}"
         )
+    # The households (design note of the households): the tag, the event kind, the payloads,
+    # the rule, the table of the repository with its thresholds, and pure values of the age
+    # of leaving (the unit draws at the ten thresholds and between them; the first founders
+    # of the tag `test:homes` at seed 0xff).
+    print(
+        f"households tag LEAVE_HOME {LEAVE_HOME} event kind leave_home {LEAVE_HOME_KIND} class {GENERAL}"
+        f" subject sim {SIM_SUBJECT} queue payload {variant(LEAVE_HOME_VARIANT, varint(1)).hex()} (sim 1)"
+        f" log payloads core:household_formed {HOUSEHOLD_FORMED_VARIANT} core:moved {MOVED_VARIANT} rule {HOUSEHOLD_RULE}"
+    )
+    print(f"leave_home_weights_repository {REPOSITORY.leave_home_weights!r} fork {FORK_DATA.leave_home_weights!r}")
+    print(f"leave_home_thresholds_repository {leave_home_thresholds(REPOSITORY.leave_home_weights)!r}")
+    for u in [0.0, 0.019999999999999997, 0.02, 0.0499, 0.05, 0.3499, 0.35, 0.5, 0.7000000000000001, 0.9699, 0.9700000000000001, 0.9999999999999999]:
+        print(f"leave_home_age u {u!r} age {leave_home_age(u, REPOSITORY.leave_home_weights)}")
+    homes_keys = [founder_key("test:homes", index) for index in range(4)]
+    print(
+        "leave_home_draws seed 0xff test:homes founders 0-3: "
+        + " ".join(
+            f"{key:016x} u {leave_home_unit(0xFF, key)!r} age {leave_home_age(leave_home_unit(0xFF, key), REPOSITORY.leave_home_weights)}"
+            for key in homes_keys
+        )
+    )
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
     # The constants of this model against the code lists of tests/golden.
@@ -2530,6 +3012,12 @@ if __name__ == "__main__":
         ("tag", str(ENV_INDIVIDUAL), "ENV_INDIVIDUAL"),
         ("kind", "market_round", str(MARKET_ROUND_KIND)),
         ("kind", "separation", str(SEPARATION_KIND)),
+        ("tag", str(LEAVE_HOME), "LEAVE_HOME"),
+        ("kind", "leave_home", str(LEAVE_HOME_KIND)),
+        ("subject", "sim", str(SIM_SUBJECT)),
+        ("payload", str(HOUSEHOLD_FORMED_VARIANT), "core:household_formed"),
+        ("payload", str(MOVED_VARIANT), "core:moved"),
+        ("cause", "0", "event"),
         ("subject", "world", str(WORLD_SUBJECT)),
         ("class", "general", str(GENERAL)),
         ("payload", "5", "core:partnered"),

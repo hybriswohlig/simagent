@@ -20,14 +20,14 @@ use sim_core::world::{EventPayload, World, YearOut};
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const TINY_AFTER_START: &str = "0f01ff010100000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e00000000010000000000000000000000000000";
-const PAIR_AFTER_START: &str = "0f01ff010100000103010880a8a7020002060180a8a702fc87ff1d0003010100fe87ff1d0006010200fe87ff1d000100018088ff1df0caa9d31400070202a0bb8ca1c58498a01c00a0afd7c61500040201a0bb8ca1c58498a01c00bcb0a18e660005020185d2bc82f8b2ead44d00aaaec4de88010008020285d2bc82f8b2ead44d00090201038cf68c8181f39989b901000000000100000000000000000000000201aca1aef0de91d89d86010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000000000000";
-const TINY_OVERRIDDEN: &str = "0f01ff010101000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e00000000010000000000000000000000000000";
-const TINY_OVERRIDE_ENTRY: &str = "030000010202030001";
-const TINY_AFTER_START_HASH: u64 = 0x57c8_077b_2b29_77cd;
-const TINY_YEAR_0_HASH: u64 = 0x2b98_b1f2_6cea_913d;
-const TINY_AFTER_YEAR_0: &str = "0f01ff01010000fe87ff1d0201058088ff1d0002060180a8a702fe8ffe3b0006010100fe8ffe3b000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e00000000010000000000000000000000000000";
-const TINY_AFTER_YEAR_0_HASH: u64 = 0xf5e2_15fe_b89f_dd5e;
+const TINY_AFTER_START: &str = "1001ff01010000010201020680a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000100000000010100000000";
+const PAIR_AFTER_START: &str = "1001ff01010000010301030a80a8a7020002060180a8a702fc87ff1d0003010100fe87ff1d0006010200fe87ff1d000100018088ff1dfc97eeb9040009070100fea7ecf504000a070200f0caa9d31400070202a0bb8ca1c58498a01c00a0afd7c61500040201a0bb8ca1c58498a01c00bcb0a18e660005020185d2bc82f8b2ead44d00aaaec4de88010008020285d2bc82f8b2ead44d000b0201038cf68c8181f39989b901000000000100000000000000000000010000000201aca1aef0de91d89d86010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000200000000020100000200000000";
+const TINY_OVERRIDDEN: &str = "1001ff01010100010201020680a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000100000000010100000000";
+const TINY_OVERRIDE_ENTRY: &str = "040000010202030001";
+const TINY_AFTER_START_HASH: u64 = 0x2756_f3d0_7736_2b11;
+const TINY_YEAR_0_HASH: u64 = 0x2ae2_8233_7239_f9ea;
+const TINY_AFTER_YEAR_0: &str = "1001ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e0000000001000000000000000000000100000000010100000000";
+const TINY_AFTER_YEAR_0_HASH: u64 = 0xe764_9e3f_49cc_66a0;
 const LOG_HASH_EMPTY: u64 = 0x2d06_8005_38d3_94c2;
 const LOG_HASH_ENTRY: u64 = 0xdb98_2fa2_37ed_9ecc;
 const LOG_HASH_ENTRY_TWICE: u64 = 0x7e76_9d92_d1d4_9c69;
@@ -114,7 +114,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0x19e3_a720_ea98_8653);
+    assert_eq!(world.state_hash(), 0xb1ec_ddfe_1bb9_8761);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -129,7 +129,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0xb61d_500d_e0cf_1ec6);
+    assert_eq!(world.state_hash(), 0x9f73_6825_64db_f19c);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -167,7 +167,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"2b98b1f26cea913d"}"#
+        r#"{"year":0,"hash":"2ae282337239f9ea"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()
@@ -295,12 +295,13 @@ fn rejected_input_keeps_the_state_hash() {
     fresh.submit(start(9, &[0])).expect_err("founder not born");
     assert_eq!(fresh.state_hash(), before);
     // The EventId counter is not in the hash: a rejected input must not use an ID
-    // either. Start wrote entries 1 and 2, so the first birthday is entry 3.
-    assert_eq!(world.take_log().len(), 2);
+    // either. Start wrote entries 1 to 3 (with the founder's household), so the first
+    // birthday is entry 4.
+    assert_eq!(world.take_log().len(), 3);
     world.advance_until(&mut YearOut::default(), t(Y - 1), &mut |_| false);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
-    assert_eq!(serde_json::to_string(&log[0].id).expect("json"), "3");
+    assert_eq!(serde_json::to_string(&log[0].id).expect("json"), "4");
     // And a rejected first input leaves the counters at their start.
     fresh.submit(start(9, &[-1])).expect("accepted");
     assert_eq!(fresh.canonical_bytes(), started(9, &[-1]).canonical_bytes());
@@ -309,7 +310,7 @@ fn rejected_input_keeps_the_state_hash() {
         .iter()
         .map(|entry| serde_json::to_string(&entry.id).expect("json"))
         .collect();
-    assert_eq!(ids, ["1", "2"]);
+    assert_eq!(ids, ["1", "2", "3"]);
 }
 
 /// The log is no state: taking it does not change the hash.
@@ -317,7 +318,7 @@ fn rejected_input_keeps_the_state_hash() {
 fn taking_the_log_keeps_the_state_hash() {
     let mut world = tiny();
     let before = world.state_hash();
-    assert_eq!(world.take_log().len(), 2);
+    assert_eq!(world.take_log().len(), 3);
     assert_eq!(world.state_hash(), before);
 }
 

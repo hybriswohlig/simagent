@@ -89,8 +89,9 @@ fn calibration_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
     (lists == 5).then_some(all)
 }
 
-/// The values of the life course data and the weights of the wish, with their text fields
-/// (ADR-0017 section 1); `None` unless both lists are there.
+/// The values of the life course data, the weights of the wish and of leaving home, with
+/// their text fields (ADR-0017 section 1, ADR-0018 section 4); `None` unless all three
+/// lists are there.
 fn demography_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
     let mut all = Vec::new();
     let mut lists = 0;
@@ -98,12 +99,12 @@ fn demography_entries(file: &mut Value) -> Option<Vec<&mut Value>> {
         if name == "values" {
             all.extend(list.as_object_mut()?.values_mut());
             lists += 1;
-        } else if name == "fertility_wish_shape" {
+        } else if name == "fertility_wish_shape" || name == "leave_home_ages" {
             all.extend(list.as_array_mut()?.iter_mut());
             lists += 1;
         }
     }
-    (lists == 2).then_some(all)
+    (lists == 3).then_some(all)
 }
 
 /// Every number inside a disease: an object with a unit, however deep it sits.
@@ -178,7 +179,7 @@ mod tests {
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
         // core sees the same bytes from both readers.
-        assert_eq!(core_data().expect("data").hash(), 0xc466_265f_81ba_9819);
+        assert_eq!(core_data().expect("data").hash(), 0xadab_5027_57b4_045c);
     }
 
     #[test]
@@ -279,7 +280,7 @@ mod tests {
     #[test]
     fn traits_have_their_text() {
         let data = data_from(DEMOGRAPHY, TRAITS_CALIBRATION, TRAITS_MAP).expect("data");
-        assert_eq!(data.hash(), 0x7bd2_444d_9785_4563);
+        assert_eq!(data.hash(), 0x3061_cb52_98c1_9dd9);
         assert_eq!(data.genome_map().traits.len(), 4);
         let blank = TRAITS_MAP.replacen(
             "\"description\": \"An exclusive trait.\"",

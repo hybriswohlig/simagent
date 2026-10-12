@@ -13,6 +13,8 @@ payload 6 core:conception
 payload 7 core:meiosis
 payload 8 core:birth
 payload 9 core:separated
+payload 10 core:household_formed
+payload 11 core:moved
 cause 0 event
 cause 1 plan
 cause 2 input

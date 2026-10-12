@@ -5,7 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::event::EventPayload;
-use crate::ids::{Counter, EventId, PartnershipId, SimId};
+use crate::ids::{Counter, EventId, HouseholdId, PartnershipId, SimId};
 use crate::log::{Cause, Causes, LogEntry, LogPayload, PlanRef, Subject};
 use crate::time::{Ctx, EventHandle, SimDuration, SimTime};
 use crate::trace::{TraceBuffer, TracePayload};
@@ -14,6 +14,7 @@ use crate::trace::{TraceBuffer, TracePayload};
 pub(super) struct IdCounters {
     sim: Counter,
     partnership: Counter,
+    household: Counter,
 }
 
 impl IdCounters {
@@ -21,12 +22,17 @@ impl IdCounters {
         IdCounters {
             sim: Counter::new(),
             partnership: Counter::new(),
+            household: Counter::new(),
         }
     }
 
     /// The counters of a loaded world.
-    pub(super) fn restore(sim: Counter, partnership: Counter) -> IdCounters {
-        IdCounters { sim, partnership }
+    pub(super) fn restore(sim: Counter, partnership: Counter, household: Counter) -> IdCounters {
+        IdCounters {
+            sim,
+            partnership,
+            household,
+        }
     }
 
     /// The SimId the next sim gets.
@@ -37,6 +43,11 @@ impl IdCounters {
     /// The PartnershipId the next partnership gets.
     pub(super) fn next_partnership(&self) -> u64 {
         self.partnership.peek()
+    }
+
+    /// The HouseholdId the next household gets.
+    pub(super) fn next_household(&self) -> u64 {
+        self.household.peek()
     }
 
     /// Number of SimIds handed out so far.
@@ -193,6 +204,22 @@ impl<'a, 'q> SimCtx<'a, 'q> {
             causes,
         );
         (id, entry)
+    }
+
+    /// A new HouseholdId with its creation entry `core:household_formed`, `subjects` its
+    /// first members (ADR-0018 section 4).
+    pub(crate) fn create_household(
+        &mut self,
+        subjects: Vec<Subject>,
+        causes: Causes,
+    ) -> HouseholdId {
+        let id = self.ids.household.allocate_household();
+        self.emit(
+            LogPayload::HouseholdFormed { household: id },
+            subjects,
+            causes,
+        );
+        id
     }
 
     /// Plans one event; `by` is the entry that gives the reason.

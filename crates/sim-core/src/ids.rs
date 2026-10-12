@@ -67,6 +67,11 @@ entity_id!(
     /// A partnership of a woman and a man, from its forming on (ADR-0004 section 1).
     PartnershipId
 );
+entity_id!(
+    /// A household, from its forming on (ADR-0018 section 4). Not fork-stable: no draw
+    /// names it (ADR-0001).
+    HouseholdId
+);
 
 /// ID of a log entry. Opaque: handlers only pass it on as a cause or `by`; there is no
 /// comparison and no access to the number (ADR-0004 section 6). Outside the core an
@@ -155,6 +160,10 @@ impl Counter {
 
     pub(crate) fn allocate_partnership(&mut self) -> PartnershipId {
         PartnershipId(self.allocate())
+    }
+
+    pub(crate) fn allocate_household(&mut self) -> HouseholdId {
+        HouseholdId(self.allocate())
     }
 
     pub(crate) fn allocate_event(&mut self) -> EventId {

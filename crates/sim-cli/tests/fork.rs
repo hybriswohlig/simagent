@@ -343,21 +343,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":31"#, r#""core_version":32"#);
+    replace_in(&log, r#""core_version":32"#, r#""core_version":33"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 32, this is 31"
+            "error: fork_foreign_core_version: the parent run is of core version 33, this is 32"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":32"#, r#""core_version":31"#);
-    replace_in(&log, "c466265f81ba9819", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":33"#, r#""core_version":32"#);
+    replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is c466265f81ba9819".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is adab502757b4045c".to_owned())
     );
-    replace_in(&log, "c3f04a38869c20d7", "c466265f81ba9819");
+    replace_in(&log, "c3f04a38869c20d7", "adab502757b4045c");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -416,9 +416,9 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":31"#, r#""core_version":32"#),
+        (r#""core_version":32"#, r#""core_version":33"#),
         (
-            r#""data_hash":"c466265f81ba9819""#,
+            r#""data_hash":"adab502757b4045c""#,
             r#""data_hash":"c3f04a38869c20d7""#,
         ),
         (
@@ -694,19 +694,20 @@ fn fork_point_hash_equals_parent() {
     let ours_lines: Vec<&str> = ours_events.lines().collect();
     let theirs_lines: Vec<&str> = theirs_events.lines().collect();
     assert_eq!(ours_lines.len(), theirs_lines.len() + 1);
-    // Four entries of the start and three birthdays in each of the years 0 to 4.
-    assert_eq!(ours_lines[..19], theirs_lines[..19]);
+    // Seven entries of the start (with three households) and three birthdays in each of
+    // the years 0 to 4.
+    assert_eq!(ours_lines[..22], theirs_lines[..22]);
     assert_eq!(
-        ours_lines[19],
+        ours_lines[22],
         format!(
-            r#"{{"id":20,"t":{},"subjects":[],"causes":[{{"input":2}}],"payload":{{"core:param_changed":{{"change":{{"core:hereditary_diseases":true}}}}}}}}"#,
+            r#"{{"id":23,"t":{},"subjects":[],"causes":[{{"input":2}}],"payload":{{"core:param_changed":{{"change":{{"core:hereditary_diseases":true}}}}}}}}"#,
             5 * Y
         )
     );
     // The birthday of sim 1 in that second follows with the next EventId.
     assert!(
-        ours_lines[20].starts_with(&format!(
-            r#"{{"id":21,"t":{},"subjects":[{{"sim":1}}]"#,
+        ours_lines[23].starts_with(&format!(
+            r#"{{"id":24,"t":{},"subjects":[{{"sim":1}}]"#,
             5 * Y
         )),
         "{}",

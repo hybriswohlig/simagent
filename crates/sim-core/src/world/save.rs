@@ -14,7 +14,7 @@ use crate::canonical::{self, LoadedState, PROJECTION_VERSION, QueueEntry, YearHa
 use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
-use crate::ids::{Counter, PartnershipId, SimId};
+use crate::ids::{Counter, HouseholdId, PartnershipId, SimId};
 use crate::input::{Input, InputRecord, Start};
 use crate::kinship::{Kin, KinshipCache};
 use crate::lineage::GenomeKey;
@@ -211,6 +211,7 @@ impl World {
         let lineage = lineage_index(&loaded.sims, &loaded.archive, &loaded.pregnancies);
         let pending = pending_index(&loaded.queue, &loaded.partnerships);
         let open = open_index(&loaded.partnerships);
+        let members = member_index(&loaded.sims);
         let world = World {
             sched,
             state: WorldState {
@@ -219,16 +220,19 @@ impl World {
                     world_params: loaded.world_params,
                     sims: loaded.sims,
                     partnerships: loaded.partnerships,
+                    households: loaded.households,
                     pregnancies: loaded.pregnancies,
                     archive: loaded.archive,
                     lineage,
                     pending,
                     open,
                     kinship: KinshipCache::new(),
+                    members,
                 },
                 ids: IdCounters::restore(
                     counter(loaded.next_sim_id)?,
                     counter(loaded.next_partnership_id)?,
+                    counter(loaded.next_household_id)?,
                 ),
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
                 trace: TraceBuffer::default(),
@@ -286,6 +290,7 @@ pub(super) fn pending_index(
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
             EventPayload::Birth { mother } => (*mother, Slot::Birth),
+            EventPayload::LeaveHome { sim } => (*sim, Slot::LeaveHome),
             EventPayload::Separation { partnership } => {
                 let Some(partnership) = partnerships.get(partnership) else {
                     panic!("invariant save.separation_of_unknown_partnership");
@@ -315,8 +320,10 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
             && loaded.archive.is_empty()
+            && loaded.households.is_empty()
             && loaded.next_sim_id == 1
             && loaded.next_partnership_id == 1
+            && loaded.next_household_id == 1
             && loaded.next_event_seq == 1
             && exceptions.next_event_id == 1
             && exceptions.input_log.is_empty()
@@ -350,6 +357,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
         && births_consistent(loaded)
+        && households_consistent(loaded, &rules)
         && queue_consistent(loaded, now, &rules)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
@@ -546,6 +554,132 @@ fn kin(loaded: &LoadedState, sim: SimId) -> Kin {
             parents: person.parents.map(|p| (p.mother, p.father)),
         },
     )
+}
+
+/// The living members of each household, from the sims (ADR-0018 section 4).
+pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId, BTreeSet<SimId>> {
+    let mut members: BTreeMap<HouseholdId, BTreeSet<SimId>> = BTreeMap::new();
+    for (id, sim) in sims {
+        members.entry(sim.household).or_default().insert(*id);
+    }
+    members
+}
+
+/// The households as the rule leaves them (ADR-0018 sections 4 and 7), at `t`, the clock
+/// or the start right after `Start`: the IDs 1 to the counter are households (kept as
+/// history), formed in a second that is closed or acted in by an input; each living person
+/// lives in one that has not ended, each that has not ended has a living member and each
+/// that ended has none. A person moved out exactly if it is a founder of 18 or more, ever
+/// formed a partnership, or its second of leaving home has come (for the dead: before its
+/// death). A dependent person (under 18, not moved out) has a carer in its household who
+/// is not dependent, or no carer in a household where nobody is moved out or has a carer
+/// (the last stage of the orphan rule); nobody else has a carer.
+fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
+    let clock = loaded.closed_through;
+    let t = clock.max(SimTime::START);
+    let acted = clock.as_secs().saturating_add(1);
+    let ids_complete = u64::try_from(loaded.households.len())
+        .ok()
+        .and_then(|count| count.checked_add(1))
+        == Some(loaded.next_household_id)
+        && loaded
+            .households
+            .keys()
+            .zip(1_u64..)
+            .all(|(id, number)| id.get() == number);
+    let members = member_index(&loaded.sims);
+    let open = open_index(&loaded.partnerships);
+    let households_fit = loaded.households.iter().all(|(id, household)| {
+        let formed = household.formed.as_secs() <= acted;
+        let living = members.get(id).is_some_and(|set| !set.is_empty());
+        let ended = match household.ended {
+            None => living,
+            Some(at) => !living && at >= household.formed && at.as_secs() <= acted,
+        };
+        formed && ended
+    });
+    let archived_known = loaded
+        .archive
+        .values()
+        .all(|sim| loaded.households.contains_key(&sim.household));
+    let partnered: BTreeSet<SimId> = loaded
+        .partnerships
+        .values()
+        .flat_map(|p| [p.woman, p.man])
+        .collect();
+    let moved_out = |id: &SimId, born: SimTime, key: LineageKey, founder: bool, until: SimTime| {
+        let adult_founder =
+            founder && state::market::of_age(born, SimTime::START, ADULT_FOUNDER_YEARS);
+        let leaves = state::household::leave_second(rules.data, rules.seed, born, key);
+        adult_founder || partnered.contains(id) || leaves <= until
+    };
+    let living_fit = loaded.sims.iter().all(|(id, sim)| {
+        let expected = moved_out(id, sim.born, sim.lineage_key, sim.parents.is_none(), t);
+        let home = loaded.households.get(&sim.household);
+        let at_home = home.is_some_and(|household| household.ended.is_none());
+        let carer_fits = if state::household::dependent(sim, t) {
+            // An input in the second the clock acts in may pair the carer of a child who
+            // comes of age in that second: the child stays, and its carer clears only when
+            // its birthday runs later in that second (ADR-0018 section 4).
+            let of_age_next = clock
+                .checked_add(SimDuration::from_secs(1))
+                .is_some_and(|next| !state::household::dependent(sim, next));
+            match sim.carer {
+                Some(carer) => loaded.sims.get(&carer).is_some_and(|c| {
+                    let pairing = open
+                        .get(&carer)
+                        .and_then(|id| loaded.partnerships.get(id))
+                        .map(|p| {
+                            let together = [p.woman, p.man].iter().all(|partner| {
+                                loaded
+                                    .sims
+                                    .get(partner)
+                                    .is_some_and(|other| other.household == c.household)
+                            });
+                            (p.formed, together)
+                        });
+                    let home = loaded.households.get(&c.household).map(|h| h.formed);
+                    let away = of_age_next && paired_away(acted, home, pairing);
+                    (c.household == sim.household || away) && !state::household::dependent(c, t)
+                }),
+                None => members.get(&sim.household).is_some_and(|set| {
+                    set.iter().all(|other| {
+                        loaded
+                            .sims
+                            .get(other)
+                            .is_some_and(|o| !o.moved_out && o.carer.is_none())
+                    })
+                }),
+            }
+        } else {
+            sim.carer.is_none()
+        };
+        sim.moved_out == expected && at_home && carer_fits
+    });
+    let archived_fit = loaded.archive.iter().all(|(id, sim)| {
+        sim.moved_out
+            == moved_out(
+                id,
+                sim.born,
+                sim.lineage_key,
+                sim.parents.is_none(),
+                sim.left,
+            )
+    });
+    ids_complete && households_fit && archived_known && living_fit && archived_fit
+}
+
+/// A founder of this age at the start is moved out (ADR-0018 section 4).
+const ADULT_FOUNDER_YEARS: i64 = 18;
+
+/// Whether a carer lives apart from a child who comes of age in the second the clock acts
+/// in (`acted`) because an input paired the carer in that second: the carer's household
+/// formed then (`home`), and so did the carer's open partnership (`pairing`: its forming
+/// and whether the partner lives in the carer's household). The child stayed, and its
+/// birthday clears the carer later in that second (ADR-0018 section 4).
+fn paired_away(acted: i64, home: Option<SimTime>, pairing: Option<(SimTime, bool)>) -> bool {
+    let then = |at: SimTime| at.as_secs() == acted;
+    home.is_some_and(then) && pairing.is_some_and(|(formed, together)| then(formed) && together)
 }
 
 /// The open partnership of each sim in one, from the partnerships (ADR-0018 section 2).
@@ -1217,6 +1351,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut births = BTreeSet::new();
     let mut attempts = BTreeSet::new();
     let mut separations = BTreeSet::new();
+    let mut leaving = BTreeSet::new();
     let mut deaths = BTreeSet::new();
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
@@ -1273,6 +1408,19 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && attempts.insert(*woman)
                     && next_attempt(loaded, now, rules, *woman) == Some(entry.time)
             }
+            EventPayload::LeaveHome { sim } => {
+                entry.period.is_none()
+                    && leaving.insert(*sim)
+                    && loaded.sims.get(sim).is_some_and(|person| {
+                        !person.moved_out
+                            && state::household::leave_second(
+                                rules.data,
+                                rules.seed,
+                                person.born,
+                                person.lineage_key,
+                            ) == entry.time
+                    })
+            }
             EventPayload::Separation { partnership: id } => {
                 entry.period.is_none()
                     && separations.insert(*id)
@@ -1309,8 +1457,14 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             || separation_due(loaded, rules, *id, partnership).is_none()
             || separations.contains(id)
     });
+    // Everyone who has not moved out leaves home at the drawn age.
+    let all_leaving_planned = loaded
+        .sims
+        .iter()
+        .all(|(id, person)| person.moved_out || leaving.contains(id));
     year_end_seen
         && round_seen
+        && all_leaving_planned
         && birthdays.len() == loaded.sims.len()
         && all_separations_planned
         && all_deaths_planned
@@ -1350,6 +1504,20 @@ mod tests {
         assert!(!formed_in_order(Some((t(5), true)), t(5), false));
         assert!(formed_in_order(Some((t(5), true)), t(6), false));
         assert!(!formed_in_order(Some((t(6), false)), t(5), false));
+    }
+
+    /// Review finding: a carer may live apart from a child coming of age only in the
+    /// household an input paired her into in that very second, with her partner.
+    #[test]
+    fn a_carer_lives_apart_only_after_a_pairing_in_that_second() {
+        let t = SimTime::from_secs;
+        assert!(paired_away(9, Some(t(9)), Some((t(9), true))));
+        // A household formed then, but no pairing of the carer: a forged time.
+        assert!(!paired_away(9, Some(t(9)), None));
+        assert!(!paired_away(9, Some(t(9)), Some((t(5), true))));
+        assert!(!paired_away(9, Some(t(9)), Some((t(9), false))));
+        assert!(!paired_away(9, Some(t(5)), Some((t(9), true))));
+        assert!(!paired_away(9, None, Some((t(9), true))));
     }
 
     #[test]

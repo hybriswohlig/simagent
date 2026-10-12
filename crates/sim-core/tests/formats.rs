@@ -17,7 +17,7 @@ use sim_core::genome::meiosis::{Mutation, SegmentMeiosis};
 use sim_core::genome::{
     Genome, LocusAlleles, PaternalSex, Sex, SexChromosome, Strand, XChromosome, YChromosome,
 };
-use sim_core::ids::{EventId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
+use sim_core::ids::{EventId, HouseholdId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
     ArrangePartnership, Couple, ForkOverride, Founder, Input, InputRecord, InputRejected,
     InputStamp, RejectCode, Start,
@@ -409,6 +409,25 @@ fn partnership_forms_are_pinned() {
         Some(separated.clone())
     );
     assert_eq!(postcard_round_trip(&separated), hex("0901"));
+    // The households (ADR-0018 section 4): the variants 10 and 11
+    // (tools/postcard_reference.py).
+    let household = HouseholdId::try_from(1).expect("valid");
+    let formed = LogPayload::HouseholdFormed { household };
+    let formed_json = r#"{"core:household_formed":{"household":1}}"#;
+    assert_eq!(json(&formed), formed_json);
+    assert_eq!(
+        from_json::<LogPayload>(formed_json).ok(),
+        Some(formed.clone())
+    );
+    assert_eq!(postcard_round_trip(&formed), hex("0a01"));
+    let moved = LogPayload::Moved { household };
+    let moved_json = r#"{"core:moved":{"household":1}}"#;
+    assert_eq!(json(&moved), moved_json);
+    assert_eq!(
+        from_json::<LogPayload>(moved_json).ok(),
+        Some(moved.clone())
+    );
+    assert_eq!(postcard_round_trip(&moved), hex("0b01"));
 
     for rejected in [
         r#"{"woman":0}"#,
@@ -887,6 +906,12 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Separated {
             partnership: PartnershipId::try_from(1).expect("valid"),
         },
+        LogPayload::HouseholdFormed {
+            household: HouseholdId::try_from(1).expect("valid"),
+        },
+        LogPayload::Moved {
+            household: HouseholdId::try_from(1).expect("valid"),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -900,7 +925,9 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Conception { .. }
             | LogPayload::Meiosis { .. }
             | LogPayload::Birth { .. }
-            | LogPayload::Separated { .. } => {}
+            | LogPayload::Separated { .. }
+            | LogPayload::HouseholdFormed { .. }
+            | LogPayload::Moved { .. } => {}
         }
     }
     payloads

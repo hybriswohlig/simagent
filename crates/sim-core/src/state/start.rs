@@ -3,9 +3,10 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, Slot, death, disease, partnership, years_between};
+use super::{DomainState, Sim, Slot, death, disease, household, partnership, years_between};
 use crate::data::Data;
 use crate::genome::{AlleleError, Genome};
+use crate::ids::HouseholdId;
 use crate::input::{Founder, InputRejected, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
@@ -162,6 +163,12 @@ pub(crate) fn apply_start(
                 conceptions: 0,
                 births: 0,
                 partnerships: 0,
+                // The households come after the founders and the couples
+                // (`household::start_households`), which sets each founder's.
+                household: HouseholdId::try_from(1)
+                    .unwrap_or_else(|_| panic!("invariant start.household")),
+                moved_out: false,
+                carer: None,
                 parents: None,
             },
         );
@@ -170,23 +177,23 @@ pub(crate) fn apply_start(
         domain.pending.insert((id, Slot::Birthday), handle);
         ctx.trace(id, || TracePayload::BirthdayPlanned { next });
         death::plan_deaths(domain, data, id, added, ctx);
-        ids.push(id);
+        ids.push((id, added));
     }
-    for couple in &start.couples {
-        let founder = |place: u32| {
-            usize::try_from(place)
-                .ok()
-                .and_then(|place| ids.get(place).copied())
-                .unwrap_or_else(|| panic!("invariant start.couple_place"))
-        };
-        partnership::pair_up(
-            domain,
-            data,
-            founder(couple.woman),
-            founder(couple.man),
-            ctx,
-        );
+    let place = |place: u32| {
+        usize::try_from(place)
+            .ok()
+            .filter(|place| ids.get(*place).is_some())
+            .unwrap_or_else(|| panic!("invariant start.couple_place"))
+    };
+    let couples: Vec<(usize, usize)> = start
+        .couples
+        .iter()
+        .map(|couple| (place(couple.woman), place(couple.man)))
+        .collect();
+    for &(woman, man) in &couples {
+        partnership::pair_up(domain, data, ids[woman].0, ids[man].0, ctx);
     }
+    household::start_households(domain, data, &ids, &couples, ctx);
 }
 
 /// The first anniversary of `born` at or after `now` (`born <= now`).

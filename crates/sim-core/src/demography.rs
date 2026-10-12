@@ -14,7 +14,7 @@ use crate::data_id::DataId;
 use crate::learning::LearningParams;
 
 /// Format version of the life course data (ADR-0017 section 1).
-pub const DEMOGRAPHY_FORMAT_VERSION: u32 = 1;
+pub const DEMOGRAPHY_FORMAT_VERSION: u32 = 2;
 
 /// The file as the core reads it, without its text fields (ADR-0007 section 2).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +24,9 @@ pub struct DemographyCalibration {
     pub values: BTreeMap<DataId, Calibrated>,
     /// The weights `p_0 … p_n` of the wish for children (11.3).
     pub fertility_wish_shape: Vec<Calibrated>,
+    /// The weights of the ages 16 to 25 at which a person leaves home (ADR-0018 section 4;
+    /// Dario's table).
+    pub leave_home_ages: Vec<Calibrated>,
 }
 
 /// The checked values of the life course.
@@ -35,6 +38,8 @@ pub struct Demography {
     /// `λ_sep` per year; 0 is a world without separation (ADR-0018 section 3).
     pub separation_rate: f64,
     pub learning: LearningParams,
+    /// The weights of leaving home at 16 to 25 (ADR-0018 section 4).
+    pub leave_home: Vec<f64>,
 }
 
 /// Fertility (11.3): the adult rate of an attempt, the pause after a birth, the length of
@@ -82,6 +87,8 @@ pub struct Market {
 
 /// The number of values of format 1.
 const VALUES: usize = 22;
+/// The ages of leaving home: 16 to 25 (ADR-0018 section 4).
+const LEAVE_AGES: usize = 10;
 /// The most entries of the wish shape: with `α ≤ 10` every `e^(α·n)` stays finite.
 const MAX_WISH: usize = 64;
 
@@ -181,7 +188,38 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         market,
         separation_rate,
         learning,
+        leave_home: leave_home_ages(&file.leave_home_ages)?,
     })
+}
+
+/// The ages of leaving home: ten weights for 16 to 25, each a fraction in [0, 1], at least
+/// one above 0.
+fn leave_home_ages(entries: &[Calibrated]) -> Result<Vec<f64>, DataError> {
+    if entries.len() != LEAVE_AGES {
+        return Err(DataError::Demography);
+    }
+    let weights = fractions(entries)?;
+    if weights.iter().any(|w| *w > 0.0) {
+        Ok(weights)
+    } else {
+        Err(DataError::Demography)
+    }
+}
+
+/// Weights, each a fraction in [0, 1].
+fn fractions(entries: &[Calibrated]) -> Result<Vec<f64>, DataError> {
+    let mut weights = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.unit != Unit::Fraction {
+            return Err(DataError::CalibrationUnit);
+        }
+        let x = entry.value.get();
+        if !(0.0..=1.0).contains(&x) {
+            return Err(DataError::Demography);
+        }
+        weights.push(x);
+    }
+    Ok(weights)
 }
 
 /// The wish shape: 1 to 64 weights, each a fraction in [0, 1], at least one above 0.

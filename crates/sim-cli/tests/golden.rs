@@ -22,7 +22,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`
 /// (ADR-0007).
-const DATA_HASH: u64 = 0xc466_265f_81ba_9819;
+const DATA_HASH: u64 = 0xadab_5027_57b4_045c;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -241,6 +241,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             },
         ),
         ("market_round", EventPayload::MarketRound),
+        ("leave_home", EventPayload::LeaveHome { sim }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -251,7 +252,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::ConceptionAttempt { .. }
                 | EventPayload::Birth { .. }
                 | EventPayload::Separation { .. }
-                | EventPayload::MarketRound => {}
+                | EventPayload::MarketRound
+                | EventPayload::LeaveHome { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -270,10 +272,12 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Meiosis { .. } => "core:meiosis",
         LogPayload::Birth { .. } => "core:birth",
         LogPayload::Separated { .. } => "core:separated",
+        LogPayload::HouseholdFormed { .. } => "core:household_formed",
+        LogPayload::Moved { .. } => "core:moved",
     }
 }
 
-const LOG_KINDS: [&str; 10] = [
+const LOG_KINDS: [&str; 12] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -284,6 +288,8 @@ const LOG_KINDS: [&str; 10] = [
     "core:meiosis",
     "core:birth",
     "core:separated",
+    "core:household_formed",
+    "core:moved",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -344,7 +350,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 7);
+    assert_eq!(kinds.len(), 8);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -352,7 +358,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 10);
+    assert_eq!(logs.len(), 12);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -399,6 +405,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event conception_attempt",
             "event birth",
             "event separation",
+            "event leave_home",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -407,7 +414,9 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:conception",
             "log core:meiosis",
             "log core:birth",
-            "log core:separated"
+            "log core:separated",
+            "log core:household_formed",
+            "log core:moved"
         ]
     );
 }

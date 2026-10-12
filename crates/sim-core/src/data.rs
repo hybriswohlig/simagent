@@ -1666,7 +1666,7 @@ pub(crate) mod testing {
             read(include_str!("../../../data/genetics/genome_map.json")),
         );
         let mut demography = read(include_str!("../../../data/calibration/demography.json"));
-        for list in ["values", "fertility_wish_shape"] {
+        for list in ["values", "fertility_wish_shape", "leave_home_ages"] {
             let entries: alloc::vec::Vec<&mut Value> = match &mut demography[list] {
                 Value::Object(values) => values.values_mut().collect(),
                 Value::Array(weights) => weights.iter_mut().collect(),

@@ -75,6 +75,9 @@ mod tests {
             conceptions: 0,
             births: 0,
             partnerships: 0,
+            household: crate::ids::HouseholdId::try_from(1).expect("valid"),
+            moved_out: false,
+            carer: None,
             parents: None,
         }
     }
@@ -91,6 +94,8 @@ mod tests {
             conceptions: 0,
             births: 0,
             partnerships: 0,
+            household: crate::ids::HouseholdId::try_from(1).expect("valid"),
+            moved_out: false,
             parents: None,
         }
     }

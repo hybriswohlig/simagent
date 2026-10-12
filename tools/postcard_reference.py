@@ -220,6 +220,19 @@ def partnership(woman: int, man: int, formed: int, ended) -> bytes:
     return varint(woman) + varint(man) + signed(formed) + (b"\x00" if ended is None else b"\x01" + ending(*ended))
 
 
+def household(formed: int, ended) -> bytes:
+    """Household { formed: SimTime, ended: Option<SimTime> } (projection version 16, design
+    note of the households, section 2): `ended` None or the time."""
+    return signed(formed) + (b"\x00" if ended is None else b"\x01" + signed(ended))
+
+
+def household_fields(household_id: int, moved_out: bool, carer) -> bytes:
+    """The fields a sim holds after `partnerships` (design note of the households, section
+    2): `household: HouseholdId`, `moved_out: bool`, `carer: Option<SimId>` (an archived
+    sim holds the first two only)."""
+    return varint(household_id) + flag(moved_out) + (b"\x00" if carer is None else b"\x01" + varint(carer))
+
+
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
 # WorldParams, founders: [Founder], couples: [Couple] }: no causes of death and no
 # fertility, they come from the data (ADR-0017 sections 2 and 4; design note of the
@@ -327,6 +340,28 @@ SAMPLE_MARKET_CAUSES = seq(
     ]
 )
 
+# Event::LeaveHome (variant 7, the last) { sim: SimId } in the queue (design note of the
+# households, section 3; kind `leave_home` 8).
+SAMPLE_LEAVE_HOME_EVENT = variant(7, varint(1))
+
+# LogPayload::HouseholdFormed (variant 10) { household: HouseholdId } and LogPayload::Moved
+# (variant 11, the last) { household: HouseholdId } (design note of the households, section
+# 3).
+SAMPLE_HOUSEHOLD_FORMED_PAYLOAD = variant(10, varint(1))
+SAMPLE_MOVED_PAYLOAD = variant(11, varint(1))
+
+# The causes of a move after a partnership: Event (variant 0) the entry `core:partnered`,
+# Rule (variant 3) `core:household`.
+SAMPLE_HOUSEHOLD_CAUSES = seq([variant(0, varint(5)), variant(3, string("core:household"))])
+
+# A household open and one ended; a sim's household fields (household 3, moved out, carer
+# sim 2) and those of a dependent child alone after the orphan rule (household 1, not moved
+# out, no carer).
+SAMPLE_HOUSEHOLD_OPEN = household(0, None)
+SAMPLE_HOUSEHOLD_ENDED = household(0, 86_400)
+SAMPLE_HOUSEHOLD_FIELDS = household_fields(3, True, 2)
+SAMPLE_HOUSEHOLD_FIELDS_ORPHAN = household_fields(1, False, None)
+
 # SimDuration at its lower bound, -1 000 000 years of 364 days.
 MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 
@@ -366,6 +401,14 @@ if __name__ == "__main__":
         ("rejected_partners_too_closely_related", REJECTED_PARTNERS_TOO_CLOSELY_RELATED),
         ("sample_market_round_event", SAMPLE_MARKET_ROUND_EVENT),
         ("sample_market_causes", SAMPLE_MARKET_CAUSES),
+        ("sample_leave_home_event", SAMPLE_LEAVE_HOME_EVENT),
+        ("sample_household_formed_payload", SAMPLE_HOUSEHOLD_FORMED_PAYLOAD),
+        ("sample_moved_payload", SAMPLE_MOVED_PAYLOAD),
+        ("sample_household_causes", SAMPLE_HOUSEHOLD_CAUSES),
+        ("sample_household_open", SAMPLE_HOUSEHOLD_OPEN),
+        ("sample_household_ended", SAMPLE_HOUSEHOLD_ENDED),
+        ("sample_household_fields", SAMPLE_HOUSEHOLD_FIELDS),
+        ("sample_household_fields_orphan", SAMPLE_HOUSEHOLD_FIELDS_ORPHAN),
         ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),

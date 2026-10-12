@@ -15,3 +15,4 @@ kind conception_attempt 4
 kind birth 5
 kind separation 6
 kind market_round 7
+kind leave_home 8

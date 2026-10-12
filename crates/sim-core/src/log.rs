@@ -13,7 +13,7 @@ use crate::data_id::Code;
 use crate::genome::SexChromosome;
 use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
-use crate::ids::{EventId, InputSeq, PartnershipId, SimId};
+use crate::ids::{EventId, HouseholdId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
 use crate::rng::DrawKey;
@@ -172,6 +172,13 @@ pub enum LogPayload {
     /// (ADR-0018 section 3).
     #[serde(rename = "core:separated")]
     Separated { partnership: PartnershipId },
+    /// A household formed (creation entry of a HouseholdId; subjects: the members it
+    /// starts with, ADR-0018 section 4).
+    #[serde(rename = "core:household_formed")]
+    HouseholdFormed { household: HouseholdId },
+    /// A person (the subject) moved into this household.
+    #[serde(rename = "core:moved")]
+    Moved { household: HouseholdId },
 }
 
 /// One entry of the domain log.
