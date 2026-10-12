@@ -7,7 +7,8 @@ hashes the postcard bytes of the three definition sets in the string order of th
 `core:calibration_genetics` (calibration/genetics.json), then `core:genome_map`
 (genetics/genome_map.json), with xxh3-64 and seed 0 over the concatenation (ADR-0003
 StableHasher, ADR-0004 section 2). A data directory without its own demography file (the
-fixtures tests/golden/data_traits and tests/golden/data_body) takes the repository's.
+fixtures tests/golden/data_traits, tests/golden/data_body and tests/golden/data_pairing)
+takes the repository's.
 
 Layout of the core types (postcard: structs as their fields in order, enums as the variant
 index as varint, strings and sequences with a varint length, maps as a varint length and the
@@ -24,6 +25,9 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
                         a trait of the map or none, 0 for none, 1 then the ID)
                         puberty_trait: Option<DataId>,   (format 6, the trait of the
                         puberty timing z_p, genetics specification 5.2: as longevity_trait)
+                        cognition_trait: Option<DataId>,   (format 7, the traits of the
+                        height_trait: Option<DataId>,       similarity terms of the partner
+                        market, genetics specification 11.1, 11.2: as longevity_trait)
                         fertility: Fertility }   (format 6, ADR-0017 section 1)
   Fertility: puberty { menarche_mean: Calibrated, menarche_sd: Calibrated,
                        menarche_low: Calibrated, menarche_high: Calibrated,
@@ -116,8 +120,29 @@ FERTILITY_FIELDS = [
     ),
     ("from", "until"),
 ]
-# The calibration's fields that name a trait of the map, or none (ADR-0017 section 1).
-NAMED_TRAITS = ("longevity_trait", "puberty_trait")
+# The calibration's fields that name a trait of the map, or none (ADR-0017 section 1), in
+# the order of the struct; format 7 adds the two traits of the partner market (design note
+# of the similarity, section 1).
+NAMED_TRAITS = ("longevity_trait", "puberty_trait", "cognition_trait", "height_trait")
+# Those of them a rule reads as a phenotype (genetics specification 4.2): a named trait must
+# have its phenotype weights in the calibration's `traits` as well. Longevity reads the
+# genetic value only (7.2, ADR-0009 section 1), so it needs none.
+PHENOTYPE_TRAITS = ("puberty_trait", "cognition_trait", "height_trait")
+# The calibration's format and its fields, every one required, none other (ADR-0007
+# section 1: `deny_unknown_fields`, no `serde(default)`).
+CALIBRATION_FORMAT = 7
+CALIBRATION_FIELDS = (
+    "format_version",
+    "values",
+    "traits",
+    "sex_differences",
+    "diseases",
+    "longevity_trait",
+    "puberty_trait",
+    "cognition_trait",
+    "height_trait",
+    "fertility",
+)
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -198,14 +223,25 @@ def check_numbers(value) -> None:
             check_numbers(inner)
 
 
+def check_calibration_format(calibration) -> None:
+    """The calibration has format 7 and exactly its fields (design note of the
+    similarity, section 1: `cognition_trait` and `height_trait` are required)."""
+    assert set(calibration) == set(CALIBRATION_FIELDS), f"calibration fields {sorted(calibration)}"
+    assert calibration["format_version"] == CALIBRATION_FORMAT, calibration["format_version"]
+
+
 def check_named_traits(calibration, genome_map) -> None:
-    """A trait the calibration names (the trait of longevity, the trait of the puberty
-    timing) is a trait of the map (ADR-0017 section 1, `data.trait_named`); none is
-    allowed."""
+    """A trait the calibration names (the trait of longevity, of the puberty timing, of
+    cognition and of height) is a trait of the map (ADR-0017 section 1, `data.trait_named`);
+    none is allowed. One read as a phenotype (`PHENOTYPE_TRAITS`) also has its row in the
+    calibration's `traits` (design note of the similarity, section 1)."""
     traits = {entry["id"] for entry in genome_map["traits"]}
+    weighted = {row["trait"] for row in calibration["traits"]}
     for field in NAMED_TRAITS:
         named = calibration[field]
         assert named is None or named in traits, f"{field} {named} is no trait of the map"
+        if field in PHENOTYPE_TRAITS:
+            assert named is None or named in weighted, f"{field} {named} has no phenotype weights"
 
 
 def strip(value):
@@ -252,8 +288,8 @@ def calibration_bytes(doc) -> bytes:
     out += varint(len(doc["diseases"]))
     for disease in doc["diseases"]:
         out += disease_bytes(disease)
-    out += option_id(doc["longevity_trait"])
-    out += option_id(doc["puberty_trait"])
+    for field in NAMED_TRAITS:
+        out += option_id(doc[field])
     out += fertility_bytes(doc["fertility"])
     return out
 
@@ -372,6 +408,7 @@ def documents_hash(demography, calibration, genome_map) -> int:
     """The data hash of the life course data, a calibration and a genome map given as
     parsed JSON (test data built in memory, or the files): the text fields checked, then
     stripped, as the core sees them."""
+    check_calibration_format(calibration)
     check_text(demography, calibration, genome_map)
     check_named_traits(calibration, genome_map)
     demography, calibration, genome_map = strip(demography), strip(calibration), strip(genome_map)

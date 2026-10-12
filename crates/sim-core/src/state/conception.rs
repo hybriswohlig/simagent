@@ -151,7 +151,7 @@ pub(crate) fn may_begin(
 }
 
 /// The facts of a sim of the domain the rule reads.
-fn person<'a>(domain: &'a DomainState, id: SimId) -> Person<'a> {
+pub(crate) fn person<'a>(domain: &'a DomainState, id: SimId) -> Person<'a> {
     let Some(sim) = domain.sims.get(&id) else {
         panic!("invariant unknown_entity_id: sim {}", id.get());
     };

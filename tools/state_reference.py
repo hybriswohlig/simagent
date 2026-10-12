@@ -57,6 +57,14 @@ seconds and "clan" a girl of 16 (she was 12); their stories change as written th
 null twin: "clan" with the round switched off (a switch of the reference) has the same log
 and census. "market" is a small town on the repository's data with `c` raised.
 
+Similarity (genetics specification 11.2, design note of the similarity): the calibration
+has format 7 with `cognition_trait` and `height_trait` (both null in the repository's
+data, so every scenario on them keeps its story; only the data hash in the header of a
+save changes, core version 31, projection version 15). "similar" runs on the test map
+tests/golden/data_pairing (tools/pairing_fixture.py), which names both traits: twelve
+single founders of 18 to 28 years with alleles at the 80 trait loci, ten rounds, every
+utility with the four penalty terms.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -2007,6 +2015,267 @@ def market_story(world: world_reference.World) -> list:
     return rows
 
 
+# Scenario "similar" (design note of the similarity, section 4): the partner market with
+# the similarity terms of cognition and height (genetics specification 11.2) on the test
+# map tests/golden/data_pairing (written by tools/pairing_fixture.py) with `c` =
+# `core:market_search_height_female` = 1.0 as in "market", nothing else changed. Seed 0xff,
+# founder tag `test:similar`, the switch off, no couples, twelve founders: six single women
+# (sims 1 to 6) and six single men (sims 7 to 12), each sex born 18, 20, 22, 24, 26 and 28
+# years before the start. Their alleles at the 80 trait loci come from a fixed generator,
+# SplitMix64 (tools/rng_reference.py `mix64`) from the state 0: the k-th output (k = 1, 2,
+# ...) is `mix64(k · 0x9E3779B97F4A7C15 mod 2^64)` and its top bit is one allele, taken
+# founder by founder (in list order), locus by locus in map order, the maternal copy before
+# the paternal one; every other slot holds the reference allele. A founder's `Start` lists
+# the loci with an alternative allele in map order (`LocusAlleles { locus, copies }`, the
+# copies maternal then paternal). Ten rounds: the run stops at the end of round 10 (the
+# clock at `10 · MONTH`). The phenotypes `z_K` and `z_h` of each sim at a round are those of
+# 4.2 (`world_reference.phenotype_parts`): a founder draws `C` with its own key as mother and
+# father (ADR-0009 section 3).
+SIMILAR_TAG = "test:similar"
+SIMILAR_DIR = world_reference.ROOT / "tests" / "golden" / "data_pairing"
+SIMILAR_HEIGHT = 1.0
+SIMILAR_AGES = [18, 20, 22, 24, 26, 28]
+SIMILAR_ROUNDS = 10
+SIMILAR_END = SIMILAR_ROUNDS * MONTH
+SIMILAR_GENERATOR_STATE = 0
+PAIRING_FIXTURE = world_reference.Data(*data_reference.documents(SIMILAR_DIR))
+SIMILAR_DATA = world_reference.life_test_data({"core:market_search_height_female": SIMILAR_HEIGHT}, SIMILAR_DIR)
+assert SIMILAR_DATA.market_height == SIMILAR_HEIGHT and SIMILAR_DATA.separation_rate == SEPARATION_RATE
+assert SIMILAR_DATA.cognition_trait.id == "test:cognition" and SIMILAR_DATA.height_trait.id == "test:height"
+# The loci of the two traits in map order (the file's order, checked by data_reference).
+SIMILAR_LOCI = [
+    locus["id"]
+    for locus in json.loads((SIMILAR_DIR / "genetics" / "genome_map.json").read_text())["loci"]
+    if locus["id"].startswith(("test:cognition_", "test:height_"))
+]
+assert len(SIMILAR_LOCI) == 80
+
+
+def splitmix64(state: int):
+    """The outputs of SplitMix64 from `state` (Vigna): `mix64(state + k · GOLDEN)`, k = 1, 2,
+    ..."""
+    from rng_reference import GOLDEN, MASK, mix64
+
+    k = 0
+    while True:
+        k += 1
+        yield mix64((state + k * GOLDEN) & MASK)
+
+
+def similar_founders() -> list:
+    """(born, sex, alleles) of the twelve founders, the alleles as (locus, [maternal,
+    paternal]) of the loci with an alternative allele, in map order."""
+    bits = (word >> 63 for word in splitmix64(SIMILAR_GENERATOR_STATE))
+    founders = []
+    for sex in (FEMALE, MALE):
+        for age in SIMILAR_AGES:
+            genes = []
+            for locus in SIMILAR_LOCI:
+                copies = [next(bits), next(bits)]
+                if any(copies):
+                    genes.append((locus, copies))
+            founders.append((-age * YEAR, sex, genes))
+    return founders
+
+
+SIMILAR_FOUNDERS = similar_founders()
+SIMILAR_KEYS = [founder_key(SIMILAR_TAG, index) for index in range(len(SIMILAR_FOUNDERS))]
+# The generator gives frequencies near 0.5 (960 bits per sex).
+_ones = sum(sum(copies) for _, _, genes in SIMILAR_FOUNDERS for _, copies in genes)
+assert 800 <= _ones <= 1120, _ones
+
+
+def similar_world(data=SIMILAR_DATA) -> world_reference.World:
+    return world_reference.World(0xFF, SIMILAR_TAG, False, SIMILAR_FOUNDERS, (), data=data)
+
+
+# The whole run in one go, to find the first round that forms a partnership.
+_similar_once = similar_world()
+_similar_once.advance(SIMILAR_END)
+SIMILAR_FIRST_ROUND = next(
+    record["n"] for record in _similar_once.rounds if any(choice["outcome"] == "paired" for choice in record["choices"])
+) * MONTH
+
+SIMILAR = similar_world()
+world_reference.check_market(SIMILAR)
+world_reference.check_separations(SIMILAR)
+SIMILAR_SAVE_AFTER_START = SIMILAR.save()
+SIMILAR.advance(SIMILAR_FIRST_ROUND - 1)
+world_reference.check_market(SIMILAR)
+SIMILAR_SAVE_BEFORE_PAIRING = SIMILAR.save()
+SIMILAR_LOG_BEFORE_PAIRING = len(SIMILAR.log)
+SIMILAR.advance(SIMILAR_FIRST_ROUND)
+SIMILAR_PAIRING_ENTRIES = SIMILAR.log[SIMILAR_LOG_BEFORE_PAIRING:]
+world_reference.check_market(SIMILAR)
+world_reference.check_separations(SIMILAR)
+SIMILAR_SAVE_AFTER_PAIRING = SIMILAR.save()
+SIMILAR.advance(SIMILAR_END)
+world_reference.check_market(SIMILAR)
+world_reference.check_separations(SIMILAR)
+SIMILAR_SAVE_END = SIMILAR.save()
+assert SIMILAR.log == _similar_once.log and SIMILAR.save() == _similar_once.save()
+assert [kind for _, kind in SIMILAR.ran].count(world_reference.MARKET_ROUND_KIND) == SIMILAR_ROUNDS
+assert SIMILAR.year_hashes == []
+# Every entry of the first pairing round is a `core:partnered` of the round.
+(SIMILAR_FIRST_RECORD,) = [record for record in SIMILAR.rounds if record["t"] == SIMILAR_FIRST_ROUND]
+assert len(SIMILAR_PAIRING_ENTRIES) == sum(1 for choice in SIMILAR_FIRST_RECORD["choices"] if choice["outcome"] == "paired")
+
+# The same founders on the fixture with the two traits not named (the calibration's fields
+# null, nothing else changed): the market of the market note, for comparison.
+_without = copy.deepcopy(data_reference.documents(SIMILAR_DIR))
+_without[0]["values"]["core:market_search_height_female"]["value"] = SIMILAR_HEIGHT
+_without[1]["cognition_trait"] = None
+_without[1]["height_trait"] = None
+SIMILAR_WITHOUT_DATA = world_reference.Data(*_without)
+SIMILAR_WITHOUT = similar_world(SIMILAR_WITHOUT_DATA)
+SIMILAR_WITHOUT.advance(SIMILAR_END)
+world_reference.check_market(SIMILAR_WITHOUT)
+
+
+# The phenotypes by hand (genetics specification 4.1, 4.2; ADR-0009 sections 3 and 4) with
+# Python's math, from the founders' allele lists, not from the model: `G = Σ (d − 1) /
+# sqrt(20)` over the 40 loci of the trait, `s = 1 / (1 + e^((12 − x) / 2))`, the weights,
+# `C` and `E` as `sqrt(−2 ln(u0)) · cos(2π u1)` at their keys, `z = sqrt(h2) G + sqrt(c2) C +
+# sqrt(e2) E`.
+def hand_phenotype(index: int, trait: str, weights: tuple, t: int) -> float:
+    born, _, genes = SIMILAR_FOUNDERS[index]
+    alleles = dict(genes)
+    total = sum(sum(alleles.get(locus, [0, 0])) - 1 for locus in SIMILAR_LOCI if locus.startswith(trait + "_"))
+    g = total / math.sqrt(20.0)
+    x = (t - born) / 31_449_600.0
+    s = 1.0 / (1.0 + math.exp((12.0 - x) / 2.0))
+    h2 = weights[0] + (weights[2] - weights[0]) * s
+    c2 = weights[1] + (weights[3] - weights[1]) * s
+    key = SIMILAR_KEYS[index]
+
+    def normal(tag: int, detail: int) -> float:
+        w = words(chacha_key(0xFF, tag, key, str_key(trait), detail))
+        return math.sqrt(-2.0 * math.log(unit_open0(w[0]))) * math.cos(2.0 * math.pi * unit(w[1]))
+
+    return math.sqrt(h2) * g + math.sqrt(c2) * normal(10, key) + math.sqrt(1.0 - h2 - c2) * normal(11, 0)
+
+
+SIMILAR_WEIGHTS = {"test:cognition": (0.5, 0.25, 0.75, 0.05), "test:height": (0.8, 0.05, 0.8, 0.05)}
+
+
+# The first pairing round by hand (11.2; design note of the similarity, section 2) with
+# Python's math, from the draws and the hand phenotypes, not from the model: who searches,
+# their order, each one's candidates by PAIRING_RANK (all founders, φ 0), `U = −0.377 · dK²
+# − 0.164 · dH² − 0.02 · (Δa − 4.69)² + G`, the largest wins, a man chosen before is taken.
+def similar_hand_round(t: int) -> list:
+    n = t // MONTH
+    women = [index for index, (_, sex, _) in enumerate(SIMILAR_FOUNDERS) if sex == FEMALE]
+    men = [index for index, (_, sex, _) in enumerate(SIMILAR_FOUNDERS) if sex == MALE]
+    born = [founder[0] for founder in SIMILAR_FOUNDERS]
+    z = {
+        index: [hand_phenotype(index, trait, SIMILAR_WEIGHTS[trait], t) for trait in ("test:cognition", "test:height")]
+        for index in women + men
+    }
+    searchers = []
+    for woman in women:
+        age = t - born[woman]
+        a = age / 31_449_600.0
+        p = min(1.0, SIMILAR_HEIGHT * math.exp(-0.5 * ((a - 25.23) / 7.0) ** 2)) * (0.0918 if age < 18 * YEAR else 1.0)
+        if unit(words(chacha_key(0xFF, 19, SIMILAR_KEYS[woman], n, 0))[0]) < p:
+            searchers.append(woman)
+    searchers.sort(key=lambda woman: (rng_rank(0xFF, 20, 0, n, SIMILAR_KEYS[woman]), SIMILAR_KEYS[woman]))
+    taken, rows = set(), []
+    for woman in searchers:
+        her = SIMILAR_KEYS[woman]
+        candidates = sorted(men, key=lambda man: (rng_rank(0xFF, 5, her, n, SIMILAR_KEYS[man]), SIMILAR_KEYS[man]))[:12]
+        scored = []
+        for man in candidates:
+            gap = (born[woman] - born[man]) / 31_449_600.0
+            g = -math.log(-math.log(rng_unit_open(words(chacha_key(0xFF, 21, her, n, SIMILAR_KEYS[man]))[0])))
+            u = -0.377 * (z[woman][0] - z[man][0]) ** 2 - 0.164 * (z[woman][1] - z[man][1]) ** 2 - 0.02 * (gap - 4.69) ** 2 + g
+            scored.append((u, man + 1))
+        best = max(scored)[1]
+        rows.append((woman + 1, [man for _, man in scored], [u for u, _ in scored], best, "taken" if best in taken else "paired"))
+        taken.add(best)
+    return rows
+
+
+SIMILAR_HAND = similar_hand_round(SIMILAR_FIRST_ROUND)
+assert [(woman, men, best, outcome) for woman, men, _, best, outcome in SIMILAR_HAND] == [
+    (choice["woman"], [man for man, *_ in choice["candidates"]], choice["chosen"], choice["outcome"])
+    for choice in SIMILAR_FIRST_RECORD["choices"]
+]
+for (_, _, _hand_us, _, _), _choice in zip(SIMILAR_HAND, SIMILAR_FIRST_RECORD["choices"]):
+    assert all(abs(a - b) <= 1e-12 for a, b in zip(_hand_us, [row[4] for row in _choice["candidates"]]))
+
+
+def similar_phenotype_rows(world: world_reference.World, t: int) -> list:
+    """Per founder its phenotypes at `t` with their parts, the hand values and the margins of
+    the libm calls (exp of `s`, ln and cos of both draws) to their rounding boundaries."""
+    rows, worst = [], 0.5
+    for sim in sorted(world.sims):
+        index = sim - 1
+        texts = []
+        for name, trait in (("K", world.data.cognition_trait), ("h", world.data.height_trait)):
+            parts = world.phenotype_parts(sim, trait, t)
+            hand = hand_phenotype(index, trait.id, SIMILAR_WEIGHTS[trait.id], t)
+            assert abs(hand - parts["z"]) <= 1e-12, (sim, trait.id, hand, parts["z"])
+            margins = world_reference.phenotype_margins(0xFF, trait, world.key_of(sim), world.parent_keys(sim), t - world.born_of(sim))
+            worst = min([worst] + [margin for _, margin in margins])
+            texts.append(
+                f"z_{name} {parts['z']!r} (G {parts['G']!r} C {parts['C']!r} E {parts['E']!r} s {parts['s']!r}"
+                f" h2 {parts['h2']!r} c2 {parts['c2']!r} e2 {parts['e2']!r}; by hand with math {hand!r})"
+            )
+        rows.append(f"similar_phenotypes round {t // MONTH} sim {sim} age {(t - world.born_of(sim)) / YEAR!r} " + " ".join(texts))
+    rows.append(f"similar_phenotype_libm_margin round {t // MONTH} smallest {worst!r} ulps (0.5 is an f64, 0 a midpoint)")
+    return rows
+
+
+def similar_story(world: world_reference.World) -> list:
+    """The story of "similar": per round the searchers and per choice the candidates with
+    the four penalty terms and U, the choice; the partnerships, attempts and conceptions."""
+    rows = []
+    for record in world.rounds:
+        n = record["n"]
+        rows.append(
+            f"similar_round {n} men {record['men']} single_women {[c[0] for c in record['considered']]}"
+            f" searchers {[c[0] for c in record['considered'] if c[4]]} in_order {[choice['woman'] for choice in record['choices']]}"
+        )
+        searched = {woman: (p, u) for woman, _, p, u, ok, _ in record["considered"]}
+        for woman, age, p, u, ok, _ in record["considered"]:
+            if not ok:
+                rows.append(f"similar_no_search round {n} woman {woman} age {age / YEAR:.4f} p {p!r} u {u!r}")
+        for choice in record["choices"]:
+            woman = choice["woman"]
+            p, u = searched[woman]
+            if choice["outcome"] == "no candidate":
+                rows.append(f"similar_choice round {n} woman {woman} p {p!r} u {u!r} no candidate")
+                continue
+            z = choice["phenotypes"]
+            candidates = "; ".join(
+                f"{man} (gap {gap!r} phi {phi!r} z_K {z[man][0]!r} z_h {z[man][1]!r} p_K {terms[0]!r} p_H {terms[1]!r}"
+                f" p_a {terms[2]!r} p_phi {terms[3]!r} G {g!r} U {u_!r})"
+                for (man, gap, phi, g, u_), terms in zip(choice["candidates"], choice["terms"])
+            )
+            outcome = choice["outcome"] + (f" partnership {choice['partnership']} entry {choice['entry']}" if choice["outcome"] == "paired" else "")
+            rows.append(
+                f"similar_choice round {n} woman {woman} p {p!r} u {u!r} z_K {z[woman][0]!r} z_h {z[woman][1]!r}"
+                f" candidates [{candidates}] chosen {choice['chosen']} {outcome}"
+            )
+    for number, (woman, man, formed, ended) in sorted(world.partnerships.items()):
+        rows.append(f"similar_partnership {number} woman {woman} man {man} formed {formed} (round {formed // MONTH}) ended {split_ended(ended)}")
+    rows.append(f"similar_attempts (month, woman, man, chance, success) {[(t // MONTH, w, m, p, ok) for t, w, m, p, ok in world.attempts]}")
+    rows.append(f"similar_conceptions (month, woman, man, number, u, kind, children) {[(t // MONTH, w, m, k, u, kind, [(f'{key:016x}', 'female' if sex == FEMALE else 'male') for key, sex in children]) for t, w, m, k, u, kind, children in world.multiples]}")
+    rows.append(f"similar_deaths {[(left, sim, cause_name(cause)) for left, sim, cause in deaths_in(world)]}")
+    return rows
+
+
+def similar_entry_rows(world: world_reference.World) -> list:
+    """Every `core:partnered` entry of the run: its bytes (checked against a hand build)
+    and its JSON."""
+    rows = []
+    for record in world.rounds:
+        for choice in record["choices"]:
+            if choice["outcome"] == "paired":
+                rows += market_entry_rows(f"similar_partnered_entry_{choice['partnership']}", world, choice, record["n"])
+    return rows
+
+
 # Scenario "afflicted": seed 0xff, founder tag `test:afflicted`, the switch on from the
 # start, no couples, on test data with the repository's six diseases and both
 # causes for everyone practically off, so that only the diseases kill: accident 1e-9 per
@@ -2202,6 +2471,9 @@ TEST_DATA = [
     ("twins", TWINS_DATA),
     ("split", SPLIT_DATA),
     ("market", MARKET_DATA),
+    ("pairing", PAIRING_FIXTURE),
+    ("similar", SIMILAR_DATA),
+    ("similar_without_terms", SIMILAR_WITHOUT_DATA),
     ("afflicted", AFFLICTED_DATA),
     ("fork", world_reference.FORK_DATA),
 ]
@@ -2398,6 +2670,36 @@ if __name__ == "__main__":
     print(f"market_log_hash {digest(b''.join(MARKET.log))} entries {len(MARKET.log)}")
     for row in death_rows("market", MARKET):
         print(row)
+    # The scenario "similar" (design note of the similarity, section 4).
+    print(
+        f"similar_data_hash {SIMILAR_DATA.hash:016x} c {SIMILAR_DATA.market_height!r} fixture data_hash_pairing"
+        f" {PAIRING_FIXTURE.hash:016x} without_terms {SIMILAR_WITHOUT_DATA.hash:016x}"
+        f" w_K {SIMILAR_DATA.pairing_weight_cognition!r} w_H {SIMILAR_DATA.pairing_weight_height!r}"
+        f" sigma_ref {SIMILAR_DATA.cognition_trait.sigma_ref!r} {SIMILAR_DATA.height_trait.sigma_ref!r}"
+        f" weights cognition {SIMILAR_DATA.cognition_trait.weights!r} height {SIMILAR_DATA.height_trait.weights!r}"
+    )
+    print(f"similar_trait_keys test:cognition {SIMILAR_DATA.cognition_trait.key:016x} test:height {SIMILAR_DATA.height_trait.key:016x}")
+    print(f"similar_generator splitmix64 state {SIMILAR_GENERATOR_STATE} alleles 1 {_ones} of {len(SIMILAR_FOUNDERS) * 160}")
+    for index, (born, sex, genes) in enumerate(SIMILAR_FOUNDERS):
+        print(
+            f"similar_founder sim {index + 1} {'female' if sex == FEMALE else 'male'} born {born} key {SIMILAR_KEYS[index]:016x}"
+            f" alleles {json.dumps([[locus, copies] for locus, copies in genes], separators=(',', ':'))}"
+        )
+    _at_start = similar_world()
+    for row in similar_phenotype_rows(_at_start, MONTH):
+        print(row)
+    for row in similar_story(SIMILAR):
+        print(row)
+    print(f"similar_without_terms partnerships {[(number, value[0], value[1], value[2] // MONTH) for number, value in sorted(SIMILAR_WITHOUT.partnerships.items())]} log_hash {digest(b''.join(SIMILAR_WITHOUT.log))}")
+    print(f"similar_save_after_start {SIMILAR_SAVE_AFTER_START.hex()}")
+    print(f"similar_save_before_pairing_round (round {SIMILAR_FIRST_ROUND // MONTH}, clock {SIMILAR_FIRST_ROUND - 1}) {SIMILAR_SAVE_BEFORE_PAIRING.hex()}")
+    print(f"similar_save_after_pairing_round (clock {SIMILAR_FIRST_ROUND}) {SIMILAR_SAVE_AFTER_PAIRING.hex()}")
+    print(f"similar_save_end_of_round_{SIMILAR_ROUNDS} (clock {SIMILAR_END}) {SIMILAR_SAVE_END.hex()}")
+    for row in similar_entry_rows(SIMILAR):
+        print(row)
+    print(f"similar_pairing_round_by_hand (woman, candidates, U, chosen, outcome) {SIMILAR_HAND}")
+    print(f"similar_year_hashes {[format(value, '016x') for value in SIMILAR.year_hashes]}")
+    print(f"similar_log_hash {digest(b''.join(SIMILAR.log))} entries {len(SIMILAR.log)}")
     print(f"afflicted_keys {[format(key, '016x') for key in AFFLICTED_KEYS]}")
     for row in afflicted_rows():
         print(row)

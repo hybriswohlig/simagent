@@ -18,9 +18,10 @@ What the model knows:
   twins; no separation, design note of the separation, section 7; and the market off,
   `c` = 0, design note of the market, section 7), and for the acceptance scenario the
   market off and no separation (ADR-0017 section 5); `life_test_data` changes values of
-  the life course data only (the scenario "market"); the save names the hash of the data
-  a world runs on. The map lengths, the sex ratio, the map in
-  the form of the meiosis reference and the mutation rates come from the documents too.
+  the life course data only (the scenario "market"; "similar" on the fixture
+  tests/golden/data_pairing); the save names the hash of the data a world runs on. The
+  map lengths, the sex ratio, the map in the form of the meiosis reference and the
+  mutation rates come from the documents too.
 - `Start` (world seed, founder tag, world parameters, founders, couples; no causes of
   death and no fertility any more, ADR-0017 sections 2 and 4) writes `core:started`,
   plans the year end series (insertion number 1, first at the last second of year 0,
@@ -140,6 +141,18 @@ What the model knows:
   and the best utility `UTILITY_MARGIN` from every other, so the pinned libm of the core
   makes the same choices. `market=False` (a switch of this reference only) plans no
   round: the null twin.
+- Similarity (genetics specification 11.2, design note of the similarity): the calibration
+  (format 7) names `cognition_trait` and `height_trait`, each a trait of the map with
+  phenotype weights or none. For a named trait the utility gets its term before the age
+  term: with `dK = z_K,i − z_K,j` and `dH = z_h,i − z_h,j` the penalties in the order of
+  11.2 are `w_K · (dK · dK)` (`core:pairing_weight_cognition`), `w_H · (dH · dH)`
+  (`core:pairing_weight_height`), `w_a · (d · d)`, `K · φ`, and `U = (((−p1) − p2) − … −
+  pn) + G` over the present terms left to right; a term whose trait is not named is left
+  out, so without both traits `U` is the market's. `z` is the phenotype of the genetics
+  specification 4.2 (ADR-0008 section 3, ADR-0009 sections 3 and 4; `phenotype_parts`) of
+  the sim at the round, from its genome, its lineage key, its parents' keys (its own for
+  both as a founder) and its age `t − born` in seconds; exp, ln and cos correctly rounded,
+  sqrt exact. The woman's once per round, each candidate's once per candidate.
 - Fertility (genetics specification 5.6 and 11.3, ADR-0017 section 4, design note of the
   fertility in the world): the data give the form of the curves (`puberty` or `window`),
   the adult rate, the pause after a birth and the months of pregnancy (whole months),
@@ -254,7 +267,7 @@ from rng_reference import (
     words,
 )
 
-from kat_reference import exp_reference, ln_reference
+from kat_reference import cos_reference, exp_reference, ln_reference
 
 import meiosis_reference
 
@@ -292,6 +305,9 @@ PAIRING_RANK = 5
 MARKET_SEARCH, MARKET_ORDER, PAIRING_NOISE = 19, 20, 21
 # SubjectKey::WORLD, the subject of the worldwide rank MARKET_ORDER (ADR-0018 section 1).
 WORLD_KEY = 0
+# The draws of the environment of a phenotype (genetics specification 4.2, ADR-0009 section
+# 3): the shared one `C_t` and the individual one `E_t`.
+ENV_SHARED, ENV_INDIVIDUAL = 10, 11
 # The rule a pairing of the market names as its cause (design note of the market, section
 # 3, step 6).
 PARTNER_MARKET_RULE = "core:partner_market"
@@ -301,9 +317,12 @@ PARTNER_MARKET_RULE = "core:partner_market"
 UTILITY_MARGIN = 1e-9
 
 # The projection is that of the separation (design note of the separation, section 2): the
-# round is a queue entry only. The core version goes up with the market.
+# round is a queue entry only, and the phenotypes of the similarity terms are pure
+# functions, not state (ADR-0009 section 4). The core version goes up with the market (30)
+# and with the similarity terms (31: the calibration of format 7 changes the data hash of
+# the repository, design note of the similarity, section 1).
 PROJECTION_VERSION = 15
-CORE_VERSION = 30
+CORE_VERSION = 31
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -424,6 +443,133 @@ class FertilityForm:
             self.start, self.until = number(fields["from"]), number(fields["until"])
 
 
+class PhenotypeTrait:
+    """A trait of the map read as a phenotype (genetics specification 4.1, 4.2; ADR-0008
+    sections 1 and 3, ADR-0009): its data ID and `str_key` (the occasion of its environment
+    draws), `sigma_ref`, the groups of its genetic value (first the loci that load on it,
+    then per included trait in the order of `includes` the loci that load on that one; each
+    group in map order, each locus with its coefficient `λ · β`, or `(w · λ) · β` in an
+    included group, and `d_ref`), and its phenotype weights `(h²_child, c²_child,
+    h²_adult, c²_adult)` (the calibration's row)."""
+
+    def __init__(self, trait_id: str, genome_map: dict, row: dict):
+        traits = {entry["id"]: entry for entry in genome_map["traits"]}
+        entry = traits[trait_id]
+        self.id = trait_id
+        self.key = str_key(trait_id)
+        self.sigma_ref = float(entry["sigma_ref"])
+        assert self.sigma_ref > 0.0
+
+        def group(target: str, include_weight):
+            loci = []
+            for locus in genome_map["loci"]:
+                action = locus["action"]
+                if isinstance(action, str):
+                    continue
+                ((kind, weights),) = action.items()
+                assert kind in ("additive", "threshold") and locus["chromosome"] == "autosome"
+                for load in weights["loads"]:
+                    if load["trait"] != target:
+                        continue
+                    lam, beta = float(load["weight"]), float(weights["effect"])
+                    coefficient = lam * beta if include_weight is None else (include_weight * lam) * beta
+                    loci.append((locus, coefficient, float(weights["d_ref"])))
+            return loci
+
+        self.groups = [group(trait_id, None)] + [
+            group(include["trait"], float(include["weight"])) for include in entry["includes"]
+        ]
+        self.weights = tuple(number(row[name]) for name in data_reference.WEIGHTS)
+
+
+def dose(person: dict, locus: dict) -> float:
+    """The dose `d` of the locus (genetics specification 2.1): the copies with allele 1, as
+    f64."""
+    return float(sum(copies_at(person, locus)))
+
+
+def genetic_value(person: dict, trait: PhenotypeTrait) -> float:
+    """`G_t = A_t / σ_t,ref` (ADR-0008 section 3): `A_t` folded from 0.0, group by group,
+    each locus in map order adding `coefficient · (d − d_ref)`."""
+    acc = 0.0
+    for loci in trait.groups:
+        for locus, coefficient, d_ref in loci:
+            acc = acc + coefficient * (dose(person, locus) - d_ref)
+    return acc / trait.sigma_ref
+
+
+def held_weight(value: float) -> float:
+    """A weight held in 0 to 1 before its root (ADR-0009 section 4): 0 if it is not greater
+    than 0 (so -0.0 becomes +0.0), 1 if it is greater than 1."""
+    if not value > 0.0:
+        return 0.0
+    return 1.0 if value > 1.0 else value
+
+
+def standard_normal(seed: int, tag: int, subject: int, occasion: int, detail: int) -> float:
+    """`normal(0, 1)` at the key (tools/rng_reference.py: `0 + 1 · (sqrt(−2 ln(u0)) ·
+    cos(2π u1))` with the correctly rounded ln and cos)."""
+    draw = words(chacha_key(seed, tag, subject, occasion, detail))
+    return normal_reference(draw[0], draw[1], 0.0, 1.0)[1]
+
+
+def phenotype_parts(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int) -> dict:
+    """The phenotype `z_t` of a sim at the age `age_seconds` (a duration from its birth)
+    and its parts (genetics specification 4.2, ADR-0009 sections 3 and 4): `x =
+    as_years(age)`, `s = 1 / (1 + exp((12 − x) / 2))` with the correctly rounded exp, `h2 =
+    h2_child + (h2_adult − h2_child) · s` and `c2` likewise, `e2 = (1 − h2) − c2`, each held in
+    0 to 1; `C` = normal(ENV_SHARED, the mother's lineage key, `str_key` of the trait, the
+    father's lineage key), with its own key for both without parents (a founder); `E` =
+    normal(ENV_INDIVIDUAL, its own key, `str_key` of the trait, 0); `z = ((sqrt(h2) · G) +
+    (sqrt(c2) · C)) + (sqrt(e2) · E)`. `parents` is (mother's key, father's key) or None."""
+    g = genetic_value(person, trait)
+    x = as_years(age_seconds)
+    s = 1.0 / (1.0 + exp_reference((12.0 - x) / 2.0)[1])
+    h2_child, c2_child, h2_adult, c2_adult = trait.weights
+    h2 = h2_child + (h2_adult - h2_child) * s
+    c2 = c2_child + (c2_adult - c2_child) * s
+    e2 = (1.0 - h2) - c2
+    h2, c2, e2 = held_weight(h2), held_weight(c2), held_weight(e2)
+    mother, father = (key, key) if parents is None else parents
+    shared = standard_normal(seed, ENV_SHARED, mother, trait.key, father)
+    own = standard_normal(seed, ENV_INDIVIDUAL, key, trait.key, 0)
+    z = ((math.sqrt(h2) * g) + (math.sqrt(c2) * shared)) + (math.sqrt(e2) * own)
+    return {"G": g, "x": x, "s": s, "h2": h2, "c2": c2, "e2": e2, "C": shared, "E": own, "z": z, "env": (mother, father)}
+
+
+def phenotype(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int) -> float:
+    """`z_t` of `phenotype_parts`."""
+    return phenotype_parts(seed, trait, person, key, parents, age_seconds)["z"]
+
+
+def libm_margin(name: str, x: float) -> float:
+    """How far the exact value of exp, ln or cos at `x` lies from the rounding boundary of
+    its f64, in ulps of the result (0.5 at an f64, 0 at a midpoint): only where this is
+    small can a libm that is not correctly rounded differ in the last bit."""
+    function = {"exp": (exp_reference, mpmath.exp), "ln": (ln_reference, mpmath.log), "cos": (cos_reference, mpmath.cos)}[name]
+    kind, value = function[0](x)
+    if kind == "E":
+        return 0.5
+    with mpmath.workdps(60):
+        exact = function[1](mpmath.mpf(x))
+        return float(0.5 - abs(exact - mpmath.mpf(value)) / mpmath.mpf(math.ulp(value)))
+
+
+def phenotype_margins(seed: int, trait: PhenotypeTrait, key: int, parents, age_seconds: int) -> list:
+    """The margins (`libm_margin`) of the exp of `s` and of the ln and cos of both
+    environment draws of a phenotype."""
+    from rng_reference import TAU, unit_open0
+
+    x = as_years(age_seconds)
+    margins = [("exp", libm_margin("exp", (12.0 - x) / 2.0))]
+    mother, father = (key, key) if parents is None else parents
+    for tag, address in ((ENV_SHARED, (mother, trait.key, father)), (ENV_INDIVIDUAL, (key, trait.key, 0))):
+        draw = words(chacha_key(seed, tag, *address))
+        margins.append(("ln", libm_margin("ln", unit_open0(draw[0]))))
+        margins.append(("cos", libm_margin("cos", TAU * unit(draw[1]))))
+    return margins
+
+
 # The ranges `mortality` accepts (crates/sim-core/src/mortality.rs, a contract of the
 # merged pure functions): a world never calls them outside, the data keep inside.
 GOMPERTZ_A_RANGE = (1e-15, 1.0)
@@ -467,7 +613,9 @@ class Data:
     `(θ, σ_θ)` of 5.2 that `θ_i` reads; from the life course data the adult rate, the
     pause after a birth and the months of pregnancy, the wish shape and its tilt, and the
     rates of twins `(p_id, p_fr)`), and what the meiosis reference reads:
-    the map lengths, the sex ratio at birth, the map in its form and the mutation rates."""
+    the map lengths, the sex ratio at birth, the map in its form and the mutation rates; the
+    market's values with the weights of the similarity terms and the traits of cognition
+    and height (`PhenotypeTrait` or None)."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict):
         self.hash = data_reference.documents_hash(demography, calibration, genome_map)
@@ -499,7 +647,13 @@ class Data:
         self.pairing_gap = number(market["core:pairing_age_gap_preferred"])
         self.kinship_limit = number(market["core:pairing_kinship_limit"])
         self.cousin_odds = number(market["core:pairing_cousin_odds"])
+        # The weights of the similarity terms (genetics specification 11.2; design note of the
+        # similarity, section 1): per squared difference of the phenotypes.
+        self.pairing_weight_cognition = number(market["core:pairing_weight_cognition"])
+        self.pairing_weight_height = number(market["core:pairing_weight_height"])
         assert self.market_age == 16 and self.kinship_limit == 0.125, "the note fixes 16 years and 1/8"
+        for weight in (self.pairing_weight_cognition, self.pairing_weight_height):
+            assert math.isfinite(weight) and weight >= 0.0, weight
         assert math.isfinite(self.market_height) and self.market_height >= 0.0, self.market_height
         assert math.isfinite(self.market_center) and self.market_width > 0.0 and math.isfinite(self.market_width)
         assert 0.0 < self.market_minor <= 1.0 and self.market_candidates >= 1
@@ -527,6 +681,11 @@ class Data:
         # data of these tests name none (`z_p` = 0, `θ_i = θ` exactly, 11.1).
         self.puberty_trait = stripped["puberty_trait"]
         assert self.puberty_trait is None, "a trait of the puberty timing is not modelled by this reference"
+        # The traits of the similarity terms of the market (design note of the similarity,
+        # sections 1 and 2): each a trait of the map with phenotype weights, or None (the
+        # term is left out, 11.1).
+        self.cognition_trait = self.phenotype_trait(stripped["cognition_trait"], stripped, genome_map)
+        self.height_trait = self.phenotype_trait(stripped["height_trait"], stripped, genome_map)
         self.fertility = FertilityForm(stripped["fertility"])
         # The end of her fertility (design note of the fertility in the world, section 2):
         # from this age on her factor stays 0.
@@ -567,6 +726,20 @@ class Data:
         (`exp(−0.0)` is 1, 11.1)."""
         assert self.longevity_trait is None
         return 1.0
+
+    @staticmethod
+    def phenotype_trait(named, calibration: dict, genome_map: dict):
+        """The trait a field of the calibration names, as `PhenotypeTrait`, or None."""
+        if named is None:
+            return None
+        (row,) = [row for row in calibration["traits"] if row["trait"] == named]
+        return PhenotypeTrait(named, data_reference.strip(genome_map), row)
+
+    def similarity_traits(self) -> list:
+        """The present similarity terms in the order of 11.2: (name, trait, weight) for
+        cognition, then height, each only if its trait is named."""
+        terms = [("cognition", self.cognition_trait, self.pairing_weight_cognition), ("height", self.height_trait, self.pairing_weight_height)]
+        return [term for term in terms if term[1] is not None]
 
 
 def repository_data() -> Data:
@@ -654,12 +827,14 @@ def death_test_data(
     return Data(demography, calibration, genome_map)
 
 
-def life_test_data(life_values: dict) -> Data:
-    """The repository's data with values of the life course data changed (`life_values`, a
-    dict of code to value) and nothing else: the rates of death, the diseases and the
-    fertility stay those of data/ (the scenario "market", design note of the market,
-    section 7)."""
-    demography, calibration, genome_map = data_reference.documents(ROOT / "data")
+def life_test_data(life_values: dict, data_dir: Path = ROOT / "data") -> Data:
+    """The repository's data (or those of the fixture `data_dir`, which take the
+    repository's life course data) with values of the life course data changed
+    (`life_values`, a dict of code to value) and nothing else: the rates of death, the
+    diseases and the fertility stay those of the directory (the scenario "market", design
+    note of the market, section 7; "similar" on tests/golden/data_pairing, design note of
+    the similarity, section 4)."""
+    demography, calibration, genome_map = data_reference.documents(data_dir)
     for code, value in life_values.items():
         demography["values"][code]["value"] = value
     return Data(demography, calibration, genome_map)
@@ -1082,11 +1257,29 @@ def kinship_weight(data: Data) -> float:
     return 16.0 * ln_reference(data.cousin_odds)[1]
 
 
-def utility(gap: float, phi: float, noise: float, data: Data) -> float:
-    """The utility of a candidate without similarity terms (step 5): with `d = Δa − μ_a`,
-    `U = ((−(w_a · (d · d))) − (K · φ)) + G`."""
+def penalties(gap: float, phi: float, data: Data, similarity=()) -> list:
+    """The penalty terms of a candidate in the order of 11.2 (design note of the similarity,
+    section 2): the similarity terms given (`w_K · (dK · dK)` if a trait of cognition is
+    named, then `w_H · (dH · dH)` if one of height is: `similarity` is the list of the
+    present (weight, difference) pairs in that order), then `w_a · (d · d)` with `d = Δa −
+    μ_a`, then `K · φ`."""
     d = gap - data.pairing_gap
-    return ((-(data.pairing_weight_age * (d * d))) - (kinship_weight(data) * phi)) + noise
+    terms = [weight * (difference * difference) for weight, difference in similarity]
+    return terms + [data.pairing_weight_age * (d * d), kinship_weight(data) * phi]
+
+
+def utility_of(terms: list, noise: float) -> float:
+    """`U = (((−p1) − p2) − … − pn) + G` over the present terms, left to right."""
+    acc = -terms[0]
+    for term in terms[1:]:
+        acc = acc - term
+    return acc + noise
+
+
+def utility(gap: float, phi: float, noise: float, data: Data, similarity=()) -> float:
+    """The utility of a candidate (step 5; design note of the similarity, section 2). Without
+    similarity terms `U = ((−(w_a · (d · d))) − (K · φ)) + G`, the market note exactly."""
+    return utility_of(penalties(gap, phi, data, similarity), noise)
 
 
 def ranked(seed: int, tag: int, subject: int, n: int, keys: list) -> list:
@@ -1504,6 +1697,26 @@ class World:
     def born_of(self, sim: int) -> int:
         return self.sims[sim][0] if sim in self.sims else self.archive[sim][0]
 
+    def parent_keys(self, sim: int):
+        """(the mother's lineage key, the father's) of a sim born in the run, or None (a
+        founder)."""
+        parents = self.sims[sim][7] if sim in self.sims else self.archive[sim][9]
+        if parents is None:
+            return None
+        return self.key_of(parents[0]), self.key_of(parents[1])
+
+    def phenotype_parts(self, sim: int, trait: PhenotypeTrait, now: int) -> dict:
+        """The phenotype of the trait of a living sim at `now` and its parts
+        (`phenotype_parts`): its genome, its lineage key, its parents' keys, its age `now −
+        born` in seconds."""
+        born, key, _, person = self.sims[sim][:4]
+        return phenotype_parts(self.seed, trait, person, key, self.parent_keys(sim), now - born)
+
+    def phenotypes(self, sim: int, now: int) -> list:
+        """(weight, z) of each present similarity term (cognition, then height) for a living
+        sim at `now`."""
+        return [(weight, self.phenotype_parts(sim, trait, now)["z"]) for _, trait, weight in self.data.similarity_traits()]
+
     def sex_of(self, sim: int) -> bytes:
         return self.sims[sim][2] if sim in self.sims else self.archive[sim][4]
 
@@ -1562,17 +1775,27 @@ class World:
             walked.append((man, phi, skipped))
             if not skipped:
                 kept.append(man)
-        record = {"woman": woman, "walked": walked, "candidates": [], "chosen": None, "outcome": "no candidate"}
+        record = {"woman": woman, "walked": walked, "candidates": [], "chosen": None, "outcome": "no candidate", "terms": []}
         if not kept:
             return record
+        # Her phenotypes once (design note of the similarity, section 2), each candidate's
+        # once per candidate; the similarity terms only for the named traits.
+        hers = self.phenotypes(woman, now)
+        record["phenotypes"] = {woman: [z for _, z in hers]}
         best = None
         for index, man in enumerate(kept):
             gap = as_years(now - self.sims[man][0]) - as_years(now - her_born)
             phi = self.phi_float(woman, man)
             g = noise_of(self.seed, her_key, n, self.key_of(man))
-            u = utility(gap, phi, g, data)
+            his = self.phenotypes(man, now)
+            record["phenotypes"][man] = [z for _, z in his]
+            similarity = [(weight, z_her - z_his) for (weight, z_her), (_, z_his) in zip(hers, his)]
+            terms = penalties(gap, phi, data, similarity)
+            u = utility_of(terms, g)
+            assert u == utility(gap, phi, g, data, similarity)
             assert math.isfinite(u), "market.utility"
             record["candidates"].append((man, gap, phi, g, u))
+            record["terms"].append(terms)
             # The largest; on a tie the earlier in the list (the smaller rank).
             if best is None or u > record["candidates"][best][4]:
                 best = index
@@ -2275,6 +2498,23 @@ if __name__ == "__main__":
         + " PAIRING_RANK "
         + " ".join(f"{rank(0xFF, PAIRING_RANK, clan_keys[0], 7, key):016x}" for key in clan_keys[1:])
     )
+    # The similarity terms (design note of the similarity, sections 1 and 2): the weights of
+    # the life course data, the named traits (none in the repository's data), and pure values
+    # of the utility with both terms, with one and without (a term left out, not added as 0).
+    print(
+        f"similarity_repository w_K {REPOSITORY.pairing_weight_cognition!r} w_H {REPOSITORY.pairing_weight_height!r}"
+        f" cognition_trait {REPOSITORY.cognition_trait} height_trait {REPOSITORY.height_trait}"
+    )
+    w_k, w_h = REPOSITORY.pairing_weight_cognition, REPOSITORY.pairing_weight_height
+    for gap, phi, noise, d_k, d_h in [(4.69, 0.0, 0.0, 1.0, 1.0), (0.0, 0.0, 1.5, -0.5, 2.0), (3.0, 0.0625, 0.0, 0.3, -0.7), (10.0, 0.03125, -2.0, 1.25, 0.0)]:
+        both = utility(gap, phi, noise, REPOSITORY, [(w_k, d_k), (w_h, d_h)])
+        cognition = utility(gap, phi, noise, REPOSITORY, [(w_k, d_k)])
+        height = utility(gap, phi, noise, REPOSITORY, [(w_h, d_h)])
+        print(
+            f"similarity_utility gap {gap!r} phi {phi!r} noise {noise!r} dK {d_k!r} dH {d_h!r}"
+            f" penalties {penalties(gap, phi, REPOSITORY, [(w_k, d_k), (w_h, d_h)])!r}"
+            f" U both {both!r} cognition_only {cognition!r} height_only {height!r} neither {utility(gap, phi, noise, REPOSITORY)!r}"
+        )
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
     print(f"empty_save {EMPTY_SAVE.hex()}")
     # The constants of this model against the code lists of tests/golden.
@@ -2286,6 +2526,8 @@ if __name__ == "__main__":
         ("tag", str(MARKET_ORDER), "MARKET_ORDER"),
         ("tag", str(PAIRING_NOISE), "PAIRING_NOISE"),
         ("tag", str(SEPARATION_BUDGET), "SEPARATION_BUDGET"),
+        ("tag", str(ENV_SHARED), "ENV_SHARED"),
+        ("tag", str(ENV_INDIVIDUAL), "ENV_INDIVIDUAL"),
         ("kind", "market_round", str(MARKET_ROUND_KIND)),
         ("kind", "separation", str(SEPARATION_KIND)),
         ("subject", "world", str(WORLD_SUBJECT)),
