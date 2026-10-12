@@ -78,8 +78,19 @@ fn command() -> Command {
     let kinship = Command::new("kinship")
         .about("Prints the kinship coefficient of two persons of a run (genetics spec 11.2)")
         .arg(Arg::new("run").value_name("RUN_DIR").required(true))
-        .arg(Arg::new("a").value_name("SIM").required(true))
-        .arg(Arg::new("b").value_name("SIM").required(true));
+        // Any text reaches the check of the IDs, also one that starts with a hyphen.
+        .arg(
+            Arg::new("a")
+                .value_name("SIM")
+                .required(true)
+                .allow_hyphen_values(true),
+        )
+        .arg(
+            Arg::new("b")
+                .value_name("SIM")
+                .required(true)
+                .allow_hyphen_values(true),
+        );
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)

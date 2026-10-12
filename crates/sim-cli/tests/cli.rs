@@ -478,7 +478,14 @@ fn kinship_prints_the_coefficient() {
         assert!(outcome.ok, "{a} and {b}: {}", outcome.stderr);
         assert_eq!(outcome.stdout, format!("{phi}\n"), "{a} and {b}");
     }
-    for (a, b) in [("14", "1"), ("1", "0"), ("x", "1")] {
+    // Review finding: an ID with a leading hyphen is an unknown person too, in either place.
+    for (a, b) in [
+        ("14", "1"),
+        ("1", "0"),
+        ("x", "1"),
+        ("-1", "1"),
+        ("1", "-x"),
+    ] {
         assert!(
             error_of(&["kinship", arg(&run), a, b]).starts_with("error: unknown_sim: "),
             "{a} and {b}"
