@@ -12,6 +12,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
+use sim_core::ids::SimId;
 use sim_core::input::{ForkOverride, Input, InputRecord};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
@@ -74,12 +75,18 @@ fn command() -> Command {
     let export = Command::new("export")
         .about("Writes the pedigree of a run into its directory (pedigree.json)")
         .arg(Arg::new("run").value_name("RUN_DIR").required(true));
+    let kinship = Command::new("kinship")
+        .about("Prints the kinship coefficient of two persons of a run (genetics spec 11.2)")
+        .arg(Arg::new("run").value_name("RUN_DIR").required(true))
+        .arg(Arg::new("a").value_name("SIM").required(true))
+        .arg(Arg::new("b").value_name("SIM").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .subcommand(run)
         .subcommand(fork)
         .subcommand(export)
+        .subcommand(kinship)
         .subcommand(
             Command::new("repro")
                 .about("Replays a repro package; succeeds once the failure is gone (ADR-0016)")
@@ -114,6 +121,10 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
             let dir = export.get_one::<String>("run").map_or("", String::as_str);
             return export_run(Path::new(dir));
         }
+        Some(("kinship", kinship)) => {
+            let text = |name: &str| kinship.get_one::<String>(name).map_or("", String::as_str);
+            return kinship_of(Path::new(text("run")), text("a"), text("b"));
+        }
         _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
     let text = |name: &str| run.get_one::<String>(name).map(String::as_str);
@@ -139,8 +150,29 @@ fn export_run(dir: &Path) -> Result<(), CliError> {
     let bytes = files::read(&dir.join(files::SAVE))?;
     let (world, _) = World::load(&bytes, data::core_data()?)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
-    let pedigree = files::json(&world.state().pedigree()) + "\n";
+    let pedigree = files::json(&world.pedigree()) + "\n";
     files::replace(&dir.join(files::PEDIGREE), pedigree.as_bytes())
+}
+
+/// Prints φ of the persons `a` and `b` of the run in `dir`, from its save, as one JSON
+/// number. The core computes it; the CLI only prints it.
+fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {
+    let bytes = files::read(&dir.join(files::SAVE))?;
+    let (world, _) = World::load(&bytes, data::core_data()?)
+        .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+    let unknown = |text: &str| CliError::new("unknown_sim", format!("no person {text} in the run"));
+    let sim = |text: &str| {
+        text.parse::<u64>()
+            .ok()
+            .and_then(|n| SimId::try_from(n).ok())
+            .ok_or_else(|| unknown(text))
+    };
+    let phi = world
+        .state()
+        .kinship(sim(a)?, sim(b)?)
+        .ok_or_else(|| unknown(&format!("{a} or {b}")))?;
+    println!("{}", files::json(&phi));
+    Ok(())
 }
 
 fn parse_time(text: &str) -> Option<SimTime> {

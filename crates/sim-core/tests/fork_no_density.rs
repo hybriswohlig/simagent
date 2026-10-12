@@ -168,7 +168,7 @@ struct Projection {
 const PREGNANCY: i64 = 10 * 28 * 86_400;
 
 fn project(run: &Run) -> Projection {
-    let pedigree: Pedigree = run.world.state().pedigree();
+    let pedigree: Pedigree = run.world.pedigree();
     let key_of: BTreeMap<SimId, LineageKey> = pedigree
         .persons
         .iter()
@@ -470,7 +470,8 @@ fn yearly_balance_log_matches_state() {
             state.archive_len(),
             "year {year}"
         );
-        let known: BTreeSet<SimId> = state
+        let known: BTreeSet<SimId> = run
+            .world
             .pedigree()
             .persons
             .iter()

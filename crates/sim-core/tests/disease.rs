@@ -302,7 +302,6 @@ fn of_the_disease_and_accident_due_together_accident_wins() {
     assert_eq!(in_that_second, [died(HIS_ACCIDENT, "core:accident")]);
     let him = run
         .world
-        .state()
         .pedigree()
         .persons
         .into_iter()

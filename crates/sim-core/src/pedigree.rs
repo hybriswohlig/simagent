@@ -1,6 +1,7 @@
-//! The pedigree of a world (B10, HANDOFF §9 step 5: a mini pedigree in the export): every
-//! sim, living or archived, with its biological parents, and every partnership. A read
-//! only view; whoever shows it computes nothing domain-relevant from it.
+//! The pedigree of a world (B10, HANDOFF §9 step 10): every sim, living or archived, with
+//! its biological and social parents, its household, its carer and its hereditary diseases;
+//! every partnership with its end and the kinship of the two; every household. A read-only
+//! view; whoever shows it computes nothing domain-relevant from it.
 
 use alloc::vec::Vec;
 
@@ -8,20 +9,29 @@ use serde::Serialize;
 
 use crate::data_id::Code;
 use crate::genome::{LocusAlleles, Sex};
-use crate::ids::{PartnershipId, SimId};
+use crate::ids::{HouseholdId, PartnershipId, SimId};
+use crate::input::{Input, InputRecord};
+use crate::kinship::KinshipCache;
 use crate::lineage::LineageKey;
-use crate::state::LeftBy;
+use crate::params::ParamChange;
+use crate::state::{Affliction, EndedBy, LeftBy, market};
 use crate::time::SimTime;
 
-/// All sims by ID and all partnerships by ID.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// The version of the form of `pedigree.json` (step 10 added social parents, households,
+/// carers, diseases, the end of a partnership and its kinship).
+pub const PEDIGREE_FORMAT: u32 = 2;
+
+/// All sims, all partnerships and all households, each by ID.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Pedigree {
+    pub format_version: u32,
     pub persons: Vec<Person>,
     pub partnerships: Vec<Couple>,
+    pub households: Vec<Home>,
 }
 
 /// A sim, living or archived. Founders have no parents.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Person {
     pub sim: SimId,
     pub lineage_key: LineageKey,
@@ -34,52 +44,145 @@ pub struct Person {
     pub cause_of_death: Option<Code>,
     pub mother: Option<SimId>,
     pub father: Option<SimId>,
+    /// Who took it in by the orphan rule, in the order of the state (ADR-0018 section 4).
+    pub social_parents: Vec<SimId>,
+    /// The household it lives in; for the dead the last one.
+    pub household: HouseholdId,
+    pub moved_out: bool,
+    /// Its carer while it is dependent; `None` for the dead.
+    pub carer: Option<SimId>,
+    /// Its hereditary diseases in the order of the data (ADR-0017 section 3).
+    pub diseases: Vec<Shown>,
 }
 
-/// A partnership with its forming and its end.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// A hereditary disease of a person: its onset age in years and whether it shows.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Shown {
+    pub disease: Code,
+    pub onset: f64,
+    /// The onset is reached at the reference second and the switch of the hereditary
+    /// diseases is on then (ADR-0017 section 3).
+    pub affected: bool,
+}
+
+/// A partnership with its forming, its end and the kinship of the two.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Couple {
     pub partnership: PartnershipId,
     pub woman: SimId,
     pub man: SimId,
     pub formed: SimTime,
     pub ended: Option<SimTime>,
+    pub ended_by: Option<End>,
+    /// φ of the two (genetics specification 11.2).
+    pub kinship: f64,
 }
 
-impl crate::world::WorldState {
+/// Why a partnership ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum End {
+    Death,
+    Separation,
+}
+
+/// A household from its forming to its end; it stays as history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Home {
+    pub household: HouseholdId,
+    pub formed: SimTime,
+    pub ended: Option<SimTime>,
+}
+
+/// Whether the switch of the hereditary diseases is on at `at`: the value of `Start` from
+/// the start on, each override block's from one second after its stamp (ADR-0013).
+fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
+    let mut on = false;
+    for record in log {
+        match &record.input {
+            Input::Start(start) => on = start.world_params.hereditary_diseases,
+            Input::ForkOverride(block) if record.t.as_secs() < at.as_secs() => {
+                for change in &block.changes {
+                    if let ParamChange::HereditaryDiseases(value) = change {
+                        on = *value;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    on
+}
+
+impl crate::world::World {
     /// The pedigree as the state holds it: the persons by ID, the living and the archive
-    /// together, and the partnerships by ID.
+    /// together, the partnerships and the households by ID.
     pub fn pedigree(&self) -> Pedigree {
-        let domain = self.domain();
+        let state = self.state();
+        let domain = state.domain();
+        let data = state.data();
+        let log = self.input_log();
+        // Senescence, accident or a disease of the data (ADR-0017 section 2).
+        let code = |key: u64| crate::state::death::cause_code(data, key);
+        let shown = |afflictions: &[Affliction], born: SimTime, at: SimTime| -> Vec<Shown> {
+            let on = switch_at(log, at);
+            afflictions
+                .iter()
+                .filter_map(|affliction| {
+                    let onset = affliction.onset.get();
+                    let age = crate::state::disease::age(born, at);
+                    Some(Shown {
+                        disease: code(affliction.disease)?,
+                        onset,
+                        affected: on && age >= onset,
+                    })
+                })
+                .collect()
+        };
+        let clock = self.closed_through();
+        let now = if clock.as_secs() < SimTime::START.as_secs() {
+            SimTime::START
+        } else {
+            clock
+        };
         let living = domain.sims.iter().map(|(id, sim)| Person {
             sim: *id,
             lineage_key: sim.lineage_key,
             sex: sim.sex,
-            alleles: sim.genome.alleles(self.data()),
+            alleles: sim.genome.alleles(data),
             born: sim.born,
             died: None,
             cause_of_death: None,
             mother: sim.parents.map(|parents| parents.mother),
             father: sim.parents.map(|parents| parents.father),
+            social_parents: sim.social_parents.clone(),
+            household: sim.household,
+            moved_out: sim.moved_out,
+            carer: sim.carer,
+            diseases: shown(&sim.afflictions, sim.born, now),
         });
-        // Senescence, accident or a disease of the data (ADR-0017 section 2).
-        let cause_of = |key: u64| crate::state::death::cause_code(self.data(), key);
         let archived = domain.archive.iter().map(|(id, sim)| {
             let LeftBy::Death { cause } = sim.left_by;
             Person {
                 sim: *id,
                 lineage_key: sim.lineage_key,
                 sex: sim.sex,
-                alleles: sim.genome.alleles(self.data()),
+                alleles: sim.genome.alleles(data),
                 born: sim.born,
                 died: Some(sim.left),
-                cause_of_death: cause_of(cause),
+                cause_of_death: code(cause),
                 mother: sim.parents.map(|parents| parents.mother),
                 father: sim.parents.map(|parents| parents.father),
+                social_parents: sim.social_parents.clone(),
+                household: sim.household,
+                moved_out: sim.moved_out,
+                carer: None,
+                diseases: shown(&sim.afflictions, sim.born, sim.left),
             }
         });
         let mut persons: Vec<Person> = living.chain(archived).collect();
         persons.sort_unstable_by_key(|person| person.sim);
+        let mut cache = KinshipCache::new();
         let partnerships = domain
             .partnerships
             .iter()
@@ -89,11 +192,99 @@ impl crate::world::WorldState {
                 man: partnership.man,
                 formed: partnership.formed,
                 ended: partnership.ended.map(|ending| ending.at),
+                ended_by: partnership.ended.map(|ending| match ending.by {
+                    EndedBy::Death => End::Death,
+                    EndedBy::Separation => End::Separation,
+                }),
+                kinship: market::phi_with(&mut cache, domain, partnership.woman, partnership.man),
+            })
+            .collect();
+        let households = domain
+            .households
+            .iter()
+            .map(|(id, household)| Home {
+                household: *id,
+                formed: household.formed,
+                ended: household.ended,
             })
             .collect();
         Pedigree {
+            format_version: PEDIGREE_FORMAT,
             persons,
             partnerships,
+            households,
         }
+    }
+}
+
+impl crate::world::WorldState {
+    /// φ of two persons, living or archived (genetics specification 11.2, the function
+    /// the market uses); `None` if either is unknown.
+    pub fn kinship(&self, a: SimId, b: SimId) -> Option<f64> {
+        let domain = self.domain();
+        let known = |sim: &SimId| domain.sims.contains_key(sim) || domain.archive.contains_key(sim);
+        (known(&a) && known(&b)).then(|| market::phi_with(&mut KinshipCache::new(), domain, a, b))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_id::DataId;
+    use crate::ids::InputSeq;
+    use crate::input::{ForkOverride, Start};
+    use crate::params::WorldParams;
+
+    fn record(t: i64, input: Input) -> InputRecord {
+        InputRecord {
+            t: SimTime::from_secs(t),
+            seq: InputSeq::try_from(1).expect("valid"),
+            input,
+        }
+    }
+
+    fn start(on: bool) -> Input {
+        Input::Start(Start {
+            world_seed: 1,
+            founder_tag: DataId::new("test:switch").expect("id"),
+            world_params: WorldParams {
+                hereditary_diseases: on,
+                nutrition: Vec::new(),
+            },
+            founders: Vec::new(),
+            couples: Vec::new(),
+        })
+    }
+
+    fn set(on: bool) -> Input {
+        Input::ForkOverride(ForkOverride {
+            changes: alloc::vec![ParamChange::HereditaryDiseases(on)],
+        })
+    }
+
+    /// `Start` sets the switch from the start on; an override block from one second after
+    /// its stamp on; within a block the last change counts.
+    #[test]
+    fn the_switch_follows_the_input_log() {
+        let t = SimTime::from_secs;
+        let log = [record(-1, start(true)), record(10, set(false))];
+        assert!(switch_at(&log, t(0)));
+        assert!(switch_at(&log, t(10)));
+        assert!(!switch_at(&log, t(11)));
+        let twice = Input::ForkOverride(ForkOverride {
+            changes: alloc::vec![
+                ParamChange::HereditaryDiseases(true),
+                ParamChange::HereditaryDiseases(false),
+            ],
+        });
+        let log = [
+            record(-1, start(false)),
+            record(3, twice),
+            record(7, set(true)),
+        ];
+        assert!(!switch_at(&log, t(4)));
+        assert!(!switch_at(&log, t(7)));
+        assert!(switch_at(&log, t(8)));
+        assert!(!switch_at(&[], t(8)));
     }
 }

@@ -475,7 +475,6 @@ fn a_trait_of_longevity_scales_senescence() {
         // Her death with the trait is the latest of the four.
         let world = run(world, LONGEVITY_DUES[0].0).world;
         world
-            .state()
             .pedigree()
             .persons
             .iter()
@@ -555,7 +554,7 @@ fn form_age_never_decreases_over_life() {
         let now = SimTime::from_secs(year * Y - 1);
         world.advance_until(&mut out, now, &mut |_| false);
         world.take_log();
-        for person in world.state().pedigree().persons {
+        for person in world.pedigree().persons {
             if person.died.is_some() {
                 continue;
             }

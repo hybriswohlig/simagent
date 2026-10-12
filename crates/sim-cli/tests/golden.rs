@@ -130,6 +130,21 @@ fn golden_fork_matches() {
     assert_eq!(fork.log.len(), whole_run().log.len() + 1);
 }
 
+/// The pedigrees of the golden run and of its fork after thirty years are the goldens
+/// (tools/golden_reference.py, step 10): in the fork, with the hereditary diseases on from
+/// year 5, sims 1 and 3 show their disease.
+#[test]
+fn golden_pedigrees_match() {
+    for (run, file) in [
+        (whole_run(), "tests/golden/dummy_pedigree.json"),
+        (fork_run(), "tests/golden/dummy_fork_pedigree.json"),
+    ] {
+        let golden = fs::read_to_string(repo_file(file)).expect("the golden pedigree");
+        let pedigree = serde_json::to_string(&run.world.pedigree()).expect("json") + "\n";
+        assert_eq!(pedigree, golden, "{file}");
+    }
+}
+
 #[test]
 fn golden_run_matches() {
     let golden = golden();
