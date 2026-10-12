@@ -139,12 +139,8 @@ impl crate::world::World {
                 })
                 .collect()
         };
-        let clock = self.closed_through();
-        let now = if clock.as_secs() < SimTime::START.as_secs() {
-            SimTime::START
-        } else {
-            clock
-        };
+        // The living show their diseases at the clock, right after `Start` at the start.
+        let now = self.closed_through().max(SimTime::START);
         let living = domain.sims.iter().map(|(id, sim)| Person {
             sim: *id,
             lineage_key: sim.lineage_key,
