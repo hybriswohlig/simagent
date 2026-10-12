@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use crate::{Result, cargo, read, relative, release_run};
+use crate::{Result, cargo_program, read, relative, release_run};
 
 /// The scenario of P1: ten couples of `Start`, women of 20 to 29 with men two years older,
 /// reference alleles, the hereditary diseases on, until the end of year 199.
@@ -23,6 +23,38 @@ pub fn median(times: &[Duration]) -> Option<Duration> {
     sorted.get(sorted.len() / 2).copied()
 }
 
+/// Builds the release binary of `sim-cli` and returns its path as Cargo reports it, so that
+/// a configured target directory is followed and no stale binary runs.
+fn build(root: &Path) -> Result<std::path::PathBuf> {
+    let output = Command::new(cargo_program())
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "--package",
+            "sim-cli",
+            "--message-format=json-render-diagnostics",
+        ])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot run cargo: {error}"))?;
+    if !output.status.success() {
+        return Err("the release build of sim-cli failed".to_string());
+    }
+    executable(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| "cargo reported no executable simagent".to_string())
+}
+
+/// The path of the executable `simagent` in the JSON messages of a Cargo build.
+fn executable(messages: &str) -> Option<std::path::PathBuf> {
+    messages
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|message| message["reason"] == "compiler-artifact")
+        .filter(|message| message["target"]["name"] == "simagent")
+        .find_map(|message| message["executable"].as_str().map(std::path::PathBuf::from))
+}
+
 /// What a run leaves: its time, the entries of its log and the living at its end.
 struct Measured {
     time: Duration,
@@ -33,18 +65,7 @@ struct Measured {
 
 /// Builds the release binary of `sim-cli`, runs the scenario `RUNS` times and reports.
 pub fn bench(root: &Path) -> Result {
-    cargo(
-        root,
-        &[
-            "build",
-            "--quiet",
-            "--locked",
-            "--release",
-            "--package",
-            "sim-cli",
-        ],
-    )?;
-    let binary = root.join("target").join("release").join("simagent");
+    let binary = build(root)?;
     let base = root.join("target").join("xtask-bench");
     let mut runs = Vec::new();
     for number in 1..=RUNS {
@@ -117,6 +138,23 @@ pub fn bench(root: &Path) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The executable comes from the build's own message, wherever the target directory is.
+    #[test]
+    fn the_executable_comes_from_the_build() {
+        let messages = concat!(
+            r#"{"reason":"compiler-artifact","target":{"name":"sim_core"},"executable":null}"#,
+            "\n",
+            r#"{"reason":"compiler-artifact","target":{"name":"simagent"},"executable":"/x/rel/simagent"}"#,
+            "\n",
+            r#"{"reason":"build-finished","success":true}"#,
+        );
+        assert_eq!(
+            executable(messages),
+            Some(std::path::PathBuf::from("/x/rel/simagent"))
+        );
+        assert_eq!(executable("not json\n"), None);
+    }
 
     #[test]
     fn the_median_is_the_middle_run() {
