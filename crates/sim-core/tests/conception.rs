@@ -491,7 +491,6 @@ fn the_wish_and_the_pause_on_the_repository_data() {
     assert_eq!(conceived(5), [2, 31, 63]);
     let born = |mother: u64| -> Vec<(u64, i64)> {
         run.world
-            .state()
             .pedigree()
             .persons
             .iter()
@@ -590,7 +589,7 @@ fn identical_twins_share_their_genome() {
         assert!(json[at].contains(&payload), "{}", json[at]);
     }
     run.advance(27 * MONTH);
-    let pedigree = run.world.state().pedigree();
+    let pedigree = run.world.pedigree();
     let twin = |sim: u64| {
         let person = pedigree
             .persons
@@ -629,7 +628,6 @@ fn every_conception_gives_twins() {
     run.advance(4 * Y - 1);
     let children: Vec<(u64, u64, Sex, i64)> = run
         .world
-        .state()
         .pedigree()
         .persons
         .iter()

@@ -120,7 +120,6 @@ fn the_lethal_diseases_kill_by_genotype_sex_and_onset() {
     );
     let alive = |sim: u64| {
         world
-            .state()
             .pedigree()
             .persons
             .iter()
@@ -141,7 +140,6 @@ fn with_the_switch_off_nobody_dies_of_a_disease() {
     world.advance_until(&mut out, SimTime::from_secs(5_400_000_000), &mut |_| false);
     assert_eq!(deaths(&world.take_log()), []);
     let founders_alive = world
-        .state()
         .pedigree()
         .persons
         .iter()

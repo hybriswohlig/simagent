@@ -168,7 +168,6 @@ impl Run {
 
     fn pairs(&self) -> Vec<(u64, u64, i64)> {
         self.world
-            .state()
             .pedigree()
             .partnerships
             .iter()

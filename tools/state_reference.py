@@ -91,6 +91,15 @@ household) and "homes_orphans" (the orphans now with their father) change; "home
 "homes_step" and "homes_neither" are new (section 7 and the coordinator's three
 separations); `section_6_broken_states` holds one rejected state per new load check.
 
+The pedigree with kinship and social parents (step 10, design note of the pedigree): no run
+changes. The text of `pedigree.json` (`World.pedigree_json`) of "homes_step" at the second
+of its separation (the stepfather cares without a social parent edge) and at its end,
+"homes_kin" and "homes_neither" at their ends (social parents; a carer without an edge after
+a separation), "afflicted" at the end of year 37 (the switch on: affected and not, a death
+of a disease) and, after an override that switches the diseases off at that clock, at the
+end of year 38, and "loci" (new: two founders with alleles at several loci, right after
+`Start`). The kinship query's known answers on "homes_step" and "market" at their ends.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -3617,6 +3626,232 @@ def household_rows(name: str, world: world_reference.World) -> list:
     return rows
 
 
+# ---------------------------------------------------------------------------------------
+# The pedigree with kinship and social parents (step 10, design note of the pedigree): the
+# text of `pedigree.json` (`World.pedigree_json`, compact as serde_json writes it) of the
+# household scenarios of part 2, of "afflicted" with the switch on (and then off), of a
+# small scenario "loci" (the order of the loci and of the afflictions), and the known
+# answers of the kinship query (`World.kinship_of`). Nothing of a run changes: every world
+# here is one of the scenarios above, or run again to a second of it.
+
+
+def world_at(make, inputs: list, clock: int) -> world_reference.World:
+    """`make()` run to `clock` with those of `inputs` (label, the second it acts, woman, man;
+    each stamped one second before) that act at or before `clock`."""
+    world = make()
+    for _, acts, woman, man in sorted(inputs, key=lambda row: row[1]):
+        assert acts - 1 != clock, "no export at the stamp of an input"
+        if acts <= clock:
+            world.advance(acts - 1)
+            world.arrange(woman, man)
+    world.advance(clock)
+    check_all(world)
+    return world
+
+
+def view_of(world: world_reference.World) -> dict:
+    """The pedigree read back from its text: what the export holds."""
+    return json.loads(world.pedigree_json())
+
+
+def person_of(view: dict, sim: int) -> dict:
+    (person,) = [person for person in view["persons"] if person["sim"] == sim]
+    return person
+
+
+# "homes_step" at the second of the separation (clock 190743122): the stepfather sim 1 cares
+# for sim 8 (his mother sim 2 died, his father sim 7 too) without a social parent edge;
+# partnership 3 ended by separation, partnerships 1 and 2 by death. Its save is the save
+# `homes_step_save_after_separation`.
+STEP_AT_SEPARATION = world_at(step_world, STEP_INPUTS, STEP_SEPARATION["t"])
+assert STEP_AT_SEPARATION.save() == STEP_SAVES["after_separation"]
+_view = view_of(STEP_AT_SEPARATION)
+_child = person_of(_view, STEP_CHILD)
+assert (_child["mother"], _child["father"], _child["carer"], _child["social_parents"]) == (STEP_MOTHER, STEP_FATHER, STEP_STEPFATHER, [])
+assert [(p["partnership"], p["ended_by"]) for p in _view["partnerships"]] == [(1, "death"), (2, "death"), (3, "separation")]
+assert all(not person["social_parents"] for person in _view["persons"])
+# "homes_kin" at the end: the foster children 8, 9, 12 with the social parents [3, 5] (she,
+# then her partner), the children of sim 3 with their sister sim 17; partnership 1 ended by
+# separation, partnership 2 by death.
+_view = view_of(KIN)
+assert {p["sim"]: p["social_parents"] for p in _view["persons"] if p["social_parents"]} == {
+    8: [3, 5], 9: [3, 5], 12: [3, 5], 19: [17], 20: [17], 21: [17], 24: [17], 25: [17], 26: [17]
+}
+assert [(p["partnership"], p["ended_by"]) for p in _view["partnerships"]] == [(1, "separation"), (2, "death")]
+# "homes_neither" at the end: sims 31, 32, 34 with the social parent [17] (their aunt) and
+# the carer sim 6 (their grandmother, who took them over at the separation of partnership 1
+# without an edge: the separation's rule for a child cared for by neither partner).
+_view = view_of(NEITHER)
+assert [(p["sim"], p["social_parents"], p["carer"]) for p in _view["persons"] if p["social_parents"]] == [
+    (31, [17], 6), (32, [17], 6), (34, [17], 6), (36, [17], None)
+]
+assert [(p["partnership"], p["ended_by"]) for p in _view["partnerships"]] == [(1, "separation"), (2, "death")]
+
+# "afflicted" (the switch on from the start) at the end of year 37 (clock 38 · YEAR − 1):
+# sim 9 died of core:disease_ar in year 37.96 (affected at his death); sims 1 and 3 (and
+# sim 17, born in the run) have core:disease_xr with the onset 0 (affected); sim 6
+# (core:disease_ad_late, onset 48.0) and sim 7 (core:disease_ad_partial, onset 53.5) have not
+# reached their onsets (not affected). Then an override block switches the diseases off,
+# stamped at that clock: it is in the state at once, but holds only from the next second, so
+# the export at the stamp is that of the switch on; at the end of year 38 every living person
+# is not affected, and sim 9 (dead while the switch was on) still is.
+AFFLICTED_CLOCK = 38 * YEAR - 1
+AFFLICTED_AT_38 = afflicted_world()
+AFFLICTED_AT_38.advance(AFFLICTED_CLOCK)
+check_all(AFFLICTED_AT_38)
+AFFLICTED_JSON_38 = AFFLICTED_AT_38.pedigree_json()
+_view = json.loads(AFFLICTED_JSON_38)
+_dead = person_of(_view, 9)
+assert (_dead["died"], _dead["cause_of_death"], _dead["diseases"]) == (
+    AFFLICTED_DISEASE_DEATHS[0][0], "core:disease_ar", [{"disease": "core:disease_ar", "onset": 0.0, "affected": True}]
+)
+AFFLICTED_AFFECTED = sorted((p["sim"], d["disease"], d["affected"]) for p in _view["persons"] for d in p["diseases"])
+assert AFFLICTED_AFFECTED == [
+    (1, "core:disease_xr", True), (3, "core:disease_xr", True), (6, "core:disease_ad_late", False),
+    (7, "core:disease_ad_partial", False), (9, "core:disease_ar", True), (17, "core:disease_xr", True),
+]
+AFFLICTED_OFF = copy_world(AFFLICTED_AT_38)
+AFFLICTED_OFF.override(False)
+assert AFFLICTED_OFF.switch is False and AFFLICTED_OFF.closed == AFFLICTED_CLOCK
+AFFLICTED_JSON_OFF_AT_STAMP = AFFLICTED_OFF.pedigree_json()
+assert AFFLICTED_JSON_OFF_AT_STAMP == AFFLICTED_JSON_38, "the override holds from the next second"
+AFFLICTED_OFF.advance(39 * YEAR - 1)
+check_all(AFFLICTED_OFF)
+AFFLICTED_JSON_OFF_39 = AFFLICTED_OFF.pedigree_json()
+_view = json.loads(AFFLICTED_JSON_OFF_39)
+assert sorted((p["sim"], d["affected"]) for p in _view["persons"] for d in p["diseases"]) == [
+    (1, False), (3, False), (6, False), (7, False), (9, True), (17, False)
+]
+assert sorted(AFFLICTED_OFF.archive) == [9], "nobody else died in year 38"
+
+# "loci" (new, the pedigree only): seed 0xff, tag `test:loci2`, the repository's data, the
+# switch on, no couple; a woman of 30 with alleles at all five disease loci and a man of 30
+# with three (in the founders' list in the map's order of the file). The export right after
+# `Start` (clock −1, so `r` = 0): `alleles` in the order of the genome map's file (ar,
+# ad_late, ad_partial, xr, mt; not by data ID, which would be ad_late, ad_partial, ar, mt,
+# xr), `diseases` in the order of the calibration's list (ar, ad_late, ad_partial, xr, mt). Her afflictions are
+# ar and xr (onset 0, affected), ad_late and ad_partial (onsets 48.5 and 58.3, not
+# affected); his are xr (affected) and the visible core:disease_mt (onset 27.3, affected).
+# The tag was chosen among `test:loci`, `test:loci2`, `test:loci3`, `test:pedigree`,
+# `test:pedigree_loci` as the first whose man has core:disease_mt (penetrance 0.5) with an
+# onset under 30.
+LOCI_TAG = "test:loci2"
+LOCI_FOUNDERS = [
+    (-30 * YEAR, FEMALE, [("core:disease_ar", [1, 1]), ("core:disease_ad_late", [1, 0]), ("core:disease_ad_partial", [0, 1]), ("core:disease_xr", [1, 1]), ("core:disease_mt", [1])]),
+    (-30 * YEAR, MALE, [("core:disease_ar", [0, 1]), ("core:disease_xr", [1]), ("core:disease_mt", [1])]),
+]
+LOCI = world_reference.World(0xFF, LOCI_TAG, True, LOCI_FOUNDERS)
+check_all(LOCI)
+LOCI_SAVE_AFTER_START = LOCI.save()
+LOCI_JSON = LOCI.pedigree_json()
+_view = json.loads(LOCI_JSON)
+assert [[a["locus"] for a in p["alleles"]] for p in _view["persons"]] == [
+    ["core:disease_ar", "core:disease_ad_late", "core:disease_ad_partial", "core:disease_xr", "core:disease_mt"],
+    ["core:disease_ar", "core:disease_xr", "core:disease_mt"],
+]
+assert [[(d["disease"], d["affected"]) for d in p["diseases"]] for p in _view["persons"]] == [
+    [("core:disease_ar", True), ("core:disease_ad_late", False), ("core:disease_ad_partial", False), ("core:disease_xr", True)],
+    [("core:disease_xr", True), ("core:disease_mt", True)],
+]
+
+PEDIGREE_EXPORTS = [
+    ("homes_step_after_separation", STEP_AT_SEPARATION, "homes_step_save_after_separation"),
+    ("homes_step_end", STEP, "homes_step_save_end"),
+    ("homes_kin_end", KIN, "homes_kin_save_end"),
+    ("homes_neither_end", NEITHER, "homes_neither_save_end"),
+    ("afflicted_year_38", AFFLICTED_AT_38, "afflicted_save_year_38"),
+    ("afflicted_off_year_39", AFFLICTED_OFF, "afflicted_off_save_year_39"),
+    ("loci_after_start", LOCI, "loci_save_after_start"),
+]
+
+
+# The known answers of the kinship query (design note of the pedigree, sections 4 and 6):
+# per case the scenario, its save (label) and clock, the two SimIds, `φ` exact and as the
+# JSON number. "homes_step" at its end has half siblings, "market" at its end first
+# cousins; both have the others. The relation of each pair is checked from the parents.
+
+
+def half_siblings(world: world_reference.World, a: int, b: int) -> bool:
+    pa, pb = parents_of(world, a), parents_of(world, b)
+    return a != b and pa is not None and pb is not None and len(set(pa[:2]) & set(pb[:2])) == 1
+
+
+def kinship_cases(name: str, world: world_reference.World, save: str, pairs: list) -> list:
+    """(label, scenario, save, clock, a, b, φ or None) per pair (relation, a, b), the relation
+    checked; φ symmetric."""
+    rows = []
+    for relation, a, b in pairs:
+        known = [sim in world.sims or sim in world.archive for sim in (a, b)]
+        if relation == "parent_child":
+            assert a in parents_of(world, b)[:2]
+        elif relation == "full_siblings":
+            assert full_siblings(world, a, b)
+        elif relation == "half_siblings":
+            assert half_siblings(world, a, b)
+        elif relation == "first_cousins":
+            assert first_cousins(world, a, b) and not full_siblings(world, a, b) and not half_siblings(world, a, b)
+        elif relation == "unrelated_founders":
+            assert parents_of(world, a) is None and parents_of(world, b) is None and a != b
+        elif relation.startswith("itself"):
+            assert a == b and all(known)
+        else:
+            assert relation == "unknown" and not all(known)
+        value = world.kinship_of(a, b)
+        assert value == world.kinship_of(b, a)
+        rows.append((f"kinship_{name}_{relation}", name, save, world.closed, a, b, value))
+    return rows
+
+
+KINSHIP_CASES = kinship_cases(
+    "homes_step",
+    STEP,
+    "homes_step_save_end",
+    [
+        ("parent_child", STEP_MOTHER, STEP_CHILD),
+        ("full_siblings", 10, 11),
+        ("half_siblings", STEP_CHILD, 9),
+        ("unrelated_founders", STEP_STEPFATHER, STEP_SECOND),
+        ("itself_founder", STEP_STEPFATHER, STEP_STEPFATHER),
+        ("itself_child", STEP_CHILD, STEP_CHILD),
+        ("unknown", STEP.next_sim_id, STEP_CHILD),
+    ],
+) + kinship_cases(
+    "market",
+    MARKET,
+    "market_save_end_of_year_39",
+    [
+        ("parent_child", 1, 12),
+        ("full_siblings", 13, 14),
+        ("first_cousins", 24, 26),
+        ("unrelated_founders", 1, 2),
+        ("itself_founder", 1, 1),
+        ("itself_child", 24, 24),
+        ("unknown", MARKET.next_sim_id, 1),
+    ],
+)
+assert [(label, value) for label, *_, value in KINSHIP_CASES] == [
+    ("kinship_homes_step_parent_child", 0.25),
+    ("kinship_homes_step_full_siblings", 0.25),
+    ("kinship_homes_step_half_siblings", 0.125),
+    ("kinship_homes_step_unrelated_founders", 0.0),
+    ("kinship_homes_step_itself_founder", 0.5),
+    ("kinship_homes_step_itself_child", 0.5),
+    ("kinship_homes_step_unknown", None),
+    ("kinship_market_parent_child", 0.25),
+    ("kinship_market_full_siblings", 0.25),
+    ("kinship_market_first_cousins", 0.0625),
+    ("kinship_market_unrelated_founders", 0.0),
+    ("kinship_market_itself_founder", 0.5),
+    ("kinship_market_itself_child", 0.5),
+    ("kinship_market_unknown", None),
+], "the values of spec 2.7 (W2.7a to W2.7c, W2.7f): exact fractions without inbreeding"
+
+
+def kinship_row(label: str, name: str, save: str, clock: int, a: int, b: int, value) -> str:
+    answer = "none (unknown_sim)" if value is None else f"phi {Fraction(value)} json {world_reference.json_number(value)}"
+    return f"{label} scenario {name} save {save} clock {clock} sims {a} {b} {answer}"
+
+
 TEST_DATA = [
     ("repository", world_reference.REPOSITORY),
     ("mortal", MORTAL_DATA),
@@ -3942,3 +4177,17 @@ if __name__ == "__main__":
     print(f"log_hash_empty {digest(b'')}")
     print(f"log_hash_entry {digest(SAMPLE_ENTRY)}")
     print(f"log_hash_entry_twice {digest(SAMPLE_ENTRY + SAMPLE_ENTRY)}")
+    # The pedigree (step 10): the saves of the new stops, then per export its clock, length,
+    # xxh3-64 of the UTF-8 text and the text of `pedigree.json` (compact, no newline).
+    print(f"loci_founders tag {LOCI_TAG} switch on {[(born, 'female' if sex == FEMALE else 'male', alleles) for born, sex, alleles in LOCI_FOUNDERS]} keys {[format(founder_key(LOCI_TAG, index), '016x') for index in range(len(LOCI_FOUNDERS))]}")
+    print(f"loci_save_after_start {LOCI_SAVE_AFTER_START.hex()}")
+    print(f"afflicted_save_year_38 (clock {AFFLICTED_CLOCK}) {AFFLICTED_AT_38.save().hex()}")
+    print(f"afflicted_off_save_year_39 (override off stamped {AFFLICTED_CLOCK}, clock {AFFLICTED_OFF.closed}) {AFFLICTED_OFF.save().hex()}")
+    print(f"afflicted_affected_year_38 (sim, disease, affected) {AFFLICTED_AFFECTED}")
+    print(f"afflicted_off_at_stamp_pedigree (override off stamped {AFFLICTED_CLOCK}, clock {AFFLICTED_CLOCK}, the switch of the state off) equals afflicted_year_38_pedigree_json: {AFFLICTED_JSON_OFF_AT_STAMP == AFFLICTED_JSON_38}")
+    for name, world, save in PEDIGREE_EXPORTS:
+        text = world.pedigree_json()
+        print(f"{name}_pedigree clock {world.closed} save {save} length {len(text.encode())} hash {digest(text.encode())}")
+        print(f"{name}_pedigree_json {text}")
+    for case in KINSHIP_CASES:
+        print(kinship_row(*case))

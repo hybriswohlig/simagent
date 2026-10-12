@@ -199,7 +199,6 @@ fn the_child_keeps_its_father_after_the_separation() {
     run.advance(REPAIRING_STAMP);
     let child = run
         .world
-        .state()
         .pedigree()
         .persons
         .into_iter()

@@ -147,7 +147,7 @@ fn town() -> (Vec<(usize, usize)>, Vec<[f64; 2]>) {
     world.advance_until(&mut out, SimTime::from_secs(30 * Y - 1), &mut |_| false);
     let mut seen = std::collections::BTreeSet::new();
     let mut first = Vec::new();
-    for partnership in world.state().pedigree().partnerships {
+    for partnership in world.pedigree().partnerships {
         let (woman, man) = (partnership.woman.get(), partnership.man.get());
         let fresh = !seen.contains(&woman) && !seen.contains(&man);
         seen.insert(woman);

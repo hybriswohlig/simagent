@@ -155,8 +155,13 @@ separation of partnership 2 in year 29, sim 1's death in year 27, the rounds of 
 market), and the fork's log has every log kind (the run's all but `core:param_changed`);
 both are checked here (the coverage of ADR-0003 6.3).
 
-Writes tests/golden/dummy.json, tests/golden/dummy.save and tests/golden/dummy_fork.json
-(protected list, ADR-0000). Prints the pedigree values of the CLI export test as well.
+Writes tests/golden/dummy.json, tests/golden/dummy.save and tests/golden/dummy_fork.json,
+and (step 10) tests/golden/dummy_pedigree.json and tests/golden/dummy_fork_pedigree.json:
+the text of `pedigree.json` of the run and of the fork after thirty years (clock 943487999),
+compact as serde_json writes it, followed by one newline, as `simagent export` writes it. All
+five are protected goldens (protected list, ADR-0000), `--check` compares all five. Prints the
+pedigree values of the CLI export test as well, the text of both pedigrees and the answers of
+the kinship query on the run's save.
 Usage: .venv/bin/python tools/golden_reference.py [--check]
 """
 
@@ -165,6 +170,8 @@ import math
 import sys
 from fractions import Fraction
 from pathlib import Path
+
+import xxhash
 
 from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype
 
@@ -186,6 +193,7 @@ from world_reference import (
     check_story_kept,
     copies_at,
     death_key,
+    json_number,
 )
 from rng_reference import chacha_key, child_key, founder_key, rank, str_key, unit, unit_open, unit_open0, words
 
@@ -652,6 +660,49 @@ def golden(world: World) -> str:
     return json.dumps(content, indent=2) + "\n"
 
 
+# The pedigree (step 10, design note of the pedigree with kinship and social parents) of the
+# run and of the fork after thirty years. Sim 3, fostered at the start, has his social
+# parents sims 5 and 6 (in this order). In the run the switch of the hereditary diseases is
+# off all the time, so sims 1 and 3 (core:disease_ar, onset 0) are not affected; in the fork
+# it is on from T_5, so both are (sim 1 at her death in year 27, sim 3 at the clock). The
+# partnerships: 1 ended by death (sim 1's), 2 by separation, 3 open; every `φ` 0 (founders,
+# and sims 8 and 7 of two couples of founders).
+PEDIGREE = json.loads(PARENT.pedigree_json())
+FORK_PEDIGREE = json.loads(FORK.pedigree_json())
+assert PEDIGREE["format_version"] == 2 and list(PEDIGREE) == ["format_version", "persons", "partnerships", "households"]
+assert [person["sim"] for person in PEDIGREE["persons"]] == list(range(1, 14))
+assert {person["sim"]: person["social_parents"] for person in PEDIGREE["persons"] if person["social_parents"]} == {3: [5, 6]}
+for view, affected in ((PEDIGREE, False), (FORK_PEDIGREE, True)):
+    assert [(p["sim"], p["diseases"]) for p in view["persons"] if p["diseases"]] == [
+        (sim, [{"disease": "core:disease_ar", "onset": 0.0, "affected": affected}]) for sim in (1, 3)
+    ]
+    assert [(p["partnership"], p["ended_by"], p["kinship"]) for p in view["partnerships"]] == [
+        (1, "death", 0.0), (2, "separation", 0.0), (3, None, 0.0)
+    ]
+    assert len(view["households"]) == PARENT.next_household_id - 1
+# The fork's pedigree differs from the run's only in `affected` of sims 1 and 3.
+assert FORK.pedigree_json() == PARENT.pedigree_json().replace('"affected":false', '"affected":true')
+assert (PEDIGREE["persons"][0]["died"], PEDIGREE["persons"][0]["cause_of_death"]) == (HER_DEATH, SENESCENCE)
+
+# The kinship query of the CLI (`simagent kinship <run dir> <a> <b>`, design note section 4)
+# on the save of the run after thirty years: (relation, a, b, φ exact); sim 14 was never
+# given (the SimId counter), so `unknown_sim`.
+KINSHIP_CASES = [
+    ("parent_child", 1, 8, Fraction(1, 4)),
+    ("full_siblings", 8, 10, Fraction(1, 4)),
+    ("unrelated_founders", 1, 2, Fraction(0)),
+    ("itself_founder", 3, 3, Fraction(1, 2)),
+    ("itself_child", 13, 13, Fraction(1, 2)),
+    ("grandparent", 2, 13, Fraction(1, 8)),
+    ("avuncular", 10, 13, Fraction(1, 8)),
+    ("partners", 8, 7, Fraction(0)),
+    ("unknown", 14, 1, None),
+]
+assert PARENT.next_sim_id == 14
+for _relation, _a, _b, _phi in KINSHIP_CASES:
+    assert PARENT.kinship_of(_a, _b) == PARENT.kinship_of(_b, _a) == (None if _phi is None else float(_phi)), _relation
+
+
 def pedigree_rows() -> list:
     """The values of the pedigree export after thirty years (crates/sim-cli/tests/cli.rs):
     per sim its lineage key, sex, alleles that are not the reference (locus, copies
@@ -680,17 +731,24 @@ if __name__ == "__main__":
     json_path = ROOT / "tests" / "golden" / "dummy.json"
     save_path = ROOT / "tests" / "golden" / "dummy.save"
     fork_path = ROOT / "tests" / "golden" / "dummy_fork.json"
+    pedigrees = [
+        (ROOT / "tests" / "golden" / "dummy_pedigree.json", (PARENT.pedigree_json() + "\n").encode()),
+        (ROOT / "tests" / "golden" / "dummy_fork_pedigree.json", (FORK.pedigree_json() + "\n").encode()),
+    ]
     if "--check" in sys.argv:
         ok = (
             json_path.read_text() == text
             and save_path.read_bytes() == golden_save()
             and fork_path.read_text() == fork_text
+            and all(path.exists() and path.read_bytes() == content for path, content in pedigrees)
         )
         print("goldens match the reference" if ok else "goldens DIFFER from the reference")
         sys.exit(0 if ok else 1)
     json_path.write_text(text)
     save_path.write_bytes(golden_save())
     fork_path.write_text(fork_text)
+    for path, content in pedigrees:
+        path.write_bytes(content)
     print(text, end="")
     print(f"save: {len(golden_save())} bytes")
     print(fork_text, end="")
@@ -738,3 +796,12 @@ if __name__ == "__main__":
     print(f"households: leave_home after the fork point (time, kind) {[(t, kind) for t, kind in FORK.ran if kind == 8 and t >= FORK_YEAR * YEAR]}")
     for row in pedigree_rows():
         print(row)
+    # Step 10: the text of `pedigree.json` (compact, as serde_json writes it, no newline) of
+    # the run and of the fork after thirty years, and the kinship query on the run's save.
+    for name, world in (("pedigree_json", PARENT), ("pedigree_fork_json", FORK)):
+        text = world.pedigree_json()
+        print(f"{name}_summary clock {world.closed} length {len(text.encode())} hash {xxhash.xxh3_64_intdigest(text.encode(), seed=0):016x}")
+        print(f"{name} {text}")
+    for relation, a, b, phi in KINSHIP_CASES:
+        answer = "none (unknown_sim)" if phi is None else f"phi {phi} json {json_number(float(phi))}"
+        print(f"pedigree_kinship_{relation} sims {a} {b} {answer}")

@@ -265,6 +265,14 @@ What the model knows:
   household (causes the plan of the `leave_home` and the rule). A step-parent who takes over
   by succession, the woman who takes over at a separation and the other parent get no
   social parent edge. Carer changes and new social parents write no entry.
+- The pedigree (design note of the pedigree with kinship and social parents, step 10): a
+  read-only view of the state (`World.pedigree_view`, the text of `pedigree.json` by
+  `World.pedigree_json` as serde_json writes it, `json_text`, `json_number`): format
+  version 2, the persons with their social parents, household, `moved_out`, carer and
+  diseases (`affected` by the age at the reference second and the switch history of the
+  input log, `World.switch_at`), the partnerships with `ended_by` and their `φ`, the
+  households. The kinship query `World.kinship_of(a, b)`: `φ` as f64, None for an unknown
+  SimId. Nothing of a run changes (no draw, entry, state or byte).
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -1617,6 +1625,11 @@ class World:
         # carer, the social parents added per child, the household, the entries; not state.
         self.placements = []
         self.created_by = {}
+        # The switch of the hereditary diseases as the input log holds it (design note of
+        # the pedigree, section 1): (the second from which it holds, the value), the value
+        # of `Start` from 0, each override block from one second after its stamp; what the
+        # pedigree's `affected` reads. Not state (the save holds the input log).
+        self.switch_history = [(0, switch)]
         start = variant(
             0,
             varint(seed),
@@ -2165,6 +2178,16 @@ class World:
         assert Fraction(value) == phi
         return value
 
+    def kinship_of(self, a: int, b: int):
+        """The kinship query (design note of the pedigree, section 4,
+        `WorldState::kinship(a, b) -> Option<f64>`): `φ` of two persons, living or archived,
+        as f64 (exact, a dyadic fraction), the same `φ` the market uses (`kinship`); None if
+        either SimId is unknown (never given, or 0). `kinship_of(a, a)` is `(1 + F_a) / 2`
+        (spec 2.7): 1/2 for a founder."""
+        if not all(sim in self.sims or sim in self.archive for sim in (a, b)):
+            return None
+        return self.phi_float(a, b)
+
     def born_of(self, sim: int) -> int:
         return self.sims[sim][0] if sim in self.sims else self.archive[sim][0]
 
@@ -2550,6 +2573,7 @@ class World:
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(1, seq([param_change(switch)])))
         now = self.closed + 1
+        self.switch_history.append((now, switch))
         flips = switch != self.switch
         self.switch = switch
         changed = self._entry(now, [], [variant(2, varint(sequence))], variant(3, param_change(switch)))
@@ -2780,6 +2804,182 @@ class World:
             + seq(self.inputs)
             + seq(years)
         )
+
+    # ------------------------------------------------------------------ the pedigree
+
+    def switch_at(self, r: int) -> bool:
+        """The switch of the hereditary diseases at the second `r >= 0` by the input log
+        (design note of the pedigree, section 1): the value of `Start` from 0, each override
+        block from one second after its stamp (an override stamped at the clock is in the
+        state already, but holds only from the next second)."""
+        assert r >= 0
+        return [value for since, value in self.switch_history if since <= r][-1]
+
+    def cause_code(self, key: int) -> str:
+        """The data ID of a cause of death from its `str_key` (ADR-0004 section 2: the export
+        writes the string): `core:senescence`, `core:accident` or a disease of the data."""
+        codes = {str_key(code): code for code in [SENESCENCE, ACCIDENT] + [disease.code for disease in self.data.diseases]}
+        return codes[key]
+
+    def pedigree_view(self) -> dict:
+        """The pedigree of the state (design note of the pedigree, sections 1 to 3 and 5), as
+        the object `pedigree.json` holds, keys in the order of the note: `format_version` 2,
+        then `persons` by SimId (living and archived together), `partnerships` by
+        PartnershipId, `households` by HouseholdId.
+
+        A person: `sim`, `lineage_key` (16 lowercase hex digits, ADR-0004 section 3), `sex`
+        ("female", "male"), `alleles` (the founders' form: per locus with an allele other
+        than the reference, `{locus, copies}` with the copies maternal then paternal, the
+        loci in the order of the genome map's file), `born`, `died` (or null), `cause_of_death`
+        (its data ID, or null), `mother`, `father` (or null for a founder), then
+        `social_parents` (the list of the state, in its order), `household` (the last one
+        for the dead), `moved_out`, `carer` (null for the dead and anyone without one),
+        `diseases` (per affliction in data order `{disease, onset, affected}`: `affected`
+        iff at `r` the age `(r − born) / 31 449 600` (f64) is at least the onset and the
+        switch is on at `r`; `r` is the later of the clock and 0 for the living, the second
+        of the death for the dead). A partnership: `partnership`, `woman`, `man`, `formed`,
+        `ended` (or null), `ended_by` ("death", "separation" or null), `kinship` (`φ` of
+        the two, f64). A household: `household`, `formed`, `ended` (or null)."""
+        assert self.households_on, "the pedigree of a world with households"
+        # The loci in the order of the genome map's file (as the export walked them since
+        # step 5; ADR-0007 section 3: the state names definitions by their data IDs).
+        loci = list(self.data.loci)
+        persons = []
+        for sim in sorted(set(self.sims) | set(self.archive)):
+            if sim in self.sims:
+                born, key, sex, person, afflictions, _, _, parents, _, household, moved_out, carer, social = self.sims[sim]
+                died, cause, r = None, None, max(self.closed, 0)
+            else:
+                born, died, cause_key, key, sex, person, afflictions, _, _, parents, _, household, moved_out, social = self.archive[sim]
+                cause, carer, r = self.cause_code(cause_key), None, died
+            assert isinstance(moved_out, bool) and household is not None, (sim, moved_out, household)
+            alleles = []
+            for locus in loci:
+                copies = copies_at(person, self.data.loci[locus])
+                if any(copies):
+                    alleles.append({"locus": locus, "copies": list(copies)})
+            switch = self.switch_at(r)
+            diseases = [
+                {
+                    "disease": affliction.disease.code,
+                    "onset": affliction.onset,
+                    "affected": as_years(r - born) >= affliction.onset and switch,
+                }
+                for affliction in afflictions
+            ]
+            persons.append(
+                {
+                    "sim": sim,
+                    "lineage_key": f"{key:016x}",
+                    "sex": "female" if sex == FEMALE else "male",
+                    "alleles": alleles,
+                    "born": born,
+                    "died": died,
+                    "cause_of_death": cause,
+                    "mother": None if parents is None else parents[0],
+                    "father": None if parents is None else parents[1],
+                    "social_parents": list(social),
+                    "household": household,
+                    "moved_out": moved_out,
+                    "carer": carer,
+                    "diseases": diseases,
+                }
+            )
+        partnerships = [
+            {
+                "partnership": number_,
+                "woman": woman,
+                "man": man,
+                "formed": formed,
+                "ended": None if ended is None else ended[0],
+                "ended_by": None if ended is None else ("death", "separation")[ended[1]],
+                "kinship": self.phi_float(woman, man),
+            }
+            for number_, (woman, man, formed, ended) in sorted(self.partnerships.items())
+        ]
+        households = [
+            {"household": number_, "formed": formed, "ended": ended}
+            for number_, (formed, ended) in sorted(self.households.items())
+        ]
+        return {"format_version": 2, "persons": persons, "partnerships": partnerships, "households": households}
+
+    def pedigree_json(self) -> str:
+        """The text of `pedigree.json` as serde_json writes it (`json_text`)."""
+        return json_text(self.pedigree_view())
+
+
+def json_number(value: float) -> str:
+    """An f64 as serde_json 1.0.151 writes it (its formatter `zmij` 1.0.23, the same digits
+    and layout as `ryu` except a `+` in a positive exponent): the shortest digits that read
+    back to the same f64 (Python's repr gives them), then with the decimal exponent `e` of
+    the first digit (`d.ddd · 10^e`): for `−5 ≤ e ≤ 15` plain notation, `1234.0`,
+    `12.34` or `0.001234` (a whole number gets `.0`); else `1.234e-7`, `1e-7` (one digit,
+    no point), `1.5e+16` (sign `+` for `e ≥ 0`, no zeros before the exponent's digits).
+    `0.0`, `-0.0`; never NaN or an infinity here."""
+    assert math.isfinite(value), value
+    if value == 0.0:
+        return "-0.0" if math.copysign(1.0, value) < 0.0 else "0.0"
+    sign = "-" if value < 0.0 else ""
+    mantissa, _, exponent = repr(abs(value)).partition("e")
+    whole, _, fraction = mantissa.partition(".")
+    digits = (whole + fraction).lstrip("0")
+    k = (int(exponent) if exponent else 0) - len(fraction)
+    stripped = digits.rstrip("0")
+    k += len(digits) - len(stripped)
+    digits = stripped
+    assert digits and float(f"{digits}e{k}") == abs(value), (value, digits, k)
+    length = len(digits)
+    e = length + k - 1
+    if -5 <= e <= 15:
+        if k >= 0:
+            text = digits + "0" * k + ".0"
+        elif e >= 0:
+            text = digits[: e + 1] + "." + digits[e + 1 :]
+        else:
+            text = "0." + "0" * (-e - 1) + digits
+    else:
+        head = digits[0] + ("." + digits[1:] if length > 1 else "")
+        text = head + "e" + ("+" if e >= 0 else "-") + str(abs(e))
+    assert float(text) == abs(value), (value, text)
+    return sign + text
+
+
+# The writer of the exponent and its thresholds (zmij 1.0.23 `FIXED_DEC_EXP` -5..=15, its tests
+# and its comparison with ryu), and dyadic fractions of the kinship.
+for _value, _text in [
+    (1.0, "1.0"), (0.0, "0.0"), (-0.0, "-0.0"), (0.25, "0.25"), (0.0625, "0.0625"), (0.53125, "0.53125"),
+    (2.0**-14, "0.00006103515625"), (1e-5, "0.00001"), (2.0**-17, "7.62939453125e-6"), (1e-6, "1e-6"),
+    (2.9802322387695312e-08, "2.9802322387695312e-8"), (5.960464477539062e-07, "5.960464477539062e-7"),
+    (6.62607015e-34, "6.62607015e-34"), (5.444310685350916e14, "544431068535091.6"), (43210.0, "43210.0"),
+    (10000.0, "10000.0"), (-5942736479622170.0, "-5942736479622170.0"), (1e16, "1e+16"),
+    (3.439070283483335e35, "3.439070283483335e+35"), (48.02016537979952, "48.02016537979952"), (5e-324, "5e-324"),
+]:
+    assert json_number(_value) == _text, (_value, json_number(_value), _text)
+
+
+def json_text(value) -> str:
+    """Compact JSON as serde_json's `to_string` writes it: no spaces, the keys of an object
+    in the order given, integers as integers, f64 by `json_number`, `null`, `true`,
+    `false`; strings here are data IDs, hex digits and names (printable ASCII, no quote or
+    backslash, so no escapes)."""
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, int):
+        assert abs(value) <= 2**53 - 1, value
+        return str(value)
+    if isinstance(value, float):
+        return json_number(value)
+    if isinstance(value, str):
+        assert all(" " <= char <= "~" and char not in '"\\' for char in value), value
+        return f'"{value}"'
+    if isinstance(value, list):
+        return "[" + ",".join(json_text(item) for item in value) + "]"
+    assert isinstance(value, dict), value
+    return "{" + ",".join(f"{json_text(name)}:{json_text(item)}" for name, item in value.items()) + "}"
 
 
 def start_rejection(founders: list, couples, data: Data):
@@ -3251,3 +3451,7 @@ if __name__ == "__main__":
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
     print("closed form checks (senescence_age, accident_age against mortality.rs W7.1): ok")
+    # The pedigree (step 10): f64 in the JSON as serde_json 1.0.151 writes them (zmij 1.0.23),
+    # the values of `json_number`'s checks.
+    samples = [0.0, 0.5, 0.25, 0.125, 0.0625, 0.53125, 2.0**-14, 1e-5, 2.0**-17, 1e16, 48.02016537979952]
+    print(f"pedigree_json_numbers {[(value.hex(), json_number(value)) for value in samples]}")

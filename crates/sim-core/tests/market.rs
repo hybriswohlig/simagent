@@ -171,7 +171,6 @@ impl Run {
     /// The partnerships formed so far as (woman, man, formed).
     fn pairs(&self) -> Vec<(u64, u64, i64)> {
         self.world
-            .state()
             .pedigree()
             .partnerships
             .iter()

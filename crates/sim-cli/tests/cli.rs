@@ -455,14 +455,49 @@ fn command_schema_matches_direct_call() {
     );
 }
 
-/// The mini pedigree of the Durchstich (HANDOFF §9 step 5): `simagent export` writes
-/// every sim of a run with its parents, its birth and its death, and every partnership,
-/// into `pedigree.json`. The dummy scenario after thirty years: the founders 1 to 6 (sim 1
-/// has died of senescence), the three children of sims 5 and 6 and the three of sims 1 and
-/// 2 (both wished for three, spec 11.3), the son of sims 8 and 7, whom the partner market
-/// paired in month 260 (ADR-0018 section 1), and the three partnerships: the first ended
-/// with her death, the second with their separation (ADR-0018 section 3), the third is
-/// open. Values from tools/golden_reference.py.
+/// `simagent kinship` prints φ of two persons of a run (step 10): the golden run after
+/// thirty years, pairs from tools/golden_reference.py (`pedigree_kinship_*`); an unknown
+/// person is an error.
+#[test]
+fn kinship_prints_the_coefficient() {
+    let dir = scratch("kinship");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let run = dir.join("dummy");
+    must(&["run", "--scenario", arg(&scenario), "--out", arg(&run)]);
+    for (a, b, phi) in [
+        ("1", "8", "0.25"),
+        ("8", "10", "0.25"),
+        ("1", "2", "0.0"),
+        ("3", "3", "0.5"),
+        ("13", "13", "0.5"),
+        ("2", "13", "0.125"),
+        ("10", "13", "0.125"),
+        ("8", "7", "0.0"),
+    ] {
+        let outcome = simagent(&["kinship", arg(&run), a, b]);
+        assert!(outcome.ok, "{a} and {b}: {}", outcome.stderr);
+        assert_eq!(outcome.stdout, format!("{phi}\n"), "{a} and {b}");
+    }
+    // Review finding: an ID with a leading hyphen is an unknown person too, in either place.
+    for (a, b) in [
+        ("14", "1"),
+        ("1", "0"),
+        ("x", "1"),
+        ("-1", "1"),
+        ("1", "-x"),
+    ] {
+        assert!(
+            error_of(&["kinship", arg(&run), a, b]).starts_with("error: unknown_sim: "),
+            "{a} and {b}"
+        );
+    }
+}
+
+/// The pedigree (HANDOFF §9 steps 5 and 10): `simagent export` writes every person of a
+/// run with its biological and social parents, its birth and death, household, carer and
+/// hereditary diseases, every partnership with its end and kinship, and every household
+/// into `pedigree.json`. The dummy scenario after thirty years: the golden
+/// `tests/golden/dummy_pedigree.json` from tools/golden_reference.py.
 #[test]
 fn export_writes_the_pedigree() {
     let dir = scratch("export");
@@ -474,58 +509,8 @@ fn export_writes_the_pedigree() {
         .map(|file| fs::read(run.join(file)).expect("reads"))
         .collect();
     must(&["export", arg(&run)]);
-    // The pedigree from tools/golden_reference.py: sim 1 dies of senescence in year 27,
-    // which ends the partnership. The alleles at `core:disease_ar` (maternal, paternal).
-    let person = |sim: u64, key: &str, sex: &str, genes: (u8, u8), born: i64, rest: &str| {
-        format!(
-            r#"{{"sim":{sim},"lineage_key":"{key}","sex":"{sex}","alleles":[{{"locus":"core:disease_ar","copies":[{},{}]}}],"born":{born},{rest}}}"#,
-            genes.0, genes.1
-        )
-    };
-    // The founders 4 to 6 and their children have no allele at a locus of the map.
-    let plain = |sim: u64, key: &str, sex: &str, born: i64, rest: &str| {
-        format!(
-            r#"{{"sim":{sim},"lineage_key":"{key}","sex":"{sex}","alleles":[],"born":{born},{rest}}}"#
-        )
-    };
-    let founder = r#""died":null,"cause_of_death":null,"mother":null,"father":null"#;
-    let child = r#""died":null,"cause_of_death":null,"mother":1,"father":2"#;
-    let second = r#""died":null,"cause_of_death":null,"mother":5,"father":6"#;
-    let third = r#""died":null,"cause_of_death":null,"mother":8,"father":7"#;
-    let her_death =
-        r#""died":854634065,"cause_of_death":"core:senescence","mother":null,"father":null"#;
-    let persons = [
-        person(
-            1,
-            "67a2a1a58cf8f47a",
-            "female",
-            (1, 1),
-            -943_488_000,
-            her_death,
-        ),
-        person(2, "d14e686636ce6fd8", "male", (1, 0), -794_880_000, founder),
-        person(3, "431e7431023db46a", "male", (1, 1), -1, founder),
-        plain(4, "5ecfb3ffee518eab", "male", -628_992_000, founder),
-        plain(5, "7223b2c13652bc0d", "female", -786_240_000, founder),
-        plain(6, "8768613bccdc39a5", "male", -786_240_000, founder),
-        plain(7, "5d6aaa7a5fddc922", "male", 29_030_400, second),
-        person(8, "82a371d4d7ec74d0", "female", (1, 0), 41_126_400, child),
-        plain(9, "1b0fa76f429f6873", "male", 99_187_200, second),
-        person(10, "633a53f95f45349a", "male", (1, 0), 101_606_400, child),
-        plain(11, "49b606a5ead12b80", "male", 176_601_600, second),
-        person(12, "3b95377839225a93", "male", (1, 0), 203_212_800, child),
-        plain(13, "1f999a92e10e057c", "male", 677_376_000, third),
-    ];
-    let partnerships = [
-        r#"{"partnership":1,"woman":1,"man":2,"formed":0,"ended":854634065}"#,
-        r#"{"partnership":2,"woman":5,"man":6,"formed":0,"ended":940727538}"#,
-        r#"{"partnership":3,"woman":8,"man":7,"formed":628992000,"ended":null}"#,
-    ];
-    let expected = format!(
-        r#"{{"persons":[{}],"partnerships":[{}]}}"#,
-        persons.join(","),
-        partnerships.join(",")
-    ) + "\n";
+    let expected =
+        text(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden/dummy_pedigree.json"));
     assert_eq!(text(&run.join("pedigree.json")), expected);
     // The run itself stays as it was.
     let after: Vec<Vec<u8>> = FILES
