@@ -531,7 +531,21 @@ fn partnerships_consistent(
                 (_, None) => None,
             };
             let ended = partnership.ended.map(|ending| ending.at);
+            // Partners leave together: an emigration ending needs both archived by
+            // emigration in that second, from one household (ADR-0020 section 6).
+            let together = ending.is_none_or(|ending| {
+                ending.by != EndedBy::Emigration
+                    || match (loaded.archive.get(&woman), loaded.archive.get(&man)) {
+                        (Some(her), Some(him)) => {
+                            [her, him].iter().all(|sim| {
+                                sim.left == ending.at && sim.left_by == LeftBy::Emigration
+                            }) && her.household == him.household
+                        }
+                        _ => false,
+                    }
+            });
             id.get() == number
+                && together
                 && (by_input || by_market)
                 && in_order
                 && sex_of(&woman) == Some(Sex::Female)
@@ -1384,17 +1398,20 @@ fn next_attempt(
 }
 
 /// An archived sim emigrated with its household above the soft capacity (ADR-0020
-/// section 6): the world has a capacity; it left in the last second of a year; its
+/// section 6): the world has a capacity; it left in the last second of a year from year 0
+/// on; its
 /// household ended in that second; at least one who emigrated from it then was 18 or more;
 /// and no death of the sim was due by then (a death of that second runs before the
 /// emigration). Who else lived in the household then either died in that second or
 /// emigrated with it: the household ended.
 fn emigrated_by_the_rule(loaded: &LoadedState, sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
     let left = sim.left;
-    let year_end = left
-        .as_secs()
-        .checked_add(1)
-        .is_some_and(|next| next.rem_euclid(YEAR.as_secs()) == 0);
+    // In the last second of a year from year 0 on: the capacity acts only after `Start`.
+    let year_end = left.as_secs() >= YEAR.as_secs() - 1
+        && left
+            .as_secs()
+            .checked_add(1)
+            .is_some_and(|next| next.rem_euclid(YEAR.as_secs()) == 0);
     let ended_there = loaded
         .households
         .get(&sim.household)
