@@ -13,11 +13,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{ArchivedSim, DomainState, LeftBy, Slot, disease, household, partnership};
+use super::{ArchivedSim, DomainState, EndedBy, LeftBy, Slot, disease, household, partnership};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::genome::{Genome, Sex};
-use crate::ids::{EventId, SimId};
+use crate::ids::{EventId, HouseholdId, SimId};
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::mortality;
@@ -224,15 +224,37 @@ pub(crate) fn on_death(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let code = cause_code(data, cause).unwrap_or_else(|| panic!("invariant death.unknown_cause"));
-    let Some(person) = domain.sims.remove(&sim) else {
+    let Some(lineage_key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
-    let draw = budget_key(person.lineage_key, cause);
+    let draw = budget_key(lineage_key, cause);
     let entry = ctx.emit(
         LogPayload::Death { cause: code },
         vec![Subject::Sim(sim)],
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
+    let household = archive(domain, sim, LeftBy::Death { cause }, ctx);
+    // The partner of the partnership this death ends may take over its children.
+    let partner = partnership::open_partnership(domain, sim)
+        .and_then(|id| domain.partnerships.get(&id))
+        .map(|p| if p.woman == sim { p.man } else { p.woman });
+    partnership::end_with(domain, sim, EndedBy::Death, ctx);
+    household::death_moves(domain, sim, household, partner, entry, ctx);
+}
+
+/// `sim` leaves the active population for the archive now, by `left_by`: what was planned
+/// for it is cancelled, and her running pregnancy ends with her, with all its children
+/// (her conception stays counted). Returns the household it lived in, which it has not
+/// left yet.
+pub(crate) fn archive(
+    domain: &mut DomainState,
+    sim: SimId,
+    left_by: LeftBy,
+    ctx: &mut SimCtx<'_, '_>,
+) -> HouseholdId {
+    let Some(person) = domain.sims.remove(&sim) else {
+        panic!("invariant unknown_entity_id: sim {}", sim.get());
+    };
     let slots: Vec<(SimId, Slot)> = domain
         .pending
         .range((sim, Slot::Birthday)..=(sim, Slot::Death(u64::MAX)))
@@ -249,7 +271,7 @@ pub(crate) fn on_death(
         ArchivedSim {
             born: person.born,
             left: ctx.now(),
-            left_by: LeftBy::Death { cause },
+            left_by,
             lineage_key: person.lineage_key,
             sex: person.sex,
             genome: person.genome,
@@ -263,18 +285,12 @@ pub(crate) fn on_death(
             social_parents: person.social_parents,
         },
     );
-    // Her pregnancy ends with her, with all its children; her conception stays counted.
     if let Some(pregnancy) = domain.pregnancies.remove(&sim) {
         for unborn in &pregnancy.children {
             domain.lineage.remove(unborn.lineage_key);
         }
     }
-    // The partner of the partnership this death ends may take over its children.
-    let partner = partnership::open_partnership(domain, sim)
-        .and_then(|id| domain.partnerships.get(&id))
-        .map(|p| if p.woman == sim { p.man } else { p.woman });
-    partnership::end_with_death(domain, sim, ctx);
-    household::death_moves(domain, sim, person.household, partner, entry, ctx);
+    person.household
 }
 
 #[cfg(test)]

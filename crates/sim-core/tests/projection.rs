@@ -58,6 +58,7 @@ fn start(seed: u64, born: &[i64]) -> Input {
         },
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
+        capacity: None,
     })
 }
 
@@ -111,6 +112,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
                 },
             ],
             couples: Vec::new(),
+            capacity: None,
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));

@@ -19,11 +19,11 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":3,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":4,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 3,
+  "format_version": 4,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -33,7 +33,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 0]}]},
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
-    "couples": []
+    "couples": [],
+    "capacity": null
   },
   "until": 314495999
 }"#;
@@ -133,9 +134,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":3,"core_version":33,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
+            r#"{"format_version":4,"core_version":34,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -162,7 +163,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":3,"core_version":33,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"59a7875e76c6a7a1"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":4,"core_version":34,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"59a7875e76c6a7a1"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -173,7 +174,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540121dc88d0bdf584d4d5ad011101ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00000000010000000000000000000001000000000001010000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100a1cf9ab6e7ebe1d359"
+        "53494d4147454e540122dc88d0bdf584d4d5ad011101ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00000000010000000000000000000001000000000001010000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f617202000100000100a1cf9ab6e7ebe1d359"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -222,7 +223,7 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-943488000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]},{"born":-794880000,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,0]}]},{"born":-1,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,1]}]}],"couples":[]}}"#;
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-943488000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]},{"born":-794880000,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,0]}]},{"born":-1,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,1]}]}],"couples":[],"capacity":null}}"#;
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
     let commands = vec![
@@ -407,7 +408,7 @@ fn command_schema_matches_direct_call() {
     let dir = scratch("command_schema");
     let start_json: Value = serde_json::from_str(start_line).expect("json");
     let scenario = serde_json::json!({
-        "format_version": 3,
+        "format_version": 4,
         "start": start_json["start"],
         "until": end.as_secs(),
     });
@@ -608,12 +609,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":33"#, r#""core_version":34"#);
+    replace_in(&log, r#""core_version":34"#, r#""core_version":35"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 34, this is 33"
+        "error: replay_foreign_core_version: the input log is of core version 35, this is 34"
     );
-    replace_in(&log, r#""core_version":34"#, r#""core_version":33"#);
+    replace_in(&log, r#""core_version":35"#, r#""core_version":34"#);
     replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -834,8 +835,8 @@ fn resume_refuses_a_directory_that_does_not_match_its_save() {
     // A scenario file of another format version.
     replace_in(
         &out.join("scenario.resolved.json"),
-        r#""format_version":3"#,
         r#""format_version":4"#,
+        r#""format_version":5"#,
     );
     assert_eq!(
         resume(),
@@ -1000,7 +1001,7 @@ fn replay_rejects_a_changed_input_log() {
         "error: input_log_invalid: line 1 is not the header of an input log"
     );
     assert_eq!(
-        replay(&pristine.replacen(r#""format_version":3"#, r#""format_version":4"#, 1)),
+        replay(&pristine.replacen(r#""format_version":4"#, r#""format_version":5"#, 1)),
         "error: input_log_invalid: line 1 is not the header of an input log"
     );
     assert_eq!(
@@ -1028,7 +1029,7 @@ fn bad_scenarios_and_directories_are_rejected() {
         "error: scenario_invalid: not a scenario of format version 1"
     );
     assert_eq!(
-        run(&TINY_SCENARIO.replacen(r#""format_version":3"#, r#""format_version":4"#, 1)),
+        run(&TINY_SCENARIO.replacen(r#""format_version":4"#, r#""format_version":5"#, 1)),
         "error: scenario_invalid: not a scenario of format version 1"
     );
     assert_eq!(
@@ -1094,8 +1095,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 33, "the core version in the header of the save");
-    bytes[9] = 34;
+    assert_eq!(bytes[9], 34, "the core version in the header of the save");
+    bytes[9] = 35;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),
@@ -1158,7 +1159,7 @@ fn a_diverged_replay_writes_a_repro_package() {
     ]);
     let package_path = out.join("repro.json");
     let package: Value = serde_json::from_str(&text(&package_path)).expect("json");
-    assert_eq!(package["format_version"], 3);
+    assert_eq!(package["format_version"], 4);
     assert_eq!(package["kind"], "replay_diverged");
     assert_eq!(package["core_version"], manifest["core_version"]);
     assert_eq!(package["data_hash"], manifest["data_hash"]);
@@ -1208,8 +1209,8 @@ fn a_diverged_replay_writes_a_repro_package() {
     // An unknown field is no package.
     replace_in(
         &package_path,
-        "\"format_version\":3",
-        "\"format_version\":3,\"x\":0",
+        "\"format_version\":4",
+        "\"format_version\":4,\"x\":0",
     );
     assert!(error_of(&["repro", arg(&package_path)]).starts_with("error: repro_invalid:"));
 }

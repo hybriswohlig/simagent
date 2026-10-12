@@ -4,14 +4,19 @@ the Rust code (ADR-0003 6.3) by the model in tools/world_reference.py: year hash
 hash and the golden save, and the goldens of its fork at year 5 with the override
 "hereditary diseases on".
 
-The scenario (format 3, design note of the fertility in the world, section 1): seed 1,
-founder tag `test:dummy`, the switch off, neither causes of death nor a fertility of its
-own; it runs on the repository data (the CLI embeds them): senescence and accident with
-the rates of the genetics specification 7.2 (ADR-0017 section 2), its six hereditary
+The scenario (format 4, design note of the emigration, section 1): seed 1, founder tag
+`test:dummy`, the switch off, neither causes of death nor a fertility of its own, the
+capacity 9; it runs on the repository data (the CLI embeds them): senescence and accident
+with the rates of the genetics specification 7.2 (ADR-0017 section 2), its six hereditary
 diseases (ADR-0017 section 3), the fertility of 5.6 and 11.3 (ADR-0017 section 4: the
 curves, the adult rate 0.20, the wish, the pause of 12 months, ten months of pregnancy),
-the separation (ADR-0018 section 3) and the partner market of 11.2 (ADR-0018 section 1,
-design note of the market) with the values of the data.
+the separation (ADR-0018 section 3), the partner market of 11.2 (ADR-0018 section 1,
+design note of the market) with the values of the data, and the emigration by soft
+capacity (ADR-0020 section 6, design note of the emigration). The capacity is there so that
+the goldens run the event `emigration` and write `core:emigrated` (the coverage of ADR-0003
+6.3); 9 is the smallest capacity with which every event and log kind the goldens covered
+before stays covered (8 loses the separation, see the notes of the reference), and with 9
+one household emigrates, after the fork point.
 Six founders born 30 years (sim 1), 25 years and 100 days (sim 2), one second (sim 3), 20
 years (sim 4) and 25 years (sims 5 and 6) before the start, thirty years (long enough for
 the first death, so that the goldens cover every event and log kind). Sim 1 is female
@@ -30,7 +35,10 @@ founders depends only on their places in the list (their lineage keys), not on t
 ages. Of the pairings among the founders 3 to 7 only woman 4 with man 5 (after about 29.9
 years), woman 6 with man 4 (5.4 years) and woman 5 with man 7 (22.5 years) separate
 within the thirty years and after the fork point; the first needs the fewest founders,
-and founder 3 (sim 4, a single man) only fills its place.
+and founder 3 (sim 4, a single man) only fills its place. With the capacity the couple of
+sims 5 and 6 emigrates in year 5 before its separation; sim 4, the single man, is then the
+partner the market gives sim 8, and that partnership separates in year 27.9, so the
+separation still runs after the fork point.
 
 What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
 
@@ -67,6 +75,26 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   month 41; from month 53, she conceives in month 63 and bears sim 11 (a son) in month
   73. Her wish is reached (21 attempts). Her children carry no disease allele. Sim 4 is
   in no partnership and never tries.
+- Emigration (design note of the emigration; ADR-0020 section 6): `Start` plans the event
+  `Emigration { capacity: 9 }` right after the round series (insertion number 3, every
+  later one of `Start` one higher than before), first at the last second of year 0, every
+  year. With no death before year 27 the living are the six founders and the children
+  born so far: 7 at the end of year 0 (sim 7, month 12), 8 at the ends of years 1 and 2
+  (sim 8, month 17), 10 at the ends of years 3 and 4 (sims 9 and 10, months 41 and 42), 11
+  at the end of year 5 (sim 11, month 73). So the years 0 to 2 draw nothing (`P ≤ 9`); in
+  years 3 and 4 `e = 10 / 9 − 1` (about 0.111) and in year 5 `e = 11 / 9 − 1` (about 0.222).
+  Three households have a member of 18 or more and draw (EMIGRATION, tag 24, the smallest
+  lineage key of those members, the year, 0): household 1 (sims 1 and 2 with their
+  children), household 2 (sims 5 and 6 with sim 3, their foster son, and their sons 7, 9
+  and 11) and household 3 (sim 4). Every draw of years 3 and 4 says no (the smallest unit is
+  0.177 of household 3 in year 4); in year 5 household 2 draws 0.134 below 0.222 and leaves
+  whole at 188 697 599 (the last second of year 5, after the fork point): entries 91 to 96
+  `core:emigrated` for sims 3, 5, 6, 7, 9 and 11 (causes the plan of the event by
+  `core:started`, the rule `core:capacity`, the draw), each to the archive with
+  `LeftBy::Emigration`, their events cancelled (birthdays, deaths, `leave_home`, the
+  separation of partnership 2, which ends with `EndedBy::Emigration`), household 2 ends.
+  Then six live (sims 1, 2, 4, 8, 10, 12 after month 84), at most 7 later, never above 9:
+  no draw after year 5.
 - Twins (11.3, design note of the twins): each conception draws MULTIPLE_BIRTH at the key
   of its first child against the repository's rates 0.004 (identical) and 0.010
   (fraternal); the draws are about 0.088, 0.685 and 0.405 for sim 1 and 0.530, 0.050 and
@@ -80,11 +108,12 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   is about 0.433, so it is due after about 49.97 years. Her death in year 27 comes first
   and cancels it (the partnership ends by death); the planned event sits in the queue
   until then. Partnership 2 (sim 5's `k` 0, planned by its entry `core:partnered` after
-  her series) has the budget about 0.259: it is due at 940 727 538 s, after about 29.91
-  years (month 388.9), and runs, in the run and in the fork: the partnership ends by
-  separation, one entry `core:separated` (subjects sims 5 and 6, causes the plan and the
-  draw). Sim 5 is not pregnant then and has no series (her wish is reached); both are
-  single again.
+  her series) has the budget about 0.259: it would be due at 940 727 538 s, after about
+  29.91 years; the emigration of sims 5 and 6 in year 5 cancels it (the partnership ends by
+  emigration). Partnership 3 (sims 8 and 4, below) separates at 878 816 547 s (year
+  27.94), in the run and in the fork: one entry `core:separated` (subjects sims 8 and 4,
+  causes the plan and the draw); sim 4 founds household 8, their son sim 13 stays with his
+  mother.
 - The partner market (genetics specification 11.2, design note of the market): `Start`
   plans the series of the rounds right after the year end series (insertion number 2,
   every later one of `Start` one higher), the first at the start of month 1, then every
@@ -93,24 +122,25 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   Sim 8 (sim 1's daughter, born in month 17) is 16 in month 225: from that round on she
   is drawn (MARKET_SEARCH, `c` 0.01179, `m` 25.23, `w` 7, under 18 times `ρ` 0.0918, so
   about 0.0005 a round before 18 and 0.007 at 18) and searches first in month 260, at
-  18.7. The single men of 16 or more then are sims 3 and 4 (founders), 7 and 9 (sim 5's
-  sons) and her brother sim 10 (sims 11 and 12 are under 16; sims 2 and 6 are partnered).
-  In the order of PAIRING_RANK the list is 7, 3, 4, 9, 10; her brother (φ = 1/4) is
-  skipped. With `U = −0.02 · (Δa − 4.69)² + G` she chooses sim 7 (19.1 years old, `G`
-  about 2.68, `U` about 2.31): partnership 3 at month 260, its entry `core:partnered` with
-  the causes the plan of the round (entry 1 at 0), the rule `core:partner_market` and the
-  draw PAIRING_NOISE (her key, 260, his key); her `partnerships` goes to 1, her series
-  begins in month 261 and its separation is planned (budget about 2.128, due about 245.5
-  years later, after the run). With the chance 0.2 (both ramps over) she conceives in
-  month 270 and bears sim 13 (a son, one child) in month 280; her wish is 1, so no series
-  follows. After the separation of sim 5 (month 388.9) the round of month 389 draws her
-  search at 54.9 (chance about 1.5e-6), which says no. Nobody else ever searches; no man
-  under 16 is ever in a list.
-- The golden save is taken on day 100 of year 3: nobody has died, sims 7 to 10 are born;
-  sim 1 is not pregnant (births 2) and her series waits for month 54, twelve months after
-  the birth in month 42; sim 5 is not pregnant (births 2) and her series waits for month
-  53, twelve months after the birth in month 41; both separations wait in the queue, and
-  the round series waits for month 43.
+  18.7. The single men of 16 or more then are sim 4 (founder) and her brother sim 10 (sim
+  12 is under 16, sim 2 partnered; sims 3, 7 and 9 emigrated in year 5). In the order of
+  PAIRING_RANK the list is 4, 10; her brother (φ = 1/4) is skipped. With `U = −0.02 · (Δa −
+  4.69)² + G` she chooses sim 4, the only candidate (40 years old, `G` about 2.11, `U` about
+  −3.41): partnership 3 at month 260, its entry `core:partnered` with the causes the plan of
+  the round (entry 1 at 0), the rule `core:partner_market` and the draw PAIRING_NOISE (her
+  key, 260, his key); her `partnerships` goes to 1, her series begins in month 261 and its
+  separation is planned (budget about 0.0689, due at 878 816 547, year 27.94). With the
+  chance 0.2 (her ramp is over, he is 40, before his decline at 45) she conceives in month
+  264 and bears sim 13 (a son, one child) in month 274; her wish is 1, so no series
+  follows. After the separation she is single again: the rounds of months 364 to 389 draw
+  her search (at 26.7 to 28.6, about 0.011 each), which always says no. Nobody else ever
+  searches; no man under 16 is ever in a list.
+- The golden save is taken on day 100 of year 3: nobody has died or emigrated, sims 7 to
+  10 are born; sim 1 is not pregnant (births 2) and her series waits for month 54, twelve
+  months after the birth in month 42; sim 5 is not pregnant (births 2) and her series waits
+  for month 53, twelve months after the birth in month 41; both separations wait in the
+  queue, the round series waits for month 43 and the emigration for the last second of
+  year 3.
 - Households (ADR-0018 section 4, design note of the households; the life course data of
   format 2 with Dario's table of leaving home, tag LEAVE_HOME 22): after the founders and
   the couples `Start` writes four `core:household_formed` (entries 10 to 13, causes the
@@ -124,15 +154,16 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   year 20). Every child moves into its
   mother's household right after its `core:birth` (`core:moved`, causes the plan of the
   birth and the rule), its carer the mother, its `leave_home` planned after its deaths;
-  the 18th birthdays end the carers. Sim 8 leaves home at 18 (year 19.3) and sim 7 at 19
-  (year 19.9), each into a household of its own; the round of month 260 pairs them, so
-  they found household 6 (she moves, then he) and households 4 and 5 end. Sim 3 leaves at
-  21 (household 7; his carer was cleared at 18), sims 9, 10, 11 and 12 at 21, 22, 21 and 21
-  (years 24.2 to 27.5); sim 13 is born into household 6. Sim 1's death in year 27 leaves
-  household 1 to sim 2 (she cares for nobody then). The separation of partnership 2 (year
-  29.9) moves sim 6 into household 12; no dependent child is left. The golden save holds
-  households 1 to 3 (sim 3 in household 2 with his foster parents) and the `leave_home`
-  events of sims 3 and 7 to 10.
+  the 18th birthdays end the carers. Household 2 emigrates in year 5 with sim 3 and sims
+  7, 9 and 11 (their `leave_home` events go with them); sim 3 keeps his social parents
+  sims 5 and 6 in the archive. Sim 8 leaves home at 18 (year 19.3) into household 4; the
+  round of month 260 pairs her with sim 4, so they found household 5 (she moves, then he)
+  and households 4 and 3 end. Sim 13 is born into household 5. Sims 10 and 12 leave at 22
+  and 21 (years 25.2 and 27.5, households 6 and 7). Sim 1's death in year 27 leaves
+  household 1 to sim 2 and sim 12 (she cares for nobody then: sim 12 is 20). The separation
+  of partnership 3 (year 27.94) moves sim 4 into household 8; sim 13 (dependent, his carer
+  his mother) stays. The golden save holds households 1 to 3 (sim 3 in household 2 with his
+  foster parents) and the `leave_home` events of sims 3 and 7 to 10.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
 input `ForkOverride` with the stamp T_5 - 1 s. It acts at T_5 before every event of
@@ -141,19 +172,21 @@ that second and writes one entry `core:param_changed` with the input (sequence n
 (sims 1 and 3) are exposed since T_5, and that entry plans their deaths of
 `core:disease_ar` from their whole budgets: sim 1 (at 35 years, past the change at 18)
 after about 42.9 years of exposure, at about 77.9 years of age; sim 3 about 87.0 years
-after the start. Sim 1 dies of senescence first, in year 27 as in the run, which cancels
-her death of the disease; sim 3's lies beyond the thirty years. The fertility is the
-same: the switch changes no chance, and the market reads no disease: sim 8 is paired
-with sim 7 in month 260 as in the run (sim 8 has one dummy allele, sim 7 none, so sim 13
+after the start. Sim 3 emigrates with household 2 at the end of year 5, which cancels his;
+sim 1 dies of senescence first, in year 27 as in the run, which cancels hers. The
+emigration is the same: the switch changes neither the living nor a draw. The fertility is
+the same: the switch changes no chance, and the market reads no disease: sim 8 is paired
+with sim 4 in month 260 as in the run (sim 8 has one dummy allele, sim 4 none, so sim 13
 carries at most one and has no affliction). Sims 4 to 6 and the children of sims 5 and 6
-have no affliction, and partnership 2 separates in the same second as in the run. So the
+have no affliction, and partnership 3 separates in the same second as in the run. So the
 fork has one entry more than the run (the override), and its year hashes differ from
 year 5 on (the switch and the exposures are state, the planned deaths are in the
 queue). After the fork point the fork runs every event kind (birthdays, sim 1's
 attempts, her conception in month 74 and birth in month 84, the year ends, the
-separation of partnership 2 in year 29, sim 1's death in year 27, the rounds of the
-market), and the fork's log has every log kind (the run's all but `core:param_changed`);
-both are checked here (the coverage of ADR-0003 6.3).
+emigration in every year and its departures in year 5, the separation of partnership 3
+in year 27.9, sim 1's death in year 27, the rounds of the market), and the fork's log has
+every log kind (the run's all but `core:param_changed`); both are checked here (the
+coverage of ADR-0003 6.3).
 
 Writes tests/golden/dummy.json, tests/golden/dummy.save and tests/golden/dummy_fork.json,
 and (step 10) tests/golden/dummy_pedigree.json and tests/golden/dummy_fork_pedigree.json:
@@ -179,7 +212,9 @@ from world_reference import (
     CORE_VERSION,
     DATA_HASH,
     DEATH_KIND,
+    EMIGRATION_KIND,
     ENDED_BY_DEATH,
+    ENDED_BY_EMIGRATION,
     ENDED_BY_SEPARATION,
     MARKET_ROUND_KIND,
     MONTH,
@@ -187,6 +222,7 @@ from world_reference import (
     YEAR,
     World,
     budget_of,
+    check_emigration,
     check_households,
     check_market,
     check_separations,
@@ -209,15 +245,18 @@ COUPLES = [(0, 1), (4, 5)]
 YEARS = 30
 SAVE_AT = 3 * YEAR + 100 * DAY
 FORK_YEAR = 5
+# The soft capacity of the scenario (design note of the emigration, section 1).
+CAPACITY = 9
 SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
 
 assert BORN == [-943_488_000, -794_880_000, -1, -628_992_000, -786_240_000, -786_240_000]
 
 
 def scenario_matches() -> bool:
-    """Whether tests/scenarios/dummy.json is the scenario of this reference: format 3, the
+    """Whether tests/scenarios/dummy.json is the scenario of this reference: format 4, the
     seed, the tag, the switch off, no nutrition, the founders (born, sex, the alleles that
-    are not the reference) and the couples in order, until the last second of year 29."""
+    are not the reference), the couples in order and the capacity, until the last second of
+    year 29."""
     scenario = json.loads((ROOT / "tests" / "scenarios" / "dummy.json").read_text())
     start = scenario["start"]
 
@@ -225,7 +264,9 @@ def scenario_matches() -> bool:
         return [] if genes == (WILD, WILD) else [{"locus": "core:disease_ar", "copies": list(genes)}]
 
     return (
-        scenario["format_version"] == 3
+        scenario["format_version"] == 4
+        and list(start) == ["world_seed", "founder_tag", "world_params", "founders", "couples", "capacity"]
+        and start["capacity"] == CAPACITY
         and int(start["world_seed"], 16) == SEED
         and start["founder_tag"] == TAG
         and start["world_params"] == {"hereditary_diseases": False, "nutrition": []}
@@ -386,15 +427,63 @@ assert FORK_YEAR * YEAR < SECOND_SEPARATION_DUE <= YEARS * YEAR - 1
 assert 29 * YEAR < SECOND_SEPARATION_DUE < DUE[(5, SENESCENCE)] and SECOND_SEPARATION_DUE < DUE[(6, SENESCENCE)]
 
 
+# The emigration by hand (design note of the emigration, section 2) with Python's float
+# division, straight from the draws (tag 24 EMIGRATION), not from the model. Nobody dies before
+# year 27, so at the end of year `y` (the second `(y + 1) · YEAR − 1`, after the births of
+# that second, which fall on month starts, never on it) the living are the six founders and
+# the children born in a month before `13 · (y + 1)`, as long as nobody has emigrated. The
+# households then: 1 (sims 1 and 2 with their children), 2 (sims 5 and 6, their foster son
+# sim 3 and their sons) and 3 (sim 4); their members of 18 or more are the founders but sim 3
+# (one second old at the start). Each draws `u < e` at (her or his smallest key of those,
+# the year, 0), `e = P / 9 − 1` held at 0.5, only in a year with `P > 9`.
+EMIGRATION_TAG = 24
+HOUSEHOLD_ADULTS = {1: [0, 1], 2: [4, 5], 3: [3]}
+
+
+def hand_emigration() -> list:
+    """(year, P, e, {household: (subject key, u, leaves)}) for every year with `P > 9` up to
+    and including the first in which a household leaves."""
+    rows = []
+    for year in range(YEARS):
+        last = (year + 1) * YEAR - 1
+        living = 6 + sum(1 for _, birth in HAND_CONCEPTIONS + SECOND_CONCEPTIONS if birth * MONTH <= last)
+        if living <= CAPACITY:
+            continue
+        e = min(living / CAPACITY - 1.0, 0.5)
+        draws = {}
+        for household, founders in HOUSEHOLD_ADULTS.items():
+            subject = min(founder_key(TAG, index) for index in founders)
+            u = unit(words(chacha_key(SEED, EMIGRATION_TAG, subject, year, 0))[0])
+            draws[household] = (subject, u, u < e)
+        rows.append((year, living, e, draws))
+        if any(leaves for _, _, leaves in draws.values()):
+            return rows
+    return rows
+
+
+HAND_EMIGRATION = hand_emigration()
+assert [(year, living) for year, living, _, _ in HAND_EMIGRATION] == [(3, 10), (4, 10), (5, 11)]
+assert [household for household, (_, _, leaves) in HAND_EMIGRATION[-1][3].items() if leaves] == [2]
+EMIGRATION_YEAR = HAND_EMIGRATION[-1][0]
+EMIGRATION_AT = (EMIGRATION_YEAR + 1) * YEAR - 1
+assert FORK_YEAR * YEAR < EMIGRATION_AT and SAVE_AT < 4 * YEAR - 1
+# Household 2 then: sims 5 and 6, sim 3 and their sons 7, 9 and 11 (born in months 12, 41
+# and 73, before the end of year 5); afterwards at most seven live (sims 1, 2, 4, 8, 10, 12
+# and later sim 13, less sim 1 in year 27), never more than 9.
+EMIGRANTS = [3, 5, 6, 7, 9, 11]
+assert all(month * MONTH < EMIGRATION_AT for _, month in SECOND_CONCEPTIONS)
+
+
 # The market by hand (genetics specification 11.2; design note of the market, section 3)
 # with Python's math, straight from the draws (tags 19 MARKET_SEARCH, 5 PAIRING_RANK, 21
 # PAIRING_NOISE), not from the model. Sim 1's daughter (sim 8, born in month 17, her key
 # that of the first child of sims 1 and 2) is single and in the market age from month 225
 # (her 16th birthday) on; in a round `n` she searches if `u < p` with `p = c · e^(−z²/2)`,
 # `z = (a − m) / 7`, below 1, times `ρ` before 18. The first `n` where she does: her
-# candidates are the single men of 16 or more then, by their rank (sims 3 and 4, sims 7 and
-# 9 of sim 5, her brother sim 10; sims 11 and 12 are under 16, sims 2 and 6 partnered); her
-# brother (φ = 1/4 [W2.7b]) is skipped; `U = −0.02 · (Δa − 4.69)² + G`, `G = −ln(−ln(u))`.
+# candidates are the single men of 16 or more then, by their rank (sim 4 and her brother sim
+# 10; sims 3, 7 and 9 emigrated with household 2 in year 5, sim 12 is under 16, sim 2
+# partnered); her brother (φ = 1/4 [W2.7b]) is skipped; `U = −0.02 · (Δa − 4.69)² + G`,
+# `G = −ln(−ln(u))`.
 MARKET_C, MARKET_M, MARKET_RHO, MARKET_GAP = 0.01179, 25.23, 0.0918, 4.69
 assert (REPOSITORY.market_height, REPOSITORY.market_center, REPOSITORY.market_minor) == (MARKET_C, MARKET_M, MARKET_RHO)
 assert REPOSITORY.pairing_gap == MARKET_GAP and REPOSITORY.pairing_weight_age == 0.02 and REPOSITORY.market_width == 7.0
@@ -414,18 +503,17 @@ def searches(key: int, born: int, n: int) -> bool:
 
 DAUGHTER_SEARCH = next(n for n in range(225, YEARS * 13) if searches(DAUGHTER_KEY, DAUGHTER_BORN, n))
 assert DAUGHTER_SEARCH == 260 and (DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN) >= 18 * YEAR
-# The men by SimId and their keys and births (sims 7, 9 and 11 of sim 5, 10 and 12 of sim 1).
+# The men by SimId and their keys and births (sim 10 of sim 1; sims 3, 7 and 9 emigrated).
 MEN = {
-    3: (founder_key(TAG, 2), BORN[2]),
     4: (founder_key(TAG, 3), BORN[3]),
-    7: (child_key(SECOND_KEY, SECOND_HIS_KEY, 0, 0), SECOND_CONCEPTIONS[0][1] * MONTH),
-    9: (child_key(SECOND_KEY, SECOND_HIS_KEY, 1, 0), SECOND_CONCEPTIONS[1][1] * MONTH),
     10: (child_key(HER_KEY, HIS_KEY, 1, 0), HAND_CONCEPTIONS[1][1] * MONTH),
 }
 assert all(DAUGHTER_SEARCH * MONTH - born >= 16 * YEAR for _, born in MEN.values())
-assert DAUGHTER_SEARCH * MONTH - SECOND_CONCEPTIONS[2][1] * MONTH < 16 * YEAR and DAUGHTER_SEARCH * MONTH - HAND_CONCEPTIONS[2][1] * MONTH < 16 * YEAR
+assert DAUGHTER_SEARCH * MONTH - HAND_CONCEPTIONS[2][1] * MONTH < 16 * YEAR
+assert EMIGRATION_AT < DAUGHTER_SEARCH * MONTH
 DAUGHTER_RANKED = sorted(MEN, key=lambda man: (rank(SEED, 5, DAUGHTER_KEY, DAUGHTER_SEARCH, MEN[man][0]), MEN[man][0]))
 DAUGHTER_CANDIDATES = [man for man in DAUGHTER_RANKED if man != 10]
+assert DAUGHTER_RANKED == [4, 10]
 
 
 def hand_utility(man: int) -> float:
@@ -437,23 +525,32 @@ def hand_utility(man: int) -> float:
 
 DAUGHTER_UTILITIES = {man: hand_utility(man) for man in DAUGHTER_CANDIDATES}
 DAUGHTER_PARTNER = max(DAUGHTER_CANDIDATES, key=DAUGHTER_UTILITIES.get)
-assert DAUGHTER_PARTNER == 7
+assert DAUGHTER_PARTNER == 4
 # Her conceptions with him by hand: at 18.7 her ramp is long over (her menarche is at most
-# `θ + 3` = 15.3) and her decline begins at 30, his ramp is over (19 years): chance 0.2;
-# her series from the month after the pairing, the pause of 12 months, her wish.
+# `θ + 3` = 15.3) and her decline begins at 30; he is 40, so his ramp is over and his
+# decline begins only at 45: chance 0.2; her series from the month after the pairing, the
+# pause of 12 months, her wish.
 DAUGHTER_WISH = hand_wish(unit(words(chacha_key(SEED, 16, DAUGHTER_KEY, 0, 0))[0]))
-DAUGHTER_CONCEPTIONS = hand_conceptions(DAUGHTER_KEY, MEN[7][0], lambda month: ADULT_RATE, DAUGHTER_WISH, DAUGHTER_SEARCH + 1)
+assert (YEARS * YEAR - BORN[3]) / 31_449_600.0 < 51.0 and (DAUGHTER_SEARCH * MONTH - BORN[3]) / 31_449_600.0 + 1.0 < 45.0
+DAUGHTER_CONCEPTIONS = hand_conceptions(DAUGHTER_KEY, MEN[4][0], lambda month: ADULT_RATE, DAUGHTER_WISH, DAUGHTER_SEARCH + 1)
 assert all((month * MONTH - DAUGHTER_BORN) / 31_449_600.0 < 30.0 for month, _ in DAUGHTER_CONCEPTIONS)
-assert DAUGHTER_CONCEPTIONS == [(270, 280)]
-DAUGHTER_MULTIPLE = unit(words(chacha_key(SEED, 17, child_key(DAUGHTER_KEY, MEN[7][0], 0, 0), 0, 0))[0])
+assert DAUGHTER_CONCEPTIONS == [(264, 274)]
+DAUGHTER_MULTIPLE = unit(words(chacha_key(SEED, 17, child_key(DAUGHTER_KEY, MEN[4][0], 0, 0), 0, 0))[0])
 assert DAUGHTER_MULTIPLE >= TWINS_RATES[0] + TWINS_RATES[1]
-# Sim 5 is single again after her separation (month 388.9), at 54.9: the round of month 389
-# draws her search, which says no; nobody else is a single woman of 16 or more.
-assert not searches(SECOND_KEY, BORN[4], 389)
+# Partnership 3 separates by hand (her `k` 0, his key; design note of the separation,
+# sections 1 and 3), before the end and after the fork point; sim 1 dies before it (27.17
+# against 27.94). Then sim 8 is single again: the rounds of months 364 to 389 draw her
+# search, which never says yes; nobody else is a single woman of 16 or more (sim 5
+# emigrated).
+THIRD_SEPARATION_BUDGET = 0.0 - math.log(unit_open0(words(chacha_key(SEED, 18, DAUGHTER_KEY, 0, MEN[4][0]))[0]))
+THIRD_SEPARATION_DUE = DAUGHTER_SEARCH * MONTH + max(math.ceil(THIRD_SEPARATION_BUDGET / SEPARATION_RATE * 31_449_600.0), 1)
+assert FORK_YEAR * YEAR < THIRD_SEPARATION_DUE < YEARS * YEAR - 1 and THIRD_SEPARATION_DUE // MONTH == 363
+assert DUE[(1, SENESCENCE)] < THIRD_SEPARATION_DUE
+assert not any(searches(DAUGHTER_KEY, DAUGHTER_BORN, n) for n in range(364, YEARS * 13))
 
 
-def dummy_world() -> World:
-    return World(SEED, TAG, False, FOUNDERS, COUPLES)
+def dummy_world(capacity=CAPACITY) -> World:
+    return World(SEED, TAG, False, FOUNDERS, COUPLES, capacity=capacity)
 
 
 def ar_deaths(world: World) -> list:
@@ -465,22 +562,29 @@ def ar_deaths(world: World) -> list:
     )
 
 
-def run(fork: bool) -> World:
-    world = dummy_world()
+# The deaths of `core:disease_ar` the override of the fork plans at T_5 (sims 1 and 3).
+FORK_PLANNED_AR_DEATHS = []
+
+
+def run(fork: bool, capacity=CAPACITY) -> World:
+    world = dummy_world(capacity)
     if fork:
         world.advance(FORK_YEAR * YEAR - 1)
         world.override(True)
         # The override is the last entry so far; EventIds count from 1. It plans the
         # deaths of the disease of the living with it, sim 1's as by hand.
         entry = len(world.log)
-        assert ar_deaths(world)[0] == (1, HER_AR_DEATH, (entry, FORK_YEAR * YEAR))
-        assert all(plan == (entry, FORK_YEAR * YEAR) for *_, plan in ar_deaths(world))
+        if capacity in (CAPACITY, None):
+            assert ar_deaths(world)[0] == (1, HER_AR_DEATH, (entry, FORK_YEAR * YEAR))
+            assert all(plan == (entry, FORK_YEAR * YEAR) for *_, plan in ar_deaths(world))
+        if capacity == CAPACITY:
+            FORK_PLANNED_AR_DEATHS[:] = ar_deaths(world)
     world.advance(YEARS * YEAR - 1)
     return world
 
 
 # SimIds by birth: sim 5's children (months 12, 41, 73) and sim 1's (17, 42, 84) alternate;
-# sim 8's son (month 280) is sim 13.
+# sim 8's son (month 274) is sim 13.
 CHILDREN = [8, 10, 12]
 SECOND_CHILDREN = [7, 9, 11]
 THIRD_CHILDREN = [13]
@@ -493,10 +597,30 @@ FIRST = dummy_world()
 assert all(FIRST.cause_due(sim, code) == DUE[(sim, code)] for sim, code in DUE)
 assert FIRST.pending_separation(1) == SEPARATION_DUE and FIRST.pending_separation(2) == SECOND_SEPARATION_DUE
 assert [FIRST.sims[sim][8] for sim in range(1, 7)] == [1, 0, 0, 0, 1, 0]
+# The emigration is planned third, right after the round series (design note of the
+# emigration, section 2, as the coordinator fixed it).
+assert [(event.insertion, event.kind, event.time, event.period) for event in FIRST.queue if event.subject == (0, 0)] == [
+    (1, 1, YEAR - 1, YEAR), (2, MARKET_ROUND_KIND, MONTH, MONTH), (3, EMIGRATION_KIND, YEAR - 1, YEAR)
+]
 check_market(FIRST)
 check_households(FIRST)
+check_emigration(FIRST)
 PARENT = run(fork=False)
 FORK = run(fork=True)
+# The golden scenario without a capacity is the golden scenario before the emigration (its
+# log byte for byte, its year hashes, the story the households keep; only its saves change),
+# and the run with the capacity is that run up to the end of year 5 but for the planned
+# event: the same log up to the emigration.
+NO_CAPACITY = run(fork=False, capacity=None)
+NO_CAPACITY_FORK = run(fork=True, capacity=None)
+assert NO_CAPACITY.year_hashes != PARENT.year_hashes and not NO_CAPACITY.emigrations
+check_story_kept(NO_CAPACITY)
+# The log hashes of the goldens of core 33 (tests/golden/dummy.json and dummy_fork.json
+# before the emigration): a world without a capacity runs as before.
+assert (NO_CAPACITY.log_hash(), NO_CAPACITY_FORK.log_hash()) == (0x09C1_7754_9EA2_83A5, 0x996F_E07F_C38E_7600)
+_cut = next(i for i, line in enumerate(PARENT.log) if line != NO_CAPACITY.log[i])
+assert all(t == EMIGRATION_AT for t, kind, *_ in PARENT.home_log if kind == "left by emigration")
+assert _cut + 1 == min(entry for t, kind, _, _, _, entry in PARENT.home_log if kind == "left by emigration")
 assert len(PARENT.year_hashes) == YEARS and len(FORK.year_hashes) == YEARS
 assert FORK.year_hashes[:FORK_YEAR] == PARENT.year_hashes[:FORK_YEAR]
 assert all(
@@ -504,50 +628,62 @@ assert all(
     for ours, theirs in zip(FORK.year_hashes[FORK_YEAR:], PARENT.year_hashes[FORK_YEAR:])
 )
 assert len(FORK.log) == len(PARENT.log) + 1, "the override; the same death"
-# Sim 1 dies of senescence in year 27, in the run and in the fork: the only death.
+# Sim 1 dies of senescence in year 27, in the run and in the fork: the only death. Household
+# 2 emigrates at the end of year 5 in both.
 HER_DEATH = DUE[(1, SENESCENCE)]
 for world in (PARENT, FORK):
-    assert sorted(world.archive) == [1] and world.archive[1][1:3] == (HER_DEATH, str_key(SENESCENCE))
-    assert sorted(world.sims) == list(range(2, 14))
-    # Her death comes before the separation (year 49) and cancels it; partnership 2
-    # separates in year 29, in the run and in the fork. The market pairs sim 8 with sim 7
-    # in month 260 (partnership 3); its separation lies beyond the run.
+    assert sorted(world.archive) == sorted([1] + EMIGRANTS) and world.archive[1][1:3] == (HER_DEATH, str_key(SENESCENCE))
+    assert all(world.archive[sim][1:3] == (EMIGRATION_AT, None) and world.archive[sim][11] == 2 for sim in EMIGRANTS)
+    assert sorted(world.sims) == [2, 4, 8, 10, 12, 13]
+    # The emigration as by hand: the years with `P > 9`, `P`, `e` and every draw.
+    assert [
+        (r["year"], r["P"], r["e"], {d["household"]: (d["subject"], d["u"], d["draw"]) for d in r["draws"]}) for r in world.emigrations if r["e"] is not None
+    ] == HAND_EMIGRATION
+    assert all(r["P"] <= CAPACITY and not r["draws"] for r in world.emigrations if r["year"] > EMIGRATION_YEAR)
+    assert [(r["year"], [(household, [sim for sim, _ in sims]) for household, sims in r["left"]]) for r in world.emigrations if r["left"]] == [
+        (EMIGRATION_YEAR, [(2, EMIGRANTS)])
+    ]
+    assert world.households[2] == [0, EMIGRATION_AT]
+    # Her death comes before the separation (year 49) and cancels it; the emigration ends
+    # partnership 2 before its separation (year 29.9) and cancels it. The market pairs sim 8
+    # with sim 4 in month 260 (partnership 3), which separates in year 27.94.
     assert world.partnerships == {
         1: [1, 2, 0, (HER_DEATH, ENDED_BY_DEATH)],
-        2: [5, 6, 0, (SECOND_SEPARATION_DUE, ENDED_BY_SEPARATION)],
-        3: [DAUGHTER, DAUGHTER_PARTNER, DAUGHTER_SEARCH * MONTH, None],
+        2: [5, 6, 0, (EMIGRATION_AT, ENDED_BY_EMIGRATION)],
+        3: [DAUGHTER, DAUGHTER_PARTNER, DAUGHTER_SEARCH * MONTH, (THIRD_SEPARATION_DUE, ENDED_BY_SEPARATION)],
     }
-    assert HER_DEATH < SEPARATION_DUE and world.pending_separation(1) is None
-    assert [(t, number) for t, number, *_ in world.separations] == [(SECOND_SEPARATION_DUE, 2)]
-    assert all(world.sims[sim][8] == 0 for sim in world.sims if sim not in (5, 8))
-    assert world.sims[5][8] == 1 and world.sims[8][8] == 1
+    assert HER_DEATH < SEPARATION_DUE and world.pending_separation(1) is None and world.pending_separation(2) is None
+    assert [(t, number) for t, number, *_ in world.separations] == [(THIRD_SEPARATION_DUE, 3)]
+    assert all(world.sims[sim][8] == 0 for sim in world.sims if sim != 8)
+    assert world.archive[5][10] == 1 and world.sims[8][8] == 1
     check_separations(world)
     check_market(world)
     check_households(world)
-    # The households change no story (design note of the households, section 8).
-    check_story_kept(world)
+    check_emigration(world)
     # The rounds (cadence, test rule 6): every month, 13 a year; sim 8's choice as by hand.
     assert [kind for _, kind in world.ran].count(MARKET_ROUND_KIND) == YEARS * 13 - 1
+    # The emigration runs in the last second of every year.
+    assert [t for t, kind in world.ran if kind == EMIGRATION_KIND] == [(year + 1) * YEAR - 1 for year in range(YEARS)]
     choices = [(record["n"], choice) for record in world.rounds for choice in record["choices"]]
     assert [(n, choice["woman"]) for n, choice in choices] == [(DAUGHTER_SEARCH, DAUGHTER)]
     ((_, choice),) = choices
     assert choice["walked"] == [(man, Fraction(1, 4) if man == 10 else Fraction(0), man == 10) for man in DAUGHTER_RANKED]
     assert [man for man, *_ in choice["candidates"]] == DAUGHTER_CANDIDATES and choice["outcome"] == "paired"
     assert all(abs(u - DAUGHTER_UTILITIES[man]) <= 1e-12 for man, _, _, _, u in choice["candidates"])
-    assert [record["n"] for record in world.rounds] == list(range(225, DAUGHTER_SEARCH + 1)) + [389]
-assert [PARENT.sims[sim][0] for sim in CHILDREN] == [month * MONTH for month in CHILD_MONTHS]
-assert [PARENT.sims[sim][0] for sim in SECOND_CHILDREN] == [month * MONTH for month in SECOND_CHILD_MONTHS]
+    assert [record["n"] for record in world.rounds] == list(range(225, DAUGHTER_SEARCH + 1)) + list(range(364, YEARS * 13))
+assert [PARENT.born_of(sim) for sim in CHILDREN] == [month * MONTH for month in CHILD_MONTHS]
+assert [PARENT.born_of(sim) for sim in SECOND_CHILDREN] == [month * MONTH for month in SECOND_CHILD_MONTHS]
 assert [PARENT.sims[sim][7] for sim in CHILDREN] == [(1, 2, number) for number in range(3)]
-assert [PARENT.sims[sim][7] for sim in SECOND_CHILDREN] == [(5, 6, number) for number in range(3)]
+assert [PARENT.archive[sim][9] for sim in SECOND_CHILDREN] == [(5, 6, number) for number in range(3)]
 assert [PARENT.sims[sim][0] for sim in THIRD_CHILDREN] == [birth * MONTH for _, birth in DAUGHTER_CONCEPTIONS]
 assert [PARENT.sims[sim][7] for sim in THIRD_CHILDREN] == [(DAUGHTER, DAUGHTER_PARTNER, 0)]
 assert [PARENT.sims[sim][2] for sim in CHILDREN] == [FEMALE, MALE, MALE]
-assert [PARENT.sims[sim][2] for sim in SECOND_CHILDREN] == [MALE, MALE, MALE]
+assert [PARENT.sex_of(sim) for sim in SECOND_CHILDREN] == [MALE, MALE, MALE]
 # The conceptions, births and wishes as by hand, the chance of every attempt too; sim 1's
 # attempts run from month 1 to her third conception, with the pauses after the births,
 # sim 5's likewise.
 assert not PARENT.pregnancies and PARENT.archive[1][7:9] == (len(CHILDREN), len(CHILDREN))
-assert PARENT.sims[5][5:7] == [len(SECOND_CHILDREN), len(SECOND_CHILDREN)]
+assert PARENT.archive[5][7:9] == (len(SECOND_CHILDREN), len(SECOND_CHILDREN))
 assert PARENT.wish_of(1) == HER_WISH and PARENT.wish_of(5) == SECOND_WISH
 ATTEMPT_MONTHS = list(range(1, 8)) + list(range(29, 33)) + list(range(54, 75))
 SECOND_ATTEMPT_MONTHS = list(range(1, 3)) + list(range(24, 32)) + list(range(53, 64))
@@ -572,20 +708,22 @@ assert [(t // MONTH, u, kind) for t, woman, _, _, u, kind, _ in PARENT.multiples
 assert [(t // MONTH, u, kind) for t, woman, _, _, u, kind, _ in PARENT.multiples if woman == 5] == [
     (month, u, "single") for (month, _), u in zip(SECOND_CONCEPTIONS, SECOND_MULTIPLE_UNITS)
 ]
-LETHAL = [sim for sim in sorted(PARENT.sims) if PARENT.sims[sim][4]]
-assert LETHAL == [3]
-assert all([a.triple() for a in PARENT.sims[sim][4]] == [(AR_KEY, 0.0, (0.0, None))] for sim in LETHAL)
+# Sims 1 and 3 hold core:disease_ar (both in the archive at the end: she died, he emigrated);
+# nobody living does.
+LETHAL = [sim for sim in sorted(set(PARENT.sims) | set(PARENT.archive)) if PARENT.creation_of(sim)[6]]
+assert LETHAL == [1, 3] and not [sim for sim in PARENT.sims if PARENT.sims[sim][4]]
+assert [a.triple() for a in PARENT.archive[3][6]] == [(AR_KEY, 0.0, (0.0, None))]
 assert all(copies_at(PARENT.sims[sim][3], CYSTIC.locus) == [1, 0] for sim in CHILDREN)
 # In the fork sims 1 and 3 are exposed since T_5, and the override planned their deaths
-# of the disease; hers went with her death. The override is the first entry the fork
-# writes differently.
+# of the disease; his went with his emigration, hers with her death. The override is the
+# first entry the fork writes differently.
 FORK_OVERRIDE_ENTRY = next(i for i, (ours, theirs) in enumerate(zip(FORK.log, PARENT.log)) if ours != theirs) + 1
 assert [a.triple() for a in FORK.archive[1][6]] == [(AR_KEY, 0.0, (0.0, FORK_YEAR * YEAR))]
-assert [a.triple() for a in FORK.sims[3][4]] == [(AR_KEY, 0.0, (0.0, FORK_YEAR * YEAR))]
-FORK_AR_DEATHS = ar_deaths(FORK)
-assert [sim for sim, *_ in FORK_AR_DEATHS] == LETHAL
+assert [a.triple() for a in FORK.archive[3][6]] == [(AR_KEY, 0.0, (0.0, FORK_YEAR * YEAR))]
+FORK_AR_DEATHS = FORK_PLANNED_AR_DEATHS
+assert [sim for sim, *_ in FORK_AR_DEATHS] == LETHAL and not ar_deaths(FORK)
 assert all(plan == (FORK_OVERRIDE_ENTRY, FORK_YEAR * YEAR) for _, _, plan in FORK_AR_DEATHS)
-assert all(time > YEARS * YEAR for _, time, _ in FORK_AR_DEATHS)
+assert FORK_AR_DEATHS[0][1] == HER_AR_DEATH > HER_DEATH and FORK_AR_DEATHS[1][1] > EMIGRATION_AT
 # The rounds of the fork are those of the run (the switch changes no draw of the market);
 # only the EventId of the pairing's entry is one more (the override).
 assert [
@@ -593,10 +731,10 @@ assert [
 ] == [(r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in PARENT.rounds]
 
 # Coverage (ADR-0003 6.3): after the fork point the fork runs every event kind
-# (tests/golden/event_codes.txt: year_end 1 to leave_home 8), and the fork writes every
-# log kind (tests/golden/log_codes.txt: payloads 0 to 11; the run all but
+# (tests/golden/event_codes.txt: year_end 1 to emigration 9), and the fork writes every
+# log kind (tests/golden/log_codes.txt: payloads 0 to 12; the run all but
 # `core:param_changed`).
-EVENT_KINDS, LOG_KINDS = set(range(1, 9)), set(range(12))
+EVENT_KINDS, LOG_KINDS = set(range(1, 10)), set(range(13))
 assert {kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR} == EVENT_KINDS
 assert set(FORK.entry_kinds) == LOG_KINDS and set(PARENT.entry_kinds) == LOG_KINDS - {3}
 
@@ -613,12 +751,17 @@ assert START_HOMES == [
 assert FOSTER["stage"] == "foster" and FOSTER["women"] == [1, 5] and FOSTER["carer"] == 5 and FOSTER["added"] == {3: [5, 6]}
 LEAVE_AGES = {sim: (PARENT.leave_home_second(sim) - PARENT.born_of(sim)) // YEAR for sim in [3] + CHILDREN + SECOND_CHILDREN}
 assert LEAVE_AGES == {3: 21, 7: 19, 8: 18, 9: 21, 10: 22, 11: 21, 12: 21}
+# The emigrants never leave home (sims 3, 7, 9 and 11); sims 8, 10 and 12 do.
 LEFT = [(t, sims[0]) for t, kind, _, sims, why, _ in PARENT.home_log if kind == "formed" and why == "leave_home"]
-assert [sim for _, sim in LEFT] == [8, 7, 3, 9, 10, 11, 12] and all(t < DAUGHTER_SEARCH * MONTH for t, sim in LEFT if sim in (7, 8))
-assert PARENT.households[6] == [DAUGHTER_SEARCH * MONTH, None] and PARENT.members(6) == [7, 8, 13]
-assert [row[1:4] for row in PARENT.separation_homes] == [(5, 6, [])] and PARENT.sims[6][9] == 12
+assert [sim for _, sim in LEFT] == [8, 10, 12] and LEFT[0][0] < DAUGHTER_SEARCH * MONTH
+assert PARENT.households[5] == [DAUGHTER_SEARCH * MONTH, None] and PARENT.members(5) == [8, 13]
+assert PARENT.households[3] == [0, DAUGHTER_SEARCH * MONTH] and PARENT.households[4][1] == DAUGHTER_SEARCH * MONTH
+assert [row[1:5] for row in PARENT.separation_homes] == [(8, 4, [13], [])] and PARENT.sims[4][9] == 8
 assert [row for row in PARENT.carer_log if row[4] not in ("birth", "18th birthday")] == [(0, 3, None, 5, "orphan rule: foster")]
-assert PARENT.sims[3][12] == [5, 6] and FORK.sims[3][12] == [5, 6]
+assert PARENT.archive[3][13] == (5, 6) and FORK.archive[3][13] == (5, 6)
+# Each emigrant's entry `core:emigrated` names household 2, by SimId, EventIds 91 to 96.
+EMIGRATION_ENTRIES = [entry for t, kind, _, _, _, entry in PARENT.home_log if kind == "left by emigration"]
+assert EMIGRATION_ENTRIES == list(range(91, 97))
 # The fork has the households of the run; from the fork point on every entry is one later
 # (the override).
 assert FORK.home_log == [
@@ -629,9 +772,13 @@ assert FORK.home_log == [
 def golden_save() -> bytes:
     """The save on day 100 of year 3: nobody pregnant, sim 1's series pending in month 54,
     sim 5's in month 53, both separations pending, the next round at the start of month 43
-    (no single woman of 16 or more yet)."""
+    (no single woman of 16 or more yet), the emigration at the last second of year 3 (it
+    drew nothing so far: `P` was at most 8)."""
     world = dummy_world()
     world.advance(SAVE_AT)
+    (emigration,) = [event for event in world.queue if event.kind == EMIGRATION_KIND]
+    assert emigration.time == 4 * YEAR - 1 and not [r for r in world.emigrations if r["e"] is not None]
+    check_emigration(world)
     assert not world.rounds and world.next_event_id == len(world.log) + 1
     (series,) = [event for event in world.queue if event.kind == MARKET_ROUND_KIND]
     assert series.time == 43 * MONTH and SAVE_AT < 43 * MONTH
@@ -660,16 +807,22 @@ def golden(world: World) -> str:
     return json.dumps(content, indent=2) + "\n"
 
 
-# The pedigree (step 10, design note of the pedigree with kinship and social parents) of the
-# run and of the fork after thirty years. Sim 3, fostered at the start, has his social
-# parents sims 5 and 6 (in this order). In the run the switch of the hereditary diseases is
-# off all the time, so sims 1 and 3 (core:disease_ar, onset 0) are not affected; in the fork
-# it is on from T_5, so both are (sim 1 at her death in year 27, sim 3 at the clock). The
-# partnerships: 1 ended by death (sim 1's), 2 by separation, 3 open; every `φ` 0 (founders,
-# and sims 8 and 7 of two couples of founders).
+# The pedigree (step 10, design note of the pedigree with kinship and social parents; format 3
+# with the emigration, design note of the emigration, section 4) of the run and of the fork
+# after thirty years. Sim 3, fostered at the start, has his social parents sims 5 and 6 (in
+# this order). In the run the switch of the hereditary diseases is off all the time, so sims
+# 1 and 3 (core:disease_ar, onset 0) are not affected; in the fork it is on from T_5, so both
+# are (sim 1 at her death in year 27, sim 3 at the second he emigrated, the end of year 5).
+# The emigrants (sims 3, 5, 6, 7, 9, 11) have `died` and `cause_of_death` null, `emigrated`
+# 188 697 599, household 2, carer null. The partnerships: 1 ended by death (sim 1's), 2 by
+# emigration, 3 by separation; every `φ` 0 (founders, and sim 8 with the founder sim 4).
 PEDIGREE = json.loads(PARENT.pedigree_json())
 FORK_PEDIGREE = json.loads(FORK.pedigree_json())
-assert PEDIGREE["format_version"] == 2 and list(PEDIGREE) == ["format_version", "persons", "partnerships", "households"]
+assert PEDIGREE["format_version"] == 3 and list(PEDIGREE) == ["format_version", "persons", "partnerships", "households"]
+assert list(PEDIGREE["persons"][0])[5:8] == ["died", "cause_of_death", "emigrated"]
+assert [(p["sim"], p["died"], p["cause_of_death"], p["household"], p["carer"]) for p in PEDIGREE["persons"] if p["emigrated"] is not None] == [
+    (sim, None, None, 2, None) for sim in EMIGRANTS
+] and all(p["emigrated"] == EMIGRATION_AT for p in PEDIGREE["persons"] if p["emigrated"] is not None)
 assert [person["sim"] for person in PEDIGREE["persons"]] == list(range(1, 14))
 assert {person["sim"]: person["social_parents"] for person in PEDIGREE["persons"] if person["social_parents"]} == {3: [5, 6]}
 for view, affected in ((PEDIGREE, False), (FORK_PEDIGREE, True)):
@@ -677,7 +830,7 @@ for view, affected in ((PEDIGREE, False), (FORK_PEDIGREE, True)):
         (sim, [{"disease": "core:disease_ar", "onset": 0.0, "affected": affected}]) for sim in (1, 3)
     ]
     assert [(p["partnership"], p["ended_by"], p["kinship"]) for p in view["partnerships"]] == [
-        (1, "death", 0.0), (2, "separation", 0.0), (3, None, 0.0)
+        (1, "death", 0.0), (2, "emigration", 0.0), (3, "separation", 0.0)
     ]
     assert len(view["households"]) == PARENT.next_household_id - 1
 # The fork's pedigree differs from the run's only in `affected` of sims 1 and 3.
@@ -695,7 +848,7 @@ KINSHIP_CASES = [
     ("itself_child", 13, 13, Fraction(1, 2)),
     ("grandparent", 2, 13, Fraction(1, 8)),
     ("avuncular", 10, 13, Fraction(1, 8)),
-    ("partners", 8, 7, Fraction(0)),
+    ("partners", 8, 4, Fraction(0)),
     ("unknown", 14, 1, None),
 ]
 assert PARENT.next_sim_id == 14
@@ -703,10 +856,35 @@ for _relation, _a, _b, _phi in KINSHIP_CASES:
     assert PARENT.kinship_of(_a, _b) == PARENT.kinship_of(_b, _a) == (None if _phi is None else float(_phi)), _relation
 
 
+def coverage(world_run: World, world_fork: World) -> tuple:
+    """(the event kinds the fork runs after the fork point, the log kinds of the fork, of the
+    run)."""
+    return (
+        {kind for t, kind in world_fork.ran if t >= FORK_YEAR * YEAR},
+        set(world_fork.entry_kinds),
+        set(world_run.entry_kinds),
+    )
+
+
+def capacity_scan() -> list:
+    """Per capacity 1 to 13 whether the golden scenario keeps every event and log kind (the
+    coverage of ADR-0003 6.3, now with `emigration` and `core:emigrated`): the kinds it
+    misses and its emigrations (year, households). 13 and more draw nothing (the largest
+    population is 13)."""
+    rows = []
+    for k in range(1, 14):
+        world_run, world_fork = run(False, k), run(True, k)
+        events, fork_logs, run_logs = coverage(world_run, world_fork)
+        left = [(r["year"], [household for household, _ in r["left"]]) for r in world_run.emigrations if r["left"]]
+        rows.append((k, f"missing event kinds {sorted(EVENT_KINDS - events)} missing log kinds fork {sorted(LOG_KINDS - fork_logs)} run {sorted((LOG_KINDS - {3}) - run_logs)} emigrations (year, households) {left}"))
+    return rows
+
+
 def pedigree_rows() -> list:
     """The values of the pedigree export after thirty years (crates/sim-cli/tests/cli.rs):
     per sim its lineage key, sex, alleles that are not the reference (locus, copies
-    maternal then paternal), birth, death and parents; and the partnerships."""
+    maternal then paternal), birth, death (or "null emigrated" and the second it left, for
+    an emigrant) and parents; and the partnerships."""
     rows = []
     for sim in sorted(set(PARENT.sims) | set(PARENT.archive)):
         if sim in PARENT.sims:
@@ -714,13 +892,13 @@ def pedigree_rows() -> list:
             died = "null"
         else:
             born, left, cause, key, sex, person, _, _, _, parents, *_ = PARENT.archive[sim]
-            died = f"{left} of {cause:016x}"
+            died = f"null emigrated {left}" if cause is None else f"{left} of {cause:016x}"
         alleles = [(locus, copies_at(person, PARENT.data.loci[locus])) for locus in PARENT.data.loci]
         alleles = [(locus, copies) for locus, copies in alleles if any(copies)]
         sex_name = "female" if sex == FEMALE else "male"
         rows.append(f"pedigree_sim_{sim} key {key:016x} sex {sex_name} alleles {alleles} born {born} died {died} parents {parents}")
     for number, (woman, man, formed, ended) in sorted(PARENT.partnerships.items()):
-        ended_text = "null" if ended is None else f"{ended[0]} by {('death', 'separation')[ended[1]]}"
+        ended_text = "null" if ended is None else f"{ended[0]} by {('death', 'separation', 'emigration')[ended[1]]}"
         rows.append(f"pedigree_partnership_{number} woman {woman} man {man} formed {formed} ended {ended_text}")
     return rows
 
@@ -756,8 +934,8 @@ if __name__ == "__main__":
     print(f"founder deaths due (seconds after the start): {DUE}")
     children = {sim: PARENT.cause_due(sim, SENESCENCE) for sim in CHILDREN}
     print(f"children: born (months) {CHILD_MONTHS}, senescence due (seconds) {children}")
-    second_children = {sim: PARENT.cause_due(sim, SENESCENCE) for sim in SECOND_CHILDREN}
-    print(f"children of sim 5: sims {SECOND_CHILDREN} born (months) {SECOND_CHILD_MONTHS}, senescence due (seconds) {second_children}")
+    second_children = {sim: NO_CAPACITY.cause_due(sim, SENESCENCE) for sim in SECOND_CHILDREN}
+    print(f"children of sim 5: sims {SECOND_CHILDREN} born (months) {SECOND_CHILD_MONTHS}, senescence due (seconds) {second_children} (planned until they emigrate at {EMIGRATION_AT})")
     print(f"fertility: her wish {HER_WISH} (u {HER_WISH_UNIT!r}), menarche {PARENT.menarche_of(1)!r}")
     print(f"fertility: conceptions and births (months) {HAND_CONCEPTIONS}")
     print(f"fertility: sim 5 wish {SECOND_WISH} (u {SECOND_WISH_UNIT!r}), menarche {PARENT.menarche_of(5)!r}")
@@ -771,9 +949,9 @@ if __name__ == "__main__":
         print(f"separation: {name} (time, partnership, entry, plan) {rows}")
     print(
         f"separation: partnership 2 budget {SECOND_SEPARATION_BUDGET!r}, due {SECOND_SEPARATION_DUE}"
-        f" ({SECOND_SEPARATION_DUE / YEAR:.4f} years, month {SECOND_SEPARATION_DUE / MONTH:.4f})"
+        f" ({SECOND_SEPARATION_DUE / YEAR:.4f} years, month {SECOND_SEPARATION_DUE / MONTH:.4f}), cancelled by the emigration at {EMIGRATION_AT}"
     )
-    print(f"fertility: children's wishes {[(sim, PARENT.wish_of(sim)) for sim in CHILDREN + SECOND_CHILDREN if PARENT.sims[sim][2] == FEMALE]}")
+    print(f"fertility: children's wishes {[(sim, PARENT.wish_of(sim)) for sim in CHILDREN + SECOND_CHILDREN if PARENT.sex_of(sim) == FEMALE]}")
     print(f"fork: death of sim 1 of core:disease_ar due at {HER_AR_DEATH} (age {HER_AR_AGE!r}), planned by entry {FORK_OVERRIDE_ENTRY}")
     print(f"market: rounds {[kind for _, kind in PARENT.ran].count(MARKET_ROUND_KIND)} in the run; rounds with a single woman of 16 or more {[r['n'] for r in PARENT.rounds][:3]} ... {[r['n'] for r in PARENT.rounds][-3:]}")
     print(f"market: sim 8 searches first in round {DAUGHTER_SEARCH} at {(DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN) / YEAR:.4f} years, chance {hand_search_chance(DAUGHTER_SEARCH * MONTH - DAUGHTER_BORN)!r}")
@@ -784,7 +962,7 @@ if __name__ == "__main__":
     plan = [plan for plan in PARENT.separation_plans if plan[0] == 3][0]
     print(f"market: partnership 3 separation (number, k, budget, due) {plan} ({plan[3] / YEAR:.4f} years)")
     print(f"market: sim 8 wish {DAUGHTER_WISH} conceptions {DAUGHTER_CONCEPTIONS} attempts {[(t // MONTH, ok) for t, _, _, _, ok in THIRD_ATTEMPTS]}")
-    print(f"market: sim 5 at round 389 chance {hand_search_chance(389 * MONTH - BORN[4])!r}")
+    print(f"market: sim 8 single again after the separation, rounds 364 to 389 chances {[hand_search_chance(n * MONTH - DAUGHTER_BORN) for n in (364, 389)]!r} (first, last), never searches")
     print(f"coverage: event kinds after the fork point {sorted({kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR})}, log kinds fork {sorted(set(FORK.entry_kinds))} run {sorted(set(PARENT.entry_kinds))}")
     print(f"fork: deaths of core:disease_ar (sim, time, plan) {FORK_AR_DEATHS}")
     for name, world in (("run", PARENT), ("fork", FORK)):
@@ -805,3 +983,18 @@ if __name__ == "__main__":
     for relation, a, b, phi in KINSHIP_CASES:
         answer = "none (unknown_sim)" if phi is None else f"phi {phi} json {json_number(float(phi))}"
         print(f"pedigree_kinship_{relation} sims {a} {b} {answer}")
+    # The emigration (design note of the emigration, step 11): the capacity, every year with
+    # `P > 9` and its draws, the departure, its entries; and the scan of the capacities that
+    # gives 9 as the smallest with the coverage of every kind the goldens covered before.
+    print(f"emigration_capacity {CAPACITY} scenario format 4 tests/scenarios/dummy.json start.capacity {CAPACITY}")
+    for year, living, e, draws in HAND_EMIGRATION:
+        rows = {household: (f"{subject:016x}", u, leaves) for household, (subject, u, leaves) in draws.items()}
+        print(f"emigration_year {year} t {(year + 1) * YEAR - 1} P {living} e {e!r} draws (household: subject key, u, leaves) {rows}")
+    print(f"emigration_left household 2 at {EMIGRATION_AT} (year {EMIGRATION_AT / YEAR:.6f}) sims {EMIGRANTS} entries {EMIGRATION_ENTRIES} (in the fork {[entry + 1 for entry in EMIGRATION_ENTRIES]})")
+    for line in PARENT.log[EMIGRATION_ENTRIES[0] - 1:EMIGRATION_ENTRIES[-1]]:
+        print(f"emigration_entry {line.hex()}")
+    print(f"emigration_population (year, P) {[(r['year'], r['P']) for r in PARENT.emigrations]}")
+    for name, world in (("run", NO_CAPACITY), ("fork", NO_CAPACITY_FORK)):
+        print(f"emigration_no_capacity {name} log_hash {world.log_hash():016x} entries {len(world.log)} year_hashes {[format(value, '016x') for value in world.year_hashes]}")
+    for k, row in capacity_scan():
+        print(f"emigration_capacity_scan K {k} {row}")

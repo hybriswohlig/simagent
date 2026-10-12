@@ -30,6 +30,9 @@ pub enum EventPayload {
     MarketRound,
     /// `sim` reaches the age at which it leaves home (ADR-0018 section 4).
     LeaveHome { sim: SimId },
+    /// Yearly series in the last second of each year: households may emigrate if the
+    /// living exceed the soft capacity (ADR-0020 section 6).
+    Emigration { capacity: u64 },
 }
 
 impl EventPayload {
@@ -41,6 +44,7 @@ impl EventPayload {
     pub const SEPARATION: EventKind = EventKind(6);
     pub const MARKET_ROUND: EventKind = EventKind(7);
     pub const LEAVE_HOME: EventKind = EventKind(8);
+    pub const EMIGRATION: EventKind = EventKind(9);
 }
 
 impl Payload for EventPayload {
@@ -54,12 +58,15 @@ impl Payload for EventPayload {
             | EventPayload::LeaveHome { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
+            EventPayload::Emigration { .. } => EventClass::EMIGRATION,
         }
     }
 
     fn subject(&self) -> EventSubject {
         match self {
-            EventPayload::YearEnd | EventPayload::MarketRound => EventSubject::WORLD,
+            EventPayload::YearEnd | EventPayload::MarketRound | EventPayload::Emigration { .. } => {
+                EventSubject::WORLD
+            }
             EventPayload::Birthday { sim }
             | EventPayload::Death { sim, .. }
             | EventPayload::ConceptionAttempt { woman: sim }
@@ -81,6 +88,7 @@ impl Payload for EventPayload {
             EventPayload::Separation { .. } => EventPayload::SEPARATION,
             EventPayload::MarketRound => EventPayload::MARKET_ROUND,
             EventPayload::LeaveHome { .. } => EventPayload::LEAVE_HOME,
+            EventPayload::Emigration { .. } => EventPayload::EMIGRATION,
         }
     }
 }

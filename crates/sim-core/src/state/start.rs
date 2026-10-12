@@ -32,7 +32,8 @@ pub(crate) fn check_start(
         let age = super::market::market_age(data);
         partnership::couples_rejection(&start.founders, &start.couples, age)
     })
-    .or_else(|| nutrition_rejection(&start.world_params.nutrition));
+    .or_else(|| nutrition_rejection(&start.world_params.nutrition))
+    .or_else(|| (start.capacity == Some(0)).then_some(RejectCode::CapacityZero));
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -133,6 +134,16 @@ pub(crate) fn apply_start(
         EventPayload::MarketRound,
         started,
     );
+    // The soft capacity, in the last second of each year after its births and deaths
+    // (ADR-0020 section 6).
+    if let Some(capacity) = start.capacity {
+        ctx.schedule_periodic(
+            year_start(1) - SimDuration::from_secs(1),
+            YEAR,
+            EventPayload::Emigration { capacity },
+            started,
+        );
+    }
     let mut ids = Vec::with_capacity(start.founders.len());
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;

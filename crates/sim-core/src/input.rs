@@ -41,6 +41,11 @@ pub struct Start {
     /// entered the world, in list order. When they conceive comes from the data
     /// (ADR-0017 section 4), not from the scenario.
     pub couples: Vec<Couple>,
+    /// The soft capacity `K` (ADR-0020 section 6): above it households emigrate at the end
+    /// of each year; `None` means no capacity. Required in JSON (`null` for none):
+    /// serde would otherwise take a missing field as `None`.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub capacity: Option<u64>,
 }
 
 /// A couple of founders, by their places in the list of founders.
@@ -176,6 +181,8 @@ pub enum RejectCode {
     PartnerTooYoung,
     /// A woman and a man with `φ ≥ 1/8` (ADR-0018 section 1).
     PartnersTooCloselyRelated,
+    /// A `Start` with the capacity 0 (ADR-0020 section 6: `P / K` needs `K ≥ 1`).
+    CapacityZero,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

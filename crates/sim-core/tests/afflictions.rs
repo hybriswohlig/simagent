@@ -51,6 +51,7 @@ fn afflicted(tag: &str, on: bool, founders: Vec<Founder>) -> World {
             },
             founders,
             couples: Vec::new(),
+            capacity: None,
         }))
         .expect("accepted");
     world

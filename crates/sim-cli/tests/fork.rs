@@ -14,7 +14,7 @@ const Y: i64 = 31_449_600;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 3,
+  "format_version": 4,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -24,7 +24,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 0]}]},
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
-    "couples": []
+    "couples": [],
+    "capacity": null
   },
   "until": 314495999
 }"#;
@@ -343,15 +344,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":33"#, r#""core_version":34"#);
+    replace_in(&log, r#""core_version":34"#, r#""core_version":35"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 34, this is 33"
+            "error: fork_foreign_core_version: the parent run is of core version 35, this is 34"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":34"#, r#""core_version":33"#);
+    replace_in(&log, r#""core_version":35"#, r#""core_version":34"#);
     replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -416,7 +417,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":33"#, r#""core_version":34"#),
+        (r#""core_version":34"#, r#""core_version":35"#),
         (
             r#""data_hash":"adab502757b4045c""#,
             r#""data_hash":"c3f04a38869c20d7""#,

@@ -7,6 +7,7 @@ pub(crate) mod census;
 pub(crate) mod conception;
 pub(crate) mod death;
 pub(crate) mod disease;
+pub(crate) mod emigration;
 pub(crate) mod household;
 pub(crate) mod market;
 pub(crate) mod params;
@@ -129,6 +130,8 @@ pub(crate) enum EndedBy {
     Death,
     /// Their separation came due (ADR-0018 section 3).
     Separation,
+    /// Both left the town with their household (ADR-0020 section 6).
+    Emigration,
 }
 
 /// Why a sim left the active population.
@@ -136,6 +139,8 @@ pub(crate) enum EndedBy {
 pub(crate) enum LeftBy {
     /// It died of the cause with this `str_key`.
     Death { cause: u64 },
+    /// It left the town with its household above the soft capacity (ADR-0020 section 6).
+    Emigration,
 }
 
 /// Who left the active population stays resolvable by ID, with reason, time, lineage

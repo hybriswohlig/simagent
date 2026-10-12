@@ -179,6 +179,10 @@ pub enum LogPayload {
     /// A person (the subject) moved into this household.
     #[serde(rename = "core:moved")]
     Moved { household: HouseholdId },
+    /// A person (the subject) left the town with this household above the soft capacity
+    /// (ADR-0020 section 6).
+    #[serde(rename = "core:emigrated")]
+    Emigrated { household: HouseholdId },
 }
 
 /// One entry of the domain log.

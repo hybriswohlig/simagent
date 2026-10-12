@@ -18,8 +18,8 @@ use crate::state::{Affliction, EndedBy, LeftBy, market};
 use crate::time::SimTime;
 
 /// The version of the form of `pedigree.json` (step 10 added social parents, households,
-/// carers, diseases, the end of a partnership and its kinship).
-pub const PEDIGREE_FORMAT: u32 = 2;
+/// carers, diseases, the end of a partnership and its kinship; step 11 the emigration).
+pub const PEDIGREE_FORMAT: u32 = 3;
 
 /// All sims, all partnerships and all households, each by ID.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -39,9 +39,11 @@ pub struct Person {
     /// The loci with an alternative allele, in map order (the form of a founder).
     pub alleles: Vec<LocusAlleles>,
     pub born: SimTime,
-    /// The second of the death, `None` while the sim lives.
+    /// The second of the death, `None` while the sim lives or after it emigrated.
     pub died: Option<SimTime>,
     pub cause_of_death: Option<Code>,
+    /// The second it left the town with its household (ADR-0020 section 6), else `None`.
+    pub emigrated: Option<SimTime>,
     pub mother: Option<SimId>,
     pub father: Option<SimId>,
     /// Who took it in by the orphan rule, in the order of the state (ADR-0018 section 4).
@@ -49,7 +51,7 @@ pub struct Person {
     /// The household it lives in; for the dead the last one.
     pub household: HouseholdId,
     pub moved_out: bool,
-    /// Its carer while it is dependent; `None` for the dead.
+    /// Its carer while it is dependent; `None` for the dead and the emigrated.
     pub carer: Option<SimId>,
     /// Its hereditary diseases in the order of the data (ADR-0017 section 3).
     pub diseases: Vec<Shown>,
@@ -84,6 +86,7 @@ pub struct Couple {
 pub enum End {
     Death,
     Separation,
+    Emigration,
 }
 
 /// A household from its forming to its end; it stays as history.
@@ -149,6 +152,7 @@ impl crate::world::World {
             born: sim.born,
             died: None,
             cause_of_death: None,
+            emigrated: None,
             mother: sim.parents.map(|parents| parents.mother),
             father: sim.parents.map(|parents| parents.father),
             social_parents: sim.social_parents.clone(),
@@ -158,15 +162,19 @@ impl crate::world::World {
             diseases: shown(&sim.afflictions, sim.born, now),
         });
         let archived = domain.archive.iter().map(|(id, sim)| {
-            let LeftBy::Death { cause } = sim.left_by;
+            let (died, cause_of_death, emigrated) = match sim.left_by {
+                LeftBy::Death { cause } => (Some(sim.left), code(cause), None),
+                LeftBy::Emigration => (None, None, Some(sim.left)),
+            };
             Person {
                 sim: *id,
                 lineage_key: sim.lineage_key,
                 sex: sim.sex,
                 alleles: sim.genome.alleles(data),
                 born: sim.born,
-                died: Some(sim.left),
-                cause_of_death: code(cause),
+                died,
+                cause_of_death,
+                emigrated,
                 mother: sim.parents.map(|parents| parents.mother),
                 father: sim.parents.map(|parents| parents.father),
                 social_parents: sim.social_parents.clone(),
@@ -191,6 +199,7 @@ impl crate::world::World {
                 ended_by: partnership.ended.map(|ending| match ending.by {
                     EndedBy::Death => End::Death,
                     EndedBy::Separation => End::Separation,
+                    EndedBy::Emigration => End::Emigration,
                 }),
                 kinship: market::phi_with(&mut cache, domain, partnership.woman, partnership.man),
             })
@@ -249,6 +258,7 @@ mod tests {
             },
             founders: Vec::new(),
             couples: Vec::new(),
+            capacity: None,
         })
     }
 
