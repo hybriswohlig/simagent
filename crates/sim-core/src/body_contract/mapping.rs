@@ -15,11 +15,12 @@ use crate::phenotype::{Parents, phenotype};
 use crate::rng::Draws;
 use crate::time::{SimDuration, SimTime, YEAR};
 
-/// The traits the mapping reads (ADR-0015 section 2): target height and timing, the z
-/// parameters, then the traits of pigment, development, hair and skin.
-pub fn body_traits() -> [DataId; 37] {
+/// The traits the mapping reads (ADR-0015 section 2, map 4 per ADR-0020 section 1): the
+/// growth factor (`z_h`, the target height) and the timing, the z parameters, then the
+/// traits of pigment, development, hair and skin.
+pub fn body_traits() -> [DataId; 35] {
     [
-        "core:height",
+        "core:growth",
         "core:puberty",
         "core:leg_ratio",
         "core:head_size",
@@ -48,9 +49,7 @@ pub fn body_traits() -> [DataId; 37] {
         "core:breast",
         "core:curl",
         "core:freckle",
-        "core:brow",
         "core:beard",
-        "core:beard_coverage",
         "core:body_hair",
         "core:bald",
         "core:hair_density",
@@ -135,7 +134,9 @@ impl<'a> BodyData<'a> {
     }
 }
 
-/// The phenotypes the mapping reads, by trait (10.1, 10.3).
+/// The phenotypes the mapping reads, by trait (10.1, 10.3). `height` is `z_h`, the
+/// phenotype of `core:growth` (ADR-0020 section 1); the eyebrows read `hair_density`, the
+/// beard's coverage reads `beard` (the two merges of 10.7).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BodyTraits {
     pub height: f64,
@@ -156,9 +157,7 @@ pub struct BodyTraits {
     pub breast: f64,
     pub curl: f64,
     pub freckle: f64,
-    pub brow: f64,
     pub beard: f64,
-    pub beard_coverage: f64,
     pub body_hair: f64,
     pub bald: f64,
     pub hair_density: f64,
@@ -168,7 +167,7 @@ pub struct BodyTraits {
 
 impl BodyTraits {
     /// The phenotypes in the order of `body_traits`.
-    pub fn from_values(values: [f64; 37]) -> BodyTraits {
+    pub fn from_values(values: [f64; 35]) -> BodyTraits {
         let [
             height,
             puberty,
@@ -199,9 +198,7 @@ impl BodyTraits {
             breast,
             curl,
             freckle,
-            brow,
             beard,
-            beard_coverage,
             body_hair,
             bald,
             hair_density,
@@ -227,9 +224,7 @@ impl BodyTraits {
             breast,
             curl,
             freckle,
-            brow,
             beard,
-            beard_coverage,
             body_hair,
             bald,
             hair_density,
@@ -406,12 +401,12 @@ pub(crate) fn raw_body_values(
         ((m.freckle_offset + m.freckle_slope * z.freckle) + m.freckle_pigment * z.pigment)
             + m.mc1r_freckle * f64::from(inputs.mc1r),
     );
-    let brow = logistic(z.brow);
+    let brow = logistic(z.hair_density);
     let beard_rise = logistic(((b - theta) - m.beard_lag) / m.beard_tempo);
     let (beard_density, beard_coverage) = if male {
         (
             beard_rise * logistic((m.beard_offset + z.beard) + m.beard_androgen * z.androgen),
-            beard_rise * logistic(z.beard_coverage),
+            beard_rise * logistic(z.beard),
         )
     } else {
         (0.0, 0.0)

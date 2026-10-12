@@ -114,7 +114,7 @@ fn body_data_rejects() {
     for change in cases {
         assert_eq!(rejected(change), Some(DataError::BodyTraits));
     }
-    assert_eq!(sim_core::body_contract::body_traits().len(), 37);
+    assert_eq!(sim_core::body_contract::body_traits().len(), 35);
 }
 
 /// ADR-0005 section 1: only `z` and `cm` are clamped, and those are exactly the parameters
@@ -358,7 +358,8 @@ fn development_follows_the_specification() {
     assert!((andro(&woman) - 0.12).abs() < 0.005, "{}", andro(&woman));
 }
 
-/// 10.6: hair, skin and the signs of age, for both sexes at a young and an old age.
+/// 10.6: hair, skin and the signs of age, for both sexes at a young and an old age; with
+/// map 4 the eyebrows read `hair_density` and the beard's coverage reads `beard`.
 #[test]
 fn hair_skin_and_age_follow_the_specification() {
     let data = fixture();
@@ -369,9 +370,7 @@ fn hair_skin_and_age_follow_the_specification() {
         androgen: 0.2,
         curl: 0.3,
         freckle: -0.4,
-        brow: 0.6,
         beard: -0.7,
-        beard_coverage: 0.8,
         body_hair: -0.9,
         bald: 1.0,
         hair_density: -1.1,
@@ -412,12 +411,14 @@ fn hair_skin_and_age_follow_the_specification() {
                     "{copies}"
                 );
             }
-            assert_eq!(at(BodyParamKey::EyebrowDensity), l(0.6));
+            // Map 4 (ADR-0020 section 1, 10.7): the eyebrows read the hair density.
+            assert_eq!(at(BodyParamKey::EyebrowDensity), l(-1.1));
             let beard = l(((b - theta) - m.beard_lag) / m.beard_tempo);
             let (density, coverage) = if male {
                 (
                     beard * l((m.beard_offset + -0.7) + m.beard_androgen * 0.2),
-                    beard * l(0.8),
+                    // Map 4: the coverage reads the beard itself.
+                    beard * l(-0.7),
                 )
             } else {
                 (0.0, 0.0)
