@@ -103,6 +103,11 @@ pub const PAIRING_NOISE: PurposeTag = PurposeTag::from_pinned_list(21);
 /// 4). subject: the person's lineage key; occasion: 0; detail: 0.
 pub const LEAVE_HOME: PurposeTag = PurposeTag::from_pinned_list(22);
 
+/// The foster mother of a group of orphans: the rank of `k_smallest` (ADR-0018 section 4).
+/// subject: the lineage key of the group's eldest child; occasion: the month index of the
+/// placement; detail: the candidate woman's lineage key.
+pub const FOSTER_RANK: PurposeTag = PurposeTag::from_pinned_list(23);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -127,6 +132,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (MARKET_ORDER, "MARKET_ORDER"),
     (PAIRING_NOISE, "PAIRING_NOISE"),
     (LEAVE_HOME, "LEAVE_HOME"),
+    (FOSTER_RANK, "FOSTER_RANK"),
 ];
 
 /// Values of deleted tags; they are never used again.

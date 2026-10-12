@@ -54,6 +54,9 @@ pub(crate) struct Sim {
     pub(crate) carer: Option<SimId>,
     /// The biological parents of a born sim; `None` for a founder.
     pub(crate) parents: Option<Parents>,
+    /// Who took it in by the orphan rule (a relative, or a foster mother and her partner),
+    /// in the order they became its social parents, each once (ADR-0018 section 4).
+    pub(crate) social_parents: Vec<SimId>,
 }
 
 /// The biological parents of a sim and the mother's conception number of it.
@@ -155,6 +158,7 @@ pub(crate) struct ArchivedSim {
     pub(crate) household: HouseholdId,
     pub(crate) moved_out: bool,
     pub(crate) parents: Option<Parents>,
+    pub(crate) social_parents: Vec<SimId>,
 }
 
 /// A household (ADR-0018 section 4): from its forming until its last member leaves; it

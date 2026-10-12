@@ -260,6 +260,7 @@ pub(crate) fn on_death(
             household: person.household,
             moved_out: person.moved_out,
             parents: person.parents,
+            social_parents: person.social_parents,
         },
     );
     // Her pregnancy ends with her, with all its children; her conception stays counted.

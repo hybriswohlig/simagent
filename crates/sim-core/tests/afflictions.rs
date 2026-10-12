@@ -171,7 +171,7 @@ fn a_visible_disease_never_kills() {
 #[test]
 fn the_afflictions_are_those_of_the_reference() {
     let world = afflicted("test:afflicted", true, the_ten());
-    assert_eq!(world.state_hash(), 0xcdd4_eb8e_f356_6cb6);
+    assert_eq!(world.state_hash(), 0x3cae_07db_2012_5bf3);
 }
 
 /// A save of "afflicted" loads and gives the same bytes, at the start and after the first
