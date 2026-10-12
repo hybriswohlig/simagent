@@ -12,8 +12,10 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
+use serde::Serialize;
 use sim_core::ids::SimId;
 use sim_core::input::{ForkOverride, Input, InputRecord};
+use sim_core::measure::{LocusDose, TraitSpread};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
 use sim_core::version::CORE_VERSION;
@@ -91,6 +93,9 @@ fn command() -> Command {
                 .required(true)
                 .allow_hyphen_values(true),
         );
+    let measure = Command::new("measure")
+        .about("Prints the genic spread of each trait and the mean dose of each additive locus over the living of a run (ADR-0020 section 3)")
+        .arg(Arg::new("run").value_name("RUN_DIR").required(true));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
@@ -98,6 +103,7 @@ fn command() -> Command {
         .subcommand(fork)
         .subcommand(export)
         .subcommand(kinship)
+        .subcommand(measure)
         .subcommand(
             Command::new("repro")
                 .about("Replays a repro package; succeeds once the failure is gone (ADR-0016)")
@@ -135,6 +141,10 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
         Some(("kinship", kinship)) => {
             let text = |name: &str| kinship.get_one::<String>(name).map_or("", String::as_str);
             return kinship_of(Path::new(text("run")), text("a"), text("b"));
+        }
+        Some(("measure", measure)) => {
+            let dir = measure.get_one::<String>("run").map_or("", String::as_str);
+            return measure_of(Path::new(dir));
         }
         _ => return Err(CliError::new("usage", "unknown subcommand")),
     };
@@ -183,6 +193,38 @@ fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {
         .kinship(sim(a)?, sim(b)?)
         .ok_or_else(|| unknown(&format!("{a} or {b}")))?;
     println!("{}", files::json(&phi));
+    Ok(())
+}
+
+/// The line `simagent measure` prints: the form, the last closed second and the
+/// measurement of the core.
+#[derive(Serialize)]
+struct MeasureLine<'a> {
+    format_version: u32,
+    clock: SimTime,
+    living: u64,
+    traits: &'a [TraitSpread],
+    loci: &'a [LocusDose],
+}
+
+/// Prints the measurement of the living of the run in `dir` (ADR-0020 section 3), from its
+/// save, as one line of JSON. The core measures; the CLI only prints.
+fn measure_of(dir: &Path) -> Result<(), CliError> {
+    let bytes = files::read(&dir.join(files::SAVE))?;
+    let (world, _) = World::load(&bytes, data::core_data()?)
+        .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
+    let measurement = world
+        .state()
+        .measure()
+        .ok_or_else(|| CliError::new("no_living", "nobody lives in the run"))?;
+    let line = MeasureLine {
+        format_version: 1,
+        clock: world.closed_through(),
+        living: measurement.living,
+        traits: &measurement.traits,
+        loci: &measurement.loci,
+    };
+    println!("{}", files::json(&line));
     Ok(())
 }
 
