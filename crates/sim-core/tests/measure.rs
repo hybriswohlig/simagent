@@ -25,6 +25,15 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
+/// The saves of a scenario with their measurements.
+type Saves = &'static [(&'static str, Expected)];
+
+/// A scenario of loaded saves: its name, its data and its saves.
+type Loaded = (&'static str, fn() -> Data, Saves);
+
+/// Doses at (`test:g1`, `test:f1`, `test:g2`, `test:p1`) and per trait `A` and `G` bits.
+type AdditiveCase = ([u8; 4], [(&'static str, u64, u64); 4]);
+
 /// One measurement: the living, then per trait (id, mean bits, sigma bits), per locus
 /// (id, mean dose bits).
 struct Expected {
@@ -784,7 +793,7 @@ const MORTAL_SAVES: [(&str, Expected); 1] = [(
 )];
 const MORTAL_SAVE_EMPTY: &str = "53494d4147454e54012297e4b4c08affa1e17e1101ff01010000feaffab3010301030280b0fab3010002060180a8a702feb7f9d101000100018088ff1d14000002010001aaa1e38001020001aea2e2a90100020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000010000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000200000002010001001101010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100000600a4bed19ca7d5c5ee4802a4f2cdeacf96e7a50a04a5de90fafec8a7f81d06db93b1ac80d8a5f93c08c0a1a0cbf48d90e482010ab7909f90b7c59ca875";
 /// (doses of g1, f1, g2, p1; per trait `A` bits and `G` bits).
-const ADDITIVE_VALUES: [([u8; 4], [(&str, u64, u64); 4]); 5] = [
+const ADDITIVE_VALUES: [AdditiveCase; 5] = [
     (
         [0, 0, 0, 0],
         [
@@ -1052,7 +1061,7 @@ fn the_measurement_of_a_run_is_the_references() {
 /// and "mortal" at its start (a map without traits and additive loci: both lists empty).
 #[test]
 fn the_measurement_of_loaded_saves_is_the_references() {
-    let cases: [(&str, fn() -> Data, &[(&str, Expected)]); 4] = [
+    let cases: [Loaded; 4] = [
         ("threshold", liability_data, &THRESHOLD_SAVES),
         ("similar", similar_data, &SIMILAR_SAVES),
         ("similar_long", similar_data, &SIMILAR_LONG_SAVES),
