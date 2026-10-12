@@ -262,6 +262,19 @@ SQRT_INPUTS = [
 
 E = 2.718281828459045
 
+PROBIT_INPUTS = [
+    0.0, -0.0, 1.0, math.inf, -math.inf, math.nan,  # outside (0, 1): NaN
+    -0.5, 1.5, -MIN_SUBNORMAL,
+    0.5,  # exactly 0
+    0.99, 0.01,  # the threshold of the disease of prevalence 0.01 (genetics spec 3.6)
+    0.075, 0.925, 0.07499999999999999, 0.07500000000000001,  # |p - 0.5| = 0.425
+    0.5000000000000001, 0.49999999999999994, 0.3, 0.7, 0.025, 0.975, 0.1587,
+    1e-5, 1e-10,
+    1.3887943864964021e-11, 1.388794386496402e-11, 1.3887943864964023e-11,  # sqrt(-ln p) = 5
+    1e-20, 1e-100, 1e-300, MIN_NORMAL, 1e-310, MIN_SUBNORMAL,
+    2.0**-53, 1.0 - 2.0**-53, 0.9999999999,
+]
+
 
 def srgb_base(level: int) -> float:
     """The base of the power in the sRGB decoding of an 8-bit level (IEC 61966-2-1),
@@ -307,6 +320,29 @@ POW_INPUTS = [
 UNRECORDED = "unrecorded"
 CHECK = "--check" in sys.argv[1:]
 MISMATCHES = []
+
+
+def probit_reference(x: float):
+    """(class, value): the inverse of the standard normal distribution function. Outside
+    (0, 1) and at NaN the function is NaN; at 0.5 it is exactly 0. Elsewhere the root of
+    ncdf(x) = p, by Newton's method from the f64 estimate of the standard library (only a
+    starting point) at 100 digits, then rounded to f64 by mp_round. Above 0.5 by the
+    symmetry, with 1 - p exact."""
+    if math.isnan(x) or not 0.0 < x < 1.0:
+        return "E", math.nan
+    if x == 0.5:
+        return "E", 0.0
+    import statistics
+
+    with mpmath.workdps(100):
+        lower = mpmath.mpf(x) if x < 0.5 else 1 - mpmath.mpf(x)
+        guess = statistics.NormalDist().inv_cdf(float(lower)) if lower > 0 else -38.0
+        root = mpmath.mpf(guess)
+        for _ in range(8):
+            root -= (mpmath.ncdf(root) - lower) / mpmath.npdf(root)
+        assert abs(mpmath.ncdf(root) - lower) <= lower * mpmath.mpf(10) ** -90
+        value = root if x < 0.5 else -root
+        return "P", mp_round(value)
 
 
 def value_bits(x: float) -> str:
@@ -398,6 +434,7 @@ def main() -> None:
     write("cos", header, unary_rows("cos", COS_INPUTS, cos_reference))
     write("sqrt", header, unary_rows("sqrt", SQRT_INPUTS, sqrt_reference))
     write("pow", header, binary_rows("pow", POW_INPUTS, pow_reference))
+    write("probit", header, unary_rows("probit", PROBIT_INPUTS, probit_reference))
 
     if MISMATCHES:
         sys.exit(f"{len(MISMATCHES)} file(s) differ from the reference")
