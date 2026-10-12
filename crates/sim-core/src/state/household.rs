@@ -321,7 +321,8 @@ pub(crate) fn separation_moves(
     let mut members = alloc::vec![man];
     let mut stay = Vec::new();
     for (id, person) in &domain.sims {
-        if *id == woman || *id == man || person.household != household || !dependent(person, now) {
+        // The two partners are moved out, so never dependent.
+        if person.household != household || !dependent(person, now) {
             continue;
         }
         if person.carer == Some(man) {
