@@ -4401,6 +4401,105 @@ def emigration_broken_saves() -> list:
 
 EMIGRATION_BROKEN = emigration_broken_saves()
 
+
+def rejecting_checks(world: world_reference.World) -> list:
+    """The names of the load checks (`check_all`) that reject the state of `world`."""
+    names = []
+    for check in (
+        world_reference.check_households,
+        world_reference.check_separations,
+        world_reference.check_market,
+        world_reference.check_afflictions,
+        world_reference.check_emigration,
+    ):
+        try:
+            check(world)
+        except AssertionError:
+            names.append(check.__name__)
+    return names
+
+
+def emigration_broken_partner_saves() -> list:
+    """Four more states the load checks reject (review of the emigration), each a save of
+    "emigration" changed in one place: (partner_other_second) at the end of year 20 sim 2,
+    the partner of partnership 1 (ended by emigration at 94348799), in the archive as if he
+    had left at 660441599 with household 2; (partner_other_household) after year 2 sim 2 in
+    the archive with household 3 instead of 1 (both partners left at 94348799); (partner
+    survives) after year 2 sim 2 living (his record and planned events as at 94348798) in a
+    household of his own formed at 94348799 (the next HouseholdId), partnership 1 still
+    ended by emigration at 94348799; (before_start) a variant world, the founders of
+    "emigration" and a single man of 30 (sim 9, alone in household 4 at the start), right
+    after the start, with sim 9 in the archive by emigration at −1, his events removed and
+    his household formed and ended at −1. Returns (name, description, the checks that reject
+    it, save)."""
+    cases = []
+    t1, late = EMIGRATION_FIRST, EMIGRATION_LATE
+    after_late = world_at(emigration_world, [], late)
+    broken = copy_world(after_late)
+    value = list(broken.archive[2])
+    assert value[1:3] == [t1, None] and value[11] == 1 and broken.partnerships[1][3] == (t1, world_reference.ENDED_BY_EMIGRATION)
+    value[1], value[11] = late, 2
+    broken.archive[2] = tuple(value)
+    cases.append(("partner_other_second", f"partnership 1 ended by emigration at {t1}, sim 2 left by emigration at {late} with household 2 (sim 1 at {t1} with household 1)", broken))
+
+    after = world_at(emigration_world, [], t1)
+    broken = copy_world(after)
+    value = list(broken.archive[2])
+    assert value[11] == 1 and broken.households[3][1] == t1
+    value[11] = 3
+    broken.archive[2] = tuple(value)
+    cases.append(("partner_other_household", f"both partners of partnership 1 left by emigration at {t1}, sim 1 with household 1, sim 2 with household 3", broken))
+
+    before = world_at(emigration_world, [], t1 - 1)
+    broken = copy_world(after)
+    living = copy.deepcopy(before.sims[2])
+    events = [copy.deepcopy(event) for event in before.queue if event.subject == (world_reference.SIM_SUBJECT, 2)]
+    household = broken.next_household_id
+    broken.next_household_id += 1
+    broken.households[household] = [t1, None]
+    living[9] = household
+    del broken.archive[2]
+    broken.sims[2] = living
+    broken.queue += events
+    cases.append(("partner_survives", f"partnership 1 ended by emigration at {t1} while sim 2 lives (household {household} of his own, formed at {t1}; his {len(events)} planned events as at {t1 - 1})", broken))
+
+    variant = world_reference.World(
+        0xFF, EMIGRATION_TAG, False, EMIGRATION_FOUNDERS + [(-30 * YEAR, MALE, [])], EMIGRATION_COUPLES, data=EMIGRATION_DATA, capacity=EMIGRATION_CAPACITY
+    )
+    check_all(variant)
+    broken = copy_world(variant)
+    sim = 9
+    born, key, sex, person, afflictions_, conceptions, births, parents, partnerships, household, moved_out, carer, social = broken.sims.pop(sim)
+    assert broken.members(household) == [] and moved_out and carer is None and 0 - born >= 18 * YEAR
+    removed = [event for event in broken.queue if event.subject == (world_reference.SIM_SUBJECT, sim)]
+    broken.queue = [event for event in broken.queue if event.subject != (world_reference.SIM_SUBJECT, sim)]
+    broken.households[household] = [-1, -1]
+    broken.archive[sim] = (born, -1, None, key, sex, person, afflictions_, conceptions, births, parents, partnerships, household, moved_out, tuple(social))
+    cases.append(
+        (
+            "before_start",
+            f"variant: the founders of emigration and a man of 30 (sim 9, household {household}), after the start; sim 9 archived by emigration at -1, his {len(removed)} events removed, household {household} formed and ended at -1",
+            broken,
+        )
+    )
+
+    out = []
+    for name, description, world in cases:
+        names = rejecting_checks(world)
+        out.append((name, description, names, world.save()))
+    return out
+
+
+EMIGRATION_BROKEN_PARTNERS = emigration_broken_partner_saves()
+# Each is rejected by the load check of the emigration; the partner cases by it alone, the
+# one before the start also by the households' (a household formed before 0).
+assert [(name, checks) for name, _, checks, _ in EMIGRATION_BROKEN_PARTNERS] == [
+    ("partner_other_second", ["check_emigration"]),
+    ("partner_other_household", ["check_emigration"]),
+    ("partner_survives", ["check_emigration"]),
+    ("before_start", ["check_households", "check_emigration"]),
+], [(name, checks) for name, _, checks, _ in EMIGRATION_BROKEN_PARTNERS]
+
 # `Start` with the capacity 0 is rejected (`capacity_zero`, design note section 1); with 1 and
 # with the largest u64 it is accepted (the latter never draws: `P ≤ K` always).
 assert world_reference.start_rejection(EMIGRATION_FOUNDERS, EMIGRATION_COUPLES, EMIGRATION_DATA, 0) == world_reference.CAPACITY_ZERO
@@ -4856,3 +4955,7 @@ if __name__ == "__main__":
         f"emigration_without_capacity living at the end {len(EMIGRATION_UNBOUNDED.sims)} year_hashes {[format(value, '016x') for value in EMIGRATION_UNBOUNDED.year_hashes]}"
         f" log_hash {digest(b''.join(EMIGRATION_UNBOUNDED.log))} entries {len(EMIGRATION_UNBOUNDED.log)}"
     )
+    # Four more rejected saves of the emigration (review): the partnership's partners and an
+    # emigration before the start.
+    for _name, _description, _checks, _save in EMIGRATION_BROKEN_PARTNERS:
+        print(f"emigration_load_rejected {_name} {_description} (rejected by {', '.join(_checks)}) {_save.hex()}")

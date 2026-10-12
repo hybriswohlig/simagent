@@ -3391,8 +3391,9 @@ def check_emigration(world: World) -> None:
       second of the current year, or of the next if the clock stands at or after this
       year's (the smallest `n · YEAR − 1` after the clock); without one none, and nobody in
       the archive left by emigration;
-    - every archived sim with `LeftBy::Emigration` left in the last second of a year (at or
-      before the clock) in a world with a capacity; the emigrants of one household and
+    - every archived sim with `LeftBy::Emigration` left in the last second of a year, at or
+      after the first year end (`YEAR − 1`) and at or before the clock, in a world with a
+      capacity; the emigrants of one household and
       second are everyone who lived in that household in that second (no living sim lives
       there, and the household ended in that very second), at least one of them 18 or more
       (`born + 18 · YEAR ≤ t`); no event is planned for any of them and none is pregnant;
@@ -3415,7 +3416,9 @@ def check_emigration(world: World) -> None:
     for sim, value in emigrants.items():
         groups.setdefault((value[11], value[1]), []).append(sim)
     for (household, t), sims in groups.items():
-        assert t % YEAR == YEAR - 1 and 0 <= t <= world.closed, (sims, t)
+        # The last second of a year, the first year end (YEAR − 1) or later: −1 is congruent
+        # to a year's last second but lies before the start.
+        assert t % YEAR == YEAR - 1 and YEAR - 1 <= t <= world.closed, (sims, t)
         assert household in world.households and world.households[household][1] == t, (household, t)
         assert not [sim for sim, value in world.sims.items() if value[9] == household], household
         assert any(world.archive[sim][0] + 18 * YEAR <= t for sim in sims), (household, sims)
