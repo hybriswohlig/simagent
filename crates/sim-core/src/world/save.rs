@@ -588,6 +588,7 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
             .zip(1_u64..)
             .all(|(id, number)| id.get() == number);
     let members = member_index(&loaded.sims);
+    let open = open_index(&loaded.partnerships);
     let households_fit = loaded.households.iter().all(|(id, household)| {
         let formed = household.formed.as_secs() <= acted;
         let living = members.get(id).is_some_and(|set| !set.is_empty());
@@ -625,13 +626,20 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
                 .is_some_and(|next| !state::household::dependent(sim, next));
             match sim.carer {
                 Some(carer) => loaded.sims.get(&carer).is_some_and(|c| {
-                    let paired_away = of_age_next
-                        && loaded
-                            .households
-                            .get(&c.household)
-                            .is_some_and(|home| home.formed.as_secs() == acted);
-                    (c.household == sim.household || paired_away)
-                        && !state::household::dependent(c, t)
+                    let pairing = open
+                        .get(&carer)
+                        .and_then(|id| loaded.partnerships.get(id))
+                        .map(|p| {
+                            let partner = if p.woman == carer { p.man } else { p.woman };
+                            let together = loaded
+                                .sims
+                                .get(&partner)
+                                .is_some_and(|other| other.household == c.household);
+                            (p.formed, together)
+                        });
+                    let home = loaded.households.get(&c.household).map(|h| h.formed);
+                    let away = of_age_next && paired_away(acted, home, pairing);
+                    (c.household == sim.household || away) && !state::household::dependent(c, t)
                 }),
                 None => members.get(&sim.household).is_some_and(|set| {
                     set.iter().all(|other| {
@@ -662,6 +670,16 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
 
 /// A founder of this age at the start is moved out (ADR-0018 section 4).
 const ADULT_FOUNDER_YEARS: i64 = 18;
+
+/// Whether a carer lives apart from a child who comes of age in the second the clock acts
+/// in (`acted`) because an input paired the carer in that second: the carer's household
+/// formed then (`home`), and so did the carer's open partnership (`pairing`: its forming
+/// and whether the partner lives in the carer's household). The child stayed, and its
+/// birthday clears the carer later in that second (ADR-0018 section 4).
+fn paired_away(acted: i64, home: Option<SimTime>, pairing: Option<(SimTime, bool)>) -> bool {
+    let then = |at: SimTime| at.as_secs() == acted;
+    home.is_some_and(then) && pairing.is_some_and(|(formed, together)| then(formed) && together)
+}
 
 /// The open partnership of each sim in one, from the partnerships (ADR-0018 section 2).
 pub(super) fn open_index(
@@ -1485,6 +1503,20 @@ mod tests {
         assert!(!formed_in_order(Some((t(5), true)), t(5), false));
         assert!(formed_in_order(Some((t(5), true)), t(6), false));
         assert!(!formed_in_order(Some((t(6), false)), t(5), false));
+    }
+
+    /// Review finding: a carer may live apart from a child coming of age only in the
+    /// household an input paired her into in that very second, with her partner.
+    #[test]
+    fn a_carer_lives_apart_only_after_a_pairing_in_that_second() {
+        let t = SimTime::from_secs;
+        assert!(paired_away(9, Some(t(9)), Some((t(9), true))));
+        // A household formed then, but no pairing of the carer: a forged time.
+        assert!(!paired_away(9, Some(t(9)), None));
+        assert!(!paired_away(9, Some(t(9)), Some((t(5), true))));
+        assert!(!paired_away(9, Some(t(9)), Some((t(9), false))));
+        assert!(!paired_away(9, Some(t(5)), Some((t(9), true))));
+        assert!(!paired_away(9, None, Some((t(9), true))));
     }
 
     #[test]
