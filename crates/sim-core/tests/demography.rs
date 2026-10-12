@@ -206,12 +206,33 @@ fn demography_rejects() {
             "data.demography",
         ));
     }
+    // The table of leaving home: not ten weights, all zero, a weight outside [0, 1]
+    // (design note of the households, section 1).
+    let mut ten = vec![weight(0.0); 10];
+    for table in [
+        Value::Array(vec![weight(0.1); 9]),
+        Value::Array(vec![weight(0.1); 11]),
+        Value::Array(ten.clone()),
+        {
+            ten[3] = weight(1.01);
+            Value::Array(ten.clone())
+        },
+        {
+            ten[3] = weight(-0.1);
+            Value::Array(ten)
+        },
+    ] {
+        cases.push((
+            Box::new(move |d| d["leave_home_ages"] = table),
+            "data.demography",
+        ));
+    }
     let count = cases.len();
     for (change, code) in cases {
         let result = checked(change);
         assert!(result.starts_with(code), "{code}: {result}");
     }
-    assert_eq!(count, 59);
+    assert_eq!(count, 64);
 }
 
 /// The limits themselves are allowed, and zero where ADR-0017 section 1 allows it: twins,

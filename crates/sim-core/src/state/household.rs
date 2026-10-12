@@ -46,11 +46,15 @@ pub(crate) fn leave_key(key: LineageKey) -> DrawKey {
     }
 }
 
-/// The age at which a person leaves home: `16 + n` for the smallest `n` whose share of the
-/// table, summed from 16 on and divided by the sum of the table, lies above the draw.
+/// The age at which a person leaves home, from its draw.
 pub(crate) fn leave_age(data: &Data, seed: u64, key: LineageKey) -> i64 {
-    let weights = &data.demography().leave_home;
     let u = Draws::new(WorldSeed::new(seed)).unit(leave_key(key));
+    age_of(u, &data.demography().leave_home)
+}
+
+/// `16 + n` for the smallest `n` whose share of the table, summed from 16 on and divided by
+/// the sum of the table, lies above `u`; the last age if none does.
+fn age_of(u: f64, weights: &[f64]) -> i64 {
     let total: f64 = weights.iter().sum();
     let mut sum = 0.0;
     let mut last = 0;
@@ -384,4 +388,38 @@ pub(crate) fn death_moves(
     }
     let causes = Causes::new(Cause::Event(death)).with(Cause::Rule(rule()));
     found(domain, &orphans, &causes, ctx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Dario's table and the ages at and around its thresholds (`leave_home_age` of
+    /// `tools/world_reference.py`); no share lies above 1, so the last age.
+    #[test]
+    fn the_age_of_leaving_home_from_the_draw() {
+        let table = [0.02, 0.03, 0.3, 0.2, 0.15, 0.1, 0.08, 0.05, 0.04, 0.03];
+        for (u, age) in [
+            (0.0, 16),
+            (0.019_999_999_999_999_997, 16),
+            (0.02, 17),
+            (0.0499, 17),
+            (0.05, 18),
+            (0.3499, 18),
+            (0.35, 19),
+            (0.5, 19),
+            (0.700_000_000_000_000_1, 21),
+            (0.9699, 24),
+            (0.970_000_000_000_000_1, 25),
+            (0.999_999_999_999_999_9, 25),
+            (1.0, 25),
+        ] {
+            assert_eq!(age_of(u, &table), age, "u {u}");
+        }
+        // The shares, not the weights: the same table at half the scale (halving is exact,
+        // so the shares are the same numbers).
+        let half = table.map(|w| w / 2.0);
+        assert_eq!(age_of(0.02, &half), 17);
+        assert_eq!(age_of(0.3, &half), 18);
+    }
 }
