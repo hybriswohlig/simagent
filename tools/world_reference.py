@@ -63,10 +63,21 @@ What the model knows:
   woman; one mt); `dominant`, at least one copy carries allele 1. With the genotype the
   penetrance of its sex decides, `bernoulli(p)` at the key (DISEASE_PENETRANCE = 13,
   lineage key, `str_key` of the code, 0); without it there is no draw. A threshold
-  carrier without a liability trait afflicts nobody, without a draw (a liability trait
-  comes in step 11; this model refuses it as `Data::new` does). The onset in years is
+  carrier without a liability trait afflicts nobody, without a draw. With a liability
+  trait (design note of the threshold disease in the world, step 11; genetics
+  specification 3.6, ADR-0019): the data checked it (`data_reference.check_liability`: a
+  trait of the map whose data ID is the code, a phenotype row with equal child and adult
+  weights, h² the disease's `heritability` and c² 0, bit for bit) and keep `T =
+  probit(1 − K)` with the recorded bits of the core's AS241 (`data_reference.threshold`;
+  for `K` = 0.01 `T` = 2.32634787404084, bits 40029c5c4630ff0c). `L` is the phenotype
+  `z` of the trait (`phenotype`, genetics specification 4.2) at the sim's age at its
+  creation (`0 − born` for a founder, 0 for a child; the weights do not depend on the
+  age), with `E` at (ENV_INDIVIDUAL, lineage key, `str_key` of the trait = of the code, 0)
+  and `C` (weight 0) at its parents' keys or its own; the sim has the disease iff `L > T`,
+  strictly, without a penetrance draw. The onset in years is
   the fixed age, or `x = normal(mean, sd)` at the key (DISEASE_ONSET = 14, lineage key,
-  `str_key` of the code, 0) held by `min(max(x, low), high)`.
+  `str_key` of the code, 0) held by `min(max(x, low), high)`. `check_afflictions` is the
+  load check: every sim holds exactly these afflictions with these onsets.
 - A lethal affliction (effect `death` or `death_in_two_steps`) keeps an exposure: `used`,
   the hazard used up in the closed periods of the switch (0.0 at the creation), and
   `since`, when the current period began: the origin (the start for a founder, the
@@ -468,14 +479,17 @@ def only(enum) -> tuple:
 
 class Disease:
     """One entry of the calibration's list `diseases` (ADR-0017 section 1), without its
-    texts: the code, the carrier (a locus with the penetrance per sex, or nothing for a
+    texts: the code, the carrier (a locus with the penetrance per sex; or a threshold with
+    its trait of liability as `PhenotypeTrait` and its threshold `T`, or neither for a
     threshold without a liability trait), the onset and the step hazard (None for a
-    visible disease)."""
+    visible disease). `calibration` and `genome_map` are the stripped documents (the row
+    and the trait of a named liability)."""
 
-    def __init__(self, entry: dict, loci: dict):
+    def __init__(self, entry: dict, loci: dict, calibration: dict, genome_map: dict):
         self.code = entry["code"]
         self.key = str_key(self.code)
         kind, carrier = only(entry["carrier"])
+        self.liability, self.threshold = None, None
         if kind == "locus":
             self.locus = loci[carrier["locus"]]
             assert self.locus["mark"] == "disease", f"{self.code}: the locus is no disease locus"
@@ -485,9 +499,17 @@ class Disease:
             }
         else:
             assert kind == "threshold"
-            # Data::new rejects a liability trait until step 11 (`data.disease`).
-            assert carrier["liability"] is None, f"{self.code}: a liability trait is not modelled yet"
             self.locus = None
+            # A named trait of liability (design note of the threshold disease, section 1;
+            # `data_reference.check_liability` checked it when the documents were hashed):
+            # its phenotype (trait, row) and `T = probit(1 − K)` with the recorded bits of
+            # the core's AS241 (`data_reference.threshold`), kept with the data.
+            if carrier["liability"] is not None:
+                (row,) = [row for row in calibration["traits"] if row["trait"] == carrier["liability"]]
+                self.liability = PhenotypeTrait(carrier["liability"], genome_map, row)
+                assert self.liability.id == self.code and self.liability.weights[0] == self.liability.weights[2]
+                assert self.liability.weights[1] == self.liability.weights[3] == 0.0
+                self.threshold = data_reference.threshold(number(carrier["prevalence"]))
         kind, onset = only(entry["onset"])
         if kind == "fixed":
             self.onset = ("fixed", number(onset["age"]))
@@ -749,7 +771,7 @@ class Data:
         assert math.isfinite(self.pairing_weight_age) and self.pairing_weight_age >= 0.0
         assert math.isfinite(self.pairing_gap) and math.isfinite(self.cousin_odds) and self.cousin_odds >= 1.0
         stripped = data_reference.strip(calibration)
-        self.diseases = [Disease(entry, self.loci) for entry in stripped["diseases"]]
+        self.diseases = [Disease(entry, self.loci, stripped, data_reference.strip(genome_map)) for entry in stripped["diseases"]]
         values = stripped["values"]
         self.senescence = {
             sex: (number(values[f"core:senescence_a_{name}"]), number(values[f"core:senescence_b_{name}"]))
@@ -1647,17 +1669,27 @@ class World:
 
     # ------------------------------------------------------------------ afflictions
 
-    def afflictions_of(self, key: int, sex: bytes, person: dict, origin: int) -> list:
+    def afflictions_of(self, key: int, sex: bytes, person: dict, origin: int, parents, age_seconds: int) -> list:
         """The afflictions of a sim at its creation, in data order (design note
-        section 1)."""
+        section 1; design note of the threshold disease, section 2). `parents` is (the
+        mother's lineage key, the father's) or None for a founder, `age_seconds` its age at
+        the creation (`0 − born` for a founder at `Start`, 0 for a child at its birth)."""
         found = []
         for disease in self.data.diseases:
-            if disease.locus is None:
-                continue
-            if not has_genotype(disease.locus["action"], copies_at(person, disease.locus)):
-                continue
-            word = words(chacha_key(self.seed, DISEASE_PENETRANCE, key, disease.key, 0))[0]
-            if not bernoulli(word, disease.penetrance[sex]):
+            if disease.locus is not None:
+                if not has_genotype(disease.locus["action"], copies_at(person, disease.locus)):
+                    continue
+                word = words(chacha_key(self.seed, DISEASE_PENETRANCE, key, disease.key, 0))[0]
+                if not bernoulli(word, disease.penetrance[sex]):
+                    continue
+            elif disease.liability is not None:
+                # The threshold disease (3.6): `L` the phenotype of its trait at the age of
+                # the creation; the sim has it iff `L > T`, strictly; no penetrance draw.
+                liability = phenotype(self.seed, disease.liability, person, key, parents, age_seconds)
+                if not liability > disease.threshold:
+                    continue
+            else:
+                # A threshold carrier without a liability trait afflicts nobody (11.1).
                 continue
             if disease.onset[0] == "fixed":
                 onset = disease.onset[1]
@@ -1668,6 +1700,26 @@ class World:
                 onset = min(max(x, low), high)
             found.append(Affliction(disease, onset, origin if self.switch else None))
         return found
+
+    def creation_of(self, sim: int) -> tuple:
+        """What the afflictions of a living or archived sim follow from (ADR-0017 section 3):
+        (lineage key, sex, genome, the parents' lineage keys or None for a founder, the
+        origin of its exposure, its age at the creation in seconds, the afflictions it
+        holds). A founder is created at `Start` (second 0), a child at its birth."""
+        if sim in self.sims:
+            born, key, sex, person, afflictions = self.sims[sim][:5]
+        else:
+            born, _, _, key, sex, person, afflictions = self.archive[sim][:7]
+        parents = self.parent_keys(sim)
+        origin = 0 if parents is None else born
+        return key, sex, person, parents, origin, origin - born, afflictions
+
+    def liability_of(self, sim: int, disease: Disease) -> float:
+        """`L` of a living or archived sim for a threshold disease with a trait of
+        liability (design note of the threshold disease, section 2): the phenotype of the
+        trait at the age of its creation (the weights do not depend on the age)."""
+        key, _, person, parents, _, age, _ = self.creation_of(sim)
+        return phenotype(self.seed, disease.liability, person, key, parents, age)
 
     def disease_due(self, sim: int, affliction: Affliction):
         """When the sim dies of the lethal affliction if nothing else happens first, or
@@ -2498,7 +2550,7 @@ class World:
             self.next_sim_id += 1
             subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
             entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
-            afflictions = self.afflictions_of(key, sex, person, now)
+            afflictions = self.afflictions_of(key, sex, person, now, (self.key_of(mother), self.key_of(father)), 0)
             self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0, None, False, None, []]
             self.created_by[child] = entry
             self.pedigree.add(child, mother, father)
@@ -2554,8 +2606,8 @@ class World:
             subject = variant(0, varint(sim))
             added = self._entry(now, [subject], [by_input], variant(1, signed(born), lineage_key(key)))
             person = founder_genome(sex, genes, self.data.loci)
-            # A founder's origin is the start (B19).
-            afflictions = self.afflictions_of(key, sex, person, now)
+            # A founder's origin is the start (B19); its age at the creation `now − born`.
+            afflictions = self.afflictions_of(key, sex, person, now, None, now - born)
             # Household, moved out, carer and social parents are set after the founders and
             # the couples (`_house_founders`).
             self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0, None, False, None, []]
@@ -3001,6 +3053,19 @@ def start_rejection(founders: list, couples, data: Data):
         if any(0 - founders[index][0] < data.market_age * YEAR for index in (woman, man)):
             return PARTNER_TOO_YOUNG
     return None
+
+
+def check_afflictions(world: World) -> None:
+    """The load check of the afflictions (ADR-0017 section 5; design note of the threshold
+    disease, section 3): every living or archived sim holds exactly the afflictions its
+    genotype, its sex and the draws give at its creation, in data order with their onsets
+    (`World.afflictions_of`); for a threshold disease with a trait of liability that is
+    `L > T`. A save that breaks it is `Inconsistent` in the core, an assertion here."""
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        key, sex, person, parents, origin, age, held = world.creation_of(sim)
+        want = world.afflictions_of(key, sex, person, origin, parents, age)
+        got = [(affliction.disease.code, affliction.onset) for affliction in held]
+        assert got == [(affliction.disease.code, affliction.onset) for affliction in want], f"sim {sim}: afflictions {got}"
 
 
 def check_market(world: World) -> None:

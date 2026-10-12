@@ -45,7 +45,9 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
   Carrier: locus { locus: DataId, penetrance_female: Calibrated,
                    penetrance_male: Calibrated },
            threshold { liability: Option<DataId>, heritability: Calibrated,
-                       prevalence: Calibrated }   (an option: 0 for none, 1 then the value)
+                       prevalence: Calibrated }   (an option: 0 for none, 1 then the value;
+                       a named trait of liability is checked by `check_liability`, design
+                       note of the threshold disease, section 1)
   Onset: fixed { age: Calibrated },
          normal { mean: Calibrated, sd: Calibrated, low: Calibrated, high: Calibrated }
   Effect: death { per_year: Calibrated },
@@ -268,6 +270,83 @@ def check_named_traits(calibration, genome_map) -> None:
             assert named is None or named in weighted, f"{field} {named} has no phenotype weights"
 
 
+def f64_bits(value: float) -> str:
+    """The bits of an f64 as 16 hex digits (big endian), for comparisons bit for bit."""
+    return struct.pack(">d", value).hex()
+
+
+def check_liability(calibration, genome_map) -> None:
+    """A threshold carrier that names its trait of liability (design note of the threshold
+    disease, section 1; genetics specification 3.6; ADR-0008 section 1, ADR-0009 sections 1
+    and 2, ADR-0020 section 2), each rule `DataError::Disease` (`data.disease`) in the core:
+    the trait is a trait of the map; its data ID is the code of the disease; the
+    calibration has a phenotype row for it; that row's child and adult weights are equal
+    bit for bit (h² child = h² adult, c² child = c² adult); its h² equals the disease's
+    `heritability` bit for bit; its c² is 0 (in both ages, by the equality). A carrier
+    without a named trait (`null`) is not checked here: nobody has its disease."""
+    traits = {entry["id"] for entry in genome_map["traits"]}
+    rows = {row["trait"]: row for row in calibration["traits"]}
+    for disease in calibration["diseases"]:
+        index, carrier = variant(disease["carrier"], ["locus", "threshold"])
+        if index == 0 or carrier["liability"] is None:
+            continue
+        code, named = disease["code"], carrier["liability"]
+        assert named in traits, f"data.disease: {code} names the liability trait {named}, no trait of the map"
+        assert named == code, f"data.disease: {code} names the liability trait {named}, not its own code"
+        assert named in rows, f"data.disease: {code}: the liability trait {named} has no phenotype row"
+        h2_child, c2_child, h2_adult, c2_adult = (f64_bits(float(rows[named][name]["value"])) for name in WEIGHTS)
+        assert h2_child == h2_adult and c2_child == c2_adult, f"data.disease: {code}: child and adult weights of {named} differ"
+        heritability = f64_bits(float(carrier["heritability"]["value"]))
+        assert h2_adult == heritability, f"data.disease: {code}: h2 of {named} is not the heritability bit for bit"
+        assert c2_adult == f64_bits(0.0), f"data.disease: {code}: c2 of {named} is not 0"
+
+
+# The recorded known answers of `sim_math::probit` (ADR-0019, AS241): the threshold of a
+# threshold disease is `T = probit(1 − K)`, computed once by `Data::new` (design note of the
+# threshold disease, section 1). The reference takes the recorded bits of the core's AS241
+# (the column `expected_bits`, written by `cargo xtask kat-record`), not the correctly
+# rounded value (`reference_bits`, within a few ulp of it), so that both sides compare
+# against the same `T`.
+PROBIT_KAT = Path(__file__).resolve().parent.parent / "tests" / "golden" / "kat" / "probit.csv"
+
+
+def recorded_probit(p: float) -> float:
+    """The recorded `probit(p)` of tests/golden/kat/probit.csv (a row of class P for the
+    input bits of `p`, its expected bits), checked against the bound of ADR-0019 section 2
+    (2^-48 relative to the correctly rounded reference column)."""
+    rows = {}
+    for line in PROBIT_KAT.read_text(encoding="utf-8").splitlines()[2:]:
+        input_bits, expected, klass, reference = line.split(",")
+        rows[input_bits] = (expected, klass, reference)
+    key = f64_bits(p)
+    assert key in rows, f"probit({p!r}) (input {key}) has no recorded row in {PROBIT_KAT.name}"
+    expected, klass, reference = rows[key]
+    assert klass == "P", (key, klass)
+    value = struct.unpack(">d", bytes.fromhex(expected))[0]
+    exact = struct.unpack(">d", bytes.fromhex(reference))[0]
+    assert abs(value - exact) <= 2.0**-48 * abs(exact), (key, expected, reference)
+    return value
+
+
+def threshold(prevalence: float) -> float:
+    """`T = probit(1 − K)` (genetics specification 3.6, ADR-0019) for the prevalence `K`:
+    `1.0 − K` in f64, then the recorded `probit` (`recorded_probit`)."""
+    assert 0.0 < prevalence < 1.0, prevalence
+    return recorded_probit(1.0 - prevalence)
+
+
+def liability_diseases(calibration) -> list:
+    """(code, trait, heritability, prevalence, T) of each threshold disease of the
+    calibration (parsed JSON) that names its trait of liability, in the order of the data."""
+    found = []
+    for disease in calibration["diseases"]:
+        index, carrier = variant(disease["carrier"], ["locus", "threshold"])
+        if index == 1 and carrier["liability"] is not None:
+            prevalence = float(carrier["prevalence"]["value"])
+            found.append((disease["code"], carrier["liability"], float(carrier["heritability"]["value"]), prevalence, threshold(prevalence)))
+    return found
+
+
 def strip(value):
     """The file without its text fields, which every place that has them must fill."""
     if isinstance(value, dict):
@@ -432,11 +511,14 @@ def documents(data_dir: Path):
 def documents_hash(demography, calibration, genome_map) -> int:
     """The data hash of the life course data, a calibration and a genome map given as
     parsed JSON (test data built in memory, or the files): the text fields checked, then
-    stripped, as the core sees them."""
+    stripped, as the core sees them. A named trait of liability is checked
+    (`check_liability`); its threshold `T` is kept with the data, not hashed on its own (the
+    hash covers `K`)."""
     check_demography_format(demography)
     check_calibration_format(calibration)
     check_text(demography, calibration, genome_map)
     check_named_traits(calibration, genome_map)
+    check_liability(calibration, genome_map)
     demography, calibration, genome_map = strip(demography), strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(
         demography_bytes(demography) + calibration_bytes(calibration) + genome_map_bytes(genome_map),
@@ -451,6 +533,14 @@ def data_hash(data_dir: Path) -> int:
 def main(argv):
     data_dir = Path(argv[1]) if len(argv) > 1 else REPOSITORY_DATA
     print(f"data_hash {data_hash(data_dir):016x}")
+    # The threshold of each threshold disease that names its trait of liability (none in the
+    # repository's data, so their output stays one line).
+    _, calibration, _ = documents(data_dir)
+    for code, trait, heritability, prevalence, value in liability_diseases(calibration):
+        print(
+            f"threshold {code} liability {trait} heritability {heritability!r} prevalence {prevalence!r}"
+            f" 1-K bits {f64_bits(1.0 - prevalence)} T {value!r} bits {f64_bits(value)}"
+        )
 
 
 if __name__ == "__main__":
