@@ -285,7 +285,9 @@ pub(super) fn pending_index(
     let mut index = BTreeMap::new();
     for entry in queue {
         let slot = match &entry.payload {
-            EventPayload::YearEnd | EventPayload::MarketRound => continue,
+            EventPayload::YearEnd | EventPayload::MarketRound | EventPayload::Emigration { .. } => {
+                continue;
+            }
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
@@ -337,6 +339,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         seed,
         data,
         switch: &history.switch,
+        capacity: history.capacity,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -373,6 +376,8 @@ struct InputHistory {
     pairs: Vec<(SimId, SimId, SimTime)>,
     /// How many founders `Start` names: the sims 1 to N.
     founders: u64,
+    /// The soft capacity of `Start`.
+    capacity: Option<u64>,
 }
 
 /// Sequence numbers gapless from 1, stamps that never fall and never lie after the
@@ -445,6 +450,7 @@ fn input_log_consistent(
         switch,
         pairs,
         founders,
+        capacity: start.capacity,
     })
 }
 
@@ -470,7 +476,14 @@ fn partnerships_consistent(
         == Some(loaded.next_partnership_id);
     let sex_of = |id: &SimId| facts(loaded, *id).map(|person| person.sex);
     let born_of = |id: &SimId| facts(loaded, *id).map(|person| person.born);
-    let left_of = |id: &SimId| loaded.archive.get(id).map(|sim| sim.left);
+    // When a partner left and whether by emigration; in one second a death comes first
+    // (`DEATH` runs before `EMIGRATION`, ADR-0020 section 6).
+    let left_of = |id: &SimId| {
+        loaded
+            .archive
+            .get(id)
+            .map(|sim| (sim.left, sim.left_by == LeftBy::Emigration))
+    };
     let age = state::market::market_age(rules.data);
     let limit = rules.data.demography().market.kinship_limit;
     let mut kinship = KinshipCache::new();
@@ -499,17 +512,21 @@ fn partnerships_consistent(
             let related = sex_of(&woman).is_some()
                 && sex_of(&man).is_some()
                 && kinship.phi(woman, man, |sim| kin(loaded, sim)) >= limit;
-            let first_death = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
+            let first_leave = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
             let separation =
                 separation_due(loaded, rules, *id, partnership).filter(|due| due.as_secs() < now);
-            let ending = match (separation, first_death) {
-                (Some(at), death) if death.is_none_or(|death| at <= death) => Some(Ending {
+            let ending = match (separation, first_leave) {
+                (Some(at), left) if left.is_none_or(|(left, _)| at <= left) => Some(Ending {
                     at,
                     by: EndedBy::Separation,
                 }),
-                (_, Some(at)) => Some(Ending {
+                (_, Some((at, emigrated))) => Some(Ending {
                     at,
-                    by: EndedBy::Death,
+                    by: if emigrated {
+                        EndedBy::Emigration
+                    } else {
+                        EndedBy::Death
+                    },
                 }),
                 (_, None) => None,
             };
@@ -522,7 +539,7 @@ fn partnerships_consistent(
                 && of_age
                 && !related
                 && partnership.ended == ending
-                && first_death.is_none_or(|death| death >= formed)
+                && first_leave.is_none_or(|(left, _)| left >= formed)
                 && [woman, man]
                     .into_iter()
                     .all(|sim| match latest.insert(sim, ended) {
@@ -771,6 +788,8 @@ struct Rules<'a> {
     seed: u64,
     data: &'a Data,
     switch: &'a [(i64, bool)],
+    /// The soft capacity of `Start` (ADR-0020 section 6).
+    capacity: Option<u64>,
 }
 
 impl Rules<'_> {
@@ -951,7 +970,10 @@ fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     left,
                 )
             })
-            && died_by_the_rule(sim, rules)
+            && match sim.left_by {
+                LeftBy::Death { cause } => died_by_the_rule(sim, cause, rules),
+                LeftBy::Emigration => emigrated_by_the_rule(loaded, sim, rules),
+            }
     })
 }
 
@@ -1361,12 +1383,43 @@ fn next_attempt(
     .then_some(next)
 }
 
+/// An archived sim emigrated with its household above the soft capacity (ADR-0020
+/// section 6): the world has a capacity; it left in the last second of a year; its
+/// household ended in that second; at least one who emigrated from it then was 18 or more;
+/// and no death of the sim was due by then (a death of that second runs before the
+/// emigration). Who else lived in the household then either died in that second or
+/// emigrated with it: the household ended.
+fn emigrated_by_the_rule(loaded: &LoadedState, sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
+    let left = sim.left;
+    let year_end = left
+        .as_secs()
+        .checked_add(1)
+        .is_some_and(|next| next.rem_euclid(YEAR.as_secs()) == 0);
+    let ended_there = loaded
+        .households
+        .get(&sim.household)
+        .is_some_and(|household| household.ended == Some(left));
+    let adult = loaded.archive.values().any(|other| {
+        other.household == sim.household
+            && other.left == left
+            && other.left_by == LeftBy::Emigration
+            && state::market::of_age(other.born, left, state::emigration::ADULT_YEARS)
+    });
+    let no_death_due = rules
+        .dues(
+            (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+            &sim.afflictions,
+        )
+        .iter()
+        .all(|(_, due)| due.is_none_or(|at| at > left));
+    rules.capacity.is_some() && year_end && ended_there && adult && no_death_due
+}
+
 /// An archived sim died of a cause of the world, in the second its budget for that
 /// cause ran out, and no other cause was due before. Of two causes due in the same
 /// second the one earlier in the list wins: its event was planned first. A disease was
 /// due only if its exposure kept with the sim ran at the death.
-fn died_by_the_rule(sim: &ArchivedSim, rules: &Rules<'_>) -> bool {
-    let LeftBy::Death { cause } = sim.left_by;
+fn died_by_the_rule(sim: &ArchivedSim, cause: u64, rules: &Rules<'_>) -> bool {
     let dues = rules.dues(
         (sim.born, sim.lineage_key, sim.sex, &sim.genome),
         &sim.afflictions,
@@ -1389,6 +1442,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
     let mut round_seen = false;
+    let mut emigration_seen = false;
     let mut birthdays = BTreeSet::new();
     let mut births = BTreeSet::new();
     let mut attempts = BTreeSet::new();
@@ -1421,6 +1475,15 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 first
                     && entry.period == Some(MONTH)
                     && conception::month_start_after(from) == Some(entry.time)
+            }
+            EventPayload::Emigration { capacity } => {
+                // One yearly series with the capacity of `Start`, due at the next year end.
+                let first = !emigration_seen;
+                emigration_seen = true;
+                first
+                    && entry.period == Some(YEAR)
+                    && due == next_year_end
+                    && rules.capacity == Some(*capacity)
             }
             EventPayload::Birthday { sim } => {
                 entry.period.is_none()
@@ -1506,6 +1569,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         .all(|(id, person)| person.moved_out || leaving.contains(id));
     year_end_seen
         && round_seen
+        && emigration_seen == rules.capacity.is_some()
         && all_leaving_planned
         && birthdays.len() == loaded.sims.len()
         && all_separations_planned

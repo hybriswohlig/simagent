@@ -288,6 +288,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::LeaveHome { sim } => {
                 state::household::on_leave_home(&mut self.domain, sim, &mut ctx);
             }
+            EventPayload::Emigration { capacity } => {
+                state::emigration::on_emigration(&mut self.domain, capacity, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -313,7 +316,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Birth { .. }
             | EventPayload::Separation { .. }
             | EventPayload::MarketRound
-            | EventPayload::LeaveHome { .. } => {
+            | EventPayload::LeaveHome { .. }
+            | EventPayload::Emigration { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -352,6 +356,7 @@ mod tests {
                 })
                 .collect(),
             couples: Vec::new(),
+            capacity: None,
         })
     }
 

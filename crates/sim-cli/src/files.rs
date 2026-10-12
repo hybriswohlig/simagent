@@ -23,9 +23,9 @@ pub const SAVE: &str = "state.save";
 /// Written by `simagent export`, not part of a run.
 pub const PEDIGREE: &str = "pedigree.json";
 
-/// The format version of the files this program writes and reads: 2 since the causes of
-/// death left the scenario for the data (ADR-0017 sections 2 and 5).
-pub const FORMAT_VERSION: u32 = 3;
+/// The format version of the files this program writes and reads: 4 since `Start` names
+/// its soft capacity (ADR-0020 section 6).
+pub const FORMAT_VERSION: u32 = 4;
 
 /// The resolved scenario of step 2: the `Start` input and how far to run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

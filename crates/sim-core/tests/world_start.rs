@@ -30,6 +30,7 @@ fn start_with(born: &[i64]) -> Input {
         },
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
+        capacity: None,
     })
 }
 
@@ -235,7 +236,7 @@ fn the_input_log_keeps_the_stamped_input() {
     world.submit(start_with(&[-1])).expect("accepted");
     assert_eq!(
         serde_json::to_string(world.input_log()).expect("json"),
-        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]}}}]"#
+        r#"[{"t":-1,"seq":1,"input":{"start":{"world_seed":"5eed000000000001","founder_tag":"test:world_start","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null}}}]"#
     );
 }
 
@@ -534,6 +535,29 @@ fn the_nutrition_index_of_the_start_is_checked() {
     world.submit(start_fed(&years)).expect("accepted");
     let params = world.state().world_params().expect("started");
     assert_eq!(params.nutrition, years.map(|(y, n)| fed(y, n)));
+}
+
+/// ADR-0020 section 6: a capacity is at least 1 (`P / K` needs `K ≥ 1`); 0 is rejected
+/// and changes nothing, 1 is accepted.
+#[test]
+fn a_capacity_of_zero_is_rejected() {
+    let with_capacity = |capacity: Option<u64>| match start_with(&BORN) {
+        Input::Start(start) => Input::Start(Start { capacity, ..start }),
+        _ => unreachable!("a start"),
+    };
+    let mut world = World::new(common::data());
+    let before = fingerprint(&world);
+    let rejected = world.submit(with_capacity(Some(0))).expect_err("rejected");
+    assert_eq!(
+        rejected,
+        InputRejected {
+            code: RejectCode::CapacityZero
+        }
+    );
+    assert_eq!(fingerprint(&world), before);
+    World::new(common::data())
+        .submit(with_capacity(Some(1)))
+        .expect("accepted");
 }
 
 /// ADR-0013 section 2: an override sets the index of a year, inserted or replaced in the

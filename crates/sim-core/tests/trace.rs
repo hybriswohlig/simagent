@@ -46,6 +46,7 @@ fn new_world(filter: TraceFilter) -> World {
                 })
                 .collect(),
             couples: Vec::new(),
+            capacity: None,
         }))
         .expect("accepted");
     world

@@ -20,6 +20,9 @@ impl EventClass {
     pub const BIRTH: EventClass = EventClass(200);
     pub const GENERAL: EventClass = EventClass(500);
     pub const DEATH: EventClass = EventClass(900);
+    /// The soft capacity runs after the births and deaths of its second (ADR-0020
+    /// section 6).
+    pub const EMIGRATION: EventClass = EventClass(950);
     /// Observers such as the census run after every domain event of their second.
     pub const OBSERVER: EventClass = EventClass(1000);
 

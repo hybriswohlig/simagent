@@ -295,17 +295,19 @@ pub(crate) fn open_partnership(domain: &DomainState, sim: SimId) -> Option<Partn
     domain.open.get(&sim).copied()
 }
 
-/// `sim` died now: its open partnership ends in this second, and with it her attempts and
-/// its separation.
-pub(crate) fn end_with_death(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+/// `sim` died or emigrated now (`by`): its open partnership ends in this second, and with
+/// it her attempts and its separation.
+pub(crate) fn end_with(
+    domain: &mut DomainState,
+    sim: SimId,
+    by: EndedBy,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let now: SimTime = ctx.now();
     if let Some(id) = open_partnership(domain, sim)
         && let Some(partnership) = domain.partnerships.get_mut(&id)
     {
-        partnership.ended = Some(Ending {
-            at: now,
-            by: EndedBy::Death,
-        });
+        partnership.ended = Some(Ending { at: now, by });
         let (woman, man) = (partnership.woman, partnership.man);
         domain.open.remove(&woman);
         domain.open.remove(&man);

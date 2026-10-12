@@ -108,6 +108,11 @@ pub const LEAVE_HOME: PurposeTag = PurposeTag::from_pinned_list(22);
 /// placement; detail: the candidate woman's lineage key.
 pub const FOSTER_RANK: PurposeTag = PurposeTag::from_pinned_list(23);
 
+/// Whether a household emigrates above the soft capacity: Bernoulli (ADR-0020 section 6).
+/// subject: the smallest lineage key of its members of 18 or more; occasion: the calendar
+/// year; detail: 0.
+pub const EMIGRATION: PurposeTag = PurposeTag::from_pinned_list(24);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -133,6 +138,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (PAIRING_NOISE, "PAIRING_NOISE"),
     (LEAVE_HOME, "LEAVE_HOME"),
     (FOSTER_RANK, "FOSTER_RANK"),
+    (EMIGRATION, "EMIGRATION"),
 ];
 
 /// Values of deleted tags; they are never used again.
