@@ -127,12 +127,11 @@ fn horner(coefficients: &[f64], r: f64) -> f64 {
 /// The inverse of the standard normal distribution function, `Φ⁻¹(p)` for `0 < p < 1`:
 /// Wichura's algorithm AS241 (PPND16, Applied Statistics 37:477-484, 1988), rational
 /// approximations in three ranges of `p`, with `ln` and `sqrt` of the pinned libm. Within
-/// 2^-48 relative of the exact value (ADR-0019); NaN outside (0, 1) and for NaN; exactly 0
-/// at 0.5. The evaluation order is fixed, so the result is the same on every target.
+/// 2^-48 relative of the exact value (ADR-0019); exactly 0 at 0.5. NaN outside (0, 1) and
+/// for NaN without a test of its own: the tail is then 0 or negative or NaN, its logarithm
+/// infinite or NaN, and NaN reaches the result through the rational function. The
+/// evaluation order is fixed, so the result is the same on every target.
 pub fn probit(p: f64) -> f64 {
-    if !(p > 0.0 && p < 1.0) {
-        return f64::NAN;
-    }
     let q = p - 0.5;
     if libm::fabs(q) <= 0.425 {
         let r = 0.180_625 - q * q;
@@ -140,7 +139,8 @@ pub fn probit(p: f64) -> f64 {
         let den = horner(&PROBIT_CENTRAL_DEN, r) * r + 1.0;
         return num / den;
     }
-    let tail = if q < 0.0 { p } else { 1.0 - p };
+    // The smaller of p and 1 - p (both exact here); the sign of q gives the side.
+    let tail = libm::fmin(p, 1.0 - p);
     let r = sqrt(0.0 - ln(tail));
     let x = if r <= 5.0 {
         let r = r - 1.6;
@@ -149,7 +149,7 @@ pub fn probit(p: f64) -> f64 {
         let r = r - 5.0;
         horner(&PROBIT_FAR_NUM, r) / (horner(&PROBIT_FAR_DEN, r) * r + 1.0)
     };
-    if q < 0.0 { 0.0 - x } else { x }
+    libm::copysign(x, q)
 }
 
 /// `x` as `i64` if it is finite, integral and inside the `i64` range; `-0.0` gives 0.
