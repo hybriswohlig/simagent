@@ -100,6 +100,16 @@ of a disease) and, after an override that switches the diseases off at that cloc
 end of year 38, and "loci" (new: two founders with alleles at several loci, right after
 `Start`). The kinship query's known answers on "homes_step" and "market" at their ends.
 
+The threshold disease in the world (step 11, design note of the threshold disease): no run
+above changes (their data name no trait of liability; `check_all` now also checks the
+afflictions, `world_reference.check_afflictions`). "threshold" (new) runs on the test map
+tests/golden/data_liability (tools/liability_fixture.py), whose threshold disease names its
+trait `core:disease_liability`: eight founders with chosen alleles at its eight loci, three
+couples, the switch on, 12 years; `L` (as f64 bits) of every person, the affected set, the
+saves around the first birth of a child with the disease and around a death of it, the
+entries of those seconds, year and log hashes, the pedigree at the end, and two saves the
+load check rejects (the disease held without `L > T`, and missing with `L > T`).
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -2948,7 +2958,7 @@ HOMES_ORPHANS_SAVE_END = HOMES_ORPHANS_WORLD.save()
 
 
 def check_all(world: world_reference.World) -> None:
-    for check in (world_reference.check_households, world_reference.check_separations, world_reference.check_market):
+    for check in (world_reference.check_households, world_reference.check_separations, world_reference.check_market, world_reference.check_afflictions):
         check(world)
 
 
@@ -3852,6 +3862,271 @@ def kinship_row(label: str, name: str, save: str, clock: int, a: int, b: int, va
     return f"{label} scenario {name} save {save} clock {clock} sims {a} {b} {answer}"
 
 
+# ---------------------------------------------------------------------------------------
+# The threshold disease in the world (step 11, design note of the threshold disease;
+# genetics specification 3.6, ADR-0019): scenario "threshold" on the test map
+# tests/golden/data_liability (tools/liability_fixture.py: the repository's data plus the
+# trait `core:disease_liability`, eight additive loci `test:liability_1` to `_8` with
+# effect 1 and `d_ref` 1, `sigma_ref` 2, the phenotype row h² 0.6, c² 0 in both ages, and
+# the threshold disease naming it; `K` 0.01, so `T` = probit(0.99) with the recorded bits
+# 40029c5c4630ff0c). Everything else is the repository's: the market, the separation, the
+# fertility of 5.6, twins, households. Seed 0xff, the switch on (the diseases kill), eight
+# founders in this order (their places fix their lineage keys):
+#   sim 1  woman 24  every liability locus [1, 1] (G = 4)     couple with sim 2
+#   sim 2  man 26    every liability locus [1, 1] (G = 4)
+#   sim 3  woman 24  every liability locus [1, 0] (G = 0)     couple with sim 4
+#   sim 4  man 26    every liability locus [1, 1] (G = 4)
+#   sim 5  woman 30  loci 1 to 4 [1, 1], 5 to 8 [1, 0] (G = 2) couple with sim 8
+#   sim 6  man 40    every liability locus [1, 1] (G = 4)     single
+#   sim 7  woman 45  core:disease_ad_late [1, 0] and every liability locus [1, 1] (G = 4),
+#                    single: two afflictions, ad_late before the liability (data order)
+#   sim 8  man 30    no allele 1 (G = −4)
+# and 12 years (to clock 12 · YEAR − 1). The tag is the first of `test:threshold`,
+# `test:threshold2`, ..., `test:threshold40` with which the 12 years have a child born with
+# the disease (`L > T`), a child born without it, and a death of core:disease_liability:
+# `test:threshold5`. With it the founders 1, 2, 4, 6, 7 have the disease (sim 2 with G = 4
+# only just, `L` 2.43), 3, 5, 8 not; children 10 and 13 (of sims 1 and 2, G = 4) have it,
+# 9, 11, 12, 14, 15, 16 not (sim 12 just below `T`: `L` 2.322, G = 1.5; sims 14 and 15
+# identical twins, the same G, their own E); sim 4 dies of core:disease_liability in year
+# 11.47 (his onset 23.06 was before the start, so his exposure runs from it).
+THRESHOLD_DIR = world_reference.ROOT / "tests" / "golden" / "data_liability"
+THRESHOLD_DATA = world_reference.Data(*data_reference.documents(THRESHOLD_DIR))
+(THRESHOLD_DISEASE,) = [disease for disease in THRESHOLD_DATA.diseases if disease.liability is not None]
+THRESHOLD_T = THRESHOLD_DISEASE.threshold
+assert THRESHOLD_DISEASE.code == THRESHOLD_DISEASE.liability.id == "core:disease_liability"
+assert data_reference.f64_bits(THRESHOLD_T) == "40029c5c4630ff0c" and THRESHOLD_T == 2.32634787404084
+THRESHOLD_YEARS = 12
+THRESHOLD_END = THRESHOLD_YEARS * YEAR - 1
+THRESHOLD_TAGS = ["test:threshold"] + [f"test:threshold{number}" for number in range(2, 41)]
+
+
+def liability_alleles(doses: list) -> list:
+    """The founders' alleles at `test:liability_1` to `_8` for the doses (2: [1, 1], 1:
+    [1, 0], 0: none)."""
+    return [(f"test:liability_{n}", [1, 1] if dose == 2 else [1, 0]) for n, dose in enumerate(doses, start=1) if dose]
+
+
+THRESHOLD_FOUNDERS = [
+    (-24 * YEAR, FEMALE, liability_alleles([2] * 8)),
+    (-26 * YEAR, MALE, liability_alleles([2] * 8)),
+    (-24 * YEAR, FEMALE, liability_alleles([1] * 8)),
+    (-26 * YEAR, MALE, liability_alleles([2] * 8)),
+    (-30 * YEAR, FEMALE, liability_alleles([2, 2, 2, 2, 1, 1, 1, 1])),
+    (-40 * YEAR, MALE, liability_alleles([2] * 8)),
+    (-45 * YEAR, FEMALE, [("core:disease_ad_late", [1, 0])] + liability_alleles([2] * 8)),
+    (-30 * YEAR, MALE, []),
+]
+THRESHOLD_COUPLES = [(0, 1), (2, 3), (4, 7)]
+
+
+def threshold_world_of(tag: str) -> world_reference.World:
+    return world_reference.World(0xFF, tag, True, THRESHOLD_FOUNDERS, THRESHOLD_COUPLES, data=THRESHOLD_DATA)
+
+
+def has_threshold(world: world_reference.World, sim: int) -> bool:
+    """Whether the sim holds core:disease_liability (living or archived)."""
+    return any(affliction.disease.code == THRESHOLD_DISEASE.code for affliction in world.creation_of(sim)[6])
+
+
+def threshold_criteria(world: world_reference.World) -> tuple:
+    """(a child with the disease, a child without it, a death of the disease)."""
+    children = [sim for sim in sorted(set(world.sims) | set(world.archive)) if world.parent_keys(sim) is not None]
+    affected = [sim for sim in children if has_threshold(world, sim)]
+    deaths = [sim for sim, value in world.archive.items() if value[2] == THRESHOLD_DISEASE.key]
+    return bool(affected), len(affected) < len(children), bool(deaths)
+
+
+THRESHOLD_TRIED = []
+for _tag in THRESHOLD_TAGS:
+    _world = threshold_world_of(_tag)
+    _world.advance(THRESHOLD_END)
+    THRESHOLD_TRIED.append((_tag, threshold_criteria(_world)))
+    if all(THRESHOLD_TRIED[-1][1]):
+        break
+THRESHOLD_TAG = THRESHOLD_TRIED[-1][0]
+assert THRESHOLD_TAG == "test:threshold5", THRESHOLD_TRIED
+THRESHOLD_KEYS = [founder_key(THRESHOLD_TAG, index) for index in range(len(THRESHOLD_FOUNDERS))]
+
+
+def threshold_world() -> world_reference.World:
+    return threshold_world_of(THRESHOLD_TAG)
+
+
+_probe = threshold_world()
+_probe.advance(THRESHOLD_END)
+THRESHOLD_AFFECTED = [sim for sim in sorted(set(_probe.sims) | set(_probe.archive)) if has_threshold(_probe, sim)]
+assert THRESHOLD_AFFECTED == [1, 2, 4, 6, 7, 10, 13], THRESHOLD_AFFECTED
+(THRESHOLD_DEAD,) = [sim for sim, value in _probe.archive.items() if value[2] == THRESHOLD_DISEASE.key]
+THRESHOLD_DEATH = _probe.archive[THRESHOLD_DEAD][1]
+THRESHOLD_FIRST_CHILD = min(sim for sim in THRESHOLD_AFFECTED if _probe.parent_keys(sim) is not None)
+THRESHOLD_BIRTH = _probe.born_of(THRESHOLD_FIRST_CHILD)
+assert (THRESHOLD_DEAD, THRESHOLD_FIRST_CHILD) == (4, 10)
+THRESHOLD_MARKS = {"affected_birth": THRESHOLD_BIRTH, "liability_death": THRESHOLD_DEATH}
+THRESHOLD, THRESHOLD_SAVES, THRESHOLD_ENTRIES = staged(threshold_world, [], THRESHOLD_MARKS, THRESHOLD_END)
+assert THRESHOLD.log == _probe.log
+THRESHOLD_SIMS = sorted(set(THRESHOLD.sims) | set(THRESHOLD.archive))
+
+
+def hand_liability(world: world_reference.World, sim: int) -> float:
+    """`L` by hand from the genetics specification 3.6 and 4.1 with Python's math, straight
+    from the genome and the draw, not from the model: `G = (Σ (d − 1)) / 2` over the eight
+    loci in map order (effect 1, load 1, `d_ref` 1, `sigma_ref` 2), `E = normal(0, 1)` at
+    (ENV_INDIVIDUAL = 11, lineage key, `str_key("core:disease_liability")`, 0), `L = √0.6 ·
+    G + √(1 − 0.6) · E` (the form of 3.6, without the C term: its weight is 0)."""
+    key, _, person, _, _, _, _ = world.creation_of(sim)
+    acc = 0.0
+    for n in range(1, 9):
+        locus = THRESHOLD_DATA.loci[f"test:liability_{n}"]
+        acc = acc + 1.0 * (float(sum(world_reference.copies_at(person, locus))) - 1.0)
+    g = acc / 2.0
+    draw = words(chacha_key(0xFF, 11, key, str_key("core:disease_liability"), 0))
+    e = world_reference.normal_reference(draw[0], draw[1], 0.0, 1.0)[1]
+    return math.sqrt(0.6) * g + math.sqrt(1.0 - 0.6) * e
+
+
+def threshold_margins(world: world_reference.World, sim: int) -> tuple:
+    """The libm margins (`world_reference.libm_margin`, ulps of the result from the rounding
+    boundary) of the ln and cos of the draw `E` and, if the sim has the disease, of its
+    onset draw (DISEASE_ONSET): a pinned libm within an ulp gives the same bits wherever
+    the margin is not tiny."""
+    from rng_reference import TAU
+
+    key = world.creation_of(sim)[0]
+    tags = [(world_reference.ENV_INDIVIDUAL, "E")]
+    if has_threshold(world, sim):
+        tags.append((world_reference.DISEASE_ONSET, "onset"))
+    margins = []
+    for tag, name in tags:
+        draw = words(chacha_key(0xFF, tag, key, THRESHOLD_DISEASE.key, 0))
+        margins.append((name, world_reference.libm_margin("ln", unit_open0(draw[0])), world_reference.libm_margin("cos", TAU * unit(draw[1]))))
+    return tuple(margins)
+
+
+def disease_due_nudged(world: world_reference.World, sim: int, ulps: int):
+    """`World.disease_due` of the sim's affliction core:disease_liability with its budget
+    moved by `ulps` ulps (the death second must not hang on the last bit of ln)."""
+    (affliction,) = [a for a in world.creation_of(sim)[6] if a.disease.code == THRESHOLD_DISEASE.code]
+    born = world.born_of(sim)
+    used, since = affliction.exposure
+    at_since = world_reference.as_years(since - born)
+    x0 = max(at_since, affliction.onset)
+    budget = world_reference.step_ulps(world_reference.budget_of(0xFF, world.key_of(sim), THRESHOLD_DISEASE.code), ulps)
+    age = world_reference.disease_age(x0, max(budget - used, 0.0), THRESHOLD_DISEASE.hazard)
+    return since + world_reference.from_years_ceil(age - at_since)
+
+
+THRESHOLD_ROWS = []
+for _sim in THRESHOLD_SIMS:
+    _key, _sex, _person, _parents, _origin, _age, _held = THRESHOLD.creation_of(_sim)
+    _parts = world_reference.phenotype_parts(0xFF, THRESHOLD_DISEASE.liability, _person, _key, _parents, _age)
+    _l = THRESHOLD.liability_of(_sim, THRESHOLD_DISEASE)
+    assert _l == _parts["z"] == hand_liability(THRESHOLD, _sim), _sim
+    assert (_l > THRESHOLD_T) == has_threshold(THRESHOLD, _sim) == (_sim in THRESHOLD_AFFECTED)
+    _margins = threshold_margins(THRESHOLD, _sim)
+    assert min(min(m[1], m[2]) for m in _margins) > 1e-3, (_sim, _margins)
+    THRESHOLD_ROWS.append((_sim, _key, _parents, _parts, _l, _held, _margins))
+# The founders 1 to 8 are created at Start (age 0 − born), the children at their births
+# (age 0); the weights do not depend on the age, so the phenotype at any other age is the
+# same bits (checked at 0 and 50 years).
+assert all(
+    world_reference.phenotype(0xFF, THRESHOLD_DISEASE.liability, THRESHOLD.creation_of(row[0])[2], row[1], row[2], age) == row[4]
+    for row in THRESHOLD_ROWS
+    for age in (0, 50 * YEAR)
+)
+THRESHOLD_CLOSEST = min(abs(row[4] - THRESHOLD_T) for row in THRESHOLD_ROWS)
+assert THRESHOLD_CLOSEST > 1e-3
+assert all(disease_due_nudged(THRESHOLD, THRESHOLD_DEAD, ulps) == THRESHOLD_DEATH for ulps in (-2, -1, 0, 1, 2))
+# The order of the afflictions: sim 7 holds core:disease_ad_late, then core:disease_liability
+# (data order), both lethal, both planned at Start after her senescence and accident.
+assert [a.disease.code for a in THRESHOLD.sims[7][4]] == ["core:disease_ad_late", "core:disease_liability"]
+
+
+def threshold_broken_saves() -> list:
+    """The load check of the afflictions (design note section 3) rejects a state in which a
+    person holds core:disease_liability without `L > T`, and one in which a person lacks it
+    with `L > T`. Both are the save after Start (clock −1) changed in one person, and both
+    keep everything else consistent: (held) sim 3 (`L` −0.874) gets the affliction with the
+    onset of her draw and the exposure (0.0, since 0), appended after her (no) other
+    afflictions, and its death planned as Start plans it (by her creation entry at 0; the
+    next insertion number, so the counter grows by one); (missing) sim 1 (`L` 3.835) loses
+    her affliction and its planned death (the event and its plan; the counter stays).
+    `check_afflictions` rejects both and accepts the save as it is. Returns (name, save)."""
+    base = threshold_world()
+    world_reference.check_afflictions(base)
+    assert base.save() == THRESHOLD_SAVES["after_start"]
+    held = copy_world(base)
+    key = held.key_of(3)
+    _, mean, sd, low, high = THRESHOLD_DISEASE.onset
+    draw = words(chacha_key(0xFF, world_reference.DISEASE_ONSET, key, THRESHOLD_DISEASE.key, 0))
+    onset = min(max(world_reference.normal_reference(draw[0], draw[1], mean, sd)[1], low), high)
+    affliction = world_reference.Affliction(THRESHOLD_DISEASE, onset, 0)
+    assert not has_threshold(held, 3) and THRESHOLD_ROWS[2][4] <= THRESHOLD_T
+    held.sims[3][4].append(affliction)
+    due = held.disease_due(3, affliction)
+    assert due is not None
+    held._schedule(due, world_reference.DEATH, (world_reference.SIM_SUBJECT, 3), world_reference.DEATH_KIND, world_reference.death_payload(3, THRESHOLD_DISEASE.key), None, held.created_by[3], 0)
+    missing = copy_world(base)
+    assert has_threshold(missing, 1)
+    missing.sims[1][4] = [a for a in missing.sims[1][4] if a.disease.code != THRESHOLD_DISEASE.code]
+    death = world_reference.death_payload(1, THRESHOLD_DISEASE.key)
+    assert len([e for e in missing.queue if e.payload == death]) == 1
+    missing.queue = [e for e in missing.queue if e.payload != death]
+    saves = []
+    for name, world in [("held_without_L_above_T sim 3", held), ("missing_with_L_above_T sim 1", missing)]:
+        try:
+            world_reference.check_afflictions(world)
+        except AssertionError:
+            saves.append((name, world.save()))
+            continue
+        raise AssertionError(f"check_afflictions accepts a broken state: {name}")
+    return saves, onset, due
+
+
+THRESHOLD_BROKEN, THRESHOLD_HELD_ONSET, THRESHOLD_HELD_DUE = threshold_broken_saves()
+THRESHOLD_PEDIGREE = THRESHOLD.pedigree_json()
+
+
+def threshold_rows() -> list:
+    """The story of "threshold" as readable rows."""
+    rows = [
+        f"threshold_data_hash {THRESHOLD_DATA.hash:016x} fixture tests/golden/data_liability T {THRESHOLD_T!r} bits {data_reference.f64_bits(THRESHOLD_T)}"
+        f" prevalence 0.01 1-K bits {data_reference.f64_bits(1.0 - 0.01)} weights {THRESHOLD_DISEASE.liability.weights!r} sigma_ref {THRESHOLD_DISEASE.liability.sigma_ref!r}"
+        f" str_key {THRESHOLD_DISEASE.key:016x} onset {THRESHOLD_DISEASE.onset!r} hazard {THRESHOLD_DISEASE.hazard!r}",
+        f"threshold_tags_tried (tag, (child with, child without, death of it)) {THRESHOLD_TRIED}",
+        f"threshold_scenario seed 0xff tag {THRESHOLD_TAG} switch on couples {[(w + 1, m + 1) for w, m in THRESHOLD_COUPLES]} years {THRESHOLD_YEARS} end {THRESHOLD_END}",
+    ]
+    for index, (born, sex, genes) in enumerate(THRESHOLD_FOUNDERS):
+        rows.append(
+            f"threshold_founder sim {index + 1} {'female' if sex == FEMALE else 'male'} born {born} key {THRESHOLD_KEYS[index]:016x}"
+            f" alleles {json.dumps([[locus, copies] for locus, copies in genes], separators=(',', ':'))}"
+        )
+    for sim, key, parents, parts, value, held, margins in THRESHOLD_ROWS:
+        origin = "founder" if parents is None else f"child of {parents_of(THRESHOLD, sim)[:2]} born {THRESHOLD.born_of(sim)}"
+        has = has_threshold(THRESHOLD, sim)
+        onset = [a.onset for a in held if a.disease.code == THRESHOLD_DISEASE.code]
+        rows.append(
+            f"threshold_liability sim {sim} {origin} key {key:016x} G {parts['G']!r} E {parts['E']!r} L {value!r}"
+            f" L_bits {data_reference.f64_bits(value)} L>T {value > THRESHOLD_T} has_disease {has}"
+            + (f" onset {onset[0]!r}" if has else "")
+            + f" afflictions {[a.disease.code for a in held]} libm_margins {[(name, round(ln, 4), round(cos, 4)) for name, ln, cos in margins]}"
+        )
+    rows.append(f"threshold_affected {THRESHOLD_AFFECTED} closest |L - T| {THRESHOLD_CLOSEST!r}")
+    for left, sim, cause in deaths_in(THRESHOLD):
+        rows.append(f"threshold_death sim {sim} at {left} (year {left / YEAR:.4f}) of {cause_name(cause)}")
+    rows.append(f"threshold_liability_death sim {THRESHOLD_DEAD} at {THRESHOLD_DEATH} budget {world_reference.budget_of(0xFF, THRESHOLD.key_of(THRESHOLD_DEAD), THRESHOLD_DISEASE.code)!r} (the same second with the budget moved by up to two ulps)")
+    for number, (woman, man, formed, ended) in sorted(THRESHOLD.partnerships.items()):
+        rows.append(f"threshold_partnership {number} woman {woman} man {man} formed {formed} ended {split_ended(ended)}")
+    for record in THRESHOLD.multiples:
+        rows.append(f"threshold_conception t {record[0]} woman {record[1]} man {record[2]} kind {record[5]}")
+    planned = sorted(
+        (event.time, event.subject[1], cause_name(world_reference.death_key(event.payload)))
+        for event in THRESHOLD.queue
+        if event.kind == world_reference.DEATH_KIND and world_reference.death_key(event.payload) == THRESHOLD_DISEASE.key
+    )
+    rows.append(f"threshold_planned_liability_deaths (time, sim) {[(t, sim) for t, sim, _ in planned]}")
+    return rows
+
+
 TEST_DATA = [
     ("repository", world_reference.REPOSITORY),
     ("mortal", MORTAL_DATA),
@@ -4191,3 +4466,15 @@ if __name__ == "__main__":
         print(f"{name}_pedigree_json {text}")
     for case in KINSHIP_CASES:
         print(kinship_row(*case))
+    # The threshold disease in the world (step 11, design note of the threshold disease).
+    for row in threshold_rows():
+        print(row)
+    for row in household_rows("threshold", THRESHOLD):
+        print(row)
+    for row in scenario_output("threshold", THRESHOLD, THRESHOLD_SAVES, THRESHOLD_ENTRIES):
+        print(row)
+    print(f"threshold_load_check broken held: onset {THRESHOLD_HELD_ONSET!r} death planned at {THRESHOLD_HELD_DUE}")
+    for name, save in THRESHOLD_BROKEN:
+        print(f"threshold_load_rejected {name} {save.hex()}")
+    print(f"threshold_end_pedigree clock {THRESHOLD.closed} save threshold_save_end length {len(THRESHOLD_PEDIGREE.encode())} hash {digest(THRESHOLD_PEDIGREE.encode())}")
+    print(f"threshold_end_pedigree_json {THRESHOLD_PEDIGREE}")

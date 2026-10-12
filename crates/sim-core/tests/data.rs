@@ -1946,7 +1946,8 @@ fn the_diseases_are_those_of_the_specification() {
 }
 
 /// ADR-0017 section 1: the checks of the diseases, `data.disease` for a value or a
-/// carrier that does not fit, `data.trait_named` for a trait of liability the map lacks.
+/// carrier that does not fit, a trait of liability the map lacks among them (ADR-0020
+/// section 2; the other rules of a named liability in `tests/threshold.rs`).
 #[test]
 fn diseases_reject() {
     let cases: [(Change, &str); 29] = [
@@ -2060,7 +2061,7 @@ fn diseases_reject() {
         // and (0, 0.5].
         (
             |c, _| c["diseases"][5]["carrier"]["threshold"]["liability"] = json!("test:a"),
-            "data.trait_named",
+            "data.disease",
         ),
         (
             |c, _| c["diseases"][5]["carrier"]["threshold"]["heritability"]["value"] = json!(1.0),
@@ -2089,7 +2090,7 @@ fn diseases_reject() {
         let result = checked_diseases(change);
         assert!(result.starts_with(code), "{code}: {result}");
     }
-    // A trait of liability the map has waits for the world rule of step 11.
+    // A trait of liability the map has, but not named after its disease (ADR-0020 section 2).
     assert_eq!(
         checked_diseases(|c, g| {
             with_liability(g);

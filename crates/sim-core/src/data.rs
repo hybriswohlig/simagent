@@ -533,6 +533,9 @@ pub struct Data {
     phenotypes: BTreeMap<DataId, [f64; 4]>,
     /// For each trait with a sex difference its shift and variance ratio (ADR-0014).
     sex_differences: BTreeMap<DataId, (f64, f64)>,
+    /// For each threshold disease with a trait of liability its threshold
+    /// `T = probit(1 − K)` (genetics specification 3.6, ADR-0020 section 2).
+    thresholds: BTreeMap<DataId, f64>,
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -1323,13 +1326,16 @@ fn disease_number(c: &Calibrated, unit: Unit) -> Result<f64, DataError> {
 
 /// The diseases (ADR-0017 section 1): codes with unique keys (the occasion of their
 /// draws), none of them a cause of death for everyone; a carrier locus of the map, marked disease, recessive or dominant, at most one
-/// disease per locus; no trait of liability yet (step 11), and a named one must be in the
-/// map; penetrances in [0, 1], a
+/// disease per locus; a named trait of liability is in the map, carries the code of its
+/// disease and has a phenotype row with `h²` the disease's heritability and `c²` 0, equal
+/// in both ages, and `1 − K` stays below 1 in f64 (ADR-0020 section 2); penetrances in
+/// [0, 1], a
 /// heritability in (0, 1), a prevalence in (0, 0.5]; ages from 0 to 130 with a positive
 /// spread and ordered bounds; hazards in the ranges of `mortality`, a death with some.
 fn check_diseases(
     diseases: &[Disease],
     map: &GenomeMap,
+    weights: &[PhenotypeWeights],
     key: impl Fn(&DataId) -> u64,
 ) -> Result<(), DataError> {
     use crate::mortality::{CHANGE_AGE_RANGE, DISEASE_HAZARD_RANGE};
@@ -1374,13 +1380,19 @@ fn check_diseases(
                 let k = disease_number(prevalence, Unit::Fraction)?;
                 fits(h2 > 0.0 && h2 < 1.0 && k > 0.0 && k <= 0.5)?;
                 if let Some(t) = liability {
-                    if !map.traits.iter().any(|known| &known.id == t) {
-                        return Err(DataError::TraitNamed);
-                    }
-                    // The world reads a trait of liability with the traits of the pre-run
-                    // (step 11), which brings the inverse normal for the threshold; until
-                    // then nobody has a threshold disease (ADR-0017 section 3).
-                    return Err(DataError::Disease);
+                    fits(map.traits.iter().any(|known| &known.id == t))?;
+                    fits(t == &disease.code)?;
+                    let row = weights
+                        .iter()
+                        .find(|row| &row.target == t)
+                        .ok_or(DataError::Disease)?;
+                    let bits = |w: &Calibrated| w.value.get().to_bits();
+                    fits(bits(&row.h2_child) == bits(&row.h2_adult))?;
+                    fits(bits(&row.h2_child) == heritability.value.get().to_bits())?;
+                    fits(bits(&row.c2_child) == 0 && bits(&row.c2_adult) == 0)?;
+                    // A tiny `K` passes the range, but `1 − K` rounds to 1 and
+                    // `probit(1)` is NaN: nobody would have the disease.
+                    fits(1.0 - k < 1.0)?;
                 }
             }
         }
@@ -1436,6 +1448,7 @@ impl Data {
         check_diseases(
             &definitions.calibration.diseases,
             &definitions.genome_map,
+            &definitions.calibration.traits,
             str_key,
         )?;
         let named = [
@@ -1498,6 +1511,22 @@ impl Data {
                 (row.target.clone(), pair)
             })
             .collect();
+        let thresholds = definitions
+            .calibration
+            .diseases
+            .iter()
+            .filter_map(|disease| match &disease.carrier {
+                Carrier::Threshold {
+                    liability: Some(_),
+                    prevalence,
+                    ..
+                } => Some((
+                    disease.code.clone(),
+                    sim_math::probit(1.0 - prevalence.value.get()),
+                )),
+                _ => None,
+            })
+            .collect();
         Ok(Data {
             definitions,
             demography,
@@ -1507,7 +1536,14 @@ impl Data {
             traits,
             phenotypes,
             sex_differences,
+            thresholds,
         })
+    }
+
+    /// The threshold `T` of a threshold disease with a trait of liability (ADR-0020 section
+    /// 2); `None` for any other disease.
+    pub fn threshold(&self, disease: &DataId) -> Option<f64> {
+        self.thresholds.get(disease).copied()
     }
 
     /// The phenotype weights of a trait, if it has a phenotype (ADR-0009 section 1): h2

@@ -1,0 +1,233 @@
+{
+  "format_version": 2,
+  "map_version": 3,
+  "traits": [
+    {
+      "id": "core:disease_liability",
+      "sigma_ref": 2.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Liability of the threshold disease (genetics specification 3.6) in its test map: a factor of its own with 8 additive loci (effect 1, d_ref 1); sigma_ref 2, so G has variance 1 for alleles drawn with frequency 0.5."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:disease_ar",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal recessive disease (genetics specification 3.2, model: cystic fibrosis); the locus of the walking skeleton, renamed at the same place."
+    },
+    {
+      "id": "test:liability_1",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 1 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:liability_2",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 2 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_ad_late",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease of late onset (genetics specification 3.2, model: Huntington's disease)."
+    },
+    {
+      "id": "test:liability_3",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 3 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:liability_4",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 4 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_ad_partial",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease with partial penetrance by sex (genetics specification 3.2, model: BRCA1)."
+    },
+    {
+      "id": "test:liability_5",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 5 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:liability_6",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 6 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:liability_7",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 7 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "test:liability_8",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Locus 8 of the liability of the threshold disease in its test map: effect 1, d_ref 1."
+    },
+    {
+      "id": "core:disease_xr",
+      "chromosome": "x",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "X-linked recessive disease (genetics specification 3.2, model: haemophilia A); men with one copy on their X are affected."
+    },
+    {
+      "id": "core:disease_mt",
+      "chromosome": "mt",
+      "segment": 0,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Mitochondrial disease (genetics specification 3.2, model: Leber hereditary optic neuropathy); one copy, from the mother."
+    }
+  ]
+}

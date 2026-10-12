@@ -13,6 +13,7 @@ use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
 use crate::lineage::LineageKey;
 use crate::mortality::{StepHazard, disease_age, disease_hazard_used};
+use crate::phenotype::{Parents, phenotype};
 use crate::rng::{DrawKey, Draws, PurposeTag, SubjectKey, WorldSeed, tags};
 use crate::time::{SimDuration, SimTime};
 
@@ -44,11 +45,12 @@ fn finite(x: f64) -> FiniteF64 {
 
 /// The afflictions of a sim created at `origin` (its birth, the start for a founder): one
 /// per disease it has, in the order of the data. A lethal one gets an exposure that runs
-/// from `origin` if the switch is on.
+/// from `origin` if the switch is on. `parents` are the lineage keys of its biological
+/// parents in the run, for the phenotype of a trait of liability.
 pub(crate) fn afflictions(
     data: &Data,
     seed: u64,
-    lineage_key: LineageKey,
+    (lineage_key, parents): (LineageKey, Option<Parents>),
     sex: Sex,
     genome: &Genome,
     switch_on: bool,
@@ -76,8 +78,31 @@ pub(crate) fn afflictions(
                         penetrance.value.get(),
                     )
             }
-            // Without a trait of liability nobody has it (`Data::new` admits no other).
-            Carrier::Threshold { .. } => false,
+            // The phenotype of the trait of liability above the threshold (3.6, ADR-0020
+            // section 2); its weights are equal in both ages, so the age does not matter.
+            Carrier::Threshold {
+                liability: Some(trait_id),
+                ..
+            } => {
+                let threshold = data
+                    .threshold(&disease.code)
+                    .unwrap_or_else(|| panic!("invariant disease.threshold"));
+                let liability = phenotype(
+                    &draws,
+                    data,
+                    genome,
+                    lineage_key,
+                    parents,
+                    trait_id,
+                    SimDuration::ZERO,
+                )
+                .unwrap_or_else(|| panic!("invariant disease.liability"));
+                liability > threshold
+            }
+            // Without a trait of liability nobody has it (11.1).
+            Carrier::Threshold {
+                liability: None, ..
+            } => false,
         };
         if !affected {
             continue;
