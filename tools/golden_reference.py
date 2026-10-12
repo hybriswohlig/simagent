@@ -115,18 +115,23 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   format 2 with Dario's table of leaving home, tag LEAVE_HOME 22): after the founders and
   the couples `Start` writes four `core:household_formed` (entries 10 to 13, causes the
   input and the rule `core:household`): household 1 for sims 1 and 2, 2 for sims 5 and 6
-  (the couples), 3 for sim 4 (20 years, alone), then 4 for sim 3, one second old, by the
-  orphan rule (not moved out, no carer), his `leave_home` planned by his creation entry
-  for the age 21 (one second before the end of year 20). Every child moves into its
+  (the couples), 3 for sim 4 (20 years, alone); then sim 3, one second old, by the orphan
+  rule (households, part 2): founders are unrelated, so a foster household; the women of
+  the couples of 18 or more, sims 1 and 5, are ranked by FOSTER_RANK (23; subject his
+  lineage key, month 0) and sim 5 comes first: one `core:moved` (entry 13) into household
+  2, his carer sim 5, his social parents sims 5 and 6 (in this order), not moved out, his
+  `leave_home` planned by his creation entry for the age 21 (one second before the end of
+  year 20). Every child moves into its
   mother's household right after its `core:birth` (`core:moved`, causes the plan of the
   birth and the rule), its carer the mother, its `leave_home` planned after its deaths;
   the 18th birthdays end the carers. Sim 8 leaves home at 18 (year 19.3) and sim 7 at 19
   (year 19.9), each into a household of its own; the round of month 260 pairs them, so
-  they found household 7 (she moves, then he) and households 5 and 6 end. Sim 3 leaves at
-  21, sims 9, 10, 11 and 12 at 21, 22, 21 and 21 (years 24.2 to 27.5); sim 13 is born into
-  household 7. Sim 1's death in year 27 leaves household 1 to sim 2 (she cares for nobody
-  then). The separation of partnership 2 (year 29.9) moves sim 6 into household 13; no
-  dependent child is left. The golden save holds households 1 to 4 and the `leave_home`
+  they found household 6 (she moves, then he) and households 4 and 5 end. Sim 3 leaves at
+  21 (household 7; his carer was cleared at 18), sims 9, 10, 11 and 12 at 21, 22, 21 and 21
+  (years 24.2 to 27.5); sim 13 is born into household 6. Sim 1's death in year 27 leaves
+  household 1 to sim 2 (she cares for nobody then). The separation of partnership 2 (year
+  29.9) moves sim 6 into household 12; no dependent child is left. The golden save holds
+  households 1 to 3 (sim 3 in household 2 with his foster parents) and the `leave_home`
   events of sims 3 and 7 to 10.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
@@ -587,21 +592,25 @@ EVENT_KINDS, LOG_KINDS = set(range(1, 9)), set(range(12))
 assert {kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR} == EVENT_KINDS
 assert set(FORK.entry_kinds) == LOG_KINDS and set(PARENT.entry_kinds) == LOG_KINDS - {3}
 
-# The households of the story above (design note of the households).
-START_HOMES = [(row[2], row[3], row[4], row[5]) for row in PARENT.home_log if row[0] == 0]
+# The households of the story above (design note of the households; part 2: sim 3 is
+# fostered at the start by sim 5, the one FOSTER_RANK ranks first of sims 1 and 5).
+START_HOMES = [(row[1], row[2], row[3], row[4], row[5]) for row in PARENT.home_log if row[0] == 0]
 assert START_HOMES == [
-    (1, [1, 2], "start couple", 10),
-    (2, [5, 6], "start couple", 11),
-    (3, [4], "start adult", 12),
-    (4, [3], "start minor, orphan rule", 13),
+    ("formed", 1, [1, 2], "start couple", 10),
+    ("formed", 2, [5, 6], "start couple", 11),
+    ("formed", 3, [4], "start adult", 12),
+    ("moved", 2, [3], "orphan rule (start): foster", 13),
 ]
+(FOSTER,) = PARENT.placements
+assert FOSTER["stage"] == "foster" and FOSTER["women"] == [1, 5] and FOSTER["carer"] == 5 and FOSTER["added"] == {3: [5, 6]}
 LEAVE_AGES = {sim: (PARENT.leave_home_second(sim) - PARENT.born_of(sim)) // YEAR for sim in [3] + CHILDREN + SECOND_CHILDREN}
 assert LEAVE_AGES == {3: 21, 7: 19, 8: 18, 9: 21, 10: 22, 11: 21, 12: 21}
 LEFT = [(t, sims[0]) for t, kind, _, sims, why, _ in PARENT.home_log if kind == "formed" and why == "leave_home"]
 assert [sim for _, sim in LEFT] == [8, 7, 3, 9, 10, 11, 12] and all(t < DAUGHTER_SEARCH * MONTH for t, sim in LEFT if sim in (7, 8))
-assert PARENT.households[7] == [DAUGHTER_SEARCH * MONTH, None] and PARENT.members(7) == [7, 8, 13]
-assert [row[1:4] for row in PARENT.separation_homes] == [(5, 6, [])] and PARENT.sims[6][9] == 13
-assert not [row for row in PARENT.carer_log if row[4] not in ("birth", "18th birthday")]
+assert PARENT.households[6] == [DAUGHTER_SEARCH * MONTH, None] and PARENT.members(6) == [7, 8, 13]
+assert [row[1:4] for row in PARENT.separation_homes] == [(5, 6, [])] and PARENT.sims[6][9] == 12
+assert [row for row in PARENT.carer_log if row[4] not in ("birth", "18th birthday")] == [(0, 3, None, 5, "orphan rule: foster")]
+assert PARENT.sims[3][12] == [5, 6] and FORK.sims[3][12] == [5, 6]
 # The fork has the households of the run; from the fork point on every entry is one later
 # (the override).
 assert FORK.home_log == [

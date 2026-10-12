@@ -361,6 +361,11 @@ SAMPLE_HOUSEHOLD_OPEN = household(0, None)
 SAMPLE_HOUSEHOLD_ENDED = household(0, 86_400)
 SAMPLE_HOUSEHOLD_FIELDS = household_fields(3, True, 2)
 SAMPLE_HOUSEHOLD_FIELDS_ORPHAN = household_fields(1, False, None)
+# `social_parents: Vec<SimId>` after `parents` (design note of the households, part 2,
+# section 2): empty, and a foster mother 2 then her partner 7.
+SAMPLE_SOCIAL_PARENTS_EMPTY = seq([])
+SAMPLE_SOCIAL_PARENTS = seq([varint(2), varint(7)])
+SAMPLE_SOCIAL_PARENTS_LARGE = seq([varint(300)])
 
 # SimDuration at its lower bound, -1 000 000 years of 364 days.
 MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
@@ -409,6 +414,9 @@ if __name__ == "__main__":
         ("sample_household_ended", SAMPLE_HOUSEHOLD_ENDED),
         ("sample_household_fields", SAMPLE_HOUSEHOLD_FIELDS),
         ("sample_household_fields_orphan", SAMPLE_HOUSEHOLD_FIELDS_ORPHAN),
+        ("sample_social_parents_empty", SAMPLE_SOCIAL_PARENTS_EMPTY),
+        ("sample_social_parents", SAMPLE_SOCIAL_PARENTS),
+        ("sample_social_parents_large", SAMPLE_SOCIAL_PARENTS_LARGE),
         ("min_duration", MIN_DURATION),
         ("max_id", MAX_ID),
         ("max_u64", MAX_U64),
