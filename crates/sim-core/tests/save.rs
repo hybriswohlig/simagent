@@ -24,16 +24,17 @@ use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`
 /// (ADR-0007).
-const DATA_HASH: u64 = 0xc466_265f_81ba_9819;
+const DATA_HASH: u64 = 0xadab_5027_57b4_045c;
 const Y: i64 = 31_449_600;
 const MONTH: i64 = 2_419_200;
 const DAY: i64 = 86_400;
 
 // tools/state_reference.py
-const HEADER: &str = "53494d4147454e54011f99b0ea8df8cb89b3c401";
-const TINY_SAVE_AFTER_START: &str = "53494d4147454e54011f99b0ea8df8cb89b3c4010f01ff010100000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010002000100020002000301010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000";
-const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e54011f99b0ea8df8cb89b3c4010f01ff010101000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00060101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010002000100020002000402010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010001020101000100";
-const EMPTY_SAVE: &str = "53494d4147454e54011f99b0ea8df8cb89b3c4010f000001010100010000000000010000";
+const HEADER: &str = "53494d4147454e540120dc88d0bdf584d4d5ad01";
+const TINY_SAVE_AFTER_START: &str = "53494d4147454e540120dc88d0bdf584d4d5ad011001ff01010000010201020680a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000100000000010100000000060100020001000200020002000401010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000";
+const TINY_SAVE_OVERRIDDEN: &str = "53494d4147454e540120dc88d0bdf584d4d5ad011001ff01010100010201020680a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000100000000010100000000060100020001000200020002000502010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010001020101000100";
+const EMPTY_SAVE: &str =
+    "53494d4147454e540120dc88d0bdf584d4d5ad01100000010101010001000000000000010000";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -131,6 +132,7 @@ enum Payload {
     Birth { mother: u64 },
     Separation { partnership: u64 },
     MarketRound,
+    LeaveHome { sim: u64 },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -193,6 +195,8 @@ const TINY_DEATHS: [(i64, i64); 2] = [
     (2_680_916_328, 534_320_561_436),
     (2_857_565_957, 92_384_845_286),
 ];
+/// When founder 0 of `test:tiny` leaves home: at 20 (`tools/state_reference.py`).
+const TINY_LEAVES: i64 = 20 * Y - 1;
 /// Variant indices of the sex and the alleles (tests/golden/log_codes.txt).
 const FEMALE: u8 = 0;
 const MALE: u8 = 1;
@@ -264,7 +268,7 @@ fn ar(exposure: TestExposure) -> Vec<TestAffliction> {
 /// (mother, father, conception)
 type TestParents = (u64, u64, u32);
 /// (born, lineage_key, sex, genome, afflictions, conceptions, births, partnerships,
-/// parents)
+/// household, moved_out, carer, parents)
 type Living = (
     i64,
     u64,
@@ -274,6 +278,9 @@ type Living = (
     u32,
     u32,
     u32,
+    u64,
+    bool,
+    Option<u64>,
     Option<TestParents>,
 );
 /// Why a sim left: it died of the cause with this key.
@@ -283,7 +290,7 @@ enum TestLeftBy {
 }
 
 /// (born, left, reason, lineage_key, sex, genome, afflictions, conceptions, births,
-/// partnerships, parents)
+/// partnerships, household, moved_out, parents)
 type Archived = (
     i64,
     i64,
@@ -295,15 +302,20 @@ type Archived = (
     u32,
     u32,
     u32,
+    u64,
+    bool,
     Option<TestParents>,
 );
+/// (formed, ended)
+type TestHousehold = (i64, Option<i64>);
 
 /// A founder as `founder` of the tests builds it.
 fn test_founder(born: i64) -> TestFounder {
     (born, FEMALE, Alleles(WILD, DUMMY))
 }
 
-/// The founder at `index` of the list of `test:tiny` as a living sim.
+/// The founder at `index` of the list of `test:tiny` as a living sim, a minor alone in
+/// the household `index + 1` (ADR-0018 section 4).
 fn living(index: usize, born: i64) -> Living {
     (
         born,
@@ -314,6 +326,9 @@ fn living(index: usize, born: i64) -> Living {
         0,
         0,
         0,
+        u64::try_from(index).expect("small") + 1,
+        false,
+        None,
         None,
     )
 }
@@ -332,6 +347,8 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
         0,
         0,
         0,
+        u64::try_from(index).expect("small") + 1,
+        false,
         None,
     )
 }
@@ -395,11 +412,13 @@ struct File {
     closed_through: i64,
     next_sim_id: u64,
     next_partnership_id: u64,
+    next_household_id: u64,
     queue: Vec<QueueEntry>,
     next_event_seq: u64,
     /// (id, sim); a list of pairs encodes like a map and can hold duplicates.
     sims: Vec<(u64, Living)>,
     partnerships: Vec<(u64, TestPartnership)>,
+    households: Vec<(u64, TestHousehold)>,
     /// (mother, pregnancy)
     pregnancies: Vec<(u64, TestPregnancy)>,
     archive: Vec<(u64, Archived)>,
@@ -422,27 +441,32 @@ impl File {
             round: Round::Due,
             magic: *b"SIMAGENT",
             format_version: 1,
-            core_version: 31,
+            core_version: 32,
             data_hash: DATA_HASH,
-            projection_version: 15,
+            projection_version: 16,
             world_seed: Some(0xff),
             world_params: Some(params(false)),
             closed_through: -1,
             next_sim_id: 2,
             next_partnership_id: 1,
+            next_household_id: 2,
             queue: vec![
                 (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
                 (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+                // She leaves home at 20 (ADR-0018 section 4), planned last by `Start`.
+                (TINY_LEAVES, 0, 5, Payload::LeaveHome { sim: 1 }, None),
                 (senescence, 0, 3, death(1, SENESCENCE), None),
                 (accident, 0, 4, death(1, ACCIDENT), None),
             ],
-            next_event_seq: 5,
+            next_event_seq: 6,
             sims: vec![(1, living(0, -1))],
             partnerships: Vec::new(),
+            // Her household, formed by `Start`.
+            households: vec![(1, (0, None))],
             pregnancies: Vec::new(),
             archive: Vec::new(),
-            plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0)],
-            next_event_id: 3,
+            plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0), (2, 0)],
+            next_event_id: 4,
             input_log: vec![(
                 -1,
                 1,
@@ -502,7 +526,7 @@ impl File {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 1);
-    assert_eq!(CORE_VERSION, 31);
+    assert_eq!(CORE_VERSION, 32);
 }
 
 // ---------------------------------------------------------------------------------
@@ -584,7 +608,8 @@ fn save_load_continue_equals_uninterrupted() {
     let log = world.take_log();
     let uninterrupted = finish(world, log, YearOut::default());
     assert_eq!(uninterrupted.year_hashes.len(), 10);
-    assert_eq!(uninterrupted.log.len(), 34);
+    // Three more entries than before households: one `core:household_formed` per founder.
+    assert_eq!(uninterrupted.log.len(), 37);
 
     // Limits: right after the input, in the middle of a year, in the last second of a
     // year, in the first second of a year.
@@ -621,7 +646,7 @@ fn save_with_pending_log_is_rejected() {
     let before = world.state_hash();
     assert_eq!(world.save(&[]), Err(SaveError::LogNotTaken));
     assert_eq!(world.state_hash(), before);
-    assert_eq!(world.take_log().len(), 2, "the entries are still there");
+    assert_eq!(world.take_log().len(), 3, "the entries are still there");
     assert_eq!(world.save(&[]).expect("saves"), hex(TINY_SAVE_AFTER_START));
 }
 
@@ -686,7 +711,7 @@ fn a_loaded_world_keeps_its_counters() {
     assert_eq!(
         lines(&log),
         [
-            r#"{"id":3,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#
+            r#"{"id":4,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#
         ]
     );
 }
@@ -718,7 +743,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [30, 32] {
+    for version in [31, 33] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -752,9 +777,9 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 2;
-        f.core_version = 32;
+        f.core_version = 33;
         f.data_hash = 7;
-        f.projection_version = 16;
+        f.projection_version = 17;
     };
     assert_eq!(
         load_error(&File::tiny().with(all_wrong)),
@@ -768,11 +793,11 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 1;
-        f.core_version = 31;
+        f.core_version = 32;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
-    let mut bytes = File::tiny().with(|f| f.projection_version = 16);
+    let mut bytes = File::tiny().with(|f| f.projection_version = 17);
     bytes.truncate(hex(HEADER).len() + 1);
     assert_eq!(
         load_error(&bytes),
@@ -798,7 +823,7 @@ fn load_checks_run_in_order() {
 
 #[test]
 fn load_rejects_foreign_projection_version() {
-    for version in [14, 16] {
+    for version in [15, 17] {
         let bytes = File::tiny().with(|f| f.projection_version = version);
         assert_eq!(
             load_error(&bytes),
@@ -823,19 +848,19 @@ fn load_rejects_malformed_bytes() {
     // A time outside the range of the simulation.
     let far = File::tiny().with(|f| f.sims = vec![(1, living(0, i64::MIN))]);
     assert_eq!(load_error(&far), Some(LoadError::Malformed));
-    // An unknown event variant: index 7 where 0 to 6 exist.
+    // An unknown event variant: index 8 where 0 to 7 exist.
     let mut unknown = good.clone();
     // Behind the header: version, seed (3 bytes), world parameters (3 bytes: the switch
-    // and no nutrition year), clock, sim counter, partnership counter, queue length, then
-    // the first entry with its time (4 bytes), micro step and insertion number: the first
-    // market round (variant 6, no fields), then its period (some).
-    let payload_at = header + 11 + 4 + 2;
+    // and no nutrition year), clock, sim counter, partnership counter, household counter,
+    // queue length, then the first entry with its time (4 bytes), micro step and insertion
+    // number: the first market round (variant 6, no fields), then its period (some).
+    let payload_at = header + 12 + 4 + 2;
     assert_eq!(
         unknown[payload_at..payload_at + 2],
         [6, 1],
         "the first market round"
     );
-    unknown[payload_at] = 7;
+    unknown[payload_at] = 8;
     assert_eq!(load_error(&unknown), Some(LoadError::Malformed));
 }
 
@@ -846,23 +871,39 @@ fn load_rejects_non_canonical_bytes() {
     let repeated = File::tiny().with(|f| f.sims = vec![(1, living(0, -1)), (1, living(0, -1))]);
     assert_eq!(load_error(&repeated), Some(LoadError::Malformed));
     // Two founders, valid in every other respect, with the map keys in the wrong order.
+    // Each is a minor in a household of her own; the second leaves home at 19
+    // (`hand_leave_age` of tools/state_reference.py).
     let two = |sims: Vec<(u64, Living)>| {
         File::tiny().with(|f| {
             let [(her_senescence, her_accident), (senescence, accident)] = TINY_DEATHS;
             f.next_sim_id = 3;
+            f.next_household_id = 3;
             f.sims = sims;
+            f.households = vec![(1, (0, None)), (2, (0, None))];
             f.queue = vec![
                 (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
                 (Y - 1, 0, 5, Payload::Birthday { sim: 2 }, None),
                 (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+                (19 * Y - 1, 0, 9, Payload::LeaveHome { sim: 2 }, None),
+                (TINY_LEAVES, 0, 8, Payload::LeaveHome { sim: 1 }, None),
                 (her_senescence, 0, 3, death(1, SENESCENCE), None),
                 (senescence, 0, 6, death(2, SENESCENCE), None),
                 (accident, 0, 7, death(2, ACCIDENT), None),
                 (her_accident, 0, 4, death(1, ACCIDENT), None),
             ];
-            f.next_event_seq = 8;
-            f.plan_refs = vec![(2, 0), (3, 0), (1, 0), (2, 0), (3, 0), (3, 0), (2, 0)];
-            f.next_event_id = 4;
+            f.next_event_seq = 10;
+            f.plan_refs = vec![
+                (2, 0),
+                (3, 0),
+                (1, 0),
+                (3, 0),
+                (2, 0),
+                (2, 0),
+                (3, 0),
+                (3, 0),
+                (2, 0),
+            ];
+            f.next_event_id = 6;
             f.input_log[0].2 = TestInput::Start {
                 world_seed: 0xff,
                 founder_tag: "test:tiny".to_owned(),
@@ -888,10 +929,11 @@ fn load_rejects_non_canonical_bytes() {
     overlong.splice(at..=at, [0x82, 0x00]);
     assert_eq!(load_error(&overlong), Some(LoadError::Malformed));
     // Length prefixes far beyond the input: rejected without reading that much. The
-    // partnership counter lies between.
+    // partnership and household counters lie between.
     assert_eq!(good[at + 1], 1, "next_partnership_id of the tiny world");
-    let queue_len = at + 2;
-    assert_eq!(good[queue_len], 5, "five pending events");
+    assert_eq!(good[at + 2], 2, "next_household_id of the tiny world");
+    let queue_len = at + 3;
+    assert_eq!(good[queue_len], 6, "six pending events");
     let mut huge = good.clone();
     huge.splice(queue_len..=queue_len, [0xff, 0xff, 0xff, 0xff, 0x0f]);
     assert_eq!(load_error(&huge), Some(LoadError::Malformed));
@@ -947,11 +989,11 @@ fn load_rejects_an_invalid_queue() {
 
 /// "tiny" with an override block right after `Start` that switches the hereditary
 /// diseases on (tools/state_reference.py): one more entry was written, so the next
-/// EventId is 4, and the input log has a second record.
+/// EventId is 5, and the input log has a second record.
 fn overridden() -> File {
     let mut file = File::tiny();
     file.world_params = Some(params(true));
-    file.next_event_id = 4;
+    file.next_event_id = 5;
     file.input_log.push((-1, 2, override_block(true)));
     file
 }
@@ -1175,10 +1217,10 @@ fn load_checks_the_override_blocks_of_the_input_log() {
 // Scenario "mortal" of tools/state_reference.py (see tests/death.rs), on test data with
 // accident 0.5 and senescence `a` 0.05, `b` 0.001 per year: she dies of accident in year 4,
 // he of accident in year 5.
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54011ffeb1f289c9e7b1bdcc010f01ff010100000103010880a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c0009020101dded90d1a3f7cbf6b301000000000100000000000000000000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000000000008010003000200010002000300030002000401010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
-const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54011ffeb1f289c9e7b1bdcc010f01ff01010000feaffab30103010280b0fab3010002060180a8a702feb7f9d101000100018088ff1d12000000020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000002010001000f01010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000600edf3e6d0f1cebaf33902ebac82a7c480e8e1840104b1cbaab6e3b3aaa3f00106a0e7f798afb18a813208b9f8b599b3afb6a689010aaabc9e84e4d489a9ba01";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54012097e4b4c08affa1e17e1001ff01010000010301030a80a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c00fc9fedd704000a070200fec7e8ed0500090701000b020101dded90d1a3f7cbf6b301000000000100000000000000000000010000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000002000000000201000002000000000a01000300020001000200030003000200030002000601010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
+const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54012097e4b4c08affa1e17e1001ff01010000feaffab3010301030280b0fab3010002060180a8a702feb7f9d101000100018088ff1d14000002010001aaa1e38001020001aea2e2a90100020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b3010000000001000000000000000000000100000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000002000002010001001101010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010006008eaddaaa99e3cf8cd00102f6e09cc8edc5a2fda00104c1c18ec8a78280f21106818094c9b6e0b0eefb0108c5a2a9ad95ef9395050aedeae0d9b7b2eb95aa01";
 /// The data hash of the test data of "mortal" (`tools/state_reference.py`).
-const MORTAL_DATA_HASH: u64 = 0xcc7a_c73c_913c_98fe;
+const MORTAL_DATA_HASH: u64 = 0x7ec2_87f8_a80d_3217;
 /// The lineage keys of the founders 0 and 1 of `test:mortal` (tools/rng_reference.py).
 const MORTAL_KEYS: [u64; 2] = [0xb3ed_2fba_3a24_36dd, 0x1e93_2c9b_8e18_6dcb];
 /// When each death is due, in seconds: hers of accident and of senescence, his of
@@ -1187,13 +1229,16 @@ const HER_DEATH: i64 = 135_030_869;
 const HER_SENESCENCE: i64 = 259_599_181;
 const HIS_DEATH: i64 = 178_014_359;
 const HIS_SENESCENCE: i64 = 207_566_925;
+/// When they leave home: she at 25, he at 20 (`tools/state_reference.py`).
+const HER_LEAVING: i64 = 25 * Y - 1;
+const HIS_LEAVING: i64 = 20 * Y - 2;
 const MORTAL_YEAR_HASHES: [u64; 6] = [
-    0x39e6_ea77_1a19_b9ed,
-    0x84c3_a004_44e0_966b,
-    0xf046_a99e_36ca_a5b1,
-    0x3202_298a_f31d_f3a0,
-    0x894c_d97b_332d_7c39,
-    0xba52_26a6_4087_9e2a,
+    0xd019_3f19_9556_968e,
+    0xa0fa_8a2e_d907_3076,
+    0x11e4_0012_7903_a0c1,
+    0xfbdc_c303_6925_0001,
+    0x052a_4f79_55aa_5145,
+    0xaa2b_ad93_7b38_356d,
 ];
 
 /// The test data of "mortal".
@@ -1206,6 +1251,7 @@ fn mortal_years(years: usize) -> Vec<(i64, u64)> {
     (0..).zip(MORTAL_YEAR_HASHES).take(years).collect()
 }
 
+/// She is a minor alone in household 1, he in household 2 (ADR-0018 section 4).
 fn she(born: i64) -> Living {
     (
         born,
@@ -1216,6 +1262,9 @@ fn she(born: i64) -> Living {
         0,
         0,
         0,
+        1,
+        false,
+        None,
         None,
     )
 }
@@ -1231,13 +1280,29 @@ fn he(born: i64) -> Living {
         0,
         0,
         0,
+        2,
+        false,
+        None,
         None,
     )
 }
 
 /// A living sim in the archive: it left at `left`, dead of the cause with the key `cause`.
 fn dead(sim: Living, left: i64, cause: u64) -> Archived {
-    let (born, key, sex, genes, exposure, conceptions, births, partnerships, parents) = sim;
+    let (
+        born,
+        key,
+        sex,
+        genes,
+        exposure,
+        conceptions,
+        births,
+        partnerships,
+        household,
+        moved_out,
+        _,
+        parents,
+    ) = sim;
     (
         born,
         left,
@@ -1249,16 +1314,20 @@ fn dead(sim: Living, left: i64, cause: u64) -> Archived {
         conceptions,
         births,
         partnerships,
+        household,
+        moved_out,
         parents,
     )
 }
 
 /// "mortal" right after `Start`: per founder the birthday and the deaths of senescence and
-/// of accident, in the order of time.
+/// of accident, then the households and the days they leave home (she at 25, he at 20), in
+/// the order of time.
 fn mortal_started() -> File {
     let mut file = File::tiny();
     file.data_hash = MORTAL_DATA_HASH;
     file.next_sim_id = 3;
+    file.next_household_id = 3;
     file.queue = vec![
         (Y - 2, 0, 5, Payload::Birthday { sim: 2 }, None),
         (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
@@ -1267,11 +1336,24 @@ fn mortal_started() -> File {
         (HIS_DEATH, 0, 7, death(2, ACCIDENT), None),
         (HIS_SENESCENCE, 0, 6, death(2, SENESCENCE), None),
         (HER_SENESCENCE, 0, 3, death(1, SENESCENCE), None),
+        (HIS_LEAVING, 0, 9, Payload::LeaveHome { sim: 2 }, None),
+        (HER_LEAVING, 0, 8, Payload::LeaveHome { sim: 1 }, None),
     ];
-    file.next_event_seq = 8;
+    file.next_event_seq = 10;
     file.sims = vec![(1, she(-1)), (2, he(-2))];
-    file.plan_refs = vec![(3, 0), (2, 0), (1, 0), (2, 0), (3, 0), (3, 0), (2, 0)];
-    file.next_event_id = 4;
+    file.households = vec![(1, (0, None)), (2, (0, None))];
+    file.plan_refs = vec![
+        (3, 0),
+        (2, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (3, 0),
+        (2, 0),
+        (3, 0),
+        (2, 0),
+    ];
+    file.next_event_id = 6;
     file.input_log[0].2 = TestInput::Start {
         world_seed: 0xff,
         founder_tag: "test:mortal".to_owned(),
@@ -1291,14 +1373,15 @@ fn mortal_after_year_5() -> File {
     let mut file = mortal_started();
     file.closed_through = 6 * Y - 1;
     file.queue = vec![(7 * Y - 1, 0, 1, Payload::YearEnd, Some(Y))];
-    file.next_event_seq = 17;
+    file.next_event_seq = 19;
     file.sims.clear();
+    file.households = vec![(1, (0, Some(HER_DEATH))), (2, (0, Some(HIS_DEATH)))];
     file.archive = vec![
         (1, dead(she(-1), HER_DEATH, ACCIDENT)),
         (2, dead(he(-2), HIS_DEATH, ACCIDENT)),
     ];
     file.plan_refs = vec![(1, 0)];
-    file.next_event_id = 15;
+    file.next_event_id = 17;
     file.year_hashes = mortal_years(6);
     file
 }
@@ -1309,25 +1392,27 @@ fn mortal_after_her_death() -> File {
     let mut file = mortal_started();
     file.closed_through = HER_DEATH;
     file.queue = vec![
-        (5 * Y - 2, 0, 14, Payload::Birthday { sim: 2 }, None),
+        (5 * Y - 2, 0, 16, Payload::Birthday { sim: 2 }, None),
         (5 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
         (HIS_DEATH, 0, 7, death(2, ACCIDENT), None),
         (HIS_SENESCENCE, 0, 6, death(2, SENESCENCE), None),
+        (HIS_LEAVING, 0, 9, Payload::LeaveHome { sim: 2 }, None),
     ];
-    file.next_event_seq = 16;
+    file.next_event_seq = 18;
     file.sims = vec![(2, he(-2))];
+    file.households = vec![(1, (0, Some(HER_DEATH))), (2, (0, None))];
     file.archive = vec![(1, dead(she(-1), HER_DEATH, ACCIDENT))];
-    file.plan_refs = vec![(10, 4 * Y - 2), (1, 0), (3, 0), (3, 0)];
-    file.next_event_id = 13;
+    file.plan_refs = vec![(12, 4 * Y - 2), (1, 0), (3, 0), (3, 0), (3, 0)];
+    file.next_event_id = 15;
     file.year_hashes = mortal_years(4);
     file
 }
 
 // Scenario "tie" of tools/state_reference.py: her senescence and her accident are due in
 // the same second (test data: accident 0.2, senescence `a` 0.8046949992648321, `b` 0.001).
-const TIE_SAVE_AFTER_START: &str = "53494d4147454e54011fb581b8cfeff3c1ceaf010f01ff010100000102010580a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dc8ddf17000040201a0bb8ca1c58498a01c00c8ddf1700005020185d2bc82f8b2ead44d0006010101f0da979a8fd9f18a95010000000001000000000000000000000000000005010002000100020002000301010100ff0108746573743a7469650000010100010f636f72653a646973656173655f61720200010000";
+const TIE_SAVE_AFTER_START: &str = "53494d4147454e540120ebe4c889ffd0bdbadf011001ff01010000010201020680a8a7020002060180a8a702fe87ff1d0003010100fe87ff1d000100018088ff1dc8ddf17000040201a0bb8ca1c58498a01c00c8ddf1700005020185d2bc82f8b2ead44d00fe87f0fd03000607010007010101f0da979a8fd9f18a95010000000001000000000000000000000100000000010100000000060100020001000200020002000401010100ff0108746573743a7469650000010100010f636f72653a646973656173655f61720200010000";
 /// The data hash of the test data of "tie" (`tools/state_reference.py`).
-const TIE_DATA_HASH: u64 = 0xaf9d_079e_f9ee_00b5;
+const TIE_DATA_HASH: u64 = 0xdf74_f687_f132_326b;
 /// The lineage key of founder 0 of `test:tie` (tools/rng_reference.py).
 const TIE_KEY: u64 = 0x9515_c6c8_f345_ed70;
 const TIE_DUE: i64 = 118_372_196;
@@ -1346,8 +1431,14 @@ fn tie_data() -> Data {
 fn tie_started() -> File {
     let mut file = File::tiny();
     file.data_hash = TIE_DATA_HASH;
-    file.queue[2].0 = TIE_DUE;
-    file.queue[3].0 = TIE_DUE;
+    file.queue = vec![
+        (Y - 1, 0, 2, Payload::Birthday { sim: 1 }, None),
+        (Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (TIE_DUE, 0, 3, death(1, SENESCENCE), None),
+        (TIE_DUE, 0, 4, death(1, ACCIDENT), None),
+        // She leaves home at 17.
+        (17 * Y - 1, 0, 5, Payload::LeaveHome { sim: 1 }, None),
+    ];
     file.sims[0].1.1 = TIE_KEY;
     file.input_log[0].2 = TestInput::Start {
         founder_tag: "test:tie".to_owned(),
@@ -1366,25 +1457,29 @@ fn mortal_in_year_1() -> File {
     let mut file = mortal_started();
     file.closed_through = Y;
     file.queue = vec![
-        (2 * Y - 2, 0, 8, Payload::Birthday { sim: 2 }, None),
-        (2 * Y - 1, 0, 9, Payload::Birthday { sim: 1 }, None),
+        (2 * Y - 2, 0, 10, Payload::Birthday { sim: 2 }, None),
+        (2 * Y - 1, 0, 11, Payload::Birthday { sim: 1 }, None),
         (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
         (HER_DEATH, 0, 4, death(1, ACCIDENT), None),
         (HIS_DEATH, 0, 7, death(2, ACCIDENT), None),
         (HIS_SENESCENCE, 0, 6, death(2, SENESCENCE), None),
         (HER_SENESCENCE, 0, 3, death(1, SENESCENCE), None),
+        (HIS_LEAVING, 0, 9, Payload::LeaveHome { sim: 2 }, None),
+        (HER_LEAVING, 0, 8, Payload::LeaveHome { sim: 1 }, None),
     ];
-    file.next_event_seq = 10;
+    file.next_event_seq = 12;
     file.plan_refs = vec![
-        (4, Y - 2),
-        (5, Y - 1),
+        (6, Y - 2),
+        (7, Y - 1),
         (1, 0),
         (2, 0),
         (3, 0),
         (3, 0),
         (2, 0),
+        (3, 0),
+        (2, 0),
     ];
-    file.next_event_id = 6;
+    file.next_event_id = 8;
     file.year_hashes = mortal_years(1);
     file
 }
@@ -1499,10 +1594,13 @@ fn load_checks_the_deaths() {
                 f.queue.retain(|entry| {
                     !matches!(
                         entry.3,
-                        Payload::Death { sim: 1, .. } | Payload::Birthday { sim: 1 }
+                        Payload::Death { sim: 1, .. }
+                            | Payload::Birthday { sim: 1 }
+                            | Payload::LeaveHome { sim: 1 }
                     )
                 });
-                f.plan_refs = vec![(4, Y - 2), (1, 0), (3, 0), (3, 0)];
+                f.plan_refs = vec![(6, Y - 2), (1, 0), (3, 0), (3, 0), (3, 0)];
+                f.households[0].1.1 = Some(HER_DEATH);
             }),
         ),
         (
@@ -1580,9 +1678,9 @@ fn load_checks_the_deaths() {
         (
             "a death of his disease, planned while the switch is off",
             mortal_started().with(|f| {
-                let entry = (HIS_SENESCENCE + 1, 0, 8, death(2, ar_key()), None);
+                let entry = (HIS_SENESCENCE + 1, 0, 10, death(2, ar_key()), None);
                 insert_event(f, entry, (3, 0));
-                f.next_event_seq = 9;
+                f.next_event_seq = 11;
             }),
         ),
     ];
@@ -1607,9 +1705,9 @@ fn load_checks_the_deaths() {
     // loader the same sim and cause.
     let twice = mortal_started().with(|f| {
         f.queue
-            .insert(4, (HER_DEATH, 0, 8, death(1, ACCIDENT), None));
+            .insert(4, (HER_DEATH, 0, 10, death(1, ACCIDENT), None));
         f.plan_refs.insert(4, (2, 0));
-        f.next_event_seq = 9;
+        f.next_event_seq = 11;
     });
     assert_eq!(
         load_error_with(mortal_data(), &twice),
@@ -1620,16 +1718,16 @@ fn load_checks_the_deaths() {
 // Scenario "sick" of tools/state_reference.py, on test data with accident 0.02 per year,
 // senescence practically off and `test:dummy_disease` with 0.3 per year from birth on for
 // the homozygous, while the switch is on. She has one dummy allele, he has two.
-const SWITCHED_ON_SAVE: &str = "53494d4147454e54011fe0e2a1c8aef9afe37c0f01ff01010100fe87ff1d0301098088ff1d0002060180a8a702fc8ffe3b0009010200fe8ffe3b000a010100fe8ffe3b000100018088ff1dc6d6ae7e000b0202dd90d4c2cac3a7bbf40100eedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c000c020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d0000000000000009010004fc87ff1d05fe87ff1d0100068088ff1d03000200030002000702010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100fe87ff1d02010100010100f4f2a3d2f7fcebb90d";
-const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e54011fe0e2a1c8aef9afe37c0f01ff01010100fe9ffc7703010580a0fc770002060180a8a702fea7fb95010010010100fea7fb9501000100018088ff1da695b0d0280005020185d2bc82f8b2ead44d00dc84cbc8823300040201a0bb8ca1c58498a01c0011010101abd4f19caceffaefab01000000000100000000000000000000000000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf40100000000000000000100000000000000000100000000000501000bfe9ffc770100020002000c01010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000400d6af92cffaa5d9f9800102d7b5e5a78bc6fda5c001049ff6c3c1df99dcc33f0690febb8fc7afb7e03a";
-const OFF_AT_DUE_SAVE: &str = "53494d4147454e54011fe0e2a1c8aef9afe37c0f01ff01010000fea7fb950103010880a8fb95010002060180a8a702fcaffab3010012010200feaffab3010013010100feaffab301000100018088ff1deedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c0014020101abd4f19caceffaefab01000000000100000000000000000000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f00000000000000000801000dfca7fb95010efea7fb9501010003000200030002000f02010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100c4ceaf6002010100000500d6af92cffaa5d9f9800102d7b5e5a78bc6fda5c001049ff6c3c1df99dcc33f068dec8fd2feb2b5de2e08abb5e3c8d080b2c241";
+const SWITCHED_ON_SAVE: &str = "53494d4147454e540120b5c9adf9d0a9a1ea8d011001ff01010100fe87ff1d0301030b8088ff1d0002060180a8a702fc8ffe3b000b010200fe8ffe3b000c010100fe8ffe3b000100018088ff1dc6d6ae7e000d0202dd90d4c2cac3a7bbf40100fc8fef9b04000a070200fe9fedd7040009070100eedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c000e020101abd4f19caceffaefab01000000000100000000000000000000010000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf4010000000000000000010000000000000000018088ff1d00000002000000000201000002000000000b010006fc87ff1d07fe87ff1d0100088088ff1d0300020003000200030002000902010100ff0109746573743a7369636b0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100fe87ff1d02010100010100a0b9c9989be195a960";
+const SICK_ON_SAVE_AFTER_YEAR_3: &str = "53494d4147454e540120b5c9adf9d0a9a1ea8d011001ff01010100fe9ffc770301030680a0fc770002060180a8a702fea7fb95010012010100fea7fb9501000100018088ff1dfe9fedd704000a070100a695b0d0280005020185d2bc82f8b2ead44d00dc84cbc8823300040201a0bb8ca1c58498a01c0013010101abd4f19caceffaefab01000000000100000000000000000000010000000002010000020001c6ceaf6000010203c6ceaf6000dd90d4c2cac3a7bbf401fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001000000000000000001000000000200000601000dfe9ffc7701000200020002000e01010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000400cdb1c2a4e3aceac11d02f3b28693c8a2c6f8af0104acc9c4b49af3afd56406f3bba5c7b2ebf3eabc01";
+const OFF_AT_DUE_SAVE: &str = "53494d4147454e540120b5c9adf9d0a9a1ea8d011001ff01010000fea7fb95010301030a80a8fb95010002060180a8a702fcaffab3010014010200feaffab3010015010100feaffab301000100018088ff1dfc8fef9b04000b070200fe9fedd704000a070100eedadbe40d0008020285d2bc82f8b2ead44d00a695b0d0280005020185d2bc82f8b2ead44d00bc87cbdac42a00070202a0bb8ca1c58498a01c00dc84cbc8823300040201a0bb8ca1c58498a01c0016020101abd4f19caceffaefab01000000000100000000000000000000010000000203fba99785c4c1bc5c010100000100000001000001dd90d4c2cac3a7bbf401000000000000000001c3992b7cb8d8ee3f0000000002000000000201000002000000000a01000ffca7fb950110fea7fb950101000300020003000200030002001102010100ff0109746573743a7369636b0100020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f617202010100c4ceaf6002010100000500cdb1c2a4e3aceac11d02f3b28693c8a2c6f8af0104acc9c4b49af3afd56406bb87e58295d98fc64b08f8d3a68b91dffd8a30";
 /// The lineage keys of the founders 0 and 1 of `test:sick` (tools/rng_reference.py).
 const SICK_KEYS: [u64; 2] = [0xabdf_eb7a_c39c_6a2b, 0x00b8_f20c_40a5_d4fb];
 /// The `str_key` of `test:dummy_disease`.
 const DISEASE: u64 = 0xf476_9e1c_a855_085d;
 /// The data hash of the test data with the dummy disease from birth on
 /// (`tools/state_reference.py`).
-const SICK_DATA_HASH: u64 = 0x7cc6_bfca_e908_7160;
+const SICK_DATA_HASH: u64 = 0x8dd4_854d_0f2b_64b5;
 /// How long his disease must act on him, in seconds, and when each of them dies of
 /// accident and of senescence.
 const HIS_DISEASE: i64 = 101_053_347;
@@ -1669,6 +1767,21 @@ fn sick_deaths() -> Vec<(QueueEntry, (u64, i64))> {
     ]
 }
 
+/// The days both leave home (she at 20, he at 18) with the insertion number of hers, his
+/// is the next one before it (`Start` plans his after hers).
+fn sick_leaving(hers: u64) -> Vec<(QueueEntry, (u64, i64))> {
+    vec![
+        (
+            (18 * Y - 2, 0, hers + 1, Payload::LeaveHome { sim: 2 }, None),
+            (3, 0),
+        ),
+        (
+            (20 * Y - 1, 0, hers, Payload::LeaveHome { sim: 1 }, None),
+            (2, 0),
+        ),
+    ]
+}
+
 fn sick_start(on: bool) -> TestInput {
     TestInput::Start {
         world_seed: 0xff,
@@ -1682,6 +1795,7 @@ fn sick_start(on: bool) -> TestInput {
     }
 }
 
+/// She is a minor alone in household 1, he in household 2.
 fn sick_she() -> Living {
     (
         -1,
@@ -1692,6 +1806,9 @@ fn sick_she() -> Living {
         0,
         0,
         0,
+        1,
+        false,
+        None,
         None,
     )
 }
@@ -1707,6 +1824,9 @@ fn sick_he(exposure: TestExposure) -> Living {
         0,
         0,
         0,
+        2,
+        false,
+        None,
         None,
     )
 }
@@ -1720,24 +1840,30 @@ fn sick_switched_on() -> File {
     file.world_params = Some(params(true));
     file.closed_through = Y - 1;
     file.next_sim_id = 3;
+    file.next_household_id = 3;
     let events = [
         (
-            (2 * Y - 2, 0, 8, Payload::Birthday { sim: 2 }, None),
-            (4, Y - 2),
+            (2 * Y - 2, 0, 10, Payload::Birthday { sim: 2 }, None),
+            (6, Y - 2),
         ),
         (
-            (2 * Y - 1, 0, 9, Payload::Birthday { sim: 1 }, None),
-            (5, Y - 1),
+            (2 * Y - 1, 0, 11, Payload::Birthday { sim: 1 }, None),
+            (7, Y - 1),
         ),
         ((2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)), (1, 0)),
-        ((Y + HIS_DISEASE, 0, 10, death(2, DISEASE), None), (6, Y)),
+        ((Y + HIS_DISEASE, 0, 12, death(2, DISEASE), None), (8, Y)),
     ];
-    (file.queue, file.plan_refs) = events.into_iter().chain(sick_deaths()).unzip();
-    file.next_event_seq = 11;
+    (file.queue, file.plan_refs) = events
+        .into_iter()
+        .chain(sick_leaving(8))
+        .chain(sick_deaths())
+        .unzip();
+    file.next_event_seq = 13;
     file.sims = vec![(1, sick_she()), (2, sick_he((0.0, Some(Y))))];
-    file.next_event_id = 7;
+    file.households = vec![(1, (0, None)), (2, (0, None))];
+    file.next_event_id = 9;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0x0d73_afe7_7a48_f974)];
+    file.year_hashes = vec![(0, 0x6052_5709_b312_5ca0)];
     file
 }
 
@@ -1747,22 +1873,24 @@ fn sick_on_after_year_3() -> File {
     let mut file = sick_switched_on();
     file.closed_through = 4 * Y - 1;
     file.queue = vec![
-        (5 * Y - 1, 0, 15, Payload::Birthday { sim: 1 }, None),
+        (5 * Y - 1, 0, 17, Payload::Birthday { sim: 1 }, None),
         (5 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
+        (20 * Y - 1, 0, 9, Payload::LeaveHome { sim: 1 }, None),
         (HER_SICK_ACCIDENT, 0, 4, death(1, ACCIDENT), None),
         (HER_SICK_SENESCENCE, 0, 3, death(1, SENESCENCE), None),
     ];
-    file.next_event_seq = 16;
+    file.next_event_seq = 18;
     file.sims = vec![(1, sick_she())];
+    file.households = vec![(1, (0, None)), (2, (0, Some(HIS_DISEASE)))];
     file.archive = vec![(2, dead(sick_he((0.0, Some(0))), HIS_DISEASE, DISEASE))];
-    file.plan_refs = vec![(11, 4 * Y - 1), (1, 0), (2, 0), (2, 0)];
-    file.next_event_id = 12;
+    file.plan_refs = vec![(13, 4 * Y - 1), (1, 0), (2, 0), (2, 0), (2, 0)];
+    file.next_event_id = 14;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0x80f3_652f_a9e4_97d6),
-        (1, 0xc04b_f630_b4f9_5ad7),
-        (2, 0x3f87_70cd_f830_fb1f),
-        (3, 0x3ac0_dd7c_71ee_ff10),
+        (0, 0x1d83_a966_3490_98cd),
+        (1, 0xaff1_1914_8261_9973),
+        (2, 0x64aa_bf99_a691_24ac),
+        (3, 0xbcd5_cf5b_28e9_5df3),
     ];
     file
 }
@@ -1775,29 +1903,33 @@ fn sick_off_at_due() -> File {
     file.closed_through = 5 * Y - 1;
     let events = [
         (
-            (6 * Y - 2, 0, 17, Payload::Birthday { sim: 2 }, None),
-            (13, 5 * Y - 2),
+            (6 * Y - 2, 0, 19, Payload::Birthday { sim: 2 }, None),
+            (15, 5 * Y - 2),
         ),
         (
-            (6 * Y - 1, 0, 18, Payload::Birthday { sim: 1 }, None),
-            (14, 5 * Y - 1),
+            (6 * Y - 1, 0, 20, Payload::Birthday { sim: 1 }, None),
+            (16, 5 * Y - 1),
         ),
         ((6 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)), (1, 0)),
     ];
-    (file.queue, file.plan_refs) = events.into_iter().chain(sick_deaths()).unzip();
-    file.next_event_seq = 19;
+    (file.queue, file.plan_refs) = events
+        .into_iter()
+        .chain(sick_leaving(9))
+        .chain(sick_deaths())
+        .unzip();
+    file.next_event_seq = 21;
     file.sims = vec![(1, sick_she()), (2, sick_he((OFF_AT_DUE_USED, None)))];
-    file.next_event_id = 15;
+    file.next_event_id = 17;
     file.input_log = vec![
         (-1, 1, sick_start(true)),
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0x80f3_652f_a9e4_97d6),
-        (1, 0xc04b_f630_b4f9_5ad7),
-        (2, 0x3f87_70cd_f830_fb1f),
-        (3, 0x2ebc_d597_ea43_f60d),
-        (4, 0x4184_c805_0918_daab),
+        (0, 0x1d83_a966_3490_98cd),
+        (1, 0xaff1_1914_8261_9973),
+        (2, 0x64aa_bf99_a691_24ac),
+        (3, 0x4b8c_3ec9_5059_43bb),
+        (4, 0x3015_f6f9_1169_a9f8),
     ];
     file
 }
@@ -1888,9 +2020,9 @@ fn load_checks_the_afflictions() {
             "a death of the disease for her",
             sick_switched_on().with(|f| {
                 f.queue
-                    .insert(4, (Y + HIS_DISEASE + 1, 0, 11, death(1, DISEASE), None));
-                f.plan_refs.insert(4, (6, Y));
-                f.next_event_seq = 12;
+                    .insert(4, (Y + HIS_DISEASE + 1, 0, 13, death(1, DISEASE), None));
+                f.plan_refs.insert(4, (8, Y));
+                f.next_event_seq = 14;
             }),
         ),
         (
@@ -1941,8 +2073,8 @@ fn load_checks_the_afflictions() {
 // senescence `a` 0.5, `b` 0.001 per year: a woman and two men. `Start` pairs her with the
 // first man; he dies of senescence in year 0, at the start of year 1 `ArrangePartnership`
 // pairs her with the second, and that partnership ends with her death of accident.
-const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e54011ff59eff98d7cb93d7160f01ff01010000fe87ff1d04030a8088ff1d0002060180a8a70280b0a620001003010180a8a702cce2e6370005020185d2bc82f8b2ead44d00fa8ffe3b000e010300fe8ffe3b000f010100fe8ffe3b000100018088ff1dd89aac3e00040201a0bb8ca1c58498a01c00c8c8e28003000a0203a0bb8ca1c58498a01c00e2c8e9e2050011050200aea1c18a0a000b020385d2bc82f8b2ead44d001202018180f1df03aa90d4c3eeedd09bdb0100000000010000000000000000000200038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001fa89fd05000201038088ff1d000001028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000a0100098088ff1d020007fa87ff1d08fe87ff1d010002000400098088ff1d04000a02010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030100e2e2f6a381bc9eddda01";
-const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e54011ff59eff98d7cb93d7160f01ff01010000fea7fb950104030580a8fb95010002060180a8a702faaffab3010015010300feaffab301000100018088ff1dc8c8e28003000a0203a0bb8ca1c58498a01c00aea1c18a0a000b020385d2bc82f8b2ead44d001601038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000000020101020001fa89fd05000201038088ff1d01cce2e637000002018180f1df03cce2e6370085d2bc82f8b2ead44daa90d4c3eeedd09bdb0100000000010000000000000000000200028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000000501000efaa7fb95010100040004000f02010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030500e2e2f6a381bc9eddda0102b39fc084b480eced070490ccbc9f84a5aa8dc60106a7cfd0bc9fb5ee86a701089addd9ce8ccffaa04e";
+const PARTNERS_SAVE_AFTER_ARRANGE: &str = "53494d4147454e540120d7cf8aa4948791e3591001ff01010000fe87ff1d0403040a8088ff1d0002060180a8a70280b0a620001103010180a8a702cce2e6370005020185d2bc82f8b2ead44d00fa8ffe3b000f010300fe8ffe3b0010010100fe8ffe3b000100018088ff1dd89aac3e00040201a0bb8ca1c58498a01c00c8c8e28003000a0203a0bb8ca1c58498a01c00e2c8e9e2050012050200aea1c18a0a000b020385d2bc82f8b2ead44d001302018180f1df03aa90d4c3eeedd09bdb0100000000010000000000000000000203010000038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000003010000020101020001fa89fd05000201038088ff1d00030100018088ff1d0200018088ff1d038088ff1d000001028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000101000a01000b8088ff1d020009fa87ff1d0afe87ff1d0100020004000b8088ff1d04000f02010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030100eb94af82c6ecedb49a01";
+const PARTNERS_SAVE_AFTER_YEAR_4: &str = "53494d4147454e540120d7cf8aa4948791e3591001ff01010000fea7fb95010403040580a8fb95010002060180a8a702faaffab3010016010300feaffab301000100018088ff1dc8c8e28003000a0203a0bb8ca1c58498a01c00aea1c18a0a000b020385d2bc82f8b2ead44d001701038580f1df03a7f3f8fdb9ee88cfed0101010000000000000100000000000003010000020101020001fa89fd05000201038088ff1d01cce2e63700030100018088ff1d0200018088ff1d038088ff1d000002018180f1df03cce2e6370085d2bc82f8b2ead44daa90d4c3eeedd09bdb01000000000100000000000000000002030100028380f1df03fa89fd0500a0bb8ca1c58498a01cf098dcaaccecf99cb0010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000001010005010013faa7fb95010100040004001402010100ff010d746573743a706172746e6572730000038180f1df0300010f636f72653a646973656173655f61720200018380f1df0301010f636f72653a646973656173655f61720201018580f1df0301010f636f72653a646973656173655f6172020100010001fe87ff1d020201030500eb94af82c6ecedb49a0102fbcee08daca2a2984404929ef4b8d9abaaab5f06a0caaef2dce3e5fd8b0108c7c798938ef6daa04c";
 /// The lineage keys of the founders 0 to 2 of `test:partners` (tools/rng_reference.py).
 const PARTNERS_KEYS: [u64; 3] = [
     0xdb37_436e_e875_082a,
@@ -1950,7 +2082,7 @@ const PARTNERS_KEYS: [u64; 3] = [
     0xed9e_2373_9fbe_39a7,
 ];
 /// The data hash of the test data of "partners" (`tools/state_reference.py`).
-const PARTNERS_DATA_HASH: u64 = 0x16ae_4e5d_731f_cf75;
+const PARTNERS_DATA_HASH: u64 = 0x59c6_4439_4482_a7d7;
 /// When each of the three dies of senescence and of accident, if nothing comes first.
 const PARTNER_SENESCENCE: [i64; 3] = [65_373_868, 6_267_517, 403_460_644];
 const PARTNER_ACCIDENT: [i64; 3] = [58_513_574, 273_890_542, 1_353_197_655];
@@ -1985,7 +2117,9 @@ fn partners_start(couples: Vec<(u32, u32)>) -> TestInput {
     }
 }
 
-/// The founder at `index` of "partners" as a living sim.
+/// The founder at `index` of "partners" as a living sim, after the second partnership: the
+/// first man in the household of the first couple (1), she and the second man in the
+/// household of the second (3); all moved out.
 fn partner(index: usize) -> Living {
     match index {
         0 => (
@@ -1997,6 +2131,9 @@ fn partner(index: usize) -> Living {
             0,
             0,
             0,
+            3,
+            true,
+            None,
             None,
         ),
         1 => (
@@ -2008,6 +2145,9 @@ fn partner(index: usize) -> Living {
             0,
             0,
             0,
+            1,
+            true,
+            None,
             None,
         ),
         _ => (
@@ -2019,6 +2159,9 @@ fn partner(index: usize) -> Living {
             0,
             0,
             0,
+            3,
+            true,
+            None,
             None,
         ),
     }
@@ -2026,13 +2169,16 @@ fn partner(index: usize) -> Living {
 
 /// "partners" right after her second partnership: the first man is in the archive, the
 /// first partnership ended with his death, the second formed at the start of year 1 by
-/// the input with sequence number 2.
+/// the input with sequence number 2. The couple of `Start` formed household 1, the second
+/// man (16) household 2, where his day of leaving home (insertion number 13) was planned;
+/// the second partnership moved both into household 3 and cancelled it.
 fn partners_arranged() -> File {
     let mut file = File::tiny();
     file.data_hash = PARTNERS_DATA_HASH;
     file.closed_through = Y - 1;
     file.next_sim_id = 4;
     file.next_partnership_id = 3;
+    file.next_household_id = 4;
     file.queue = vec![
         // Her attempts from the first month start after the pairing (the series of the
         // first partnership ended with his death), by the entry of the second partnership;
@@ -2040,13 +2186,13 @@ fn partners_arranged() -> File {
         (
             14 * MONTH,
             0,
-            15,
+            16,
             Payload::ConceptionAttempt { woman: 1 },
             Some(MONTH),
         ),
         (PARTNER_HER_DEATH, 0, 4, death(1, ACCIDENT), None),
-        (2 * Y - 3, 0, 13, Payload::Birthday { sim: 3 }, None),
-        (2 * Y - 1, 0, 14, Payload::Birthday { sim: 1 }, None),
+        (2 * Y - 3, 0, 14, Payload::Birthday { sim: 3 }, None),
+        (2 * Y - 1, 0, 15, Payload::Birthday { sim: 1 }, None),
         (2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
         (PARTNER_SENESCENCE[0], 0, 3, death(1, SENESCENCE), None),
         (PARTNER_SENESCENCE[2], 0, 9, death(3, SENESCENCE), None),
@@ -2055,13 +2201,13 @@ fn partners_arranged() -> File {
         (
             PARTNERS_SECOND_SEPARATION,
             0,
-            16,
+            17,
             Payload::Separation { partnership: 2 },
             None,
         ),
         (PARTNER_ACCIDENT[2], 0, 10, death(3, ACCIDENT), None),
     ];
-    file.next_event_seq = 17;
+    file.next_event_seq = 18;
     // She formed two partnerships.
     let mut her = partner(0);
     her.7 = 2;
@@ -2070,24 +2216,25 @@ fn partners_arranged() -> File {
         (1, (1, 2, 0, Some((PARTNER_HIS_DEATH, TestEndedBy::Death)))),
         (2, (1, 3, Y, None)),
     ];
+    file.households = vec![(1, (0, Some(Y))), (2, (0, Some(Y))), (3, (Y, None))];
     file.archive = vec![(2, dead(partner(1), PARTNER_HIS_DEATH, SENESCENCE))];
     file.plan_refs = vec![
-        (9, Y),
+        (11, Y),
         (2, 0),
-        (7, Y - 3),
-        (8, Y - 1),
+        (9, Y - 3),
+        (10, Y - 1),
         (1, 0),
         (2, 0),
         (4, 0),
-        (9, Y),
+        (11, Y),
         (4, 0),
     ];
-    file.next_event_id = 10;
+    file.next_event_id = 15;
     file.input_log = vec![
         (-1, 1, partners_start(vec![(0, 1)])),
         (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
     ];
-    file.year_hashes = vec![(0, 0xdaba_79e0_147d_b162)];
+    file.year_hashes = vec![(0, 0x9a69_b764_604b_ca6b)];
     file
 }
 
@@ -2097,12 +2244,12 @@ fn partners_after_year_4() -> File {
     let mut file = partners_arranged();
     file.closed_through = 5 * Y - 1;
     file.queue = vec![
-        (6 * Y - 3, 0, 20, Payload::Birthday { sim: 3 }, None),
+        (6 * Y - 3, 0, 21, Payload::Birthday { sim: 3 }, None),
         (6 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)),
         (PARTNER_SENESCENCE[2], 0, 9, death(3, SENESCENCE), None),
         (PARTNER_ACCIDENT[2], 0, 10, death(3, ACCIDENT), None),
     ];
-    file.next_event_seq = 21;
+    file.next_event_seq = 22;
     let her = file.sims[0].1.clone();
     file.sims = vec![(3, partner(2))];
     file.partnerships[1].1.3 = Some((PARTNER_HER_DEATH, TestEndedBy::Death));
@@ -2110,14 +2257,14 @@ fn partners_after_year_4() -> File {
         (1, dead(her, PARTNER_HER_DEATH, ACCIDENT)),
         (2, dead(partner(1), PARTNER_HIS_DEATH, SENESCENCE)),
     ];
-    file.plan_refs = vec![(14, 5 * Y - 3), (1, 0), (4, 0), (4, 0)];
-    file.next_event_id = 15;
+    file.plan_refs = vec![(19, 5 * Y - 3), (1, 0), (4, 0), (4, 0)];
+    file.next_event_id = 20;
     file.year_hashes = vec![
-        (0, 0xdaba_79e0_147d_b162),
-        (1, 0x07db_b003_4090_0fb3),
-        (2, 0xc61a_a928_43ef_2610),
-        (3, 0xa70d_b9a9_f794_27a7),
-        (4, 0x4e41_ea78_c9d6_6e9a),
+        (0, 0x9a69_b764_604b_ca6b),
+        (1, 0x4430_8912_c1b8_277b),
+        (2, 0x5f56_a95d_971d_0f12),
+        (3, 0x8bfb_971d_ce4b_a520),
+        (4, 0x4c41_6bb0_e266_23c7),
     ];
     file
 }
@@ -2371,7 +2518,7 @@ fn load_checks_the_partnerships() {
 // senescence practically off and the fertility of the old model (ADR-0017 section 5: the
 // woman's window 18 to 45, 0.25 per attempt, ten months, no pause, wish 40): three founder
 // couples; the first woman conceives in month 5.
-const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011fa1889081edfebf9c270f01ff0101000080c8c40b07041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020001f3c89ad6cdbbe183cd01010100000100000001000080c8c40b00160100090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001401010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
+const CLAN_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e540120f199a1d1dcf4da8da7011001ff0101000080c8c40b0704041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded010100000000000000010000000000000301000003010102000002030400000305060000030100000200000300000101020001f3c89ad6cdbbe183cd01010100000100000001000080c8c40b00160100090001000e000f0010001100120013001480c8c40b0400070002000600050003000600040003000700020005001701010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
 /// The lineage keys of the founders 0 to 5 of `test:clan` (tools/rng_reference.py).
 const CLAN_KEYS: [u64; 6] = [
     0xd0a1_58c1_6220_f6dd,
@@ -2382,7 +2529,7 @@ const CLAN_KEYS: [u64; 6] = [
     0xedfa_4535_9651_22f1,
 ];
 /// The data hash of the test data of "clan" (`tools/state_reference.py`).
-const CLAN_DATA_HASH: u64 = 0x2738_fff6_d024_0421;
+const CLAN_DATA_HASH: u64 = 0xa71b_6ba5_ca28_4cf1;
 /// The child she conceived in month 5, and when each of the six dies of senescence and of
 /// accident, if nothing comes first.
 const CLAN_CHILD: u64 = 0xcd07_85dc_dac6_a473;
@@ -2449,7 +2596,8 @@ fn clan_start() -> TestInput {
     }
 }
 
-/// The founders of "clan" as living sims: the young woman of 16 has the dummy allele twice.
+/// The founders of "clan" as living sims: the young woman of 16 has the dummy allele twice;
+/// each couple lives in a household of its own.
 fn clan_sims() -> Vec<(u64, Living)> {
     let sim = |n: usize, years: i64, sex: u8, genes: Genes| {
         let afflictions = if genes == Genes(sex, DUMMY, DUMMY) {
@@ -2469,6 +2617,10 @@ fn clan_sims() -> Vec<(u64, Living)> {
                 0,
                 // Every woman of "clan" is in a couple of `Start`.
                 u32::from(sex == FEMALE),
+                // Each couple of `Start` founds a household, in list order.
+                u64::try_from(n / 2).expect("a small place") + 1,
+                true,
+                None,
                 None,
             ),
         )
@@ -2510,16 +2662,17 @@ fn clan_conceived() -> File {
         birthday(6, 27),
         (15 * MONTH, 0, 28, Payload::Birth { mother: 1 }, None),
     ];
+    // The entries 11 to 13 are the households of the couples.
     file.plan_refs = vec![
         (9, 0),
         (1, 0),
-        (11, 0),
-        (12, 0),
-        (13, 0),
         (14, 0),
         (15, 0),
         (16, 0),
-        (17, 5 * MONTH),
+        (17, 0),
+        (18, 0),
+        (19, 0),
+        (20, 5 * MONTH),
     ];
     // Each founder's deaths follow its birthday in the insertion numbers, planned by the
     // entry of its creation.
@@ -2534,11 +2687,13 @@ fn clan_conceived() -> File {
         (2, (3, 4, 0, None)),
         (3, (5, 6, 0, None)),
     ];
+    file.next_household_id = 4;
+    file.households = vec![(1, (0, None)), (2, (0, None)), (3, (0, None))];
     file.pregnancies = vec![(
         1,
         pregnant(2, CLAN_CHILD, 0, MALE, Genes(MALE, DUMMY, DUMMY), 5 * MONTH),
     )];
-    file.next_event_id = 20;
+    file.next_event_id = 23;
     file.input_log = vec![(-1, 1, clan_start())];
     file
 }
@@ -2592,13 +2747,14 @@ fn a_save_keeps_the_pregnancy() {
     assert_eq!(clan_load_error(&clan_conceived().bytes()), None);
 }
 
-const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011fa1889081edfebf9c270f01ff0101000080d8cd220804198080f5240002060180a8a7028080f524002703010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00280701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000301010200000203040000030506000000001901001a80d8cd2209000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
+const CLAN_SAVE_AFTER_BIRTH: &str = "53494d4147454e540120f199a1d1dcf4da8da7011001ff0101000080d8cd220804041a8080f5240002060180a8a7028080f524002803010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d008088b9b6050027070700f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00290701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000030100000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000100010101010200030101020000020304000003050600000301000002000003000000001a01001d80d8cd2209000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221d80d8cd220400070002001d80d8cd220600050003000600040003001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100b5a2efdd86d0e9af4c";
 /// When the child (sim 7) dies of senescence and of accident, if nothing comes first.
 const CHILD_DEATHS: (i64, i64) = (890_562_519_927, 194_819_096);
 
 /// "clan" right after the birth in month 15: the child (sim 7) lives with its parents and
-/// the dummy allele twice, its first birthday and its deaths are planned by the birth
-/// (entry 26), and so are the mother's attempts from month 16 on (no pause); in that second
+/// the dummy allele twice, in their household with its mother as carer; its first
+/// birthday, its deaths and its day of leaving home (at 22) are planned by the birth
+/// (entry 29), and so are the mother's attempts from month 16 on (no pause); in that second
 /// the girl's attempt comes after hers (the order of the subjects).
 fn clan_born() -> File {
     let mut file = clan_conceived();
@@ -2613,26 +2769,37 @@ fn clan_born() -> File {
         (16 * MONTH, 0, seq, payload, Some(MONTH))
     };
     let events = vec![
-        (attempts(1, 38), (26, 15 * MONTH)),
+        (attempts(1, 39), (29, 15 * MONTH)),
         (attempts(3, 21), (9, 0)),
         ((2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)), (1, 0)),
-        birthday(1, 29, 20),
-        birthday(2, 30, 21),
-        birthday(3, 31, 22),
-        birthday(4, 32, 23),
-        birthday(5, 33, 24),
-        birthday(6, 34, 25),
+        birthday(1, 29, 23),
+        birthday(2, 30, 24),
+        birthday(3, 31, 25),
+        birthday(4, 32, 26),
+        birthday(5, 33, 27),
+        birthday(6, 34, 28),
         (
             (15 * MONTH + Y, 0, 35, Payload::Birthday { sim: 7 }, None),
-            (26, 15 * MONTH),
+            (29, 15 * MONTH),
         ),
     ];
     (file.queue, file.plan_refs) = events.into_iter().unzip();
     for (sim, deaths) in (1..).zip(CLAN_DEATHS) {
         with_deaths(&mut file, sim, deaths, 3 * sim, (sim + 1, 0));
     }
-    with_deaths(&mut file, 7, CHILD_DEATHS, 36, (26, 15 * MONTH));
-    file.next_event_seq = 39;
+    with_deaths(&mut file, 7, CHILD_DEATHS, 36, (29, 15 * MONTH));
+    insert_event(
+        &mut file,
+        (
+            15 * MONTH + 22 * Y,
+            0,
+            38,
+            Payload::LeaveHome { sim: 7 },
+            None,
+        ),
+        (29, 15 * MONTH),
+    );
+    file.next_event_seq = 40;
     file.sims.push((
         7,
         (
@@ -2644,14 +2811,17 @@ fn clan_born() -> File {
             0,
             0,
             0,
+            1,
+            false,
+            Some(1),
             Some((1, 2, 0)),
         ),
     ));
     // Her first live birth (ADR-0017 section 4).
     file.sims[0].1.6 = 1;
     file.pregnancies.clear();
-    file.next_event_id = 27;
-    file.year_hashes = vec![(0, 0x1341_2887_bc1b_485e)];
+    file.next_event_id = 31;
+    file.year_hashes = vec![(0, 0x4c5f_a680_6bbb_d135)];
     file
 }
 
@@ -2666,10 +2836,10 @@ fn a_save_keeps_the_child() {
 // Two variants of "clan" with a pause and with a wish (tools/state_reference.py): the
 // pause of 12 months, and the wish always 1 (`fertility_wish_shape` [0, 1]); each saved
 // right after the first birth in month 15.
-const CLAN_PAUSE_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011fedd2b0c8ba9fff89480f01ff0101000080d8cd220804198080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080b8a53e002703010180a8a70280e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00280701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000101020003010102000002030400000305060000000019010009000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
-const CLAN_WISH_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011fada398e8f3bcc2f9ef010f01ff0101000080d8cd220804188080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00270701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000101020003010102000002030400000305060000000018010009000100148088ff1d158088ff1d168088ff1d178088ff1d188088ff1d198088ff1d1a80d8cd221a80d8cd220400070002000600050003000600040003001a80d8cd220700020005001b01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100de90ede0fb90caa013";
-const CLAN_PAUSE_DATA_HASH: u64 = 0x4813_fcfb_a90c_296d;
-const CLAN_WISH_DATA_HASH: u64 = 0xeff3_09e7_3d06_11ad;
+const CLAN_PAUSE_SAVE_AFTER_BIRTH: &str = "53494d4147454e54012098bef6d5c6a5e096761001ff0101000080d8cd220804041a8080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080b8a53e002803010180a8a70280e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d008088b9b6050027070700f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00290701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000030100000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000100010101010200030101020000020304000003050600000301000002000003000000001a010009000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221d80d8cd221d80d8cd220400070002001d80d8cd220600050003000600040003001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100b5a2efdd86d0e9af4c";
+const CLAN_WISH_SAVE_AFTER_BIRTH: &str = "53494d4147454e540120accb84fcb292acd29b011001ff0101000080d8cd22080404198080f5240002060180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc400024010700b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d008088b9b6050027070700f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c00280701ff9fedd704dded83919698d6d0d0010000000001000000000000000101010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000030100000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000001000101010102000301010200000203040000030506000003010000020000030000000019010009000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221d80d8cd220400070002001d80d8cd220600050003000600040003001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100b5a2efdd86d0e9af4c";
+const CLAN_PAUSE_DATA_HASH: u64 = 0x762d_812c_6abd_9f18;
+const CLAN_WISH_DATA_HASH: u64 = 0x9ba4_b093_2f81_25ac;
 
 /// "clan" with one value of its life course data changed.
 fn clan_data_with(change: impl FnOnce(&mut serde_json::Value)) -> Data {
@@ -2712,13 +2882,13 @@ fn clan_wish_born() -> File {
     let mut file = clan_born();
     file.data_hash = CLAN_WISH_DATA_HASH;
     take_event(&mut file, 0);
-    file.next_event_seq = 38;
+    file.next_event_seq = 39;
     file
 }
 
 /// "clan" in month 17 with the second conception of the first woman: the draw of month 17
 /// succeeds at the chance 0.25 (u = 0.2064, tools/state_reference.py); the girl's attempts
-/// go on in month 18; the birth is planned by the conception (entry 27). Valid on the clan
+/// go on in month 18; the birth is planned by the conception (entry 31). Valid on the clan
 /// data (no pause, wish 40).
 fn clan_second_conception(data_hash: u64) -> File {
     let mut file = clan_born();
@@ -2728,10 +2898,10 @@ fn clan_second_conception(data_hash: u64) -> File {
     file.queue[0].0 = 18 * MONTH;
     insert_event(
         &mut file,
-        (27 * MONTH, 0, 39, Payload::Birth { mother: 1 }, None),
-        (27, 17 * MONTH),
+        (27 * MONTH, 0, 40, Payload::Birth { mother: 1 }, None),
+        (31, 17 * MONTH),
     );
-    file.next_event_seq = 40;
+    file.next_event_seq = 41;
     file.sims[0].1.5 = 2;
     file.pregnancies = vec![(
         1,
@@ -2744,7 +2914,7 @@ fn clan_second_conception(data_hash: u64) -> File {
             17 * MONTH,
         ),
     )];
-    file.next_event_id = 30;
+    file.next_event_id = 34;
     file
 }
 
@@ -2799,13 +2969,13 @@ fn load_checks_the_pause_and_the_wish() {
                 (
                     16 * MONTH,
                     0,
-                    38,
+                    39,
                     Payload::ConceptionAttempt { woman: 1 },
                     Some(MONTH),
                 ),
-                (26, 15 * MONTH),
+                (29, 15 * MONTH),
             );
-            f.next_event_seq = 39;
+            f.next_event_seq = 40;
         })),
         inconsistent,
         "a series though her wish is reached"
@@ -2821,9 +2991,9 @@ fn load_checks_the_pause_and_the_wish() {
 // (identical 0.3, fraternal 0.7). The first conception in month 5 gives fraternal twins, two
 // boys: the first with the key of clan's first child, the second with its own key and its
 // own zygote (both wild alleles).
-const TWINS_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e54011f9383f5ebe598ccfbbd010f01ff0101000080c8c40b07041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded0101000000000000000100000000000000030101020000020304000003050600000101020002f3c89ad6cdbbe183cd010101000001000000010000ab8392d4eefb94f8c601010000000000000001000080c8c40b00160100090001000b000c000d000e000f0010001180c8c40b0400070002000600050003000600040003000700020005001701010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
-const TWINS_SAVE_AFTER_BIRTH: &str = "53494d4147454e54011f9383f5ebe598ccfbbd010f01ff0101000080d8cd2209041c8080f5240002060180a8a7028080f524002a03010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc40002401070080e0cc400027010800b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00828fc7ad020029020885d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00bc9987fe8e3200280208a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c002b0801ff9fedd704dded83919698d6d0d0010000000001000000000000000102010002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000010102000880d8cd22ab8392d4eefb94f8c601010000000000000001000000000000010102000301010200000203040000030506000000001c01001d80d8cd2209000100178088ff1d188088ff1d198088ff1d1a8088ff1d1b8088ff1d1c8088ff1d1d80d8cd221e80d8cd221d80d8cd220400070002001e80d8cd22060005000300060004001e80d8cd2203001d80d8cd220700020005001f01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100fda1e88b819f88cc1c";
-const TWINS_DATA_HASH: u64 = 0xbdf7_30c6_5d7d_4193;
+const TWINS_SAVE_AFTER_CONCEPTION: &str = "53494d4147454e540120ffdec2aee2a7efbe561001ff0101000080c8c40b0704041680f0eb0d0002060180a8a70280f0eb0d001603030180a8a702fe87ff1d000100018088ff1d8088ff1d00170101008088ff1d00180102008088ff1d00190103008088ff1d001a0104008088ff1d001b0105008088ff1d001c01060080d8cd22001d040100c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c001e0601ff9fedd704dded83919698d6d0d0010000000001000000000000000100010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded010100000000000000010000000000000301000003010102000002030400000305060000030100000200000300000101020002f3c89ad6cdbbe183cd010101000001000000010000ab8392d4eefb94f8c601010000000000000001000080c8c40b00160100090001000e000f0010001100120013001480c8c40b0400070002000600050003000600040003000700020005001a01010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a01000300010203040500";
+const TWINS_SAVE_AFTER_BIRTH: &str = "53494d4147454e540120ffdec2aee2a7efbe561001ff0101000080d8cd220904041e8080f5240002060180a8a7028080f524002c03010180a8a7028080f524001603030180a8a702fe8ffe3b000100018088ff1d8090fe3b001e0101008090fe3b001f0102008090fe3b00200103008090fe3b00210104008090fe3b00220105008090fe3b002301060080e0cc40002401070080e0cc400028010800b0d0e5b9010026020785d2bc82f8b2ead44d00c4e9bcc101000b020385d2bc82f8b2ead44d00c6d0d8e3010014020685d2bc82f8b2ead44d00f4eba580020005020185d2bc82f8b2ead44d00828fc7ad02002a020885d2bc82f8b2ead44d0080e8bcbe04002b0708008088b9b6050027070700f0e8f7c90a0011020585d2bc82f8b2ead44d00e0bd98dd10000e020485d2bc82f8b2ead44d00e6caef83400008020285d2bc82f8b2ead44d00baa8afa1f52d00100205a0bb8ca1c58498a01c00e48880ebba30000a0203a0bb8ca1c58498a01c00bc9987fe8e3200290208a0bb8ca1c58498a01c00d4ee8eed963200070202a0bb8ca1c58498a01c00ee8dcd9aeb3300250207a0bb8ca1c58498a01c0088d1a4e7ec3300130206a0bb8ca1c58498a01c008cfefad2ec3400040201a0bb8ca1c58498a01c009cd68493ae36000d0204a0bb8ca1c58498a01c002d0801ff9fedd704dded83919698d6d0d0010000000001000000000000000102010101000002ffafeb9305f6eb9bebea9bd7c53e0101000000000000010000000000000101000003fffff0df0385b2a2a3e3ecdafac4010001000001000000000000019aada6adcbb284bf720000000000000000010000000000000000000000010201000004ffefe38307f9a4bfd6bdf093fea7010100000000000000010000000000000201000005ffefd4e30afacbdcacb9abf187030000000000000000000000000000010301000006ffefd4e30af1c5c4b2d9a691fded01010000000000000001000000000000030100000780d8cd22f3c89ad6cdbbe183cd010101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000001000101010102000880d8cd22ab8392d4eefb94f8c6010100000000000000010000000000000100010101010200030101020000020304000003050600000301000002000003000000001e01002080d8cd22090001001a8088ff1d1b8088ff1d1c8088ff1d1d8088ff1d1e8088ff1d1f8088ff1d2080d8cd222280d8cd222080d8cd220400070002002280d8cd222280d8cd222080d8cd22060005000300060004002280d8cd2203002080d8cd220700020005002401010100ff0109746573743a636c616e000006ff9fedd70400010f636f72653a646973656173655f6172020001ffafeb930501010f636f72653a646973656173655f6172020100fffff0df0300010f636f72653a646973656173655f6172020101ffefe383070100ffefd4e30a0000ffefd4e30a0100030001020304050100f5bf81f4b6f0978b8501";
+const TWINS_DATA_HASH: u64 = 0x567d_bd3e_25d0_af7f;
 /// The second twin of the first conception.
 const SECOND_TWIN: u64 = 0xc6f0_53de_ea84_81ab;
 /// When the second twin dies of senescence and of accident, if nothing comes first.
@@ -2846,13 +3016,15 @@ fn twins_conceived() -> File {
         .1
         .2
         .push((SECOND_TWIN, MALE, Genes(MALE, WILD, WILD)));
-    file.next_event_id = 23;
+    file.next_event_id = 26;
     file
 }
 
-/// "twins" right after the first birth: both boys (sims 7 and 8) are born in month 15, each
-/// with its birthday and deaths planned by its own entry (29 and 30); her attempts go on
-/// from month 16, planned by the entry of the first; she has two live births.
+/// "twins" right after the first birth: both boys (sims 7 and 8) are born in month 15 into
+/// their parents' household, each with its birthday, deaths and day of leaving home (the
+/// first at 22, the second at 18) planned by its own entry (32 and 34, each followed by
+/// its move); her attempts go on from month 16, planned by the entry of the first; she
+/// has two live births.
 fn twins_born() -> File {
     twins_born_in([0, 1])
 }
@@ -2872,22 +3044,22 @@ fn twins_born_in(order: [usize; 2]) -> File {
         (16 * MONTH, 0, seq, payload, Some(MONTH))
     };
     let events = vec![
-        (attempts(1, 41), (29, 15 * MONTH)),
+        (attempts(1, 43), (32, 15 * MONTH)),
         (attempts(3, 21), (9, 0)),
         ((2 * Y - 1, 0, 1, Payload::YearEnd, Some(Y)), (1, 0)),
-        birthday(1, 29, 23),
-        birthday(2, 30, 24),
-        birthday(3, 31, 25),
-        birthday(4, 32, 26),
-        birthday(5, 33, 27),
-        birthday(6, 34, 28),
+        birthday(1, 29, 26),
+        birthday(2, 30, 27),
+        birthday(3, 31, 28),
+        birthday(4, 32, 29),
+        birthday(5, 33, 30),
+        birthday(6, 34, 31),
         (
             (15 * MONTH + Y, 0, 35, Payload::Birthday { sim: 7 }, None),
-            (29, 15 * MONTH),
+            (32, 15 * MONTH),
         ),
         (
-            (15 * MONTH + Y, 0, 38, Payload::Birthday { sim: 8 }, None),
-            (30, 15 * MONTH),
+            (15 * MONTH + Y, 0, 39, Payload::Birthday { sim: 8 }, None),
+            (34, 15 * MONTH),
         ),
     ];
     (file.queue, file.plan_refs) = events.into_iter().unzip();
@@ -2900,26 +3072,44 @@ fn twins_born_in(order: [usize; 2]) -> File {
             Genes(MALE, DUMMY, DUMMY),
             ar((0.0, None)),
             CHILD_DEATHS,
+            22,
         ),
         (
             SECOND_TWIN,
             Genes(MALE, WILD, WILD),
             Vec::new(),
             SECOND_TWIN_DEATHS,
+            18,
         ),
     ];
-    for ((sim, seq, by), index) in [(7, 36, 29), (8, 39, 30)].into_iter().zip(order) {
-        let (key, genes, afflictions, deaths) = twins[index].clone();
+    for ((sim, seq, by), index) in [(7, 36, 32), (8, 40, 34)].into_iter().zip(order) {
+        let (key, genes, afflictions, deaths, leaves) = twins[index].clone();
         with_deaths(&mut file, sim, deaths, seq, (by, 15 * MONTH));
+        let leave_home = Payload::LeaveHome { sim };
+        let leaving = (15 * MONTH + leaves * Y, 0, seq + 2, leave_home, None);
+        insert_event(&mut file, leaving, (by, 15 * MONTH));
         let born = Some((1, 2, 0));
-        let child = (15 * MONTH, key, MALE, genes, afflictions, 0, 0, 0, born);
+        let child = (
+            15 * MONTH,
+            key,
+            MALE,
+            genes,
+            afflictions,
+            0,
+            0,
+            0,
+            1,
+            false,
+            Some(1),
+            born,
+        );
         file.sims.push((sim, child));
     }
-    file.next_event_seq = 42;
+    file.next_event_seq = 44;
     file.sims[0].1.6 = 2;
     file.pregnancies.clear();
-    file.next_event_id = 31;
-    file.year_hashes = vec![(0, 0x1c98_20f8_117a_10fd)];
+    file.next_event_id = 36;
+    file.year_hashes = vec![(0, 0x8516_5f83_6e80_5ff5)];
     file
 }
 
@@ -2968,7 +3158,9 @@ fn load_checks_the_twins() {
                     .map(|e| {
                         !matches!(
                             e.3,
-                            Payload::Birthday { sim: 8 } | Payload::Death { sim: 8, .. }
+                            Payload::Birthday { sim: 8 }
+                                | Payload::Death { sim: 8, .. }
+                                | Payload::LeaveHome { sim: 8 }
                         )
                     })
                     .collect();
@@ -2992,6 +3184,151 @@ fn load_checks_the_twins() {
     let accepted: Vec<&str> = cases
         .into_iter()
         .filter(|(_, bytes)| twins(bytes.clone()) != Some(LoadError::Inconsistent))
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(accepted, Vec::<&str>::new());
+}
+
+/// Where people live (ADR-0018 sections 4 and 7, ADR-0006 section 5): the households
+/// numbered from 1 without a gap below the counter, each formed and ended by the clock, open
+/// exactly while someone lives in it; every living person in an open household, every
+/// archived one in a household that existed; `moved_out` as the rule gives it; a
+/// `leave_home` exactly for each living person not moved out, at the drawn second; a carer
+/// for each dependent child, in its household and fit to care, or none in a household of
+/// dependents alone; no carer for anyone else.
+#[test]
+fn load_checks_the_households() {
+    let partners = |change: fn(&mut File)| partners_arranged().with(change);
+    let clan = |change: fn(&mut File)| clan_born().with(change);
+    let cases: [(&str, Option<LoadError>); 24] = [
+        // The households.
+        (
+            "a household number skipped",
+            partners_load_error(&partners(|f| {
+                f.households[2].0 = 4;
+                f.next_household_id = 5;
+                f.sims[0].1.8 = 4;
+                f.sims[1].1.8 = 4;
+            })),
+        ),
+        (
+            "the counter not above every household",
+            partners_load_error(&partners(|f| f.next_household_id = 3)),
+        ),
+        (
+            "the counter beyond the next household",
+            partners_load_error(&partners(|f| f.next_household_id = 5)),
+        ),
+        (
+            "a household formed after the second the clock acts in",
+            partners_load_error(&partners(|f| f.households[2].1.0 = Y + 1)),
+        ),
+        (
+            "a household ended after the second the clock acts in",
+            partners_load_error(&partners(|f| f.households[0].1.1 = Some(Y + 1))),
+        ),
+        (
+            "a household ended before it formed",
+            partners_load_error(&partners(|f| f.households[1].1 = (Y, Some(Y - 1)))),
+        ),
+        (
+            "a household not ended without a living member",
+            partners_load_error(&partners(|f| f.households[0].1.1 = None)),
+        ),
+        (
+            "a household ended with living members",
+            partners_load_error(&partners(|f| f.households[2].1.1 = Some(Y))),
+        ),
+        // Where the people are.
+        (
+            "a living person in a household that has ended",
+            partners_load_error(&partners(|f| f.sims[0].1.8 = 1)),
+        ),
+        (
+            "a living person in a household that never existed",
+            partners_load_error(&partners(|f| f.sims[0].1.8 = 9)),
+        ),
+        (
+            "an archived person in a household that never existed",
+            partners_load_error(&partners(|f| f.archive[0].1.10 = 9)),
+        ),
+        // Moved out.
+        (
+            "a founder of a couple not moved out",
+            clan_load_error(&clan(|f| f.sims[0].1.9 = false)),
+        ),
+        (
+            "a minor founder moved out before her day of leaving home",
+            load_error(&File::tiny().with(|f| {
+                f.sims[0].1.9 = true;
+                take_event(f, 2);
+            })),
+        ),
+        (
+            "an archived founder of a couple not moved out",
+            partners_load_error(&partners(|f| f.archive[0].1.11 = false)),
+        ),
+        // The days of leaving home.
+        (
+            "no leave_home for a person not moved out",
+            load_error(&File::tiny().with(|f| {
+                take_event(f, 2);
+            })),
+        ),
+        (
+            "a leave_home not at the drawn second",
+            load_error(&File::tiny().with(|f| f.queue[2].0 += 1)),
+        ),
+        (
+            "a leave_home for a person moved out",
+            clan_load_error(&clan(|f| {
+                let seq = f.next_event_seq;
+                f.next_event_seq += 1;
+                let leaving = (20 * Y, 0, seq, Payload::LeaveHome { sim: 1 }, None);
+                insert_event(f, leaving, (29, 15 * MONTH));
+            })),
+        ),
+        (
+            "two leave_home for one person",
+            load_error(&File::tiny().with(|f| {
+                let (mut twice, plan) = (f.queue[2].clone(), f.plan_refs[2]);
+                twice.2 = f.next_event_seq;
+                f.next_event_seq += 1;
+                insert_event(f, twice, plan);
+            })),
+        ),
+        // The carers.
+        (
+            "a dependent child without a carer in a household with its parents",
+            clan_load_error(&clan(|f| f.sims[6].1.10 = None)),
+        ),
+        (
+            "a carer in another household",
+            clan_load_error(&clan(|f| f.sims[6].1.10 = Some(3))),
+        ),
+        (
+            "a carer who does not live",
+            clan_load_error(&clan(|f| f.sims[6].1.10 = Some(9))),
+        ),
+        (
+            "a carer who is dependent",
+            load_error_with(
+                twins_data(),
+                &twins_born().with(|f| f.sims[7].1.10 = Some(7)),
+            ),
+        ),
+        (
+            "a person not dependent with a carer",
+            clan_load_error(&clan(|f| f.sims[1].1.10 = Some(1))),
+        ),
+        (
+            "a minor alone in her household with herself as carer",
+            load_error(&File::tiny().with(|f| f.sims[0].1.10 = Some(1))),
+        ),
+    ];
+    let accepted: Vec<&str> = cases
+        .into_iter()
+        .filter(|(_, error)| *error != Some(LoadError::Inconsistent))
         .map(|(name, _)| name)
         .collect();
     assert_eq!(accepted, Vec::<&str>::new());
@@ -3048,11 +3385,11 @@ fn load_checks_the_born() {
         ),
         (
             "a child as the mother's second conception",
-            clan_born().with(|f| f.sims[6].1.8 = Some((1, 2, 1))),
+            clan_born().with(|f| f.sims[6].1.11 = Some((1, 2, 1))),
         ),
         (
             "a child with the man as its mother",
-            clan_born().with(|f| f.sims[6].1.8 = Some((2, 1, 0))),
+            clan_born().with(|f| f.sims[6].1.11 = Some((2, 1, 0))),
         ),
         (
             "a child born in the second that is still open, her attempts from then on",
@@ -3297,6 +3634,8 @@ fn empty_started(closed_through: i64, due: i64) -> File {
     file.next_event_seq = 2;
     file.sims.clear();
     file.next_sim_id = 1;
+    file.households.clear();
+    file.next_household_id = 1;
     file.next_event_id = 2;
     start_with_founders(&mut file, Vec::new());
     file
@@ -3312,6 +3651,8 @@ fn never_started() -> File {
     file.next_event_seq = 1;
     file.sims.clear();
     file.next_sim_id = 1;
+    file.households.clear();
+    file.next_household_id = 1;
     file.next_event_id = 1;
     file.input_log.clear();
     file
@@ -3488,11 +3829,15 @@ fn load_rejects_inconsistent_saves() {
         (
             "a living sim beyond the counter, with its birthday and its deaths",
             File::tiny().with(|f| {
-                f.sims.push((5, living(1, -1)));
-                f.queue.insert(1, (Y - 1, 0, 5, birthday(5), None));
+                let mut sim = living(1, -1);
+                sim.8 = 1;
+                f.sims.push((5, sim));
+                f.queue.insert(1, (Y - 1, 0, 6, birthday(5), None));
                 f.plan_refs.insert(1, (2, 0));
-                with_deaths(f, 5, TINY_DEATHS[1], 6, (2, 0));
-                f.next_event_seq = 8;
+                with_deaths(f, 5, TINY_DEATHS[1], 7, (2, 0));
+                let leaving = (19 * Y - 1, 0, 9, Payload::LeaveHome { sim: 5 }, None);
+                insert_event(f, leaving, (2, 0));
+                f.next_event_seq = 10;
             }),
         ),
         (
@@ -3566,9 +3911,9 @@ fn load_rejects_inconsistent_saves() {
         (
             "two birthdays for one sim",
             File::tiny().with(|f| {
-                f.queue.insert(1, (Y - 1, 0, 5, birthday(1), None));
+                f.queue.insert(1, (Y - 1, 0, 6, birthday(1), None));
                 f.plan_refs.insert(1, (2, 0));
-                f.next_event_seq = 6;
+                f.next_event_seq = 7;
             }),
         ),
         (
@@ -3602,7 +3947,7 @@ fn load_rejects_inconsistent_saves() {
         // Companion data.
         (
             "a plan reference to an entry that does not exist yet",
-            File::tiny().with(|f| f.plan_refs[0].0 = 3),
+            File::tiny().with(|f| f.plan_refs[0].0 = 4),
         ),
         (
             "a plan made after now",

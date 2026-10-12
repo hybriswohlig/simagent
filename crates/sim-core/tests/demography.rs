@@ -92,7 +92,7 @@ fn demography_rejects() {
             "data.format_version",
         ),
         (
-            Box::new(|d| d["format_version"] = json!(2)),
+            Box::new(|d| d["format_version"] = json!(3)),
             "data.format_version",
         ),
         (

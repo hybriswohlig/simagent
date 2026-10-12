@@ -251,7 +251,7 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             .with(Cause::Random(DrawRef::from(noise_key(
                 her_key, month, his_key,
             ))));
-        partnership::pair_up_with(domain, data, (woman, man), causes, ctx);
+        partnership::pair_and_move(domain, data, (woman, man), causes, ctx);
     }
 }
 

@@ -133,7 +133,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":3,"core_version":31,"data_hash":"c466265f81ba9819","build_commit":"unknown"}"#,
+            r#"{"format_version":3,"core_version":32,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[]}}}"#,
             "\n",
@@ -148,7 +148,9 @@ fn run_writes_the_run_directory() {
             "\n",
             r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1,"lineage_key":"5ed9498f7efac998"}}}"#,
             "\n",
-            r#"{"id":3,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
+            r#"{"id":3,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":1}}}"#,
+            "\n",
+            r#"{"id":4,"t":31449599,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
             "\n",
         )
     );
@@ -160,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":3,"core_version":31,"data_hash":"c466265f81ba9819","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"2b98b1f26cea913d"}],"log_hash":"6bed3b6ab04c2db0"}"#,
+            r#"{"format_version":3,"core_version":32,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"2ae282337239f9ea"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -171,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e54011f99b0ea8df8cb89b3c4010f01ff01010000fe87ff1d0201058088ff1d0002060180a8a702fe8ffe3b0006010100fe8ffe3b000100018088ff1dd0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00070101019893ebf7f7b1d2ec5e0000000001000000000000000000000000000005010003fe87ff1d0100020002000401010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100bda2aae7a6beaccc2b"
+        "53494d4147454e540120dc88d0bdf584d4d5ad011001ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e000000000100000000000000000000010000000001010000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f6172020001000100eaf3e791b7c6a0f12a"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -210,7 +212,7 @@ fn replay_from_input_log_matches_scenario_run() {
     assert_same_run(&original, &replayed);
     let manifest: Value = serde_json::from_str(&text(&manifest)).expect("json");
     assert_eq!(manifest["year_hashes"].as_array().expect("array").len(), 10);
-    assert_eq!(text(&original.join("events.ndjson")).lines().count(), 34);
+    assert_eq!(text(&original.join("events.ndjson")).lines().count(), 37);
     // Without the manifest the replay runs as well; it only has nothing to compare with.
     let unchecked = dir.join("unchecked");
     must(&["run", "--replay", arg(&log), "--out", arg(&unchecked)]);
@@ -621,16 +623,16 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":31"#, r#""core_version":32"#);
+    replace_in(&log, r#""core_version":32"#, r#""core_version":33"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 32, this is 31"
+        "error: replay_foreign_core_version: the input log is of core version 33, this is 32"
     );
-    replace_in(&log, r#""core_version":32"#, r#""core_version":31"#);
-    replace_in(&log, "c466265f81ba9819", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":33"#, r#""core_version":32"#);
+    replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is c466265f81ba9819"
+        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is adab502757b4045c"
     );
     assert!(!out.exists(), "a rejected replay writes nothing");
 }
@@ -671,7 +673,8 @@ fn replay_reports_first_divergent_year() {
     );
     // The replay ended there (ADR-0003 1.4): the years 0 to 3 are written, nothing later.
     assert_eq!(text(&out.join("census.csv")).lines().count(), 1 + 4);
-    assert_eq!(text(&out.join("events.ndjson")).lines().count(), 4 + 4 * 3);
+    // `Start` with its three households, then three birthdays a year.
+    assert_eq!(text(&out.join("events.ndjson")).lines().count(), 7 + 4 * 3);
 }
 
 /// The manifest also carries the log hash of the original run; a replay compares it at
@@ -681,7 +684,7 @@ fn replay_compares_the_log_hash() {
     let dir = scratch("log_hash");
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let manifest_path = original.join("manifest.json");
-    replace_in(&manifest_path, "6bed3b6ab04c2db0", "6bed3b6ab04c2db1");
+    replace_in(&manifest_path, "6d23128b21469cb5", "6bed3b6ab04c2db1");
     let log = original.join("input.ndjson");
     assert_eq!(
         error_of(&[
@@ -693,7 +696,7 @@ fn replay_compares_the_log_hash() {
             "--out",
             arg(&dir.join("out")),
         ]),
-        "error: replay_diverged: the log hash is 6bed3b6ab04c2db0, the manifest says 6bed3b6ab04c2db1"
+        "error: replay_diverged: the log hash is 6d23128b21469cb5, the manifest says 6bed3b6ab04c2db1"
     );
 }
 
@@ -916,7 +919,7 @@ fn a_session_writes_each_census_row_once() {
         text(&dir.join("census.csv")),
         "year,living,lived_secs\n0,1,31449600\n1,1,31449600\n2,1,31449600\n"
     );
-    assert_eq!(text(&dir.join("events.ndjson")).lines().count(), 5);
+    assert_eq!(text(&dir.join("events.ndjson")).lines().count(), 6);
 }
 
 /// ADR-0004 section 4: a replay ends with an error if a stamp differs or an input is
@@ -1106,8 +1109,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 31, "the core version in the header of the save");
-    bytes[9] = 32;
+    assert_eq!(bytes[9], 32, "the core version in the header of the save");
+    bytes[9] = 33;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

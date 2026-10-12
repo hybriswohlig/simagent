@@ -3,7 +3,7 @@
 //! first death of the two or with their separation, whose time a budget fixes when it
 //! forms (ADR-0018 section 3), and stays as history.
 
-use super::{DomainState, EndedBy, Ending, Partnership, Slot, conception, market};
+use super::{DomainState, EndedBy, Ending, Partnership, Slot, conception, household, market};
 use crate::data::Data;
 use crate::genome::Sex;
 use crate::ids::{EventId, PartnershipId, SimId};
@@ -131,7 +131,21 @@ pub(crate) fn apply_arrange(
     pair: &ArrangePartnership,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    pair_up(domain, data, pair.woman, pair.man, ctx);
+    let causes = Causes::new(ctx.trigger());
+    pair_and_move(domain, data, (pair.woman, pair.man), causes, ctx);
+}
+
+/// A partnership formed now after `Start` (an input or the market): `pair_up_with`, then
+/// the couple founds its household (ADR-0018 section 4).
+pub(crate) fn pair_and_move(
+    domain: &mut DomainState,
+    data: &Data,
+    couple: (SimId, SimId),
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let (_, entry) = pair_up_with(domain, data, couple, causes, ctx);
+    household::pair_moves(domain, couple, entry, ctx);
 }
 
 /// A new partnership of two living sims, formed now, with its creation entry caused
@@ -145,7 +159,7 @@ pub(crate) fn pair_up(
     ctx: &mut SimCtx<'_, '_>,
 ) -> PartnershipId {
     let causes = Causes::new(ctx.trigger());
-    pair_up_with(domain, data, (woman, man), causes, ctx)
+    pair_up_with(domain, data, (woman, man), causes, ctx).0
 }
 
 /// As `pair_up`, with the causes of the creation entry given (the market names its rule
@@ -156,7 +170,7 @@ pub(crate) fn pair_up_with(
     (woman, man): (SimId, SimId),
     causes: Causes,
     ctx: &mut SimCtx<'_, '_>,
-) -> PartnershipId {
+) -> (PartnershipId, EventId) {
     let (id, entry) = ctx.create_partnership(woman, man, causes);
     domain.open.insert(woman, id);
     domain.open.insert(man, id);
@@ -172,7 +186,7 @@ pub(crate) fn pair_up_with(
     let start = conception::series_after_pairing(ctx.now());
     conception::plan_attempts(domain, data, woman, entry, start, ctx);
     plan_separation(domain, data, (id, woman, man), entry, ctx);
-    id
+    (id, entry)
 }
 
 /// The address of the budget of the separation of her partnership number `k` with him
@@ -266,12 +280,13 @@ pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &m
         .and_then(|person| person.partnerships.checked_sub(1))
         .unwrap_or_else(|| panic!("invariant partnership.count"));
     let draw = separation_key(her, k, his);
-    ctx.emit(
+    let separated = ctx.emit(
         LogPayload::Separated { partnership: id },
         alloc::vec![Subject::Sim(woman), Subject::Sim(man)],
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
     conception::stop_attempts(domain, woman, ctx);
+    household::separation_moves(domain, (woman, man), separated, ctx);
 }
 
 /// The partnership of `sim` that has not ended, if any; a sim has at most one. Read from

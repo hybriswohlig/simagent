@@ -13,7 +13,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{ArchivedSim, DomainState, LeftBy, Slot, disease, partnership};
+use super::{ArchivedSim, DomainState, LeftBy, Slot, disease, household, partnership};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::genome::{Genome, Sex};
@@ -228,7 +228,7 @@ pub(crate) fn on_death(
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
     let draw = budget_key(person.lineage_key, cause);
-    ctx.emit(
+    let entry = ctx.emit(
         LogPayload::Death { cause: code },
         vec![Subject::Sim(sim)],
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
@@ -257,6 +257,8 @@ pub(crate) fn on_death(
             conceptions: person.conceptions,
             births: person.births,
             partnerships: person.partnerships,
+            household: person.household,
+            moved_out: person.moved_out,
             parents: person.parents,
         },
     );
@@ -266,7 +268,12 @@ pub(crate) fn on_death(
             domain.lineage.remove(unborn.lineage_key);
         }
     }
+    // The partner of the partnership this death ends may take over its children.
+    let partner = partnership::open_partnership(domain, sim)
+        .and_then(|id| domain.partnerships.get(&id))
+        .map(|p| if p.woman == sim { p.man } else { p.woman });
     partnership::end_with_death(domain, sim, ctx);
+    household::death_moves(domain, sim, person.household, partner, entry, ctx);
 }
 
 #[cfg(test)]

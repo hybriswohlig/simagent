@@ -2,7 +2,9 @@
 //! child enters the world with the next SimId, its parents and the genome fixed at its
 //! conception.
 
-use super::{DomainState, Parents, Sim, Slot, conception, death, disease, partnership, start};
+use super::{
+    DomainState, Parents, Sim, Slot, conception, death, disease, household, partnership, start,
+};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::ids::SimId;
@@ -40,6 +42,11 @@ pub(crate) fn on_birth(
     // The rule of a gestation, the cause of the birth next to the plan.
     let rule = Code::new("core:gestation").unwrap_or_else(|_| panic!("invariant birth.rule_code"));
     let mut first = None;
+    let mother_household = domain
+        .sims
+        .get(&mother)
+        .map(|her| her.household)
+        .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", mother.get()));
     for unborn in &pregnancy.children {
         let (child, born) = ctx.create_child(
             LogPayload::Birth {
@@ -68,6 +75,10 @@ pub(crate) fn on_birth(
                 conceptions: 0,
                 births: 0,
                 partnerships: 0,
+                // Set by `household::born_into` right after.
+                household: mother_household,
+                moved_out: false,
+                carer: Some(mother),
                 parents: Some(Parents {
                     mother,
                     father: pregnancy.father,
@@ -75,11 +86,13 @@ pub(crate) fn on_birth(
                 }),
             },
         );
+        household::born_into(domain, child, mother, ctx);
         let next = start::first_birthday(now, now);
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: child }, born);
         domain.pending.insert((child, Slot::Birthday), handle);
         ctx.trace(child, || TracePayload::BirthdayPlanned { next });
         death::plan_deaths(domain, data, child, born, ctx);
+        household::plan_leave(domain, data, child, born, ctx);
     }
     let born = first.unwrap_or_else(|| panic!("invariant birth.children"));
     let Some(her) = domain.sims.get_mut(&mother) else {

@@ -93,10 +93,15 @@ fn without_numbers(value: &mut Value) {
 )]
 pub fn demography() -> Value {
     let read: Value = serde_json::from_str(DEMOGRAPHY).expect("json");
+    let texts = &["source", "as_of", "note"];
     without(
-        without(read, "values", &["source", "as_of", "note"]),
-        "fertility_wish_shape",
-        &["source", "as_of", "note"],
+        without(
+            without(read, "values", texts),
+            "fertility_wish_shape",
+            texts,
+        ),
+        "leave_home_ages",
+        texts,
     )
 }
 

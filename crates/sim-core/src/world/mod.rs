@@ -210,6 +210,10 @@ impl WorldState {
         self.ids.next_partnership()
     }
 
+    pub(crate) fn next_household_id(&self) -> u64 {
+        self.ids.next_household()
+    }
+
     /// `None` until `Start` was applied.
     pub fn world_seed(&self) -> Option<u64> {
         self.domain.world_seed
@@ -281,6 +285,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::MarketRound => {
                 state::market::on_round(&mut self.domain, &self.data, &mut ctx);
             }
+            EventPayload::LeaveHome { sim } => {
+                state::household::on_leave_home(&mut self.domain, sim, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -305,7 +312,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::ConceptionAttempt { .. }
             | EventPayload::Birth { .. }
             | EventPayload::Separation { .. }
-            | EventPayload::MarketRound => {
+            | EventPayload::MarketRound
+            | EventPayload::LeaveHome { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -364,6 +372,8 @@ mod tests {
             conceptions: 0,
             births: 0,
             partnerships: 0,
+            household: crate::ids::HouseholdId::try_from(1).expect("valid"),
+            moved_out: false,
             parents: None,
         }
     }
@@ -372,18 +382,24 @@ mod tests {
     /// planned by `Start` with `core:started` (entry 1) as its `by`, then the series of
     /// the market rounds from the first month start. Each founder's first
     /// birthday is a single event with the founder's creation entry as its `by`; its two
-    /// deaths follow it in the insertion numbers (tests/death.rs checks them).
+    /// deaths follow it in the insertion numbers (tests/death.rs checks them), and at the
+    /// end each founder under 18 has its leaving home (ADR-0018 section 4, tests/homes.rs).
     #[test]
     fn start_plans_the_year_end_series_and_first_birthdays() {
         let mut world = World::new(testing::data());
         world.submit(start(&[-5, -1])).expect("accepted");
         let snapshot = world.sched.snapshot();
-        assert_eq!(snapshot.next_seq, 9);
+        assert_eq!(snapshot.next_seq, 11);
         let sim = |n: u64| SimId::try_from(n).expect("valid");
         let seen: Vec<_> = snapshot
             .entries
             .iter()
-            .filter(|entry| !matches!(entry.payload, EventPayload::Death { .. }))
+            .filter(|entry| {
+                !matches!(
+                    entry.payload,
+                    EventPayload::Death { .. } | EventPayload::LeaveHome { .. }
+                )
+            })
             .map(|entry| {
                 (
                     entry.time.as_secs(),
@@ -528,6 +544,9 @@ mod tests {
                 conceptions: 0,
                 births: 0,
                 partnerships: 0,
+                household: crate::ids::HouseholdId::try_from(1).expect("valid"),
+                moved_out: false,
+                carer: None,
                 parents: None,
             },
         );
@@ -564,7 +583,7 @@ mod tests {
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
     /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
-    /// birth (0), no partnership (0) and no parents (0).
+    /// birth (0), no partnership (0), household 1, not moved out (0) and no parents (0).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
@@ -580,7 +599,7 @@ mod tests {
         expected.pop();
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 
@@ -597,7 +616,8 @@ mod tests {
         let bytes = world.save(&[]).expect("saves");
         let (loaded, _) = World::load(&bytes, testing::data()).expect("loads");
         assert_eq!(loaded.inputs.next_seq.peek(), 2);
-        assert_eq!(loaded.state.log.next_event(), 3);
+        // `core:started`, the founder and its household.
+        assert_eq!(loaded.state.log.next_event(), 4);
         assert_eq!(loaded.state.ids.next_sim(), 2);
     }
 
@@ -627,7 +647,11 @@ mod tests {
             run(1_000_001);
         assert_eq!(first_id, "1");
         assert_eq!(shifted_first_id, "1000001");
-        assert_eq!(entries, 3 + 4, "start entries and four birthdays");
+        assert_eq!(
+            entries,
+            5 + 4,
+            "start entries, two households and four birthdays"
+        );
         assert_eq!(shifted_entries, entries);
         assert_eq!(years.len(), 2);
         assert_eq!(shifted_years, years);

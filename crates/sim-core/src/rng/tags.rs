@@ -99,6 +99,10 @@ pub const MARKET_ORDER: PurposeTag = PurposeTag::from_pinned_list(20);
 /// lineage key.
 pub const PAIRING_NOISE: PurposeTag = PurposeTag::from_pinned_list(21);
 
+/// The age at which a person leaves home, from the table of the data (ADR-0018 section
+/// 4). subject: the person's lineage key; occasion: 0; detail: 0.
+pub const LEAVE_HOME: PurposeTag = PurposeTag::from_pinned_list(22);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -122,6 +126,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (MARKET_SEARCH, "MARKET_SEARCH"),
     (MARKET_ORDER, "MARKET_ORDER"),
     (PAIRING_NOISE, "PAIRING_NOISE"),
+    (LEAVE_HOME, "LEAVE_HOME"),
 ];
 
 /// Values of deleted tags; they are never used again.

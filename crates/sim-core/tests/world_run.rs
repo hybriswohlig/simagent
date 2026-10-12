@@ -4,11 +4,12 @@
 //! Scenario as in `world_start.rs`: three founders born 30 years (sim 1), 25 years and
 //! 100 days (sim 2) and one second (sim 3) before the start. YEAR = 31 449 600 s.
 //! By hand from the ADRs:
-//! - `Start` writes entries 1 to 4 at t = 0.
+//! - `Start` writes entries 1 to 7 at t = 0: `core:started`, the three founders and their
+//!   three households (ADR-0018 section 4; sim 3 leaves home only after the ten years).
 //! - The first birthday is the first anniversary at or after t = 0: sim 1 at 0 (age 30),
 //!   sim 2 at 22 809 600 (day 264, age 26), sim 3 at YEAR - 1 (age 1). Each birthday
 //!   plans the next one a year later, with its own entry as `by`.
-//! - In year k: sim 1 is entry 5 + 3k, sim 2 entry 6 + 3k, sim 3 entry 7 + 3k.
+//! - In year k: sim 1 is entry 8 + 3k, sim 2 entry 9 + 3k, sim 3 entry 10 + 3k.
 //! - The year end of year k runs at (k + 1) * YEAR - 1, after sim 3's birthday in the
 //!   same second, and counts 3 living sims with 3 * YEAR lived seconds.
 
@@ -65,7 +66,7 @@ fn lines(log: &[LogEntry]) -> Vec<String> {
 
 /// The birthday entry of `sim` (1 to 3) in year `k`, from the rules in the header.
 fn birthday_line(k: i64, sim: i64) -> String {
-    let id = 4 + 3 * k + sim;
+    let id = 7 + 3 * k + sim;
     let (t, age) = match sim {
         1 => (k * Y, 30 + k),
         2 => (k * Y + 22_809_600, 26 + k),
@@ -114,7 +115,7 @@ fn run_in_steps(world: &mut World, width: i64) -> (Vec<String>, YearOut) {
 fn ten_years_of_birthdays_are_pinned() {
     let mut world = started(&BORN);
     let start_log = world.take_log();
-    assert_eq!(start_log.len(), 4);
+    assert_eq!(start_log.len(), 7);
     let mut out = YearOut::default();
     let outcome = world.advance_until(&mut out, SimTime::from_secs(END), &mut |_| false);
     assert_eq!(outcome, AdvanceOutcome::ReachedLimit);
@@ -125,23 +126,23 @@ fn ten_years_of_birthdays_are_pinned() {
     let spots = [
         (
             0,
-            r#"{"id":5,"t":0,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":30}}}"#,
+            r#"{"id":8,"t":0,"subjects":[{"sim":1}],"causes":[{"plan":{"by":2,"planned_at":0}}],"payload":{"core:birthday":{"age_years":30}}}"#,
         ),
         (
             1,
-            r#"{"id":6,"t":22809600,"subjects":[{"sim":2}],"causes":[{"plan":{"by":3,"planned_at":0}}],"payload":{"core:birthday":{"age_years":26}}}"#,
+            r#"{"id":9,"t":22809600,"subjects":[{"sim":2}],"causes":[{"plan":{"by":3,"planned_at":0}}],"payload":{"core:birthday":{"age_years":26}}}"#,
         ),
         (
             2,
-            r#"{"id":7,"t":31449599,"subjects":[{"sim":3}],"causes":[{"plan":{"by":4,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
+            r#"{"id":10,"t":31449599,"subjects":[{"sim":3}],"causes":[{"plan":{"by":4,"planned_at":0}}],"payload":{"core:birthday":{"age_years":1}}}"#,
         ),
         (
             3,
-            r#"{"id":8,"t":31449600,"subjects":[{"sim":1}],"causes":[{"plan":{"by":5,"planned_at":0}}],"payload":{"core:birthday":{"age_years":31}}}"#,
+            r#"{"id":11,"t":31449600,"subjects":[{"sim":1}],"causes":[{"plan":{"by":8,"planned_at":0}}],"payload":{"core:birthday":{"age_years":31}}}"#,
         ),
         (
             29,
-            r#"{"id":34,"t":314495999,"subjects":[{"sim":3}],"causes":[{"plan":{"by":31,"planned_at":283046399}}],"payload":{"core:birthday":{"age_years":10}}}"#,
+            r#"{"id":37,"t":314495999,"subjects":[{"sim":3}],"causes":[{"plan":{"by":34,"planned_at":283046399}}],"payload":{"core:birthday":{"age_years":10}}}"#,
         ),
     ];
     for (index, line) in spots {
@@ -151,8 +152,8 @@ fn ten_years_of_birthdays_are_pinned() {
     // (senescence and accident, ADR-0017 section 2).
     assert_eq!(
         world.pending_events(),
-        11,
-        "year end series, market rounds, 3 birthdays and 6 deaths"
+        12,
+        "year end series, market rounds, 3 birthdays, 6 deaths and sim 3's leaving home"
     );
 }
 
@@ -342,7 +343,7 @@ fn yearly_balance_log_matches_state() {
         }
         assert_eq!(state.born(SimId::try_from(4).expect("valid")), None);
     }
-    assert_eq!(log.len(), 34);
+    assert_eq!(log.len(), 37);
 }
 
 /// An accepted input never breaks an invariant later (ADR-0004 section 4): the oldest

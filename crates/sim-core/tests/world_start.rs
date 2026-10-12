@@ -114,7 +114,8 @@ fn start_is_stamped_minus_one_seq_one() {
 /// ADR-0004 section 7: `core:started` comes first; every founder gets one creation
 /// entry. An input's entries carry `now`, the second after its stamp (ADR-0002). The
 /// lineage keys are those of the founders 0 to 2 of `test:world_start` (ADR-0001
-/// section 4, values from tools/rng_reference.py).
+/// section 4, values from tools/rng_reference.py). Then the households (ADR-0018 section
+/// 4): the two adults each their own, then the founder under 18 his own.
 #[test]
 fn start_writes_started_then_one_founder_added_each() {
     let mut world = World::new(common::data());
@@ -124,6 +125,9 @@ fn start_writes_started_then_one_founder_added_each() {
         r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-943488000,"lineage_key":"84828ab838f0f36a"}}}"#,
         r#"{"id":3,"t":0,"subjects":[{"sim":2}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-794880000,"lineage_key":"c4e5b66af9b28b79"}}}"#,
         r#"{"id":4,"t":0,"subjects":[{"sim":3}],"causes":[{"input":1}],"payload":{"core:founder_added":{"born":-1,"lineage_key":"f6b2e48506372978"}}}"#,
+        r#"{"id":5,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":1}}}"#,
+        r#"{"id":6,"t":0,"subjects":[{"sim":2}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":2}}}"#,
+        r#"{"id":7,"t":0,"subjects":[{"sim":3}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":3}}}"#,
     ];
     assert_eq!(lines(&world.take_log()), expected);
 }
@@ -148,8 +152,8 @@ fn start_records_seed_and_founders() {
     assert_eq!(state.born(sim(4)), None);
     assert_eq!(
         world.pending_events(),
-        11,
-        "the series of the year end and the rounds, three first birthdays and two deaths each"
+        12,
+        "the series of the year end and the rounds, three first birthdays, two deaths each and the leaving home of the founder under 18"
     );
     assert_eq!(world.stats().contexts, 1, "one applied input");
     assert_eq!(world.closed_through(), SimTime::from_secs(-1));
@@ -166,7 +170,8 @@ fn more_founders_give_more_sims() {
         .expect("accepted");
     assert_eq!(small.state().living(), 3);
     assert_eq!(large.state().living(), 5);
-    assert_eq!(large.take_log().len(), 6);
+    // `core:started`, five founders and their five households.
+    assert_eq!(large.take_log().len(), 11);
 }
 
 /// Lever test: the world parameters of the input are those of the world, and they are
@@ -219,7 +224,7 @@ fn a_start_without_founders_writes_only_started() {
 fn take_log_hands_the_buffer_over() {
     let mut world = World::new(common::data());
     world.submit(start_with(&BORN)).expect("accepted");
-    assert_eq!(world.take_log().len(), 4);
+    assert_eq!(world.take_log().len(), 7);
     assert!(world.take_log().is_empty());
 }
 
@@ -396,7 +401,7 @@ fn an_override_block_changes_the_world_parameters() {
     assert_eq!(
         lines(&world.take_log()),
         [
-            r#"{"id":3,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
+            r#"{"id":4,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
         ]
     );
     assert_ne!(world.state_hash(), hash, "the parameters are state");
@@ -421,7 +426,7 @@ fn an_override_block_changes_the_world_parameters() {
     assert_eq!(
         lines(&world.take_log()),
         [
-            r#"{"id":4,"t":100,"subjects":[],"causes":[{"input":3}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
+            r#"{"id":5,"t":100,"subjects":[],"causes":[{"input":3}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
         ]
     );
     world.submit(override_block(&[false])).expect("accepted");
@@ -548,8 +553,8 @@ fn an_override_sets_the_nutrition_index_of_a_year() {
     assert_eq!(
         lines(&world.take_log()),
         [
-            r#"{"id":5,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":3,"index":0.7}}}}}"#,
-            r#"{"id":6,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":5,"index":0.8}}}}}"#
+            r#"{"id":8,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":3,"index":0.7}}}}}"#,
+            r#"{"id":9,"t":0,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:nutrition_year":{"year":5,"index":0.8}}}}}"#
         ]
     );
     assert_ne!(world.state_hash(), hash, "the index is state");

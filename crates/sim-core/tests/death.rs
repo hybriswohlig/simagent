@@ -33,34 +33,36 @@ use sim_core::world::{CensusRow, World, YearOut};
 const Y: i64 = 31_449_600;
 
 // tools/state_reference.py
-const MORTAL_AFTER_START: &str = "0f01ff010100000103010880a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c0009020101dded90d1a3f7cbf6b301000000000100000000000000000000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000000000000";
-const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54011ffeb1f289c9e7b1bdcc010f01ff010100000103010880a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c0009020101dded90d1a3f7cbf6b301000000000100000000000000000000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000000000008010003000200010002000300030002000401010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
-const MORTAL_AFTER_YEAR_5: &str = "0f01ff01010000feaffab30103010280b0fab3010002060180a8a702feb7f9d101000100018088ff1d12000000020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000000";
-const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54011ffeb1f289c9e7b1bdcc010f01ff01010000feaffab30103010280b0fab3010002060180a8a702feb7f9d101000100018088ff1d12000000020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b301000000000100000000000000000000000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000002010001000f01010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f6172020101000600edf3e6d0f1cebaf33902ebac82a7c480e8e1840104b1cbaab6e3b3aaa3f00106a0e7f798afb18a813208b9f8b599b3afb6a689010aaabc9e84e4d489a9ba01";
-const MORTAL_LOG: [&str; 14] = [
+const MORTAL_AFTER_START: &str = "1001ff01010000010301030a80a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c00fc9fedd704000a070200fec7e8ed0500090701000b020101dded90d1a3f7cbf6b301000000000100000000000000000000010000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf720000000000000000010000000000000000000000000200000000020100000200000000";
+const MORTAL_SAVE_AFTER_START: &str = "53494d4147454e54012097e4b4c08affa1e17e1001ff01010000010301030a80a8a7020002060180a8a702fc87ff1d0006010200fe87ff1d0003010100fe87ff1d000100018088ff1daaa1e380010005020185d2bc82f8b2ead44d00aea2e2a9010008020285d2bc82f8b2ead44d009ae1f9c50100070202a0bb8ca1c58498a01c009aadc9f70100040201a0bb8ca1c58498a01c00fc9fedd704000a070200fec7e8ed0500090701000b020101dded90d1a3f7cbf6b301000000000100000000000000000000010000000203cbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000002000000000201000002000000000a01000300020001000200030003000200030002000601010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010000";
+const MORTAL_AFTER_YEAR_5: &str = "1001ff01010000feaffab3010301030280b0fab3010002060180a8a702feb7f9d101000100018088ff1d14000002010001aaa1e38001020001aea2e2a90100020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b3010000000001000000000000000000000100000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf72000000000000000001000000000000000000000000020000";
+const MORTAL_SAVE_AFTER_YEAR_5: &str = "53494d4147454e54012097e4b4c08affa1e17e1001ff01010000feaffab3010301030280b0fab3010002060180a8a702feb7f9d101000100018088ff1d14000002010001aaa1e38001020001aea2e2a90100020101aaa1e380010085d2bc82f8b2ead44ddded90d1a3f7cbf6b3010000000001000000000000000000000100000203aea2e2a9010085d2bc82f8b2ead44dcbdbe1f0b893cbc91e0101000001000000010000019aada6adcbb284bf7200000000000000000100000000000000000000000002000002010001001101010100ff010b746573743a6d6f7274616c0000020100010f636f72653a646973656173655f61720200010301010f636f72653a646973656173655f61720201010006008eaddaaa99e3cf8cd00102f6e09cc8edc5a2fda00104c1c18ec8a78280f21106818094c9b6e0b0eefb0108c5a2a9ad95ef9395050aedeae0d9b7b2eb95aa01";
+const MORTAL_LOG: [&str; 16] = [
     "0100000102010002",
     "02000100010102010101dded90d1a3f7cbf6b301",
     "03000100020102010103cbdbe1f0b893cbc91e",
-    "04fc87ff1d010002010103000201",
-    "05fe87ff1d010001010102000201",
-    "06fc8ffe3b010002010104fc87ff1d0202",
-    "07fe8ffe3b010001010105fe87ff1d0202",
-    "08fc97fd59010002010106fc8ffe3b0203",
-    "09fe97fd59010001010107fe8ffe3b0203",
-    "0afc9ffc77010002010108fc97fd590204",
-    "0bfe9ffc77010001010109fe97fd590204",
-    "0caaa1e38001010001020102000404dded90d1a3f7cbf6b30185d2bc82f8b2ead44d00040d636f72653a6163636964656e74",
-    "0dfca7fb950101000201010afc9ffc770205",
-    "0eaea2e2a901010002020103000404cbdbe1f0b893cbc91e85d2bc82f8b2ead44d00040d636f72653a6163636964656e74",
+    "0400010001020201030e636f72653a686f757365686f6c640a01",
+    "0500010002020201030e636f72653a686f757365686f6c640a02",
+    "06fc87ff1d010002010103000201",
+    "07fe87ff1d010001010102000201",
+    "08fc8ffe3b010002010106fc87ff1d0202",
+    "09fe8ffe3b010001010107fe87ff1d0202",
+    "0afc97fd59010002010108fc8ffe3b0203",
+    "0bfe97fd59010001010109fe8ffe3b0203",
+    "0cfc9ffc7701000201010afc97fd590204",
+    "0dfe9ffc7701000101010bfe97fd590204",
+    "0eaaa1e38001010001020102000404dded90d1a3f7cbf6b30185d2bc82f8b2ead44d00040d636f72653a6163636964656e74",
+    "0ffca7fb950101000201010cfc9ffc770205",
+    "10aea2e2a901010002020103000404cbdbe1f0b893cbc91e85d2bc82f8b2ead44d00040d636f72653a6163636964656e74",
 ];
-const MORTAL_LOG_HASH: u64 = 0xcb0a_2e01_d573_81d7;
+const MORTAL_LOG_HASH: u64 = 0xa845_33fd_53a1_3f56;
 const MORTAL_YEAR_HASHES: [u64; 6] = [
-    0x39e6_ea77_1a19_b9ed,
-    0x84c3_a004_44e0_966b,
-    0xf046_a99e_36ca_a5b1,
-    0x3202_298a_f31d_f3a0,
-    0x894c_d97b_332d_7c39,
-    0xba52_26a6_4087_9e2a,
+    0xd019_3f19_9556_968e,
+    0xa0fa_8a2e_d907_3076,
+    0x11e4_0012_7903_a0c1,
+    0xfbdc_c303_6925_0001,
+    0x052a_4f79_55aa_5145,
+    0xaa2b_ad93_7b38_356d,
 ];
 /// When she and he die of accident, in seconds.
 const HER_DEATH: i64 = 135_030_869;
@@ -70,8 +72,8 @@ const SENESCENCE: u64 = 0x1c40_6024_5423_1da0;
 const ACCIDENT: u64 = 0x4da9_a997_8040_2905;
 /// "tie": her senescence and her accident are due in this second.
 const TIE_DUE: i64 = 118_372_196;
-const TIE_SAVE: &str = "53494d4147454e54011fb581b8cfeff3c1ceaf010f01ff01010000fe9ffc7702010280a0fc770002060180a8a702fea7fb9501000100018088ff1d09000000010101c8ddf17000a0bb8ca1c58498a01cf0da979a8fd9f18a95010000000001000000000000000000000002010001000701010100ff0108746573743a7469650000010100010f636f72653a646973656173655f6172020001000400e3efc8e198b9c9d8de01029ed0add9a2c781931804b8efaedafd9bb291f50106eca592aafef7b4f461";
-const TIE_DEATH_ENTRY: &str = "06c8ddf170010001020102000404f0da979a8fd9f18a9501a0bb8ca1c58498a01c00040f636f72653a73656e657363656e6365";
+const TIE_SAVE: &str = "53494d4147454e540120ebe4c889ffd0bdbadf011001ff01010000fe9ffc770201020280a0fc770002060180a8a702fea7fb9501000100018088ff1d0a000001010001c8ddf17000010101c8ddf17000a0bb8ca1c58498a01cf0da979a8fd9f18a950100000000010000000000000000000001000002010001000801010100ff0108746573743a7469650000010100010f636f72653a646973656173655f6172020001000400bf8ac3f881c59f995f02f5a8faaad7f5b5a1dc0104bdfbcac5aedce9ca28069ecd83fd99e9afa68001";
+const TIE_DEATH_ENTRY: &str = "07c8ddf170010001020102000404f0da979a8fd9f18a9501a0bb8ca1c58498a01c00040f636f72653a73656e657363656e6365";
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len())
@@ -144,8 +146,8 @@ fn start_plans_a_death_per_cause() {
     assert_eq!(world.canonical_bytes(), hex(MORTAL_AFTER_START));
     assert_eq!(
         world.pending_events(),
-        8,
-        "the year end series, the market rounds, two birthdays and four deaths"
+        10,
+        "the year end series, the market rounds, two birthdays, four deaths and two leavings of home"
     );
     world.take_log();
     assert_eq!(
@@ -168,9 +170,9 @@ fn a_sim_dies_when_its_budget_runs_out() {
     assert_eq!(entries, MORTAL_LOG.map(hex));
     assert_eq!(log_hash(&run.log), MORTAL_LOG_HASH);
     assert_eq!(
-        serde_json::to_string(&run.log[11]).expect("json"),
+        serde_json::to_string(&run.log[13]).expect("json"),
         format!(
-            r#"{{"id":12,"t":{HER_DEATH},"subjects":[{{"sim":1}}],"causes":[{{"plan":{{"by":2,"planned_at":0}}}},{{"random":{{"tag":"0000000000000004","subject":"b3ed2fba3a2436dd","occasion":"4da9a997804f2905","detail":"0000000000000000"}}}}],"payload":{{"core:death":{{"cause":"core:accident"}}}}}}"#
+            r#"{{"id":14,"t":{HER_DEATH},"subjects":[{{"sim":1}}],"causes":[{{"plan":{{"by":2,"planned_at":0}}}},{{"random":{{"tag":"0000000000000004","subject":"b3ed2fba3a2436dd","occasion":"4da9a997804f2905","detail":"0000000000000000"}}}}],"payload":{{"core:death":{{"cause":"core:accident"}}}}}}"#
         )
     );
 
@@ -220,13 +222,14 @@ fn the_death_of_one_sim_leaves_the_others_alone() {
     let run = run(mortal(), HER_DEATH);
     let state = run.world.state();
     assert_eq!((state.living(), state.archive_len()), (1, 1));
-    // The year end series, the market rounds, his birthday and his two deaths.
-    assert_eq!(run.world.pending_events(), 5);
-    assert_eq!(run.log.len(), 12);
-    // One second earlier she lives, and her three events are pending.
+    // The year end series, the market rounds, his birthday, his two deaths and his
+    // leaving home.
+    assert_eq!(run.world.pending_events(), 6);
+    assert_eq!(run.log.len(), 14);
+    // One second earlier she lives, and her four events are pending.
     let before = self::run(mortal(), HER_DEATH - 1);
     assert_eq!(before.world.state().living(), 2);
-    assert_eq!(before.world.pending_events(), 8);
+    assert_eq!(before.world.pending_events(), 10);
 }
 
 /// A death before the first birthday cancels that birthday as well: with accident at 5
@@ -260,11 +263,13 @@ fn a_death_before_the_first_birthday_cancels_it() {
             "core:started",
             "core:founder_added",
             "core:founder_added",
+            "core:household_formed",
+            "core:household_formed",
             "core:death",
             "core:death"
         ]
     );
-    assert!(run.log[3].t.as_secs() < Y - 2 && run.log[4].t.as_secs() < Y - 2);
+    assert!(run.log[5].t.as_secs() < Y - 2 && run.log[6].t.as_secs() < Y - 2);
     assert_eq!(
         run.world.pending_events(),
         2,
@@ -277,7 +282,7 @@ fn a_death_before_the_first_birthday_cancels_it() {
 #[test]
 fn a_world_without_the_living_goes_on() {
     let run = run(mortal(), 8 * Y - 1);
-    assert_eq!(run.log.len(), 14);
+    assert_eq!(run.log.len(), 16);
     assert_eq!(run.out.year_hashes.len(), 8);
     assert_eq!(run.out.census[7].living, 0);
     assert_eq!(run.out.census[7].lived_secs, 0);
@@ -389,12 +394,14 @@ fn a_death_that_is_never_due_is_not_planned() {
         .expect("accepted");
     assert_eq!(
         world.pending_events(),
-        4,
-        "the year end series, the market rounds, a birthday and her far senescence"
+        5,
+        "the year end series, the market rounds, a birthday, her far senescence and her leaving home"
     );
     let run = run(world, 200 * Y - 1);
     assert_eq!(run.world.state().living(), 1);
-    assert_eq!(run.log.len(), 2 + 200);
+    // `core:started`, the founder, her household, 200 birthdays, and her leaving home
+    // (a household and her move).
+    assert_eq!(run.log.len(), 3 + 200 + 2);
 }
 
 /// The year hashes of a run with deaths are those of the reference.

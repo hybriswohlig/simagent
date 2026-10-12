@@ -28,6 +28,8 @@ pub enum EventPayload {
     /// Monthly series: a round of the partner market (genetics specification 11.2,
     /// ADR-0018 section 1).
     MarketRound,
+    /// `sim` reaches the age at which it leaves home (ADR-0018 section 4).
+    LeaveHome { sim: SimId },
 }
 
 impl EventPayload {
@@ -38,6 +40,7 @@ impl EventPayload {
     pub const BIRTH: EventKind = EventKind(5);
     pub const SEPARATION: EventKind = EventKind(6);
     pub const MARKET_ROUND: EventKind = EventKind(7);
+    pub const LEAVE_HOME: EventKind = EventKind(8);
 }
 
 impl Payload for EventPayload {
@@ -47,7 +50,8 @@ impl Payload for EventPayload {
             EventPayload::Birthday { .. }
             | EventPayload::ConceptionAttempt { .. }
             | EventPayload::Separation { .. }
-            | EventPayload::MarketRound => EventClass::GENERAL,
+            | EventPayload::MarketRound
+            | EventPayload::LeaveHome { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
         }
@@ -59,7 +63,8 @@ impl Payload for EventPayload {
             EventPayload::Birthday { sim }
             | EventPayload::Death { sim, .. }
             | EventPayload::ConceptionAttempt { woman: sim }
-            | EventPayload::Birth { mother: sim } => EventSubject::sim(sim.get()),
+            | EventPayload::Birth { mother: sim }
+            | EventPayload::LeaveHome { sim } => EventSubject::sim(sim.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -75,6 +80,7 @@ impl Payload for EventPayload {
             EventPayload::Birth { .. } => EventPayload::BIRTH,
             EventPayload::Separation { .. } => EventPayload::SEPARATION,
             EventPayload::MarketRound => EventPayload::MARKET_ROUND,
+            EventPayload::LeaveHome { .. } => EventPayload::LEAVE_HOME,
         }
     }
 }
