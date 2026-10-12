@@ -119,6 +119,14 @@ option tag 0); each pedigree has format 3 (`emigrated` null for everyone). "emig
 emigration seconds, their entries, year and log hashes, the pedigree at the end, the same
 scenario with the world seed 0xfe, and five saves the load checks of the emigration reject.
 
+The measurement of the genic spread and the doses (step 11, design note of the measurement;
+ADR-0020 section 3): `World.measure` (a read-only view over the living) at chosen clocks of
+"measure" (new, on the fixture with traits and an include, tests/golden/data_traits),
+"threshold", "similar", "similar_long" (new: the world of "similar" run on to 30 years) and
+"mortal" (no living at the end of year 5): per clock the bits of every trait's mean and
+sigma and every additive locus's mean dose, the JSON line of `simagent measure`, the
+per-person `A` and which sums another order would change. No run above changes.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -4620,6 +4628,268 @@ TEST_DATA = [
 ]
 
 
+# ---------------------------------------------------------------------------------------
+# The measurement of the genic spread and the doses (step 11, design note of the
+# measurement; ADR-0020 section 3): `World.measure` over the living at a clock, a read-only
+# view (no draw, no event, no entry, no state). No run above changes. Measured here:
+#
+# - "measure" (new): the fixture with traits and an include (tests/golden/data_traits, as it
+#   is: `test:face` includes `test:growth` with 0.25, `test:g2` is a threshold locus, no
+#   disease), seed 0xff, tag `test:measure`, the switch off, ten founders with chosen
+#   alleles at the four trait loci, four couples, 30 years; measured right after `Start`,
+#   around the first birth and the first death, at the end of year 10 and at the end.
+# - "threshold" at the seconds of its six saves (tests/golden/data_liability, one trait).
+# - "similar" right after `Start` and at its end (tests/golden/data_pairing with `c` 1, two
+#   traits, 80 loci), and "similar_long" (new): the same world run on to 30 years (43
+#   living), measured at the ends of years 5, 15 and 30.
+# - "mortal" right after `Start` (the repository's map: no trait, no additive locus) and at
+#   the end of year 5, when nobody lives: no measurement (the CLI's `no_living`).
+#
+# Every measurement is checked against a hand computation (each `A` from the map's formula
+# in exact fractions, the mean as the correctly rounded quotient of the exact sum, `σ`
+# against 60 digits), and each is printed with the bits of every value, its JSON line, the
+# per-person values, its save, and which sums another order would change (ascending SimId,
+# descending lineage key): those pins fix the order.
+
+MEASURE_DIR = world_reference.ROOT / "tests" / "golden" / "data_traits"
+MEASURE_DATA = world_reference.Data(*data_reference.documents(MEASURE_DIR))
+assert f"{MEASURE_DATA.hash:016x}" == "3061cb5298c19dd9"
+MEASURE_TAG = "test:measure"
+MEASURE_YEARS = 30
+MEASURE_END = MEASURE_YEARS * YEAR - 1
+MEASURE_LOCI = ("test:g1", "test:f1", "test:g2", "test:p1")
+
+
+def measure_alleles(doses: dict) -> list:
+    """The founder's alleles at the four trait loci of data_traits, from (maternal, paternal)
+    per locus; a locus with [0, 0] is left out."""
+    return [(locus, list(doses[locus])) for locus in MEASURE_LOCI if locus in doses and any(doses[locus])]
+
+
+MEASURE_FOUNDERS = [
+    (-22 * YEAR, FEMALE, measure_alleles({"test:g1": (1, 1), "test:f1": (1, 0), "test:p1": (1, 1)})),
+    (-25 * YEAR, MALE, measure_alleles({"test:g1": (0, 1), "test:f1": (1, 1), "test:g2": (1, 0)})),
+    (-24 * YEAR, FEMALE, measure_alleles({"test:f1": (0, 1), "test:g2": (1, 1), "test:p1": (1, 0)})),
+    (-27 * YEAR, MALE, measure_alleles({"test:g1": (1, 0), "test:g2": (0, 1), "test:p1": (1, 1)})),
+    (-26 * YEAR, FEMALE, measure_alleles({"test:g1": (1, 1), "test:f1": (1, 1), "test:g2": (1, 1), "test:p1": (0, 1)})),
+    (-30 * YEAR, MALE, measure_alleles({"test:f1": (1, 0), "test:p1": (1, 0)})),
+    (-20 * YEAR, FEMALE, measure_alleles({"test:g1": (0, 1), "test:g2": (1, 0)})),
+    (-23 * YEAR, MALE, measure_alleles({"test:g1": (1, 1), "test:f1": (0, 1), "test:g2": (0, 1), "test:p1": (1, 1)})),
+    (-75 * YEAR, FEMALE, measure_alleles({"test:g1": (1, 0), "test:f1": (1, 0), "test:g2": (1, 0), "test:p1": (1, 0)})),
+    (-78 * YEAR, MALE, []),
+]
+MEASURE_COUPLES = [(0, 1), (2, 3), (4, 5), (8, 9)]
+MEASURE_KEYS = [founder_key(MEASURE_TAG, index) for index in range(len(MEASURE_FOUNDERS))]
+
+
+def measure_world() -> world_reference.World:
+    return world_reference.World(0xFF, MEASURE_TAG, False, MEASURE_FOUNDERS, MEASURE_COUPLES, data=MEASURE_DATA)
+
+
+_measure_probe = measure_world()
+_measure_probe.advance(MEASURE_END)
+check_all(_measure_probe)
+MEASURE_FIRST_CHILD = min(sim for sim in set(_measure_probe.sims) | set(_measure_probe.archive) if _measure_probe.parent_keys(sim) is not None)
+MEASURE_FIRST_BIRTH = _measure_probe.born_of(MEASURE_FIRST_CHILD)
+MEASURE_FIRST_DEAD = min(_measure_probe.archive, key=lambda sim: (_measure_probe.archive[sim][1], sim))
+MEASURE_FIRST_DEATH = _measure_probe.archive[MEASURE_FIRST_DEAD][1]
+assert (MEASURE_FIRST_CHILD, MEASURE_FIRST_DEAD) == (11, 9), (MEASURE_FIRST_CHILD, MEASURE_FIRST_DEAD)
+assert sorted(_measure_probe.archive) == [9, 10] and len(_measure_probe.sims) == 24 and _measure_probe.next_sim_id == 27
+assert 0 < MEASURE_FIRST_BIRTH < MEASURE_FIRST_DEATH < 10 * YEAR - 1
+MEASURE_CLOCKS = [
+    ("after_start", -1),
+    ("before_first_birth", MEASURE_FIRST_BIRTH - 1),
+    ("after_first_birth", MEASURE_FIRST_BIRTH),
+    ("before_first_death", MEASURE_FIRST_DEATH - 1),
+    ("after_first_death", MEASURE_FIRST_DEATH),
+    ("year_10", 10 * YEAR - 1),
+    ("end", MEASURE_END),
+]
+
+
+def hand_additive(genome_map: dict, genome: dict, trait_id: str) -> Fraction:
+    """`A` of a trait by hand, exactly, from the genetics specification 4.1 and ADR-0008
+    section 3: `Σ λ · β · (d − d_ref)` over the loci that load on the trait, plus for each
+    include `w · Σ λ · β · (d − d_ref)` over the loci that load on the included trait,
+    straight from the map's JSON (not from `TraitTerms`)."""
+    traits = {entry["id"]: entry for entry in genome_map["traits"]}
+
+    def loads_on(target: str) -> Fraction:
+        total = Fraction(0)
+        for locus in genome_map["loci"]:
+            if isinstance(locus["action"], str):
+                continue
+            ((_, weights),) = locus["action"].items()
+            d = sum(world_reference.copies_at(genome, locus))
+            for load in weights["loads"]:
+                if load["trait"] == target:
+                    total += Fraction(load["weight"]) * Fraction(weights["effect"]) * (d - Fraction(weights["d_ref"]))
+        return total
+
+    return loads_on(trait_id) + sum((Fraction(include["weight"]) * loads_on(include["trait"]) for include in traits[trait_id]["includes"]), Fraction(0))
+
+
+def measure_in_order(persons: list, data) -> list:
+    """(trait, mean, variance, sigma) with the persons in the order given (for the comparison
+    of orders and the variance's bits; the same arithmetic as `world_reference.measure_of`)."""
+    count = float(len(persons))
+    rows = []
+    for trait in data.traits:
+        values = [world_reference.additive_value(genome, trait) for _, genome in persons]
+        total = 0.0
+        for value in values:
+            total = total + value
+        mean = total / count
+        squares = 0.0
+        for value in values:
+            squares = squares + (value - mean) * (value - mean)
+        variance = squares / count
+        rows.append((trait.id, mean, variance, math.sqrt(variance)))
+    return rows
+
+
+def measured(make, clocks: list) -> tuple:
+    """The world `make()` stopped at each (label, clock) in turn (ascending clocks, the first
+    may be -1, right after `Start`): per stop the load checks, the save and the measurement
+    with its checks. Returns (world, records)."""
+    import mpmath
+
+    world = make()
+    records = []
+    for label, clock in clocks:
+        if clock > world.closed:
+            world.advance(clock)
+        assert world.closed == clock, (label, clock, world.closed)
+        check_all(world)
+        before = world.save()
+        measurement = world.measure()
+        assert world.save() == before, "the measurement changes nothing"
+        persons = sorted(((value[1], value[3], sim) for sim, value in world.sims.items()), key=lambda row: row[0])
+        record = {"label": label, "clock": clock, "save": before, "measurement": measurement, "persons": []}
+        if measurement is None:
+            assert not world.sims and world.measure_json() is None
+            records.append(record)
+            continue
+        assert measurement["living"] == len(world.sims) == len(persons)
+        n = len(persons)
+        # Each A by hand (exact fractions, where the map has a hand reference), then the
+        # mean against the correctly rounded quotient of the exact sum and σ against 60
+        # digits. The f64 fold of every A here is exact (dyadic coefficients and d_ref), and
+        # so is the f64 sum of the A (no person's A has more than a few bits).
+        for key, genome, sim in persons:
+            values = [world_reference.additive_value(genome, trait) for trait in world.data.traits]
+            if world.data.hash in HAND_MAPS:
+                hands = [hand_additive(HAND_MAPS[world.data.hash], genome, trait.id) for trait in world.data.traits]
+                assert [Fraction(value) for value in values] == hands, (sim, values, hands)
+            record["persons"].append((sim, key, values))
+        for index, (trait_id, mean, sigma) in enumerate(measurement["traits"]):
+            exact = [Fraction(row[2][index]) for row in record["persons"]]
+            folded = 0.0
+            for value in exact:
+                folded = folded + float(value)
+            assert Fraction(folded) == sum(exact) and mean == float(sum(exact) / n), (label, trait_id)
+            with mpmath.workdps(60):
+                m = mpmath.mpf(sum(exact).numerator) / sum(exact).denominator / n
+                deviations = [mpmath.mpf(value.numerator) / value.denominator - m for value in exact]
+                exact_sigma = mpmath.sqrt(sum(deviation * deviation for deviation in deviations) / n)
+                assert abs(mpmath.mpf(sigma) - exact_sigma) <= mpmath.mpf(1e-12) * max(1, abs(exact_sigma)), (label, trait_id, sigma, exact_sigma)
+        for locus_id, mean_dose in measurement["loci"]:
+            locus = world.data.loci[locus_id]
+            total = sum(sum(world_reference.copies_at(genome, locus)) for _, genome, _ in persons)
+            assert mean_dose == float(Fraction(total, n)), (label, locus_id)
+        # The other orders: ascending SimId and descending lineage key.
+        reference = measure_in_order([(key, genome) for key, genome, _ in persons], world.data)
+        assert [(t, m, sd) for t, m, _, sd in reference] == measurement["traits"]
+        record["variances"] = [variance for _, _, variance, _ in reference]
+        by_sim = measure_in_order([(key, genome) for key, genome, _ in sorted(persons, key=lambda row: row[2])], world.data)
+        descending = measure_in_order([(key, genome) for key, genome, _ in persons[::-1]], world.data)
+        record["orders"] = []
+        for index, (trait_id, mean, _, sigma) in enumerate(reference):
+            changed = []
+            for name, rows in (("sim_order", by_sim), ("descending_key", descending)):
+                _, other_mean, _, other_sigma = rows[index]
+                changed += [f"{name} {what}" for what, differs in (("mean", other_mean != mean), ("sigma", other_sigma != sigma)) if differs]
+            record["orders"].append((trait_id, changed))
+        record["threshold_loci"] = [
+            (locus["id"], sum(sum(world_reference.copies_at(genome, locus)) for _, genome, _ in persons), float(sum(sum(world_reference.copies_at(genome, locus)) for _, genome, _ in persons)) / float(n))
+            for locus in world.data.threshold_loci
+        ]
+        record["json"] = world.measure_json()
+        assert json.loads(record["json"]) == {
+            "format_version": 1,
+            "clock": clock,
+            "living": n,
+            "traits": [{"trait": t, "mean": m, "sigma": s} for t, m, s in measurement["traits"]],
+            "loci": [{"locus": locus, "mean_dose": d} for locus, d in measurement["loci"]],
+        }
+        records.append(record)
+    return world, records
+
+
+# The maps whose `A` the hand computation reads from their JSON (by data hash): the
+# fixtures with traits that the measured worlds run on.
+HAND_MAPS = {
+    data.hash: data_reference.strip(data_reference.documents(world_reference.ROOT / "tests" / "golden" / name)[2])
+    for data, name in ((MEASURE_DATA, "data_traits"), (THRESHOLD_DATA, "data_liability"), (SIMILAR_DATA, "data_pairing"))
+}
+
+MEASURE, MEASURE_RECORDS = measured(measure_world, MEASURE_CLOCKS)
+assert MEASURE.log == _measure_probe.log
+MEASURE_THRESHOLD_CLOCKS = [
+    ("after_start", -1),
+    ("before_affected_birth", THRESHOLD_BIRTH - 1),
+    ("after_affected_birth", THRESHOLD_BIRTH),
+    ("before_liability_death", THRESHOLD_DEATH - 1),
+    ("after_liability_death", THRESHOLD_DEATH),
+    ("end", THRESHOLD_END),
+]
+_, MEASURE_THRESHOLD = measured(threshold_world, MEASURE_THRESHOLD_CLOCKS)
+assert [record["save"] for record in MEASURE_THRESHOLD] == [THRESHOLD_SAVES[label] for label, _ in MEASURE_THRESHOLD_CLOCKS]
+_, MEASURE_SIMILAR = measured(similar_world, [("after_start", -1), ("end_of_round_10", SIMILAR_END)])
+assert [record["save"] for record in MEASURE_SIMILAR] == [SIMILAR_SAVE_AFTER_START, SIMILAR_SAVE_END]
+assert MEASURE_SIMILAR[0]["measurement"] == MEASURE_SIMILAR[1]["measurement"]
+MEASURE_SIMILAR_LONG_CLOCKS = [("year_5", 5 * YEAR - 1), ("year_15", 15 * YEAR - 1), ("year_30", 30 * YEAR - 1)]
+MEASURE_SIMILAR_LONG_WORLD, MEASURE_SIMILAR_LONG = measured(similar_world, MEASURE_SIMILAR_LONG_CLOCKS)
+assert [record["measurement"]["living"] for record in MEASURE_SIMILAR_LONG] == [24, 26, 43]
+_, MEASURE_MORTAL = measured(mortal_world, [("after_start", -1), ("after_year_5", 6 * YEAR - 1)])
+assert [record["save"] for record in MEASURE_MORTAL] == [MORTAL_SAVE_AFTER_START, MORTAL_SAVE_AFTER_YEAR_5]
+assert MEASURE_MORTAL[1]["measurement"] is None and MEASURE_MORTAL[0]["json"] == '{"format_version":1,"clock":-1,"living":2,"traits":[],"loci":[]}'
+
+
+def measure_rows(name: str, records: list, save_names: dict) -> list:
+    """The rows of a measured world: per stop its clock, living, save label, every trait's
+    mean and sigma with their bits and the variance's bits, every locus's mean dose with
+    its bits and the integer sum, the threshold loci apart (decision 1), the JSON line, the
+    orders that would change a bit, the per-person `A` (sim, lineage key, the bits per
+    trait in map order)."""
+    rows = []
+    for record in records:
+        label, clock, measurement = record["label"], record["clock"], record["measurement"]
+        prefix = f"measure_{name}_{label}"
+        save = save_names.get(label, f"measure_{name}_save_{label}")
+        if measurement is None:
+            rows.append(f"{prefix} clock {clock} save {save} living 0 measurement none (cli: error no_living)")
+            continue
+        rows.append(f"{prefix} clock {clock} save {save} living {measurement['living']}")
+        for (trait_id, mean, sigma), variance in zip(measurement["traits"], record["variances"]):
+            rows.append(
+                f"{prefix}_trait {trait_id} mean {mean!r} bits {data_reference.f64_bits(mean)}"
+                f" sigma {sigma!r} bits {data_reference.f64_bits(sigma)} variance {variance!r} bits {data_reference.f64_bits(variance)}"
+            )
+        for trait_id, changed in record["orders"]:
+            rows.append(f"{prefix}_order {trait_id} other bits with: {', '.join(changed) if changed else 'none'}")
+        for locus_id, mean_dose in measurement["loci"]:
+            rows.append(f"{prefix}_locus {locus_id} mean_dose {mean_dose!r} bits {data_reference.f64_bits(mean_dose)}")
+        for locus_id, total, mean_dose in record["threshold_loci"]:
+            rows.append(f"{prefix}_threshold_locus {locus_id} (not in loci, decision 1) doses {total} mean_dose {mean_dose!r} bits {data_reference.f64_bits(mean_dose)}")
+        rows.append(f"{prefix}_json {record['json']}")
+        rows.append(
+            f"{prefix}_persons (sim, key, A per trait as bits) "
+            + " ".join(f"{sim}:{key:016x}:[{','.join(data_reference.f64_bits(value) for value in values)}]" for sim, key, values in record["persons"])
+        )
+    return rows
+
+
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
     print(f"longevity_dues (senescence with the trait, without, accident) {LONGEVITY_DUES}")
@@ -4990,3 +5260,47 @@ if __name__ == "__main__":
     # One more (the mutation probe): a household without a member of 18 or more emigrated.
     _name, _description, _checks, _save = EMIGRATION_BROKEN_CHILDREN_ONLY
     print(f"emigration_load_rejected {_name} {_description} (rejected by {', '.join(_checks)}) {_save.hex()}")
+
+    # The measurement of the genic spread and the doses (step 11, design note of the
+    # measurement; ADR-0020 section 3).
+    print(
+        f"measure_traits_scenario data tests/golden/data_traits data_hash {MEASURE_DATA.hash:016x} seed 0xff tag {MEASURE_TAG} switch off"
+        f" couples {[(w + 1, m + 1) for w, m in MEASURE_COUPLES]} years {MEASURE_YEARS} end {MEASURE_END} clocks {MEASURE_CLOCKS}"
+    )
+    for _trait in MEASURE_DATA.traits:
+        print(
+            f"measure_traits_terms {_trait.id} sigma_ref {_trait.sigma_ref!r} groups (locus, coefficient, d_ref) "
+            f"{[[(locus['id'], coefficient, d_ref) for locus, coefficient, d_ref in group] for group in _trait.groups]}"
+        )
+    print(f"measure_traits_measured_loci {[locus['id'] for locus in MEASURE_DATA.measured_loci]} threshold_loci {[locus['id'] for locus in MEASURE_DATA.threshold_loci]}")
+    for _index, (_born, _sex, _alleles) in enumerate(MEASURE_FOUNDERS):
+        _couple = next((f"couple with sim {m + 1 if w == _index else w + 1}" for w, m in MEASURE_COUPLES if _index in (w, m)), "single")
+        print(f"measure_traits_founder sim {_index + 1} {'female' if _sex == FEMALE else 'male'} born {_born} (age {-_born / YEAR:g}) {_couple} key {MEASURE_KEYS[_index]:016x} alleles {_alleles}")
+    for _sim in sorted(set(MEASURE.sims) | set(MEASURE.archive)):
+        _parents = MEASURE.sims[_sim][7] if _sim in MEASURE.sims else MEASURE.archive[_sim][9]
+        if _parents is not None:
+            print(f"measure_traits_child sim {_sim} born {MEASURE.born_of(_sim)} (year {MEASURE.born_of(_sim) / YEAR:.4f}) key {MEASURE.key_of(_sim):016x} mother {_parents[0]} father {_parents[1]}")
+    for _sim, _value in sorted(MEASURE.archive.items()):
+        print(f"measure_traits_death sim {_sim} at {_value[1]} (year {_value[1] / YEAR:.4f}) of {cause_name(_value[2])}")
+    for _number, (_woman, _man, _formed, _ended) in sorted(MEASURE.partnerships.items()):
+        print(f"measure_traits_partnership {_number} woman {_woman} man {_man} formed {_formed} ended {split_ended(_ended)}")
+    for row in measure_rows("traits", MEASURE_RECORDS, {}):
+        print(row)
+    for _record in MEASURE_RECORDS:
+        print(f"measure_traits_save_{_record['label']} (clock {_record['clock']}) {_record['save'].hex()}")
+    print(f"measure_traits_year_hashes {[format(value, '016x') for value in MEASURE.year_hashes]}")
+    print(f"measure_traits_log_hash {digest(b''.join(MEASURE.log))} entries {len(MEASURE.log)}")
+    for row in measure_rows("threshold", MEASURE_THRESHOLD, {label: f"threshold_save_{label}" for label, _ in MEASURE_THRESHOLD_CLOCKS}):
+        print(row)
+    for row in measure_rows("similar", MEASURE_SIMILAR, {"after_start": "similar_save_after_start", "end_of_round_10": "similar_save_end_of_round_10"}):
+        print(row)
+    print(f"measure_similar_long_scenario the world of \"similar\" (similar_world) run on to {MEASURE_SIMILAR_LONG_CLOCKS[-1][1]}: clocks {MEASURE_SIMILAR_LONG_CLOCKS}")
+    for row in measure_rows("similar_long", MEASURE_SIMILAR_LONG, {}):
+        print(row)
+    for _record in MEASURE_SIMILAR_LONG:
+        print(f"measure_similar_long_save_{_record['label']} (clock {_record['clock']}) {_record['save'].hex()}")
+    _world = MEASURE_SIMILAR_LONG_WORLD
+    print(f"measure_similar_long_year_hashes {[format(value, '016x') for value in _world.year_hashes]}")
+    print(f"measure_similar_long_log_hash {digest(b''.join(_world.log))} entries {len(_world.log)} archived {sorted(_world.archive)}")
+    for row in measure_rows("mortal", MEASURE_MORTAL, {"after_start": "mortal_save_after_start", "after_year_5": "mortal_save_after_year_5"}):
+        print(row)
