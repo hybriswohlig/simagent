@@ -169,9 +169,9 @@ fn i64_to_f64_exact_known_answers() {
 }
 
 /// The inverse of the standard normal distribution function (Wichura's AS241, ADR-0019):
-/// NaN outside (0, 1), exactly 0 at 0.5, otherwise within 2^-48 of the correctly rounded
-/// value (checked by the gate against the reference column).
+/// NaN outside (0, 1), exactly 0 at 0.5, otherwise within 2^-48 relative of the correctly
+/// rounded value at every row (checked by the gate against the reference column).
 #[test]
 fn probit_known_answers() {
-    unary_known_answers("probit", PROBIT, sim_math::probit, 37);
+    unary_known_answers("probit", PROBIT, sim_math::probit, 40);
 }

@@ -126,8 +126,10 @@ fn horner(coefficients: &[f64], r: f64) -> f64 {
 
 /// The inverse of the standard normal distribution function, `Φ⁻¹(p)` for `0 < p < 1`:
 /// Wichura's algorithm AS241 (PPND16, Applied Statistics 37:477-484, 1988), rational
-/// approximations in three ranges of `p`, with `ln` and `sqrt` of the pinned libm. Within
-/// 2^-48 relative of the exact value (ADR-0019); exactly 0 at 0.5. NaN outside (0, 1) and
+/// approximations in three ranges of `p`, with `ln` and `sqrt` of the pinned libm. Its
+/// acceptance tolerance is 2^-48 relative to the exact value, checked at the known-answer
+/// inputs; measured at most 3.3 ulp over the whole range (ADR-0019); exactly 0 at 0.5.
+/// NaN outside (0, 1) and
 /// for NaN without a test of its own: the tail is then 0 or negative or NaN, its logarithm
 /// infinite or NaN, and NaN reaches the result through the rational function. The
 /// evaluation order is fixed, so the result is the same on every target.
@@ -139,7 +141,8 @@ pub fn probit(p: f64) -> f64 {
         let den = horner(&PROBIT_CENTRAL_DEN, r) * r + 1.0;
         return num / den;
     }
-    // The smaller of p and 1 - p (both exact here); the sign of q gives the side.
+    // The smaller of p and 1 - p, which is exact: below 0.5 it is p itself, above 0.5 the
+    // difference 1 - p is exact by Sterbenz's lemma. The sign of q gives the side.
     let tail = libm::fmin(p, 1.0 - p);
     let r = sqrt(0.0 - ln(tail));
     let x = if r <= 5.0 {

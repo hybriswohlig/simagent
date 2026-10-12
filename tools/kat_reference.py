@@ -271,6 +271,9 @@ PROBIT_INPUTS = [
     0.5000000000000001, 0.49999999999999994, 0.3, 0.7, 0.025, 0.975, 0.1587,
     1e-5, 1e-10,
     1.3887943864964021e-11, 1.388794386496402e-11, 1.3887943864964023e-11,  # sqrt(-ln p) = 5
+    # The neighbours across that boundary with the pinned libm (review): r just above 5
+    # (far tail) and r = 5 (near tail); and the neighbour below 0.925.
+    from_bits("3dae8a37a45fc300"), from_bits("3dae8a37a45fc301"), from_bits("3fed999999999999"),
     1e-20, 1e-100, 1e-300, MIN_NORMAL, 1e-310, MIN_SUBNORMAL,
     2.0**-53, 1.0 - 2.0**-53, 0.9999999999,
 ]
