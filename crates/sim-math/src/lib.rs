@@ -53,6 +53,108 @@ pub fn sqrt(x: f64) -> f64 {
     libm::sqrt(x)
 }
 
+// The coefficients of AS241 (Wichura 1988, PPND16), highest power first, each the f64
+// nearest to the published 20-digit value (written as the shortest decimal that gives
+// it). Numerators of the three ranges, then denominators without their constant term 1.
+const PROBIT_CENTRAL_NUM: [f64; 8] = [
+    2_509.080_928_730_122_7,
+    33_430.575_583_588_13,
+    67_265.770_927_008_7,
+    45_921.953_931_549_87,
+    13_731.693_765_509_46,
+    1_971.590_950_306_551_3,
+    133.141_667_891_784_38,
+    3.387_132_872_796_366_5,
+];
+const PROBIT_CENTRAL_DEN: [f64; 7] = [
+    5_226.495_278_852_854,
+    28_729.085_735_721_943,
+    39_307.895_800_092_71,
+    21_213.794_301_586_597,
+    5_394.196_021_424_751,
+    687.187_007_492_057_9,
+    42.313_330_701_600_91,
+];
+const PROBIT_NEAR_NUM: [f64; 8] = [
+    0.000_774_545_014_278_341_4,
+    0.022_723_844_989_269_184,
+    0.241_780_725_177_450_6,
+    1.270_458_252_452_368_4,
+    3.647_848_324_763_204_5,
+    5.769_497_221_460_691,
+    4.630_337_846_156_546,
+    1.423_437_110_749_683_5,
+];
+const PROBIT_NEAR_DEN: [f64; 7] = [
+    1.050_750_071_644_416_9e-9,
+    0.000_547_593_808_499_534_5,
+    0.015_198_666_563_616_457,
+    0.148_103_976_427_480_08,
+    0.689_767_334_985_1,
+    1.676_384_830_183_803_8,
+    2.053_191_626_637_759,
+];
+const PROBIT_FAR_NUM: [f64; 8] = [
+    2.010_334_399_292_288_1e-7,
+    2.711_555_568_743_487_6e-5,
+    0.001_242_660_947_388_078_4,
+    0.026_532_189_526_576_124,
+    0.296_560_571_828_504_87,
+    1.784_826_539_917_291_3,
+    5.463_784_911_164_114,
+    6.657_904_643_501_103,
+];
+const PROBIT_FAR_DEN: [f64; 7] = [
+    2.044_263_103_389_939_7e-15,
+    1.421_511_758_316_446e-7,
+    1.846_318_317_510_054_8e-5,
+    0.000_786_869_131_145_613_3,
+    0.014_875_361_290_850_615,
+    0.136_929_880_922_735_8,
+    0.599_832_206_555_888,
+];
+
+/// `c[0] · r^(n-1) + ... + c[n-1]` by Horner's scheme, highest power first, as the paper
+/// writes it, then `· r + last` for a denominator's constant term.
+fn horner(coefficients: &[f64], r: f64) -> f64 {
+    let mut value = 0.0;
+    for coefficient in coefficients {
+        value = value * r + coefficient;
+    }
+    value
+}
+
+/// The inverse of the standard normal distribution function, `Φ⁻¹(p)` for `0 < p < 1`:
+/// Wichura's algorithm AS241 (PPND16, Applied Statistics 37:477-484, 1988), rational
+/// approximations in three ranges of `p`, with `ln` and `sqrt` of the pinned libm. Its
+/// acceptance tolerance is 2^-48 relative to the exact value, checked at the known-answer
+/// inputs; measured at most 3.3 ulp over the whole range (ADR-0019); exactly 0 at 0.5.
+/// NaN outside (0, 1) and
+/// for NaN without a test of its own: the tail is then 0 or negative or NaN, its logarithm
+/// infinite or NaN, and NaN reaches the result through the rational function. The
+/// evaluation order is fixed, so the result is the same on every target.
+pub fn probit(p: f64) -> f64 {
+    let q = p - 0.5;
+    if libm::fabs(q) <= 0.425 {
+        let r = 0.180_625 - q * q;
+        let num = horner(&PROBIT_CENTRAL_NUM, r) * q;
+        let den = horner(&PROBIT_CENTRAL_DEN, r) * r + 1.0;
+        return num / den;
+    }
+    // The smaller of p and 1 - p, which is exact: below 0.5 it is p itself, above 0.5 the
+    // difference 1 - p is exact by Sterbenz's lemma. The sign of q gives the side.
+    let tail = libm::fmin(p, 1.0 - p);
+    let r = sqrt(0.0 - ln(tail));
+    let x = if r <= 5.0 {
+        let r = r - 1.6;
+        horner(&PROBIT_NEAR_NUM, r) / (horner(&PROBIT_NEAR_DEN, r) * r + 1.0)
+    } else {
+        let r = r - 5.0;
+        horner(&PROBIT_FAR_NUM, r) / (horner(&PROBIT_FAR_DEN, r) * r + 1.0)
+    };
+    libm::copysign(x, q)
+}
+
 /// `x` as `i64` if it is finite, integral and inside the `i64` range; `-0.0` gives 0.
 /// Works on the bit pattern and never saturates, unlike `as` (ADR-0002).
 pub fn to_i64_exact(x: f64) -> Option<i64> {

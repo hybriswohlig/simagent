@@ -10,6 +10,7 @@ const LN: &str = include_str!("../../../tests/golden/kat/ln.csv");
 const COS: &str = include_str!("../../../tests/golden/kat/cos.csv");
 const SQRT: &str = include_str!("../../../tests/golden/kat/sqrt.csv");
 const POW: &str = include_str!("../../../tests/golden/kat/pow.csv");
+const PROBIT: &str = include_str!("../../../tests/golden/kat/probit.csv");
 const TO_I64_EXACT: &str = include_str!("../../../tests/golden/kat/to_i64_exact.csv");
 const I64_TO_F64_EXACT: &str = include_str!("../../../tests/golden/kat/i64_to_f64_exact.csv");
 
@@ -165,4 +166,12 @@ fn i64_to_f64_exact_known_answers() {
         count += 1;
     }
     assert_eq!(count, 14, "i64_to_f64_exact.csv: number of rows");
+}
+
+/// The inverse of the standard normal distribution function (Wichura's AS241, ADR-0019):
+/// NaN outside (0, 1), exactly 0 at 0.5, otherwise within 2^-48 relative of the correctly
+/// rounded value at every row (checked by the gate against the reference column).
+#[test]
+fn probit_known_answers() {
+    unary_known_answers("probit", PROBIT, sim_math::probit, 40);
 }
