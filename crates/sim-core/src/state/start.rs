@@ -154,7 +154,7 @@ pub(crate) fn apply_start(
                 afflictions: disease::afflictions(
                     data,
                     start.world_seed,
-                    lineage_key,
+                    (lineage_key, None),
                     founder.sex,
                     &genome,
                     start.world_params.hereditary_diseases,

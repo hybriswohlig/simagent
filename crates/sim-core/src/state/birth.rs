@@ -47,6 +47,20 @@ pub(crate) fn on_birth(
         .get(&mother)
         .map(|her| her.household)
         .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", mother.get()));
+    // The lineage keys of the parents, for the phenotype of a trait of liability; the
+    // father may have died during the pregnancy.
+    let key_of = |sim: SimId| {
+        domain
+            .sims
+            .get(&sim)
+            .map(|person| person.lineage_key)
+            .or_else(|| domain.archive.get(&sim).map(|person| person.lineage_key))
+            .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()))
+    };
+    let parent_keys = crate::phenotype::Parents {
+        mother: key_of(mother),
+        father: key_of(pregnancy.father),
+    };
     for unborn in &pregnancy.children {
         let (child, born) = ctx.create_child(
             LogPayload::Birth {
@@ -66,7 +80,7 @@ pub(crate) fn on_birth(
                 afflictions: disease::afflictions(
                     data,
                     seed,
-                    unborn.lineage_key,
+                    (unborn.lineage_key, Some(parent_keys)),
                     unborn.sex,
                     &unborn.genome,
                     switch_on,

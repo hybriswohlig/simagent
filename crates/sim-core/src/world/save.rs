@@ -859,6 +859,7 @@ impl Rules<'_> {
     fn afflictions_consistent(
         &self,
         facts: (SimTime, LineageKey, Sex, &Genome),
+        parents: Option<crate::phenotype::Parents>,
         afflictions: &[Affliction],
         origin: i64,
         at: i64,
@@ -867,7 +868,7 @@ impl Rules<'_> {
         let drawn = state::disease::afflictions(
             self.data,
             self.seed,
-            lineage_key,
+            (lineage_key, parents),
             sex,
             genome,
             false,
@@ -917,22 +918,39 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data)
 /// as the death rule gives it. The IDs are those of `born_consistent`.
 fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let origin = |born: SimTime| state::death::origin(born).as_secs();
+    // The lineage keys of the parents in the run; `Err` if one is unknown.
+    let keys = |parents: Option<Parents>| match parents {
+        None => Ok(None),
+        Some(p) => match (facts(loaded, p.mother), facts(loaded, p.father)) {
+            (Some(mother), Some(father)) => Ok(Some(crate::phenotype::Parents {
+                mother: mother.lineage_key,
+                father: father.lineage_key,
+            })),
+            _ => Err(()),
+        },
+    };
     loaded.sims.values().all(|sim| {
-        rules.afflictions_consistent(
-            (sim.born, sim.lineage_key, sim.sex, &sim.genome),
-            &sim.afflictions,
-            origin(sim.born),
-            now,
-        )
+        keys(sim.parents).is_ok_and(|parents| {
+            rules.afflictions_consistent(
+                (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+                parents,
+                &sim.afflictions,
+                origin(sim.born),
+                now,
+            )
+        })
     }) && loaded.archive.values().all(|sim| {
         let left = sim.left.as_secs();
         left < now
-            && rules.afflictions_consistent(
-                (sim.born, sim.lineage_key, sim.sex, &sim.genome),
-                &sim.afflictions,
-                origin(sim.born),
-                left,
-            )
+            && keys(sim.parents).is_ok_and(|parents| {
+                rules.afflictions_consistent(
+                    (sim.born, sim.lineage_key, sim.sex, &sim.genome),
+                    parents,
+                    &sim.afflictions,
+                    origin(sim.born),
+                    left,
+                )
+            })
             && died_by_the_rule(sim, rules)
     })
 }
