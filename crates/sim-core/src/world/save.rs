@@ -630,11 +630,12 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
                         .get(&carer)
                         .and_then(|id| loaded.partnerships.get(id))
                         .map(|p| {
-                            let partner = if p.woman == carer { p.man } else { p.woman };
-                            let together = loaded
-                                .sims
-                                .get(&partner)
-                                .is_some_and(|other| other.household == c.household);
+                            let together = [p.woman, p.man].iter().all(|partner| {
+                                loaded
+                                    .sims
+                                    .get(partner)
+                                    .is_some_and(|other| other.household == c.household)
+                            });
                             (p.formed, together)
                         });
                     let home = loaded.households.get(&c.household).map(|h| h.formed);
