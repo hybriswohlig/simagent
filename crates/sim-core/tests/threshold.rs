@@ -346,8 +346,8 @@ fn the_threshold_comes_with_the_data() {
 /// A named liability is the trait of the map named after the disease, with a phenotype row
 /// of `h²` the heritability bit for bit and `c²` 0, equal in both ages, and `1 − K` below 1
 /// in f64 (else `T` is NaN: review finding); each case below breaks one rule and is
-/// `data.disease`. `K` = 2^-53 is the smallest whose complement stays below 1: accepted,
-/// with a finite `T`.
+/// `data.disease`. `K` = 2^-53 lies at the edge (the smallest accepted `K` is the next f64
+/// above 2^-54, whose complement rounds to 1): accepted, with a finite `T`.
 #[test]
 fn a_named_liability_must_fit_its_disease() {
     let liability = "core:disease_liability";
