@@ -4500,6 +4500,34 @@ assert [(name, checks) for name, _, checks, _ in EMIGRATION_BROKEN_PARTNERS] == 
     ("before_start", ["check_households", "check_emigration"]),
 ], [(name, checks) for name, _, checks, _ in EMIGRATION_BROKEN_PARTNERS]
 
+
+def emigration_broken_children_only() -> tuple:
+    """One more state the load checks reject (the mutation probe of the emigration): after
+    year 2 (clock 94348799) the household of sim 7 (13, alone in household 4 since the start,
+    not moved out, no carer; it drew nothing) emigrated: sim 7 archived by emigration at
+    94348799 with household 4, household 4 ended there, his planned events (birthday, death,
+    `leave_home`) removed. No emigrant of that household and second was 18 or more. Returns
+    (name, description, the checks that reject it, save)."""
+    t1 = EMIGRATION_FIRST
+    broken = copy_world(world_at(emigration_world, [], t1))
+    sim = 7
+    born, key, sex, person, afflictions_, conceptions, births, parents, partnerships, household, moved_out, carer, social = broken.sims.pop(sim)
+    assert household == 4 and broken.members(household) == [] and not moved_out and carer is None and t1 - born < 18 * YEAR
+    assert [d["draw"] for r in broken.emigrations if r["t"] == t1 for d in r["draws"] if d["household"] == household] == [None]
+    removed = [event for event in broken.queue if event.subject == (world_reference.SIM_SUBJECT, sim)]
+    broken.queue = [event for event in broken.queue if event.subject != (world_reference.SIM_SUBJECT, sim)]
+    broken.households[household][1] = t1
+    broken.archive[sim] = (born, t1, None, key, sex, person, afflictions_, conceptions, births, parents, partnerships, household, moved_out, tuple(social))
+    description = (
+        f"household {household} (sim {sim} alone, {(t1 - born) // YEAR} years, no member of 18 or more) emigrated at {t1}:"
+        f" sim {sim} archived by emigration, household {household} ended at {t1}, his {len(removed)} planned events removed"
+    )
+    return "children_only", description, rejecting_checks(broken), broken.save()
+
+
+EMIGRATION_BROKEN_CHILDREN_ONLY = emigration_broken_children_only()
+assert EMIGRATION_BROKEN_CHILDREN_ONLY[2] == ["check_emigration"], EMIGRATION_BROKEN_CHILDREN_ONLY[2]
+
 # `Start` with the capacity 0 is rejected (`capacity_zero`, design note section 1); with 1 and
 # with the largest u64 it is accepted (the latter never draws: `P ≤ K` always).
 assert world_reference.start_rejection(EMIGRATION_FOUNDERS, EMIGRATION_COUPLES, EMIGRATION_DATA, 0) == world_reference.CAPACITY_ZERO
@@ -4959,3 +4987,6 @@ if __name__ == "__main__":
     # emigration before the start.
     for _name, _description, _checks, _save in EMIGRATION_BROKEN_PARTNERS:
         print(f"emigration_load_rejected {_name} {_description} (rejected by {', '.join(_checks)}) {_save.hex()}")
+    # One more (the mutation probe): a household without a member of 18 or more emigrated.
+    _name, _description, _checks, _save = EMIGRATION_BROKEN_CHILDREN_ONLY
+    print(f"emigration_load_rejected {_name} {_description} (rejected by {', '.join(_checks)}) {_save.hex()}")
