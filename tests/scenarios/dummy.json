@@ -1,5 +1,5 @@
 {
-  "format_version": 3,
+  "format_version": 4,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:dummy",
@@ -24,7 +24,8 @@
       { "born": -786240000, "sex": "female", "alleles": [] },
       { "born": -786240000, "sex": "male", "alleles": [] }
     ],
-    "couples": [{ "woman": 0, "man": 1 }, { "woman": 4, "man": 5 }]
+    "couples": [{ "woman": 0, "man": 1 }, { "woman": 4, "man": 5 }],
+    "capacity": 9
   },
   "until": 943487999
 }

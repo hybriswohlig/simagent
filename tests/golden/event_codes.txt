@@ -3,6 +3,7 @@
 class birth 200
 class general 500
 class death 900
+class emigration 950
 class observer 1000
 subject world 0
 subject sim 1
@@ -16,3 +17,4 @@ kind birth 5
 kind separation 6
 kind market_round 7
 kind leave_home 8
+kind emigration 9

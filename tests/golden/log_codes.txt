@@ -15,6 +15,7 @@ payload 8 core:birth
 payload 9 core:separated
 payload 10 core:household_formed
 payload 11 core:moved
+payload 12 core:emigrated
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -47,6 +48,7 @@ reject 19 nutrition_out_of_range
 reject 20 nutrition_year_past
 reject 21 partner_too_young
 reject 22 partners_too_closely_related
+reject 23 capacity_zero
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
