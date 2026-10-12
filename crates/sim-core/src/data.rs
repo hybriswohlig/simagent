@@ -1328,7 +1328,8 @@ fn disease_number(c: &Calibrated, unit: Unit) -> Result<f64, DataError> {
 /// draws), none of them a cause of death for everyone; a carrier locus of the map, marked disease, recessive or dominant, at most one
 /// disease per locus; a named trait of liability is in the map, carries the code of its
 /// disease and has a phenotype row with `h²` the disease's heritability and `c²` 0, equal
-/// in both ages (ADR-0020 section 2); penetrances in [0, 1], a
+/// in both ages, and `1 − K` stays below 1 in f64 (ADR-0020 section 2); penetrances in
+/// [0, 1], a
 /// heritability in (0, 1), a prevalence in (0, 0.5]; ages from 0 to 130 with a positive
 /// spread and ordered bounds; hazards in the ranges of `mortality`, a death with some.
 fn check_diseases(
@@ -1389,6 +1390,9 @@ fn check_diseases(
                     fits(bits(&row.h2_child) == bits(&row.h2_adult))?;
                     fits(bits(&row.h2_child) == heritability.value.get().to_bits())?;
                     fits(bits(&row.c2_child) == 0 && bits(&row.c2_adult) == 0)?;
+                    // A tiny `K` passes the range, but `1 − K` rounds to 1 and
+                    // `probit(1)` is NaN: nobody would have the disease.
+                    fits(1.0 - k < 1.0)?;
                 }
             }
         }

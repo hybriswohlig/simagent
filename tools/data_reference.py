@@ -282,7 +282,8 @@ def check_liability(calibration, genome_map) -> None:
     the trait is a trait of the map; its data ID is the code of the disease; the
     calibration has a phenotype row for it; that row's child and adult weights are equal
     bit for bit (h² child = h² adult, c² child = c² adult); its h² equals the disease's
-    `heritability` bit for bit; its c² is 0 (in both ages, by the equality). A carrier
+    `heritability` bit for bit; its c² is 0 (in both ages, by the equality); `1 − K` is
+    below 1 in f64 (else `probit(1 − K)` is NaN; review of the threshold slice). A carrier
     without a named trait (`null`) is not checked here: nobody has its disease."""
     traits = {entry["id"] for entry in genome_map["traits"]}
     rows = {row["trait"]: row for row in calibration["traits"]}
@@ -299,6 +300,8 @@ def check_liability(calibration, genome_map) -> None:
         heritability = f64_bits(float(carrier["heritability"]["value"]))
         assert h2_adult == heritability, f"data.disease: {code}: h2 of {named} is not the heritability bit for bit"
         assert c2_adult == f64_bits(0.0), f"data.disease: {code}: c2 of {named} is not 0"
+        prevalence = float(carrier["prevalence"]["value"])
+        assert 1.0 - prevalence < 1.0, f"data.disease: {code}: 1 - K rounds to 1, so T = probit(1 - K) is no number"
 
 
 # The recorded known answers of `sim_math::probit` (ADR-0019, AS241): the threshold of a

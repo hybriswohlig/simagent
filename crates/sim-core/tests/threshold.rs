@@ -344,8 +344,10 @@ fn the_threshold_comes_with_the_data() {
 }
 
 /// A named liability is the trait of the map named after the disease, with a phenotype row
-/// of `h²` the heritability bit for bit and `c²` 0, equal in both ages; each case below
-/// breaks one rule and is `data.disease`.
+/// of `h²` the heritability bit for bit and `c²` 0, equal in both ages, and `1 − K` below 1
+/// in f64 (else `T` is NaN: review finding); each case below breaks one rule and is
+/// `data.disease`. `K` = 2^-53 is the smallest whose complement stays below 1: accepted,
+/// with a finite `T`.
 #[test]
 fn a_named_liability_must_fit_its_disease() {
     let liability = "core:disease_liability";
@@ -362,7 +364,7 @@ fn a_named_liability_must_fit_its_disease() {
     fn carrier(c: &mut Value) -> &mut Value {
         &mut c["diseases"][5]["carrier"]["threshold"]
     }
-    let cases: [(&str, Change); 8] = [
+    let cases: [(&str, Change); 9] = [
         (
             "h2 0.5, the heritability 0.6",
             Box::new(row([0.5, 0.0, 0.5, 0.0])),
@@ -406,11 +408,21 @@ fn a_named_liability_must_fit_its_disease() {
             Box::new(move |c, _| carrier(c)["liability"] = json!("test:no_such_trait")),
         ),
         ("no phenotype row", Box::new(|c, _| c["traits"] = json!([]))),
+        (
+            "the prevalence 1e-20, whose complement rounds to 1",
+            Box::new(|c, _| carrier(c)["prevalence"]["value"] = json!(1e-20)),
+        ),
     ];
     assert_eq!(checked(|_, _| {}), "ok");
     for (case, change) in cases {
         assert_eq!(checked(change), "data.disease", "{case}");
     }
+    let (mut calibration, genome_map) = liability_files();
+    carrier(&mut calibration)["prevalence"]["value"] = json!(f64::from_bits(0x3ca0_0000_0000_0000));
+    let data = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+        .expect("checked");
+    let threshold = data.threshold(&id(liability)).expect("a threshold");
+    assert!(threshold.is_finite() && threshold > 8.0, "{threshold}");
 }
 
 /// `Start` gives each founder its afflictions: the threshold disease to those with `L > T`

@@ -205,6 +205,12 @@ def _heritability(value):
     return change
 
 
+def _prevalence(value):
+    def change(calibration_doc, map_doc):
+        threshold_carrier(calibration_doc)["prevalence"]["value"] = value
+    return change
+
+
 def _renamed(calibration_doc, map_doc):
     """The trait, its loads and its row renamed `test:liability` (no clash with a locus: the
     loci are `test:liability_1` to `_8`), the disease naming it: everything valid but the
@@ -242,6 +248,7 @@ REJECTIONS = [
     ("the trait test:liability (in the map, row h2 0.6 c2 0) is not the code core:disease_liability", _renamed),
     ("the disease names test:no_such_trait, no trait of the map", _missing_trait),
     ("no phenotype row for core:disease_liability", _no_row),
+    ("the prevalence 1e-20, whose complement rounds to 1", _prevalence(1e-20)),
 ]
 assert NEXT_AFTER_06 == 0.6000000000000001
 
