@@ -459,13 +459,17 @@ fn nearest_relative(
         if phi <= 0.0 {
             continue;
         }
-        let closer =
-            nearest.is_none_or(|(best, best_key, _)| phi > best || (phi == best && key < best_key));
-        if closer {
+        if nearest.is_none_or(|(best, best_key, _)| closer((phi, key), (best, best_key))) {
             nearest = Some((phi, key, id));
         }
     }
     nearest.map(|(_, _, id)| id)
+}
+
+/// Whether a relative `(φ, lineage key)` comes before the best so far: the greater φ, and
+/// at the same φ the smaller key.
+fn closer((phi, key): (f64, LineageKey), (best, best_key): (f64, LineageKey)) -> bool {
+    phi > best || (phi == best && key < best_key)
 }
 
 /// Among the living women of 18 or more in an open partnership, the one `FOSTER_RANK`
@@ -556,6 +560,20 @@ fn place(domain: &mut DomainState, group: &[SimId], causes: &Causes, ctx: &mut S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The nearest relative: the greater φ first, then the smaller lineage key; one that
+    /// is not closer does not replace the best so far.
+    #[test]
+    fn the_nearest_relative_has_the_greater_kinship_then_the_smaller_key() {
+        let tag = crate::data_id::DataId::new("test:kin").expect("id");
+        let [low, high] = [0, 1].map(|n| LineageKey::founder(&tag, n));
+        let (low, high) = if low < high { (low, high) } else { (high, low) };
+        assert!(closer((0.25, high), (0.125, low)));
+        assert!(!closer((0.125, low), (0.25, high)));
+        assert!(closer((0.125, low), (0.125, high)));
+        assert!(!closer((0.125, high), (0.125, low)));
+        assert!(!closer((0.125, low), (0.125, low)));
+    }
 
     /// Dario's table and the ages at and around its thresholds (`leave_home_age` of
     /// `tools/world_reference.py`); no share lies above 1, so the last age.
