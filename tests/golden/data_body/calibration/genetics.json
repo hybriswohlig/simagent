@@ -916,37 +916,6 @@
       }
     },
     {
-      "trait": "core:beard_coverage",
-      "h2_child": {
-        "value": 0.6,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_child": {
-        "value": 0.0,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "h2_adult": {
-        "value": 0.6,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_adult": {
-        "value": 0.0,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      }
-    },
-    {
       "trait": "core:body_fat",
       "h2_child": {
         "value": 0.5,
@@ -1010,37 +979,6 @@
     },
     {
       "trait": "core:breast",
-      "h2_child": {
-        "value": 0.6,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_child": {
-        "value": 0.0,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "h2_adult": {
-        "value": 0.6,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_adult": {
-        "value": 0.0,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      }
-    },
-    {
-      "trait": "core:brow",
       "h2_child": {
         "value": 0.6,
         "unit": "fraction",
@@ -1629,6 +1567,37 @@
       }
     },
     {
+      "trait": "core:growth",
+      "h2_child": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
+        "as_of": "2026-10-08",
+        "note": "test fixture of the body mapping (ADR-0015)"
+      },
+      "c2_child": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
+        "as_of": "2026-10-08",
+        "note": "test fixture of the body mapping (ADR-0015)"
+      },
+      "h2_adult": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
+        "as_of": "2026-10-08",
+        "note": "test fixture of the body mapping (ADR-0015)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
+        "as_of": "2026-10-08",
+        "note": "test fixture of the body mapping (ADR-0015)"
+      }
+    },
+    {
       "trait": "core:hair_darkness",
       "h2_child": {
         "value": 0.6,
@@ -1715,37 +1684,6 @@
       },
       "c2_adult": {
         "value": 0.0,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      }
-    },
-    {
-      "trait": "core:height",
-      "h2_child": {
-        "value": 0.8,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_child": {
-        "value": 0.05,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "h2_adult": {
-        "value": 0.8,
-        "unit": "fraction",
-        "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
-        "as_of": "2026-10-08",
-        "note": "test fixture of the body mapping (ADR-0015)"
-      },
-      "c2_adult": {
-        "value": 0.05,
         "unit": "fraction",
         "source": "docs/genetik-spezifikation.md 4.2 and 10.7",
         "as_of": "2026-10-08",
