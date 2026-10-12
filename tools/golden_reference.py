@@ -111,6 +111,23 @@ What happens (a year has 364 days of 86 400 seconds, 13 months of 28 days):
   the birth in month 42; sim 5 is not pregnant (births 2) and her series waits for month
   53, twelve months after the birth in month 41; both separations wait in the queue, and
   the round series waits for month 43.
+- Households (ADR-0018 section 4, design note of the households; the life course data of
+  format 2 with Dario's table of leaving home, tag LEAVE_HOME 22): after the founders and
+  the couples `Start` writes four `core:household_formed` (entries 10 to 13, causes the
+  input and the rule `core:household`): household 1 for sims 1 and 2, 2 for sims 5 and 6
+  (the couples), 3 for sim 4 (20 years, alone), then 4 for sim 3, one second old, by the
+  orphan rule (not moved out, no carer), his `leave_home` planned by his creation entry
+  for the age 21 (one second before the end of year 20). Every child moves into its
+  mother's household right after its `core:birth` (`core:moved`, causes the plan of the
+  birth and the rule), its carer the mother, its `leave_home` planned after its deaths;
+  the 18th birthdays end the carers. Sim 8 leaves home at 18 (year 19.3) and sim 7 at 19
+  (year 19.9), each into a household of its own; the round of month 260 pairs them, so
+  they found household 7 (she moves, then he) and households 5 and 6 end. Sim 3 leaves at
+  21, sims 9, 10, 11 and 12 at 21, 22, 21 and 21 (years 24.2 to 27.5); sim 13 is born into
+  household 7. Sim 1's death in year 27 leaves household 1 to sim 2 (she cares for nobody
+  then). The separation of partnership 2 (year 29.9) moves sim 6 into household 13; no
+  dependent child is left. The golden save holds households 1 to 4 and the `leave_home`
+  events of sims 3 and 7 to 10.
 
 The fork (ADR-0001 section 6): the same run up to the last second of year 4, then the
 input `ForkOverride` with the stamp T_5 - 1 s. It acts at T_5 before every event of
@@ -158,8 +175,10 @@ from world_reference import (
     YEAR,
     World,
     budget_of,
+    check_households,
     check_market,
     check_separations,
+    check_story_kept,
     copies_at,
     death_key,
 )
@@ -462,6 +481,7 @@ assert all(FIRST.cause_due(sim, code) == DUE[(sim, code)] for sim, code in DUE)
 assert FIRST.pending_separation(1) == SEPARATION_DUE and FIRST.pending_separation(2) == SECOND_SEPARATION_DUE
 assert [FIRST.sims[sim][8] for sim in range(1, 7)] == [1, 0, 0, 0, 1, 0]
 check_market(FIRST)
+check_households(FIRST)
 PARENT = run(fork=False)
 FORK = run(fork=True)
 assert len(PARENT.year_hashes) == YEARS and len(FORK.year_hashes) == YEARS
@@ -490,6 +510,9 @@ for world in (PARENT, FORK):
     assert world.sims[5][8] == 1 and world.sims[8][8] == 1
     check_separations(world)
     check_market(world)
+    check_households(world)
+    # The households change no story (design note of the households, section 8).
+    check_story_kept(world)
     # The rounds (cadence, test rule 6): every month, 13 a year; sim 8's choice as by hand.
     assert [kind for _, kind in world.ran].count(MARKET_ROUND_KIND) == YEARS * 13 - 1
     choices = [(record["n"], choice) for record in world.rounds for choice in record["choices"]]
@@ -557,12 +580,33 @@ assert [
 ] == [(r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in PARENT.rounds]
 
 # Coverage (ADR-0003 6.3): after the fork point the fork runs every event kind
-# (tests/golden/event_codes.txt: year_end 1 to market_round 7), and the fork writes every
-# log kind (tests/golden/log_codes.txt: payloads 0 to 9; the run all but
+# (tests/golden/event_codes.txt: year_end 1 to leave_home 8), and the fork writes every
+# log kind (tests/golden/log_codes.txt: payloads 0 to 11; the run all but
 # `core:param_changed`).
-EVENT_KINDS, LOG_KINDS = set(range(1, 8)), set(range(10))
+EVENT_KINDS, LOG_KINDS = set(range(1, 9)), set(range(12))
 assert {kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR} == EVENT_KINDS
 assert set(FORK.entry_kinds) == LOG_KINDS and set(PARENT.entry_kinds) == LOG_KINDS - {3}
+
+# The households of the story above (design note of the households).
+START_HOMES = [(row[2], row[3], row[4], row[5]) for row in PARENT.home_log if row[0] == 0]
+assert START_HOMES == [
+    (1, [1, 2], "start couple", 10),
+    (2, [5, 6], "start couple", 11),
+    (3, [4], "start adult", 12),
+    (4, [3], "start minor, orphan rule", 13),
+]
+LEAVE_AGES = {sim: (PARENT.leave_home_second(sim) - PARENT.born_of(sim)) // YEAR for sim in [3] + CHILDREN + SECOND_CHILDREN}
+assert LEAVE_AGES == {3: 21, 7: 19, 8: 18, 9: 21, 10: 22, 11: 21, 12: 21}
+LEFT = [(t, sims[0]) for t, kind, _, sims, why, _ in PARENT.home_log if kind == "formed" and why == "leave_home"]
+assert [sim for _, sim in LEFT] == [8, 7, 3, 9, 10, 11, 12] and all(t < DAUGHTER_SEARCH * MONTH for t, sim in LEFT if sim in (7, 8))
+assert PARENT.households[7] == [DAUGHTER_SEARCH * MONTH, None] and PARENT.members(7) == [7, 8, 13]
+assert [row[1:4] for row in PARENT.separation_homes] == [(5, 6, [])] and PARENT.sims[6][9] == 13
+assert not [row for row in PARENT.carer_log if row[4] not in ("birth", "18th birthday")]
+# The fork has the households of the run; from the fork point on every entry is one later
+# (the override).
+assert FORK.home_log == [
+    row[:5] + (row[5] if row[5] is None or row[0] < FORK_YEAR * YEAR else row[5] + 1,) for row in PARENT.home_log
+]
 
 
 def golden_save() -> bytes:
@@ -575,6 +619,7 @@ def golden_save() -> bytes:
     (series,) = [event for event in world.queue if event.kind == MARKET_ROUND_KIND]
     assert series.time == 43 * MONTH and SAVE_AT < 43 * MONTH
     check_market(world)
+    check_households(world)
     assert not world.archive and sorted(world.sims) == list(range(1, 11))
     assert not world.pregnancies and world.sims[1][5:7] == [2, 2] and world.sims[5][5:7] == [2, 2]
     assert world.pending_series(1) == (CHILD_MONTHS[1] + 12) * MONTH
@@ -605,10 +650,10 @@ def pedigree_rows() -> list:
     rows = []
     for sim in sorted(set(PARENT.sims) | set(PARENT.archive)):
         if sim in PARENT.sims:
-            born, key, sex, person, _, _, _, parents, _ = PARENT.sims[sim]
+            born, key, sex, person, _, _, _, parents, *_ = PARENT.sims[sim]
             died = "null"
         else:
-            born, left, cause, key, sex, person, _, _, _, parents, _ = PARENT.archive[sim]
+            born, left, cause, key, sex, person, _, _, _, parents, *_ = PARENT.archive[sim]
             died = f"{left} of {cause:016x}"
         alleles = [(locus, copies_at(person, PARENT.data.loci[locus])) for locus in PARENT.data.loci]
         alleles = [(locus, copies) for locus, copies in alleles if any(copies)]
@@ -675,5 +720,12 @@ if __name__ == "__main__":
     print(f"market: sim 5 at round 389 chance {hand_search_chance(389 * MONTH - BORN[4])!r}")
     print(f"coverage: event kinds after the fork point {sorted({kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR})}, log kinds fork {sorted(set(FORK.entry_kinds))} run {sorted(set(PARENT.entry_kinds))}")
     print(f"fork: deaths of core:disease_ar (sim, time, plan) {FORK_AR_DEATHS}")
+    for name, world in (("run", PARENT), ("fork", FORK)):
+        rows = [(t, kind, household, sims, why, entry) for t, kind, household, sims, why, entry in world.home_log]
+        print(f"households: {name} (time, kind, household, sims, why, entry) {rows}")
+    print(f"households: run carers (time, child, old, new, why) {[row for row in PARENT.carer_log if row[4] != 'birth']}")
+    print(f"households: run households (id: [formed, ended]) {PARENT.households} next {PARENT.next_household_id}")
+    print(f"households: leave_home seconds {[(sim, PARENT.leave_home_second(sim)) for sim in sorted(set(PARENT.sims) | set(PARENT.archive))]}")
+    print(f"households: leave_home after the fork point (time, kind) {[(t, kind) for t, kind in FORK.ran if kind == 8 and t >= FORK_YEAR * YEAR]}")
     for row in pedigree_rows():
         print(row)

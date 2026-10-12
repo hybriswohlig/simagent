@@ -16,7 +16,10 @@ pairs in key order, u8 and bool as one raw byte, u32 as varint, f64 as eight byt
 endian; an enum variant with data is its index followed by the data; ADR-0008):
 
   DemographyCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
-                          fertility_wish_shape: Vec<Calibrated> }   (ADR-0017 section 1)
+                          fertility_wish_shape: Vec<Calibrated>,   (ADR-0017 section 1)
+                          leave_home_ages: Vec<Calibrated> }   (format 2, design note of
+                          the households, section 1: the ten weights of leaving home at
+                          16 to 25, unit fraction, each in [0, 1], at least one above 0)
   GeneticsCalibration { format_version: u32, values: BTreeMap<DataId, Calibrated>,
                         traits: Vec<PhenotypeWeights>,
                         sex_differences: Vec<SexDifference>,   (ADR-0014)
@@ -143,6 +146,13 @@ CALIBRATION_FIELDS = (
     "height_trait",
     "fertility",
 )
+# The life course data's format and fields, every one required, none other (ADR-0007
+# section 1); format 2 adds the table of leaving home (design note of the households,
+# section 1), after the wish shape.
+DEMOGRAPHY_FORMAT = 2
+DEMOGRAPHY_FIELDS = ("format_version", "values", "fertility_wish_shape", "leave_home_ages")
+# The ages of that table: 16 to 25, one weight each.
+LEAVE_HOME_AGES = 10
 CHROMOSOMES = ["autosome", "x", "y", "mt"]
 ACTIONS = ["additive", "recessive", "dominant", "threshold"]
 MARKS = ["small", "large", "disease"]
@@ -192,7 +202,7 @@ def check_text(demography, calibration, genome_map) -> None:
     phenotype row and of a sex difference (ADR-0009, ADR-0014), of every number of a
     disease and of the fertility (ADR-0017 section 1), and of every trait and locus
     (ADR-0008)."""
-    for entry in list(demography["values"].values()) + demography["fertility_wish_shape"]:
+    for entry in list(demography["values"].values()) + demography["fertility_wish_shape"] + demography["leave_home_ages"]:
         filled(entry, CALIBRATED_TEXT)
     for entry in calibration["values"].values():
         filled(entry, CALIBRATED_TEXT)
@@ -221,6 +231,20 @@ def check_numbers(value) -> None:
     elif isinstance(value, list):
         for inner in value:
             check_numbers(inner)
+
+
+def check_demography_format(demography) -> None:
+    """The life course data have format 2 and exactly their fields, and the table of
+    leaving home is valid (design note of the households, section 1): ten entries of the
+    unit `fraction`, each in [0, 1], at least one above 0."""
+    assert set(demography) == set(DEMOGRAPHY_FIELDS), f"demography fields {sorted(demography)}"
+    assert demography["format_version"] == DEMOGRAPHY_FORMAT, demography["format_version"]
+    table = demography["leave_home_ages"]
+    assert len(table) == LEAVE_HOME_AGES, f"leave_home_ages has {len(table)} entries"
+    for entry in table:
+        assert entry["unit"] == "fraction", entry
+        assert 0.0 <= float(entry["value"]) <= 1.0, entry
+    assert any(float(entry["value"]) > 0.0 for entry in table), "leave_home_ages: no weight above 0"
 
 
 def check_calibration_format(calibration) -> None:
@@ -259,14 +283,15 @@ def calibrated_bytes(entry) -> bytes:
 
 def demography_bytes(doc) -> bytes:
     """DemographyCalibration: format_version, the values in key order, the wish shape in
-    file order."""
+    file order, the table of leaving home in file order (the ages 16 to 25)."""
     values = doc["values"]
     out = varint(doc["format_version"]) + varint(len(values))
     for key in sorted(values):
         out += string(key) + calibrated_bytes(values[key])
-    out += varint(len(doc["fertility_wish_shape"]))
-    for entry in doc["fertility_wish_shape"]:
-        out += calibrated_bytes(entry)
+    for name in ("fertility_wish_shape", "leave_home_ages"):
+        out += varint(len(doc[name]))
+        for entry in doc[name]:
+            out += calibrated_bytes(entry)
     return out
 
 
@@ -408,6 +433,7 @@ def documents_hash(demography, calibration, genome_map) -> int:
     """The data hash of the life course data, a calibration and a genome map given as
     parsed JSON (test data built in memory, or the files): the text fields checked, then
     stripped, as the core sees them."""
+    check_demography_format(demography)
     check_calibration_format(calibration)
     check_text(demography, calibration, genome_map)
     check_named_traits(calibration, genome_map)
