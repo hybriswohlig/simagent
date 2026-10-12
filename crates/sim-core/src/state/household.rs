@@ -367,9 +367,8 @@ pub(crate) fn death_moves(
             .parents
             .map(|p| alloc::vec![p.mother, p.father])
             .unwrap_or_default();
-        let parent = parents
-            .into_iter()
-            .find(|&p| p != dead && fit(domain, p, home));
+        // The dead is in the archive already, so never fit to care.
+        let parent = parents.into_iter().find(|&p| fit(domain, p, home));
         let successor = parent.or_else(|| partner.filter(|&p| fit(domain, p, home)));
         match successor {
             Some(carer) => living_mut(domain, child).carer = Some(carer),

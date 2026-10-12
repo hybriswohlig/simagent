@@ -182,7 +182,7 @@ pub(crate) fn apply_start(
     let place = |place: u32| {
         usize::try_from(place)
             .ok()
-            .filter(|place| *place < ids.len())
+            .filter(|place| ids.get(*place).is_some())
             .unwrap_or_else(|| panic!("invariant start.couple_place"))
     };
     let couples: Vec<(usize, usize)> = start
