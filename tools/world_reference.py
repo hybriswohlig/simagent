@@ -22,13 +22,14 @@ What the model knows:
   tests/golden/data_pairing); the save names the hash of the data a world runs on. The
   map lengths, the sex ratio, the map in the form of the meiosis reference and the
   mutation rates come from the documents too.
-- `Start` (world seed, founder tag, world parameters, founders, couples; no causes of
-  death and no fertility any more, ADR-0017 sections 2 and 4) writes `core:started`,
-  plans the year end series (insertion number 1, first at the last second of year 0,
-  period one year), the series of the market rounds (insertion number 2, first at MONTH,
-  period MONTH; design note of the market, section 2) and then per founder, in list
-  order: the creation entry, the first birthday (the first anniversary at or after the
-  start) and the deaths in the order of its causes. A couple with a founder under 16 at
+- `Start` (world seed, founder tag, world parameters, founders, couples, capacity; no
+  causes of death and no fertility any more, ADR-0017 sections 2 and 4) writes
+  `core:started`, plans the year end series (insertion number 1, first at the last second
+  of year 0, period one year), the series of the market rounds (insertion number 2, first
+  at MONTH, period MONTH; design note of the market, section 2), with a capacity the
+  emigration series (insertion number 3, below) and then per founder, in list order: the
+  creation entry, the first birthday (the first anniversary at or after the start) and the
+  deaths in the order of its causes. A couple with a founder under 16 at
   the start (`0 − born < 16 · YEAR`) rejects `Start` with `partner_too_young`
   (`start_rejection`).
 - Events run in the order of their key: time, phase (0 domain, 1 observer), micro step,
@@ -284,6 +285,26 @@ What the model knows:
   input log, `World.switch_at`), the partnerships with `ended_by` and their `φ`, the
   households. The kinship query `World.kinship_of(a, b)`: `φ` as f64, None for an unknown
   SimId. Nothing of a run changes (no draw, entry, state or byte).
+- Emigration by soft capacity (design note of the emigration, step 11; ADR-0020 section 6):
+  `Start` holds `capacity: Option<u64>` after the couples (core 34; the projection stays 17,
+  so a run without a capacity keeps its year hashes, its log and its state hash, and only
+  its saves change: the header and one byte of `Start`). A capacity of 0 rejects `Start`
+  (`capacity_zero`, 23). With a capacity `K`, `Start` plans one periodic event `Emigration
+  { capacity: K }` (queue payload variant 8, kind 9, class 950 between the deaths and the
+  observer, subject the world) right after the market round series (insertion number 3),
+  first at `YEAR − 1`, period YEAR, planned by `core:started`; without one nothing. It runs
+  in the last second of every year after the births and deaths of that second: with `P` the
+  number of living sims, nothing if `P ≤ K`; else `e = P / K − 1` (f64, held at 0.5) and
+  every household that has not ended and has a member of 18 or more (`born + 18 · YEAR ≤
+  t`) draws `bernoulli(e)` at (EMIGRATION = 24, the smallest lineage key of its members of
+  18 or more, the year `t / YEAR`, 0); in ascending HouseholdId each household that draws
+  yes leaves whole: per member by SimId one entry `core:emigrated { household }` (log
+  payload 12; causes the plan, the rule `core:capacity`, the draw), the member goes to the
+  archive with `LeftBy::Emigration` (variant 1, no fields) at `t`, every event planned for
+  it goes, an open partnership ends with `EndedBy::Emigration` (2) and loses its
+  separation, a pregnancy goes with the mother; the household ends at `t`. Nobody else
+  changes. The pedigree has format 3 (`emigrated` after `cause_of_death`, `ended_by`
+  "emigration"). `check_emigration` holds the load checks.
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -308,6 +329,7 @@ from postcard_reference import (
     X,
     Y_CHROMOSOME,
     afflictions as afflictions_bytes,
+    capacity as capacity_bytes,
     couple,
     genome_of,
     flag,
@@ -407,8 +429,11 @@ FOSTER_RANK = 23
 # parents after `parents` (17, part 2, section 2). The core version goes up with the market
 # (30), the similarity terms (31), the households (32: the life course data of format 2
 # change every data hash, and the projection) and the households, part 2 (33).
+# The emigration (design note of the emigration, section 1): the field `capacity` of
+# `Start` changes every save (34); the projection stays 17 (the capacity is held only in the
+# payload of the planned event, the input log is not projected).
 PROJECTION_VERSION = 17
-CORE_VERSION = 33
+CORE_VERSION = 34
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
@@ -419,6 +444,20 @@ NONE = b"\x00"
 
 # Event classes and kinds (tests/golden/event_codes.txt).
 BIRTH, GENERAL, DEATH, OBSERVER = 200, 500, 900, 1000
+# The emigration (design note of the emigration, sections 2 and 5): the class after the
+# deaths and before the observer, the kind, the queue payload `Emigration { capacity }` (the
+# next variant after LeaveHome, 7), the log payload `core:emigrated { household }` (the next
+# after Moved, 11), the tag of the draw, the rule of the entries, the reject code of a
+# capacity of 0 (the next after PartnersTooCloselyRelated, 22).
+EMIGRATION_CLASS = 950
+EMIGRATION_KIND = 9
+EMIGRATION_VARIANT = 8
+EMIGRATED_VARIANT = 12
+EMIGRATION = 24
+CAPACITY_RULE = "core:capacity"
+CAPACITY_ZERO = 23
+# The held largest rate (design note section 2).
+EMIGRATION_MAX_RATE = 0.5
 YEAR_END_KIND, BIRTHDAY_KIND, DEATH_KIND, ATTEMPT_KIND, BIRTH_KIND = 1, 2, 3, 4, 5
 # New with the separation (design note of the separation, section 3).
 SEPARATION_KIND = 6
@@ -439,6 +478,7 @@ WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
 UNKNOWN_FOUNDER, UNKNOWN_SIM, SIM_NOT_ALIVE, PARTNERS_OF_WRONG_SEX, ALREADY_PARTNERED = 13, 9, 10, 11, 12
 PARTNER_TOO_YOUNG, PARTNERS_TOO_CLOSELY_RELATED = 21, 22
 REJECT_NAMES = {
+    CAPACITY_ZERO: "capacity_zero",
     UNKNOWN_SIM: "unknown_sim",
     SIM_NOT_ALIVE: "sim_not_alive",
     PARTNERS_OF_WRONG_SEX: "partners_of_wrong_sex",
@@ -447,8 +487,14 @@ REJECT_NAMES = {
     PARTNER_TOO_YOUNG: "partner_too_young",
     PARTNERS_TOO_CLOSELY_RELATED: "partners_too_closely_related",
 }
-# EndedBy (design note of the separation, section 2): the variant index after the time.
-ENDED_BY_DEATH, ENDED_BY_SEPARATION = 0, 1
+# EndedBy (design note of the separation, section 2): the variant index after the time;
+# Emigration appended (design note of the emigration, section 5).
+ENDED_BY_DEATH, ENDED_BY_SEPARATION, ENDED_BY_EMIGRATION = 0, 1, 2
+ENDED_BY_NAMES = ("death", "separation", "emigration")
+# LeftBy of an archived sim (design note of the emigration, section 5): Death { cause } is
+# variant 0, Emigration (no fields) variant 1. In the archive of this model the cause key is
+# None for an emigrant.
+LEFT_BY_DEATH, LEFT_BY_EMIGRATION = 0, 1
 # The causes of death every sim has before its diseases, in this order (design note of
 # the death from the data, section 2).
 SENESCENCE, ACCIDENT = "core:senescence", "core:accident"
@@ -1573,7 +1619,7 @@ class World:
     switch of this reference only (no household, no `leave_home`, no entry of them): the
     world of the similarity, for the check that the households change no story."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True, capacity=None):
         self.seed = seed
         self.tag = tag
         self.switch = switch
@@ -1581,7 +1627,12 @@ class World:
         # `market` False is a switch of this reference only, not of the core: no round is
         # planned (the null twin of the market, design note of the market, section 7).
         self.market = market
-        rejection = start_rejection(founders, couples, self.data)
+        # The soft capacity `K` of `Start` (design note of the emigration, section 1), or None.
+        # An emigrating household needs households: the switch of this reference that turns
+        # them off is for worlds without a capacity only.
+        self.capacity = capacity
+        assert households or capacity is None, "the emigration needs the households"
+        rejection = start_rejection(founders, couples, self.data, capacity)
         assert rejection is None, f"Start is rejected: {REJECT_NAMES[rejection]}"
         # The pedigree of every sim, living or archived, for the kinship (spec 2.7): not
         # state, it follows from the parents; a cache of its values, keyed by the pair.
@@ -1632,7 +1683,7 @@ class World:
         # The arguments and every call that changes the world (advance, an accepted
         # ArrangePartnership, an override), so that `without_households` can run the same
         # world again with the switch off; not state.
-        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market)
+        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market, capacity=capacity)
         self.script = []
         self.next_household_id = 1
         self.households = {}
@@ -1652,6 +1703,10 @@ class World:
         # of `Start` from 0, each override block from one second after its stamp; what the
         # pedigree's `affected` reads. Not state (the save holds the input log).
         self.switch_history = [(0, switch)]
+        # Every run of the event `Emigration` (design note of the emigration, sections 2 and
+        # 3) as a record: the second, `P`, `K`, `e`, the draws per household and who left;
+        # not state.
+        self.emigrations = []
         start = variant(
             0,
             varint(seed),
@@ -1659,6 +1714,7 @@ class World:
             world_params(switch),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
+            capacity_bytes(capacity),
         )
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
@@ -2599,6 +2655,14 @@ class World:
         # section 2).
         if self.market:
             self._schedule(month_start_after(now), GENERAL, (WORLD_SUBJECT, 0), MARKET_ROUND_KIND, MARKET_ROUND_PAYLOAD, MONTH, started, now)
+        # With a capacity the emigration, right after the round series and before anything of
+        # the founders (insertion number 3): one periodic event, first at the last second of
+        # year 0, period YEAR, the same second and period as the year end; not planned again
+        # by its handler (design note of the emigration, section 2, as the coordinator fixed
+        # it).
+        if self.capacity is not None:
+            payload = variant(EMIGRATION_VARIANT, varint(self.capacity))
+            self._schedule(YEAR - 1, EMIGRATION_CLASS, (WORLD_SUBJECT, 0), EMIGRATION_KIND, payload, YEAR, started, now)
         for index, (born, sex, genes) in enumerate(founders):
             sim = self.next_sim_id
             self.next_sim_id += 1
@@ -2691,6 +2755,12 @@ class World:
                 event.time += event.period
                 self.queue.append(event)
                 self._market_round(now, plan)
+            elif event.kind == EMIGRATION_KIND:
+                # Periodic as well: the next one (the same `K`) is in the queue first.
+                assert event.payload == variant(EMIGRATION_VARIANT, varint(self.capacity))
+                event.time += event.period
+                self.queue.append(event)
+                self._emigration(now, plan)
             elif event.kind == ATTEMPT_KIND:
                 event.time += event.period
                 self.queue.append(event)
@@ -2757,6 +2827,105 @@ class World:
             self._end_if_empty(household, now)
             self._succession(sim, partner, death_entry, now)
 
+    # ------------------------------------------------------------------ emigration
+
+    def _emigration(self, now: int, plan: bytes) -> None:
+        """The event `Emigration` at `now`, the last second of a year (design note of the
+        emigration, sections 2 and 3): `P` the living sims; nothing, and no draw, if `P ≤ K`;
+        else `e = P / K − 1` (f64, `P` and `K` exact), 0.5 if that is larger, and each
+        household that has not ended and has a member of 18 or more draws once at (EMIGRATION,
+        the smallest lineage key of those members, the year of `now`, 0); all see the same
+        `P`, no draw depends on another. Then in ascending HouseholdId each household that
+        drew yes leaves whole (`_emigrate`)."""
+        assert now % YEAR == YEAR - 1, now
+        k = self.capacity
+        p = len(self.sims)
+        year = now // YEAR
+        record = {"t": now, "year": year, "P": p, "K": k, "e": None, "draws": [], "left": [], "details": []}
+        self.emigrations.append(record)
+        if p <= k:
+            return
+        e = emigration_rate(p, k)
+        record["e"] = e
+        going = []
+        for household in sorted(self.households):
+            if self.households[household][1] is not None:
+                continue
+            members = self.members(household)
+            adults = [sim for sim in members if self.sims[sim][0] + 18 * YEAR <= now]
+            if not adults:
+                record["draws"].append({"household": household, "members": members, "adults": [], "draw": None})
+                continue
+            subject = min(self.key_of(sim) for sim in adults)
+            word = words(chacha_key(self.seed, EMIGRATION, subject, year, 0))[0]
+            yes = bernoulli(word, e)
+            record["draws"].append({"household": household, "members": members, "adults": adults, "subject": subject, "u": unit(word), "draw": yes})
+            if yes:
+                going.append((household, subject))
+        for household, subject in going:
+            draw = variant(4, varint(EMIGRATION), varint(subject), varint(year), varint(0))
+            members = self.members(household)
+            # For the stories (not state): who leaves, their ages and carers, the open
+            # partnerships, the pregnancies and the planned events that go with them.
+            detail = {
+                "household": household,
+                "members": [(sim, self.sims[sim][0], now - self.sims[sim][0] >= 18 * YEAR, self.sims[sim][10], self.sims[sim][11]) for sim in members],
+                "partnerships": sorted(n for n, c in self.partnerships.items() if c[3] is None and set(c[:2]) <= set(members)),
+                "pregnancies": {sim: (self.pregnancies[sim][0], [key for key, _, _ in self.pregnancies[sim][2]], self.pregnancies[sim][3]) for sim in members if sim in self.pregnancies},
+                "cancelled": sorted(
+                    (event.time, event.kind, event.subject)
+                    for event in self.queue
+                    if event.subject in [(SIM_SUBJECT, sim) for sim in members]
+                    or (event.kind == SEPARATION_KIND and event.subject[1] in [n for n, c in self.partnerships.items() if c[3] is None and set(c[:2]) <= set(members)])
+                ),
+            }
+            record["details"].append(detail)
+            record["left"].append((household, self._emigrate(household, now, [plan, variant(3, string(CAPACITY_RULE)), draw])))
+
+    def _emigrate(self, household: int, now: int, causes: list) -> list:
+        """A household that leaves at `now` (design note of the emigration, section 3): per
+        member in ascending SimId one entry `core:emigrated { household }` (subject the sim,
+        `causes`), then the member goes to the archive with `LeftBy::Emigration` at `now` (its
+        afflictions as they are, its household this one), every event planned for it goes,
+        its open partnership (whose partner lives here too) ends with `EndedBy::Emigration`
+        and loses its separation, her pregnancy goes with her. The household ends at `now`.
+        Nobody left behind changes household, carer or social parents. Returns the members
+        with their entries."""
+        members = self.members(household)
+        assert members
+        # Nobody outside is cared for by a member, and every open partnership of a member has
+        # both partners here (ADR-0018).
+        assert not [sim for sim in self.sims if sim not in members and self.sims[sim][11] in members]
+        for number_, couple_ in self.partnerships.items():
+            if couple_[3] is None and set(couple_[:2]) & set(members):
+                assert set(couple_[:2]) <= set(members), (number_, couple_, members)
+        left = []
+        for sim in members:
+            entry = self._entry(now, [variant(0, varint(sim))], causes, variant(EMIGRATED_VARIANT, varint(household)))
+            born, key, sex, person, afflictions, conceptions, births, parents, partnerships, home, moved_out, _, social = self.sims.pop(sim)
+            assert home == household
+            self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
+            for number_, couple_ in self.partnerships.items():
+                if couple_[3] is None and sim in couple_[:2]:
+                    couple_[3] = (now, ENDED_BY_EMIGRATION)
+                    self.queue = [other for other in self.queue if not (other.kind == SEPARATION_KIND and other.subject == (PARTNERSHIP_SUBJECT, number_))]
+            # Her pregnancy goes with her, its children are never born (her conception stays
+            # counted), as at her death.
+            self.pregnancies.pop(sim, None)
+            self.archive[sim] = (
+                born, now, None, key, sex, person, afflictions, conceptions, births, parents, partnerships,
+                household, moved_out, tuple(social),
+            )
+            self.home_log.append((now, "left by emigration", household, [sim], "emigration", entry))
+            left.append((sim, entry))
+        self._end_if_empty(household, now)
+        assert self.households[household][1] == now
+        return left
+
+    def left_by(self, sim: int) -> str:
+        """"death" or "emigration" for an archived sim."""
+        return "emigration" if self.archive[sim][2] is None else "death"
+
     # ------------------------------------------------------------------ views
 
     def ordered_queue(self) -> list:
@@ -2788,7 +2957,7 @@ class World:
             varint(sim)
             + signed(born)
             + signed(left)
-            + variant(0, varint(cause))
+            + (variant(LEFT_BY_EMIGRATION) if cause is None else variant(LEFT_BY_DEATH, varint(cause)))
             + lineage_key(key)
             + sex
             + genome_of(person)
@@ -2875,7 +3044,8 @@ class World:
 
     def pedigree_view(self) -> dict:
         """The pedigree of the state (design note of the pedigree, sections 1 to 3 and 5), as
-        the object `pedigree.json` holds, keys in the order of the note: `format_version` 2,
+        the object `pedigree.json` holds, keys in the order of the note: `format_version` 3
+        (2 before the emigration),
         then `persons` by SimId (living and archived together), `partnerships` by
         PartnershipId, `households` by HouseholdId.
 
@@ -2883,14 +3053,17 @@ class World:
         ("female", "male"), `alleles` (the founders' form: per locus with an allele other
         than the reference, `{locus, copies}` with the copies maternal then paternal, the
         loci in the order of the genome map's file), `born`, `died` (or null), `cause_of_death`
-        (its data ID, or null), `mother`, `father` (or null for a founder), then
+        (its data ID, or null), `emigrated` (the second it emigrated, or null; design note of
+        the emigration, section 4: an emigrant has `died` and `cause_of_death` null, its last
+        household, carer null and its diseases at the second it left), `mother`, `father`
+        (or null for a founder), then
         `social_parents` (the list of the state, in its order), `household` (the last one
         for the dead), `moved_out`, `carer` (null for the dead and anyone without one),
         `diseases` (per affliction in data order `{disease, onset, affected}`: `affected`
         iff at `r` the age `(r − born) / 31 449 600` (f64) is at least the onset and the
         switch is on at `r`; `r` is the later of the clock and 0 for the living, the second
         of the death for the dead). A partnership: `partnership`, `woman`, `man`, `formed`,
-        `ended` (or null), `ended_by` ("death", "separation" or null), `kinship` (`φ` of
+        `ended` (or null), `ended_by` ("death", "separation", "emigration" or null), `kinship` (`φ` of
         the two, f64). A household: `household`, `formed`, `ended` (or null)."""
         assert self.households_on, "the pedigree of a world with households"
         # The loci in the order of the genome map's file (as the export walked them since
@@ -2903,13 +3076,18 @@ class World:
                 died, cause, r = None, None, max(self.closed, 0)
             else:
                 born, died, cause_key, key, sex, person, afflictions, _, _, parents, _, household, moved_out, social = self.archive[sim]
-                cause, carer, r = self.cause_code(cause_key), None, died
+                cause, carer, r = (None, None, died) if cause_key is None else (self.cause_code(cause_key), None, died)
             assert isinstance(moved_out, bool) and household is not None, (sim, moved_out, household)
             alleles = []
             for locus in loci:
                 copies = copies_at(person, self.data.loci[locus])
                 if any(copies):
                     alleles.append({"locus": locus, "copies": list(copies)})
+            # An emigrant (format 3): `died` and `cause_of_death` null, `emigrated` the second
+            # it left, its diseases as at that second.
+            emigrated = None
+            if sim in self.archive and cause_key is None:
+                emigrated, died = died, None
             switch = self.switch_at(r)
             diseases = [
                 {
@@ -2928,6 +3106,7 @@ class World:
                     "born": born,
                     "died": died,
                     "cause_of_death": cause,
+                    "emigrated": emigrated,
                     "mother": None if parents is None else parents[0],
                     "father": None if parents is None else parents[1],
                     "social_parents": list(social),
@@ -2944,7 +3123,7 @@ class World:
                 "man": man,
                 "formed": formed,
                 "ended": None if ended is None else ended[0],
-                "ended_by": None if ended is None else ("death", "separation")[ended[1]],
+                "ended_by": None if ended is None else ENDED_BY_NAMES[ended[1]],
                 "kinship": self.phi_float(woman, man),
             }
             for number_, (woman, man, formed, ended) in sorted(self.partnerships.items())
@@ -2953,7 +3132,7 @@ class World:
             {"household": number_, "formed": formed, "ended": ended}
             for number_, (formed, ended) in sorted(self.households.items())
         ]
-        return {"format_version": 2, "persons": persons, "partnerships": partnerships, "households": households}
+        return {"format_version": 3, "persons": persons, "partnerships": partnerships, "households": households}
 
     def pedigree_json(self) -> str:
         """The text of `pedigree.json` as serde_json writes it (`json_text`)."""
@@ -3009,6 +3188,13 @@ for _value, _text in [
     assert json_number(_value) == _text, (_value, json_number(_value), _text)
 
 
+def struct_bits(value: float) -> str:
+    """The 16 hex digits of the f64 bits."""
+    import struct
+
+    return struct.pack(">d", value).hex()
+
+
 def json_text(value) -> str:
     """Compact JSON as serde_json's `to_string` writes it: no spaces, the keys of an object
     in the order given, integers as integers, f64 by `json_number`, `null`, `true`,
@@ -3034,12 +3220,31 @@ def json_text(value) -> str:
     return "{" + ",".join(f"{json_text(name)}:{json_text(item)}" for name, item in value.items()) + "}"
 
 
-def start_rejection(founders: list, couples, data: Data):
+def emigration_rate(p: int, k: int) -> float:
+    """`e` of the emigration (design note of the emigration, section 2) for `P > K`: `P / K
+    − 1` with `P` and `K` converted exactly to f64 (one division, one subtraction, both
+    correctly rounded), and 0.5 if that is larger (a comparison, no `min`)."""
+    assert p > k >= 1 and p <= 2**53 and k <= 2**53
+    e = float(p) / float(k) - 1.0
+    if e > EMIGRATION_MAX_RATE:
+        e = EMIGRATION_MAX_RATE
+    return e
+
+
+# The unit values of the design note (section 6), by hand: at `P = K + 1` the rate is `1 / K`
+# up to the rounding of `(K + 1) / K`; at `P = 1.5 K` exactly 0.5; at `P = 3 K` 2, held at 0.5.
+assert emigration_rate(11, 10) == 11.0 / 10.0 - 1.0 and abs(emigration_rate(11, 10) - 0.1) < 1e-15
+assert emigration_rate(15, 10) == 0.5 and emigration_rate(30, 10) == 0.5 and emigration_rate(16, 10) == 0.5
+assert emigration_rate(14, 10) == 14.0 / 10.0 - 1.0 < 0.5 and emigration_rate(2, 1) == 0.5
+
+
+def start_rejection(founders: list, couples, data: Data, capacity=None):
     """The reject code of the couples of `Start`, or None (design note of the market,
     section 4): a couple naming no founder (`unknown_founder`), of the wrong sexes, a
     founder in two couples (`already_partnered`), then a founder of a couple under the
     market age at the start (second 0: `0 − born < 16 · YEAR`, `partner_too_young`).
-    Founders are unrelated (φ 0)."""
+    Founders are unrelated (φ 0). Then a capacity of 0 (`capacity_zero`, design note of
+    the emigration, section 1; the last field of `Start`, checked last)."""
     paired = set()
     for woman, man in couples:
         if not (0 <= woman < len(founders) and 0 <= man < len(founders)):
@@ -3052,6 +3257,10 @@ def start_rejection(founders: list, couples, data: Data):
     for woman, man in couples:
         if any(0 - founders[index][0] < data.market_age * YEAR for index in (woman, man)):
             return PARTNER_TOO_YOUNG
+    if capacity is not None:
+        assert 0 <= capacity < 2**64
+        if capacity == 0:
+            return CAPACITY_ZERO
     return None
 
 
@@ -3135,8 +3344,9 @@ def check_separations(world: World) -> None:
       woman she is; a man's is 0;
     - per partnership, with `due` as in section 3 (`k` from the partnerships of the same
       woman with a smaller PartnershipId): the first of {`due` if `due` <= the clock, the
-      first death of the two} decides, a tie going to the separation; `ended` is that
-      Ending, or None if neither has come;
+      first death of the two, the emigration of either (design note of the emigration,
+      section 3)} decides, a tie going to the separation, then to the death (the classes
+      500, 900, 950 of one second); `ended` is that Ending, or None if none has come;
     - a pending `separation` exists exactly for each open partnership with a `due`, at
       `due`, subject that partnership; none else;
     - a series of attempts needs an open partnership (the check that stays)."""
@@ -3148,15 +3358,16 @@ def check_separations(world: World) -> None:
     pending = [event for event in world.queue if event.kind == SEPARATION_KIND]
     for number_, (woman, man, formed, ended) in world.partnerships.items():
         due = world.separation_due(number_)
-        deaths = [world.archive[sim][1] for sim in (woman, man) if sim in world.archive]
-        first_death = min(deaths) if deaths else None
-        came = due is not None and due <= world.closed
-        if came and (first_death is None or due <= first_death):
-            want = (due, ENDED_BY_SEPARATION)
-        elif first_death is not None:
-            want = (first_death, ENDED_BY_DEATH)
-        else:
-            want = None
+        # (time, order in the second, Ending): separation (class 500), death (900),
+        # emigration (950).
+        ends = []
+        if due is not None and due <= world.closed:
+            ends.append((due, 0, ENDED_BY_SEPARATION))
+        for sim in (woman, man):
+            if sim in world.archive:
+                emigrated = world.archive[sim][2] is None
+                ends.append((world.archive[sim][1], 2 if emigrated else 1, ENDED_BY_EMIGRATION if emigrated else ENDED_BY_DEATH))
+        want = (min(ends)[0], min(ends)[2]) if ends else None
         assert ended == want, (number_, ended, want)
         events = [event for event in pending if event.subject == (PARTNERSHIP_SUBJECT, number_)]
         if ended is None and due is not None:
@@ -3167,6 +3378,55 @@ def check_separations(world: World) -> None:
     for event in world.queue:
         if event.kind == ATTEMPT_KIND:
             assert world.partner_of(event.subject[1]) is not None, event.subject
+
+
+def check_emigration(world: World) -> None:
+    """The load checks of the emigration (design note of the emigration, section 4; ADR-0020
+    section 6; ADR-0006 section 5) on the state of `world`, as the loader would see its save
+    with its input log (the capacity of `Start`); a broken one is `Inconsistent` there, an
+    assertion here:
+
+    - with a capacity exactly one event `Emigration { capacity: K }` is planned (class 950,
+      subject the world, kind 9, period YEAR, planned by `core:started` at 0) in the last
+      second of the current year, or of the next if the clock stands at or after this
+      year's (the smallest `n · YEAR − 1` after the clock); without one none, and nobody in
+      the archive left by emigration;
+    - every archived sim with `LeftBy::Emigration` left in the last second of a year (at or
+      before the clock) in a world with a capacity; the emigrants of one household and
+      second are everyone who lived in that household in that second (no living sim lives
+      there, and the household ended in that very second), at least one of them 18 or more
+      (`born + 18 · YEAR ≤ t`); no event is planned for any of them and none is pregnant;
+    - a partnership ended by `Emigration` has both partners among the emigrants of one
+      household and second, and ended in that second."""
+    events = [event for event in world.queue if event.kind == EMIGRATION_KIND]
+    emigrants = {sim: value for sim, value in world.archive.items() if value[2] is None}
+    if world.capacity is None:
+        assert not events and not emigrants, (events, sorted(emigrants))
+    else:
+        assert len(events) == 1, events
+        (event,) = events
+        due = (world.closed // YEAR + 1) * YEAR - 1
+        if due <= world.closed:
+            due += YEAR
+        assert event.time == due and event.time > world.closed, (event.time, world.closed)
+        assert event.cls == EMIGRATION_CLASS and event.subject == (WORLD_SUBJECT, 0) and event.period == YEAR
+        assert event.payload == variant(EMIGRATION_VARIANT, varint(world.capacity)) and event.plan == (1, 0)
+    groups = {}
+    for sim, value in emigrants.items():
+        groups.setdefault((value[11], value[1]), []).append(sim)
+    for (household, t), sims in groups.items():
+        assert t % YEAR == YEAR - 1 and 0 <= t <= world.closed, (sims, t)
+        assert household in world.households and world.households[household][1] == t, (household, t)
+        assert not [sim for sim, value in world.sims.items() if value[9] == household], household
+        assert any(world.archive[sim][0] + 18 * YEAR <= t for sim in sims), (household, sims)
+        for sim in sims:
+            assert not [event for event in world.queue if event.subject == (SIM_SUBJECT, sim)], sim
+            assert sim not in world.pregnancies, sim
+    for number_, (woman, man, _, ended) in world.partnerships.items():
+        if ended is not None and ended[1] == ENDED_BY_EMIGRATION:
+            assert woman in emigrants and man in emigrants, number_
+            assert emigrants[woman][1] == emigrants[man][1] == ended[0], number_
+            assert emigrants[woman][11] == emigrants[man][11], number_
 
 
 def check_households(world: World) -> None:
@@ -3511,6 +3771,10 @@ if __name__ == "__main__":
         ("payload", "5", "core:partnered"),
         ("cause", "3", "rule"),
         ("cause", "4", "random"),
+        ("tag", str(EMIGRATION), "EMIGRATION"),
+        ("class", "emigration", str(EMIGRATION_CLASS)),
+        ("kind", "emigration", str(EMIGRATION_KIND)),
+        ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),
     } | {("reject", str(code), name) for code, name in REJECT_NAMES.items()}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
@@ -3520,3 +3784,23 @@ if __name__ == "__main__":
     # the values of `json_number`'s checks.
     samples = [0.0, 0.5, 0.25, 0.125, 0.0625, 0.53125, 2.0**-14, 1e-5, 2.0**-17, 1e16, 48.02016537979952]
     print(f"pedigree_json_numbers {[(value.hex(), json_number(value)) for value in samples]}")
+    # The emigration by soft capacity (design note of the emigration, step 11): the codes,
+    # and the unit values of `e` (section 6): `P = K` draws nothing, `P = K + 1`, `P = 1.5 K`
+    # (0.5 exactly), `P = 3 K` (2, held at 0.5), with the bits of `e`.
+    print(
+        f"emigration tag EMIGRATION {EMIGRATION} class {EMIGRATION_CLASS} kind {EMIGRATION_KIND} subject world {WORLD_SUBJECT}"
+        f" queue payload {variant(EMIGRATION_VARIANT, varint(3)).hex()} (capacity 3) period {YEAR} first {YEAR - 1}"
+        f" log payload core:emigrated {EMIGRATED_VARIANT} rule {CAPACITY_RULE} reject capacity_zero {CAPACITY_ZERO}"
+        f" ended_by emigration {ENDED_BY_EMIGRATION} left_by death {LEFT_BY_DEATH} emigration {LEFT_BY_EMIGRATION}"
+    )
+    for k in (1, 2, 4, 7, 10, 12, 100):
+        values = [("K", k, None)]
+        half = (3 * k) // 2 if k % 2 == 0 else None
+        for name, p_ in (("K+1", k + 1), ("1.5K-1", None if half is None else half - 1), ("1.5K", half), ("3K", 3 * k)):
+            if p_ is None or p_ <= k:
+                continue
+            values.append((name, p_, emigration_rate(p_, k)))
+        print(
+            f"emigration_rate K {k} P=K nothing "
+            + " ".join(f"P={name} {p_} e {e!r} bits {struct_bits(e)}" for name, p_, e in values[1:])
+        )

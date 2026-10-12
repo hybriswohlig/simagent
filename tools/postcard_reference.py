@@ -185,6 +185,12 @@ def couple(woman: int, man: int) -> bytes:
     return varint(woman) + varint(man)
 
 
+def capacity(value) -> bytes:
+    """`capacity: Option<u64>`, the last field of `Start` (design note of the emigration,
+    section 1): the option tag 0 for none, else 1 and the plain number."""
+    return b"\x00" if value is None else b"\x01" + varint(value)
+
+
 # Strand: maternal = 0, paternal = 1. SexChromosome: x = 0, y = 1.
 MATERNAL, PATERNAL = variant(0), variant(1)
 X, Y_CHROMOSOME = variant(0), variant(1)
@@ -210,7 +216,8 @@ def segment_meiosis(segment: int, strand: bytes, crossovers: list) -> bytes:
 
 def ending(at: int, by: int) -> bytes:
     """Ending { at: SimTime, by: EndedBy }, EndedBy: Death = 0, Separation = 1 (design note
-    of the separation, section 2)."""
+    of the separation, section 2), Emigration = 2 (design note of the emigration, section
+    5)."""
     return signed(at) + variant(by)
 
 
@@ -234,9 +241,10 @@ def household_fields(household_id: int, moved_out: bool, carer) -> bytes:
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, founders: [Founder], couples: [Couple] }: no causes of death and no
-# fertility, they come from the data (ADR-0017 sections 2 and 4; design note of the
-# fertility in the world, section 1).
+# WorldParams, founders: [Founder], couples: [Couple], capacity: Option<u64> }: no causes
+# of death and no fertility, they come from the data (ADR-0017 sections 2 and 4; design
+# note of the fertility in the world, section 1); the capacity last (design note of the
+# emigration, section 1), none here.
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
@@ -244,6 +252,7 @@ SAMPLE_INPUT = variant(
     world_params(False),
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
+    capacity(None),
 )
 
 # Input::ArrangePartnership (variant 2) { woman: SimId, man: SimId }
@@ -367,6 +376,40 @@ SAMPLE_SOCIAL_PARENTS_EMPTY = seq([])
 SAMPLE_SOCIAL_PARENTS = seq([varint(2), varint(7)])
 SAMPLE_SOCIAL_PARENTS_LARGE = seq([varint(300)])
 
+# The emigration by soft capacity (design note of the emigration): `Start` with the
+# capacity 3 and with the largest one; Event::Emigration (variant 8, the last) { capacity:
+# u64 } in the queue (kind `emigration` 9, class 950); LogPayload::Emigrated (variant 12, the
+# last) { household: HouseholdId }; its causes (the plan of the event by `core:started`, entry
+# 1 at 0; Rule `core:capacity`; Random with EMIGRATION (24), the smallest lineage key of the
+# household's members of 18 or more, the year, detail 0); a partnership ended by emigration
+# (EndedBy::Emigration = 2); the reason an archived sim left, LeftBy::Death { cause } = 0
+# and LeftBy::Emigration = 1 (no fields); the reject code CapacityZero (23, the last).
+SAMPLE_INPUT_CAPACITY = variant(
+    0,
+    varint(0xFF),
+    string("test:fork_no_density"),
+    world_params(False),
+    seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
+    seq([]),
+    capacity(3),
+)
+SAMPLE_CAPACITY_NONE = capacity(None)
+SAMPLE_CAPACITY_3 = capacity(3)
+SAMPLE_CAPACITY_MAX = capacity((1 << 64) - 1)
+SAMPLE_EMIGRATION_EVENT = variant(8, varint(3))
+SAMPLE_EMIGRATED_PAYLOAD = variant(12, varint(1))
+SAMPLE_EMIGRATION_CAUSES = seq(
+    [
+        variant(1, varint(1), signed(0)),
+        variant(3, string("core:capacity")),
+        variant(4, varint(24), varint(0xCFD3D4551FB363C2), varint(1), varint(0)),
+    ]
+)
+SAMPLE_PARTNERSHIP_EMIGRATED = partnership(1, 2, 0, (2 * 31_449_600 - 1, 2))
+SAMPLE_LEFT_BY_DEATH = variant(0, varint(0x0123456789ABCDEF))
+SAMPLE_LEFT_BY_EMIGRATION = variant(1)
+REJECTED_CAPACITY_ZERO = variant(23)
+
 # SimDuration at its lower bound, -1 000 000 years of 364 days.
 MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 
@@ -425,5 +468,16 @@ if __name__ == "__main__":
         ("genome_female_wild_dummy", genome(FEMALE, genotype(WILD, DUMMY))),
         ("genome_male_dummy_wild", genome(MALE, genotype(DUMMY, WILD))),
         ("sample_lineage_key", SAMPLE_LINEAGE_KEY),
+        ("sample_input_capacity_3", SAMPLE_INPUT_CAPACITY),
+        ("sample_capacity_none", SAMPLE_CAPACITY_NONE),
+        ("sample_capacity_3", SAMPLE_CAPACITY_3),
+        ("sample_capacity_max", SAMPLE_CAPACITY_MAX),
+        ("sample_emigration_event", SAMPLE_EMIGRATION_EVENT),
+        ("sample_emigrated_payload", SAMPLE_EMIGRATED_PAYLOAD),
+        ("sample_emigration_causes", SAMPLE_EMIGRATION_CAUSES),
+        ("sample_partnership_emigrated", SAMPLE_PARTNERSHIP_EMIGRATED),
+        ("sample_left_by_death", SAMPLE_LEFT_BY_DEATH),
+        ("sample_left_by_emigration", SAMPLE_LEFT_BY_EMIGRATION),
+        ("rejected_capacity_zero", REJECTED_CAPACITY_ZERO),
     ]:
         print(f"{name} {data.hex()}")
