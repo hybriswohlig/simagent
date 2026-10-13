@@ -1,0 +1,3000 @@
+{
+  "format_version": 2,
+  "map_version": 4,
+  "traits": [
+    {
+      "id": "core:androgen",
+      "sigma_ref": 2.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:bald",
+      "sigma_ref": 1.4142135623730951,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 2 own additive loci, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:beard",
+      "sigma_ref": 1.4142135623730951,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 2 own additive loci, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:body_fat",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:body_hair",
+      "sigma_ref": 1.224744871391589,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:breast",
+      "sigma_ref": 1.2206555615733703,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:estrogen",
+          "weight": 0.7
+        }
+      ],
+      "description": "Trait of the template of map 4 with 2 own additive loci, including core:estrogen with weight 0.7; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:chest_depth",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:cognition",
+      "sigma_ref": 2.8284271247461903,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:curl",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:disease_liability",
+      "sigma_ref": 2.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:estrogen",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_01",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_02",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_03",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_04",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_05",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_06",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_07",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_08",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_09",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_10",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_11",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:face_12",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:fat_distribution",
+      "sigma_ref": 1.224744871391589,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:freckle",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:grey",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:growth",
+      "sigma_ref": 2.8284271247461903,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:hair_darkness",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:hair_density",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:head_size",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:hip_width",
+      "sigma_ref": 0.99498743710662,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:estrogen",
+          "weight": 0.7
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:estrogen with weight 0.7; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:leg_ratio",
+      "sigma_ref": 0.824621125123532,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:growth",
+          "weight": 0.15
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:growth with weight 0.15; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:longevity",
+      "sigma_ref": 2.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:muscle",
+      "sigma_ref": 1.4142135623730951,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 2 own additive loci, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:pigment",
+      "sigma_ref": 2.8284271247461903,
+      "exclusive": true,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 16 own additive loci, exclusive; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:puberty",
+      "sigma_ref": 1.7320508075688772,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 6 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:shoulder_width",
+      "sigma_ref": 1.224744871391589,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": 0.5
+        }
+      ],
+      "description": "Trait of the template of map 4 with 1 own additive locus, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:skin_age",
+      "sigma_ref": 1.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:disease_ar",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal recessive disease (genetics specification 3.2, model: cystic fibrosis); the locus of the walking skeleton, renamed at the same place."
+    },
+    {
+      "id": "core:androgen_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:breast_02",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:breast",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:breast (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_04",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:curl_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:curl",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:curl (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_06",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_06_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_06",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_06 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:freckle_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:freckle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:freckle (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_03",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_03",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:skin_age_02",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:skin_age",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:skin_age (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_11",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 11 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_11",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 11 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_12",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 12 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:androgen_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:body_fat_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:body_fat",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:body_fat (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_05",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:curl_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:curl",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:curl (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_07",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_01_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_01",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_01 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_09_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_09",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_09 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:freckle_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:freckle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:freckle (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_04",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hair_darkness_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_darkness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:hair_darkness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_04",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:mc1r",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 12,
+      "action": "recessive",
+      "mark": "large",
+      "mutation": "both",
+      "description": "MC1R, a large recessive pigment locus (genetics specification 10.4, ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_12",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 12 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_12",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 12 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_13",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 13 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_ad_late",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease of late onset (genetics specification 3.2, model: Huntington's disease)."
+    },
+    {
+      "id": "core:androgen_03",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:body_fat_02",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:body_fat",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:body_fat (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:chest_depth_01",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:chest_depth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:chest_depth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_06",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_08",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_04_01",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_04",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_04 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_12_01",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_12",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_12 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_05",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hair_darkness_02",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_darkness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:hair_darkness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hip_width_01",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hip_width",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:hip_width (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_03",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_05",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_02",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_13",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 13 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_13",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 13 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_14",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 14 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:androgen_04",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:bald_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:bald",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:bald (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_07",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_07_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_07",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_07 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:grey_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:grey",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:grey (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_06",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_04",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:muscle_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:muscle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:muscle (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_06",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_03",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:herc2",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 12,
+      "action": "recessive",
+      "mark": "large",
+      "mutation": "both",
+      "description": "HERC2, a large recessive pigment locus (genetics specification 10.4, ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_14",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 14 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_14",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 14 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_15",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 15 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_ad_partial",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Autosomal dominant disease with partial penetrance by sex (genetics specification 3.2, model: BRCA1)."
+    },
+    {
+      "id": "core:androgen_05",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:bald_02",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:bald",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:bald (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:body_hair_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:body_hair",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:body_hair (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_08",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_02",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_02_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_02",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_02 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_10_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_10",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_10 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:grey_02",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:grey",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:grey (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_07",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hair_density_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_density",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:hair_density (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_05",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:muscle_02",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:muscle",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:muscle (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_07",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_04",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:shoulder_width_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:shoulder_width",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:shoulder_width (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_15",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 15 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_15",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 15 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_16",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 16 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:androgen_06",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_01",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_03",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_05_01",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_05",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_05 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:fat_distribution_01",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:fat_distribution",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:fat_distribution (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_08",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hair_density_02",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_density",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:hair_density (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:leg_ratio_01",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:leg_ratio",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:leg_ratio (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_06",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_08",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_05",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_16",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 16 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_16",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 16 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_09",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 9 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:androgen_07",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:beard_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:beard",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:beard (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_02",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_04",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:estrogen_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:estrogen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:estrogen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_08_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_08",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_08 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_07",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:puberty_06",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:puberty",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_09",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 9 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_09",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 9 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_10",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 10 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:androgen_08",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 0,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:androgen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:androgen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:beard_02",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 1,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:beard",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:beard (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:breast_01",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 2,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:breast",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:breast (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_03",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 3,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_liability_05",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 4,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:disease_liability",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:disease_liability (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:estrogen_02",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 5,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:estrogen",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:estrogen (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_03_01",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 6,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_03",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_03 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:face_11_01",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 7,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:face_11",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:face_11 (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_02",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 8,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:head_size_01",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 9,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:head_size",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:head_size (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:longevity_08",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:longevity",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:longevity (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_02",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:skin_age_01",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:skin_age",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:skin_age (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:pigment_10",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 21,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:pigment",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 10 of core:pigment (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:growth_10",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 22,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:growth",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 10 of core:growth (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:cognition_11",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 23,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:cognition",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 11 of core:cognition (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:disease_xr",
+      "chromosome": "x",
+      "segment": 0,
+      "slot": 0,
+      "action": "recessive",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "X-linked recessive disease (genetics specification 3.2, model: haemophilia A); men with one copy on their X are affected."
+    },
+    {
+      "id": "core:disease_mt",
+      "chromosome": "mt",
+      "segment": 0,
+      "slot": 0,
+      "action": "dominant",
+      "mark": "disease",
+      "mutation": "to_alt",
+      "description": "Mitochondrial disease (genetics specification 3.2, model: Leber hereditary optic neuropathy); one copy, from the mother."
+    }
+  ]
+}

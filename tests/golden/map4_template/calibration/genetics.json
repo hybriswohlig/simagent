@@ -1,0 +1,2452 @@
+{
+  "format_version": 7,
+  "values": {
+    "core:accident_female": {
+      "value": 0.00015,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (K7.1a), between the life table's death rates of children and young adults",
+      "as_of": "2026-10-11",
+      "note": "Makeham term of women, per year"
+    },
+    "core:accident_male": {
+      "value": 0.0002,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (K7.1b), between the life table's death rates of children and young adults",
+      "as_of": "2026-10-11",
+      "note": "Makeham term of men, per year"
+    },
+    "core:longevity_sigma_g": {
+      "value": 0.724,
+      "unit": "logit",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2a), fitted so that the heritability of lifespan is 0.2 (K7.1g)",
+      "as_of": "2026-10-11",
+      "note": "m = exp(-sigma_g * g_L); no effect without a trait of longevity"
+    },
+    "core:senescence_a_female": {
+      "value": 3.25e-6,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2b), fitted to the life tables of Destatis 2023/2025 (life expectancy 83.43, at 65 21.10)",
+      "as_of": "2026-10-11",
+      "note": "Gompertz a of women, per year"
+    },
+    "core:senescence_a_male": {
+      "value": 8.73e-6,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2d), fitted to the life tables of Destatis 2023/2025 (life expectancy 78.82, at 65 17.97)",
+      "as_of": "2026-10-11",
+      "note": "Gompertz a of men, per year"
+    },
+    "core:senescence_b_female": {
+      "value": 0.1182,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2c), fitted as a",
+      "as_of": "2026-10-11",
+      "note": "Gompertz b of women, per year of age"
+    },
+    "core:senescence_b_male": {
+      "value": 0.1118,
+      "unit": "per_year",
+      "source": "docs/genetik-spezifikation.md 7.2 (W7.2e), fitted as a",
+      "as_of": "2026-10-11",
+      "note": "Gompertz b of men, per year of age"
+    },
+    "core:map_length_autosome_female": {
+      "value": 5.35,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: female autosomal map 4281 cM, over 8 segments",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2a), rounded to 0.01 M"
+    },
+    "core:map_length_autosome_male": {
+      "value": 3.24,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: male autosomal map 2590 cM, over 8 segments",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2b), rounded to 0.01 M"
+    },
+    "core:map_length_x_female": {
+      "value": 1.79,
+      "unit": "morgan",
+      "source": "Kong A et al. (2002), Nat Genet 31:241-247, table 1: X chromosome 179 cM in women",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.2 (K2.2c); the X of a man does not recombine in the model"
+    },
+    "core:mutation_rate": {
+      "value": 0.00005,
+      "unit": "per_transmission",
+      "source": "game value; real loss-of-function rates per gene about 1e-6 to 1e-4 (Kong A et al. 2012, Nature 488:471; Jobling MA 2012, Investig Genet 3:5)",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.4 (K2.4a, C7): high enough that new mutations show in a run of 200 years"
+    },
+    "core:mutation_rate_disease": {
+      "value": 1e-6,
+      "unit": "per_transmission",
+      "source": "game value at the low end of real per-gene rates",
+      "as_of": "2026-10-07",
+      "note": "docs/genetik-spezifikation.md 2.4 and 3.3 (K2.4b): keeps rare disease alleles from coming mostly from new mutations"
+    },
+    "core:height_adult_male": {
+      "value": 180.7,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, men",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1a); the end of the mean growth curve (ADR-0010)"
+    },
+    "core:growth_theta_male": {
+      "value": 14.02,
+      "unit": "year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2a), boys"
+    },
+    "core:growth_height_theta_male": {
+      "value": 167.4,
+      "unit": "centimeter",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2b), boys"
+    },
+    "core:growth_s0_male": {
+      "value": 0.1058,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2c), boys"
+    },
+    "core:growth_s1_male": {
+      "value": 0.9655,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2d), boys"
+    },
+    "core:length_birth_male": {
+      "value": 49.8842,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, birth",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_12_months_male": {
+      "value": 75.7488,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, 12 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_24_months_male": {
+      "value": 87.8161,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, boys, 24 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:height_adult_female": {
+      "value": 167.3,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, women",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1c); the end of the mean growth curve (ADR-0010)"
+    },
+    "core:growth_theta_female": {
+      "value": 12.3,
+      "unit": "year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2l), girls"
+    },
+    "core:growth_height_theta_female": {
+      "value": 156.7,
+      "unit": "centimeter",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2m), girls"
+    },
+    "core:growth_s0_female": {
+      "value": 0.1341,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2n), girls"
+    },
+    "core:growth_s1_female": {
+      "value": 1.044,
+      "unit": "per_year",
+      "source": "tools/spec_reference.py, section 5.1: least squares of Preece-Baines model 1 against the CDC 2000 stature-for-age medians (Kuczmarski RJ et al. 2002) scaled to h1, rounded to 4 significant digits as the reference uses them",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1 (W5.2o), girls"
+    },
+    "core:length_birth_female": {
+      "value": 49.1477,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, birth",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_12_months_female": {
+      "value": 74.015,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, 12 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:length_24_months_female": {
+      "value": 86.4153,
+      "unit": "centimeter",
+      "source": "WHO Child Growth Standards (2006), length-for-age median, girls, 24 months",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.1; the infancy term passes it exactly (ADR-0010)"
+    },
+    "core:height_sd_male": {
+      "value": 7.01,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, men, standard deviation",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1b); the spread of the target height of the individual growth curve (ADR-0012)"
+    },
+    "core:height_sd_female": {
+      "value": 6.67,
+      "unit": "centimeter",
+      "source": "Jelenkovic A et al. (2016), eLife 5:e20320, table 1: European twin cohorts born 1970-1979, women, standard deviation",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.1 (K6.1d); the spread of the target height of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_theta_sd_male": {
+      "value": 0.81,
+      "unit": "year",
+      "source": "Cole TJ (2020), Ann Hum Biol 47:181-198, ALSPAC: standard deviation of the timing of the pubertal growth spurt, boys",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2a); the spread of the timing of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_theta_sd_female": {
+      "value": 0.89,
+      "unit": "year",
+      "source": "Cole TJ (2020), Ann Hum Biol 47:181-198, ALSPAC: standard deviation of the timing of the pubertal growth spurt, girls",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2b); the spread of the timing of the individual growth curve (ADR-0012)"
+    },
+    "core:growth_gamma": {
+      "value": 1.0,
+      "unit": "centimeter_per_year",
+      "source": "play value of the specification between Sovio U et al. (2009), PLoS Genet 5:e1000409 (near 0, Finland) and Haegg U, Taranger J (1991), Ann Hum Biol 18:47-56 (late-maturing boys taller, Sweden)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.2 (K5.2c, HANDOFF 4: early maturity against longer growth); adult centimeters per year of later timing (ADR-0012)"
+    },
+    "core:nutrition_loss": {
+      "value": 5.0,
+      "unit": "centimeter_per_year",
+      "source": "play value of the specification below the proposal of C1 (2 to 3 cm for 0.7): Portrait F et al. (2017), Econ Hum Biol 27:339-348; Goergens T, Meng X, Vaithianathan R (2012), J Dev Econ 97:99-111 (1 to 2 cm after correcting for selective survival)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4 (K5.4a); cm of adult height per year of full deficit in the first window (ADR-0013)"
+    },
+    "core:nutrition_weight_infant": {
+      "value": 1.0,
+      "unit": "fraction",
+      "source": "play value of the specification: the first two years of life are the most sensitive window (Portrait 2017; Kesternich I et al. (2014), Rev Econ Stat 96:103-118)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window below core:nutrition_age_infant (ADR-0013)"
+    },
+    "core:nutrition_weight_child": {
+      "value": 0.5,
+      "unit": "fraction",
+      "source": "play value of the specification for early childhood after the first two years",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window from core:nutrition_age_infant to core:nutrition_age_child (ADR-0013)"
+    },
+    "core:nutrition_weight_puberty": {
+      "value": 0.25,
+      "unit": "fraction",
+      "source": "play value of the specification for the pubertal growth spurt",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, weight of the window around theta_i, not below core:nutrition_age_child (ADR-0013)"
+    },
+    "core:nutrition_age_infant": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, end of the first window in years of age (ADR-0013)"
+    },
+    "core:nutrition_age_child": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, end of the second window in years of age (ADR-0013)"
+    },
+    "core:nutrition_puberty_before": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, the puberty window starts this many years before theta_i (ADR-0013)"
+    },
+    "core:nutrition_puberty_after": {
+      "value": 1.0,
+      "unit": "year",
+      "source": "play value of the specification",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.4, the puberty window ends this many years after theta_i (ADR-0013)"
+    },
+    "core:puberty_half_width": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011): the sex differences of 6.2 rise over four years around theta_i",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 6.2 (K6.2a); half width of the smoothstep of the puberty progress P (ADR-0014)"
+    },
+    "core:height_loss_onset": {
+      "value": 30.0,
+      "unit": "year",
+      "source": "Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977 (Baltimore Longitudinal Study of Aging): height loss begins at about 30 years",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3c); bio_age from which height is lost (ADR-0014)"
+    },
+    "core:height_loss_male": {
+      "value": 0.001875,
+      "unit": "centimeter_per_year_squared",
+      "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 3 cm lost from 30 to 70 in men",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3a); 3/1600, so 3 cm at bio_age 70 and 4.69 cm at 80 (ADR-0014)"
+    },
+    "core:height_loss_female": {
+      "value": 0.003125,
+      "unit": "centimeter_per_year_squared",
+      "source": "play curve decided by Grok 4.7 on 2026-10-08 through Sorkin JD, Muller DC, Andres R (1999), Am J Epidemiol 150:969-977: about 5 cm lost from 30 to 70 in women",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 5.3 (K5.3b); 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
+    },
+    "core:body_pigment_skin_offset": {
+      "value": -1.2,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_s = offset + slope * z_pig (ADR-0015)"
+    },
+    "core:body_pigment_skin_slope": {
+      "value": 1.15,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_s (ADR-0015)"
+    },
+    "core:body_pigment_hair_slope": {
+      "value": 1.2,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h = slope * z_pig + residual * z_hair - darkening * (1 - S(0, age, b)) (ADR-0015)"
+    },
+    "core:body_pigment_hair_residual": {
+      "value": 0.55,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_hair_darkening": {
+      "value": 1.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_hair_darkening_age": {
+      "value": 12.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
+    "core:body_pigment_iris_offset": {
+      "value": 0.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i = offset + slope * z_pig - darkening * (1 - S(0, age, b)) (ADR-0015)"
+    },
+    "core:body_pigment_iris_slope": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_iris_darkening": {
+      "value": 1.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_iris_darkening_age": {
+      "value": 3.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
+    },
+    "core:body_pigment_skin_pheo_offset": {
+      "value": -1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin = L(offset + slope * z_pig) (ADR-0015)"
+    },
+    "core:body_pigment_skin_pheo_slope": {
+      "value": -0.25,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin (ADR-0015)"
+    },
+    "core:body_pigment_hair_pheo_offset": {
+      "value": -2.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin = L(offset + slope * z_pig) (ADR-0015)"
+    },
+    "core:body_pigment_hair_pheo_slope": {
+      "value": -0.35,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin (ADR-0015)"
+    },
+    "core:body_mc1r_hair_eu": {
+      "value": 0.3,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_eumelanin times this at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_skin_eu": {
+      "value": 0.55,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_eumelanin times this at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_hair_pheo": {
+      "value": 0.8,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_skin_pheo": {
+      "value": 0.45,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin at two copies (ADR-0015)"
+    },
+    "core:body_mc1r_freckle": {
+      "value": 1.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4, 10.6: freckle logit per copy (ADR-0015)"
+    },
+    "core:body_herc2_iris": {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.4: iris_melanin times this at two copies (ADR-0015)"
+    },
+    "core:body_development_androgen_lag": {
+      "value": 0.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_a = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_development_estrogen_lead": {
+      "value": 0.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_e = L((b - theta_i + lead) / tempo) (ADR-0015)"
+    },
+    "core:body_development_breast_lead": {
+      "value": 0.2,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: s_b = L((b - theta_i + lead) / tempo) (ADR-0015)"
+    },
+    "core:body_development_tempo": {
+      "value": 1.15,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: tempo of s_a, s_e, s_b (ADR-0015)"
+    },
+    "core:body_development_androgen_offset": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: amplitude L(offset + z_and) (ADR-0015)"
+    },
+    "core:body_development_estrogen_offset": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: amplitude L(offset + z_est) (ADR-0015)"
+    },
+    "core:body_development_estrogen_men": {
+      "value": 0.1,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: estrogenic_development of men, share (ADR-0015)"
+    },
+    "core:body_development_androgen_women": {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.5: androgenic_development of women, share (ADR-0015)"
+    },
+    "core:body_curl_offset": {
+      "value": -1.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_curl = L(offset + slope * z_curl) (ADR-0015)"
+    },
+    "core:body_curl_slope": {
+      "value": 1.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_curl (ADR-0015)"
+    },
+    "core:body_freckle_offset": {
+      "value": -1.6,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density = L(offset + slope * z_freckle + pigment * z_pig + mc1r * n) (ADR-0015)"
+    },
+    "core:body_freckle_slope": {
+      "value": 1.1,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density (ADR-0015)"
+    },
+    "core:body_freckle_pigment": {
+      "value": -0.5,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: freckle_density (ADR-0015)"
+    },
+    "core:body_beard_lag": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_beard_tempo": {
+      "value": 1.8,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g of the beard (ADR-0015)"
+    },
+    "core:body_beard_offset": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: beard_density = g * L(offset + z_beard + androgen * z_and) (ADR-0015)"
+    },
+    "core:body_beard_androgen": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: beard_density (ADR-0015)"
+    },
+    "core:body_body_hair_lag": {
+      "value": 2.5,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g = L((b - theta_i - lag) / tempo) (ADR-0015)"
+    },
+    "core:body_body_hair_tempo": {
+      "value": 1.6,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: g of the body hair (ADR-0015)"
+    },
+    "core:body_body_hair_androgen": {
+      "value": 0.4,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: body_hair = g * L(z_body + androgen * z_and) (ADR-0015)"
+    },
+    "core:body_body_hair_women": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: body_hair of women, share (ADR-0015)"
+    },
+    "core:body_bald_men_stage": {
+      "value": 7.0,
+      "unit": "stage",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: men: stage * L((b - (center - slope * z_bald - androgen * z_and)) / tempo) (ADR-0015)"
+    },
+    "core:body_bald_men_center": {
+      "value": 64.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men (ADR-0015)"
+    },
+    "core:body_bald_men_slope": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men, years per z_bald (ADR-0015)"
+    },
+    "core:body_bald_men_androgen": {
+      "value": 3.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men, years per z_and (ADR-0015)"
+    },
+    "core:body_bald_men_tempo": {
+      "value": 10.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of men (ADR-0015)"
+    },
+    "core:body_bald_women_stage": {
+      "value": 2.5,
+      "unit": "stage",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: women: stage * L((b - (center - slope * z_bald)) / tempo) (ADR-0015)"
+    },
+    "core:body_bald_women_center": {
+      "value": 78.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women (ADR-0015)"
+    },
+    "core:body_bald_women_slope": {
+      "value": 6.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women, years per z_bald (ADR-0015)"
+    },
+    "core:body_bald_women_tempo": {
+      "value": 12.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: balding of women (ADR-0015)"
+    },
+    "core:body_hair_density_offset": {
+      "value": 2.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density = L(offset + z_den) * (1 - loss * L((b - center) / tempo)) (ADR-0015)"
+    },
+    "core:body_hair_density_loss": {
+      "value": 0.3,
+      "unit": "fraction",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_hair_density_center": {
+      "value": 60.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_hair_density_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_density (ADR-0015)"
+    },
+    "core:body_grey_center": {
+      "value": 55.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction = L((b - (center - slope * z_grey)) / tempo) (ADR-0015)"
+    },
+    "core:body_grey_slope": {
+      "value": 7.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction, years per z_grey (ADR-0015)"
+    },
+    "core:body_grey_tempo": {
+      "value": 7.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: hair_grey_fraction (ADR-0015)"
+    },
+    "core:body_wrinkles_center": {
+      "value": 55.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles = L((b - center + slope * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_wrinkles_slope": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles, years per z_skin (ADR-0015)"
+    },
+    "core:body_wrinkles_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: face_wrinkles (ADR-0015)"
+    },
+    "core:body_laxity_center": {
+      "value": 62.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity = L((b - center + slope * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_laxity_slope": {
+      "value": 5.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity, years per z_skin (ADR-0015)"
+    },
+    "core:body_laxity_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: skin_laxity (ADR-0015)"
+    },
+    "core:body_spots_center": {
+      "value": 60.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots = L((b - center + skin * z_skin - pigment * z_pig) / tempo) (ADR-0015)"
+    },
+    "core:body_spots_skin": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots, years per z_skin (ADR-0015)"
+    },
+    "core:body_spots_pigment": {
+      "value": 2.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots, years per z_pig (ADR-0015)"
+    },
+    "core:body_spots_tempo": {
+      "value": 8.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: age_spots (ADR-0015)"
+    },
+    "core:body_stoop_center": {
+      "value": 78.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop = L((b - center + skin * z_skin) / tempo) (ADR-0015)"
+    },
+    "core:body_stoop_skin": {
+      "value": 4.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop, years per z_skin (ADR-0015)"
+    },
+    "core:body_stoop_tempo": {
+      "value": 6.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 10.6: posture_stoop (ADR-0015)"
+    },
+    "core:bio_age_weight": {
+      "value": 0.5,
+      "unit": "fraction",
+      "source": "weight of the biological age from proposal C4 (docs/vorbereitung-phase-0.md), adopted in docs/genetik-spezifikation.md 7.4",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 7.4 (K7.4a): rate e^(w * Delta / 50) after 25 (ADR-0015)"
+    },
+    "core:sex_ratio_at_birth": {
+      "value": 1.05,
+      "unit": "ratio",
+      "source": "Chao F et al. (2019), PNAS 116:9303-9311; Destatis, Lebendgeborene nach Geschlecht: Europe 1.058, Germany 2021 to 2025 1.055; game value 1.05",
+      "as_of": "2026-10-08",
+      "note": "docs/genetik-spezifikation.md 2.3, 7.5 and 11.3 (W11.3d): sons per daughter; the father passes his Y with r / (1 + r) = 1.05 / 2.05 = 21/41 (ADR-0017 section 4)"
+    }
+  },
+  "traits": [
+    {
+      "trait": "core:androgen",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:bald",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:beard",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:body_fat",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:body_hair",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:breast",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:chest_depth",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:cognition",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.25,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.75,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:curl",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:disease_liability",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:estrogen",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_01",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_02",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_03",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_04",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_05",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_06",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_07",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_08",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_09",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_10",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_11",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_12",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:fat_distribution",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:freckle",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:grey",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:growth",
+      "h2_child": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hair_darkness",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hair_density",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:head_size",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hip_width",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:leg_ratio",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:muscle",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:pigment",
+      "h2_child": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:puberty",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:shoulder_width",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:skin_age",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    }
+  ],
+  "sex_differences": [
+    {
+      "trait": "core:cognition",
+      "shift": {
+        "value": 0.0,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2 (K6.2b), Deary et al. (2003)",
+        "as_of": "2026-10-12",
+        "note": "no shift of men against women, template of map 4"
+      },
+      "variance_ratio": {
+        "value": 1.12,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2 (K6.2c), Deary et al. (2003)",
+        "as_of": "2026-10-12",
+        "note": "variance of men over women, template of map 4"
+      }
+    }
+  ],
+  "diseases": [
+    {
+      "code": "core:disease_ar",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ar",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "fixed": {
+          "age": {
+            "value": 0.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model cystic fibrosis",
+            "as_of": "2026-10-10",
+            "note": "visible and acting from birth"
+          }
+        }
+      },
+      "effect": {
+        "death_in_two_steps": {
+          "before": {
+            "value": 0.0011111111111111111,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2j): H_18 = 0.02 (K3.2b, game value) over 18 years",
+            "as_of": "2026-10-10",
+            "note": "h0 = H_18 / 18"
+          },
+          "change_age": {
+            "value": 18.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2",
+            "as_of": "2026-10-10",
+            "note": "the hazard changes at 18"
+          },
+          "after": {
+            "value": 0.014322280437445644,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2k): median age at death 65 (K3.2l), CFF Patient Registry 2024",
+            "as_of": "2026-10-10",
+            "note": "h1 = (ln 2 - H_18) / 47, so H(65) = ln 2"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_ad_late",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ad_late",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 45.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 20.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 80.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Huntington's disease (GeneReviews; Langbehn et al. 2004)",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.04,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2d)",
+            "as_of": "2026-10-10",
+            "note": "median 17 years from onset to death (ln 2 / h)"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_ad_partial",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_ad_partial",
+          "penetrance_female": {
+            "value": 0.7,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1 (Kuchenbaecker et al. 2017)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 0.1,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, game value; Kuchenbaecker et al. 2017 followed women only",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 50.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 85.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model BRCA1",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.02,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2f)",
+            "as_of": "2026-10-10",
+            "note": "constant from onset"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_xr",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_xr",
+          "penetrance_female": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 1.0,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "fixed": {
+          "age": {
+            "value": 0.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model haemophilia A",
+            "as_of": "2026-10-10",
+            "note": "visible and acting from birth"
+          }
+        }
+      },
+      "effect": {
+        "death_in_two_steps": {
+          "before": {
+            "value": 0.0005555555555555556,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (W3.2m): H_18 = 0.01 (K3.2m, game value) over 18 years",
+            "as_of": "2026-10-10",
+            "note": "h0 = H_18 / 18"
+          },
+          "change_age": {
+            "value": 18.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2",
+            "as_of": "2026-10-10",
+            "note": "the hazard changes at 18"
+          },
+          "after": {
+            "value": 0.005,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2h), game value next to Hassan et al. 2021",
+            "as_of": "2026-10-10",
+            "note": "an addition to core:senescence"
+          }
+        }
+      }
+    },
+    {
+      "code": "core:disease_mt",
+      "carrier": {
+        "locus": {
+          "locus": "core:disease_mt",
+          "penetrance_female": {
+            "value": 0.1,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy (Yu-Wai-Man et al. 2011)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of women"
+          },
+          "penetrance_male": {
+            "value": 0.5,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy (Yu-Wai-Man et al. 2011)",
+            "as_of": "2026-10-10",
+            "note": "penetrance of men"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 8.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 10.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 60.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model Leber hereditary optic neuropathy",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": "visible"
+    },
+    {
+      "code": "core:disease_liability",
+      "carrier": {
+        "threshold": {
+          "liability": "core:disease_liability",
+          "heritability": {
+            "value": 0.6,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.6 (K3.6a), game value between the models 0.5 to 0.8",
+            "as_of": "2026-10-10",
+            "note": "h2 of the liability"
+          },
+          "prevalence": {
+            "value": 0.01,
+            "unit": "fraction",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2j)",
+            "as_of": "2026-10-10",
+            "note": "affected when L > T = Phi^-1(1 - K) (Falconer 1965)"
+          }
+        }
+      },
+      "onset": {
+        "normal": {
+          "mean": {
+            "value": 25.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "mean of the onset before it is held"
+          },
+          "sd": {
+            "value": 5.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "standard deviation of the onset before it is held"
+          },
+          "low": {
+            "value": 15.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "lower bound of the onset"
+          },
+          "high": {
+            "value": 45.0,
+            "unit": "year",
+            "source": "docs/genetik-spezifikation.md 3.2, model multifactorial",
+            "as_of": "2026-10-10",
+            "note": "upper bound of the onset"
+          }
+        }
+      },
+      "effect": {
+        "death": {
+          "per_year": {
+            "value": 0.01,
+            "unit": "per_year",
+            "source": "docs/genetik-spezifikation.md 3.2 (K3.2k)",
+            "as_of": "2026-10-10",
+            "note": "constant from onset"
+          }
+        }
+      }
+    }
+  ],
+  "longevity_trait": "core:longevity",
+  "puberty_trait": "core:puberty",
+  "cognition_trait": "core:cognition",
+  "height_trait": "core:growth",
+  "fertility": {
+    "puberty": {
+      "menarche_mean": {
+        "value": 0.2,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6a]",
+        "as_of": "2026-10-11",
+        "note": "Mean offset of the menarche after the puberty timing theta_i (delta ~ normal(0.2, 0.6), FERTILITY_MENARCHE); a play value: the menarche lies about a year after the growth peak."
+      },
+      "menarche_sd": {
+        "value": 0.6,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6b]",
+        "as_of": "2026-10-11",
+        "note": "Standard deviation of the offset of the menarche."
+      },
+      "menarche_low": {
+        "value": -1.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6",
+        "as_of": "2026-10-11",
+        "note": "The menarche is held on [theta_i - 1, theta_i + 3]: the lower bound relative to theta_i."
+      },
+      "menarche_high": {
+        "value": 3.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6",
+        "as_of": "2026-10-11",
+        "note": "The upper bound of the menarche relative to theta_i."
+      },
+      "female_ramp": {
+        "value": 3.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6c]",
+        "as_of": "2026-10-11",
+        "note": "The woman's factor rises from 0 at the menarche to 1 over this many years (smoothstep); 0.5 after 1.5 years [W5.6a]."
+      },
+      "female_decline_from": {
+        "value": 30.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6d]",
+        "as_of": "2026-10-11",
+        "note": "From this age the woman's factor declines linearly."
+      },
+      "female_decline_to": {
+        "value": 50.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6e]",
+        "as_of": "2026-10-11",
+        "note": "At this age the woman's factor is 0; at 40 it is 0.5 [W5.6b]."
+      },
+      "male_lead": {
+        "value": 0.7,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6f]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor is 0 until this long before theta_i (at the growth peak of the mean curve)."
+      },
+      "male_ramp": {
+        "value": 2.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6g]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor rises to 1 over this many years (smoothstep); no draw of its own, the spread lies in theta_i."
+      },
+      "male_decline_from": {
+        "value": 45.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6h]",
+        "as_of": "2026-10-11",
+        "note": "From this age the man's factor declines linearly."
+      },
+      "male_floor": {
+        "value": 0.4,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6i]",
+        "as_of": "2026-10-11",
+        "note": "The man's factor declines to this value and stays there; at 57.5 it is 0.7 [W5.6c]."
+      },
+      "male_decline_to": {
+        "value": 70.0,
+        "unit": "year",
+        "source": "docs/genetik-spezifikation.md 5.6 [K5.6j]",
+        "as_of": "2026-10-11",
+        "note": "At this age the man's factor reaches its floor."
+      }
+    }
+  }
+}

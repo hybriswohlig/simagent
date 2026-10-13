@@ -10,6 +10,8 @@ mod codegen;
 mod contract;
 mod contract_base;
 mod kat;
+mod map4;
+mod ordered;
 mod release_run;
 mod results;
 mod scan;
@@ -49,6 +51,18 @@ fn main() -> ExitCode {
             );
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
+        Some("map4-template") => {
+            // No default: an empty or missing directory would write into the current one,
+            // perhaps over the repository's data (review).
+            let Some(dir) = map4::directory(std::env::args().nth(2)) else {
+                eprintln!("usage: cargo xtask map4-template <dir>");
+                return ExitCode::from(2);
+            };
+            return report(
+                "map4-template",
+                workspace_root().and_then(|root| map4::write(&root, Path::new(&dir))),
+            );
+        }
         Some("codegen") => {
             return report(
                 "codegen",
@@ -73,7 +87,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>"
             );
             return ExitCode::from(2);
         }
