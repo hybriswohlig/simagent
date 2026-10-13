@@ -48,13 +48,27 @@ What the model knows:
   child from its birth), the origin age `x0 = as_years(o - born)`. Senescence (Gompertz
   `m · a · e^(b·x)`, `a` and `b` of the sex): the age at death
   `x = x0 + ln(1 + b · B / (a · m) · e^(−b·x0)) / b`, computed in that order as
-  `mortality::senescence_age`, with `m` = 1 exactly without a trait of longevity (the data
-  of these tests name none; this model refuses a trait, see `Data`). Accident (Makeham
+  `mortality::senescence_age`, with `m` = 1 exactly without a trait of longevity, else
+  `m = exp(−σ_g · ĝ)` (below, the pre-run). Accident (Makeham
   `λ` of the sex): `x = x0 + B / λ`. Both are due at `o + ceil((x − x0) · YEAR)`, never at
   100 000 years or more or beyond the clock (ADR-0002). exp and ln are the correctly
   rounded values (tools/kat_reference.py); each due second is checked not to hang on the
-  last bit of exp, ln or the budget (`robust_seconds`), so the pinned libm of the core
-  gives the same second.
+  last bit of exp, ln or the budget (and of the exp of `m`, `robust_seconds`), so the
+  pinned libm of the core gives the same second.
+- The traits of longevity and of the puberty timing (step 11, the pre-run on the template
+  of map 4, design note of the pre-run tool; genetics specification 5.2, 7.2, 11.4;
+  ADR-0012, ADR-0017 section 2): with a trait of longevity named (`longevity_trait`, a
+  trait of the map without a phenotype row), `g_L` is its genetic value `G = A / σ_ref`
+  (`genetic_value`, the map of the run), `ĝ` is `g_L` held on [−6, 6]
+  (`LONGEVITY_INPUT_BOUND`; above 6 is 6, below −6 is −6) and `m = exp(−(σ_g · ĝ))` with
+  the correctly rounded exp (`Data.multiplier`; `ĝ = 0` gives `exp(−0)` = 1 exactly).
+  With a trait of the puberty timing named (`puberty_trait`, with a phenotype row whose
+  child and adult weights are equal bit for bit, ADR-0012 section 3, asserted), `θ_i =
+  θ + σ_θ · ẑ_p` (`theta_i`) with `z_p` the phenotype of that trait (`phenotype`, 4.2:
+  its genome, its lineage key, its parents' keys or its own, its age at the reading; the
+  weights do not depend on the age, so neither does `z_p`); the woman's menarche and both
+  factors of an attempt read it (5.6). Without the traits nothing changes (`m` = 1, `z_p`
+  = 0).
 - Afflictions (genetics specification 3.1, 3.4; ADR-0017 section 3): once, at its
   creation (a founder at `Start`, a child at its birth), a sim gets one affliction per
   disease of the data list `diseases` (in data order) that it has, whatever the switch
@@ -180,8 +194,8 @@ What the model knows:
   `menarche(θ_i, δ, form)` with `δ` the draw FERTILITY_MENARCHE (15; her lineage key,
   occasion 0, detail 0; the form `puberty` only) and her wish `wish(u, shape, tilt)` with
   `u` the draw FERTILITY_WISH (16; the same key). `θ_i` of a sim is that of the curve of
-  its sex with `z_p` = 0 (the data of these tests name no trait of the puberty timing;
-  this model refuses one). The end of her fertility `E` is `female_decline_to` (puberty)
+  its sex with `z_p` = 0 without a trait of the puberty timing (the data of these tests
+  name none), else with its `z_p` (above). The end of her fertility `E` is `female_decline_to` (puberty)
   or `until` (window). A sim holds `births`, the children it bore alive (0 for every
   founder, every newborn and every man), right after `conceptions`.
 - The series of attempts (design note section 4): a woman has at most one monthly series
@@ -442,6 +456,11 @@ HOUSEHOLD_RULE = "core:household"
 # key of the group's representative, occasion the absolute month index of the placement,
 # candidates the lineage keys of the women.
 FOSTER_RANK = 23
+# The draw of a founder's allele in the pre-run (design note of the pre-run tool, section 2;
+# ADR-0020 section 3): subject the founder's lineage key, occasion `str_key` of the locus,
+# detail the copy (0 maternal, 1 paternal), `u = unit`, the allele 1 if `u < 0.5`
+# (tools/prerun_reference.py draws them).
+PRERUN_ALLELE = 25
 
 # The projection of the households (design note of the households, section 2): the
 # counter of HouseholdId after that of PartnershipId, the households after the
@@ -938,15 +957,20 @@ class Data:
             assert within(a, GOMPERTZ_A_RANGE) and within(b, GOMPERTZ_B_RANGE), (a, b)
         assert all(within(rate, ACCIDENT_RANGE) for rate in self.accident.values())
         assert within(self.sigma_g, (0.0, MAX_SIGMA_G))
-        # With a trait of longevity `m = e^(−σ_g · ĝ)` needs the genetic value of the
-        # trait (genetics specification 4.1), which no Python reference computes yet; the
-        # data of these tests name none (`m` = 1 exactly, 11.1).
+        # With a trait of longevity `m = e^(−σ_g · ĝ)` reads the genetic value `g_L` of the
+        # trait (genetics specification 7.2, 11.4; ADR-0017 section 2): its terms
+        # (`TraitTerms`, no phenotype row needed); without one `m` = 1 exactly (11.1).
         self.longevity_trait = stripped["longevity_trait"]
-        assert self.longevity_trait is None, "a trait of longevity is not modelled by this reference"
-        # Likewise `θ_i` with a trait of the puberty timing needs its phenotype `z_p`; the
-        # data of these tests name none (`z_p` = 0, `θ_i = θ` exactly, 11.1).
+        self.longevity = None if self.longevity_trait is None else TraitTerms(self.longevity_trait, stripped_map)
+        # Likewise `θ_i` with a trait of the puberty timing reads its phenotype `z_p`
+        # (genetics specification 5.2; ADR-0012 section 3: its weights do not depend on the
+        # age, asserted bit for bit); without one `z_p` = 0 and `θ_i = θ` exactly (11.1).
         self.puberty_trait = stripped["puberty_trait"]
-        assert self.puberty_trait is None, "a trait of the puberty timing is not modelled by this reference"
+        self.puberty = self.phenotype_trait(self.puberty_trait, stripped, genome_map)
+        if self.puberty is not None:
+            h2_child, c2_child, h2_adult, c2_adult = self.puberty.weights
+            assert data_reference.f64_bits(h2_child) == data_reference.f64_bits(h2_adult), "the puberty trait's h2 depends on the age"
+            assert data_reference.f64_bits(c2_child) == data_reference.f64_bits(c2_adult), "the puberty trait's c2 depends on the age"
         # The traits of the similarity terms of the market (design note of the similarity,
         # sections 1 and 2): each a trait of the map with phenotype weights, or None (the
         # term is left out, 11.1).
@@ -987,11 +1011,18 @@ class Data:
             "disease": values["core:mutation_rate_disease"]["value"],
         }
 
-    def multiplier(self, person: dict) -> float:
+    def multiplier(self, person: dict, nudge: int = 0) -> float:
         """`m` of the Gompertz term (7.2): 1 exactly without a trait of longevity
-        (`exp(−0.0)` is 1, 11.1)."""
-        assert self.longevity_trait is None
-        return 1.0
+        (`exp(−0.0)` is 1, 11.1); with one `m = exp(−(σ_g · ĝ))`, `ĝ` the genetic value
+        `g_L` of the trait held on [−6, 6] (11.4, ADR-0017 section 2), exp correctly rounded;
+        `nudge` moves an inexact exp by whole ulps (the check of `robust_seconds`)."""
+        if self.longevity is None:
+            return 1.0
+        held = longevity_input(genetic_value(person, self.longevity))
+        kind, m = exp_reference(-(self.sigma_g * held))
+        if kind == "P":
+            m = step_ulps(m, nudge)
+        return m
 
     @staticmethod
     def phenotype_trait(named, calibration: dict, genome_map: dict):
@@ -1342,6 +1373,21 @@ def theta_i(curve: tuple, z_p: float) -> float:
     elif z_p < -CURVE_INPUT_BOUND:
         z_p = -CURVE_INPUT_BOUND
     return theta + sigma_theta * z_p
+
+
+# The bound of `g_L` where death and `bio_age` read it (genetics specification 11.4,
+# ADR-0017 section 2, `LONGEVITY_INPUT_BOUND`, a constant like `CURVE_INPUT_BOUND`).
+LONGEVITY_INPUT_BOUND = 6.0
+
+
+def longevity_input(g: float) -> float:
+    """`ĝ`: `g_L` held on [−6, 6] (above 6 is 6, below −6 is −6, else `g` itself)."""
+    assert math.isfinite(g), g
+    if g > LONGEVITY_INPUT_BOUND:
+        return LONGEVITY_INPUT_BOUND
+    if g < -LONGEVITY_INPUT_BOUND:
+        return -LONGEVITY_INPUT_BOUND
+    return g
 
 
 def menarche(theta: float, delta: float, form: FertilityForm) -> float:
@@ -1912,14 +1958,15 @@ class World:
     def cause_seconds(self, sim: int, code: str, nudge=(0, 0, 0)):
         """How many seconds after its origin the sim dies of senescence or accident if
         nothing else happens first, or None (never). `nudge` moves the budget, exp and ln
-        by whole ulps."""
+        by whole ulps, and with a fourth number the exp of `m` (a trait of longevity)."""
         born, key, sex, person = self.sims[sim][:4]
         origin = max(born, 0)
         x0 = as_years(origin - born)
         budget = step_ulps(budget_of(self.seed, key, code), nudge[0])
         if code == SENESCENCE:
             a, b = self.data.senescence[sex]
-            x = senescence_age(x0, budget, a, b, self.data.multiplier(person), nudge[1:])
+            m = self.data.multiplier(person, nudge[3] if len(nudge) > 3 else 0)
+            x = senescence_age(x0, budget, a, b, m, nudge[1:3])
         else:
             assert code == ACCIDENT
             x = accident_age(x0, budget, self.data.accident[sex])
@@ -1929,7 +1976,9 @@ class World:
         """When the sim dies of `core:senescence` or `core:accident` if nothing else
         happens first, or None: from its origin second (a founder from the start, a child
         from its birth), never beyond the clock."""
-        seconds = robust_seconds(lambda nudge: self.cause_seconds(sim, code, nudge))
+        # With a trait of longevity the exp of `m` is a fourth last bit to check.
+        dims = 4 if code == SENESCENCE and self.data.longevity is not None else 3
+        seconds = robust_seconds(lambda nudge: self.cause_seconds(sim, code, nudge), dims)
         if seconds is None:
             return None
         due = max(self.sims[sim][0], 0) + seconds
@@ -2595,18 +2644,27 @@ class World:
         assert all(abs(u - acc) > DRAW_MARGIN for acc in wish_thresholds(data.wish_shape, data.wish_tilt)), u
         return wish(u, data.wish_shape, data.wish_tilt)
 
-    def theta_of(self, sim: int) -> float:
-        """`θ_i` of a sim: the curve of its sex with `z_p` = 0 (no trait of the puberty
-        timing in these data, 11.1)."""
-        sex = self.sims[sim][2] if sim in self.sims else self.archive[sim][4]
-        return theta_i(self.data.puberty_curve[sex], 0.0)
+    def theta_of(self, sim: int, now=None) -> float:
+        """`θ_i` of a sim: the curve of its sex with `z_p` = 0 without a trait of the puberty
+        timing (11.1), else with the phenotype `z_p` of that trait at its age `now − born`
+        (0 if `now` is None; the weights do not depend on the age, so neither does `z_p`,
+        ADR-0012 section 3)."""
+        if sim in self.sims:
+            born, key, sex, person = self.sims[sim][:4]
+        else:
+            born, _, _, key, sex, person = self.archive[sim][:6]
+        if self.data.puberty is None:
+            return theta_i(self.data.puberty_curve[sex], 0.0)
+        age = 0 if now is None else now - born
+        z_p = phenotype(self.seed, self.data.puberty, person, key, self.parent_keys(sim), age)
+        return theta_i(self.data.puberty_curve[sex], z_p)
 
-    def menarche_of(self, woman: int) -> float:
+    def menarche_of(self, woman: int, now=None) -> float:
         """Her menarche (5.6, design note section 3): `menarche(θ_i, δ)` with `δ` the draw
         FERTILITY_MENARCHE at her lineage key; the form `puberty` only, pure, not held."""
         form = self.data.fertility
         assert form.kind == "puberty"
-        return menarche(self.theta_of(woman), menarche_delta(self.seed, self.key_of(woman), form), form)
+        return menarche(self.theta_of(woman, now), menarche_delta(self.seed, self.key_of(woman), form), form)
 
     def partner_of(self, woman: int):
         """Her partner in the open partnership, or None."""
@@ -2620,8 +2678,8 @@ class World:
         form = self.data.fertility
         her_age = as_years(t - self.sims[woman][0])
         his_age = as_years(t - self.sims[man][0])
-        her_menarche = self.menarche_of(woman) if form.kind == "puberty" else 0.0
-        return female_factor(her_age, her_menarche, form), male_factor(his_age, self.theta_of(man), form)
+        her_menarche = self.menarche_of(woman, t) if form.kind == "puberty" else 0.0
+        return female_factor(her_age, her_menarche, form), male_factor(his_age, self.theta_of(man, t), form)
 
     def attempt_chance(self, woman: int, man: int, t: int) -> float:
         """The chance of her attempt at `t`: `chance(adult_rate, F_w, F_m)`."""
@@ -3458,12 +3516,13 @@ def check_market(world: World) -> None:
                 assert a[3] is not None and a[3][0] < b[2], (first, later)
 
 
-def robust_seconds(seconds_of):
+def robust_seconds(seconds_of, dims: int = 3):
     """The seconds of a death that do not hang on the last bit of libm: `seconds_of(nudge)`
-    gives the same with the budget, exp and ln moved by one ulp either way, so the pinned
-    libm of the core (within an ulp of the correctly rounded value) gives this second."""
-    nominal = seconds_of((0, 0, 0))
-    for nudge in itertools.product((-1, 0, 1), repeat=3):
+    gives the same with the budget, exp and ln moved by one ulp either way (and, with `dims`
+    4, the exp of the multiplier `m` of a trait of longevity), so the pinned libm of the
+    core (within an ulp of the correctly rounded value) gives this second."""
+    nominal = seconds_of((0,) * dims)
+    for nudge in itertools.product((-1, 0, 1), repeat=dims):
         assert seconds_of(nudge) == nominal, f"a due second hangs on the last bit: {nudge}"
     return nominal
 
@@ -3908,6 +3967,7 @@ if __name__ == "__main__":
         ("cause", "3", "rule"),
         ("cause", "4", "random"),
         ("tag", str(EMIGRATION), "EMIGRATION"),
+        ("tag", str(PRERUN_ALLELE), "PRERUN_ALLELE"),
         ("class", "emigration", str(EMIGRATION_CLASS)),
         ("kind", "emigration", str(EMIGRATION_KIND)),
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),

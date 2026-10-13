@@ -12,6 +12,7 @@ mod contract_base;
 mod kat;
 mod map4;
 mod ordered;
+mod prerun;
 mod release_run;
 mod results;
 mod scan;
@@ -51,6 +52,13 @@ fn main() -> ExitCode {
             );
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
+        Some("prerun") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            return report(
+                "prerun",
+                workspace_root().and_then(|root| prerun::command(&root, &args)),
+            );
+        }
         Some("map4-template") => {
             // No default: an empty or missing directory would write into the current one,
             // perhaps over the repository's data (review).
@@ -87,7 +95,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)"
             );
             return ExitCode::from(2);
         }
