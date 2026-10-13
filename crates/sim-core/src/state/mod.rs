@@ -199,7 +199,7 @@ pub(crate) struct DomainState {
     pub(crate) open: BTreeMap<SimId, PartnershipId>,
     /// The working memory of the φ queries (ADR-0018 section 2), empty at each query
     /// (ADR-0020 section 4). Not part of the projection and not saved.
-    pub(crate) kinship: KinshipCache,
+    pub(crate) kinship: KinshipCache<SimId>,
     /// The living members of each household that has not ended (ADR-0018 section 4). Not
     /// part of the projection: loading builds it again from the sims.
     pub(crate) members: BTreeMap<HouseholdId, BTreeSet<SimId>>,

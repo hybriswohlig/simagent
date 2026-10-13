@@ -1322,7 +1322,7 @@ fn assert_entries(entries: &[LogEntry], expected: &[Pin], at: &str) {
 }
 
 /// Birth and parents of every person of the world's pedigree, as the recursion reads them.
-fn kin_of(world: &World) -> BTreeMap<SimId, Kin> {
+fn kin_of(world: &World) -> BTreeMap<SimId, Kin<SimId>> {
     world
         .pedigree()
         .persons
@@ -1333,8 +1333,9 @@ fn kin_of(world: &World) -> BTreeMap<SimId, Kin> {
             (
                 person.sim,
                 Kin {
-                    born: person.born,
-                    parents,
+                    order: (1, person.born),
+                    mother: parents.map(|(mother, _)| mother),
+                    father: parents.map(|(_, father)| father),
                 },
             )
         })

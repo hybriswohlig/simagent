@@ -125,8 +125,11 @@ fn compared(
     })
 }
 
+/// The town's class in the order of φ (ADR-0020 section 4): born in the town.
+pub(crate) const TOWN: u8 = 1;
+
 /// Birth and parents of a person of the living or the archive, for φ.
-fn kin_of(domain: &DomainState, sim: SimId) -> Kin {
+fn kin_of(domain: &DomainState, sim: SimId) -> Kin<SimId> {
     let (born, parents) = domain
         .sims
         .get(&sim)
@@ -139,8 +142,9 @@ fn kin_of(domain: &DomainState, sim: SimId) -> Kin {
         })
         .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()));
     Kin {
-        born,
-        parents: parents.map(|p| (p.mother, p.father)),
+        order: (TOWN, born),
+        mother: parents.map(|p| p.mother),
+        father: parents.map(|p| p.father),
     }
 }
 
@@ -153,7 +157,12 @@ pub(crate) fn phi(domain: &mut DomainState, x: SimId, y: SimId) -> f64 {
 }
 
 /// φ of two persons with the given cache.
-pub(crate) fn phi_with(cache: &mut KinshipCache, domain: &DomainState, x: SimId, y: SimId) -> f64 {
+pub(crate) fn phi_with(
+    cache: &mut KinshipCache<SimId>,
+    domain: &DomainState,
+    x: SimId,
+    y: SimId,
+) -> f64 {
     cache.phi(x, y, |sim| kin_of(domain, sim))
 }
 

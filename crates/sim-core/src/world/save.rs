@@ -574,15 +574,17 @@ fn formed_in_order(previous: Option<(SimTime, bool)>, formed: SimTime, by_market
 
 /// Birth and parents of a person of the save, for φ; a person the save does not hold has
 /// neither (the checks of the IDs reject such a save).
-fn kin(loaded: &LoadedState, sim: SimId) -> Kin {
+fn kin(loaded: &LoadedState, sim: SimId) -> Kin<SimId> {
     facts(loaded, sim).map_or(
         Kin {
-            born: SimTime::START,
-            parents: None,
+            order: (state::market::TOWN, SimTime::START),
+            mother: None,
+            father: None,
         },
         |person| Kin {
-            born: person.born,
-            parents: person.parents.map(|p| (p.mother, p.father)),
+            order: (state::market::TOWN, person.born),
+            mother: person.parents.map(|p| p.mother),
+            father: person.parents.map(|p| p.father),
         },
     )
 }

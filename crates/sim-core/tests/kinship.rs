@@ -11,6 +11,15 @@ use sim_core::ids::SimId;
 use sim_core::kinship::{Kin, KinshipCache, phi};
 use sim_core::time::SimTime;
 
+/// A person born in second `born` with both parents or none, in one class of the order.
+fn kin_at(born: i64, parents: Option<(SimId, SimId)>) -> Kin<SimId> {
+    Kin {
+        order: (1, SimTime::from_secs(born)),
+        mother: parents.map(|(mother, _)| mother),
+        father: parents.map(|(_, father)| father),
+    }
+}
+
 /// Name, second of birth, mother and father.
 type Person = (&'static str, i64, Option<(&'static str, &'static str)>);
 
@@ -38,7 +47,7 @@ const FAMILY: [Person; 17] = [
 ];
 
 struct Tree {
-    kin: BTreeMap<SimId, Kin>,
+    kin: BTreeMap<SimId, Kin<SimId>>,
     ids: BTreeMap<&'static str, SimId>,
 }
 
@@ -52,10 +61,7 @@ impl Tree {
         for (n, (name, born, parents)) in (0_u64..).zip(FAMILY) {
             let id = SimId::try_from(number(n)).expect("id");
             let parents = parents.map(|(mother, father)| (tree.id(mother), tree.id(father)));
-            let kin = Kin {
-                born: SimTime::from_secs(born),
-                parents,
-            };
+            let kin = kin_at(born, parents);
             assert!(tree.kin.insert(id, kin).is_none(), "{name}: id twice");
             tree.ids.insert(name, id);
         }
@@ -66,7 +72,7 @@ impl Tree {
         self.ids[name]
     }
 
-    fn lookup(&self) -> impl Fn(SimId) -> Kin + '_ {
+    fn lookup(&self) -> impl Fn(SimId) -> Kin<SimId> + '_ {
         |sim| self.kin[&sim]
     }
 
@@ -249,15 +255,15 @@ const SECOND_COUSINS: [(u64, Option<(u64, u64)>); 13] = [
 ];
 
 /// `(sim, mother and father)` in birth order as `Kin`, born in the second of its place.
-fn pedigree(people: &[(u64, Option<(u64, u64)>)]) -> BTreeMap<SimId, Kin> {
+fn pedigree(people: &[(u64, Option<(u64, u64)>)]) -> BTreeMap<SimId, Kin<SimId>> {
     let id = |n: u64| SimId::try_from(n).expect("id");
     (0_i64..)
         .zip(people)
         .map(|(born, &(sim, parents))| {
-            let kin = Kin {
-                born: SimTime::from_secs(born),
-                parents: parents.map(|(mother, father)| (id(mother), id(father))),
-            };
+            let kin = kin_at(
+                born,
+                parents.map(|(mother, father)| (id(mother), id(father))),
+            );
             (id(sim), kin)
         })
         .collect()
@@ -374,28 +380,16 @@ fn w2_7a_deep_line_reads_only_the_great_grandparents() {
     // 2g and is born in second 0, like the first member.
     let line = |g: u64| id(2 * g + 1);
     let mut kin = BTreeMap::new();
-    kin.insert(
-        line(0),
-        Kin {
-            born: SimTime::from_secs(0),
-            parents: None,
-        },
-    );
+    kin.insert(line(0), kin_at(0, None));
     for g in 1..=GENERATIONS {
         let partner = id(2 * g);
-        kin.insert(
-            partner,
-            Kin {
-                born: SimTime::from_secs(0),
-                parents: None,
-            },
-        );
+        kin.insert(partner, kin_at(0, None));
         kin.insert(
             line(g),
-            Kin {
-                born: SimTime::from_secs(i64::try_from(g).expect("small")),
-                parents: Some((line(g - 1), partner)),
-            },
+            kin_at(
+                i64::try_from(g).expect("small"),
+                Some((line(g - 1), partner)),
+            ),
         );
     }
     let set: Vec<SimId> = (GENERATIONS - 4..=GENERATIONS)
@@ -423,20 +417,11 @@ fn w2_7a_deep_line_reads_only_the_great_grandparents() {
 fn phi_with_mother_born(mother_born: i64) -> f64 {
     let id = |n: u64| SimId::try_from(n).expect("id");
     let (mother, father, child) = (id(1), id(2), id(3));
-    let founder = |born: i64| Kin {
-        born: SimTime::from_secs(born),
-        parents: None,
-    };
+    let founder = |born: i64| kin_at(born, None);
     let kin = BTreeMap::from([
         (mother, founder(mother_born)),
         (father, founder(0)),
-        (
-            child,
-            Kin {
-                born: SimTime::from_secs(10),
-                parents: Some((mother, father)),
-            },
-        ),
+        (child, kin_at(10, Some((mother, father)))),
     ]);
     phi(child, father, |sim| kin[&sim])
 }
