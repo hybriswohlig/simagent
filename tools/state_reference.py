@@ -127,6 +127,21 @@ ADR-0020 section 3): `World.measure` (a read-only view over the living) at chose
 sigma and every additive locus's mean dose, the JSON line of `simagent measure`, the
 per-person `A` and which sums another order would change. No run above changes.
 
+Kinship up to the great-grandparents (step 11; Grok, H2; ADR-0020 section 4; design note of
+the kinship depth): every query `φ(x, y)` counts only the ancestors of `x` and `y` up to
+their great-grandparents (`spec_reference.Pedigree.query`), wherever `φ` is read (the
+market, the orphan rule, `ArrangePartnership`, the load check of the partnerships, the
+pedigree's `kinship`, the kinship query). No run above changes (no pedigree above is deep
+enough). "kin_deep" (new: a designed pedigree of five generations, founders and
+`ArrangePartnership` only) holds the known answers, among them the pairs that lose `φ`
+(third cousins, second cousins twice removed, a great-great-great-grandparent), a person
+with one parent in the set of the query, and `F` of a child of first cousins (1/16) and of
+second cousins (now 0); "kin_line" (new: a line of women who die at 25, with two test
+diseases) an orphan whose only adult relative is beyond the depth and goes to a foster
+household, and a choice of the market that the depth decides. Both print each query's set,
+the pairs its recursion visited and the value over every ancestor, and check the recursion
+against Wright's path counting on every pair.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -1748,6 +1763,9 @@ MARKET_COUPLES = [(0, 1), (2, 3), (4, 5)]
 MARKET_KEYS = [founder_key(MARKET_TAG, index) for index in range(len(MARKET_FOUNDERS))]
 MARKET_YEARS = 40
 MARKET_END = MARKET_YEARS * YEAR - 1
+# The search stops at the first `c` that reaches every situation: 1.0. A `c` above 1 is no
+# valid data (a fraction, `world_reference.Data` rejects it), so the list is never read
+# beyond 1.0; it stays as it was so that the story of the search stays the same.
 MARKET_HEIGHTS = [index / 2 for index in range(1, 11)]
 assert MARKET_HEIGHTS[0] == 0.5 and MARKET_HEIGHTS[-1] == 5.0
 MARKET_SITUATIONS = [
@@ -4890,6 +4908,569 @@ def measure_rows(name: str, records: list, save_names: dict) -> list:
     return rows
 
 
+
+# ---------------------------------------------------------------------------------------
+# Kinship up to the great-grandparents (step 11; Grok, H2; ADR-0020 section 4; genetics
+# specification 2.7 and 11.2; design note of the kinship depth). Every query `φ(x, y)` has
+# the set `S` of `x`, `y` and their ancestors up to depth 3, each once; within the query a
+# parent counts iff it is in `S`, each parent on its own (`spec_reference.Pedigree.query`).
+# Every read of `φ` goes through `World.kinship` (the market's exclusion and penalty, the
+# orphan rule, `ArrangePartnership`, the load check of the partnerships, the pedigree's
+# `kinship` of a partnership, the kinship query), so they all follow the rule.
+#
+# No run above changes: their pedigrees are at most three generations deep below founders
+# (the longest, "market", has 40 years), and a pair can lose a path only through an
+# ancestor at depth 4 or more of one of them. By hand from the rule: a path of the
+# recursion from `x` up to a common ancestor `A` at depth `dx` and down to `y` from depth
+# `dy` stays in `S` iff every person on it is in `S`: the persons on x's side (depths 1 to
+# `dx − 1`) are in `S` iff `dx − 1 ≤ 3`, and `A` iff `dx ≤ 3` or `dy ≤ 3`. So a path counts
+# iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`: second cousins once removed (3, 4) keep
+# 1/128, a great-great-grandparent (0, 4) and a great-great-aunt (1, 4) keep 1/32; third
+# cousins (4, 4) lose 1/256, second cousins twice removed (3, 5) 1/256, first cousins
+# thrice removed (2, 5) 1/128, a great-great-great-grandparent (0, 5) 1/64.
+#
+# Two scenarios hold the known answers (design note section 4); both are founders and
+# `ArrangePartnership` inputs only, on test data:
+#
+# - "kin_deep": a designed pedigree of five generations below a founder couple, everybody
+#   immortal (accident 1e-9, senescence practically off), the fertility `window` from 16
+#   until 45 with 0.25 per month, ten months, the wish always 4 (the shape [0, 0, 0, 0,
+#   1]), no twins, no separation, the market off (`c` = 0): founders A1 (woman, 18) and A2
+#   (man, 20), a couple at the start, and seven single founder men M1 to M7 (20 years and
+#   1 to 7 days). Every designed woman is married at her 16th birthday to the next founder
+#   man (a founder man can father at any age), so the founder couple is the only common
+#   ancestry: A's first two daughters B1, B2 (with M1, M2); B1's first daughter C1 (with
+#   M3) and B2's first daughter D1 (with M4); C2 (another child of B1) and D2 (another of
+#   B2, of the other sex) marry: first cousins; C1's first daughter E2 (with M5) and D1's
+#   first daughter F2 (with M6); E1 (another child of C1) and F1 (another of D1, of the
+#   other sex) marry: second cousins; Q, the first child of C2 and D2; X, E2's first
+#   daughter (with M7); Y, F2's first child; Z, the first child of E1 and F1; V, X's first
+#   child. Each couple forms at the 16th birthday of the younger partner (the input stamped
+#   one second before). The tag is the first of `test:kindeep1` to `test:kindeep40` whose
+#   run has these persons.
+# - "kin_line": a line of women who die at 25 and founder men, the wish always 1 (the shape
+#   [0, 1]), so nobody has a sibling, the market on (`c` = 1, the largest valid value of
+#   the fraction `c`) and the switch of the hereditary diseases on with two test diseases
+#   instead of the repository's six: `test:line_women` (`core:disease_ad_late`, dominant,
+#   penetrance 1 for women and 0 for men, onset fixed at 25, death 50 per year) and
+#   `test:line_men` (`core:disease_ad_partial`, dominant, penetrance 0 for women and 1 for
+#   men, onset fixed at 100, death 50 per year); otherwise the test data of "kin_deep".
+#   Founders: P0 (woman,
+#   18, one copy at ad_late: she dies at 25) and M0 (man, 20, two copies at ad_late, so every
+#   child carries it), a couple at the start; M1 to M3 (men, 30, two copies at ad_late and
+#   one at ad_partial: they die at 100, in year 70); M4 (man, 20, the same: he dies in year
+#   80); U (man, 20, no allele: unrelated to everyone, the age of M0); Q0 and Q1 (woman and
+#   man, 50, no allele), a couple at the start, too old for a child. P0's daughter P1
+#   marries M1 at 16, P1's daughter P2 marries M2, P3 marries M3, P4 marries M4; X is P4's
+#   daughter. Every woman of the line dies at 25 while her daughter is a child, who stays
+#   with her father; M4 dies in year 80, when X is about 11: the orphan rule. Her only adult
+#   relative alive then is M0, her great-great-great-grandfather (depth 5: `φ` 0, 1/64 over
+#   all ancestors): she goes to a foster household (Q0, the only woman of 18 or more in an
+#   open partnership), not to M0. At 16 she searches (with `ρ · s_f`, a draw in round
+#   1109): the single men of 16 or more are M0 and U, of equal age; M0 is not penalized
+#   (`φ` 0), and she chooses him, where his penalty over all ancestors (`16 · ln(10) / 64`)
+#   would have made her choose U. The tag is the first of `test:kinline1` to
+#   `test:kinline200` whose run has the line of daughters, the placement and the choice
+#   where the depth decides.
+
+
+KINSHIP_DEPTH = world_reference.KINSHIP_DEPTH
+assert KINSHIP_DEPTH == 3
+
+
+def kinship_by_paths(world: world_reference.World, x: int, y: int, depth=KINSHIP_DEPTH) -> Fraction:
+    """`φ(x, y)` by Wright's path counting on the pedigree of the query, an independent check
+    of the recursion: `S` as in the rule (every known ancestor for `depth` None), the edges
+    from a person to its parents in `S`; for `x ≠ y` the sum over the common ancestors `A`
+    and the pairs of paths `x → A`, `y → A` that meet only in `A` of `(1/2)^(n1 + n2 + 1) ·
+    (1 + F_A)`, `F_A = φ(mother_A, father_A)` by the same paths within `S` (0 unless both are
+    in `S`); `φ(x, x) = (1 + F_x) / 2`."""
+    pedigree = world.pedigree
+    s = {x, y} | pedigree.ancestors(x, depth) | pedigree.ancestors(y, depth)
+
+    def parents(person):
+        return [parent for parent in pedigree.parents[person] if parent is not None and parent in s]
+
+    def up(person):
+        paths, stack = [], [(person,)]
+        while stack:
+            path = stack.pop()
+            paths.append(path)
+            stack.extend(path + (parent,) for parent in parents(path[-1]))
+        return paths
+
+    inbreeding = {}
+
+    def big_f(person):
+        if person not in inbreeding:
+            known = parents(person)
+            inbreeding[person] = phi(*known) if len(known) == 2 else Fraction(0)
+        return inbreeding[person]
+
+    def phi(a, b):
+        if a == b:
+            return (1 + big_f(a)) / 2
+        total = Fraction(0)
+        for first in up(a):
+            for second in up(b):
+                if first[-1] == second[-1] and set(first) & set(second) == {first[-1]}:
+                    total += Fraction(1, 2 ** (len(first) + len(second) - 1)) * (1 + big_f(first[-1]))
+        return total
+
+    return phi(x, y)
+
+
+def one_parent_in_s(world: world_reference.World, x: int, y: int) -> list:
+    """The persons of the query's `S` with exactly one parent in `S` (the other known in the
+    world but outside the query): (person, the parent in S, the parent outside)."""
+    _, s, _ = world.kinship_query(x, y)
+    rows = []
+    for person in sorted(s):
+        mother, father = world.pedigree.parents[person]
+        if mother is None:
+            continue
+        inside = [parent for parent in (mother, father) if parent in s]
+        if len(inside) == 1:
+            rows.append((person, inside[0], father if inside[0] == mother else mother))
+    return rows
+
+
+def depth_case(world: world_reference.World, name: str, save: str, relation: str, a: int, b: int, by_hand: Fraction, all_ancestors: Fraction) -> dict:
+    """One known answer: `φ` by the rule against the value by hand (`by_hand`, from the paths
+    that stay in `S`) and over every ancestor (`all_ancestors`, the rule before H2), both
+    checked by the recursion and by the path counting; symmetric; the query's `S`, the pairs
+    the recursion visited and the persons with one parent in `S`."""
+    value, s, visited = world.kinship_query(a, b)
+    assert value == by_hand == kinship_by_paths(world, a, b), (relation, value, by_hand)
+    full = world.kinship_query(a, b, None)[0]
+    assert full == all_ancestors == kinship_by_paths(world, a, b, None), (relation, full, all_ancestors)
+    assert world.kinship_query(b, a)[0] == value and world.kinship(a, b) == value
+    assert world.kinship_of(a, b) == world.kinship_of(b, a) == float(value) and Fraction(float(value)) == value
+    assert len(s) <= 30 and len(visited) <= len(s) * (len(s) + 1) // 2
+    return {
+        "label": f"kinship_{name}_{relation}",
+        "name": name,
+        "save": save,
+        "clock": world.closed,
+        "a": a,
+        "b": b,
+        "phi": value,
+        "all": full,
+        "s": sorted(s),
+        "visited": len(visited),
+        "one_parent": one_parent_in_s(world, a, b),
+    }
+
+
+def depth_rows(cases: list) -> list:
+    rows = []
+    for case in cases:
+        rows.append(kinship_row(case["label"], case["name"], case["save"], case["clock"], case["a"], case["b"], float(case["phi"])))
+        rows.append(
+            f"{case['label']}_query all_ancestors {case['all']} changed {case['all'] != case['phi']} S {len(case['s'])} {case['s']}"
+            f" visited_pairs {case['visited']} bound {len(case['s']) * (len(case['s']) + 1) // 2}"
+            f" one_parent_in_S (person, parent in S, parent outside) {case['one_parent']}"
+        )
+    return rows
+
+
+def depth_bounds(world: world_reference.World) -> tuple:
+    """Over every pair of the world's persons (living or archived, `a ≤ b`): the largest `S`,
+    the most visited pairs, and that the recursion agrees with the path counting under the
+    rule. Returns (pairs, largest S, most visited, pairs whose φ the depth changes)."""
+    people = sorted(world.pedigree.order)
+    largest, most, changed = 0, 0, 0
+    pairs = 0
+    for index, a in enumerate(people):
+        for b in people[index:]:
+            value, s, visited = world.kinship_query(a, b)
+            assert value == kinship_by_paths(world, a, b), (a, b)
+            assert len(s) <= 30 and len(visited) <= len(s) * (len(s) + 1) // 2, (a, b)
+            largest, most = max(largest, len(s)), max(most, len(visited))
+            changed += world.kinship_query(a, b, None)[0] != value
+            pairs += 1
+    return pairs, largest, most, changed
+
+
+# "kin_deep" (above): the data, the founders, the design.
+KINDEEP_DATA = world_reference.death_test_data(1e-9, fertility=(0.25, 16, 45, 10), wish_shape=[0.0, 0.0, 0.0, 0.0, 1.0])
+assert KINDEEP_DATA.market_height == 0.0 and KINDEEP_DATA.separation_rate == 0.0 and KINDEEP_DATA.twins == (0.0, 0.0)
+KINDEEP_FOUNDERS = [(-18 * YEAR, FEMALE, []), (-20 * YEAR, MALE, [])] + [(-(20 * YEAR + day * 86_400), MALE, []) for day in range(1, 8)]
+KINDEEP_COUPLES = [(0, 1)]
+KINDEEP_A1, KINDEEP_A2 = 1, 2
+KINDEEP_MEN = list(range(3, 10))
+KINDEEP_YEARS = 75
+KINDEEP_END = KINDEEP_YEARS * YEAR - 1
+KINDEEP_TAGS = [f"test:kindeep{number}" for number in range(1, 41)]
+
+
+def kindeep_world(tag: str) -> world_reference.World:
+    return world_reference.World(0xFF, tag, False, KINDEEP_FOUNDERS, KINDEEP_COUPLES, data=KINDEEP_DATA)
+
+
+def children_of(world: world_reference.World, mother: int) -> list:
+    """Her children, living or archived, by birth (then SimId)."""
+    found = [sim for sim in set(world.sims) | set(world.archive) if (parents_of(world, sim) or (None,))[0] == mother]
+    return sorted(found, key=lambda sim: (world.born_of(sim), sim))
+
+
+def daughters_of(world: world_reference.World, mother: int) -> list:
+    return [sim for sim in children_of(world, mother) if world.sex_of(sim) == FEMALE]
+
+
+def woman_man(world: world_reference.World, a: int, b: int) -> tuple:
+    """The two as (woman, man)."""
+    return (a, b) if world.sex_of(a) == FEMALE else (b, a)
+
+
+def kindeep_design(tag: str):
+    """The design of "kin_deep" on the run of `tag`: (names, inputs) or (None, why). Inputs
+    as `staged` takes them: (label, the second it acts, woman, man). Each generation is
+    chosen one second before the first 16th birthday among the children of its mothers
+    (all their children are born by then), and its couples form at the 16th birthday of
+    the younger partner."""
+    world = kindeep_world(tag)
+    names, inputs = {"A1": KINDEEP_A1, "A2": KINDEEP_A2}, []
+
+    def decide(mothers: list) -> bool:
+        born = [world.born_of(sim) for mother in mothers for sim in children_of(world, mother)]
+        if not born:
+            return False
+        at = min(born) + 16 * YEAR - 1
+        assert at >= world.closed
+        world.advance(at)
+        return True
+
+    def arrange(pairs):
+        for label, woman, man in sorted(pairs, key=lambda row: (max(world.born_of(row[1]), world.born_of(row[2])), row[1])):
+            acts = max(world.born_of(woman), world.born_of(man)) + 16 * YEAR
+            assert acts - 1 >= world.closed
+            world.advance(acts - 1)
+            world.arrange(woman, man)
+            inputs.append((label, acts, woman, man))
+
+    def other_sex_pair(first: list, second: list):
+        return next(((a, b) for a in first for b in second if world.sex_of(a) != world.sex_of(b)), None)
+
+    world.advance(2 * YEAR)
+    if not decide([KINDEEP_A1]) or len(children_of(world, KINDEEP_A1)) < 4 or len(daughters_of(world, KINDEEP_A1)) < 2:
+        return None, "A1 has fewer than two daughters"
+    names["B1"], names["B2"] = daughters_of(world, KINDEEP_A1)[:2]
+    arrange([("b1", names["B1"], KINDEEP_MEN[0]), ("b2", names["B2"], KINDEEP_MEN[1])])
+    world.advance(world.born_of(names["B2"]) + 18 * YEAR)
+    if not decide([names["B1"], names["B2"]]) or any(len(children_of(world, mother)) < 4 or not daughters_of(world, mother) for mother in (names["B1"], names["B2"])):
+        return None, "B1 or B2 without four children and a daughter"
+    names["C1"], names["D1"] = daughters_of(world, names["B1"])[0], daughters_of(world, names["B2"])[0]
+    pair = other_sex_pair([sim for sim in children_of(world, names["B1"]) if sim != names["C1"]], [sim for sim in children_of(world, names["B2"]) if sim != names["D1"]])
+    if pair is None:
+        return None, "no C2 and D2 of the two sexes"
+    names["C2"], names["D2"] = pair
+    arrange([("c1", names["C1"], KINDEEP_MEN[2]), ("d1", names["D1"], KINDEEP_MEN[3]), ("c2_d2", *woman_man(world, *pair))])
+    cousins = woman_man(world, *pair)[0]
+    world.advance(max(world.born_of(names[n]) for n in ("C1", "C2", "D1", "D2")) + 18 * YEAR)
+    if not decide([names["C1"], names["D1"], cousins]) or any(len(children_of(world, mother)) < 4 for mother in (names["C1"], names["D1"], cousins)):
+        return None, "C1, D1 or the cousins without four children"
+    if not daughters_of(world, names["C1"]) or not daughters_of(world, names["D1"]):
+        return None, "C1 or D1 without a daughter"
+    names["E2"], names["F2"] = daughters_of(world, names["C1"])[0], daughters_of(world, names["D1"])[0]
+    pair = other_sex_pair([sim for sim in children_of(world, names["C1"]) if sim != names["E2"]], [sim for sim in children_of(world, names["D1"]) if sim != names["F2"]])
+    if pair is None:
+        return None, "no E1 and F1 of the two sexes"
+    names["E1"], names["F1"] = pair
+    names["Q"] = children_of(world, cousins)[0]
+    arrange([("e2", names["E2"], KINDEEP_MEN[4]), ("f2", names["F2"], KINDEEP_MEN[5]), ("e1_f1", *woman_man(world, *pair))])
+    second = woman_man(world, *pair)[0]
+    world.advance(max(world.born_of(names[n]) for n in ("E1", "E2", "F1", "F2")) + 18 * YEAR)
+    if not decide([names["E2"], names["F2"], second]):
+        return None, "E2, F2 and the second cousins without a child"
+    if not daughters_of(world, names["E2"]) or not children_of(world, names["F2"]) or not children_of(world, second):
+        return None, "E2 without a daughter, or F2 or the second cousins without a child"
+    names["X"], names["Y"], names["Z"] = daughters_of(world, names["E2"])[0], children_of(world, names["F2"])[0], children_of(world, second)[0]
+    arrange([("x", names["X"], KINDEEP_MEN[6])])
+    assert KINDEEP_END >= world.closed
+    world.advance(KINDEEP_END)
+    if not children_of(world, names["X"]):
+        return None, "X without a child by the end"
+    names["V"] = children_of(world, names["X"])[0]
+    return names, inputs
+
+
+KINDEEP_TRIED = []
+for _tag in KINDEEP_TAGS:
+    try:
+        _names, _inputs = kindeep_design(_tag)
+    except AssertionError:
+        # A death second or a draw that hangs on the last bit of libm: not usable.
+        KINDEEP_TRIED.append((_tag, "not robust"))
+        continue
+    KINDEEP_TRIED.append((_tag, "ok" if _names is not None else _inputs))
+    if _names is not None:
+        break
+KINDEEP_TAG = KINDEEP_TRIED[-1][0]
+assert KINDEEP_TAG == "test:kindeep5", KINDEEP_TRIED
+KINDEEP_NAMES, KINDEEP_INPUTS = _names, _inputs
+KINDEEP, KINDEEP_SAVES, KINDEEP_ENTRIES = staged(lambda: kindeep_world(KINDEEP_TAG), KINDEEP_INPUTS, {}, KINDEEP_END)
+assert KINDEEP.closed == KINDEEP_END and not KINDEEP.archive, "nobody dies or leaves in kin_deep"
+_n = KINDEEP_NAMES
+# The design, checked from the parents: the lines of women with their founder men, the
+# two marriages of cousins.
+assert [parents_of(KINDEEP, _n[c])[:2] for c in ("B1", "B2")] == [(KINDEEP_A1, KINDEEP_A2)] * 2
+assert [tuple(parents_of(KINDEEP, _n[c])[:2]) for c in ("C1", "C2", "D1", "D2")] == [(_n["B1"], 3), (_n["B1"], 3), (_n["B2"], 4), (_n["B2"], 4)]
+assert full_siblings(KINDEEP, _n["C1"], _n["C2"]) and full_siblings(KINDEEP, _n["D1"], _n["D2"]) and first_cousins(KINDEEP, _n["C2"], _n["D2"])
+assert set(parents_of(KINDEEP, _n["Q"])[:2]) == {_n["C2"], _n["D2"]} and set(parents_of(KINDEEP, _n["Z"])[:2]) == {_n["E1"], _n["F1"]}
+assert tuple(parents_of(KINDEEP, _n["X"])[:2]) == (_n["E2"], 7) and tuple(parents_of(KINDEEP, _n["V"])[:2]) == (_n["X"], 9)
+assert parents_of(KINDEEP, _n["Y"])[:2] == (_n["F2"], 8)
+_save = "kin_deep_save_end"
+_F = Fraction
+KINDEEP_CASES = [
+    depth_case(KINDEEP, "kin_deep", _save, relation, _n[a] if isinstance(a, str) else a, _n[b] if isinstance(b, str) else b, _F(by_hand), _F(full))
+    for relation, a, b, by_hand, full in [
+        # Exact as before (paths with both ends at depth 3 or less, or (dx, dy) with max 4, min 3).
+        ("full_siblings", "B1", "B2", "1/4", "1/4"),
+        ("first_cousins", "C1", "D1", "1/16", "1/16"),
+        ("first_cousins_married", "C2", "D2", "1/16", "1/16"),
+        ("first_cousins_once_removed", "C1", "F1", "1/32", "1/32"),
+        ("great_aunt", "B1", "F1", "1/16", "1/16"),
+        ("great_grandparent", "A1", "E1", "1/16", "1/16"),
+        ("second_cousins", "E2", "F2", "1/64", "1/64"),
+        ("second_cousins_married", "E1", "F1", "1/64", "1/64"),
+        ("first_cousins_twice_removed", "D1", "X", "1/64", "1/64"),
+        ("second_cousins_once_removed", "X", "F1", "1/128", "1/128"),
+        ("great_great_grandparent_one_parent_in_S", "A1", "X", "1/32", "1/32"),
+        ("great_great_aunt", "B2", "X", "1/32", "1/32"),
+        # Lost by the depth: every path has an ancestor at depth 4 or more of both, or 5 of one.
+        ("third_cousins", "X", "Y", "0", "1/256"),
+        ("second_cousins_twice_removed", "V", "F1", "0", "1/256"),
+        ("first_cousins_thrice_removed", "V", "D1", "0", "1/128"),
+        ("third_cousins_once_removed", "V", "Y", "0", "1/512"),
+        ("great_great_great_grandparent", "A1", "V", "0", "1/64"),
+        # Partly lost: first cousins (via C1 and M3) and third cousins (via A1 and A2).
+        ("first_cousins_and_third_cousins", "X", "Z", "1/16", "17/256"),
+        # x = y: F of a child of first cousins 1/16, of second cousins 0 (1/64 before).
+        ("itself_child_of_first_cousins", "Q", "Q", "17/32", "17/32"),
+        ("itself_child_of_second_cousins", "Z", "Z", "1/2", "65/128"),
+        ("itself_founder", "A1", "A1", "1/2", "1/2"),
+    ]
+]
+assert KINDEEP.kinship_of(KINDEEP.next_sim_id, KINDEEP_A1) is None
+KINDEEP_BOUNDS = depth_bounds(KINDEEP)
+KINDEEP_PEDIGREE = KINDEEP.pedigree_json()
+# The pedigree's `kinship` of the two marriages of cousins (pedigree.json, partnerships).
+_kinships = {(p["woman"], p["man"]): p["kinship"] for p in KINDEEP.pedigree_view()["partnerships"]}
+assert _kinships[woman_man(KINDEEP, _n["C2"], _n["D2"])] == 0.0625 and _kinships[woman_man(KINDEEP, _n["E1"], _n["F1"])] == 0.015625
+
+
+# "kin_line" (above): the data, the founders, the design.
+def line_disease(code: str, locus: str, female: float, male: float, onset: float) -> dict:
+    """A test disease of "kin_line": a locus carrier with the penetrance per sex, the onset
+    fixed at `onset` years, death with 50 per year."""
+    value = world_reference.test_value
+    return {
+        "code": code,
+        "carrier": {"locus": {"locus": locus, "penetrance_female": value(female, "fraction"), "penetrance_male": value(male, "fraction")}},
+        "onset": {"fixed": {"age": value(onset, "year")}},
+        "effect": {"death": {"per_year": value(50.0, "per_year")}},
+    }
+
+
+KINLINE_DISEASES = [
+    line_disease("test:line_women", "core:disease_ad_late", 1.0, 0.0, 25.0),
+    line_disease("test:line_men", "core:disease_ad_partial", 0.0, 1.0, 100.0),
+]
+KINLINE_C = 1.0
+KINLINE_DATA = world_reference.death_test_data(
+    1e-9, diseases=KINLINE_DISEASES, fertility=(0.25, 16, 45, 10), wish_shape=[0.0, 1.0], life_values={"core:market_search_height_female": KINLINE_C}
+)
+assert KINLINE_DATA.market_height == KINLINE_C and KINLINE_DATA.separation_rate == 0.0 and KINLINE_DATA.twins == (0.0, 0.0)
+CODES.update({disease.key: disease.code for disease in KINLINE_DATA.diseases})
+_LATE_ONE, _LATE_TWO = ("core:disease_ad_late", [1, 0]), ("core:disease_ad_late", [1, 1])
+_PARTIAL_ONE = ("core:disease_ad_partial", [1, 0])
+KINLINE_FOUNDERS = [
+    (-18 * YEAR, FEMALE, [_LATE_ONE]),  # sim 1, P0
+    (-20 * YEAR, MALE, [_LATE_TWO]),  # sim 2, M0
+    (-30 * YEAR, MALE, [_LATE_TWO, _PARTIAL_ONE]),  # sim 3, M1
+    (-30 * YEAR, MALE, [_LATE_TWO, _PARTIAL_ONE]),  # sim 4, M2
+    (-30 * YEAR, MALE, [_LATE_TWO, _PARTIAL_ONE]),  # sim 5, M3
+    (-20 * YEAR, MALE, [_LATE_TWO, _PARTIAL_ONE]),  # sim 6, M4
+    (-20 * YEAR, MALE, []),  # sim 7, U
+    (-50 * YEAR, FEMALE, []),  # sim 8, Q0
+    (-50 * YEAR, MALE, []),  # sim 9, Q1
+]
+KINLINE_COUPLES = [(0, 1), (7, 8)]
+KINLINE_P0, KINLINE_M0, KINLINE_M1, KINLINE_M2, KINLINE_M3, KINLINE_M4, KINLINE_U, KINLINE_Q0, KINLINE_Q1 = range(1, 10)
+KINLINE_YEARS = 90
+KINLINE_END = KINLINE_YEARS * YEAR - 1
+KINLINE_TAGS = [f"test:kinline{number}" for number in range(1, 201)]
+
+
+def kinline_world(tag: str) -> world_reference.World:
+    return world_reference.World(0xFF, tag, True, KINLINE_FOUNDERS, KINLINE_COUPLES, data=KINLINE_DATA)
+
+
+def full_relatives(world: world_reference.World, representative: int, now: int) -> list:
+    """The candidates of the orphan rule's first stage over every ancestor (the rule before
+    H2): (φ, sim) of the living of 18 or more with `φ > 0`, best first."""
+    found = [(world.kinship_query(representative, sim, None)[0], sim) for sim in sorted(world.sims) if world.adult_at(sim, now)]
+    return sorted(((phi, sim) for phi, sim in found if phi > 0), key=lambda row: (-row[0], world.key_of(row[1])))
+
+
+def full_choice(world: world_reference.World, choice: dict) -> tuple:
+    """The choice of a searcher over every ancestor (the rule before H2), from the same
+    walk, the same draws and the same other terms: the kept list (`φ < 1/8`, at most `k`, in
+    the walk's order; None if the walk stopped before the list would be full) and the man
+    with the largest utility. Returns (kept as (man, φ, U), chosen)."""
+    weight, limit = world_reference.kinship_weight(world.data), Fraction(world.data.kinship_limit)
+    rows = {man: (phi, u) for man, _, phi, _, u in choice["candidates"]}
+    kept = []
+    for man, _, _ in choice["walked"]:
+        full = world.kinship_query(choice["woman"], man, None)[0]
+        if full < limit:
+            if man not in rows:
+                return None, None
+            phi, u = rows[man]
+            kept.append((man, full, (u + weight * phi) - weight * float(full)))
+        if len(kept) == world.data.market_candidates:
+            break
+    best = max(kept, key=lambda row: row[2])[0] if kept else None
+    return kept, best
+
+
+def kinline_design(tag: str):
+    """The design of "kin_line" on the run of `tag`: (line, inputs, placement, choice) or
+    (None, why)."""
+    world = kinline_world(tag)
+    line, inputs = [KINLINE_P0], []
+
+    def child(mother: int):
+        for _ in range(12):
+            found = children_of(world, mother)
+            if found:
+                return found[0]
+            world.advance(world.closed + YEAR)
+        return None
+
+    for man in (KINLINE_M1, KINLINE_M2, KINLINE_M3, KINLINE_M4):
+        daughter = child(line[-1])
+        if daughter is None or world.sex_of(daughter) != FEMALE:
+            return None, f"P{len(line)} is no daughter"
+        line.append(daughter)
+        acts = world.born_of(daughter) + 16 * YEAR
+        assert acts - 1 >= world.closed
+        world.advance(acts - 1)
+        world.arrange(daughter, man)
+        inputs.append((f"p{len(line) - 1}", acts, daughter, man))
+    x = child(line[-1])
+    if x is None or world.sex_of(x) != FEMALE:
+        return None, "X is no daughter"
+    line.append(x)
+    assert KINLINE_END >= world.closed
+    world.advance(KINLINE_END)
+    placements = [record for record in world.placements if record["representative"] == x]
+    choices = [(record, choice) for record in world.rounds for choice in record["choices"] if choice["woman"] == x]
+    if len(placements) != 1 or len(choices) != 1:
+        return None, "not one placement and one choice of X"
+    (placement,), ((record, choice),) = placements, choices
+    full = full_relatives(world, x, placement["t"])
+    if placement["stage"] != "foster" or [sim for _, sim in full] != [KINLINE_M0]:
+        return None, "the placement does not depend on the depth"
+    kept, best = full_choice(world, choice)
+    if choice["chosen"] != KINLINE_M0 or best != KINLINE_U:
+        return None, "the choice does not depend on the depth"
+    return line, inputs, placement, (record, choice)
+
+
+KINLINE_TRIED = []
+for _tag in KINLINE_TAGS:
+    try:
+        _found = kinline_design(_tag)
+    except AssertionError:
+        KINLINE_TRIED.append((_tag, "not robust"))
+        continue
+    KINLINE_TRIED.append((_tag, "ok" if _found[0] is not None else _found[1]))
+    if _found[0] is not None:
+        break
+KINLINE_TAG = KINLINE_TRIED[-1][0]
+assert KINLINE_TAG == "test:kinline2", KINLINE_TRIED
+KINLINE_LINE, KINLINE_INPUTS, _placement, (_record, _choice) = _found
+KINLINE_X = KINLINE_LINE[-1]
+KINLINE_PLACED_AT, KINLINE_ROUND_AT = _placement["t"], _record["t"]
+KINLINE, KINLINE_SAVES, KINLINE_ENTRIES = staged(
+    lambda: kinline_world(KINLINE_TAG), KINLINE_INPUTS, {"placement": KINLINE_PLACED_AT, "round": KINLINE_ROUND_AT}, KINLINE_END
+)
+(KINLINE_PLACEMENT,) = [record for record in KINLINE.placements if record["representative"] == KINLINE_X]
+((KINLINE_ROUND, KINLINE_CHOICE),) = [(record, choice) for record in KINLINE.rounds for choice in record["choices"] if choice["woman"] == KINLINE_X]
+# The placement: by the rule no relative, so the foster household of Q0 (she and Q1 become
+# social parents); over every ancestor M0 (1/64) would have been the carer.
+assert KINLINE_PLACEMENT["trigger"] == "death of the carer" and KINLINE_PLACEMENT["stage"] == "foster" and KINLINE_PLACEMENT["relatives"] == []
+assert KINLINE_PLACEMENT["carer"] == KINLINE_Q0 and KINLINE_PLACEMENT["added"] == {KINLINE_X: [KINLINE_Q0, KINLINE_Q1]}
+KINLINE_FULL_RELATIVES = full_relatives(KINLINE, KINLINE_X, KINLINE_PLACED_AT)
+assert KINLINE_FULL_RELATIVES == [(Fraction(1, 64), KINLINE_M0)]
+# The choice: M0 and U kept, both `φ` 0; she chooses M0; over every ancestor M0's penalty is
+# `16 · ln(10) / 64` and she would choose U.
+assert [man for man, *_ in KINLINE_CHOICE["candidates"]] in ([KINLINE_M0, KINLINE_U], [KINLINE_U, KINLINE_M0])
+assert all(phi == 0.0 for _, _, phi, _, _ in KINLINE_CHOICE["candidates"]) and KINLINE_CHOICE["chosen"] == KINLINE_M0
+KINLINE_FULL_KEPT, KINLINE_FULL_CHOSEN = full_choice(KINLINE, KINLINE_CHOICE)
+assert KINLINE_FULL_CHOSEN == KINLINE_U
+_x, _l = KINLINE_X, KINLINE_LINE
+KINLINE_CHILD = next((sim for sim in children_of(KINLINE, _x)), None)
+assert KINLINE_CHILD is not None and set(parents_of(KINLINE, KINLINE_CHILD)[:2]) == {_x, KINLINE_M0}
+_save = "kin_line_save_end"
+KINLINE_CASES = [
+    depth_case(KINLINE, "kin_line", _save, relation, a, b, Fraction(by_hand), Fraction(full))
+    for relation, a, b, by_hand, full in [
+        ("great_great_great_grandfather_married", _x, KINLINE_M0, "0", "1/64"),
+        ("great_great_great_grandmother", _x, KINLINE_P0, "0", "1/64"),
+        ("great_great_grandfather_one_parent_in_S", _x, KINLINE_M1, "1/32", "1/32"),
+        ("great_great_grandmother_one_parent_in_S", _x, _l[1], "1/32", "1/32"),
+        ("great_grandfather", _x, KINLINE_M2, "1/16", "1/16"),
+        ("unrelated", _x, KINLINE_U, "0", "0"),
+        ("itself_child_of_great_great_great_grandfather", KINLINE_CHILD, KINLINE_CHILD, "1/2", "65/128"),
+    ]
+]
+KINLINE_BOUNDS = depth_bounds(KINLINE)
+KINLINE_PEDIGREE = KINLINE.pedigree_json()
+_kinships = {(p["woman"], p["man"]): p["kinship"] for p in KINLINE.pedigree_view()["partnerships"]}
+assert _kinships[(_x, KINLINE_M0)] == 0.0
+
+
+# A synthetic pedigree (no world: SimIds in birth order with their parents) for a unit test
+# of the recursion alone, with the one case the worlds above cannot have: a person with one
+# parent in `S` whose other parent is related to the other person beyond the depth. That
+# needs a second partner (half siblings), which a world without deaths before the children
+# and without separation has not. Founders 1 to 10: M, N, O, W and six others. G (11) is the
+# child of M and N, P (12) of M and O (half siblings), R2 (13) of W and N; R1 (14) of R2 and
+# founder 5, R (15) of R1 and 6; y (16) of P and R; x2 (17) of G and 7, x1 (18) of x2 and 8,
+# x (19) of x1 and 9. In the query (x, y), G (depth 3 of x) has his mother M in `S` (y's
+# grandmother) and his father N not (depth 4 of both): by the rule `φ` = 1/128 (the path x,
+# x1, x2, G, M, P, y); over every ancestor 5/512 (also x, x1, x2, G, N, R2, R1, R, y).
+SYNTHETIC_PEDIGREE = [(sim, None, None) for sim in range(1, 11)] + [
+    (11, 1, 2),  # G: M and N
+    (12, 1, 3),  # P: M and O
+    (13, 4, 2),  # R2: W and N
+    (14, 13, 5),  # R1
+    (15, 14, 6),  # R
+    (16, 12, 15),  # y
+    (17, 11, 7),  # x2
+    (18, 17, 8),  # x1
+    (19, 18, 9),  # x
+]
+SYNTHETIC_X, SYNTHETIC_Y = 19, 16
+
+
+def synthetic_pedigree():
+    pedigree = world_reference.Pedigree()
+    for sim, mother, father in SYNTHETIC_PEDIGREE:
+        pedigree.add(sim, mother, father)
+    return pedigree
+
+
+_pedigree = synthetic_pedigree()
+SYNTHETIC_CASE = _pedigree.query(SYNTHETIC_X, SYNTHETIC_Y)
+assert SYNTHETIC_CASE[0] == Fraction(1, 128) and _pedigree.phi(SYNTHETIC_X, SYNTHETIC_Y, None) == Fraction(5, 512)
+assert _pedigree.phi(SYNTHETIC_Y, SYNTHETIC_X) == Fraction(1, 128)
+assert sorted(SYNTHETIC_CASE[1]) == [1, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
     print(f"longevity_dues (senescence with the trait, without, accident) {LONGEVITY_DUES}")
@@ -5304,3 +5885,85 @@ if __name__ == "__main__":
     print(f"measure_similar_long_log_hash {digest(b''.join(_world.log))} entries {len(_world.log)} archived {sorted(_world.archive)}")
     for row in measure_rows("mortal", MEASURE_MORTAL, {"after_start": "mortal_save_after_start", "after_year_5": "mortal_save_after_year_5"}):
         print(row)
+
+    # Kinship up to the great-grandparents (step 11, design note of the kinship depth; Grok,
+    # H2; ADR-0020 section 4). No row above changes.
+    print(
+        f"kinship_depth_rule depth {KINSHIP_DEPTH}: S = x, y and their ancestors up to depth {KINSHIP_DEPTH}; a parent counts iff in S;"
+        f" a path (dx, dy) counts iff max <= 4 and min <= 3"
+    )
+    for _name, _data in (("kin_deep", KINDEEP_DATA), ("kin_line", KINLINE_DATA)):
+        _form = _data.fertility
+        print(
+            f"{_name}_data_hash {_data.hash:016x} accident {_data.accident[FEMALE]!r} senescence_a {_data.senescence[FEMALE][0]!r} senescence_b {_data.senescence[FEMALE][1]!r}"
+            f" fertility {_form.kind} from {_form.start!r} until {_form.until!r} adult_rate {_data.adult_rate!r} pregnancy_months {_data.pregnancy_months}"
+            f" pause_months {_data.pause_months} wish_shape {_data.wish_shape} twins {_data.twins!r} separation_rate {_data.separation_rate!r} c {_data.market_height!r}"
+            f" diseases {[disease.code for disease in _data.diseases]}"
+        )
+    for _disease in KINLINE_DISEASES:
+        print(f"kin_line_disease {json.dumps(_disease, separators=(',', ':'))}")
+    for _name, _tried, _tag, _founders, _couples, _switch, _years, _end in (
+        ("kin_deep", KINDEEP_TRIED, KINDEEP_TAG, KINDEEP_FOUNDERS, KINDEEP_COUPLES, "off", KINDEEP_YEARS, KINDEEP_END),
+        ("kin_line", KINLINE_TRIED, KINLINE_TAG, KINLINE_FOUNDERS, KINLINE_COUPLES, "on", KINLINE_YEARS, KINLINE_END),
+    ):
+        print(f"{_name}_tags_tried {_tried}")
+        print(f"{_name}_scenario seed 0xff tag {_tag} switch {_switch} couples {[(w + 1, m + 1) for w, m in _couples]} years {_years} end {_end}")
+        for _index, (_born, _sex, _alleles) in enumerate(_founders):
+            print(f"{_name}_founder sim {_index + 1} {'female' if _sex == FEMALE else 'male'} born {_born} (age {-_born / YEAR:g}) key {founder_key(_tag, _index):016x} alleles {_alleles}")
+    for _world, _name, _inputs in ((KINDEEP, "kin_deep", KINDEEP_INPUTS), (KINLINE, "kin_line", KINLINE_INPUTS)):
+        for _label, _acts, _woman, _man in _inputs:
+            print(f"{_name}_input {_label} ArrangePartnership(woman {_woman}, man {_man}) stamped {_acts - 1} acts at {_acts} (year {_acts / YEAR:.4f})")
+        for _sim in sorted(set(_world.sims) | set(_world.archive)):
+            _parents = parents_of(_world, _sim)
+            _left = "" if _sim in _world.sims else f" left {_world.archive[_sim][1]} (year {_world.archive[_sim][1] / YEAR:.4f}) of {cause_name(_world.archive[_sim][2])}"
+            print(
+                f"{_name}_person sim {_sim} {'female' if _world.sex_of(_sim) == FEMALE else 'male'} born {_world.born_of(_sim)} (year {_world.born_of(_sim) / YEAR:.4f})"
+                f" key {_world.key_of(_sim):016x} parents {None if _parents is None else tuple(_parents[:2])}{_left}"
+            )
+        for _number, (_woman, _man, _formed, _ended) in sorted(_world.partnerships.items()):
+            print(f"{_name}_partnership {_number} woman {_woman} man {_man} formed {_formed} (year {_formed / YEAR:.4f}) ended {split_ended(_ended)} phi {_world.kinship(_woman, _man)}")
+    print(f"kin_deep_names {KINDEEP_NAMES}")
+    print(f"kin_line_names P0..P4 and X {KINLINE_LINE} M0..M4 {[KINLINE_M0, KINLINE_M1, KINLINE_M2, KINLINE_M3, KINLINE_M4]} U {KINLINE_U} Q0 {KINLINE_Q0} Q1 {KINLINE_Q1} child of X and M0 {KINLINE_CHILD}")
+    # The orphan rule where the depth decides: the placement as it runs, and its first stage
+    # over every ancestor.
+    print(f"kin_line_placement {placement_row(KINLINE, KINLINE_PLACEMENT)}")
+    print(
+        f"kin_line_placement_all_ancestors relatives (sim, phi) {[(sim, str(phi)) for phi, sim in KINLINE_FULL_RELATIVES]}:"
+        f" the rule before H2 would place X with {KINLINE_FULL_RELATIVES[0][1]} (stage relative), not in the foster household of {KINLINE_PLACEMENT['carer']}"
+    )
+    # The market where the depth decides: the choice as it runs, and over every ancestor.
+    _c = KINLINE_CHOICE
+    print(
+        f"kin_line_round n {KINLINE_ROUND['n']} t {KINLINE_ROUND['t']} (year {KINLINE_ROUND['t'] / YEAR:.4f}) woman {_c['woman']} (age {(KINLINE_ROUND['t'] - KINLINE.born_of(_c['woman'])) / YEAR:.4f})"
+        f" men {KINLINE_ROUND['men']} walked (man, phi, skipped) {[(man, str(phi), skipped) for man, phi, skipped in _c['walked']]}"
+    )
+    for _man, _gap, _phi, _g, _u in _c["candidates"]:
+        print(f"kin_line_round_candidate man {_man} gap {_gap!r} phi {_phi!r} G {_g!r} U {_u!r} bits {data_reference.f64_bits(_u)}")
+    print(f"kin_line_round_chosen {_c['chosen']} outcome {_c['outcome']} partnership {_c.get('partnership')} entry {_c.get('entry')}")
+    print(
+        f"kin_line_round_all_ancestors kept (man, phi, U) {[(man, str(phi), u) for man, phi, u in KINLINE_FULL_KEPT]}"
+        f" would choose {KINLINE_FULL_CHOSEN} (penalty of M0 {world_reference.kinship_weight(KINLINE_DATA) / 64!r})"
+    )
+    for _world, _name, _saves, _entries, _keep in (
+        (KINDEEP, "kin_deep", KINDEEP_SAVES, KINDEEP_ENTRIES, ("after_start", "end")),
+        (KINLINE, "kin_line", KINLINE_SAVES, KINLINE_ENTRIES, ("after_start", "before_placement", "after_placement", "before_round", "after_round", "end")),
+    ):
+        for row in scenario_output(_name, _world, {label: _saves[label] for label in _keep}, _entries):
+            print(row)
+        _text = _world.pedigree_json()
+        print(f"{_name}_end_pedigree clock {_world.closed} save {_name}_save_end length {len(_text.encode())} hash {digest(_text.encode())}")
+        print(f"{_name}_end_pedigree_json {_text}")
+    for row in depth_rows(KINDEEP_CASES + KINLINE_CASES):
+        print(row)
+    print(f"kinship_kin_deep_unknown scenario kin_deep save kin_deep_save_end clock {KINDEEP.closed} sims {KINDEEP.next_sim_id} {KINDEEP_A1} none (unknown_sim)")
+    for _name, (_pairs, _largest, _most, _changed) in (("kin_deep", KINDEEP_BOUNDS), ("kin_line", KINLINE_BOUNDS)):
+        print(
+            f"{_name}_query_bounds over all {_pairs} pairs (a <= b, living and archived): largest S {_largest} (at most 30),"
+            f" most visited pairs {_most} (at most |S|(|S|+1)/2), pairs whose phi the depth changes {_changed}; recursion = path counting on every pair"
+        )
+    _value, _s, _visited = SYNTHETIC_CASE
+    print(f"kinship_synthetic_pedigree (sim, mother, father) in birth order {SYNTHETIC_PEDIGREE}")
+    print(
+        f"kinship_synthetic_one_parent_outside_related sims {SYNTHETIC_X} {SYNTHETIC_Y} phi {_value} json {world_reference.json_number(float(_value))}"
+        f" all_ancestors {synthetic_pedigree().phi(SYNTHETIC_X, SYNTHETIC_Y, None)} S {len(_s)} {sorted(_s)} visited_pairs {len(_visited)}"
+    )

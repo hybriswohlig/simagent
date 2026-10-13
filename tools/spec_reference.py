@@ -100,30 +100,80 @@ def odd_poisson(d):
     return mp.nsum(lambda k: mp.e ** (-d) * d ** (2 * k + 1) / mp.factorial(2 * k + 1), [0, mp.inf])
 
 
+# The depth of `φ` (2.7; Grok, H2, ADR-0020 section 4): every query counts the ancestors of
+# its two persons up to the great-grandparents (depth 1 the parents, 2 the grandparents, 3
+# the great-grandparents).
+KINSHIP_DEPTH = 3
+
+
 class Pedigree:
     """Kinship by the standard recursion over founders (Falconer & Mackay ch. 5): phi(x, x)
     = (1 + F_x) / 2 with F_x = phi(mother, father); phi(x, y) = (phi(m_x, y) + phi(f_x, y))
-    / 2 when x is not an ancestor of y (x is the younger one by insertion order)."""
+    / 2 when x is not an ancestor of y (x is the younger one by insertion order).
+
+    The depth of 2.7 (Grok, H2; ADR-0020 section 4; design note of the kinship depth,
+    section 1): a query `phi(x, y)` (also `x = y`) has the set `S` of `x`, `y` and every
+    ancestor of either up to `depth` generations (3, the great-grandparents), each once.
+    Within the query a person's mother is known iff she is in `S`, its father iff he is in
+    `S`, each on its own; an unknown parent's term is 0, `F` is 0 unless both parents are
+    known, and a person without known parents is unrelated to everyone else of the query.
+    The depth belongs to the pair of the query: the recursion keeps that `S` all the way
+    down (F of a person in `S` is not a query of its own), and no intermediate value is
+    reused by another query. `depth=None` counts every known ancestor (the rule before H2,
+    kept only to show what the depth changes)."""
 
     def __init__(self):
         self.parents = {}
         self.order = []
+        self.position = {}
 
     def add(self, name, mother=None, father=None):
+        assert (mother is None) == (father is None), "both parents or none"
+        assert name not in self.parents
         self.parents[name] = (mother, father)
+        self.position[name] = len(self.order)
         self.order.append(name)
 
-    def phi(self, x, y):
-        if self.order.index(x) < self.order.index(y):
-            x, y = y, x
-        if x == y:
-            mother, father = self.parents[x]
-            inbreeding = Fraction(0) if mother is None else self.phi(mother, father)
-            return (1 + inbreeding) / 2
-        mother, father = self.parents[x]
-        if mother is None:
-            return Fraction(0)
-        return (self.phi(mother, y) + self.phi(father, y)) / 2
+    def ancestors(self, x, depth):
+        """The ancestors of `x` up to `depth` generations (every known one for None)."""
+        found, frontier, generation = set(), {x}, 0
+        while frontier and (depth is None or generation < depth):
+            frontier = {parent for person in frontier for parent in self.parents[person] if parent is not None}
+            found |= frontier
+            generation += 1
+        return found
+
+    def query(self, x, y, depth=KINSHIP_DEPTH):
+        """`(phi, S, visited)`: `φ(x, y)` exact under the depth rule, the set `S` of the
+        query, and the pairs the recursion evaluated (unordered, `a = b` allowed; the query
+        pair included; each once, memoized within this query only). A pair is visited when
+        its value is needed: from `(a, a)` the pair of its parents if both are known, from
+        `(a, b)` with `a` the younger the pairs of its known parents with `b`."""
+        s = {x, y} | self.ancestors(x, depth) | self.ancestors(y, depth)
+        memo = {}
+
+        def known(person):
+            return tuple(parent if parent is not None and parent in s else None for parent in self.parents[person])
+
+        def rec(a, b):
+            if self.position[a] < self.position[b]:
+                a, b = b, a
+            if (a, b) in memo:
+                return memo[(a, b)]
+            mother, father = known(a)
+            if a == b:
+                inbreeding = rec(mother, father) if mother is not None and father is not None else Fraction(0)
+                value = (1 + inbreeding) / 2
+            else:
+                value = sum((rec(parent, b) for parent in (mother, father) if parent is not None), Fraction(0)) / 2
+            memo[(a, b)] = value
+            return value
+
+        value = rec(x, y)
+        return value, s, set(memo)
+
+    def phi(self, x, y, depth=KINSHIP_DEPTH):
+        return self.query(x, y, depth)[0]
 
 
 def kinships():

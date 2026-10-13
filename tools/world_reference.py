@@ -156,10 +156,11 @@ What the model knows:
   plan of the round, the rule `core:partner_market` and the draw; her series from the
   next month start; the separation), else nothing. `φ` is the kinship of the genetics
   specification 2.7 over the pedigree of every sim, living or archived (the recursion of
-  `spec_reference.Pedigree`), exact. Each search draw keeps `DRAW_MARGIN` from its chance
-  and the best utility `UTILITY_MARGIN` from every other, so the pinned libm of the core
-  makes the same choices. `market=False` (a switch of this reference only) plans no
-  round: the null twin.
+  `spec_reference.Pedigree`), exact, counting in each query only the ancestors of the two
+  persons up to their great-grandparents (below, "The depth of the kinship"). Each
+  search draw keeps `DRAW_MARGIN` from its chance and the best utility `UTILITY_MARGIN`
+  from every other, so the pinned libm of the core makes the same choices.
+  `market=False` (a switch of this reference only) plans no round: the null twin.
 - Similarity (genetics specification 11.2, design note of the similarity): the calibration
   (format 7) names `cognition_trait` and `height_trait`, each a trait of the map with
   phenotype weights or none. For a named trait the utility gets its term before the age
@@ -312,6 +313,19 @@ What the model knows:
   separation, a pregnancy goes with the mother; the household ends at `t`. Nobody else
   changes. The pedigree has format 3 (`emigrated` after `cause_of_death`, `ended_by`
   "emigration"). `check_emigration` holds the load checks.
+- The depth of the kinship (Grok, H2; ADR-0020 section 4; genetics specification 2.7 and
+  11.2; design note of the kinship depth): `World.kinship(x, y)` is
+  `spec_reference.Pedigree.query`: the set `S` of `x`, `y` and every ancestor of either up
+  to depth 3 (the great-grandparents), each once; within the query a person's mother is
+  known iff she is in `S`, its father iff he is in `S`; an unknown parent's term is 0, `F`
+  of a person is 0 unless both parents are known, and the recursion keeps the `S` of the
+  pair all the way down (no intermediate value is shared between queries). Every read of
+  `φ` goes through it: the market's exclusion and penalty, the orphan rule, the rejection
+  of `ArrangePartnership`, `_partner`, `check_market`, the pedigree's `kinship` and the
+  kinship query. The cache `kinships` holds only final values of pairs (a pair's `S` never
+  changes). `World.kinship_query` returns the value with `S` and the pairs the recursion
+  visited; with `depth=None` it counts every known ancestor (the rule before H2, only to
+  show what the depth changes).
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -378,7 +392,7 @@ import meiosis_reference
 # digits when it is imported; the correctly rounded exp and ln here need the 60 of
 # tools/kat_reference.py, so the precision is put back (Pedigree reads no mpmath).
 _PRECISION = mpmath.mp.dps
-from spec_reference import Pedigree  # noqa: E402
+from spec_reference import KINSHIP_DEPTH, Pedigree  # noqa: E402
 
 mpmath.mp.dps = _PRECISION
 assert mpmath.mp.dps == 60
@@ -903,7 +917,10 @@ class Data:
         assert self.market_age == 16 and self.kinship_limit == 0.125, "the note fixes 16 years and 1/8"
         for weight in (self.pairing_weight_cognition, self.pairing_weight_height):
             assert math.isfinite(weight) and weight >= 0.0, weight
-        assert math.isfinite(self.market_height) and self.market_height >= 0.0, self.market_height
+        # `c` is a fraction like the other shares of the market: data with `c` outside [0, 1]
+        # are rejected (the core's loader does the same; `search_chance` caps `s` at 1, so
+        # without this bound a `c` above 1 would still run here).
+        assert math.isfinite(self.market_height) and 0.0 <= self.market_height <= 1.0, self.market_height
         assert math.isfinite(self.market_center) and self.market_width > 0.0 and math.isfinite(self.market_width)
         assert 0.0 < self.market_minor <= 1.0 and self.market_candidates >= 1
         assert math.isfinite(self.pairing_weight_age) and self.pairing_weight_age >= 0.0
@@ -2363,13 +2380,25 @@ class World:
     # ------------------------------------------------------------------ market
 
     def kinship(self, x: int, y: int) -> Fraction:
-        """`φ(x, y)` of the genetics specification 2.7 over all known ancestors, living or
-        archived (missing parents count 0, founders are unrelated): the recursion of
-        `spec_reference.Pedigree` on the SimIds, the later SimId the younger. Exact."""
+        """`φ(x, y)` of the genetics specification 2.7 over the ancestors of `x` and `y` up
+        to their great-grandparents, living or archived (Grok, H2; ADR-0020 section 4;
+        design note of the kinship depth, section 1): the recursion of
+        `spec_reference.Pedigree.query` on the SimIds, the later SimId the younger (SimIds
+        go by birth, a tie in one second the larger SimId; between two founders, who have no
+        parents, the order changes nothing). Missing parents and parents outside the set of
+        the query count 0. Exact. The cache holds only the final `φ` of a pair (section 1
+        of the note): the set of a pair never changes, since parents are fixed at birth."""
         pair = (min(x, y), max(x, y))
         if pair not in self.kinships:
             self.kinships[pair] = self.pedigree.phi(x, y)
         return self.kinships[pair]
+
+    def kinship_query(self, x: int, y: int, depth=KINSHIP_DEPTH) -> tuple:
+        """`(φ, S, visited)` of one query (`spec_reference.Pedigree.query`), for the known
+        answers of the depth (design note of the kinship depth, section 4): the value, the
+        set `S` of the query and the pairs its recursion evaluated. `depth=None` is the rule
+        before H2 (every known ancestor), only to show what the depth changes."""
+        return self.pedigree.query(x, y, depth)
 
     def phi_float(self, x: int, y: int) -> float:
         """φ as f64: a sum of powers of two, exact."""
