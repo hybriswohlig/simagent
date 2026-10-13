@@ -288,6 +288,15 @@ impl Parser<'_> {
 mod tests {
     use super::*;
 
+    /// Malformed text is an error, never a panic: an unclosed string, a missing value, text
+    /// after the value (mutants).
+    #[test]
+    fn malformed_text_is_an_error() {
+        for text in ["\"abc", "{\"a\": }", "[1, 2", "1 2", "{\"a\" 1}"] {
+            assert!(Json::parse(text).is_err(), "{text}");
+        }
+    }
+
     /// A file goes through unchanged: keys in their order, floats as written, escapes.
     #[test]
     fn a_data_file_round_trips_byte_for_byte() {

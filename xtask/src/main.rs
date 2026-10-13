@@ -54,7 +54,7 @@ fn main() -> ExitCode {
         Some("map4-template") => {
             // No default: an empty or missing directory would write into the current one,
             // perhaps over the repository's data (review).
-            let Some(dir) = std::env::args().nth(2).filter(|dir| !dir.is_empty()) else {
+            let Some(dir) = map4::directory(std::env::args().nth(2)) else {
                 eprintln!("usage: cargo xtask map4-template <dir>");
                 return ExitCode::from(2);
             };

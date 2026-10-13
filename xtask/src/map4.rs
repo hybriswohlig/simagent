@@ -113,15 +113,20 @@ const SLOTS: u32 = 24;
 /// ascending ID (ordinal `o`), locus `i` in segment `(o · 3 + i) mod 8`, at the free slot
 /// with the largest smallest distance to the trait's loci already in that segment, else
 /// the smallest free slot; ties to the smaller slot. `taken` holds the occupied
-/// (segment, slot) pairs. Returns per trait its places in order of `i`.
+/// (segment, slot) pairs. Returns per trait (in the order of `specs`) its places in order
+/// of `i`; a trait without own loci has none and takes no ordinal.
 fn place(
     specs: &[TraitSpec],
     taken: &mut std::collections::BTreeSet<(u32, u32)>,
 ) -> Result<Vec<Vec<(u32, u32)>>> {
     let mut all = Vec::new();
-    let with_loci = specs.iter().filter(|spec| spec.own > 0);
-    for (o, spec) in (0_u32..).zip(with_loci) {
+    let mut o = 0_u32;
+    for spec in specs {
         let mut mine: Vec<(u32, u32)> = Vec::new();
+        if spec.own == 0 {
+            all.push(mine);
+            continue;
+        }
         for i in 0..spec.own {
             let segment = (o * 3 + i) % SEGMENTS;
             let own_here: Vec<u32> = mine
@@ -145,6 +150,7 @@ fn place(
             mine.push((segment, slot));
         }
         all.push(mine);
+        o += 1;
     }
     Ok(all)
 }
@@ -155,15 +161,17 @@ fn read(root: &Path, path: &str) -> Result<Json> {
     Json::parse(&text).map_err(|error| format!("{path}: {error}"))
 }
 
+/// The chromosome types in the order of the map (ADR-0001).
+const CHROMOSOMES: [&str; 4] = ["autosome", "x", "y", "mt"];
+
 /// The position of a locus as the map orders it: autosomes by segment and slot, then X,
 /// Y, mt.
-fn position(locus: &Json) -> (u32, u64, u64) {
-    let rank = match locus.get("chromosome").and_then(Json::as_str) {
-        Some("autosome") => 0,
-        Some("x") => 1,
-        Some("y") => 2,
-        _ => 3,
-    };
+fn position(locus: &Json) -> (usize, u64, u64) {
+    let chromosome = locus.get("chromosome").and_then(Json::as_str);
+    let rank = CHROMOSOMES
+        .iter()
+        .position(|name| Some(*name) == chromosome)
+        .unwrap_or(CHROMOSOMES.len());
     let at = |key: &str| locus.get(key).and_then(Json::as_u64).unwrap_or(0);
     (rank, at("segment"), at("slot"))
 }
@@ -217,7 +225,7 @@ pub fn template(root: &Path) -> Result<(Json, Json)> {
         ));
     }
     let places = place(&specs, &mut taken)?;
-    for (spec, mine) in specs.iter().filter(|spec| spec.own > 0).zip(&places) {
+    for (spec, mine) in specs.iter().zip(&places) {
         for (i, (segment, slot)) in (1_u32..).zip(mine) {
             let action = Json::object(vec![(
                 "additive",
@@ -342,6 +350,12 @@ pub fn texts_of(root: &Path) -> Result<(String, String)> {
     Ok((calibration.pretty()?, map.pretty()?))
 }
 
+/// The output directory of `map4-template`: none for a missing or empty argument, which
+/// would write into the current directory, perhaps over the repository's data (review).
+pub fn directory(argument: Option<String>) -> Option<String> {
+    argument.filter(|dir| !dir.is_empty())
+}
+
 /// Writes the template into `dir` (`calibration/genetics.json`, `genetics/genome_map.json`).
 pub fn write(root: &Path, dir: &Path) -> Result {
     let (calibration, map) = texts_of(root)?;
@@ -462,6 +476,63 @@ mod tests {
         };
         assert_eq!(map, golden("genetics/genome_map.json"));
         assert_eq!(calibration, golden("calibration/genetics.json"));
+    }
+
+    /// A trait without own loci takes no ordinal: the next one gets the ordinal it would
+    /// have without it, so its first locus goes to segment `(o · 3) mod 8` (mutants).
+    #[test]
+    fn a_trait_without_own_loci_takes_no_ordinal() {
+        let spec = |id, own| TraitSpec {
+            id,
+            own,
+            include: None,
+            exclusive: false,
+        };
+        let mut taken = std::collections::BTreeSet::new();
+        let places =
+            place(&[spec("a", 1), spec("b", 0), spec("c", 1)], &mut taken).expect("places");
+        assert_eq!(places, [vec![(0, 0)], vec![], vec![(3, 0)]]);
+    }
+
+    /// The map orders autosomes, then X, Y and mt, each by segment and slot (mutants).
+    #[test]
+    fn loci_are_ordered_by_chromosome_then_place() {
+        let locus = |chromosome: &str, segment: u64, slot: u64| {
+            Json::object(vec![
+                ("chromosome", Json::str(chromosome)),
+                ("segment", Json::int(segment)),
+                ("slot", Json::int(slot)),
+            ])
+        };
+        let mut loci = [
+            locus("mt", 0, 0),
+            locus("y", 0, 1),
+            locus("x", 0, 2),
+            locus("autosome", 7, 3),
+            locus("autosome", 0, 4),
+        ];
+        loci.sort_by_key(position);
+        let order: Vec<u64> = loci
+            .iter()
+            .filter_map(|l| l.get("slot").and_then(Json::as_u64))
+            .collect();
+        assert_eq!(order, [4, 3, 2, 1, 0]);
+    }
+
+    /// `write` puts both files where the pre-run reads them, as `texts_of` gives them; no
+    /// directory is no directory (review).
+    #[test]
+    fn write_puts_the_two_files_into_the_directory() {
+        let dir = std::env::temp_dir().join(format!("map4-template-{}", std::process::id()));
+        write(&root(), &dir).expect("written");
+        let (calibration, map) = texts_of(&root()).expect("a template");
+        let read = |path: &str| std::fs::read_to_string(dir.join(path)).expect("a file");
+        assert_eq!(read("calibration/genetics.json"), calibration);
+        assert_eq!(read("genetics/genome_map.json"), map);
+        std::fs::remove_dir_all(&dir).expect("removed");
+        assert_eq!(directory(None), None);
+        assert_eq!(directory(Some(String::new())), None);
+        assert_eq!(directory(Some("out".to_owned())), Some("out".to_owned()));
     }
 
     /// ADR-0020 section 1: 128 loci (121 additive, 126 autosomal), 38 traits; the growth
