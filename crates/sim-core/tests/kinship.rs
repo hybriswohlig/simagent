@@ -2,7 +2,8 @@
 //! pedigree built by hand. It is the pedigree of `tools/spec_reference.py` (function
 //! `kinships`) plus an uncle, double first cousins and a child of two first cousins.
 //! The expected values are the table W2.7 or derived by hand in the comments, never
-//! taken from a run.
+//! taken from a run. The depth of a query (Grok's H2, ADR-0020 section 4) has its own
+//! tests at the end of the W2.7 ones and in `tests/kinship_depth.rs`.
 
 use std::collections::BTreeMap;
 
@@ -191,8 +192,8 @@ fn w2_7_symmetric_for_all_pairs() {
     }
 }
 
-/// A cache kept over many queries gives every value bit for bit as a fresh computation,
-/// whatever order filled it.
+/// One memory kept over many queries gives every value bit for bit as a fresh query,
+/// whatever order the queries come in.
 #[test]
 fn w2_7_cache_equals_no_cache() {
     let tree = Tree::family(ascending);
@@ -227,18 +228,90 @@ fn w2_7_cache_equals_no_cache() {
     assert!(fresh.iter().any(|&bits| bits != 0), "all zero");
 }
 
-/// A pair the cache holds, in either order, is answered from the cache alone: the lookup
-/// is never called again.
+/// A pedigree by hand (sim, mother and father; born in the order of the list): founders 1
+/// and 2 have the siblings 3 and 4 (with the founders 5 and 6), whose children 7 and 8 are
+/// first cousins (with the founders 9 and 10), whose children 11 and 12 are second cousins
+/// and have the child 13.
+const SECOND_COUSINS: [(u64, Option<(u64, u64)>); 13] = [
+    (1, None),
+    (2, None),
+    (5, None),
+    (6, None),
+    (9, None),
+    (10, None),
+    (3, Some((1, 2))),
+    (4, Some((1, 2))),
+    (7, Some((3, 5))),
+    (8, Some((4, 6))),
+    (11, Some((7, 9))),
+    (12, Some((10, 8))),
+    (13, Some((11, 12))),
+];
+
+/// `(sim, mother and father)` in birth order as `Kin`, born in the second of its place.
+fn pedigree(people: &[(u64, Option<(u64, u64)>)]) -> BTreeMap<SimId, Kin> {
+    let id = |n: u64| SimId::try_from(n).expect("id");
+    (0_i64..)
+        .zip(people)
+        .map(|(born, &(sim, parents))| {
+            let kin = Kin {
+                born: SimTime::from_secs(born),
+                parents: parents.map(|(mother, father)| (id(mother), id(father))),
+            };
+            (id(sim), kin)
+        })
+        .collect()
+}
+
+/// A pair's value belongs to its query (Grok's H2): the second cousins 11 and 12 are
+/// related by 1/64, but in the query of their child 13 with itself their common ancestors
+/// are great-great-grandparents, so `F` = 0 and `φ` = 1/2. One memory for both queries, in
+/// either order, gives the same.
 #[test]
-fn w2_7_cached_pair_needs_no_lookup() {
-    let tree = Tree::family(ascending);
-    let (child, cousin) = (tree.id("child"), tree.id("cousin"));
-    let mut cache = KinshipCache::new();
-    assert!(cache.phi(child, cousin, tree.lookup()).to_bits() == 0.0625_f64.to_bits());
-    let again = cache.phi(cousin, child, |sim: SimId| -> Kin {
-        panic!("lookup of {sim:?}")
-    });
-    assert!(again.to_bits() == 0.0625_f64.to_bits());
+fn h2_a_value_of_one_query_does_not_carry_into_another() {
+    let kin = pedigree(&SECOND_COUSINS);
+    let lookup = |sim: SimId| kin[&sim];
+    let id = |n: u64| SimId::try_from(n).expect("id");
+    let (cousin, other, child) = (id(11), id(12), id(13));
+    let mut memory = KinshipCache::new();
+    assert!(memory.phi(cousin, other, lookup).to_bits() == (1.0_f64 / 64.0).to_bits());
+    assert!(memory.phi(child, child, lookup).to_bits() == 0.5_f64.to_bits());
+    let mut memory = KinshipCache::new();
+    assert!(memory.phi(child, child, lookup).to_bits() == 0.5_f64.to_bits());
+    assert!(memory.phi(other, cousin, lookup).to_bits() == (1.0_f64 / 64.0).to_bits());
+}
+
+/// The case of `tools/state_reference.py` (synthetic pedigree) where one parent of a person
+/// is in the set of the query and the other is not: founders 1 to 10; 11 is the child of 1
+/// and 2, 12 of 1 and 3 (half siblings), 13 of 4 and 2, 14 of 13 and 5, 15 of 14 and 6, `y`
+/// (16) of 12 and 15, 17 of 11 and 7, 18 of 17 and 8, `x` (19) of 18 and 9. In the query of
+/// `x` and `y`, 11 (a great-grandparent of `x`) has his mother 1 in the set (a grandmother
+/// of `y`) and his father 2 not: `φ` = 1/128 over the path 19, 18, 17, 11, 1, 12, 16 (over
+/// every ancestor 5/512). The query reads only the persons of its set.
+#[test]
+fn h2_one_parent_in_the_set_and_the_other_not() {
+    let mut people: Vec<(u64, Option<(u64, u64)>)> = (1..=10).map(|sim| (sim, None)).collect();
+    people.extend([
+        (11, Some((1, 2))),
+        (12, Some((1, 3))),
+        (13, Some((4, 2))),
+        (14, Some((13, 5))),
+        (15, Some((14, 6))),
+        (16, Some((12, 15))),
+        (17, Some((11, 7))),
+        (18, Some((17, 8))),
+        (19, Some((18, 9))),
+    ]);
+    let kin = pedigree(&people);
+    let set = [1, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+    let lookup = |sim: SimId| {
+        assert!(set.contains(&sim.get()), "read {sim:?} outside the set");
+        kin[&sim]
+    };
+    let id = |n: u64| SimId::try_from(n).expect("id");
+    for (x, y) in [(19, 16), (16, 19)] {
+        assert!(phi(id(x), id(y), lookup).to_bits() == (1.0_f64 / 128.0).to_bits());
+    }
 }
 
 /// The IDs only break ties: with the IDs in the opposite order (children now below their
@@ -260,12 +333,13 @@ fn w2_7_ids_do_not_change_phi() {
 
 /// A line of 20 000 generations: each member is the child of the one before and of a
 /// fresh founder. All founders are born in the first second, so they are older than
-/// every member of the line, and φ of the last parent and child walks the whole line down
-/// to its first founder (an implementation with one stack frame per generation overflows
-/// the stack of a test thread). The partner of the last member is unrelated to the line
-/// and its own parents are unrelated, so `φ = ((1 + 0) / 2 + 0) / 2 = 1/4`.
+/// every member of the line. A query of the last parent and child reads only the persons
+/// up to their great-grandparents (Grok's H2: the line members from four generations back
+/// and the partners from three), never the rest of the line. The partner of the last
+/// member is unrelated to the line and its own parents are unrelated, so
+/// `φ = ((1 + 0) / 2 + 0) / 2 = 1/4`.
 #[test]
-fn w2_7a_deep_line_keeps_the_stack() {
+fn w2_7a_deep_line_reads_only_the_great_grandparents() {
     const GENERATIONS: u64 = 20_000;
     let id = |n: u64| SimId::try_from(n).expect("id");
     // The line: member g has ID 2g + 1 and is born in second g; founder partner g has ID
@@ -296,7 +370,17 @@ fn w2_7a_deep_line_keeps_the_stack() {
             },
         );
     }
-    let lookup = |sim: SimId| kin[&sim];
+    let set: Vec<SimId> = (GENERATIONS - 4..=GENERATIONS)
+        .map(line)
+        .chain((GENERATIONS - 3..=GENERATIONS).map(|g| id(2 * g)))
+        .collect();
+    let lookup = |sim: SimId| {
+        assert!(
+            set.contains(&sim),
+            "read {sim:?} beyond the great-grandparents"
+        );
+        kin[&sim]
+    };
     let parent = line(GENERATIONS - 1);
     let child = line(GENERATIONS);
     assert!(phi(parent, child, lookup).to_bits() == 0.25_f64.to_bits());

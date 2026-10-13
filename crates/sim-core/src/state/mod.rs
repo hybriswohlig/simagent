@@ -197,8 +197,8 @@ pub(crate) struct DomainState {
     /// The open partnership of each sim in one (ADR-0018 section 2). Not part of the
     /// projection: loading builds it again from the partnerships.
     pub(crate) open: BTreeMap<SimId, PartnershipId>,
-    /// The values of φ computed so far (ADR-0018 section 2). Not part of the projection
-    /// and not saved: a cached value is the value computed without it.
+    /// The working memory of the φ queries (ADR-0018 section 2), empty at each query
+    /// (ADR-0020 section 4). Not part of the projection and not saved.
     pub(crate) kinship: KinshipCache,
     /// The living members of each household that has not ended (ADR-0018 section 4). Not
     /// part of the projection: loading builds it again from the sims.
