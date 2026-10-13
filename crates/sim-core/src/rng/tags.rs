@@ -118,6 +118,11 @@ pub const EMIGRATION: PurposeTag = PurposeTag::from_pinned_list(24);
 /// lineage key; occasion: `str_key` of the locus; detail: the copy (0 maternal, 1 paternal).
 pub const PRERUN_ALLELE: PurposeTag = PurposeTag::from_pinned_list(25);
 
+/// An allele of a pool person at one of the seven loci the pre-run left at the reference
+/// allele (ADR-0020 section 4, G1 and G2): subject the person's genome key, occasion
+/// `str_key` of the locus, detail the gamete (0 maternal, 1 paternal); the pool seed.
+pub const POOL_ALLELE: PurposeTag = PurposeTag::from_pinned_list(26);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -145,6 +150,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (FOSTER_RANK, "FOSTER_RANK"),
     (EMIGRATION, "EMIGRATION"),
     (PRERUN_ALLELE, "PRERUN_ALLELE"),
+    (POOL_ALLELE, "POOL_ALLELE"),
 ];
 
 /// Values of deleted tags; they are never used again.

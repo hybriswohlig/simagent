@@ -235,7 +235,7 @@ impl Genome {
         }))
     }
 
-    fn set_copies(&mut self, locus: &Locus, copies: &[u8]) {
+    pub(crate) fn set_copies(&mut self, locus: &Locus, copies: &[u8]) {
         let (segment, slot) = (locus.segment, locus.slot);
         match (locus.chromosome, &mut self.paternal_sex, copies) {
             (Chromosome::Autosome, _, [maternal, paternal]) => {

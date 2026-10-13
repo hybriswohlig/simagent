@@ -36,6 +36,7 @@ pub mod mortality;
 pub mod params;
 pub mod pedigree;
 pub mod phenotype;
+pub mod pool;
 pub mod rng;
 mod state;
 pub mod time;

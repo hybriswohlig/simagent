@@ -87,6 +87,11 @@ impl World {
         self.sched.closed_through()
     }
 
+    /// The second a pending event is due; `None` if it is not pending.
+    pub(crate) fn pending_time(&self, handle: crate::time::EventHandle) -> Option<SimTime> {
+        self.sched.pending_handle_time(handle)
+    }
+
     /// The only way in from outside (ADR-0004 section 4). A rejected input changes
     /// nothing and takes no position in the input log.
     pub fn submit(&mut self, input: Input) -> Result<InputStamp, InputRejected> {
