@@ -214,7 +214,8 @@ const RUNS: [Run; 6] = [
         counts: (20, 37, 51),
         carriers: [4, 0, 0, 0, 0, 3, 35],
     },
-    // Deep enough for ancestors beyond the great-grandparents (the depth of the records).
+    // The longest run; its records are still the whole known ancestry, the depth of the
+    // records does not decide here (the core's `the_records_reach_depth_three_and_two`).
     Run {
         name: "pool_f",
         founders: 60,
@@ -377,6 +378,37 @@ fn a_locus_named_twice_is_rejected() {
     }
     let error = take_frequencies(&calibration, &map).expect_err("rejected");
     assert!(error.starts_with("pool.frequencies_loci"), "{error}");
+}
+
+/// The fields of a JSON object, in their order.
+type Fields = Vec<(String, Json)>;
+
+/// A locus's value has exactly its fields, each once: one more field, or `value` twice, is
+/// rejected (mutants).
+#[test]
+fn a_locus_value_with_other_fields_is_rejected() {
+    let (calibration, map, _) = documents();
+    let with = |change: &dyn Fn(&mut Fields)| {
+        let mut calibration = calibration.clone();
+        if let Some(Json::Object(loci)) = calibration.get_mut("pool_frequencies")
+            && let Some((_, Json::Object(fields))) =
+                loci.iter_mut().find(|(id, _)| id == "core:mc1r")
+        {
+            change(fields);
+        }
+        take_frequencies(&calibration, &map).expect_err("rejected")
+    };
+    let extra = with(&|fields| fields.push(("x".to_owned(), Json::float(1.0))));
+    assert!(extra.starts_with("pool.frequencies_loci"), "{extra}");
+    let twice = with(&|fields| {
+        let value = fields
+            .iter()
+            .find(|(name, _)| name == "value")
+            .expect("the value")
+            .clone();
+        fields.push(value);
+    });
+    assert!(twice.starts_with("pool.frequencies_loci"), "{twice}");
 }
 
 /// The core checks the frequencies itself: a `q` of 0 or 1 is an extraction error, not a

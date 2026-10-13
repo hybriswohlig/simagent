@@ -185,8 +185,8 @@ fn a_pool_member_or_record_twice_is_out_of_order() {
     assert_eq!(twice_record.err(), Some(PoolError::AncestorsOutOfOrder));
 }
 
-/// One unknown parent is enough: a member's or a record's father alone that is no record
-/// (mutants).
+/// One unknown parent is enough: a member's, a record's or an unborn child's father alone
+/// that is no record (mutants).
 #[test]
 fn one_pool_parent_that_is_no_record_is_rejected() {
     let member = changed(|pool| {
@@ -210,4 +210,15 @@ fn one_pool_parent_that_is_no_record_is_rejected() {
         record.father = Some(unknown);
     });
     assert_eq!(record.err(), Some(PoolError::ParentNotARecord));
+    let unborn = changed(|pool| {
+        let unknown = not_a_record(pool);
+        let pregnancy = pool
+            .households
+            .iter_mut()
+            .flat_map(|h| h.pregnancies.iter_mut())
+            .next()
+            .expect("a pregnancy");
+        pregnancy.father = unknown;
+    });
+    assert_eq!(unborn.err(), Some(PoolError::ParentNotARecord));
 }

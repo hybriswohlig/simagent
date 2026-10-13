@@ -772,3 +772,118 @@ fn ancestors(
     list.sort_by_key(|record| record.lineage_key);
     list
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::HouseholdId;
+
+    fn id(n: u64) -> SimId {
+        SimId::try_from(n).expect("valid")
+    }
+
+    fn key(n: u64) -> LineageKey {
+        LineageKey::founder(&DataId::new("test:records").expect("id"), n)
+    }
+
+    /// Sim `n`, born in second `-n` (parents before their children), with these parents.
+    fn sim(n: u64, parents: Option<(u64, u64)>) -> state::Sim {
+        state::Sim {
+            born: SimTime::from_secs(-i64::try_from(n).expect("small")),
+            lineage_key: key(n),
+            sex: Sex::Female,
+            genome: Genome::reference(Sex::Female),
+            afflictions: Vec::new(),
+            conceptions: 0,
+            births: 0,
+            partnerships: 0,
+            household: HouseholdId::try_from(1).expect("valid"),
+            moved_out: false,
+            carer: None,
+            parents: parents.map(|(mother, father)| state::Parents {
+                mother: id(mother),
+                father: id(father),
+                conception: 1,
+            }),
+            social_parents: Vec::new(),
+        }
+    }
+
+    fn pregnancy(father: u64) -> state::Pregnancy {
+        state::Pregnancy {
+            father: id(father),
+            conception: 1,
+            children: Vec::new(),
+            conceived: SimTime::from_secs(0),
+        }
+    }
+
+    /// Section 6 of the design note: a pool person's ancestors count up to depth 3, the
+    /// father of her unborn child and his up to depth 2, and nobody of a pregnancy whose
+    /// mother is not in the pool (mutants).
+    ///
+    /// Sim 1 is the pool person: parents 2 and 3; 2's are 4 and 5, 4's are 6 and 7, 6's
+    /// are 8 and 9 (depth 4), 8's are 10 and 11 (depth 5); on her father's side 3's are 22
+    /// and 23, 22's are 24 and 25, 24's are 26 and 27 (depth 4). She is pregnant by 12:
+    /// his parents 13 and 14, 13's are 15 and 16, 15's are 17 and 18 (depth 3 above him).
+    /// Sim 20, not in the pool, is pregnant by 21.
+    #[test]
+    fn the_records_reach_depth_three_and_two() {
+        let mut domain = DomainState::new();
+        let parents = [
+            (1, Some((2, 3))),
+            (2, Some((4, 5))),
+            (3, Some((22, 23))),
+            (4, Some((6, 7))),
+            (5, None),
+            (6, Some((8, 9))),
+            (7, None),
+            (8, Some((10, 11))),
+            (9, None),
+            (10, None),
+            (11, None),
+            (12, Some((13, 14))),
+            (13, Some((15, 16))),
+            (14, None),
+            (15, Some((17, 18))),
+            (16, None),
+            (17, None),
+            (18, None),
+            (20, None),
+            (21, None),
+            (22, Some((24, 25))),
+            (23, None),
+            (24, Some((26, 27))),
+            (25, None),
+            (26, None),
+            (27, None),
+        ];
+        for (n, of) in parents {
+            domain.sims.insert(id(n), sim(n, of));
+        }
+        domain.pregnancies.insert(id(1), pregnancy(12));
+        domain.pregnancies.insert(id(20), pregnancy(21));
+        let households = [PoolHousehold {
+            members: Vec::new(),
+            partnership: None,
+            pregnancies: vec![PoolPregnancy {
+                mother: key(1),
+                father: key(12),
+                conception: 1,
+                conceived: SimTime::from_secs(0),
+                children: Vec::new(),
+            }],
+        }];
+        let key_of = |sim: SimId| domain.sims[&sim].lineage_key;
+        let records: BTreeSet<LineageKey> = ancestors(&domain, &households, &[id(1)], &key_of)
+            .iter()
+            .map(|record| record.lineage_key)
+            .collect();
+        let expected: BTreeSet<LineageKey> =
+            [1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 16, 22, 23, 24, 25]
+                .into_iter()
+                .map(key)
+                .collect();
+        assert_eq!(records, expected);
+    }
+}
