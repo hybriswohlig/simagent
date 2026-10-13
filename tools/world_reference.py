@@ -79,6 +79,13 @@ What the model knows:
   the fixed age, or `x = normal(mean, sd)` at the key (DISEASE_ONSET = 14, lineage key,
   `str_key` of the code, 0) held by `min(max(x, low), high)`. `check_afflictions` is the
   load check: every sim holds exactly these afflictions with these onsets.
+- The measurement (step 11, design note of the measurement; ADR-0020 section 3):
+  `additive_value` is `A_t`, the fold `genetic_value` divides by `sigma_ref` (the same bits
+  as before); `measure_of` / `World.measure` take the living in ascending lineage key and
+  give per trait of the map (map order) the mean and sigma of `A` (both sums from +0.0, the
+  divisor `n`, `σ` the correctly rounded root) and per additive locus (map order) the mean
+  dose (integer sum, one division); none without a living sim. `measurement_json` is the
+  line of `simagent measure`. A read-only view: no draw, event, entry or state.
 - A lethal affliction (effect `death` or `death_in_two_steps`) keeps an exposure: `used`,
   the hazard used up in the closed periods of the switch (0.0 at the creation), and
   `since`, when the current period began: the origin (the start for a founder, the
@@ -593,20 +600,19 @@ class FertilityForm:
             self.start, self.until = number(fields["from"]), number(fields["until"])
 
 
-class PhenotypeTrait:
-    """A trait of the map read as a phenotype (genetics specification 4.1, 4.2; ADR-0008
-    sections 1 and 3, ADR-0009): its data ID and `str_key` (the occasion of its environment
-    draws), `sigma_ref`, the groups of its genetic value (first the loci that load on it,
-    then per included trait in the order of `includes` the loci that load on that one; each
-    group in map order, each locus with its coefficient `λ · β`, or `(w · λ) · β` in an
-    included group, and `d_ref`), and its phenotype weights `(h²_child, c²_child,
-    h²_adult, c²_adult)` (the calibration's row)."""
+class TraitTerms:
+    """A trait of the map as its genetic value reads it (genetics specification 4.1; ADR-0008
+    sections 1 and 3): its data ID, `sigma_ref` and the groups of the fold `A` (first the
+    loci that load on it, then per included trait in the order of `includes` the loci that
+    load on that one; each group in map order, each locus with its coefficient `λ · β`, or
+    `(w · λ) · β` in an included group, and `d_ref`). Every trait of the map has these,
+    with a phenotype row or without (the measurement, design note of the measurement,
+    section 1, reads every trait)."""
 
-    def __init__(self, trait_id: str, genome_map: dict, row: dict):
+    def __init__(self, trait_id: str, genome_map: dict):
         traits = {entry["id"]: entry for entry in genome_map["traits"]}
         entry = traits[trait_id]
         self.id = trait_id
-        self.key = str_key(trait_id)
         self.sigma_ref = float(entry["sigma_ref"])
         assert self.sigma_ref > 0.0
 
@@ -629,6 +635,17 @@ class PhenotypeTrait:
         self.groups = [group(trait_id, None)] + [
             group(include["trait"], float(include["weight"])) for include in entry["includes"]
         ]
+
+
+class PhenotypeTrait(TraitTerms):
+    """A trait of the map read as a phenotype (genetics specification 4.1, 4.2; ADR-0008
+    sections 1 and 3, ADR-0009): its terms (`TraitTerms`), its `str_key` (the occasion of
+    its environment draws) and its phenotype weights `(h²_child, c²_child, h²_adult,
+    c²_adult)` (the calibration's row)."""
+
+    def __init__(self, trait_id: str, genome_map: dict, row: dict):
+        super().__init__(trait_id, genome_map)
+        self.key = str_key(trait_id)
         self.weights = tuple(number(row[name]) for name in data_reference.WEIGHTS)
 
 
@@ -638,14 +655,77 @@ def dose(person: dict, locus: dict) -> float:
     return float(sum(copies_at(person, locus)))
 
 
-def genetic_value(person: dict, trait: PhenotypeTrait) -> float:
-    """`G_t = A_t / σ_t,ref` (ADR-0008 section 3): `A_t` folded from 0.0, group by group,
-    each locus in map order adding `coefficient · (d − d_ref)`."""
+def additive_value(person: dict, trait: TraitTerms) -> float:
+    """`A_t` (ADR-0008 section 3; design note of the measurement, section 2: the sum
+    `genetic_value` divides): folded from +0.0, group by group, each locus in map order
+    adding `coefficient · (d − d_ref)`."""
     acc = 0.0
     for loci in trait.groups:
         for locus, coefficient, d_ref in loci:
             acc = acc + coefficient * (dose(person, locus) - d_ref)
-    return acc / trait.sigma_ref
+    return acc
+
+
+def genetic_value(person: dict, trait: TraitTerms) -> float:
+    """`G_t = A_t / σ_t,ref` (ADR-0008 section 3): `additive_value` divided once by
+    `sigma_ref`."""
+    return additive_value(person, trait) / trait.sigma_ref
+
+
+def measure_of(persons: list, data) -> dict:
+    """The measurement of the genic spread and the doses (design note of the measurement,
+    section 1; ADR-0020 section 3) over `persons`, a list of (lineage key, genome) of the
+    living in any order, or None for no person. The persons are taken in ascending lineage
+    key (keys are distinct). `n` the number of persons, as f64 exactly. Per trait of the
+    map (map order, `data.traits`): `A_i = additive_value`, `m = (Σ A_i) / n` and `v = (Σ
+    (A_i − m)²) / n` (the square one product `x · x`), both sums folded from +0.0 in that
+    order, `σ = sqrt(v)` (correctly rounded, as `sim_math::sqrt`). Per locus of
+    `data.measured_loci` (decision 1 of the notes: the loci whose action is `additive`, in
+    map order): `(Σ d_i) / n` with the doses summed as integers and one division in f64.
+    Returns {"living": n, "traits": [(trait, mean, sigma)], "loci": [(locus, mean_dose)]}."""
+    ordered = sorted(persons, key=lambda person: person[0])
+    n = len(ordered)
+    if n == 0:
+        return None
+    assert len({key for key, _ in ordered}) == n, "lineage keys are distinct"
+    assert n <= 2**53
+    count = float(n)
+    traits = []
+    for trait in data.traits:
+        values = [additive_value(genome, trait) for _, genome in ordered]
+        total = 0.0
+        for value in values:
+            total = total + value
+        mean = total / count
+        squares = 0.0
+        for value in values:
+            deviation = value - mean
+            squares = squares + deviation * deviation
+        traits.append((trait.id, mean, math.sqrt(squares / count)))
+    loci = []
+    for locus in data.measured_loci:
+        doses = sum(sum(copies_at(genome, locus)) for _, genome in ordered)
+        loci.append((locus["id"], float(doses) / count))
+    return {"living": n, "traits": traits, "loci": loci}
+
+
+def measurement_json(clock: int, measurement: dict) -> str:
+    """The line `simagent measure <run dir>` prints (design note of the measurement, section
+    2), without its newline: compact JSON, keys in the note's order, floats by
+    `json_number` (serde_json's shortest round trip), `clock` the last closed second."""
+    return json_text(
+        {
+            "format_version": MEASURE_FORMAT_VERSION,
+            "clock": clock,
+            "living": measurement["living"],
+            "traits": [{"trait": trait, "mean": mean, "sigma": sigma} for trait, mean, sigma in measurement["traits"]],
+            "loci": [{"locus": locus, "mean_dose": mean_dose} for locus, mean_dose in measurement["loci"]],
+        }
+    )
+
+
+# The format of the measurement's JSON line (design note of the measurement, section 2).
+MEASURE_FORMAT_VERSION = 1
 
 
 def held_weight(value: float) -> float:
@@ -770,6 +850,18 @@ class Data:
     def __init__(self, demography: dict, calibration: dict, genome_map: dict):
         self.hash = data_reference.documents_hash(demography, calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
+        # What the measurement reads (design note of the measurement, section 1): every trait
+        # of the map in map order as its terms, and the loci of the mean doses, those whose
+        # action is `additive`, in map order (decision 1 of the notes of the measurement: a
+        # threshold locus is not an additive locus; `threshold_loci` holds those apart).
+        stripped_map = data_reference.strip(genome_map)
+        self.traits = [TraitTerms(entry["id"], stripped_map) for entry in stripped_map["traits"]]
+        self.measured_loci = [
+            locus for locus in stripped_map["loci"] if isinstance(locus["action"], dict) and "additive" in locus["action"]
+        ]
+        self.threshold_loci = [
+            locus for locus in stripped_map["loci"] if isinstance(locus["action"], dict) and "threshold" in locus["action"]
+        ]
         life = data_reference.strip(demography)
         self.adult_rate = number(life["values"]["core:fertility_adult_rate"])
         self.pause_months = whole_months(life["values"]["core:fertility_pause"])
@@ -2322,6 +2414,18 @@ class World:
     def sex_of(self, sim: int) -> bytes:
         return self.sims[sim][2] if sim in self.sims else self.archive[sim][4]
 
+    def measure(self):
+        """`WorldState::measure` (design note of the measurement, section 1): `measure_of`
+        over the living (the active population, `self.sims`) at the clock, None without
+        one. A read-only view: no draw, no event, no entry, no state."""
+        return measure_of([(value[1], value[3]) for value in self.sims.values()], self.data)
+
+    def measure_json(self):
+        """The line of `simagent measure` for this world (its clock the last closed second),
+        or None (the CLI's error `no_living`)."""
+        measurement = self.measure()
+        return None if measurement is None else measurement_json(self.closed, measurement)
+
     def _market_round(self, now: int, plan: bytes) -> None:
         """A round at `now` (design note of the market, section 3), `n = now / MONTH`: the
         single men in the market age, held for the round; the single women in it who
@@ -3807,3 +3911,47 @@ if __name__ == "__main__":
             f"emigration_rate K {k} P=K nothing "
             + " ".join(f"P={name} {p_} e {e!r} bits {struct_bits(e)}" for name, p_, e in values[1:])
         )
+    # The measurement of the genic spread and the doses (step 11, design note of the
+    # measurement): on the fixture tests/golden/data_traits (`test:face` includes
+    # `test:growth` with 0.25; `test:g2` a threshold locus), `A` of hand-made genomes against
+    # the map's formulas typed by hand (exact fractions), `G` = `A / sigma_ref`, and the
+    # measurement of three hand-made persons whose sums of `test:face` give other bits in the
+    # other order: the persons with lineage keys 1, 2, 3 against the same genomes with the
+    # keys 3, 2, 1 (so the fold runs the other way).
+    traits_data = Data(*data_reference.documents(ROOT / "tests" / "golden" / "data_traits"))
+
+    def traits_genome(doses: tuple) -> dict:
+        genes = [(locus, [1, 1] if dose == 2 else [1, 0]) for locus, dose in zip(("test:g1", "test:f1", "test:g2", "test:p1"), doses) if dose]
+        return founder_genome(FEMALE, genes, traits_data.loci)
+
+    def traits_hand(doses: tuple) -> list:
+        g1, f1, g2, _p1 = (Fraction(dose) for dose in doses)
+        growth = Fraction(1, 2) * (g1 - Fraction(5, 4)) + Fraction(1, 4) * (g2 - Fraction(1, 2))
+        face = Fraction(3, 4) * (f1 - 1) + Fraction(1, 4) * growth
+        return [face, growth, Fraction(-1, 4) * (g1 - Fraction(5, 4)), Fraction(doses[3])]
+
+    print(f"measure_format_version {MEASURE_FORMAT_VERSION} traits {[trait.id for trait in traits_data.traits]} measured_loci {[locus['id'] for locus in traits_data.measured_loci]} threshold_loci {[locus['id'] for locus in traits_data.threshold_loci]}")
+    for doses in [(0, 0, 0, 0), (2, 2, 2, 2), (1, 0, 2, 1), (0, 1, 1, 0), (2, 1, 0, 0)]:
+        person = traits_genome(doses)
+        values = [additive_value(person, trait) for trait in traits_data.traits]
+        assert [Fraction(value) for value in values] == traits_hand(doses), doses
+        assert all(genetic_value(person, trait) == value / trait.sigma_ref for trait, value in zip(traits_data.traits, values))
+        print(
+            f"measure_additive_value data_traits doses (g1, f1, g2, p1) {doses} A "
+            + " ".join(f"{trait.id} {value!r} bits {struct_bits(value)} G bits {struct_bits(genetic_value(person, trait))}" for trait, value in zip(traits_data.traits, values))
+        )
+    unit_doses = [(0, 0, 0, 0), (0, 0, 0, 1), (0, 1, 1, 0)]
+    unit_genomes = [traits_genome(doses) for doses in unit_doses]
+    forward = measure_of(list(zip((1, 2, 3), unit_genomes)), traits_data)
+    backward = measure_of(list(zip((3, 2, 1), unit_genomes)), traits_data)
+    assert forward["traits"][0][2] != backward["traits"][0][2] and forward["traits"][0][1] == backward["traits"][0][1]
+    assert forward["loci"] == backward["loci"] and forward["traits"][1:] == backward["traits"][1:]
+    assert measure_of([], traits_data) is None
+    for name, measurement in (("keys_1_2_3", forward), ("keys_3_2_1", backward)):
+        print(
+            f"measure_unit {name} doses (g1, f1, g2, p1) in key order {unit_doses if name == 'keys_1_2_3' else unit_doses[::-1]} living {measurement['living']} "
+            + " ".join(f"{trait} mean {mean!r} bits {struct_bits(mean)} sigma {sigma!r} bits {struct_bits(sigma)}" for trait, mean, sigma in measurement["traits"])
+            + " loci " + " ".join(f"{locus} {mean_dose!r} bits {struct_bits(mean_dose)}" for locus, mean_dose in measurement["loci"])
+        )
+        print(f"measure_unit_json {name} clock 0 {measurement_json(0, measurement)}")
+    print("measure_unit_empty no person: none")

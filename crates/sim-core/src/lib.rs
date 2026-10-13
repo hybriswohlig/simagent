@@ -31,6 +31,7 @@ pub mod kinship;
 pub mod learning;
 pub mod lineage;
 pub mod log;
+pub mod measure;
 pub mod mortality;
 pub mod params;
 pub mod pedigree;

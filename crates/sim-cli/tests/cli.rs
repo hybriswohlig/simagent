@@ -494,6 +494,30 @@ fn kinship_prints_the_coefficient() {
     }
 }
 
+/// `simagent measure` (ADR-0020 section 3) prints the measurement of the living of a run as
+/// one line of JSON: the dummy run at its end, whose map has no traits and no additive
+/// loci (tools/golden_reference.py, `measure_json_run`); and the error `no_living` once
+/// nobody lives: a single founder of 100, after 60 years.
+#[test]
+fn measure_prints_the_measurement() {
+    let dir = scratch("measure");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let run = dir.join("dummy");
+    must(&["run", "--scenario", arg(&scenario), "--out", arg(&run)]);
+    let outcome = simagent(&["measure", arg(&run)]);
+    assert!(outcome.ok, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stdout,
+        "{\"format_version\":1,\"clock\":943487999,\"living\":6,\"traits\":[],\"loci\":[]}\n"
+    );
+    let alone = r#"{"format_version":4,"start":{"world_seed":"0000000000000002","founder_tag":"test:alone","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-3144960000,"sex":"female","alleles":[]}],"couples":[],"capacity":null},"until":1886975999}"#;
+    let gone = run_scenario(&dir, alone, "alone");
+    assert!(
+        error_of(&["measure", arg(&gone)]).starts_with("error: no_living: "),
+        "nobody lives"
+    );
+}
+
 /// The pedigree (HANDOFF §9 steps 5 and 10): `simagent export` writes every person of a
 /// run with its biological and social parents, its birth and death, household, carer and
 /// hereditary diseases, every partnership with its end and kinship, and every household

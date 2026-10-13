@@ -998,3 +998,11 @@ if __name__ == "__main__":
         print(f"emigration_no_capacity {name} log_hash {world.log_hash():016x} entries {len(world.log)} year_hashes {[format(value, '016x') for value in world.year_hashes]}")
     for k, row in capacity_scan():
         print(f"emigration_capacity_scan K {k} {row}")
+    # The measurement (step 11, design note of the measurement): the line `simagent measure
+    # <run dir>` prints for the golden run and its fork after thirty years (clock 943487999).
+    # The repository's map has no trait and no additive locus, so both lists are empty; only
+    # the living are counted.
+    for name, world in (("run", PARENT), ("fork", FORK)):
+        measurement = world.measure()
+        assert measurement is not None and measurement["traits"] == [] and measurement["loci"] == [] and measurement["living"] == len(world.sims)
+        print(f"measure_json_{name} clock {world.closed} living {measurement['living']} {world.measure_json()}")
