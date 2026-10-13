@@ -103,7 +103,16 @@ fn phenotype_follows_the_specification() {
     let (mother, father, own) = (founder(1), founder(2), founder(3));
     let parents = Some(Parents { mother, father });
     let value = |t: &str, age: SimDuration| {
-        phenotype(&draws, &data, &genome, own, parents, &id(t), age).expect("a phenotype")
+        phenotype(
+            sim_core::phenotype::Environment::one(&draws),
+            &data,
+            &genome,
+            own,
+            parents,
+            &id(t),
+            age,
+        )
+        .expect("a phenotype")
     };
     let g = |t: &str| genome.genetic_value(&id(t), &data).expect("a trait");
     // At 12 years s is exactly 1/2; as a child and as an adult the weights move.
@@ -148,12 +157,22 @@ fn phenotype_follows_the_specification() {
     );
     assert_eq!(value("test:mood", half).to_bits(), mood.to_bits());
     // A trait without a row has a genetic value but no phenotype; an unknown one neither.
-    let none = |t: &str| phenotype(&draws, &data, &genome, own, parents, &id(t), YEAR);
+    let none = |t: &str| {
+        phenotype(
+            sim_core::phenotype::Environment::one(&draws),
+            &data,
+            &genome,
+            own,
+            parents,
+            &id(t),
+            YEAR,
+        )
+    };
     assert_eq!(none("test:growth"), None);
     assert_eq!(none("test:other"), None);
     // Without parents in the run the person is its own mother and father.
     let alone = phenotype(
-        &draws,
+        sim_core::phenotype::Environment::one(&draws),
         &data,
         &genome,
         own,
@@ -261,7 +280,16 @@ fn the_weights_move_with_the_age_and_are_held() {
     let genome = Genome::with_alleles(Sex::Female, &alleles, &data).expect("fits");
     let own = founder(7);
     let at = |t: &str, age: SimDuration| {
-        phenotype(&draws, &data, &genome, own, None, &id(t), age).expect("a phenotype")
+        phenotype(
+            sim_core::phenotype::Environment::one(&draws),
+            &data,
+            &genome,
+            own,
+            None,
+            &id(t),
+            age,
+        )
+        .expect("a phenotype")
     };
     let (g, shared, own_env) = (
         genome

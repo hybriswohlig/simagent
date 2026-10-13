@@ -112,7 +112,7 @@ fn compared(
     data.pairing_traits().map(|named| {
         named.map(|t| {
             crate::phenotype::phenotype(
-                draws,
+                crate::phenotype::Environment::one(draws),
                 data,
                 person.genome,
                 person.lineage_key,

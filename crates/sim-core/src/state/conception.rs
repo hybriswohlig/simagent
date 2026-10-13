@@ -77,7 +77,7 @@ fn theta_i(data: &Data, seed: u64, person: &Person<'_>, t: SimTime) -> f64 {
         .and_then(|t_p| {
             let age = t.checked_since(person.born)?;
             phenotype::phenotype(
-                &Draws::new(WorldSeed::new(seed)),
+                phenotype::Environment::one(&Draws::new(WorldSeed::new(seed))),
                 data,
                 person.genome,
                 person.lineage_key,

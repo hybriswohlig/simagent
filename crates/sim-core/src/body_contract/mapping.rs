@@ -11,8 +11,7 @@ use crate::genome::{Genome, Sex};
 use crate::growth::{IndividualCurve, height_loss, nutrition_loss};
 use crate::lineage::LineageKey;
 use crate::params::NutritionYear;
-use crate::phenotype::{Parents, phenotype};
-use crate::rng::Draws;
+use crate::phenotype::{Environment, Parents, phenotype};
 use crate::time::{SimDuration, SimTime, YEAR};
 
 /// The traits the mapping reads (ADR-0015 section 2, map 4 per ADR-0020 section 1): the
@@ -258,7 +257,7 @@ impl<'a> BodyInputs<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn of_person(
         body: &BodyData<'_>,
-        draws: &Draws,
+        environment: Environment<'_>,
         genome: &Genome,
         own: LineageKey,
         parents: Option<Parents>,
@@ -269,8 +268,16 @@ impl<'a> BodyInputs<'a> {
     ) -> BodyInputs<'a> {
         let data = body.data();
         let values = body_traits().map(|t| {
-            phenotype(draws, data, genome, own, parents, &t, SimDuration::ZERO)
-                .unwrap_or_else(|| panic!("invariant body.phenotype"))
+            phenotype(
+                environment,
+                data,
+                genome,
+                own,
+                parents,
+                &t,
+                SimDuration::ZERO,
+            )
+            .unwrap_or_else(|| panic!("invariant body.phenotype"))
         });
         let dose = |name: DataId| {
             let locus = data

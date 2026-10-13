@@ -513,7 +513,7 @@ fn the_liability_decides_who_has_the_disease() {
                 .map(|(mother, father)| Parents { mother, father });
             let own = person.lineage_key;
             let l = phenotype(
-                &draws,
+                sim_core::phenotype::Environment::one(&draws),
                 &data,
                 &genome,
                 own,

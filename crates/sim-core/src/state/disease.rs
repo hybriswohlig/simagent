@@ -88,7 +88,7 @@ pub(crate) fn afflictions(
                     .threshold(&disease.code)
                     .unwrap_or_else(|| panic!("invariant disease.threshold"));
                 let liability = phenotype(
-                    &draws,
+                    crate::phenotype::Environment::one(&draws),
                     data,
                     genome,
                     lineage_key,
