@@ -73,7 +73,7 @@ fn every_pool_file_reads_and_writes_back() {
 }
 
 #[test]
-fn each_rejected_file_breaks_its_rule() {
+fn each_rejected_pool_file_breaks_its_rule() {
     for (bytes, rule) in REJECTED {
         assert_eq!(Pool::from_bytes(bytes).err(), Some(rule), "{}", rule.code());
     }
@@ -81,7 +81,7 @@ fn each_rejected_file_breaks_its_rule() {
 
 /// A file cut short does not decode.
 #[test]
-fn a_file_cut_short_does_not_decode() {
+fn a_pool_file_cut_short_does_not_decode() {
     let (_, bytes) = FILES[1];
     let short = &bytes[..bytes.len() - 1];
     assert_eq!(Pool::from_bytes(short).err(), Some(PoolError::Decode));
@@ -106,7 +106,7 @@ fn overlong_at(at: usize) -> Vec<u8> {
 /// the same values but is not what the core writes: rejected, so that an accepted file's
 /// hash is the hash of its pool (review).
 #[test]
-fn a_noncanonical_file_is_rejected() {
+fn a_noncanonical_pool_file_is_rejected() {
     let magic = sim_core::pool::MAGIC.len();
     for at in [magic, magic + 1] {
         assert_eq!(
