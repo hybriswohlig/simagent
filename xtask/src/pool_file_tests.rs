@@ -137,6 +137,10 @@ struct Run {
     frozen_data_hash: u64,
     pool_hash: u64,
     file: &'static [u8],
+    /// The reference's counts (`<run>_story`): households, persons with the unborn,
+    /// records; and its carriers per locus in the order of `POOL_LOCI` (`<run>_report`).
+    counts: (u64, u64, u64),
+    carriers: [u64; 7],
 }
 
 #[derive(Clone, Copy)]
@@ -149,7 +153,7 @@ enum Scenario {
     FrequentAlleles,
 }
 
-const RUNS: [Run; 5] = [
+const RUNS: [Run; 6] = [
     Run {
         name: "pool_a",
         founders: 60,
@@ -159,6 +163,8 @@ const RUNS: [Run; 5] = [
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
         pool_hash: 0x6488_c5c7_c9a7_40ef,
         file: include_bytes!("../../tests/golden/pool/pool_a.bin"),
+        counts: (26, 43, 52),
+        carriers: [0, 0, 0, 0, 0, 1, 38],
     },
     Run {
         name: "pool_b",
@@ -169,6 +175,8 @@ const RUNS: [Run; 5] = [
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
         pool_hash: 0x28af_470e_4c30_38f4,
         file: include_bytes!("../../tests/golden/pool/pool_b.bin"),
+        counts: (29, 34, 33),
+        carriers: [2, 0, 0, 0, 0, 6, 30],
     },
     Run {
         name: "pool_c",
@@ -179,6 +187,8 @@ const RUNS: [Run; 5] = [
         frozen_data_hash: 0xe2f2_44a7_e4cd_db5f,
         pool_hash: 0xe4a7_3ea3_34e7_4b6c,
         file: include_bytes!("../../tests/golden/pool/pool_c.bin"),
+        counts: (43, 82, 77),
+        carriers: [7, 0, 0, 0, 0, 28, 76],
     },
     Run {
         name: "pool_d",
@@ -189,6 +199,8 @@ const RUNS: [Run; 5] = [
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
         pool_hash: 0x979f_8665_a74a_4b1e,
         file: include_bytes!("../../tests/golden/pool/pool_d.bin"),
+        counts: (26, 43, 52),
+        carriers: [34, 26, 26, 33, 7, 38, 34],
     },
     Run {
         name: "pool_e",
@@ -199,6 +211,21 @@ const RUNS: [Run; 5] = [
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
         pool_hash: 0x4556_05ea_f7c2_5849,
         file: include_bytes!("../../tests/golden/pool/pool_e.bin"),
+        counts: (20, 37, 51),
+        carriers: [4, 0, 0, 0, 0, 3, 35],
+    },
+    // Deep enough for ancestors beyond the great-grandparents (the depth of the records).
+    Run {
+        name: "pool_f",
+        founders: 60,
+        years: 130,
+        scenario: Scenario::Natural,
+        run_data_hash: 0xb17a_fdcd_2961_75ac,
+        frozen_data_hash: 0x5ae3_d70c_71cf_063a,
+        pool_hash: 0xd744_ccd9_cad9_5370,
+        file: include_bytes!("../../tests/golden/pool/pool_f.bin"),
+        counts: (17, 31, 70),
+        carriers: [0, 0, 0, 0, 0, 7, 29],
     },
 ];
 
@@ -290,7 +317,7 @@ fn the_pool_files_are_the_references() {
         let (rest, _) = take_frequencies(&calibration, &map).expect("accepted");
         let frozen = data_of(&demography, &rest, &map).expect("data");
         assert_eq!(frozen.hash(), run.frozen_data_hash, "{}", run.name);
-        let (pool, _, keys) = pool_of(
+        let (pool, report, keys) = pool_of(
             &demography,
             &calibration,
             &map,
@@ -315,6 +342,70 @@ fn the_pool_files_are_the_references() {
         let bytes = pool.to_bytes();
         assert!(bytes == run.file, "{}: the file differs", run.name);
         assert_eq!(pool.hash(), run.pool_hash, "{}", run.name);
+        assert_eq!(
+            (
+                report.households,
+                report.persons + report.unborn,
+                report.records
+            ),
+            run.counts,
+            "{}",
+            run.name
+        );
+        let carriers: Vec<(String, u64)> = report
+            .carriers
+            .iter()
+            .map(|(id, n)| (id.as_str().to_owned(), *n))
+            .collect();
+        let mut expected: Vec<(String, u64)> = POOL_LOCI
+            .iter()
+            .zip(run.carriers)
+            .map(|(id, n)| ((*id).to_owned(), n))
+            .collect();
+        expected.sort();
+        assert_eq!(carriers, expected, "{}", run.name);
+    }
+}
+
+/// A locus named twice in the entry is not "exactly the seven loci" (mutants).
+#[test]
+fn a_locus_named_twice_is_rejected() {
+    let (mut calibration, map, _) = documents();
+    if let Some(Json::Object(members)) = calibration.get_mut("pool_frequencies") {
+        let twice = members[0].clone();
+        members.push(twice);
+    }
+    let error = take_frequencies(&calibration, &map).expect_err("rejected");
+    assert!(error.starts_with("pool.frequencies_loci"), "{error}");
+}
+
+/// The core checks the frequencies itself: a `q` of 0 or 1 is an extraction error, not a
+/// pool (mutants). A pool run of 10 founders over one year is enough.
+#[test]
+fn the_core_rejects_a_frequency_outside_the_open_interval() {
+    let (calibration, map, demography) = documents();
+    let (rest, frequencies) = take_frequencies(&calibration, &map).expect("accepted");
+    let frozen = data_of(&demography, &rest, &map).expect("data");
+    let (run_calibration, run_map) = prerun_files(&rest, &map);
+    let data = data_of(&demography, &run_calibration, &run_map).expect("data");
+    let tag = DataId::new("core:prerun_pool").expect("a tag");
+    let all = founders(&data, &groups(&data, 10), &tag, POOL_SEED);
+    let (world, _) = run_observed(
+        data,
+        start(&tag, POOL_SEED, all, 10),
+        SimTime::from_secs(YEAR.as_secs()),
+        &mut |_| {},
+    )
+    .expect("a run");
+    let keys = GenomeKeys::new();
+    for q in [0.0, 1.0] {
+        let mut bad = frequencies.clone();
+        bad.insert(DataId::new("core:mc1r").expect("id"), q);
+        let error = extract(&world, &keys, &frozen, &bad, POOL_SEED).expect_err("rejected");
+        assert_eq!(
+            error,
+            sim_core::pool::ExtractError::Frequency(DataId::new("core:mc1r").expect("id"))
+        );
     }
 }
 
