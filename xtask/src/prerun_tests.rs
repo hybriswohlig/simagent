@@ -1317,3 +1317,21 @@ fn the_stop_rule_is_the_references() {
         assert_eq!(reported(&ratios), reported_traits.to_vec(), "{case}");
     }
 }
+
+/// An option needs its value: a missing one, or another option in its place, is an error
+/// before any run starts; an absent option takes the default (review).
+#[test]
+fn an_option_without_its_value_is_an_error() {
+    let args = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+    let given = args("--out trial --founders 40 --years");
+    assert_eq!(
+        option_value(&given, "--founders"),
+        Ok(Some(&"40".to_owned()))
+    );
+    assert!(option_value(&given, "--years").is_err());
+    assert_eq!(option_value(&given, "--map"), Ok(None));
+    assert!(option_value(&args("--out --years 30"), "--out").is_err());
+    assert!(option_value(&args("--out  --years"), "--out").is_err());
+    let root = std::path::Path::new(".");
+    assert!(command(root, &args("measure --out trial --founders 40 --years")).is_err());
+}

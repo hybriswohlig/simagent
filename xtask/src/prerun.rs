@@ -523,11 +523,11 @@ pub struct Options {
     pub map: Option<std::path::PathBuf>,
 }
 
-fn print_measurement(run: usize, measurement: &Measurement, ratios: &[(String, f64)]) {
-    println!("run {run} living {}", measurement.living);
+fn print_measurement(label: &str, measurement: &Measurement, ratios: &[(String, f64)]) {
+    println!("{label} living {}", measurement.living);
     for (spread, (_, r)) in measurement.traits.iter().zip(ratios) {
         println!(
-            "run {run} trait {} mean {:?} sigma {:?} r {:?}",
+            "{label} trait {} mean {:?} sigma {:?} r {:?}",
             spread.trait_id.as_str(),
             spread.mean,
             spread.sigma,
@@ -536,7 +536,7 @@ fn print_measurement(run: usize, measurement: &Measurement, ratios: &[(String, f
     }
     for dose in &measurement.loci {
         println!(
-            "run {run} locus {} mean_dose {:?}",
+            "{label} locus {} mean_dose {:?}",
             dose.locus.as_str(),
             dose.mean_dose
         );
@@ -605,6 +605,39 @@ pub fn ratios_between(before: &Json, after: &Json) -> Vec<(String, f64)> {
         .unwrap_or_default()
 }
 
+/// The founder groups of a run (design note, section 3).
+fn print_groups(label: &str, groups: &[Group]) {
+    for group in groups {
+        println!(
+            "{label} group {:?} age {} weight {:?} count {}",
+            group.sex, group.age, group.weight, group.count
+        );
+    }
+}
+
+/// What every run reports (design note, section 3): the census, the measurement against
+/// the map it ran on, and per generation the births, mothers, fathers, `N_e` and the
+/// additive variance of growth and cognition.
+fn print_run(label: &str, map: &Json, world: &World, out: &YearOut) -> Result<Measurement> {
+    for row in &out.census {
+        println!("{label} year {} living {}", row.year, row.living);
+    }
+    let measurement = world.state().measure().ok_or("nobody lives at the end")?;
+    print_measurement(label, &measurement, &ratios(map, &measurement));
+    for generation in generations(world)? {
+        println!(
+            "{label} generation {} born {} mothers {} fathers {} n_e {:?} var_a {:?}",
+            generation.block,
+            generation.born,
+            generation.mothers,
+            generation.fathers,
+            generation.n_e,
+            generation.variance
+        );
+    }
+    Ok(measurement)
+}
+
 /// One run of the measurement (design note, section 4) on the map in `options.map` (the
 /// template without one): the founders drawn on the template, the run, its measurement
 /// printed; the next map and the calibration go to `options.out`.
@@ -618,15 +651,9 @@ pub fn measure_run(root: &Path, options: &Options, run_number: usize) -> Result 
     let until = SimTime::from_secs(options.years * YEAR.as_secs() - 1);
     let (first_calibration, first_map) = prerun_files(&calibration, &template_map);
     let first = prerun_data(root, &first_calibration, &first_map)?;
+    let label = format!("run {run_number}");
     let groups = groups(&first, options.founders);
-    if run_number == 1 {
-        for group in &groups {
-            println!(
-                "group {:?} age {} weight {:?} count {}",
-                group.sex, group.age, group.weight, group.count
-            );
-        }
-    }
+    print_groups(&label, &groups);
     let founders = founders(&first, &groups, &tag, MEASURE_SEED);
     let (run_calibration, run_map) = prerun_files(&calibration, &map);
     let data = prerun_data(root, &run_calibration, &run_map)?;
@@ -634,22 +661,7 @@ pub fn measure_run(root: &Path, options: &Options, run_number: usize) -> Result 
     let started = std::time::Instant::now();
     let input = start(&tag, MEASURE_SEED, founders, options.founders);
     let (world, out) = run(data, input, until)?;
-    for row in &out.census {
-        println!("run {run_number} year {} living {}", row.year, row.living);
-    }
-    let measurement = world.state().measure().ok_or("nobody lives at the end")?;
-    print_measurement(run_number, &measurement, &ratios(&map, &measurement));
-    for generation in generations(&world)? {
-        println!(
-            "run {run_number} generation {} born {} mothers {} fathers {} n_e {:?} var_a {:?}",
-            generation.block,
-            generation.born,
-            generation.mothers,
-            generation.fathers,
-            generation.n_e,
-            generation.variance
-        );
-    }
+    let measurement = print_run(&label, &map, &world, &out)?;
     println!(
         "run {run_number} seconds {:?}",
         started.elapsed().as_secs_f64()
@@ -729,13 +741,12 @@ pub fn pool(root: &Path, options: &Options) -> Result {
     println!("pool data_hash {:016x}", data.hash());
     let tag = DataId::new("core:prerun_pool").map_err(|_| "a tag".to_owned())?;
     let groups = groups(&data, options.founders);
+    print_groups("pool", &groups);
     let founders = founders(&data, &groups, &tag, POOL_SEED);
     let input = start(&tag, POOL_SEED, founders, options.founders);
     let until = SimTime::from_secs(options.years * YEAR.as_secs());
     let (world, out) = run(data, input, until)?;
-    for row in &out.census {
-        println!("pool year {} living {}", row.year, row.living);
-    }
+    print_run("pool", &map, &world, &out)?;
     let save = world
         .save(&out.year_hashes)
         .map_err(|error| format!("cannot save: {error:?}"))?;
@@ -745,22 +756,30 @@ pub fn pool(root: &Path, options: &Options) -> Result {
         .map_err(|error| format!("cannot write the save: {error}"))
 }
 
+/// The value of the option `name` in `args`: none without the option; an error if the
+/// option has no value or another option stands in its place (review: `--years` alone
+/// must not run the 750 years of the default).
+pub fn option_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a String>> {
+    let Some(at) = args.iter().position(|arg| arg == name) else {
+        return Ok(None);
+    };
+    match args.get(at + 1) {
+        Some(value) if !value.is_empty() && !value.starts_with("--") => Ok(Some(value)),
+        _ => Err(format!("{name} needs a value")),
+    }
+}
+
 /// `cargo xtask prerun (measure | pool) --out <dir> [--founders N] [--years Y] [--map <dir>]`.
 pub fn command(root: &Path, args: &[String]) -> Result {
     let (which, rest) = args.split_first().ok_or("prerun needs measure or pool")?;
-    let value = |name: &str| {
-        rest.iter()
-            .position(|arg| arg == name)
-            .and_then(|at| rest.get(at + 1))
-            .filter(|value| !value.is_empty())
-    };
+    let value = |name: &str| option_value(rest, name);
     let number = |name: &str, default: u64| -> Result<u64> {
-        value(name).map_or(Ok(default), |text| {
+        value(name)?.map_or(Ok(default), |text| {
             text.parse()
                 .map_err(|_| format!("{name} {text} is not a number"))
         })
     };
-    let out = value("--out").ok_or("prerun needs --out <dir>")?;
+    let out = value("--out")?.ok_or("prerun needs --out <dir>")?;
     let default_founders = match which.as_str() {
         "measure" | "measure-run" => MEASURE_FOUNDERS,
         "pool" => POOL_FOUNDERS,
@@ -771,7 +790,7 @@ pub fn command(root: &Path, args: &[String]) -> Result {
         out: out.into(),
         founders: number("--founders", default_founders)?,
         years,
-        map: value("--map").map(Into::into),
+        map: value("--map")?.map(Into::into),
     };
     match which.as_str() {
         "measure" => measure(root, &options),
