@@ -1335,3 +1335,57 @@ fn an_option_without_its_value_is_an_error() {
     let root = std::path::Path::new(".");
     assert!(command(root, &args("measure --out trial --founders 40 --years")).is_err());
 }
+
+/// Section 4: only the five deciding traits decide; another trait that moved, listed before
+/// them, changes nothing (mutants). By hand: all five below 0.02, the other at 0.5.
+#[test]
+fn the_stop_ignores_the_other_traits() {
+    let mut ratios = vec![("core:face_01".to_owned(), 0.5)];
+    ratios.extend(DECIDING.iter().map(|id| ((*id).to_owned(), 0.01)));
+    assert!(settled(&ratios));
+    assert_eq!(decision(2, &ratios), Decision::Stop);
+    ratios[1].1 = 0.02;
+    assert!(!settled(&ratios));
+}
+
+/// One measurement run as its own process runs it (`prerun measure-run`): the small run of
+/// the reference (40 founders, 30 years) on the template writes the template's calibration
+/// and a map whose `sigma_ref` are the spreads the reference measured, bit for bit.
+#[test]
+fn a_measurement_run_writes_the_next_map() {
+    let out = std::env::temp_dir().join(format!("prerun-measure-run-{}", std::process::id()));
+    let options = Options {
+        out: out.clone(),
+        founders: 40,
+        years: 30,
+        map: None,
+    };
+    measure_run(&root(), &options, 1).expect("a run");
+    let (calibration, map) = read_files(&out).expect("the files");
+    std::fs::remove_dir_all(&out).expect("removed");
+    let (template_calibration, _) = crate::map4::template(&root()).expect("the template");
+    assert_eq!(calibration, template_calibration);
+    let written: Vec<(String, u64)> = map
+        .get("traits")
+        .and_then(Json::as_array)
+        .expect("traits")
+        .iter()
+        .map(|t| {
+            let id = t
+                .get("id")
+                .and_then(Json::as_str)
+                .expect("an id")
+                .to_owned();
+            let sigma = match t.get("sigma_ref") {
+                Some(Json::Number(n)) => n.as_f64().expect("a float"),
+                _ => panic!("sigma_ref of {id}"),
+            };
+            (id, sigma.to_bits())
+        })
+        .collect();
+    let expected: Vec<(String, u64)> = SMALL_TRAITS
+        .iter()
+        .map(|(id, _, sigma, _)| ((*id).to_owned(), *sigma))
+        .collect();
+    assert_eq!(written, expected);
+}
