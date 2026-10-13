@@ -317,3 +317,25 @@ fn the_pool_files_are_the_references() {
         assert_eq!(pool.hash(), run.pool_hash, "{}", run.name);
     }
 }
+
+/// Each of the seven loci must be on the chromosome its rule needs: MC1R moved to Y (or to
+/// X) is rejected before any run (review).
+#[test]
+fn a_locus_on_the_wrong_chromosome_is_rejected() {
+    let (calibration, map, _) = documents();
+    for chromosome in ["y", "x"] {
+        let mut moved = map.clone();
+        if let Some(Json::Array(loci)) = moved.get_mut("loci") {
+            for locus in loci {
+                if locus.get("id").and_then(Json::as_str) == Some("core:mc1r") {
+                    locus.set("chromosome", Json::str(chromosome));
+                }
+            }
+        }
+        let error = take_frequencies(&calibration, &moved).expect_err("rejected");
+        assert!(
+            error.starts_with("pool.frequencies_chromosome core:mc1r"),
+            "{error}"
+        );
+    }
+}

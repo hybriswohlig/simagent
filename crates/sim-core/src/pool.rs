@@ -142,6 +142,9 @@ pub enum PoolError {
     AncestorsOutOfOrder,
     ParentNotARecord,
     PartnershipNotMembers,
+    /// The file decodes and passes every check but is not written this way (an overlong
+    /// varint, review): its hash would not be the hash of what the core writes.
+    NonCanonical,
 }
 
 impl PoolError {
@@ -156,6 +159,7 @@ impl PoolError {
             PoolError::AncestorsOutOfOrder => "pool.ancestors_out_of_order",
             PoolError::ParentNotARecord => "pool.parent_not_a_record",
             PoolError::PartnershipNotMembers => "pool.partnership_not_members",
+            PoolError::NonCanonical => "pool.non_canonical",
         }
     }
 }
@@ -201,6 +205,9 @@ impl Pool {
             return Err(PoolError::TrailingBytes);
         }
         pool.check()?;
+        if pool.to_bytes() != bytes {
+            return Err(PoolError::NonCanonical);
+        }
         Ok(pool)
     }
 
@@ -341,6 +348,8 @@ pub enum ExtractError {
     Frequency(DataId),
     /// The threshold disease recomputed differs from the pool run's affliction.
     Threshold(LineageKey),
+    /// A locus of the frequencies on Y: no rule of section 3 assigns it.
+    Chromosome(DataId),
 }
 
 /// A person the assignment visits: living, or an unborn child of a running pregnancy.
@@ -454,6 +463,9 @@ pub fn extract(
             .ok_or_else(|| ExtractError::UnknownLocus(id.clone()))?;
         if !(*q > 0.0 && *q < 1.0) {
             return Err(ExtractError::Frequency(id.clone()));
+        }
+        if locus.chromosome == Chromosome::Y {
+            return Err(ExtractError::Chromosome(id.clone()));
         }
         loci.push((locus, *q));
     }

@@ -29,6 +29,18 @@ pub const POOL_LOCI: [&str; 7] = [
     "core:herc2",
 ];
 
+/// The chromosome each of the seven loci must be on: its rule of inheritance in the pool
+/// depends on it (design note, section 3; review).
+const CHROMOSOMES: [(&str, &str); 7] = [
+    ("core:disease_ar", "autosome"),
+    ("core:disease_ad_late", "autosome"),
+    ("core:disease_ad_partial", "autosome"),
+    ("core:disease_xr", "x"),
+    ("core:disease_mt", "mt"),
+    ("core:mc1r", "autosome"),
+    ("core:herc2", "autosome"),
+];
+
 /// The fields of a frequency.
 const FIELDS: [&str; 5] = ["value", "unit", "source", "as_of", "note"];
 
@@ -58,6 +70,20 @@ pub fn take_frequencies(calibration: &Json, map: &Json) -> Result<(Json, BTreeMa
         .unwrap_or_default();
     if !wanted.is_subset(&in_map) {
         return Err("pool.frequencies_loci: a locus is not in the map".to_owned());
+    }
+    for (id, chromosome) in CHROMOSOMES {
+        let on = map
+            .get("loci")
+            .and_then(Json::as_array)
+            .and_then(|loci| {
+                loci.iter()
+                    .find(|locus| locus.get("id").and_then(Json::as_str) == Some(id))
+            })
+            .and_then(|locus| locus.get("chromosome"))
+            .and_then(Json::as_str);
+        if on != Some(chromosome) {
+            return Err(format!("pool.frequencies_chromosome {id} on {on:?}"));
+        }
     }
     let mut sorted: Vec<&(String, Json)> = entry.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
