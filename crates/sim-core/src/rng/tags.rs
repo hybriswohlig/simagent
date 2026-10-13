@@ -113,6 +113,11 @@ pub const FOSTER_RANK: PurposeTag = PurposeTag::from_pinned_list(23);
 /// year; detail: 0.
 pub const EMIGRATION: PurposeTag = PurposeTag::from_pinned_list(24);
 
+/// An allele of a founder of the pre-run, drawn by `cargo xtask prerun` (ADR-0020 section
+/// 3): Hardy-Weinberg at frequency 0.5, alternative if `unit < 0.5`. subject: the founder's
+/// lineage key; occasion: `str_key` of the locus; detail: the copy (0 maternal, 1 paternal).
+pub const PRERUN_ALLELE: PurposeTag = PurposeTag::from_pinned_list(25);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -139,6 +144,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (LEAVE_HOME, "LEAVE_HOME"),
     (FOSTER_RANK, "FOSTER_RANK"),
     (EMIGRATION, "EMIGRATION"),
+    (PRERUN_ALLELE, "PRERUN_ALLELE"),
 ];
 
 /// Values of deleted tags; they are never used again.

@@ -155,7 +155,7 @@ fn place(
     Ok(all)
 }
 
-fn read(root: &Path, path: &str) -> Result<Json> {
+pub(crate) fn read(root: &Path, path: &str) -> Result<Json> {
     let text = std::fs::read_to_string(root.join(path))
         .map_err(|error| format!("cannot read {path}: {error}"))?;
     Json::parse(&text).map_err(|error| format!("{path}: {error}"))
