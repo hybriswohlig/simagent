@@ -230,8 +230,9 @@ fn exact(n: u64) -> f64 {
         .unwrap_or_else(|| panic!("a count below 2^53"))
 }
 
+/// `⌊q⌋` as a count; `sim_math` has `ceil`, and `⌊q⌋ = −⌈−q⌉` exactly.
 fn floor_u64(q: f64) -> u64 {
-    sim_math::to_i64_exact(q.floor())
+    sim_math::to_i64_exact(-sim_math::ceil(-q))
         .and_then(|n| u64::try_from(n).ok())
         .unwrap_or_else(|| panic!("a count"))
 }
@@ -558,62 +559,151 @@ fn write_files(dir: &Path, calibration: &Json, map: &Json) -> Result {
     Ok(())
 }
 
-/// The measurement run, iterated until the five deciding traits settle (design note,
-/// section 4); writes the frozen map and its calibration to `options.out`.
-pub fn measure(root: &Path, options: &Options) -> Result {
+/// The map and calibration of a run directory (as `write_files` writes them).
+fn read_files(dir: &Path) -> Result<(Json, Json)> {
+    let read = |path: &str| -> Result<Json> {
+        let text = std::fs::read_to_string(dir.join(path))
+            .map_err(|error| format!("cannot read {}: {error}", dir.join(path).display()))?;
+        Json::parse(&text)
+    };
+    Ok((
+        read("calibration/genetics.json")?,
+        read("genetics/genome_map.json")?,
+    ))
+}
+
+/// The ratios of a run from the map it ran on and the map it wrote: `next_map` sets each
+/// `sigma_ref` to the measured spread, exactly as written, so this is `ratios` of the run.
+pub fn ratios_between(before: &Json, after: &Json) -> Vec<(String, f64)> {
+    let sigma = |map: &Json, id: &str| {
+        map.get("traits")
+            .and_then(Json::as_array)
+            .and_then(|traits| {
+                traits
+                    .iter()
+                    .find(|t| t.get("id").and_then(Json::as_str) == Some(id))
+            })
+            .and_then(|t| match t.get("sigma_ref") {
+                Some(Json::Number(n)) => n.as_f64(),
+                _ => None,
+            })
+            .unwrap_or(f64::NAN)
+    };
+    after
+        .get("traits")
+        .and_then(Json::as_array)
+        .map(|traits| {
+            traits
+                .iter()
+                .filter_map(|t| t.get("id").and_then(Json::as_str))
+                .map(|id| {
+                    let (old, new) = (sigma(before, id), sigma(after, id));
+                    (id.to_owned(), (new - old).abs() / old)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One run of the measurement (design note, section 4) on the map in `options.map` (the
+/// template without one): the founders drawn on the template, the run, its measurement
+/// printed; the next map and the calibration go to `options.out`.
+pub fn measure_run(root: &Path, options: &Options, run_number: usize) -> Result {
     let (calibration, template_map) = crate::map4::template(root)?;
+    let map = match &options.map {
+        Some(dir) => read_files(dir)?.1,
+        None => template_map.clone(),
+    };
     let tag = DataId::new("core:prerun_measure").map_err(|_| "a tag".to_owned())?;
     let until = SimTime::from_secs(options.years * YEAR.as_secs() - 1);
     let (first_calibration, first_map) = prerun_files(&calibration, &template_map);
     let first = prerun_data(root, &first_calibration, &first_map)?;
     let groups = groups(&first, options.founders);
-    for group in &groups {
-        println!(
-            "group {:?} age {} weight {:?} count {}",
-            group.sex, group.age, group.weight, group.count
-        );
+    if run_number == 1 {
+        for group in &groups {
+            println!(
+                "group {:?} age {} weight {:?} count {}",
+                group.sex, group.age, group.weight, group.count
+            );
+        }
     }
     let founders = founders(&first, &groups, &tag, MEASURE_SEED);
-    let mut map = template_map;
+    let (run_calibration, run_map) = prerun_files(&calibration, &map);
+    let data = prerun_data(root, &run_calibration, &run_map)?;
+    println!("run {run_number} data_hash {:016x}", data.hash());
+    let started = std::time::Instant::now();
+    let input = start(&tag, MEASURE_SEED, founders, options.founders);
+    let (world, out) = run(data, input, until)?;
+    for row in &out.census {
+        println!("run {run_number} year {} living {}", row.year, row.living);
+    }
+    let measurement = world.state().measure().ok_or("nobody lives at the end")?;
+    print_measurement(run_number, &measurement, &ratios(&map, &measurement));
+    for generation in generations(&world)? {
+        println!(
+            "run {run_number} generation {} born {} mothers {} fathers {} n_e {:?} var_a {:?}",
+            generation.block,
+            generation.born,
+            generation.mothers,
+            generation.fathers,
+            generation.n_e,
+            generation.variance
+        );
+    }
+    println!(
+        "run {run_number} seconds {:?}",
+        started.elapsed().as_secs_f64()
+    );
+    write_files(&options.out, &calibration, &next_map(&map, &measurement))
+}
+
+/// The measurement, iterated until the five deciding traits settle (design note, section
+/// 4); writes the frozen map and its calibration to `options.out`. Each run is a process of
+/// its own (`prerun measure-run`) in `options.out/run-<n>`, so that it gives its memory
+/// back: a run of 40 000 founders over 750 years holds about 2.6 GB, and in one process the
+/// next run grew past 4.5 GB.
+pub fn measure(root: &Path, options: &Options) -> Result {
+    let exe = std::env::current_exe().map_err(|error| format!("no executable: {error}"))?;
+    let (_, mut before) = crate::map4::template(root)?;
+    let mut previous: Option<std::path::PathBuf> = None;
     for run_number in 1..=MAX_RUNS {
-        let (run_calibration, run_map) = prerun_files(&calibration, &map);
-        let data = prerun_data(root, &run_calibration, &run_map)?;
-        println!("run {run_number} data_hash {:016x}", data.hash());
-        let started = std::time::Instant::now();
-        let input = start(&tag, MEASURE_SEED, founders.clone(), options.founders);
-        let (world, out) = run(data, input, until)?;
-        for row in &out.census {
-            println!("run {run_number} year {} living {}", row.year, row.living);
+        let dir = options.out.join(format!("run-{run_number}"));
+        let mut command = std::process::Command::new(&exe);
+        command
+            .arg("prerun")
+            .arg("measure-run")
+            .arg("--run")
+            .arg(run_number.to_string())
+            .arg("--out")
+            .arg(&dir)
+            .arg("--founders")
+            .arg(options.founders.to_string())
+            .arg("--years")
+            .arg(options.years.to_string());
+        if let Some(map) = &previous {
+            command.arg("--map").arg(map);
         }
-        let measurement = world.state().measure().ok_or("nobody lives at the end")?;
-        let ratios = ratios(&map, &measurement);
-        print_measurement(run_number, &measurement, &ratios);
+        let status = command
+            .status()
+            .map_err(|error| format!("cannot start run {run_number}: {error}"))?;
+        if !status.success() {
+            return Err(format!("run {run_number} failed: {status}"));
+        }
+        let (calibration, after) = read_files(&dir)?;
+        let ratios = ratios_between(&before, &after);
         for id in reported(&ratios) {
             println!("run {run_number} report {id}");
         }
-        for generation in generations(&world)? {
-            println!(
-                "run {run_number} generation {} born {} mothers {} fathers {} n_e {:?} var_a {:?}",
-                generation.block,
-                generation.born,
-                generation.mothers,
-                generation.fathers,
-                generation.n_e,
-                generation.variance
-            );
-        }
-        println!(
-            "run {run_number} seconds {:?}",
-            started.elapsed().as_secs_f64()
-        );
-        let frozen = next_map(&map, &measurement);
         match decision(run_number, &ratios) {
             Decision::Stop => {
-                write_files(&options.out, &calibration, &frozen)?;
+                write_files(&options.out, &calibration, &after)?;
                 println!("frozen after run {run_number}");
                 return Ok(());
             }
-            Decision::Continue => map = frozen,
+            Decision::Continue => {
+                before = after;
+                previous = Some(dir);
+            }
             Decision::NoFreeze => break,
         }
     }
@@ -671,9 +761,9 @@ pub fn command(root: &Path, args: &[String]) -> Result {
         })
     };
     let out = value("--out").ok_or("prerun needs --out <dir>")?;
-    let (default_founders, run) = match which.as_str() {
-        "measure" => (MEASURE_FOUNDERS, measure as fn(&Path, &Options) -> Result),
-        "pool" => (POOL_FOUNDERS, pool as fn(&Path, &Options) -> Result),
+    let default_founders = match which.as_str() {
+        "measure" | "measure-run" => MEASURE_FOUNDERS,
+        "pool" => POOL_FOUNDERS,
         other => return Err(format!("prerun {other}: measure or pool")),
     };
     let years = i64::try_from(number("--years", YEARS)?).map_err(|_| "--years".to_owned())?;
@@ -683,7 +773,15 @@ pub fn command(root: &Path, args: &[String]) -> Result {
         years,
         map: value("--map").map(Into::into),
     };
-    run(root, &options)
+    match which.as_str() {
+        "measure" => measure(root, &options),
+        "measure-run" => {
+            let run_number =
+                usize::try_from(number("--run", 1)?).map_err(|_| "--run".to_owned())?;
+            measure_run(root, &options, run_number)
+        }
+        _ => pool(root, &options),
+    }
 }
 
 #[cfg(test)]

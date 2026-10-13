@@ -1263,8 +1263,8 @@ fn the_small_run_is_the_references() {
     assert_eq!(frozen.hash(), SMALL_FROZEN_DATA_HASH);
 }
 
-/// Section 4: the stop rule on given spreads: `r` per trait bit for bit, the decision and
-/// the reported traits (`r` exactly 0.02 does not stop; run 5 without settling does not
+/// Section 4: the stop rule on given spreads: `r` per trait bit for bit (also from the map
+/// a run writes and the one it ran on), the decision and the reported traits (`r` exactly 0.02 does not stop; run 5 without settling does not
 /// freeze).
 #[test]
 fn the_stop_rule_is_the_references() {
@@ -1299,6 +1299,15 @@ fn the_stop_rule_is_the_references() {
         let bits: Vec<u64> = ratios.iter().map(|(_, r)| r.to_bits()).collect();
         let want: Vec<u64> = traits.iter().map(|t| t.3).collect();
         assert_eq!(bits, want, "{case}");
+        // The process of a run writes the next map; the parent reads it back and gets the
+        // same ratios from the two maps.
+        let written = next_map(&map, &measurement).pretty().expect("text");
+        let after = Json::parse(&written).expect("json");
+        let between: Vec<u64> = ratios_between(&map, &after)
+            .iter()
+            .map(|(_, r)| r.to_bits())
+            .collect();
+        assert_eq!(between, want, "{case}: from the written map");
         let decided = match decision(run, &ratios) {
             Decision::Stop => "stop",
             Decision::Continue => "continue",
