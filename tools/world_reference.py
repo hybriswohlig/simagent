@@ -454,7 +454,7 @@ FOSTER_RANK = 23
 # `Start` changes every save (34); the projection stays 17 (the capacity is held only in the
 # payload of the planned event, the input log is not projected).
 PROJECTION_VERSION = 17
-CORE_VERSION = 35
+CORE_VERSION = 36
 
 FORMAT_VERSION = 1
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
