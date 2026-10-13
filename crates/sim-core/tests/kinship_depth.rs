@@ -1,9 +1,9 @@
 //! The depth of φ (genetics specification 2.7 and 11.2, ADR-0020 section 4, Grok's H2): a
 //! query `φ(x, y)` knows `x`, `y` and their ancestors up to the great-grandparents; a
 //! parent outside that set counts as unknown, each parent on its own. A path counts iff
-//! every person on it is in the set; in these pedigrees every ancestor is reached by one
-//! route, so a path from `x` up to a common ancestor at depth `dx` and down to `y` from
-//! depth `dy` counts iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`.
+//! every person on it is in the set; where every ancestor is reached by one route, a path
+//! from `x` up to a common ancestor at depth `dx` and down to `y` from depth `dy` counts iff
+//! `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`.
 //!
 //! The expected values come from `tools/state_reference.py`, which runs the model of
 //! `tools/world_reference.py`, written from the design note of the depth and not from this

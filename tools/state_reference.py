@@ -4923,7 +4923,7 @@ def measure_rows(name: str, records: list, save_names: dict) -> list:
 # ancestor at depth 4 or more of one of them. By hand from the rule: a path of the
 # recursion from `x` up to a common ancestor `A` at depth `dx` and down to `y` from depth
 # `dy` stays in `S` iff every person on it is in `S`. Where every ancestor is reached by
-# one route only (as in the scenarios here): the persons on x's side (depths 1 to
+# one route only: the persons on x's side (depths 1 to
 # `dx − 1`) are in `S` iff `dx − 1 ≤ 3`, and `A` iff `dx ≤ 3` or `dy ≤ 3`, so a path counts
 # iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`; in an inbred pedigree a person can be in `S`
 # by a shorter route and close a longer path (review). Here: second cousins once removed (3, 4) keep
