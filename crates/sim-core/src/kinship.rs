@@ -16,12 +16,14 @@
 //! (`DEPTH`, ADR-0020 section 4, Grok's H2): a parent outside that set counts as unknown
 //! and adds 0, each parent on its own; whoever stands above counts as a founder in that
 //! query. The depth belongs to the pair of the query, not to each step of the recursion.
-//! A path from `x` up to a common ancestor at depth `dx` and down to `y` from depth `dy`
-//! counts iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3` (Grok's H2b): exact are `φ ≥ 1/8`,
-//! first cousins (1/16), second cousins (1/64), second cousins once removed (1/128), a
-//! great-great-grandparent (1/32) and `F` = 1/16 of a child of first cousins; third cousins
-//! and a great-great-great-grandparent become 0, and so does `F` of a child of second
-//! cousins.
+//! A path of the recursion counts iff every person on it is in the set. Where every
+//! ancestor is reached by one route only, a path from `x` up to a common ancestor at depth
+//! `dx` and down to `y` from depth `dy` counts iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`
+//! (Grok's H2b): exact are `φ ≥ 1/8`, first cousins (1/16), second cousins (1/64), second
+//! cousins once removed (1/128), a great-great-grandparent (1/32) and `F` = 1/16 of a child
+//! of first cousins; third cousins and a great-great-great-grandparent become 0, and so
+//! does `F` of a child of second cousins. In an inbred pedigree a person can be in the set
+//! by a short route and still close a long path, which then counts.
 //!
 //! "Younger" is a total order: the later second of birth, and in the same second (twins,
 //! founders created together) the larger `SimId`. The ID only breaks ties, it does not
@@ -35,13 +37,12 @@
 //!
 //! # Numbers
 //!
-//! Every value is a dyadic rational, built from 0, 1/2 and 1 by sums and halvings. With
-//! `g` the generation of a person in the pedigree of the query (0 without known parents,
-//! else one more than the larger of its known parents' generations), `φ_xy` is by
-//! induction a multiple of `2^-(g_x + g_y + 1)` in `[0, 1]`, and the sum before a halving
-//! is a multiple of `2^-(g_x + g_y)` in `[0, 2]`. A chain of known parents in a query has
-//! at most eight persons (four from one of the two, four more from the other), so
-//! `g ≤ 7`, `g_x + g_y ≤ 14`, and every value is exact in an f64.
+//! Every value is a dyadic rational, built from 0 and 1/2 by sums and halvings. Each step
+//! of the recursion replaces the younger person of a pair by a parent, so the younger
+//! person of the pairs along a chain gets strictly older; a query has at most 30 persons,
+//! so a chain has at most 30 pairs and a value at most 30 halvings below its leaves. Every
+//! value of a query is then a multiple of `2^-31` in `[0, 1]`, and the sum before a halving
+//! a multiple of `2^-30` in `[0, 2]`: exact in an f64 (53 bits).
 //!
 //! A value is the same bit for bit however it is evaluated: every pair of a query has
 //! exactly one expression (the younger one is expanded, the sum of the mother's and the
@@ -51,8 +52,8 @@
 //! # Evaluation
 //!
 //! No recursion on the call stack: an explicit stack holds the pairs that wait for a
-//! term, one per step along the current chain. Every step lowers `g` of a pair by at
-//! least one, so the stack never holds more than `g_x + g_y + 1` pairs. Each pair is
+//! term, one per step along the current chain, so it never holds more than 30 pairs (see
+//! Numbers). Each pair is
 //! computed once per query, so a query costs at most one evaluation per pair of its set
 //! (at most 30 persons: two and 2 + 4 + 8 ancestors each), and it reads no one outside the
 //! set, however deep the pedigree. Nothing carries over from one query to the next. All

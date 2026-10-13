@@ -314,6 +314,34 @@ fn h2_one_parent_in_the_set_and_the_other_not() {
     }
 }
 
+/// An inbred pedigree (review): persons 1 to 13 have the parents `i + 1` and `i + 2`, 14
+/// and 15 are founders, the larger number the older. The query of 1 and 8 has the set 1 to
+/// 14 (15 is no ancestor of either within three generations), so the chain 1, 2, …, 8
+/// counts although 8 is seven generations above 1: a person in the set by a short route
+/// closes a long path. `φ(1, 8)` = 13137/16384 and `φ(1, 1)` = 107/128 (over every
+/// ancestor 7887/8192) by `Pedigree.query` of `tools/spec_reference.py`; each query reads
+/// only its set.
+#[test]
+fn h2_overlapping_ancestry_keeps_long_paths() {
+    let people: Vec<(u64, Option<(u64, u64)>)> = (1..=15)
+        .rev()
+        .map(|i| (i, (i <= 13).then_some((i + 1, i + 2))))
+        .collect();
+    let kin = pedigree(&people);
+    let id = |n: u64| SimId::try_from(n).expect("id");
+    for (x, y, set, expected) in [
+        (1, 8, 14, 13137.0 / 16384.0),
+        (8, 1, 14, 13137.0 / 16384.0),
+        (1, 1, 7, 107.0 / 128.0),
+    ] {
+        let lookup = |sim: SimId| {
+            assert!(sim.get() <= set, "read {sim:?} outside the set");
+            kin[&sim]
+        };
+        assert!(phi(id(x), id(y), lookup).to_bits() == f64::to_bits(expected));
+    }
+}
+
 /// The IDs only break ties: with the IDs in the opposite order (children now below their
 /// parents, the founders and the twins ordered the other way round) every value stays
 /// the same bit for bit.

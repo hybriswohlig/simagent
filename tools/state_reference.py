@@ -4922,9 +4922,11 @@ def measure_rows(name: str, records: list, save_names: dict) -> list:
 # (the longest, "market", has 40 years), and a pair can lose a path only through an
 # ancestor at depth 4 or more of one of them. By hand from the rule: a path of the
 # recursion from `x` up to a common ancestor `A` at depth `dx` and down to `y` from depth
-# `dy` stays in `S` iff every person on it is in `S`: the persons on x's side (depths 1 to
-# `dx − 1`) are in `S` iff `dx − 1 ≤ 3`, and `A` iff `dx ≤ 3` or `dy ≤ 3`. So a path counts
-# iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`: second cousins once removed (3, 4) keep
+# `dy` stays in `S` iff every person on it is in `S`. Where every ancestor is reached by
+# one route only (as in the scenarios here): the persons on x's side (depths 1 to
+# `dx − 1`) are in `S` iff `dx − 1 ≤ 3`, and `A` iff `dx ≤ 3` or `dy ≤ 3`, so a path counts
+# iff `max(dx, dy) ≤ 4` and `min(dx, dy) ≤ 3`; in an inbred pedigree a person can be in `S`
+# by a shorter route and close a longer path (review). Here: second cousins once removed (3, 4) keep
 # 1/128, a great-great-grandparent (0, 4) and a great-great-aunt (1, 4) keep 1/32; third
 # cousins (4, 4) lose 1/256, second cousins twice removed (3, 5) 1/256, first cousins
 # thrice removed (2, 5) 1/128, a great-great-great-grandparent (0, 5) 1/64.
@@ -5890,7 +5892,7 @@ if __name__ == "__main__":
     # H2; ADR-0020 section 4). No row above changes.
     print(
         f"kinship_depth_rule depth {KINSHIP_DEPTH}: S = x, y and their ancestors up to depth {KINSHIP_DEPTH}; a parent counts iff in S;"
-        f" a path (dx, dy) counts iff max <= 4 and min <= 3"
+        f" a path counts iff every person on it is in S; with one route to each ancestor iff max(dx, dy) <= 4 and min(dx, dy) <= 3"
     )
     for _name, _data in (("kin_deep", KINDEEP_DATA), ("kin_line", KINLINE_DATA)):
         _form = _data.fertility
