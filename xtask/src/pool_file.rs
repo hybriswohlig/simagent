@@ -17,17 +17,7 @@ use crate::prerun::{
     Group, POOL_SEED, data_of, founders, groups, prerun_files, run_observed, start,
 };
 
-/// The seven loci the pre-run leaves at the reference allele and the pool assigns
-/// (ADR-0020 section 4).
-pub const POOL_LOCI: [&str; 7] = [
-    "core:disease_ar",
-    "core:disease_ad_late",
-    "core:disease_ad_partial",
-    "core:disease_xr",
-    "core:disease_mt",
-    "core:mc1r",
-    "core:herc2",
-];
+pub use sim_core::pool::POOL_LOCI;
 
 /// The chromosome each of the seven loci must be on: its rule of inheritance in the pool
 /// depends on it (design note, section 3; review).

@@ -31,6 +31,18 @@ use crate::world::World;
 /// The format of the pool file.
 pub const POOL_FORMAT: u64 = 1;
 
+/// The seven loci the pre-run leaves at the reference allele and the pool assigns
+/// (ADR-0020 section 4).
+pub const POOL_LOCI: [&str; 7] = [
+    "core:disease_ar",
+    "core:disease_ad_late",
+    "core:disease_ad_partial",
+    "core:disease_xr",
+    "core:disease_mt",
+    "core:mc1r",
+    "core:herc2",
+];
+
 /// The first bytes of a pool file.
 pub const MAGIC: &[u8; 7] = b"SIMPOOL";
 
