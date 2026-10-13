@@ -1520,8 +1520,9 @@ RUNS = [
     ("pool_c", 80, 2, "father_dies"),
     ("pool_d", 60, 60, "frequent_alleles"),
     ("pool_e", 60, 81, None),
-    # A pool deep enough for ancestors beyond the great-grandparents, so that the depth
-    # of the records decides (the mutation test of the Rust side).
+    # The longest run. Meant to reach beyond the great-grandparents, it does not: its
+    # records are the whole known ancestry of its persons, so the depth of the records
+    # does not decide here (a test of the core holds it on a pedigree built by hand).
     ("pool_f", 60, 130, None),
 ]
 REJECT_RUN = "pool_b"
