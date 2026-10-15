@@ -32,16 +32,20 @@ impl TraceFilter {
 
 /// What a trace entry says. The variant name is its stable code; new variants only go
 /// to the end (`tests/golden/log_codes.txt`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum TracePayload {
     /// Dummy trace of step 2: the next birthday of the sim was planned for `next`.
     #[serde(rename = "core:birthday_planned")]
     BirthdayPlanned { next: SimTime },
+    /// The growth curve held an input of the sim at its bound in the census (ADR-0012
+    /// section 4): `z_h` and `z_p` before the hold.
+    #[serde(rename = "core:curve_input_clamped")]
+    CurveInputClamped { z_h: f64, z_p: f64 },
 }
 
 /// One entry of the trace.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TraceEntry {
     pub t: SimTime,
@@ -63,6 +67,21 @@ impl TraceBuffer {
 
     pub(crate) fn take(&mut self) -> Vec<TraceEntry> {
         core::mem::take(&mut self.entries)
+    }
+
+    /// Whether `sim` is traced.
+    pub(crate) fn includes(&self, sim: SimId) -> bool {
+        self.filter.includes(sim)
+    }
+
+    /// Takes the entries the observers wrote to the year's output: after the entries of
+    /// the same second's events, in the order of time (a stable sort).
+    pub(crate) fn absorb(&mut self, entries: Vec<TraceEntry>) {
+        if entries.is_empty() {
+            return;
+        }
+        self.entries.extend(entries);
+        self.entries.sort_by_key(|entry| entry.t);
     }
 
     /// Records what `make` returns if `sim` is traced; otherwise `make` never runs.

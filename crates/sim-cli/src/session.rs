@@ -4,11 +4,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use sim_core::body_contract::CLAMPED_KEYS;
 use sim_core::input::{Input, InputRecord};
 use sim_core::log::{LogEntry, LogHasher};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
 use sim_core::version::CORE_VERSION;
-use sim_core::world::{World, YearOut};
+use sim_core::world::{CensusRow, World, YearOut};
 
 use crate::error::CliError;
 use crate::files::{self, ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
@@ -190,7 +191,10 @@ impl Session {
             log.push_str(&record_line(record));
         }
         files::write(&session.path(files::INPUT_LOG), log.as_bytes())?;
-        files::write(&session.path(files::CENSUS), b"year,living,lived_secs\n")?;
+        files::write(
+            &session.path(files::CENSUS),
+            (census_header() + "\n").as_bytes(),
+        )?;
         files::write(&session.path(files::EVENTS), b"")?;
         session.drain()?;
         Ok(session)
@@ -225,10 +229,13 @@ impl Session {
                 "events.ndjson does not match the log hash of the manifest".to_owned(),
             ));
         }
-        let rows = files::read_text(&dir.join(files::CENSUS))?
-            .lines()
-            .count()
-            .saturating_sub(1);
+        let census = files::read_text(&dir.join(files::CENSUS))?;
+        if census.lines().next() != Some(census_header().as_str()) {
+            return Err(inconsistent(
+                "census.csv does not start with the header of this version".to_owned(),
+            ));
+        }
+        let rows = census.lines().count().saturating_sub(1);
         if rows != year_hashes.len() {
             return Err(inconsistent(format!(
                 "census.csv has {rows} rows, the save has {} completed years",
@@ -240,6 +247,7 @@ impl Session {
             out: YearOut {
                 census: Vec::new(),
                 year_hashes,
+                trace: Vec::new(),
             },
             hasher,
             before_fork: LogHasher::new(),
@@ -388,7 +396,7 @@ impl Session {
         files::append(&self.path(files::EVENTS), &lines)?;
         let rows: String = self.out.census[self.census_written..]
             .iter()
-            .map(|row| format!("{},{},{}\n", row.year, row.living, row.lived_secs))
+            .map(|row| census_line(row) + "\n")
             .collect();
         self.census_written = self.out.census.len();
         files::append(&self.path(files::CENSUS), &rows)
@@ -511,4 +519,30 @@ impl Session {
         let resolved = files::json(scenario) + "\n";
         files::write(&self.path(files::SCENARIO), resolved.as_bytes())
     }
+}
+
+/// The header of `census.csv` (ADR-0004 section 8): the three columns of every run, then
+/// the bodies of the living (ADR-0020 section 7): evaluations, the clamps per parameter
+/// of `CLAMPED_KEYS` and the held growth curves.
+pub fn census_header() -> String {
+    let mut header = String::from("year,living,lived_secs,body_evaluated");
+    for key in CLAMPED_KEYS {
+        header.push_str(",clamped_");
+        header.push_str(key.as_str());
+    }
+    header.push_str(",curve_clamped");
+    header
+}
+
+/// One row of `census.csv` in the order of `census_header`.
+pub fn census_line(row: &CensusRow) -> String {
+    let mut line = format!(
+        "{},{},{},{}",
+        row.year, row.living, row.lived_secs, row.body.evaluated
+    );
+    for count in row.body.clamped {
+        line.push_str(&format!(",{count}"));
+    }
+    line.push_str(&format!(",{}", row.body.curve_clamped));
+    line
 }

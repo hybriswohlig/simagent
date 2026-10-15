@@ -5,6 +5,7 @@
 use super::person::{inputs_of, nutrition_of};
 use super::{BodyData, CLAMPED_KEYS, body_params};
 use crate::data::Data;
+use crate::ids::SimId;
 use crate::state::DomainState;
 use crate::time::SimTime;
 
@@ -18,8 +19,14 @@ pub struct BodyCensus {
     pub curve_clamped: u64,
 }
 
-/// The body census of the living at `t`; all zero for data without body traits.
-pub(crate) fn count(domain: &DomainState, data: &Data, t: SimTime) -> BodyCensus {
+/// The body census of the living at `t`; all zero for data without body traits. Each sim
+/// whose growth curve held an input goes to `held` with `z_h` and `z_p` before the hold.
+pub(crate) fn count(
+    domain: &DomainState,
+    data: &Data,
+    t: SimTime,
+    held: &mut dyn FnMut(SimId, f64, f64),
+) -> BodyCensus {
     let mut census = BodyCensus::default();
     let Ok(body) = BodyData::new(data) else {
         return census;
@@ -45,6 +52,7 @@ pub(crate) fn count(domain: &DomainState, data: &Data, t: SimTime) -> BodyCensus
         }
         if evaluation.curve_clamped {
             census.curve_clamped = one(census.curve_clamped);
+            held(*sim, inputs.z.height, inputs.z.puberty);
         }
     }
     census
