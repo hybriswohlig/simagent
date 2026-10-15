@@ -32,8 +32,9 @@ const FILES: [(&str, &[u8]); 6] = [
     ),
 ];
 
-/// The reference's rejected files (`pool_reject`), each made from `pool_b` with one change.
-const REJECTED: [(&[u8], PoolError); 8] = [
+/// The reference's rejected files (`pool_reject`), each made from `pool_b` with one change; the
+/// record rules' from `pool_c` (design note of the pool's records).
+const REJECTED: [(&[u8], PoolError); 18] = [
     (
         include_bytes!("../../../tests/golden/pool/reject/magic.bin"),
         PoolError::Magic,
@@ -65,6 +66,46 @@ const REJECTED: [(&[u8], PoolError); 8] = [
     (
         include_bytes!("../../../tests/golden/pool/reject/partnership_not_members.bin"),
         PoolError::PartnershipNotMembers,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/frozen_at.bin"),
+        PoolError::FrozenAt,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/partnership_sex.bin"),
+        PoolError::PartnershipSex,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/pregnancy_mother.bin"),
+        PoolError::PregnancyMother,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/birth_at.bin"),
+        PoolError::BirthAt,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/conception_at.bin"),
+        PoolError::ConceptionAt,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/conception_month.bin"),
+        PoolError::ConceptionMonth,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/separation_at.bin"),
+        PoolError::SeparationAt,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/leave_home_at.bin"),
+        PoolError::LeaveHomeAt,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/carried_time.bin"),
+        PoolError::CarriedTime,
+    ),
+    (
+        include_bytes!("../../../tests/golden/pool/reject/past_time.bin"),
+        PoolError::PastTime,
     ),
 ];
 
@@ -145,6 +186,16 @@ fn each_pool_rule_has_its_code() {
             "pool.partnership_not_members",
         ),
         (PoolError::NonCanonical, "pool.non_canonical"),
+        (PoolError::FrozenAt, "pool.frozen_at"),
+        (PoolError::PartnershipSex, "pool.partnership_sex"),
+        (PoolError::PregnancyMother, "pool.pregnancy_mother"),
+        (PoolError::BirthAt, "pool.birth_at"),
+        (PoolError::ConceptionAt, "pool.conception_at"),
+        (PoolError::ConceptionMonth, "pool.conception_month"),
+        (PoolError::SeparationAt, "pool.separation_at"),
+        (PoolError::LeaveHomeAt, "pool.leave_home_at"),
+        (PoolError::CarriedTime, "pool.carried_time"),
+        (PoolError::PastTime, "pool.past_time"),
     ];
     for (error, code) in codes {
         assert_eq!(error.to_string(), code);

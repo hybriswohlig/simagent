@@ -66,7 +66,7 @@ const POOL_D: &[u8] = include_bytes!("../../../tests/golden/pool/pool_d.bin");
 const POOL_E: &[u8] = include_bytes!("../../../tests/golden/pool/pool_e.bin");
 
 /// The reader's rejected files, which no data can hold either.
-const READER_REJECTED: [(&str, &[u8]); 8] = [
+const READER_REJECTED: [(&str, &[u8]); 18] = [
     (
         "ancestors_out_of_order.bin",
         include_bytes!("../../../tests/golden/pool/reject/ancestors_out_of_order.bin"),
@@ -98,6 +98,46 @@ const READER_REJECTED: [(&str, &[u8]); 8] = [
     (
         "version.bin",
         include_bytes!("../../../tests/golden/pool/reject/version.bin"),
+    ),
+    (
+        "frozen_at.bin",
+        include_bytes!("../../../tests/golden/pool/reject/frozen_at.bin"),
+    ),
+    (
+        "partnership_sex.bin",
+        include_bytes!("../../../tests/golden/pool/reject/partnership_sex.bin"),
+    ),
+    (
+        "pregnancy_mother.bin",
+        include_bytes!("../../../tests/golden/pool/reject/pregnancy_mother.bin"),
+    ),
+    (
+        "birth_at.bin",
+        include_bytes!("../../../tests/golden/pool/reject/birth_at.bin"),
+    ),
+    (
+        "conception_at.bin",
+        include_bytes!("../../../tests/golden/pool/reject/conception_at.bin"),
+    ),
+    (
+        "conception_month.bin",
+        include_bytes!("../../../tests/golden/pool/reject/conception_month.bin"),
+    ),
+    (
+        "separation_at.bin",
+        include_bytes!("../../../tests/golden/pool/reject/separation_at.bin"),
+    ),
+    (
+        "leave_home_at.bin",
+        include_bytes!("../../../tests/golden/pool/reject/leave_home_at.bin"),
+    ),
+    (
+        "carried_time.bin",
+        include_bytes!("../../../tests/golden/pool/reject/carried_time.bin"),
+    ),
+    (
+        "past_time.bin",
+        include_bytes!("../../../tests/golden/pool/reject/past_time.bin"),
     ),
 ];
 
@@ -309,27 +349,6 @@ const RECORDS: Scenario = Scenario {
     save_end: RECORDS_SAVE_END,
     pedigree: Some(RECORDS_PEDIGREE),
     phi: &RECORDS_PHI,
-};
-
-const MICRO: Scenario = Scenario {
-    data: || town_data(&micro_pool()),
-    data_hash: MICRO_DATA_HASH,
-    pool_hash: MICRO_POOL_HASH,
-    seed: 0xff,
-    n_start: 50,
-    start_input: MICRO_START_INPUT,
-    save_after_start: MICRO_SAVE_AFTER_START,
-    first_entries: &MICRO_FIRST_ENTRIES,
-    draws: &MICRO_DRAWS,
-    used: &MICRO_USED,
-    marks: &MICRO_MARKS,
-    end: MICRO_END,
-    year_hashes: &MICRO_YEAR_HASHES,
-    log: MICRO_LOG,
-    state_hash: MICRO_STATE_HASH,
-    save_end: MICRO_SAVE_END,
-    pedigree: None,
-    phi: &MICRO_PHI,
 };
 
 /// "records" pairs sims 26 and 31 by an input stamped one second before 18 years.
@@ -751,34 +770,34 @@ fn start_rejects_a_pool_start_by_its_first_broken_rule() {
     assert!(World::new(data()).submit(Input::Start(accepted)).is_ok());
 }
 
-/// A carried time before `E_p` would fall before the arrival after the shift: the
-/// invariant `pool.carried_before_arrival` (design note, section 5). In `pool_c` the
-/// dependent child of household 33, which "arrival" draws at `Start`, leaves home one
-/// second before `E_p`.
+/// A carried time at or before `E_p` would fall into or before the arrival second after
+/// the shift, which ADR-0020 section 3 rules out: the data check rejects the pool with
+/// `pool.carried_time` (design note of the pool's records, P5). In `pool_c` the dependent
+/// child of household 33, which "arrival" draws at `Start`, leaves home one second before
+/// `E_p` or at `E_p`; in "micro" the woman of household 41 separates at `E_p`.
 #[test]
-#[should_panic(expected = "invariant pool.carried_before_arrival")]
-fn a_carried_time_before_the_arrival_breaks_an_invariant() {
-    let bytes = changed_pool_c(|pool| {
-        let frozen_at = pool.frozen_at;
-        let child = pool.households[33]
-            .members
-            .iter_mut()
-            .find(|m| m.leave_home_at.is_some())
-            .expect("a dependent child");
-        child.leave_home_at = Some(SimTime::from_secs(frozen_at.as_secs() - 1));
-    });
-    assert_eq!(sized(&bytes), CARRIED_BEFORE_POOL);
-    let data = town_data(&bytes);
-    assert_eq!(data.hash(), CARRIED_BEFORE_DATA_HASH);
-    let start = start(
-        0xff,
-        Vec::new(),
-        Vec::new(),
-        pool_start(&data, 0xff, 50, true),
-    );
-    assert_eq!(sized(&start_record(&start)), CARRIED_BEFORE_START);
-    let mut world = World::new(data);
-    let _ = world.submit(Input::Start(start));
+fn the_data_check_rejects_a_carried_time_at_or_before_the_freeze() {
+    let leave_at = |offset: i64| {
+        changed_pool_c(move |pool| {
+            let frozen_at = pool.frozen_at;
+            let child = pool.households[33]
+                .members
+                .iter_mut()
+                .find(|m| m.leave_home_at.is_some())
+                .expect("a dependent child");
+            child.leave_home_at = Some(SimTime::from_secs(frozen_at.as_secs() + offset));
+        })
+    };
+    let cases = [
+        ("before", leave_at(-1), CARRIED_BEFORE_POOL),
+        ("at the freeze", leave_at(0), LEAVE_AT_START_POOL),
+        ("micro", micro_pool(), MICRO_POOL),
+    ];
+    for (name, bytes, pin) in cases {
+        assert_eq!(sized(&bytes), pin, "{name}");
+        let error = Data::with_pool(definitions(template()), &bytes).expect_err(name);
+        assert_eq!(error.to_string(), "pool.carried_time", "{name}");
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -789,7 +808,6 @@ fn the_draws_take_the_households_of_the_reference() {
     assert_draws(&ARRIVAL, 14, 1);
     assert_draws(&ORPHANS, 0, 0);
     assert_draws(&RECORDS, 0, 0);
-    assert_draws(&MICRO, 4, 1);
 }
 
 /// "arrival" to the end of year 13: immigration every year, the pool child whose father is
@@ -820,13 +838,6 @@ fn orphans_run_as_the_reference() {
 #[test]
 fn records_run_as_the_reference() {
     Run::scenario(&RECORDS, true);
-}
-
-/// "micro": a carried separation that falls due in the arrival second runs after the
-/// immigration, in the next micro step (ADR-0002).
-#[test]
-fn a_carried_event_in_the_arrival_second_follows_the_arrival() {
-    Run::scenario(&MICRO, false);
 }
 
 /// `Start` takes every household of a pool too small for `n_start`; the immigration at
@@ -1185,58 +1196,6 @@ fn load_rejects_the_states_of_the_review() {
     }
 }
 
-/// `pool_c` with the carried leaving home of the dependent child of household 33, which
-/// "arrival" draws at `Start`, at `E_p`: after the shift it falls due in second 0.
-fn leave_at_start_pool() -> Vec<u8> {
-    changed_pool_c(|pool| {
-        let frozen_at = pool.frozen_at;
-        let child = pool.households[33]
-            .members
-            .iter_mut()
-            .find(|m| m.leave_home_at.is_some())
-            .expect("a dependent child");
-        child.leave_home_at = Some(frozen_at);
-    })
-}
-
-fn leave_at_start_data() -> Data {
-    town_data(&leave_at_start_pool())
-}
-
-/// A carried leaving home due in second 0 of a town founded from the pool (review): right
-/// after `Start` it is pending and the child has not moved out, after second 0 it has; both
-/// saves load.
-#[test]
-fn a_carried_leaving_home_in_second_0_loads_before_and_after() {
-    assert_eq!(sized(&leave_at_start_pool()), LEAVE_AT_START_POOL);
-    let data = leave_at_start_data();
-    assert_eq!(data.hash(), LEAVE_AT_START_DATA_HASH);
-    let start = start(
-        0xff,
-        Vec::new(),
-        Vec::new(),
-        pool_start(&data, 0xff, 50, true),
-    );
-    assert_eq!(sized(&start_record(&start)), LEAVE_AT_START_INPUT);
-    let mut world = World::new(data);
-    world.submit(Input::Start(start)).expect("accepted");
-    let log = world.take_log();
-    let mut run = Run {
-        world,
-        out: YearOut::default(),
-        log,
-        data: leave_at_start_data,
-    };
-    assert_eq!(sized(&run.save()), LEAVE_AT_START_SAVE_AFTER_START);
-    run.assert_loads();
-    let from = run.log.len();
-    run.play(0);
-    assert_eq!(run.log.len() - from, LEAVE_AT_START_ENTRIES.len());
-    run.assert_entries(from, &LEAVE_AT_START_ENTRIES);
-    assert_eq!(sized(&run.save()), LEAVE_AT_START_SAVE_AFTER_SECOND_0);
-    run.assert_loads();
-}
-
 /// A woman who gives birth and is paired by the market in the same second (review): the
 /// birth runs before the round, so her series starts from the pairing, at the first month
 /// start after it, not after the pause of the birth. "arrival" with the seed 0xef: woman 27
@@ -1470,7 +1429,7 @@ const DATA_REJECTED: [(&str, &str, (usize, u64)); 8] = [
         (10956, 0x314d_3640_9da3_03fa),
     ),
 ];
-const DATA_REJECTED_READER: [(&str, &str); 8] = [
+const DATA_REJECTED_READER: [(&str, &str); 18] = [
     ("ancestors_out_of_order.bin", "ancestors_out_of_order"),
     ("household_without_adult.bin", "household_without_adult"),
     ("magic.bin", "magic"),
@@ -1479,10 +1438,18 @@ const DATA_REJECTED_READER: [(&str, &str); 8] = [
     ("partnership_not_members.bin", "partnership_not_members"),
     ("trailing_bytes.bin", "trailing_bytes"),
     ("version.bin", "version"),
+    ("frozen_at.bin", "frozen_at"),
+    ("partnership_sex.bin", "partnership_sex"),
+    ("pregnancy_mother.bin", "pregnancy_mother"),
+    ("birth_at.bin", "birth_at"),
+    ("conception_at.bin", "conception_at"),
+    ("conception_month.bin", "conception_month"),
+    ("separation_at.bin", "separation_at"),
+    ("leave_home_at.bin", "leave_home_at"),
+    ("carried_time.bin", "carried_time"),
+    ("past_time.bin", "past_time"),
 ];
-const CARRIED_BEFORE_DATA_HASH: u64 = 0xaac8_8e78_eea6_2dad;
 const CARRIED_BEFORE_POOL: (usize, u64) = (10956, 0x7a8b_0ba8_9d1a_55eb);
-const CARRIED_BEFORE_START: (usize, u64) = (6730, 0xac46_a657_d94b_274f);
 const LOAD_BASE_AT: i64 = 94348799;
 const LOAD_BASE: (usize, u64) = (20695, 0xf509_3f7b_da81_7ed0);
 const LOAD_REJECTED: [Patch; 8] = [
@@ -2013,122 +1980,7 @@ const RECORDS_FIRST_ENTRIES: [Entry; 6] = [
     ),
 ];
 // micro
-const MICRO_DATA_HASH: u64 = 0x7adb_730d_75d2_87aa;
-const MICRO_POOL_HASH: u64 = 0x6dc0_8974_07ee_7772;
-const MICRO_START_INPUT: (usize, u64) = (6731, 0x548c_5d2d_a293_64a8);
-const MICRO_YEAR_HASHES: [u64; 4] = [
-    0xe6fc_d8a2_5e63_7170,
-    0x2688_7bfd_43e3_fa4c,
-    0xf8e2_ee9e_e6ed_218f,
-    0x7694_7748_be00_f056,
-];
-const MICRO_LOG: (usize, u64) = (463, 0x2673_b498_8554_e0b0);
-const MICRO_STATE_HASH: u64 = 0x7f36_55ae_237f_1dce;
-const MICRO_END: i64 = 125798399;
-const MICRO_SAVE_AFTER_START: (usize, u64) = (16886, 0x0fea_9e84_ae83_1436);
-const MICRO_SAVE_END: (usize, u64) = (21916, 0x478e_a0c9_8a91_3974);
-const MICRO_USED: [usize; 33] = [
-    14, 39, 6, 9, 3, 0, 27, 11, 25, 42, 31, 7, 23, 33, 20, 13, 38, 24, 22, 35, 28, 26, 17, 16, 15,
-    32, 19, 37, 30, 2, 5, 12, 41,
-];
-const MICRO_DRAWS: [(u64, &[usize]); 1] = [(
-    0,
-    &[
-        14, 39, 6, 9, 3, 0, 27, 11, 25, 42, 31, 7, 23, 33, 20, 13, 38, 24, 22, 35, 28, 26, 17, 16,
-        15, 32, 19, 37, 30, 2, 29, 21, 1, 34, 40, 5, 8, 4, 18, 12, 41, 36, 10,
-    ],
-)];
-/// (mark, second, the save before it, the save after it, its entries as bytes and JSON)
-const MICRO_MARKS: [Mark; 1] = [(
-    "arrival_with_carried_event",
-    94348800,
-    (20694, 0xbe5c_1b82_8216_83ae),
-    (21074, 0x60a0_dc4b_76df_67a1),
-    &[
-        (
-            "eb028098fd59010047010101000dfacccda6b1bcb69b1e",
-            Some(
-                r#"{"id":363,"t":94348800,"subjects":[{"sim":71}],"causes":[{"plan":{"by":1,"planned_at":0}}],"payload":{"core:arrived":{"lineage_key":"1e36d9e314d3667a"}}}"#,
-            ),
-        ),
-        (
-            "ec028098fd59010048010101000d82beaba5f1d9ecfe8101",
-            Some(
-                r#"{"id":364,"t":94348800,"subjects":[{"sim":72}],"causes":[{"plan":{"by":1,"planned_at":0}}],"payload":{"core:arrived":{"lineage_key":"81fdb2cf14aadf02"}}}"#,
-            ),
-        ),
-        (
-            "ed028098fd59020047004802010100030e636f72653a686f757365686f6c640a23",
-            Some(
-                r#"{"id":365,"t":94348800,"subjects":[{"sim":71},{"sim":72}],"causes":[{"plan":{"by":1,"planned_at":0}},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":35}}}"#,
-            ),
-        ),
-        (
-            "ee028098fd5902004800470100ec020511",
-            Some(
-                r#"{"id":366,"t":94348800,"subjects":[{"sim":72},{"sim":71}],"causes":[{"event":364}],"payload":{"core:partnered":{"partnership":17}}}"#,
-            ),
-        ),
-        (
-            "ef028098fd5901001601018f028090fe3b0203",
-            Some(
-                r#"{"id":367,"t":94348800,"subjects":[{"sim":22}],"causes":[{"plan":{"by":271,"planned_at":62899200}}],"payload":{"core:birthday":{"age_years":3}}}"#,
-            ),
-        ),
-        (
-            "f0028098fd5902004800470201ec028098fd59041282beaba5f1d9ecfe810100facccda6b1bcb69b1e0911",
-            Some(
-                r#"{"id":368,"t":94348800,"subjects":[{"sim":72},{"sim":71}],"causes":[{"plan":{"by":364,"planned_at":94348800}},{"random":{"tag":"0000000000000012","subject":"81fdb2cf14aadf02","occasion":"0000000000000000","detail":"1e36d9e314d3667a"}}],"payload":{"core:separated":{"partnership":17}}}"#,
-            ),
-        ),
-        (
-            "f1028098fd590100470200f002030e636f72653a686f757365686f6c640a24",
-            Some(
-                r#"{"id":369,"t":94348800,"subjects":[{"sim":71}],"causes":[{"event":368},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":36}}}"#,
-            ),
-        ),
-        (
-            "f2028098fd590100470200f002030e636f72653a686f757365686f6c640b24",
-            Some(
-                r#"{"id":370,"t":94348800,"subjects":[{"sim":71}],"causes":[{"event":368},{"rule":"core:household"}],"payload":{"core:moved":{"household":36}}}"#,
-            ),
-        ),
-    ],
-)];
-const MICRO_PHI: [(&str, u64, u64, f64); 0] = [];
-const MICRO_FIRST_ENTRIES: [Entry; 6] = [
-    ("0100000102010000", None),
-    (
-        "02000100010102010dd1cae8a18bdfb0efb601",
-        Some(
-            r#"{"id":2,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1}],"payload":{"core:arrived":{"lineage_key":"b6dec2f8b43a2551"}}}"#,
-        ),
-    ),
-    (
-        "0300010001020201030e636f72653a686f757365686f6c640a01",
-        Some(
-            r#"{"id":3,"t":0,"subjects":[{"sim":1}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":1}}}"#,
-        ),
-    ),
-    (
-        "04000100020102010dbfdffacfbaeef39666",
-        Some(
-            r#"{"id":4,"t":0,"subjects":[{"sim":2}],"causes":[{"input":1}],"payload":{"core:arrived":{"lineage_key":"662dcf73a9feafbf"}}}"#,
-        ),
-    ),
-    (
-        "05000100030102010dddc8dcff8fe384f0e301",
-        Some(
-            r#"{"id":5,"t":0,"subjects":[{"sim":3}],"causes":[{"input":1}],"payload":{"core:arrived":{"lineage_key":"e3e01318fff7245d"}}}"#,
-        ),
-    ),
-    (
-        "06000200020003020201030e636f72653a686f757365686f6c640a02",
-        Some(
-            r#"{"id":6,"t":0,"subjects":[{"sim":2},{"sim":3}],"causes":[{"input":1},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":2}}}"#,
-        ),
-    ),
-];
+const MICRO_POOL: (usize, u64) = (10956, 0x6dc0_8974_07ee_7772);
 const RECORDS_ARRANGE: ((usize, u64), (usize, u64), &[Entry]) = (
     (13540, 0x27cf_8d0d_1cd1_24f9),
     (13615, 0x5843_6275_9083_920f),
@@ -2207,36 +2059,6 @@ const LOAD_REJECTED_MORE: [Hunks; 4] = [
     ),
 ];
 const LEAVE_AT_START_POOL: (usize, u64) = (10956, 0x781d_b8c6_6891_9f33);
-const LEAVE_AT_START_DATA_HASH: u64 = 0x41f9_e2c1_311c_99b9;
-const LEAVE_AT_START_INPUT: (usize, u64) = (6730, 0xe7ec_b601_36a9_3be9);
-const LEAVE_AT_START_SAVE_AFTER_START: (usize, u64) = (16881, 0xd308_621c_23bc_fe9c);
-const LEAVE_AT_START_SAVE_AFTER_SECOND_0: (usize, u64) = (17045, 0x411d_a8ac_588b_21b0);
-const LEAVE_AT_START_ENTRIES: [Entry; 4] = [
-    (
-        "6100010034010101000dfbf7cfcf86f2c9d96a",
-        Some(
-            r#"{"id":97,"t":0,"subjects":[{"sim":52}],"causes":[{"plan":{"by":1,"planned_at":0}}],"payload":{"core:arrived":{"lineage_key":"6ab3279069f3fbfb"}}}"#,
-        ),
-    ),
-    (
-        "620001003402010100030e636f72653a686f757365686f6c640a1e",
-        Some(
-            r#"{"id":98,"t":0,"subjects":[{"sim":52}],"causes":[{"plan":{"by":1,"planned_at":0}},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":30}}}"#,
-        ),
-    ),
-    (
-        "630001001602012900030e636f72653a686f757365686f6c640a1f",
-        Some(
-            r#"{"id":99,"t":0,"subjects":[{"sim":22}],"causes":[{"plan":{"by":41,"planned_at":0}},{"rule":"core:household"}],"payload":{"core:household_formed":{"household":31}}}"#,
-        ),
-    ),
-    (
-        "640001001602012900030e636f72653a686f757365686f6c640b1f",
-        Some(
-            r#"{"id":100,"t":0,"subjects":[{"sim":22}],"causes":[{"plan":{"by":41,"planned_at":0}},{"rule":"core:household"}],"payload":{"core:moved":{"household":31}}}"#,
-        ),
-    ),
-];
 /// The tie of a birth and a pairing of the market in one second (review): "arrival" with the
 /// seed 0xef; woman 27 gives birth at `TIE_AT` and the round of that second pairs her.
 const TIE_SEED: u64 = 0xef;
