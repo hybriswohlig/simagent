@@ -1,0 +1,126 @@
+# Mutation runs on GitHub (docs/testregeln.md rule 2): started by hand for a branch whose
+# diff has more than about 150 mutants; smaller runs stay on the Mac (Dario, 2026-10-15).
+# Never a required check, never on push or pull request. Each shard runs the same
+# `cargo mutants --in-diff` as the Mac and prints its missed mutants and timeouts into the
+# log; the run is collected with `gh run view --log`.
+name: mutants
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base commit of the diff (empty: the merge base with origin/main)"
+        required: false
+        default: ""
+      shards:
+        description: "Number of shards"
+        required: true
+        default: "8"
+        type: choice
+        options: ["4", "8", "16", "24"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The base and the shards, fixed once for all shards; the inputs are checked before any
+  # use (a dispatch through the API can send any text).
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.list }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+          BASE: ${{ inputs.base }}
+        run: |
+          case "$SHARDS" in
+            4) list="[0,1,2,3]" ;;
+            8) list="[0,1,2,3,4,5,6,7]" ;;
+            16) list="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]" ;;
+            24) list="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" ;;
+            *) echo "shards must be 4, 8, 16 or 24"; exit 1 ;;
+          esac
+          if [ -z "$BASE" ]; then BASE=$(git merge-base origin/main HEAD); fi
+          base=$(git rev-parse --verify --end-of-options "${BASE}^{commit}")
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "base $base, head $(git rev-parse HEAD)"
+
+  mutants:
+    needs: plan
+    name: mutants (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    # The arm runners cost less per minute; the gate checks both arches.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 160
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the diff starts at the merge base with origin/main.
+          fetch-depth: 0
+      # Setup at most 27 minutes, the mutants 125: the summary keeps its minutes in the 160.
+      - name: Install the toolchain from rust-toolchain.toml
+        timeout-minutes: 10
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustc --version
+      - name: Install cargo-mutants
+        timeout-minutes: 15
+        run: cargo install cargo-mutants --locked --version 27.1.0
+      - name: The diff
+        timeout-minutes: 2
+        env:
+          BASE: ${{ needs.plan.outputs.base }}
+        run: |
+          git diff "$BASE" HEAD > "$RUNNER_TEMP/branch.diff"
+          echo "base $BASE, $(wc -l < "$RUNNER_TEMP/branch.diff") diff lines"
+      - name: Mutants
+        id: mutants
+        timeout-minutes: 125
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ inputs.shards }}
+        run: >
+          cargo mutants --in-diff "$RUNNER_TEMP/branch.diff"
+          --shard "$SHARD/$SHARDS" --output "$RUNNER_TEMP/mut"
+      - name: Missed and timeouts
+        if: always()
+        env:
+          OUTCOME: ${{ steps.mutants.outcome }}
+        run: |
+          # success: no missed mutant; failure: missed, timeouts or an error (exit code in
+          # the step above); cancelled or skipped: the counts below are partial or absent.
+          echo "mutants step: $OUTCOME"
+          if [ "$OUTCOME" != "success" ] && [ "$OUTCOME" != "failure" ]; then
+            echo "the counts below are possibly partial"
+          fi
+          out="$RUNNER_TEMP/mut/mutants.out"
+          if [ ! -f "$out/outcomes.json" ]; then
+            echo "no results: the shard did not finish (install, baseline or deadline)"
+            exit 0
+          fi
+          for kind in caught missed timeout unviable; do
+            echo "$kind $(cat "$out/$kind.txt" 2>/dev/null | wc -l)"
+          done
+          echo "--- missed"; cat "$out/missed.txt" 2>/dev/null || true
+          echo "--- timeout"; cat "$out/timeout.txt" 2>/dev/null || true
