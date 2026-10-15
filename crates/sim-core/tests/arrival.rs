@@ -918,6 +918,11 @@ fn base_save(label: &str) -> (Vec<u8>, fn() -> Data) {
             (run.save(), ARRIVAL.data)
         }
         "founders_world" => (founders_save(), founders_data),
+        "arrival_save_after_immigration_1" => (town_save(&ARRIVAL_AT_SEED, Y), ARRIVAL.data),
+        "arrival_save_end" => (town_save(&ARRIVAL_AT_SEED, ARRIVAL_END), ARRIVAL.data),
+        "V3_carried_series_ended" => (town_save(&V3, V3.clock), ARRIVAL.data),
+        "V4b_carried_conception_pregnant" => (town_save(&ARRIVAL_AT_SEED, V4B_AT), ARRIVAL.data),
+        "V5_pool_twins_born" => (town_save(&ARRIVAL_AT_SEED, V5_TWINS_AT), ARRIVAL.data),
         "arrival_moved_out_by_town_partnership" => {
             let mut run = Run::start(&RECORDS);
             run.play(RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT);
@@ -962,6 +967,101 @@ fn brought_not_moved_out_data() -> Data {
     let pool = brought_not_moved_out_pool();
     assert_eq!(sized(&pool), BROUGHT_NOT_MOVED_OUT_POOL);
     town_data(&pool)
+}
+
+/// A town of the reference founded from a pool, without inputs, saved at a clock.
+struct Town {
+    data: fn() -> Data,
+    seed: u64,
+    n_start: u64,
+    clock: i64,
+}
+
+/// "arrival" itself, for saves at other seconds than its marks.
+const ARRIVAL_AT_SEED: Town = Town {
+    data: || town_data(POOL_C),
+    seed: 0xff,
+    n_start: 50,
+    clock: 0,
+};
+
+/// "arrival" with the seed 3: woman 40 (household 41) fails the attempt of her carried
+/// series at the clock, and the next would fall after her fertility: none is pending.
+const V3: Town = Town {
+    data: || town_data(POOL_C),
+    seed: 3,
+    n_start: 50,
+    clock: 140_313_600,
+};
+
+/// `pool_d` with the seed 0xdb: the pool mother 27 dies before her pool birth.
+const V6: Town = Town {
+    data: || town_data(POOL_D),
+    seed: 0xdb,
+    n_start: 30,
+    clock: 3_263_752,
+};
+
+/// The town's save at `clock`.
+fn town_save(town: &Town, clock: i64) -> Vec<u8> {
+    let data = (town.data)();
+    let start = start(
+        town.seed,
+        Vec::new(),
+        Vec::new(),
+        pool_start(&data, town.seed, town.n_start, true),
+    );
+    let mut run = Run {
+        world: World::new(data),
+        out: YearOut::default(),
+        log: Vec::new(),
+        data: town.data,
+    };
+    run.world.submit(Input::Start(start)).expect("accepted");
+    run.world.take_log();
+    run.play(clock);
+    run.save()
+}
+
+/// The plans an arrival brought, checked at load (design note of the carried plans): the
+/// valid states of the reference load, among them a carried series ended at the fertility
+/// limit, conceptions in a carried series, pool twins born, and a pool pregnancy ended
+/// with its mother; each state changed in one rule (C1 the series' second, presence and
+/// end; C2 a conception before the series; C3 a pool pregnancy pending, born, or ended;
+/// C4 the plan of a carried event; C5 their order) does not.
+#[test]
+fn load_checks_the_plans_an_arrival_brought() {
+    let valid: [(&str, Vec<u8>, (usize, u64)); 5] = [
+        ("V3", town_save(&V3, V3.clock), V3_SAVE),
+        ("V4", town_save(&ARRIVAL_AT_SEED, MONTH_1), V4_SAVE),
+        ("V4b", town_save(&ARRIVAL_AT_SEED, V4B_AT), V4B_SAVE),
+        (
+            "V5 twins",
+            town_save(&ARRIVAL_AT_SEED, V5_TWINS_AT),
+            V5_TWINS_SAVE,
+        ),
+        ("V6", town_save(&V6, V6.clock), V6_SAVE),
+    ];
+    for (name, bytes, pin) in valid {
+        assert_eq!(sized(&bytes), pin, "{name}");
+        let data = if name == "V6" { V6.data } else { ARRIVAL.data };
+        assert!(World::load(&bytes, data()).is_ok(), "{name} loads");
+    }
+    for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_CARRIED {
+        let (base, data) = base_save(label);
+        assert_eq!(sized(&base), base_pin, "{name}");
+        assert!(World::load(&base, data()).is_ok(), "{name}: the base loads");
+        let mut bytes = base.clone();
+        for (offset, removed, put) in hunks.iter().rev() {
+            bytes.splice(*offset..offset + removed, hex(put));
+        }
+        assert_eq!(sized(&bytes), expected, "{name}");
+        assert_eq!(
+            World::load(&bytes, data()).err(),
+            Some(LoadError::Inconsistent),
+            "{name}"
+        );
+    }
 }
 
 /// The template without a pool.
@@ -2488,3 +2588,200 @@ const RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT: i64 = 186278400;
 /// The pool with a brought partnership's member not moved out, and its data.
 const BROUGHT_NOT_MOVED_OUT_POOL: (usize, u64) = (10961, 0x8ee0_f947_b74c_76cf);
 const BROUGHT_NOT_MOVED_OUT_DATA_HASH: u64 = 0xc8d7_d7ec_95e3_f2a2;
+
+/// The reference's states of the carried plans (out6, its notes' section 5d).
+const LOAD_REJECTED_CARRIED: [Hunks; 16] = [
+    (
+        "carried_series_one_month_late",
+        "arrival_save_after_immigration_1",
+        (18883, 0x46dc_09da_4ae3_a196),
+        &[
+            (52, 13, ""),
+            (150, 0, "0180a8a70280d8cd22004b0315"),
+            (11320, 2, ""),
+            (11354, 0, "2800"),
+        ],
+        (18883, 0xc45e_8910_d969_7d9a),
+    ),
+    (
+        "carried_series_before_its_start",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[
+            (42, 0, "00000a03030180a8a702"),
+            (59, 13, ""),
+            (9758, 5, "05005e0001"),
+        ],
+        (16884, 0xb7c9_a850_7b28_f55e),
+    ),
+    (
+        "carried_series_missing",
+        "arrival_save_after_immigration_1",
+        (18883, 0x46dc_09da_4ae3_a196),
+        &[(33, 1, "ec"), (52, 13, ""), (11311, 10, "ec017280a09d0901")],
+        (18868, 0x103b_09d1_1433_24a1),
+    ),
+    (
+        "carried_series_past_fertility",
+        "V3_carried_series_ended",
+        (21734, 0x33b4_3258_3764_9558),
+        &[
+            (33, 1, "aa"),
+            (623, 0, "0180a8a70280b88f88010097010328"),
+            (13983, 1, "aa"),
+            (14298, 0, "4800"),
+        ],
+        (21751, 0xed51_8372_ef9d_8c56),
+    ),
+    (
+        "carried_conception_before_its_series",
+        "V4b_carried_conception_pregnant",
+        (18581, 0x83a2_f784_3f4e_6ba6),
+        &[
+            (292, 0, "a202042d0080d0c32900"),
+            (306, 10, ""),
+            (11036, 3, "c0ba12"),
+            (11162, 0, "ac0180c0ba12"),
+            (11172, 6, ""),
+        ],
+        (18581, 0x840d_2a0a_47c6_d468),
+    ),
+    (
+        "pool_pregnancy_dropped",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[
+            (30, 1, "c5"),
+            (179, 10, ""),
+            (9108, 1, "05"),
+            (9544, 89, ""),
+            (9754, 1, "c5"),
+            (9783, 2, ""),
+        ],
+        (16786, 0x85ca_3f93_1fa4_36cc),
+    ),
+    (
+        "pool_birth_vanished",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[
+            (30, 4, "3b101fe1"),
+            (761, 10, ""),
+            (1064, 11, ""),
+            (1836, 20, ""),
+            (2072, 20, ""),
+            (3168, 21, ""),
+            (3621, 1, "3a"),
+            (7573, 1, "00"),
+            (10328, 155, ""),
+            (10966, 1, "e1"),
+            (11169, 5, ""),
+            (11234, 5, ""),
+            (11324, 5, ""),
+            (11362, 5, ""),
+            (11507, 5, ""),
+        ],
+        (18030, 0x3ce0_9995_03d5_e3c3),
+    ),
+    (
+        "pool_child_born_one_second_early",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[
+            (741, 0, "fef7ea2b00ee01013b00"),
+            (760, 10, ""),
+            (1065, 2, "fe8f"),
+            (1836, 1, "ae"),
+            (2082, 1, "8e"),
+            (3168, 1, "cc"),
+            (10329, 2, "feef"),
+            (10431, 2, "feef"),
+            (10456, 2, "feef"),
+            (11159, 11, "7b80f0eb0d7d80f0eb0d7e"),
+        ],
+        (18292, 0x1222_4083_95bd_bf2f),
+    ),
+    (
+        "pool_twin_missing",
+        "V5_pool_twins_born",
+        (17656, 0xf40a_6465_d36e_a861),
+        &[
+            (30, 4, "38101fd5"),
+            (737, 10, ""),
+            (957, 11, ""),
+            (1846, 20, ""),
+            (2969, 21, ""),
+            (3401, 1, "37"),
+            (5013, 1, "01"),
+            (9703, 125, ""),
+            (10419, 1, "d5"),
+            (10588, 5, ""),
+            (10630, 5, ""),
+            (10736, 5, ""),
+            (10876, 5, ""),
+        ],
+        (17449, 0xa83a_85b8_4190_22a7),
+    ),
+    (
+        "carried_attempt_plan_moved",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(9763, 1, "01")],
+        (16887, 0x363d_a074_2361_ed94),
+    ),
+    (
+        "carried_birth_plan_moved",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(9785, 1, "01")],
+        (16887, 0xdb13_b1db_de6f_1038),
+    ),
+    (
+        "carried_separation_plan_moved",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(9889, 1, "01")],
+        (16887, 0x0f9f_d80c_ef16_4154),
+    ),
+    (
+        "carried_leave_home_plan_moved",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(9911, 1, "01")],
+        (16887, 0xb9f9_b14d_aece_61cc),
+    ),
+    (
+        "carried_plan_planned_later",
+        "arrival_save_end",
+        (28063, 0x3cba_e9e9_5c2e_a6f0),
+        &[(20681, 1, "82")],
+        (28063, 0x57ae_e84a_5eb9_cbf6),
+    ),
+    (
+        "carried_plan_by_other_member",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(9950, 1, "24")],
+        (16887, 0xee89_7345_d7c0_8bfa),
+    ),
+    (
+        "carried_plans_swapped",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(69, 1, "0b"), (1895, 1, "0a")],
+        (16887, 0x7379_b057_0f07_d572),
+    ),
+];
+
+/// "arrival" at the first month start: woman 13 conceived in her carried series.
+const MONTH_1: i64 = 2_419_200;
+/// "arrival" when woman 45 conceived at the start of her carried series.
+const V4B_AT: i64 = 21_772_800;
+/// "arrival" when the pool twins of household 31 are born.
+const V5_TWINS_AT: i64 = 7_257_600;
+
+const V3_SAVE: (usize, u64) = (21734, 0x33b4_3258_3764_9558);
+const V4_SAVE: (usize, u64) = (17268, 0x0b30_54a5_c8ec_e064);
+const V4B_SAVE: (usize, u64) = (18581, 0x83a2_f784_3f4e_6ba6);
+const V5_TWINS_SAVE: (usize, u64) = (17656, 0xf40a_6465_d36e_a861);
+const V6_SAVE: (usize, u64) = (12821, 0xa97a_34d1_4abe_10db);
