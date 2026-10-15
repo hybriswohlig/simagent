@@ -1,6 +1,7 @@
 //! The domain state (ADR-0003 section 4). Domain code changes it only inside a handler
 //! or an applied input and sees the rest of the world through `SimCtx`.
 
+pub(crate) mod arrival;
 pub(crate) mod birth;
 pub(crate) mod birthday;
 pub(crate) mod census;
@@ -23,7 +24,7 @@ use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
 use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::kinship::KinshipCache;
-use crate::lineage::{LineageIndex, LineageKey};
+use crate::lineage::{GenomeKey, LineageIndex, LineageKey};
 use crate::params::WorldParams;
 use crate::time::{EventHandle, SimTime, YEAR};
 
@@ -58,6 +59,44 @@ pub(crate) struct Sim {
     /// Who took it in by the orphan rule (a relative, or a foster mother and her partner),
     /// in the order they became its social parents, each once (ADR-0018 section 4).
     pub(crate) social_parents: Vec<SimId>,
+    /// Where a pool person came from (ADR-0020 section 5); `None` for a town person.
+    pub(crate) pool: Option<PoolOrigin>,
+}
+
+/// What a pool person brings from the pool (design note of the arrival, section 6.1): its
+/// relations as lineage keys, since its parents may never come into the town.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PoolOrigin {
+    pub(crate) genome_key: GenomeKey,
+    /// Its birth second in the pool run; `None` for a child of a pool pregnancy born in
+    /// the town.
+    pub(crate) born_pool: Option<SimTime>,
+    /// The second it arrived, or the second of its birth for a pool child.
+    pub(crate) arrived: SimTime,
+    /// The year it arrived (0 for founders); for a pool child the year of its birth.
+    pub(crate) arrival_year: u64,
+    pub(crate) mother: Option<LineageKey>,
+    pub(crate) father: Option<LineageKey>,
+    pub(crate) social_parents: Vec<LineageKey>,
+}
+
+/// The seeds of a person's draws (design note of the arrival, section 6.2): `E`, `C`,
+/// and its own life draws (the wish and the menarche offset, penetrance and onset).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Seeds {
+    pub(crate) individual: u64,
+    pub(crate) shared: u64,
+    pub(crate) life: u64,
+}
+
+impl Seeds {
+    pub(crate) const fn one(seed: u64) -> Seeds {
+        Seeds {
+            individual: seed,
+            shared: seed,
+            life: seed,
+        }
+    }
 }
 
 /// The biological parents of a sim and the mother's conception number of it.
@@ -72,7 +111,11 @@ pub(crate) struct Parents {
 /// number, the one or two children (spec 11.3) and when she conceived.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Pregnancy {
-    pub(crate) father: SimId,
+    /// The father, if he is a person of the town; a pregnancy brought from the pool may
+    /// have a father who never came (design note of the arrival, section 5).
+    pub(crate) father: Option<SimId>,
+    /// The father's lineage key for a pregnancy from the pool; `None` otherwise.
+    pub(crate) pool_father: Option<LineageKey>,
     pub(crate) conception: u32,
     /// In the order of their multiple index (ADR-0001 section 4).
     pub(crate) children: Vec<Unborn>,
@@ -164,6 +207,7 @@ pub(crate) struct ArchivedSim {
     pub(crate) moved_out: bool,
     pub(crate) parents: Option<Parents>,
     pub(crate) social_parents: Vec<SimId>,
+    pub(crate) pool: Option<PoolOrigin>,
 }
 
 /// A household (ADR-0018 section 4): from its forming until its last member leaves; it
@@ -187,9 +231,16 @@ pub(crate) struct DomainState {
     /// The running pregnancies, by mother.
     pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
+    /// The households of the data's pool that came into the town, as their indices in the
+    /// pool file, in arrival order (founders first; ADR-0020 section 5).
+    pub(crate) pool_used: Vec<u32>,
     /// The lineage keys of the living and the archive. Not part of the projection:
     /// loading builds it again (ADR-0001 section 4).
     pub(crate) lineage: LineageIndex,
+    /// The `SimId` of every person of the town, living or archived, by its lineage key
+    /// (`φ` over lineage keys, ADR-0020 section 4). Not part of the projection: loading
+    /// builds it again.
+    pub(crate) keys: BTreeMap<LineageKey, SimId>,
     /// The handle of every pending event of a sim, so that the events of a sim that
     /// dies can be cancelled. Not part of the projection: the queue holds the events,
     /// loading builds the index again.
@@ -199,7 +250,7 @@ pub(crate) struct DomainState {
     pub(crate) open: BTreeMap<SimId, PartnershipId>,
     /// The working memory of the φ queries (ADR-0018 section 2), empty at each query
     /// (ADR-0020 section 4). Not part of the projection and not saved.
-    pub(crate) kinship: KinshipCache<SimId>,
+    pub(crate) kinship: KinshipCache<LineageKey>,
     /// The living members of each household that has not ended (ADR-0018 section 4). Not
     /// part of the projection: loading builds it again from the sims.
     pub(crate) members: BTreeMap<HouseholdId, BTreeSet<SimId>>,
@@ -222,6 +273,81 @@ pub(crate) enum Slot {
 }
 
 impl DomainState {
+    /// Where the person with this ID came from, living or archived; `None` for a town
+    /// person (and for an unknown ID).
+    pub(crate) fn pool_origin(&self, sim: SimId) -> Option<&PoolOrigin> {
+        self.sims
+            .get(&sim)
+            .and_then(|person| person.pool.as_ref())
+            .or_else(|| {
+                self.archive
+                    .get(&sim)
+                    .and_then(|person| person.pool.as_ref())
+            })
+    }
+
+    /// The lineage key of a person of the town, living or archived.
+    pub(crate) fn key_of(&self, sim: SimId) -> LineageKey {
+        self.sims
+            .get(&sim)
+            .map(|person| person.lineage_key)
+            .or_else(|| self.archive.get(&sim).map(|person| person.lineage_key))
+            .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()))
+    }
+
+    /// The lineage keys of the biological parents of a person, living or archived: a pool
+    /// person's from the pool, a town person's from its parents (design note of the
+    /// arrival, section 6.2); `None` for a founder and for a pool person without both.
+    pub(crate) fn parent_keys(&self, sim: SimId) -> Option<crate::phenotype::Parents> {
+        if let Some(from) = self.pool_origin(sim) {
+            return from
+                .mother
+                .zip(from.father)
+                .map(|(mother, father)| crate::phenotype::Parents { mother, father });
+        }
+        let parents = self
+            .sims
+            .get(&sim)
+            .and_then(|person| person.parents)
+            .or_else(|| self.archive.get(&sim).and_then(|person| person.parents))?;
+        Some(crate::phenotype::Parents {
+            mother: self.key_of(parents.mother),
+            father: self.key_of(parents.father),
+        })
+    }
+
+    /// The seeds of a person's draws (design note of the arrival, section 6.2): a pool
+    /// person draws everything with the pool seed; a town person whose two biological
+    /// parents are pool persons draws `C` with it; everyone else with the world seed.
+    pub(crate) fn seeds(&self, data: &crate::data::Data, sim: SimId) -> Seeds {
+        let world = self
+            .world_seed
+            .unwrap_or_else(|| panic!("invariant seeds.before_start"));
+        let pool = data.pool().map(|held| held.pool().pool_seed);
+        if self.pool_origin(sim).is_some() {
+            return Seeds::one(pool.unwrap_or_else(|| panic!("invariant pool.missing")));
+        }
+        let parents = self
+            .sims
+            .get(&sim)
+            .and_then(|person| person.parents)
+            .or_else(|| self.archive.get(&sim).and_then(|person| person.parents));
+        match (parents, pool) {
+            (Some(p), Some(pool))
+                if self.pool_origin(p.mother).is_some() && self.pool_origin(p.father).is_some() =>
+            {
+                Seeds {
+                    individual: world,
+                    shared: pool,
+                    life: world,
+                }
+            }
+            _ => Seeds::one(world),
+        }
+    }
+}
+
+impl DomainState {
     pub(crate) const fn new() -> DomainState {
         DomainState {
             world_seed: None,
@@ -231,7 +357,9 @@ impl DomainState {
             partnerships: BTreeMap::new(),
             households: BTreeMap::new(),
             archive: BTreeMap::new(),
+            pool_used: Vec::new(),
             lineage: LineageIndex::new(),
+            keys: BTreeMap::new(),
             pending: BTreeMap::new(),
             open: BTreeMap::new(),
             kinship: KinshipCache::new(),

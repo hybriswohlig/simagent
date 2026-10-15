@@ -80,6 +80,7 @@ mod tests {
             carer: None,
             parents: None,
             social_parents: alloc::vec::Vec::new(),
+            pool: None,
         }
     }
 
@@ -99,6 +100,7 @@ mod tests {
             moved_out: false,
             parents: None,
             social_parents: alloc::vec::Vec::new(),
+            pool: None,
         }
     }
 

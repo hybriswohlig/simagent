@@ -17,6 +17,9 @@ pub const MAX_MICRO_STEP: u16 = 64;
 pub struct EventClass(u16);
 
 impl EventClass {
+    /// Immigration runs first in its second, before births, the market, conceptions and
+    /// deaths (ADR-0020 section 5): the immigrants take part in them.
+    pub const IMMIGRATION: EventClass = EventClass(100);
     pub const BIRTH: EventClass = EventClass(200);
     pub const GENERAL: EventClass = EventClass(500);
     pub const DEATH: EventClass = EventClass(900);

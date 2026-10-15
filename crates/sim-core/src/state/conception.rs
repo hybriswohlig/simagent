@@ -11,6 +11,7 @@ use alloc::vec;
 use super::{DomainState, Pregnancy, Slot, Unborn, disease, partnership};
 use crate::data::Data;
 use crate::data_id::Code;
+use crate::data_id::DataId;
 use crate::fertility::{self, Curves};
 use crate::genome::Genome;
 use crate::genome::meiosis::Zygote;
@@ -65,27 +66,38 @@ pub(crate) struct Person<'a> {
     pub(crate) lineage_key: LineageKey,
     pub(crate) genome: &'a Genome,
     pub(crate) parents: Option<Parents>,
+    /// The seeds of its draws (design note of the arrival, section 6.2).
+    pub(crate) seeds: super::Seeds,
+}
+
+impl Person<'_> {
+    /// Its phenotype of `t` at the age `age`, `E` and `C` from its seeds.
+    pub(crate) fn phenotype(&self, data: &Data, t: &DataId, age: SimDuration) -> Option<f64> {
+        let individual = Draws::new(WorldSeed::new(self.seeds.individual));
+        let shared = Draws::new(WorldSeed::new(self.seeds.shared));
+        phenotype::phenotype(
+            phenotype::Environment {
+                individual: &individual,
+                shared: &shared,
+            },
+            data,
+            self.genome,
+            self.lineage_key,
+            self.parents,
+            t,
+            age,
+        )
+    }
 }
 
 /// The puberty timing `θ_i` of a person at `t` (5.2): from the phenotype of the trait the
 /// data name, else `θ` of the curve of the sex (11.1: the term drops).
-fn theta_i(data: &Data, seed: u64, person: &Person<'_>, t: SimTime) -> f64 {
+fn theta_i(data: &Data, person: &Person<'_>, t: SimTime) -> f64 {
     let genetics = data.genetics();
     let curve = genetics.growth(person.genome.sex());
     let z_p = data
         .puberty_trait()
-        .and_then(|t_p| {
-            let age = t.checked_since(person.born)?;
-            phenotype::phenotype(
-                phenotype::Environment::one(&Draws::new(WorldSeed::new(seed))),
-                data,
-                person.genome,
-                person.lineage_key,
-                person.parents,
-                t_p,
-                age,
-            )
-        })
+        .and_then(|t_p| person.phenotype(data, t_p, t.checked_since(person.born)?))
         .unwrap_or(0.0);
     fertility::theta_i(curve, z_p)
 }
@@ -105,13 +117,7 @@ pub(crate) fn wish(data: &Data, seed: u64, her: LineageKey) -> u32 {
 
 /// The chance of her attempt with him at `t` (11.3): the adult rate times her factor from
 /// her menarche and his from his puberty timing, both at `t`.
-pub(crate) fn chance(
-    data: &Data,
-    seed: u64,
-    her: &Person<'_>,
-    him: &Person<'_>,
-    t: SimTime,
-) -> f64 {
+pub(crate) fn chance(data: &Data, her: &Person<'_>, him: &Person<'_>, t: SimTime) -> f64 {
     let curves = data.genetics().fertility;
     let her_menarche = match &curves {
         Curves::Puberty(p) => {
@@ -121,18 +127,17 @@ pub(crate) fn chance(
                 occasion: 0,
                 detail: 0,
             };
-            let delta =
-                Draws::new(WorldSeed::new(seed)).normal(key, p.menarche_mean, p.menarche_sd);
-            fertility::menarche(theta_i(data, seed, her, t), delta, p)
+            let delta = Draws::new(WorldSeed::new(her.seeds.life)).normal(
+                key,
+                p.menarche_mean,
+                p.menarche_sd,
+            );
+            fertility::menarche(theta_i(data, her, t), delta, p)
         }
         Curves::Window { .. } => 0.0,
     };
     let female = fertility::female_factor(disease::age(her.born, t), her_menarche, &curves);
-    let male = fertility::male_factor(
-        disease::age(him.born, t),
-        theta_i(data, seed, him, t),
-        &curves,
-    );
+    let male = fertility::male_factor(disease::age(him.born, t), theta_i(data, him, t), &curves);
     fertility::chance(data.demography().fertility.adult_rate, female, male)
 }
 
@@ -151,26 +156,16 @@ pub(crate) fn may_begin(
 }
 
 /// The facts of a sim of the domain the rule reads.
-pub(crate) fn person<'a>(domain: &'a DomainState, id: SimId) -> Person<'a> {
+pub(crate) fn person<'a>(domain: &'a DomainState, data: &Data, id: SimId) -> Person<'a> {
     let Some(sim) = domain.sims.get(&id) else {
         panic!("invariant unknown_entity_id: sim {}", id.get());
-    };
-    let key_of = |parent: SimId| {
-        domain
-            .sims
-            .get(&parent)
-            .map(|p| p.lineage_key)
-            .or_else(|| domain.archive.get(&parent).map(|p| p.lineage_key))
-            .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", parent.get()))
     };
     Person {
         born: sim.born,
         lineage_key: sim.lineage_key,
         genome: &sim.genome,
-        parents: sim.parents.map(|p| Parents {
-            mother: key_of(p.mother),
-            father: key_of(p.father),
-        }),
+        parents: domain.parent_keys(id),
+        seeds: domain.seeds(data, id),
     }
 }
 
@@ -185,17 +180,15 @@ pub(crate) fn plan_attempts(
     start: Option<SimTime>,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let seed = domain
-        .world_seed
-        .unwrap_or_else(|| panic!("invariant conception.before_start"));
     let Some(her) = domain.sims.get(&woman) else {
         panic!("invariant unknown_entity_id: sim {}", woman.get());
     };
     let Some(start) = start else {
         return;
     };
+    let life = domain.seeds(data, woman).life;
     if domain.pregnancies.contains_key(&woman)
-        || !may_begin(data, seed, her.born, her.lineage_key, her.births, start)
+        || !may_begin(data, life, her.born, her.lineage_key, her.births, start)
     {
         return;
     }
@@ -245,10 +238,10 @@ pub(crate) fn on_attempt(
     else {
         panic!("invariant conception.without_partnership");
     };
-    let (her, him) = (person(domain, woman), person(domain, man));
+    let (her, him) = (person(domain, data, woman), person(domain, data, man));
     let month = month_index(now).unwrap_or_else(|| panic!("invariant conception.before_start"));
     let draw = attempt_key(her.lineage_key, him.lineage_key, month);
-    let p = chance(data, seed, &her, &him, now);
+    let p = chance(data, &her, &him, now);
     if !Draws::new(WorldSeed::new(seed)).bernoulli(draw, p) {
         let end = fertility_end(&data.genetics().fertility);
         let next = now.checked_add(MONTH);
@@ -406,7 +399,8 @@ fn conceive(
     domain.pregnancies.insert(
         woman,
         Pregnancy {
-            father: man,
+            father: Some(man),
+            pool_father: None,
             conception: number,
             children: unborn,
             conceived: now,
@@ -474,15 +468,10 @@ mod tests {
             lineage_key: LineageKey::founder(&tag, index),
             genome,
             parents: None,
+            seeds: super::super::Seeds::one(0xff),
         };
         let chance_at = |her: i64, him: i64| {
-            chance(
-                &data,
-                0xff,
-                &person(0, her, &women),
-                &person(1, him, &men),
-                t(0),
-            )
+            chance(&data, &person(0, her, &women), &person(1, him, &men), t(0))
         };
         assert_eq!(chance_at(130, 150), 0.002_324_437_937_216_047_3);
         assert_eq!(chance_at(135, 150), 0.025_551_524_660_079_46);

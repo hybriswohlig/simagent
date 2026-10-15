@@ -109,7 +109,7 @@ fn living_mut(domain: &mut DomainState, sim: SimId) -> &mut Sim {
 }
 
 /// A new household, formed now with `members` as its subjects (by SimId).
-fn create(
+pub(crate) fn create(
     domain: &mut DomainState,
     members: &[SimId],
     causes: Causes,
@@ -144,7 +144,7 @@ pub(crate) fn leave(domain: &mut DomainState, sim: SimId, household: HouseholdId
 }
 
 /// `sim` joins `household` (without an entry).
-fn join(domain: &mut DomainState, sim: SimId, household: HouseholdId) {
+pub(crate) fn join(domain: &mut DomainState, sim: SimId, household: HouseholdId) {
     living_mut(domain, sim).household = household;
     domain.members.entry(household).or_default().insert(sim);
 }
@@ -233,7 +233,7 @@ pub(crate) fn start_households(
             settle(domain, &[sim], ctx);
             continue;
         }
-        match placement(domain, sim, now) {
+        match placement(domain, data, sim, now) {
             Placement::Alone => settle(domain, &[sim], ctx),
             taken => {
                 let home = take_in(domain, &[sim], &taken);
@@ -340,7 +340,12 @@ pub(crate) fn separation_moves(
 
 /// `sim` leaves home now: a household of its own, moved out, no carer. Each dependent
 /// child it cared for, left behind, gets a successor or the orphan rule.
-pub(crate) fn on_leave_home(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn on_leave_home(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::LeaveHome));
     let person = living_mut(domain, sim);
@@ -350,7 +355,7 @@ pub(crate) fn on_leave_home(domain: &mut DomainState, sim: SimId, ctx: &mut SimC
     found(domain, &[sim], &causes, ctx);
     // Moved out only now, so never in a partnership: no partner to take over.
     let orphans = succeed(domain, sim, None, ctx.now());
-    place(domain, &orphans, &causes, ctx);
+    place(domain, data, &orphans, &causes, ctx);
 }
 
 /// `dead` died now (already in the archive, its partnership ended): it leaves its
@@ -358,6 +363,7 @@ pub(crate) fn on_leave_home(domain: &mut DomainState, sim: SimId, ctx: &mut SimC
 /// `partner` is the partner of the partnership the death ended.
 pub(crate) fn death_moves(
     domain: &mut DomainState,
+    data: &Data,
     dead: SimId,
     household: HouseholdId,
     partner: Option<SimId>,
@@ -368,7 +374,7 @@ pub(crate) fn death_moves(
     leave(domain, dead, household, now);
     let orphans = succeed(domain, dead, partner, now);
     let causes = Causes::new(Cause::Event(death)).with(Cause::Rule(rule()));
-    place(domain, &orphans, &causes, ctx);
+    place(domain, data, &orphans, &causes, ctx);
 }
 
 /// The succession for the dependent children `gone` cared for (ADR-0018 section 4): the
@@ -395,12 +401,8 @@ fn succeed(
     };
     let mut orphans = Vec::new();
     for child in children {
-        let person = living(domain, child);
-        let home = person.household;
-        let parents: Vec<SimId> = person
-            .parents
-            .map(|p| alloc::vec![p.mother, p.father])
-            .unwrap_or_default();
+        let home = living(domain, child).household;
+        let parents = biological_parents(domain, child);
         // `gone` is never fit here: the dead is in the archive already, and who left home
         // lives in a new household.
         let parent = parents.into_iter().find(|&p| fit(domain, p, home));
@@ -417,6 +419,23 @@ fn succeed(
     orphans
 }
 
+/// The biological parents of a living person that are persons of the town, mother first: a
+/// pool person's found by its pool keys (design note of the arrival, section 7).
+fn biological_parents(domain: &DomainState, sim: SimId) -> Vec<SimId> {
+    let person = living(domain, sim);
+    match &person.pool {
+        Some(from) => [from.mother, from.father]
+            .into_iter()
+            .flatten()
+            .filter_map(|key| domain.keys.get(&key).copied())
+            .collect(),
+        None => person
+            .parents
+            .map(|p| alloc::vec![p.mother, p.father])
+            .unwrap_or_default(),
+    }
+}
+
 /// Where the orphan rule puts a group (ADR-0018 section 4).
 enum Placement {
     /// With the nearest relative of 18 or more, its carer and social parent.
@@ -429,8 +448,13 @@ enum Placement {
 }
 
 /// The placement of a group whose eldest child is `representative`, at `now`.
-fn placement(domain: &mut DomainState, representative: SimId, now: SimTime) -> Placement {
-    if let Some(relative) = nearest_relative(domain, representative, now) {
+fn placement(
+    domain: &mut DomainState,
+    data: &Data,
+    representative: SimId,
+    now: SimTime,
+) -> Placement {
+    if let Some(relative) = nearest_relative(domain, data, representative, now) {
         return Placement::Relative(relative);
     }
     match foster_mother(domain, representative, now) {
@@ -443,6 +467,7 @@ fn placement(domain: &mut DomainState, representative: SimId, now: SimTime) -> P
 /// the greatest φ; tie: the smaller lineage key.
 fn nearest_relative(
     domain: &mut DomainState,
+    data: &Data,
     representative: SimId,
     now: SimTime,
 ) -> Option<SimId> {
@@ -456,7 +481,7 @@ fn nearest_relative(
         .collect();
     let mut nearest: Option<(f64, LineageKey, SimId)> = None;
     for (id, key) in adults {
-        let phi = market::phi(domain, representative, id);
+        let phi = market::phi(domain, data, representative, id);
         if phi <= 0.0 {
             continue;
         }
@@ -519,12 +544,17 @@ fn take_in(domain: &mut DomainState, group: &[SimId], placement: &Placement) -> 
         Placement::Foster(woman, man) => (woman, alloc::vec![woman, man]),
         Placement::Alone => panic!("invariant household.take_in_alone"),
     };
+    // A biological parent never becomes a social parent; a pool person's by its keys.
+    let social: Vec<(SimId, LineageKey)> = social
+        .into_iter()
+        .map(|adult| (adult, domain.key_of(adult)))
+        .collect();
     for child in group {
+        let parents = domain.parent_keys(*child);
         let person = living_mut(domain, *child);
         person.carer = Some(carer);
-        let parents = person.parents.map(|p| [p.mother, p.father]);
-        for adult in &social {
-            let biological = parents.is_some_and(|both| both.contains(adult));
+        for (adult, key) in &social {
+            let biological = parents.is_some_and(|p| p.mother == *key || p.father == *key);
             if !biological && !person.social_parents.contains(adult) {
                 person.social_parents.push(*adult);
             }
@@ -536,11 +566,17 @@ fn take_in(domain: &mut DomainState, group: &[SimId], placement: &Placement) -> 
 /// The orphan rule for `group` (the eldest first): its placement decides once for all;
 /// each child moves into the carer's household unless it lives there already, the eldest
 /// first; alone, they found a household of their own together, without a carer.
-fn place(domain: &mut DomainState, group: &[SimId], causes: &Causes, ctx: &mut SimCtx<'_, '_>) {
+fn place(
+    domain: &mut DomainState,
+    data: &Data,
+    group: &[SimId],
+    causes: &Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let Some(&representative) = group.first() else {
         return;
     };
-    match placement(domain, representative, ctx.now()) {
+    match placement(domain, data, representative, ctx.now()) {
         Placement::Alone => {
             for child in group {
                 living_mut(domain, *child).carer = None;

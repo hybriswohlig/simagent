@@ -320,6 +320,7 @@ pub fn start(tag: &DataId, seed: u64, founders: Vec<Founder>, capacity: u64) -> 
         founders,
         couples: Vec::new(),
         capacity: Some(capacity),
+        pool: None,
     })
 }
 

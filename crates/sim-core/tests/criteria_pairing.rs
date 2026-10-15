@@ -142,6 +142,7 @@ fn town() -> (Vec<(usize, usize)>, Vec<[f64; 2]>) {
             founders: founders.clone(),
             couples: Vec::new(),
             capacity: None,
+            pool: None,
         }))
         .expect("accepted");
     let mut out = YearOut::default();

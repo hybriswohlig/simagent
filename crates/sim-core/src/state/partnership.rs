@@ -81,7 +81,7 @@ pub(crate) fn kin_or_age_rejection(
         return Some(RejectCode::PartnerTooYoung);
     }
     let limit = data.demography().market.kinship_limit;
-    let phi = market::phi_with(&mut KinshipCache::new(), domain, woman, man);
+    let phi = market::phi_with(&mut KinshipCache::new(), domain, data, woman, man);
     (phi >= limit).then_some(RejectCode::PartnersTooCloselyRelated)
 }
 

@@ -17,8 +17,8 @@ use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::lineage::LineageKey;
-use crate::pool::{Ancestor, Pool, PoolError, PoolPerson};
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
+use crate::pool::{Ancestor, Pool, PoolError, PoolPerson, PoolUnborn};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
 pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
@@ -553,6 +553,8 @@ pub struct PoolData {
     members: BTreeMap<LineageKey, (usize, usize)>,
     /// Each record: its place among the ancestors.
     records: BTreeMap<LineageKey, usize>,
+    /// Each unborn child: its household, its pregnancy there and its place in it.
+    unborn: BTreeMap<LineageKey, (usize, usize, usize)>,
 }
 
 impl PoolData {
@@ -574,6 +576,18 @@ impl PoolData {
     /// A record of the ancestors by its lineage key.
     pub fn record(&self, key: LineageKey) -> Option<&Ancestor> {
         self.pool.ancestors.get(*self.records.get(&key)?)
+    }
+
+    /// An unborn child of a pregnancy of the pool by its lineage key.
+    pub fn unborn(&self, key: LineageKey) -> Option<&PoolUnborn> {
+        let (household, pregnancy, place) = *self.unborn.get(&key)?;
+        self.pool
+            .households
+            .get(household)?
+            .pregnancies
+            .get(pregnancy)?
+            .children
+            .get(place)
     }
 }
 
@@ -1634,6 +1648,14 @@ impl Data {
                 members.insert(member.lineage_key, (h, m));
             }
         }
+        let mut unborn = BTreeMap::new();
+        for (h, household) in pool.households.iter().enumerate() {
+            for (p, pregnancy) in household.pregnancies.iter().enumerate() {
+                for (c, child) in pregnancy.children.iter().enumerate() {
+                    unborn.insert(child.lineage_key, (h, p, c));
+                }
+            }
+        }
         let records = pool
             .ancestors
             .iter()
@@ -1649,6 +1671,7 @@ impl Data {
             hash,
             members,
             records,
+            unborn,
         }));
         Ok(data)
     }

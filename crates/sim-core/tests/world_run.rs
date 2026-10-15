@@ -41,6 +41,7 @@ fn start_with(born: &[i64]) -> Input {
         founders: born.iter().copied().map(founder).collect(),
         couples: Vec::new(),
         capacity: None,
+        pool: None,
     })
 }
 

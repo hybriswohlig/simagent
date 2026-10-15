@@ -179,11 +179,14 @@ impl<'a, 'q> SimCtx<'a, 'q> {
     pub(crate) fn create_child(
         &mut self,
         payload: LogPayload,
-        [mother, father]: [SimId; 2],
+        (mother, father): (SimId, Option<SimId>),
         causes: Causes,
     ) -> (SimId, EventId) {
         let id = self.ids.sim.allocate_sim();
-        let subjects = vec![Subject::Sim(id), Subject::Sim(mother), Subject::Sim(father)];
+        // A child of a pregnancy from the pool whose father never came into the town has
+        // child and mother only (design note of the arrival, section 6.3).
+        let mut subjects = vec![Subject::Sim(id), Subject::Sim(mother)];
+        subjects.extend(father.map(Subject::Sim));
         let entry = self.emit(payload, subjects, causes);
         (id, entry)
     }

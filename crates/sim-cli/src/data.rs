@@ -23,7 +23,18 @@ pub fn core_data() -> Result<Data, CliError> {
 
 /// The checked definitions from the text of the three files.
 pub fn data_from(demography: &str, calibration: &str, genome_map: &str) -> Result<Data, CliError> {
-    let definitions = Definitions {
+    Data::new(definitions_from(demography, calibration, genome_map)?)
+        .map_err(|error| rejected(&error.to_string()))
+}
+
+/// The definitions from the text of the three files, their text fields checked and
+/// removed; the data check comes after, with or without a pool (ADR-0020 section 5).
+pub fn definitions_from(
+    demography: &str,
+    calibration: &str,
+    genome_map: &str,
+) -> Result<Definitions, CliError> {
+    Ok(Definitions {
         demography: read(
             demography,
             "calibration/demography.json",
@@ -42,8 +53,7 @@ pub fn data_from(demography: &str, calibration: &str, genome_map: &str) -> Resul
             map_entries,
             &LOCUS_TEXT,
         )?,
-    };
-    Data::new(definitions).map_err(|error| rejected(&error.to_string()))
+    })
 }
 
 fn rejected(detail: &str) -> CliError {

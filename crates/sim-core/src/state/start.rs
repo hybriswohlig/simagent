@@ -1,16 +1,18 @@
 //! The input `Start` (ADR-0004 section 4): the resolved scenario, only as the first
 //! input and only before the clock moves.
 
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use super::{DomainState, Sim, Slot, death, disease, household, partnership, years_between};
 use crate::data::Data;
 use crate::genome::{AlleleError, Genome};
 use crate::ids::HouseholdId;
-use crate::input::{Founder, InputRejected, RejectCode, Start};
+use crate::input::{Founder, InputRejected, PoolStart, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::params::NutritionYear;
+use crate::pool::take_households;
 use crate::time::{MONTH, SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
@@ -33,7 +35,13 @@ pub(crate) fn check_start(
         partnership::couples_rejection(&start.founders, &start.couples, age)
     })
     .or_else(|| nutrition_rejection(&start.world_params.nutrition))
-    .or_else(|| (start.capacity == Some(0)).then_some(RejectCode::CapacityZero));
+    .or_else(|| (start.capacity == Some(0)).then_some(RejectCode::CapacityZero))
+    .or_else(|| {
+        start
+            .pool
+            .as_ref()
+            .and_then(|pool| pool_rejection(data, start, pool))
+    });
     match rejection {
         Some(code) => Err(InputRejected { code }),
         None => Ok(()),
@@ -63,6 +71,34 @@ fn start_rejection(
         return Some(RejectCode::FounderNotBornBeforeStart);
     }
     None
+}
+
+/// Why a `Start` with a pool is rejected, if at all (design note of the arrival, section
+/// 3), the first that applies: founders or couples of its own, no such pool in the data,
+/// no persons, households other than the draw.
+fn pool_rejection(data: &Data, start: &Start, pool: &PoolStart) -> Option<RejectCode> {
+    if !start.founders.is_empty() || !start.couples.is_empty() {
+        return Some(RejectCode::StartPoolAndFounders);
+    }
+    let Some(held) = data.pool().filter(|held| held.hash() == pool.pool_hash) else {
+        return Some(RejectCode::StartPoolMissing);
+    };
+    if pool.n_start == 0 {
+        return Some(RejectCode::StartPoolNStart);
+    }
+    let drawn = founders_of(held.pool(), start.world_seed, pool.n_start);
+    let same = drawn.len() == pool.households.len()
+        && drawn
+            .iter()
+            .zip(&pool.households)
+            .all(|(index, given)| &held.pool().households[*index] == given);
+    (!same).then_some(RejectCode::StartPoolHouseholds)
+}
+
+/// The households of the pool that found a town of `n_start` (ADR-0020 section 5): the draw
+/// on occasion 0 until their members reach `n_start`, or all of them.
+fn founders_of(pool: &crate::pool::Pool, world_seed: u64, n_start: u64) -> Vec<usize> {
+    take_households(pool, world_seed, 0, &BTreeSet::new(), n_start).0
 }
 
 /// Why the nutrition index of `Start` is rejected, if at all (ADR-0013 section 1): its
@@ -144,6 +180,18 @@ pub(crate) fn apply_start(
             started,
         );
     }
+    // Immigration in the first second of every year from year 0 (ADR-0020 section 5).
+    if let Some(pool) = &start.pool {
+        let persons = pool.n_start.saturating_add(50) / 100;
+        if pool.immigration && persons > 0 {
+            ctx.schedule_periodic(
+                SimTime::START,
+                YEAR,
+                EventPayload::Immigration { persons },
+                started,
+            );
+        }
+    }
     let mut ids = Vec::with_capacity(start.founders.len());
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
@@ -155,6 +203,7 @@ pub(crate) fn apply_start(
             LogPayload::FounderAdded { born, lineage_key },
             Causes::new(ctx.trigger()),
         );
+        domain.keys.insert(lineage_key, id);
         domain.sims.insert(
             id,
             Sim {
@@ -164,7 +213,7 @@ pub(crate) fn apply_start(
                 genome,
                 afflictions: disease::afflictions(
                     data,
-                    start.world_seed,
+                    super::Seeds::one(start.world_seed),
                     (lineage_key, None),
                     founder.sex,
                     &genome,
@@ -182,6 +231,7 @@ pub(crate) fn apply_start(
                 carer: None,
                 parents: None,
                 social_parents: Vec::new(),
+                pool: None,
             },
         );
         let next = first_birthday(born, ctx.now());
@@ -206,6 +256,15 @@ pub(crate) fn apply_start(
         partnership::pair_up(domain, data, ids[woman].0, ids[man].0, ctx);
     }
     household::start_households(domain, data, &ids, &couples, ctx);
+    // The founders from the pool (ADR-0020 section 5), after every series.
+    if let Some(pool) = &start.pool {
+        let held = data
+            .pool()
+            .unwrap_or_else(|| panic!("invariant pool.missing"))
+            .pool();
+        let drawn = founders_of(held, start.world_seed, pool.n_start);
+        super::arrival::arrive(domain, data, &drawn, 0, ctx);
+    }
 }
 
 /// The first anniversary of `born` at or after `now` (`born <= now`).

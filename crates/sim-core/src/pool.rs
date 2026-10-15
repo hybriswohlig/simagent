@@ -47,7 +47,7 @@ pub const POOL_LOCI: [&str; 7] = [
 pub const MAGIC: &[u8; 7] = b"SIMPOOL";
 
 /// The pool of a pool run (design note of the pool file, section 7).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pool {
     pub pool_seed: u64,
     /// `E_p`, the last second of the pool run.
@@ -61,7 +61,7 @@ pub struct Pool {
 }
 
 /// A household of the pool: its members ascending by birth, then lineage key.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolHousehold {
     pub members: Vec<PoolPerson>,
     pub partnership: Option<PoolPartnership>,
@@ -70,7 +70,7 @@ pub struct PoolHousehold {
 }
 
 /// A living person of the pool (design note, section 5).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolPerson {
     pub lineage_key: LineageKey,
     pub genome_key: GenomeKey,
@@ -112,7 +112,7 @@ pub struct PoolPartnership {
 }
 
 /// A running pregnancy of a member.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolPregnancy {
     pub mother: LineageKey,
     pub father: LineageKey,
@@ -124,7 +124,7 @@ pub struct PoolPregnancy {
 }
 
 /// A child of a running pregnancy.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolUnborn {
     pub lineage_key: LineageKey,
     pub genome_key: GenomeKey,
@@ -281,6 +281,64 @@ impl Pool {
         }
         Ok(())
     }
+}
+
+/// The households of the pool in the order of the draw on `occasion` (ADR-0001 section 5,
+/// ADR-0020 section 5; design note of the arrival, section 3): ascending by `(rank,
+/// candidate)` with `POOL_RANK` and the subject `WORLD`, `candidate` the smallest lineage
+/// key of a member of 18 or more at `frozen_at`. Indices into `households`.
+pub fn ranked_households(pool: &Pool, world_seed: u64, occasion: u64) -> Vec<usize> {
+    let candidates: BTreeMap<LineageKey, usize> = pool
+        .households
+        .iter()
+        .enumerate()
+        .filter_map(|(index, household)| {
+            household
+                .members
+                .iter()
+                .filter(|member| adult(member.born, pool.frozen_at))
+                .map(|member| member.lineage_key)
+                .min()
+                .map(|candidate| (candidate, index))
+        })
+        .collect();
+    Draws::new(WorldSeed::new(world_seed))
+        .ranked(
+            tags::POOL_RANK,
+            SubjectKey::WORLD,
+            occasion,
+            candidates.keys().copied(),
+        )
+        .into_iter()
+        .map(|candidate| candidates[&candidate])
+        .collect()
+}
+
+/// The households not in `used`, in the order of the draw on `occasion`, until their
+/// members reach or exceed `persons`; the second value says whether they do (with too few
+/// households left, all of them and `false`).
+pub fn take_households(
+    pool: &Pool,
+    world_seed: u64,
+    occasion: u64,
+    used: &BTreeSet<usize>,
+    persons: u64,
+) -> (Vec<usize>, bool) {
+    let mut taken = Vec::new();
+    let mut count = 0_u64;
+    for index in ranked_households(pool, world_seed, occasion) {
+        if count >= persons {
+            break;
+        }
+        if used.contains(&index) {
+            continue;
+        }
+        count = count.saturating_add(
+            u64::try_from(pool.households[index].members.len()).unwrap_or(u64::MAX),
+        );
+        taken.push(index);
+    }
+    (taken, count >= persons)
 }
 
 /// The genome keys of the children conceived in a run, read from its log (design note,
@@ -442,7 +500,7 @@ fn afflictions_of(
 ) -> Vec<PoolAffliction> {
     state::disease::afflictions(
         data,
-        pool_seed,
+        state::Seeds::one(pool_seed),
         (key, parents),
         sex,
         genome,
@@ -531,7 +589,7 @@ pub fn extract(
                     sex: child.sex,
                     genome: child.genome,
                     mother: living(*mother),
-                    father: living(pregnancy.father),
+                    father: pregnancy.father.and_then(living),
                 },
             ));
         }
@@ -574,7 +632,7 @@ pub fn extract(
     let mut report = PoolReport::default();
     let mut households = Vec::new();
     let mut pool_people: Vec<SimId> = Vec::new();
-    let mut pool_unborn: Vec<(SimId, LineageKey)> = Vec::new();
+    let mut pool_unborn: Vec<LineageKey> = Vec::new();
     for (household, ids) in &members {
         let open = domain
             .households
@@ -649,7 +707,11 @@ pub fn extract(
             let Some(pregnancy) = domain.pregnancies.get(id) else {
                 continue;
             };
-            let father = key_of(pregnancy.father);
+            let father = key_of(
+                pregnancy
+                    .father
+                    .unwrap_or_else(|| panic!("invariant pool.pregnancy_father")),
+            );
             let children = pregnancy
                 .children
                 .iter()
@@ -659,7 +721,7 @@ pub fn extract(
                         mother: sim.lineage_key,
                         father,
                     };
-                    pool_unborn.push((pregnancy.father, child.lineage_key));
+                    pool_unborn.push(child.lineage_key);
                     PoolUnborn {
                         lineage_key: child.lineage_key,
                         genome_key: keys.of(child.lineage_key),
@@ -754,7 +816,9 @@ fn ancestors(
             .any(|h| h.pregnancies.iter().any(|p| p.mother == key_of(*mother)));
         if in_pool {
             walk.push((*mother, 2));
-            walk.push((pregnancy.father, 2));
+            if let Some(father) = pregnancy.father {
+                walk.push((father, 2));
+            }
         }
     }
     while let Some((sim, depth)) = walk.pop() {
