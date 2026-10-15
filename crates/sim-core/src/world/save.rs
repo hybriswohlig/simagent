@@ -610,7 +610,10 @@ fn pool_view<'a>(
             .find(|p| p.mother == record.lineage_key)?;
         let left = loaded.archive.get(mother).map(|her| her.left);
         let fits = if !lived_at(left, birth) {
-            true
+            carried
+                .children
+                .iter()
+                .all(|child| !keys.contains_key(&child.lineage_key))
         } else if birth.as_secs() >= now {
             loaded
                 .pregnancies
