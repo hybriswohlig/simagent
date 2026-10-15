@@ -2181,11 +2181,13 @@ class World:
 
     def is_pool_person(self, sim: int) -> bool:
         """An arrival or a pool child, living or archived (design note of the arrival,
-        section 1)."""
-        return sim in self.origins
+        section 1). A world started without a pool has none: a PoolOrigin there is only for
+        `check_pool` to reject; every other rule reads the sim as a town person (review of
+        the reference, NOTES2.md section 5b; no valid state of such a world has one)."""
+        return sim in self.origins and self.pool_start is not None
 
     def is_arrival(self, sim: int) -> bool:
-        return sim in self.origins and self.origins[sim]["born_pool"] is not None
+        return self.is_pool_person(sim) and self.origins[sim]["born_pool"] is not None
 
     def origin_of(self, sim: int) -> int:
         """Where the hazard integral of its deaths starts (design note of the arrival,
@@ -4629,6 +4631,8 @@ def check_pool(world: World) -> None:
     events = [event for event in world.queue if event.kind == IMMIGRATION_KIND]
     if pool is None or world.pool_start is None:
         assert not world.origins and not world.used and not world.pool_fathers and not events
+        # Every pregnancy is a town one, with its father (review, NOTES2.md section 5b).
+        assert all(value[0] is not None for value in world.pregnancies.values()), sorted(world.pregnancies)
         return
     q = immigration_persons(world.pool_start["n_start"])
     draws = [(0, pool_draw(pool, world.seed, 0, world.pool_start["n_start"], []))]
@@ -4668,6 +4672,11 @@ def check_pool(world: World) -> None:
             mother = world.by_key.get(pregnancy["mother"])
             assert mother is not None and world.is_arrival(mother), sim
             assert (world.sims[sim][7] if sim in world.sims else world.archive[sim][9]) is None
+            # Born in the town: at or before the clock, while its mother lived (her pregnancy
+            # ends with her death, so an archived mother left at or after the birth). Review
+            # of the reference, NOTES2.md section 5b.
+            assert born <= world.closed, (sim, born, world.closed)
+            assert mother in world.sims or world.archive[mother][1] >= born, (sim, mother)
     for mother, (father, conception_number, children, conceived) in world.pregnancies.items():
         if mother not in world.pool_fathers:
             assert father is not None, mother

@@ -484,6 +484,7 @@ def arrival_rows_all() -> list:
     end = ARRIVAL_STOP_YEAR * YEAR - 1
     world, saves, entries, stopped = staged(arrival_world, ARRIVAL_MARKS, [], end, panic=ARRIVAL_STOP_YEAR * YEAR)
     BASE_SAVES["arrival_save_after_start"] = saves["after_start"]
+    BASE_SAVES["arrival_save_after_pool_child_without_father"] = saves["after_pool_child_without_father"]
     name = "arrival"
     rows = common_rows(name, ARRIVAL_POOL, world, ARRIVAL_N_START, True, end)
     rows += [f"{name}_mark {label} {t}" for label, t in ARRIVAL_MARKS.items()]
@@ -534,6 +535,7 @@ ORPHANS_END = 5 * YEAR - 1
 
 def orphans_rows_all() -> list:
     world, saves, entries, _ = staged(kin_world(ORPHANS_SEED), ORPHANS_MARKS, [], ORPHANS_END)
+    BASE_SAVES["orphans_save_end"] = saves["end"]
     name = "orphans"
     succession = [(t, child, old, new) for t, child, old, new, why in world.carer_log if why == "succession: the other parent"]
     assert [row[0] for row in succession] == [17104015, 33206750, 33206750], succession
@@ -853,12 +855,16 @@ def invariant_rows() -> list:
 
 
 def rejecting_checks(world: wr.World) -> list:
+    """The model's load checks that reject the state; a check that fails by another error
+    than an assertion (a broken state it cannot even read) is named with `!` and the error."""
     names = []
     for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths):
         try:
             check(world)
         except AssertionError:
             names.append(check.__name__)
+        except Exception as error:  # noqa: BLE001 (a crash of a check is a rejection too)
+            names.append(f"{check.__name__}!{type(error).__name__}")
     return names
 
 
@@ -1107,7 +1113,414 @@ def leave_home_at_start_rows() -> list:
 
 
 # ---------------------------------------------------------------------------------------
-# A birth and a pairing by the market in the same second (accepted)
+# One field of the pool load check at a time (review of the reference, NOTES2.md section 5b)
+
+# A world started with founders and no pool (the template of map 4 without a pool): a couple
+# and two old founders; at 16934400 the woman is pregnant and both old founders have died.
+FOUNDERS_SEED = 0xFF
+FOUNDERS = [(-25 * YEAR, FEMALE, []), (-27 * YEAR, wr.MALE, []), (-88 * YEAR, FEMALE, []), (-90 * YEAR, wr.MALE, [])]
+FOUNDERS_COUPLES = [(0, 1)]
+FOUNDERS_CLOCK = 16934400
+
+
+def pin(save: bytes) -> str:
+    return f"{len(save)} {hexed(hash64(save))}"
+
+
+def save_hunks(base: bytes, changed: bytes) -> list:
+    """The changed save as hunks of the base, `(offset in the base, removed bytes, put
+    bytes)` in ascending offset (equal runs shorter than 8 bytes folded into a hunk);
+    applying them to the base gives the changed save (asserted)."""
+    import difflib
+
+    merged = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base, changed, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        if merged and i1 - merged[-1][1] < 8:
+            merged[-1][1], merged[-1][3] = i2, j2
+        else:
+            merged.append([i1, i2, j1, j2])
+    hunks = [(i1, base[i1:i2], changed[j1:j2]) for i1, i2, j1, j2 in merged]
+    out, at = b"", 0
+    for offset, removed, put in hunks:
+        out += base[at:offset] + put
+        at = offset + len(removed)
+    assert out + base[at:] == changed
+    return hunks
+
+
+def field_row(name: str, base_label: str, base: bytes, world: wr.World, how: str) -> str:
+    """`pool_field_reject <name> base <label> base_pin <length> <xxh3> hunks <n> <offset>:<removed
+    hex>:<put hex> ... changed_pin <length> <xxh3> checks [...] how <text>`."""
+    world.kinships = {}
+    checks = rejecting_checks(world)
+    assert checks, f"no load check rejects {name}"
+    changed = world.save()
+    hunks = save_hunks(base, changed)
+    return (
+        f"pool_field_reject {name} base {base_label} base_pin {pin(base)} hunks {len(hunks)} "
+        + " ".join(f"{offset}:{removed.hex()}:{put.hex()}" for offset, removed, put in hunks)
+        + f" changed_pin {pin(changed)} checks {checks} how {how}"
+    )
+
+
+def set_archived(world: wr.World, sim: int, index: int, value) -> None:
+    row = list(world.archive[sim])
+    row[index] = value
+    world.archive[sim] = tuple(row)
+
+
+def flip_allele(world: wr.World, person: dict, locus_id: str) -> str:
+    """Flips the maternal allele of an autosomal locus in `person` (the form of the meiosis
+    reference); returns where."""
+    locus = world.data.loci[locus_id]
+    assert locus["chromosome"] == "autosome"
+    person["autosomes_maternal"][locus["segment"]][locus["slot"]] ^= 1
+    return f"{locus_id} (autosome segment {locus['segment']} slot {locus['slot']}, maternal)"
+
+
+def replan_deaths(world: wr.World, sim: int) -> None:
+    """Sets each planned death of a living sim to the second its cause gives now (after a
+    change of its origin, detail or birth); the causes stay the ones planned."""
+    for event in world.queue:
+        if event.kind != wr.DEATH_KIND or event.subject != (wr.SIM_SUBJECT, sim):
+            continue
+        code = world.cause_code(wr.death_key(event.payload))
+        if code in (wr.SENESCENCE, wr.ACCIDENT):
+            due = world.cause_due(sim, code)
+        else:
+            (affliction,) = [a for a in world.sims[sim][4] if a.disease.code == code]
+            due = world.disease_due(sim, affliction)
+        assert due is not None and due > world.closed, (sim, code, due)
+        event.time = due
+
+
+def next_birthday(born: int, first: int, clock: int) -> int:
+    """The pending birthday at the clock of a sim born at `born` whose first one in the town is
+    `first`: `first` if it lies after the clock, else the next anniversary after it."""
+    if first > clock:
+        return first
+    return born + ((clock - born) // YEAR + 1) * YEAR
+
+
+def shift_household(world: wr.World, index: int, d: int) -> list:
+    """Moves the arrival of the pool household `index` by `d` (a whole number of years) with
+    everything the arrival second decides (note sections 5 and 6): per member `arrived`,
+    `arrival_year`, `born` (the new `Δ`), the exposure from `A`, the carried events (leaving
+    home, birth, separation, series) and their plans, the first birthday, the deaths (origin
+    and detail); the household formed at `A`; the brought partnership formed at `formed_pool
+    + Δ`; a carried pregnancy's `conceived`. Returns the members."""
+    assert d % YEAR == 0
+    (record,) = [r for r in world.arrivals if r["index"] == index]
+    members, old = record["sims"], record["t"]
+    new = old + d
+    assert new >= 0
+    by = {world.arrived_by[sim] for sim in members}
+    for sim in members:
+        origin = world.origins[sim]
+        assert origin["arrived"] == old
+        origin["arrived"], origin["arrival_year"] = new, new // YEAR
+        afflictions = world.sims[sim][4] if sim in world.sims else world.archive[sim][6]
+        for affliction in afflictions:
+            if affliction.exposure is not None and affliction.exposure[1] == old:
+                affliction.exposure[1] = new
+        if sim in world.sims:
+            world.sims[sim][0] += d
+        else:
+            assert world.archive[sim][1] >= new, "a member died before the new arrival second"
+            set_archived(world, sim, 0, world.archive[sim][0] + d)
+        if sim in world.pregnancies:
+            father, number, children, conceived = world.pregnancies[sim]
+            world.pregnancies[sim] = (father, number, children, conceived + d)
+    world.households[record["household"]][0] = new
+    if record.get("partnership") is not None:
+        world.partnerships[record["partnership"]][2] += d
+    for event in world.queue:
+        if event.plan[0] in by and event.plan[1] == old:
+            event.plan = (event.plan[0], new)
+            if event.kind in (wr.LEAVE_HOME_KIND, wr.BIRTH_KIND, wr.SEPARATION_KIND):
+                event.time += d
+    for sim in members:
+        if sim not in world.sims:
+            continue
+        born = world.sims[sim][0]
+        (birthday,) = [e for e in world.queue if e.kind == wr.BIRTHDAY_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
+        birthday.time = next_birthday(born, wr.first_birthday(born, new), world.closed)
+        replan_deaths(world, sim)
+        series = [e for e in world.queue if e.kind == wr.ATTEMPT_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
+        if series:
+            (event,) = series
+            event.time = world.series_due(sim)
+    return members
+
+
+def household_moved_rows(orphans: wr.World, base: bytes, copy_world) -> list:
+    """A2: the first household of `Start` in "orphans" (in arrival order, at least 2 members)
+    whose members all lived past second YEAR, moved as a whole to YEAR (`shift_household`):
+    its draw is that of `Start` (second 0), so only "each household arrives in the second of
+    its draw" breaks. Households whose move other checks reject as well are listed."""
+    tried = []
+    for index in orphans.used:
+        (record,) = [r for r in orphans.arrivals if r["index"] == index]
+        if len(record["sims"]) < 2 or any(sim in orphans.archive and orphans.archive[sim][1] < YEAR for sim in record["sims"]):
+            continue
+        w = copy_world(orphans)
+        members = shift_household(w, index, YEAR)
+        w.kinships = {}
+        checks = rejecting_checks(w)
+        tried.append((index, members, checks))
+        if checks == ["check_pool"]:
+            others = "; ".join(f"household {i} {m} {c}" for i, m, c in tried[:-1])
+            return [field_row(
+                "arrival_household_moved_to_another_year", "orphans_save_end", base, w,
+                f"household {index} of pool_d (sims {members}, drawn by Start, second 0) moved whole to second {YEAR} (arrival_year 1): born, carried events,"
+                f" exposure, first birthday, deaths, household and partnership formed with the new Δ (tried before: {others or 'none'})",
+            )]
+    raise AssertionError(f"no household moves with only check_pool rejecting: {tried}")
+
+
+def close_kin_rows(orphans: wr.World, base: bytes, copy_world) -> list:
+    """k2: an open partnership of two persons with `φ >= 1/8`, at least one an arrival: the first
+    such single pair of "orphans" at its end, paired by an ArrangePartnership acting in the
+    second after the clock as if it had been accepted (the input in the log, the partnership,
+    her series, its separation, their household as the rules make them)."""
+    w = copy_world(orphans)
+    limit = Fraction(w.data.kinship_limit)
+    adult = lambda sim: w.closed + 1 - w.sims[sim][0] >= w.data.market_age * YEAR
+    pairs = [
+        (woman, man)
+        for woman in sorted(w.sims)
+        for man in sorted(w.sims)
+        if w.sex_of(woman) == FEMALE and w.sex_of(man) == wr.MALE and (w.is_arrival(woman) or w.is_arrival(man))
+        and w.open_partnership(woman) is None and w.open_partnership(man) is None and adult(woman) and adult(man)
+        and w.kinship(woman, man) >= limit
+    ]
+    if not pairs:
+        return ["pool_field_skipped arrival_partnership_close_kin reason no single pair with phi >= 1/8 and an arrival in orphans_save_end"]
+    woman, man = pairs[0]
+    phi = w.kinship(woman, man)
+    w.kinship = lambda x, y: Fraction(0)
+    w.arrange(woman, man)
+    del w.kinship
+    number = w.open_partnership(woman)
+    return [field_row(
+        "arrival_partnership_close_kin", "orphans_save_end", base, w,
+        f"partnership {number} of sim {woman} ({env_kind(w, woman)}) and sim {man} ({env_kind(w, man)}) with phi {phi}, by an ArrangePartnership stamped at the clock"
+        f" (accepted as if the kinship were 0), with her series, its separation and their household",
+    )]
+
+
+def pool_field_rows() -> list:
+    """States changed in exactly one field of the pool load check (note section 9; review,
+    NOTES2.md section 5b), each as hunks of a pinned save with the model checks that reject it.
+    Bases: `orphans_save_end` (household 20 of pool_d: sims 21 to 24, 23 archived, 24 living),
+    `arrival_save_after_pool_child_without_father` (the pool child 59 born at the clock, its
+    mother 36 alone in pool household 28, its father a record), and a new `founders_world`
+    (no pool)."""
+    copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
+    rows = []
+
+    orphans = kin_world(ORPHANS_SEED)()
+    orphans.advance(ORPHANS_END)
+    check_all(orphans)
+    o_base = orphans.save()
+    assert BASE_SAVES.get("orphans_save_end", o_base) == o_base
+    child_world = arrival_world()
+    child_world.advance(ARRIVAL_MARKS["pool_child_without_father"])
+    check_all(child_world)
+    c_base = child_world.save()
+    assert BASE_SAVES.get("arrival_save_after_pool_child_without_father", c_base) == c_base
+    plain = wr.Data(*template_documents())
+    founders = wr.World(FOUNDERS_SEED, TAG, True, FOUNDERS, FOUNDERS_COUPLES, plain)
+    f_start = start_record(founders)
+    founders.advance(FOUNDERS_CLOCK)
+    check_all(founders)
+    f_base = founders.save()
+    assert sorted(founders.pregnancies) == [1] and sorted(founders.archive) == [3, 4]
+    rows.append(f"pool_field_base orphans_save_end clock {orphans.closed} pin {pin(o_base)} (the row orphans_save_end)")
+    rows.append(f"pool_field_base arrival_save_after_pool_child_without_father clock {child_world.closed} pin {pin(c_base)} (the row arrival_save_after_pool_child_without_father)")
+    rows.append(
+        f"pool_field_base founders_world clock {founders.closed} pin {pin(f_base)} data template of map 4 without a pool data_hash {hexed(plain.hash)}"
+        f" seed {hexed(FOUNDERS_SEED)} tag {TAG} switch on founders {[(born, 'female' if sex == FEMALE else 'male', genes) for born, sex, genes in FOUNDERS]}"
+        f" couples {FOUNDERS_COUPLES} pool None start_input {f_start.hex()} save {f_base.hex()}"
+    )
+
+    # A: an arrival. Pool household 20 of pool_d at `Start`: sims 21, 22, 23, 24.
+    pool = orphans.data.pool
+    (record,) = [r for r in orphans.arrivals if r["sims"][:1] == [21]]
+    assert record["sims"] == [21, 22, 23, 24] and pool.sizes[record["index"]] == 4
+    dead, alive = 23, 24
+    assert dead in orphans.archive and alive in orphans.sims and orphans.is_arrival(dead) and orphans.is_arrival(alive)
+    assert not [n for n, v in orphans.partnerships.items() if dead in v[:2] or alive in v[:2]]
+    records = sorted(pool.records)
+    o, a = "orphans_save_end", f"household {record['index']} of pool_d"
+
+    w = copy_world(orphans)
+    w.origins[dead]["arrived"] += 1
+    rows.append(field_row("arrival_arrived_one_second_late", o, o_base, w, f"{a}: sim {dead} (archived, third member) arrived 1 instead of 0, the rest at 0"))
+
+    w = copy_world(orphans)
+    w.origins[dead]["arrival_year"] += 1
+    rows.append(field_row("arrival_year_off_by_one", o, o_base, w, f"{a}: sim {dead} (archived) arrival_year 1 instead of 0"))
+
+    w = copy_world(orphans)
+    w.origins[alive]["born_pool"] += 1
+    rows.append(field_row("arrival_born_pool_changed", o, o_base, w, f"{a}: sim {alive} (living) born_pool + 1 (born unchanged)"))
+
+    w = copy_world(orphans)
+    w.origins[alive]["genome_key"] ^= 1
+    rows.append(field_row("arrival_genome_key_changed", o, o_base, w, f"{a}: sim {alive} (living) genome_key xor 1"))
+
+    mother, father = orphans.origins[alive]["mother"], orphans.origins[alive]["father"]
+    other_mother = next(key for key in records if key not in (mother, father))
+    other_father = next(key for key in records if key not in (mother, father, other_mother))
+    w = copy_world(orphans)
+    w.origins[alive]["mother"] = other_mother
+    rows.append(field_row("arrival_pool_mother_changed", o, o_base, w, f"{a}: sim {alive} (living) PoolOrigin mother {hexed(mother)} -> {hexed(other_mother)} (a record of the pool)"))
+
+    w = copy_world(orphans)
+    w.origins[alive]["father"] = other_father
+    rows.append(field_row("arrival_pool_father_changed", o, o_base, w, f"{a}: sim {alive} (living) PoolOrigin father {hexed(father)} -> {hexed(other_father)} (a record of the pool)"))
+
+    w = copy_world(orphans)
+    w.origins[alive]["social_parents"] = list(w.origins[alive]["social_parents"]) + [other_mother]
+    rows.append(field_row("arrival_pool_social_parents_changed", o, o_base, w, f"{a}: sim {alive} (living) PoolOrigin social_parents {[hexed(k) for k in orphans.origins[alive]['social_parents']]} + {hexed(other_mother)}"))
+
+    w = copy_world(orphans)
+    set_archived(w, dead, 4, FEMALE if w.archive[dead][4] == wr.MALE else wr.MALE)
+    rows.append(field_row("arrival_sex_flipped", o, o_base, w, f"{a}: sim {dead} (archived, no partnership) sex flipped to {'female' if w.archive[dead][4] == FEMALE else 'male'}"))
+
+    w = copy_world(orphans)
+    where = flip_allele(w, w.sims[alive][3], "core:herc2")
+    rows.append(field_row("arrival_genome_changed", o, o_base, w, f"{a}: sim {alive} (living) one allele flipped: {where}"))
+
+    w = copy_world(orphans)
+    parents = (orphans.by_key[mother], orphans.by_key[father], 0)
+    w.sims[alive][7] = parents
+    rows.append(field_row("arrival_town_parents_set", o, o_base, w, f"{a}: sim {alive} (living) parents Some{parents} (her pool parents' SimIds, conception 0)"))
+
+    # A2: a whole household moved to another year start than its draw.
+    rows += [row for row in household_moved_rows(orphans, o_base, copy_world)]
+
+    # B: a pool child: sim 59, born at the clock (14515200) of the pregnancy of sim 36.
+    child, mother_sim = 59, 36
+    origin = child_world.origins[child]
+    assert origin["born_pool"] is None and child_world.born_of(child) == child_world.closed and child_world.by_key[origin["mother"]] == mother_sim
+    assert child_world.pool_member(mother_sim) is not None and child_world.data.pool.sizes[child_world.data.pool.members[child_world.key_of(mother_sim)][0]] == 1
+    c, b = "arrival_save_after_pool_child_without_father", f"pool child {child} (born {child_world.closed}, mother {mother_sim})"
+    p_records = sorted(child_world.data.pool.records)
+    p_other = [key for key in p_records if key not in (origin["mother"], origin["father"])][:2]
+
+    w = copy_world(child_world)
+    w.origins[child]["genome_key"] ^= 1
+    rows.append(field_row("pool_child_genome_key_changed", c, c_base, w, f"{b}: genome_key xor 1"))
+
+    w = copy_world(child_world)
+    w.origins[child]["arrived"] -= 1
+    rows.append(field_row("pool_child_arrived_not_born", c, c_base, w, f"{b}: arrived born - 1"))
+
+    w = copy_world(child_world)
+    w.origins[child]["arrival_year"] += 1
+    rows.append(field_row("pool_child_arrival_year_off_by_one", c, c_base, w, f"{b}: arrival_year 1 instead of 0"))
+
+    w = copy_world(child_world)
+    w.origins[child]["mother"] = p_other[0]
+    rows.append(field_row("pool_child_pool_mother_changed", c, c_base, w, f"{b}: PoolOrigin mother {hexed(origin['mother'])} -> {hexed(p_other[0])} (a record of the pool)"))
+
+    w = copy_world(child_world)
+    w.origins[child]["father"] = p_other[1]
+    rows.append(field_row("pool_child_pool_father_changed", c, c_base, w, f"{b}: PoolOrigin father {hexed(origin['father'])} -> {hexed(p_other[1])} (a record of the pool)"))
+
+    w = copy_world(child_world)
+    w.origins[child]["social_parents"] = [origin["mother"]]
+    rows.append(field_row("pool_child_social_parents_set", c, c_base, w, f"{b}: PoolOrigin social_parents [{hexed(origin['mother'])}] instead of []"))
+
+    w = copy_world(child_world)
+    w.sims[child][2] = FEMALE if w.sims[child][2] == wr.MALE else wr.MALE
+    rows.append(field_row("pool_child_sex_flipped", c, c_base, w, f"{b}: sex flipped to {'female' if w.sims[child][2] == FEMALE else 'male'} (living: its deaths follow the sex)"))
+
+    w = copy_world(child_world)
+    where = flip_allele(w, w.sims[child][3], "core:herc2")
+    rows.append(field_row("pool_child_genome_changed", c, c_base, w, f"{b}: one allele flipped: {where}"))
+
+    w = copy_world(child_world)
+    man = min(sim for sim in w.sims if w.sex_of(sim) == wr.MALE and w.sims[sim][0] + 16 * YEAR <= child_world.closed)
+    w.sims[child][7] = (mother_sim, man, 0)
+    rows.append(field_row("pool_child_town_parents_set", c, c_base, w, f"{b}: parents Some({mother_sim}, {man}, 0)"))
+
+    w = copy_world(child_world)
+    later = w.closed + 1
+    w.sims[child][0] = later
+    w.origins[child]["arrived"] = later
+    w.origins[child]["arrival_year"] = later // YEAR
+    for affliction in w.sims[child][4]:
+        if affliction.exposure is not None and affliction.exposure[1] == child_world.closed:
+            affliction.exposure[1] = later
+    for event in w.queue:
+        if event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.BIRTHDAY_KIND:
+            event.time = later + YEAR
+        elif event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.LEAVE_HOME_KIND:
+            event.time = w.leave_home_second(child)
+    replan_deaths(w, child)
+    rows.append(field_row(
+        "pool_child_born_after_the_clock", c, c_base, w,
+        f"{b}: born (and arrived) {later} = the clock + 1, its first birthday, leaving home and deaths from there (the base itself, born = the clock, is accepted)",
+    ))
+
+    w = copy_world(child_world)
+    w.origins.pop(mother_sim)
+    w.used = [index for index in w.used if index != w.data.pool.members[w.key_of(mother_sim)][0]]
+    count = w.sims[mother_sim][8]
+    w.sims[mother_sim][8] = sum(1 for value in w.partnerships.values() if value[0] == mother_sim)
+    rows.append(field_row(
+        "pool_child_mother_not_an_arrival", c, c_base, w,
+        f"{b}: sim {mother_sim} a town person instead of an arrival (no PoolOrigin, no parents, her partnerships counter {count} -> {w.sims[mother_sim][8]},"
+        f" a town person's) and her household {child_world.data.pool.members[child_world.key_of(mother_sim)][0]} out of the used households",
+    ))
+
+    w = copy_world(child_world)
+    left = child_world.closed - 1
+    value = w.sims.pop(mother_sim)
+    born_, key_, sex_, person_, afflictions_, conceptions_, births_, parents_, partnerships_, household_, moved_out_, _, social_ = value
+    w.archive[mother_sim] = (born_, left, wr.str_key(wr.ACCIDENT), key_, sex_, person_, afflictions_, conceptions_, births_, parents_, partnerships_, household_, moved_out_, tuple(social_))
+    w.queue = [event for event in w.queue if event.subject != (wr.SIM_SUBJECT, mother_sim)]
+    w.sims[child][11] = None
+    rows.append(field_row(
+        "pool_child_mother_left_before_the_birth", c, c_base, w,
+        f"{b}: sim {mother_sim} archived (death by core:accident) at {left}, one second before the birth; her events gone, the child without a carer in her household",
+    ))
+
+    # C: a world started without a pool.
+    fw = "founders_world"
+    w = copy_world(founders)
+    w.origins[2] = {"genome_key": 0, "born_pool": w.sims[2][0], "arrived": 0, "arrival_year": 0, "mother": None, "father": None, "social_parents": []}
+    rows.append(field_row("no_pool_living_with_pool_origin", fw, f_base, w, "sim 2 (living founder) with a PoolOrigin (genome_key 0, born_pool its born, arrived 0)"))
+
+    w = copy_world(founders)
+    w.origins[3] = {"genome_key": 0, "born_pool": w.archive[3][0], "arrived": 0, "arrival_year": 0, "mother": None, "father": None, "social_parents": []}
+    rows.append(field_row("no_pool_archived_with_pool_origin", fw, f_base, w, "sim 3 (archived founder) with a PoolOrigin (genome_key 0, born_pool its born, arrived 0)"))
+
+    w = copy_world(founders)
+    w.used = [0]
+    rows.append(field_row("no_pool_used_household", fw, f_base, w, "used households [0] instead of []"))
+
+    w = copy_world(founders)
+    w.pregnancies[1] = (None,) + w.pregnancies[1][1:]
+    rows.append(field_row("no_pool_pregnancy_without_father", fw, f_base, w, "the pregnancy of sim 1: father None instead of 2"))
+
+    w = copy_world(founders)
+    w.pool_fathers[1] = w.key_of(2)
+    rows.append(field_row("no_pool_pregnancy_with_pool_father", fw, f_base, w, f"the pregnancy of sim 1: pool_father Some({hexed(w.key_of(2))}) (its father's key) instead of None"))
+
+    # D: the kinship of a pool person.
+    w = copy_world(orphans)
+    parent = orphans.by_key[father] if father in orphans.by_key else orphans.by_key[mother]
+    w.sims[alive][12] = [parent]
+    rows.append(field_row("arrival_social_parent_is_its_pool_parent", o, o_base, w, f"{a}: sim {alive} social_parents [{parent}], its biological parent by its PoolOrigin key only (no town parents)"))
+
+    rows += close_kin_rows(orphans, o_base, copy_world)
+    return rows
 
 # "arrival" with another seed: the woman of pool household 28 (her pool pregnancy's father is a
 # record only, so she is single) gives birth at second 14515200, a month start, and the round
@@ -1264,6 +1677,7 @@ def main(argv) -> int:
         ("load_rejections_more", more_broken_rows),
         ("leave_home_at_start", leave_home_at_start_rows),
         ("birth_pairing_tie", birth_pairing_tie_rows),
+        ("pool_fields", pool_field_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():
