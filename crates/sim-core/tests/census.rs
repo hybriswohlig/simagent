@@ -11,10 +11,15 @@
 //! - (c) the small pre-run run: data without body traits, so every count is 0.
 //!
 //! Each row is compared exactly: counts are integers, and no raw value lies near a bound
-//! (the reference's nearest is 2.3e-5 away). At the snapshots of (a), (b) and (b2) every
-//! living person's 44 body values are compared within a relative 1e-12: `sim-math` keeps
-//! `exp` and its relatives within 1 ulp of the correctly rounded value the reference uses
-//! (ADR-0003), so the last bits may differ; a wrong formula is off by far more.
+//! (the reference's nearest is 2.3e-5 away, its nearest curve input 0.19).
+//!
+//! At the snapshots of (a), (b) and (b2) every living person's 44 body values are compared
+//! within `1e-12 · max(1, |reference|)`, absolute below 1 and relative above. Bit equality
+//! is not promised: `sim-math` keeps `exp` and its relatives within 1 ulp of the correctly
+//! rounded value the reference uses (ADR-0003), and the mapping chains several of them
+//! (1 to 3 ulp differences occur in `body_hair`). The bound is not derived from those
+//! chains; it is set many orders of magnitude above them (about 4500 ulp near 1) and many
+//! below a change of any calibration value, whose fourth digit moves a value by about 1e-4.
 
 mod common;
 
@@ -209,7 +214,17 @@ fn bodies(world: &World, t: SimTime) -> Vec<(u64, Vec<f64>)> {
         .collect()
 }
 
-/// Equal within a relative 1e-12 (see the module's head).
+/// The years of the snapshots each fixture must have.
+fn snapshot_years(name: &str) -> Vec<i64> {
+    match name {
+        "a_template_extremes" => vec![0, 7, 19],
+        "b_pool_c_immigration" => vec![0, 9, 13],
+        "b2_pool_b_start" => vec![0, 9, 19],
+        _ => Vec::new(),
+    }
+}
+
+/// Equal within `1e-12 · max(1, |reference|)` (see the module's head).
 fn close(ours: f64, reference: f64) -> bool {
     let scale = if reference.abs() > 1.0 {
         reference.abs()
@@ -236,6 +251,8 @@ fn the_keys_are_the_references() {
         .map(|k| k.as_str().to_owned())
         .collect();
     assert_eq!(names(&census["param_keys"]), all);
+    let bodies: Value = serde_json::from_str(BODIES).expect("json");
+    assert_eq!(names(&bodies["param_keys"]), all);
 }
 
 /// Each fixture as the reference: its data, its `Start`, every census row, the year and
@@ -266,6 +283,11 @@ fn the_census_counts_the_bodies_as_the_reference() {
         let mut log: Vec<LogEntry> = world.take_log();
         let mut out = YearOut::default();
         let snapshots = bodies_golden[name].as_array().cloned().unwrap_or_default();
+        let years: Vec<i64> = snapshots
+            .iter()
+            .map(|shot| shot["year"].as_i64().expect("year"))
+            .collect();
+        assert_eq!(years, snapshot_years(name), "{name}: snapshots");
         for shot in snapshots {
             let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
             world.advance_until(&mut out, t, &mut |_| false);
@@ -280,6 +302,7 @@ fn the_census_counts_the_bodies_as_the_reference() {
             );
             for ((sim, values), person) in ours.iter().zip(reference) {
                 assert_eq!(*sim, person[0].as_u64().expect("sim"), "{name}");
+                assert_eq!(person[1].as_array().expect("values").len(), 44, "{name}");
                 for ((key, ours), bits) in BodyParamKey::ALL
                     .iter()
                     .zip(values)
@@ -305,6 +328,7 @@ fn the_census_counts_the_bodies_as_the_reference() {
                 serde_json::json!({
                     "year": row.year,
                     "living": row.living,
+                    "lived_secs": row.lived_secs,
                     "body_evaluated": row.body.evaluated,
                     "clamped": row.body.clamped.to_vec(),
                     "curve_clamped": row.body.curve_clamped,
