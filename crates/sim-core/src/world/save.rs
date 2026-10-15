@@ -375,6 +375,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
         && queue_consistent(loaded, now, &rules)
+        && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
@@ -395,6 +396,8 @@ struct PoolView<'a> {
     pregnancies: BTreeMap<SimId, (&'a PoolPerson, i64)>,
     /// The persons of each year's immigration, if it runs.
     immigration: Option<u64>,
+    /// Each arrival's place: its household's among the used ones, its own in the household.
+    places: BTreeMap<SimId, (usize, usize)>,
 }
 
 impl PoolView<'_> {
@@ -485,7 +488,7 @@ fn pool_view<'a>(
         let household = &pool.households[*index];
         let on_time = |at: SimTime| at.as_secs() == *second;
         let mut arrived: Option<SimTime> = None;
-        for member in &household.members {
+        for (member_place, member) in household.members.iter().enumerate() {
             let id = *keys.get(&member.lineage_key)?;
             let facts = facts(loaded, id)?;
             let origin = pool_of(loaded, id)?;
@@ -508,6 +511,7 @@ fn pool_view<'a>(
                 return None;
             }
             view.arrivals.insert(id, (member, delta));
+            view.places.insert(id, (place, member_place));
             place_of.insert(member.lineage_key, place);
             arrivals_seen += 1;
         }
@@ -594,6 +598,44 @@ fn pool_view<'a>(
         }
         view.children.insert(id);
     }
+    // Each pregnancy of the used households is pending while its mother lives, born in
+    // its second with all its children one after the other, or ended with her before it
+    // (design note of the carried plans, C3).
+    for (mother, (record, delta)) in &view.pregnancies {
+        let birth = SimTime::from_secs(record.birth_at?.as_secs().checked_add(*delta)?);
+        let carried = pool
+            .households
+            .iter()
+            .flat_map(|h| h.pregnancies.iter())
+            .find(|p| p.mother == record.lineage_key)?;
+        let left = loaded.archive.get(mother).map(|her| her.left);
+        let fits = if !lived_at(left, birth) {
+            true
+        } else if birth.as_secs() >= now {
+            loaded
+                .pregnancies
+                .get(mother)
+                .is_some_and(|pregnancy| pregnancy.pool_father.is_some())
+        } else {
+            let born: Option<Vec<(SimId, SimTime)>> = carried
+                .children
+                .iter()
+                .map(|child| {
+                    let id = *keys.get(&child.lineage_key)?;
+                    Some((id, facts(loaded, id)?.born))
+                })
+                .collect();
+            born.is_some_and(|born| {
+                born.iter().all(|(_, at)| *at == birth)
+                    && born
+                        .windows(2)
+                        .all(|pair| pair[0].0.get().checked_add(1) == Some(pair[1].0.get()))
+            })
+        };
+        if !fits {
+            return None;
+        }
+    }
     // The pregnancies: one from the pool is the arrival's, shifted; any other has its
     // father in the town. The father of a carried pregnancy is the sim with his key exactly
     // when his household came no later than hers (D8: set at her arrival, review).
@@ -630,6 +672,75 @@ fn pool_view<'a>(
         }
     });
     pregnancies_fit.then_some(view)
+}
+
+/// A pending plan an arrival brought: its order (household, member, slot), its insertion
+/// number and its plan.
+type CarriedPlan = ((usize, usize, u8), u64, PlanRef);
+
+/// The plans an arrival brought and the queue still holds (design note of the carried
+/// plans, C4 and C5): each was planned at her arrival by her `core:arrived`, so planned at
+/// `A`, all of one arrival by one entry, those of one household by consecutive entries in
+/// the order of its members; and they were inserted in the order of the arrival: by
+/// household, member, then conception, birth, separation, leaving home.
+fn carried_plans_consistent(
+    loaded: &LoadedState,
+    plan_refs: &[PlanRef],
+    rules: &Rules<'_>,
+    now: i64,
+) -> bool {
+    let mut carried: Vec<CarriedPlan> = Vec::new();
+    for (entry, plan) in loaded.queue.iter().zip(plan_refs) {
+        let owner = match &entry.payload {
+            EventPayload::ConceptionAttempt { woman }
+                if carried_series(loaded, rules, *woman, now) == Some(true) =>
+            {
+                Some((*woman, 0))
+            }
+            EventPayload::Birth { mother }
+                if loaded
+                    .pregnancies
+                    .get(mother)
+                    .is_some_and(|pregnancy| pregnancy.pool_father.is_some()) =>
+            {
+                Some((*mother, 1))
+            }
+            EventPayload::Separation { partnership }
+                if rules.pool.carried.contains_key(partnership) =>
+            {
+                loaded.partnerships.get(partnership).map(|p| (p.woman, 2))
+            }
+            EventPayload::LeaveHome { sim } if rules.pool.arrivals.contains_key(sim) => {
+                Some((*sim, 3))
+            }
+            _ => None,
+        };
+        let Some((owner, slot)) = owner else {
+            continue;
+        };
+        let (Some(&(household, member)), Some(origin)) =
+            (rules.pool.places.get(&owner), pool_of(loaded, owner))
+        else {
+            return false;
+        };
+        if plan.planned_at != origin.arrived {
+            return false;
+        }
+        carried.push(((household, member, slot), entry.seq, *plan));
+    }
+    carried.sort_unstable_by_key(|(order, ..)| *order);
+    let in_order = carried.windows(2).all(|pair| pair[0].1 < pair[1].1);
+    // One entry per arrival; within a household one after the other.
+    let by_arrival = carried.windows(2).all(|pair| {
+        let ((household, member, _), _, plan) = pair[0];
+        let ((next_household, next_member, _), _, next_plan) = pair[1];
+        household != next_household
+            || u64::try_from(next_member - member)
+                .ok()
+                .and_then(|step| plan.by.get().checked_add(step))
+                == Some(next_plan.by.get())
+    });
+    in_order && by_arrival
 }
 
 /// What the input log says beyond the projection.
@@ -1509,18 +1620,19 @@ fn conception_fits(
         return false;
     };
     // A partnership pairs a woman and a man (`partnerships_consistent`).
-    let formed = loaded.partnerships.values().find_map(|partnership| {
+    let formed = loaded.partnerships.iter().find_map(|(id, partnership)| {
         ((partnership.woman, partnership.man) == (parents.mother, parents.father)
             && partnership.formed <= conceived
             && partnership.ended.is_none_or(|ended| ended.at >= conceived))
-        .then_some(partnership.formed)
+        .then_some((*id, partnership.formed))
     });
     let at_a_month_start =
         conceived.as_secs() >= 0 && conceived.as_secs().rem_euclid(MONTH.as_secs()) == 0;
-    let in_her_series = formed.is_some_and(|formed| {
+    let in_her_series = formed.is_some_and(|(id, formed)| {
         let born_before = children_born(loaded, parents.mother, conceived);
         series_start(
             rules,
+            id,
             (parents.mother, parents.father, formed),
             &born_before,
         )
@@ -1627,9 +1739,12 @@ fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<Si
 
 /// Where her series of attempts in a partnership formed at `formed` begins, given the
 /// times of her births so far: after the pairing, or after the pause of her last birth in
-/// that partnership (ADR-0017 section 4).
+/// that partnership (ADR-0017 section 4). In a partnership an arrival brought and without
+/// a birth in it, at the first attempt she brought, none without one (design note of the
+/// carried plans, C2).
 fn series_start(
     rules: &Rules<'_>,
+    partnership: PartnershipId,
     (woman, man, formed): (SimId, SimId, SimTime),
     births: &[SimTime],
 ) -> Option<SimTime> {
@@ -1641,7 +1756,13 @@ fn series_start(
     let in_it = |born: &SimTime| *born > formed || (*born == formed && by_input);
     match births.iter().rev().find(|born| in_it(born)) {
         Some(born) => conception::series_after_birth(*born, pause),
-        None => conception::series_after_pairing(formed),
+        None => match rules.pool.carried.get(&partnership) {
+            Some((record, delta)) => record
+                .conception_at
+                .and_then(|at| at.as_secs().checked_add(*delta))
+                .map(SimTime::from_secs),
+            None => conception::series_after_pairing(formed),
+        },
     }
 }
 
@@ -1901,21 +2022,20 @@ fn next_attempt(
     woman: SimId,
 ) -> Option<SimTime> {
     let her = loaded.sims.get(&woman)?;
-    // A series an arrival brought follows the pool, after births the town does not see; it
-    // is checked against the pool in the next slice (design note of the arrival, section 9).
-    if carried_series(loaded, rules, woman, now).is_some() {
-        return None;
+    if let Some(brought) = carried_series(loaded, rules, woman, now) {
+        return carried_attempt(rules, woman, her.born, now)
+            .filter(|_| brought && !loaded.pregnancies.contains_key(&woman));
     }
-    let open = loaded
+    let (id, open) = loaded
         .partnerships
-        .values()
-        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?;
+        .iter()
+        .find(|(_, partnership)| partnership.woman == woman && partnership.ended.is_none())?;
     if loaded.pregnancies.contains_key(&woman) {
         return None;
     }
     let clock = SimTime::try_from(now.checked_sub(1)?).ok()?;
     let births = children_born(loaded, woman, SimTime::try_from(now).ok()?);
-    let start = series_start(rules, (woman, open.man, open.formed), &births)?;
+    let start = series_start(rules, *id, (woman, open.man, open.formed), &births)?;
     let after_now = conception::month_start_after(clock)?;
     let next = if start > after_now { start } else { after_now };
     let life = if her.pool.is_some() {
@@ -1932,6 +2052,27 @@ fn next_attempt(
         next,
     )
     .then_some(next)
+}
+
+/// The pending attempt of the series an arrival brought (design note of the carried plans,
+/// C1): on the grid of its first attempt `s`, the first second after the clock. The first
+/// is pending until it runs; after a failed one the next follows while her fertility has
+/// not ended by then, as `conception::on_attempt` goes on.
+fn carried_attempt(rules: &Rules<'_>, woman: SimId, born: SimTime, now: i64) -> Option<SimTime> {
+    let (record, delta) = rules.pool.arrivals.get(&woman)?;
+    let first = record.conception_at?.as_secs().checked_add(*delta)?;
+    let month = MONTH.as_secs();
+    let months = if first >= now {
+        0
+    } else {
+        now.checked_sub(first)?
+            .checked_sub(1)?
+            .div_euclid(month)
+            .checked_add(1)?
+    };
+    let next = SimTime::from_secs(first.checked_add(months.checked_mul(month)?)?);
+    let end = conception::fertility_end(&rules.data.genetics().fertility);
+    (months == 0 || state::disease::age(born, next) < end).then_some(next)
 }
 
 /// Whether an arrival's attempts are still the series she brought from the pool (review):
@@ -2115,14 +2256,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     })
             }
             EventPayload::ConceptionAttempt { woman } => {
-                // A series an arrival brought follows the pool (the next slice checks its
-                // seconds); every other series follows the town's rule.
                 entry.period == Some(MONTH)
                     && attempts.insert(*woman)
-                    && match carried_series(loaded, rules, *woman, now) {
-                        Some(brought) => brought && !loaded.pregnancies.contains_key(woman),
-                        None => next_attempt(loaded, now, rules, *woman) == Some(entry.time),
-                    }
+                    && next_attempt(loaded, now, rules, *woman) == Some(entry.time)
             }
             EventPayload::LeaveHome { sim } => {
                 entry.period.is_none()

@@ -123,6 +123,11 @@ impl EventId {
     pub(crate) fn is_below(self, next: u64) -> bool {
         self.0.get() < next
     }
+
+    /// Its number.
+    pub(crate) fn get(self) -> u64 {
+        self.0.get()
+    }
 }
 
 impl<'de> Deserialize<'de> for EventId {
