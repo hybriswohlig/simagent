@@ -462,3 +462,32 @@ fn a_locus_on_the_wrong_chromosome_is_rejected() {
         );
     }
 }
+
+/// The command `prerun pool` on the small run of the reference (`pool_b`, 40 founders, 30
+/// years): it reads the frozen map from `--map` and writes the reference's file to
+/// `--out/pool.bin` (review, mutants).
+#[test]
+fn the_pool_command_writes_the_file_of_the_reference() {
+    let run = &RUNS[1];
+    assert_eq!(run.name, "pool_b");
+    let dir = std::env::temp_dir().join(format!("prerun-pool-{}", std::process::id()));
+    let (calibration, map, _) = run.documents();
+    for (path, json) in [
+        ("map/calibration/genetics.json", &calibration),
+        ("map/genetics/genome_map.json", &map),
+    ] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("a directory")).expect("created");
+        std::fs::write(&file, json.pretty().expect("text")).expect("written");
+    }
+    let options = crate::prerun::Options {
+        out: dir.join("out"),
+        founders: run.founders,
+        years: run.years,
+        map: Some(dir.join("map")),
+    };
+    crate::prerun::pool(&root(), &options).expect("a pool");
+    let written = std::fs::read(dir.join("out/pool.bin")).expect("the file");
+    std::fs::remove_dir_all(&dir).expect("removed");
+    assert!(written == run.file, "the file differs");
+}
