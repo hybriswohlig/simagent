@@ -190,10 +190,11 @@ fn locus(id: &str, segment: u32, slot: u32, action: Json, mark: &str, descriptio
     ])
 }
 
-/// The template (calibration, genome map) from the repository's files.
+/// The template (calibration, genome map) from map 3, its base by definition (the fixture
+/// `tests/golden/map3/`).
 pub fn template(root: &Path) -> Result<(Json, Json)> {
-    let map3 = read(root, "data/genetics/genome_map.json")?;
-    let mut calibration = read(root, "data/calibration/genetics.json")?;
+    let map3 = read(root, "tests/golden/map3/genetics/genome_map.json")?;
+    let mut calibration = read(root, "tests/golden/map3/calibration/genetics.json")?;
     let specs = specs();
     let own_of: BTreeMap<&str, u32> = specs.iter().map(|spec| (spec.id, spec.own)).collect();
     let mut loci: Vec<Json> = map3

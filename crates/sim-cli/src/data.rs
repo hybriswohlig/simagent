@@ -185,6 +185,13 @@ mod tests {
         }
     }
 
+    /// Map 3 as a fixture: these tests edit its text (design note of the map 4 switch,
+    /// section 4); the built-in data are the subject of `the_base_game_loads` only.
+    const MAP3_CALIBRATION: &str =
+        include_str!("../../../tests/golden/map3/calibration/genetics.json");
+    const MAP3_GENOME_MAP: &str =
+        include_str!("../../../tests/golden/map3/genetics/genome_map.json");
+
     #[test]
     fn the_base_game_loads() {
         // The pinned data hash of the core tests, from tools/data_reference.py: the
@@ -194,16 +201,19 @@ mod tests {
 
     #[test]
     fn text_does_not_change_the_hash() {
-        let noted = CALIBRATION.replacen("rounded to 0.01 M", "rounded to a hundredth", 1);
-        assert_ne!(noted, CALIBRATION);
-        let described = GENOME_MAP.replacen("walking skeleton", "Durchstich", 1);
-        assert_ne!(described, GENOME_MAP);
+        let noted = MAP3_CALIBRATION.replacen("rounded to 0.01 M", "rounded to a hundredth", 1);
+        assert_ne!(noted, MAP3_CALIBRATION);
+        let described = MAP3_GENOME_MAP.replacen("walking skeleton", "Durchstich", 1);
+        assert_ne!(described, MAP3_GENOME_MAP);
         let hash = |calibration: &str, genome_map: &str| {
             data_from(DEMOGRAPHY, calibration, genome_map)
                 .expect("data")
                 .hash()
         };
-        assert_eq!(hash(&noted, &described), hash(CALIBRATION, GENOME_MAP));
+        assert_eq!(
+            hash(&noted, &described),
+            hash(MAP3_CALIBRATION, MAP3_GENOME_MAP)
+        );
     }
 
     /// The life course data have their text like the calibration (ADR-0017 section 1): each
@@ -213,7 +223,7 @@ mod tests {
         let noted = DEMOGRAPHY.replacen("play value", "a value for the game", 1);
         assert_ne!(noted, DEMOGRAPHY);
         let hash = |demography: &str| {
-            data_from(demography, CALIBRATION, GENOME_MAP)
+            data_from(demography, MAP3_CALIBRATION, MAP3_GENOME_MAP)
                 .expect("data")
                 .hash()
         };
@@ -221,7 +231,7 @@ mod tests {
         let blank = DEMOGRAPHY.replacen("\"as_of\": \"2026-10-10\"", "\"as_of\": \" \"", 1);
         assert_ne!(blank, DEMOGRAPHY);
         assert_eq!(
-            code(data_from(&blank, CALIBRATION, GENOME_MAP)),
+            code(data_from(&blank, MAP3_CALIBRATION, MAP3_GENOME_MAP)),
             "calibration/demography.json: as_of missing or blank"
         );
         let unsourced = DEMOGRAPHY.replacen(
@@ -231,29 +241,29 @@ mod tests {
         );
         assert_ne!(unsourced, DEMOGRAPHY);
         assert_eq!(
-            code(data_from(&unsourced, CALIBRATION, GENOME_MAP)),
+            code(data_from(&unsourced, MAP3_CALIBRATION, MAP3_GENOME_MAP)),
             "calibration/demography.json: source missing or blank"
         );
         let without = DEMOGRAPHY.replacen("\"fertility_wish_shape\"", "\"wish\"", 1);
         assert_ne!(without, DEMOGRAPHY);
         assert_eq!(
-            code(data_from(&without, CALIBRATION, GENOME_MAP)),
+            code(data_from(&without, MAP3_CALIBRATION, MAP3_GENOME_MAP)),
             "calibration/demography.json: no entries"
         );
     }
 
     #[test]
     fn text_must_be_there_and_not_blank() {
-        let blank = CALIBRATION.replacen("\"as_of\": \"2026-10-07\"", "\"as_of\": \"  \"", 1);
-        assert_ne!(blank, CALIBRATION);
+        let blank = MAP3_CALIBRATION.replacen("\"as_of\": \"2026-10-07\"", "\"as_of\": \"  \"", 1);
+        assert_ne!(blank, MAP3_CALIBRATION);
         assert_eq!(
-            code(data_from(DEMOGRAPHY, &blank, GENOME_MAP)),
+            code(data_from(DEMOGRAPHY, &blank, MAP3_GENOME_MAP)),
             "calibration/genetics.json: as_of missing or blank"
         );
-        let missing = GENOME_MAP.replacen("\"description\":", "\"comment\":", 1);
-        assert_ne!(missing, GENOME_MAP);
+        let missing = MAP3_GENOME_MAP.replacen("\"description\":", "\"comment\":", 1);
+        assert_ne!(missing, MAP3_GENOME_MAP);
         assert_eq!(
-            code(data_from(DEMOGRAPHY, CALIBRATION, &missing)),
+            code(data_from(DEMOGRAPHY, MAP3_CALIBRATION, &missing)),
             "genetics/genome_map.json: description missing or blank"
         );
     }
@@ -261,20 +271,20 @@ mod tests {
     #[test]
     fn unknown_fields_and_text_in_the_wrong_place_are_rejected() {
         // A text field where the file has none stays and meets deny_unknown_fields.
-        let misplaced = GENOME_MAP.replacen(
+        let misplaced = MAP3_GENOME_MAP.replacen(
             "\"map_version\": 3,",
             "\"map_version\": 3, \"note\": \"x\",",
             1,
         );
-        assert_ne!(misplaced, GENOME_MAP);
+        assert_ne!(misplaced, MAP3_GENOME_MAP);
         assert!(
-            code(data_from(DEMOGRAPHY, CALIBRATION, &misplaced))
+            code(data_from(DEMOGRAPHY, MAP3_CALIBRATION, &misplaced))
                 .starts_with("genetics/genome_map.json: unknown field `note`")
         );
-        let typo = GENOME_MAP.replacen("\"slot\":", "\"slots\":", 1);
-        assert_ne!(typo, GENOME_MAP);
+        let typo = MAP3_GENOME_MAP.replacen("\"slot\":", "\"slots\":", 1);
+        assert_ne!(typo, MAP3_GENOME_MAP);
         assert!(
-            code(data_from(DEMOGRAPHY, CALIBRATION, &typo))
+            code(data_from(DEMOGRAPHY, MAP3_CALIBRATION, &typo))
                 .starts_with("genetics/genome_map.json: unknown field `slots`")
         );
     }
@@ -331,10 +341,10 @@ mod tests {
             code(data_from(DEMOGRAPHY, &unknown, TRAITS_MAP))
                 .starts_with("calibration/genetics.json: unknown field `x`")
         );
-        let without = GENOME_MAP.replacen("\"traits\": [],", "", 1);
-        assert_ne!(without, GENOME_MAP);
+        let without = MAP3_GENOME_MAP.replacen("\"traits\": [],", "", 1);
+        assert_ne!(without, MAP3_GENOME_MAP);
         assert_eq!(
-            code(data_from(DEMOGRAPHY, CALIBRATION, &without)),
+            code(data_from(DEMOGRAPHY, MAP3_CALIBRATION, &without)),
             "genetics/genome_map.json: no entries"
         );
     }

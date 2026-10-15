@@ -6,8 +6,10 @@ use serde_json::{Value, json};
 use sim_core::data::{Data, Definitions};
 
 const DEMOGRAPHY: &str = include_str!("../../../../data/calibration/demography.json");
-const CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
-const GENOME_MAP: &str = include_str!("../../../../data/genetics/genome_map.json");
+/// Map 3 as a fixture (`tests/golden/map3/`): the subject of these tests is a rule, not
+/// the repository's map (design note of the map 4 switch, section 4).
+const CALIBRATION: &str = include_str!("../../../../tests/golden/map3/calibration/genetics.json");
+const GENOME_MAP: &str = include_str!("../../../../tests/golden/map3/genetics/genome_map.json");
 
 /// Removes the text fields `names` of the entries under `entries`; each must be there
 /// and not blank, as sim-cli demands.
