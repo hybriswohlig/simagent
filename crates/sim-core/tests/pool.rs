@@ -544,3 +544,67 @@ fn each_record_rule_rejects_each_of_its_conditions() {
         assert_eq!(verdict.err(), expected, "{name}");
     }
 }
+
+/// N1 and N2 by one partner and by the order of two mothers (mutants): one partner of the
+/// wrong sex is enough; two pregnancies of different mothers pass in the members' order and
+/// break `pregnancy_mother` the other way round.
+#[test]
+fn one_partner_and_the_order_of_two_mothers_decide() {
+    let pool = Pool::from_bytes(FILES[2].1).expect("pool_c");
+    let (s, _) = with_series(&pool);
+    let flip_partner = |woman: bool| {
+        changed_c(move |pool| {
+            let household = &mut pool.households[s];
+            let pair = household.partnership.expect("a pair");
+            let key = if woman { pair.woman } else { pair.man };
+            let partner = household
+                .members
+                .iter_mut()
+                .find(|m| m.lineage_key == key)
+                .expect("the partner");
+            partner.sex = match partner.sex {
+                Sex::Female => Sex::Male,
+                Sex::Male => Sex::Female,
+            };
+        })
+    };
+    assert_eq!(flip_partner(true).err(), Some(PoolError::PartnershipSex));
+    assert_eq!(flip_partner(false).err(), Some(PoolError::PartnershipSex));
+    // Two mothers in one household: a couple with a pregnancy, the partnership taken away
+    // (with the woman's separation), the man made the second, female mother.
+    let h = pool
+        .households
+        .iter()
+        .position(|household| !household.pregnancies.is_empty() && household.partnership.is_some())
+        .expect("a couple with a pregnancy");
+    let two_mothers = |in_order: bool| {
+        changed_c(move |pool| {
+            let frozen_at = pool.frozen_at;
+            let household = &mut pool.households[h];
+            let pair = household.partnership.take().expect("the pair");
+            for member in &mut household.members {
+                member.separation_at = None;
+            }
+            let place = |key| {
+                household
+                    .members
+                    .iter()
+                    .position(|m| m.lineage_key == key)
+                    .expect("a member")
+            };
+            let (first_place, other) = (place(household.pregnancies[0].mother), place(pair.man));
+            let him = &mut household.members[other];
+            him.sex = Sex::Female;
+            him.birth_at = Some(shifted(frozen_at, 1));
+            let mut second = household.pregnancies[0].clone();
+            second.mother = pair.man;
+            if (first_place < other) == in_order {
+                household.pregnancies.push(second);
+            } else {
+                household.pregnancies.insert(0, second);
+            }
+        })
+    };
+    assert_eq!(two_mothers(true).err(), None);
+    assert_eq!(two_mothers(false).err(), Some(PoolError::PregnancyMother));
+}
