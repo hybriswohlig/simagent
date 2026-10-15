@@ -918,8 +918,50 @@ fn base_save(label: &str) -> (Vec<u8>, fn() -> Data) {
             (run.save(), ARRIVAL.data)
         }
         "founders_world" => (founders_save(), founders_data),
+        "arrival_moved_out_by_town_partnership" => {
+            let mut run = Run::start(&RECORDS);
+            run.play(RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT);
+            (run.save(), RECORDS.data)
+        }
+        "brought_partnership_member_not_moved_out" => {
+            let data = brought_not_moved_out_data();
+            assert_eq!(data.hash(), BROUGHT_NOT_MOVED_OUT_DATA_HASH);
+            let start = start(
+                0xff,
+                Vec::new(),
+                Vec::new(),
+                pool_start(&data, 0xff, 50, true),
+            );
+            let mut world = World::new(data);
+            world.submit(Input::Start(start)).expect("accepted");
+            world.take_log();
+            (world.save(&[]).expect("saves"), brought_not_moved_out_data)
+        }
         _ => unreachable!("a save of the reference"),
     }
+}
+
+/// `pool_c` with the man of household 39's open partnership not moved out, his leaving
+/// home carried one year after `E_p`: a brought partnership moves nobody out in the town.
+fn brought_not_moved_out_pool() -> Vec<u8> {
+    changed_pool_c(|pool| {
+        let frozen_at = pool.frozen_at;
+        let household = &mut pool.households[39];
+        let man = household.partnership.expect("a partnership").man;
+        let him = household
+            .members
+            .iter_mut()
+            .find(|m| m.lineage_key == man)
+            .expect("the man");
+        him.moved_out = false;
+        him.leave_home_at = Some(SimTime::from_secs(frozen_at.as_secs() + Y));
+    })
+}
+
+fn brought_not_moved_out_data() -> Data {
+    let pool = brought_not_moved_out_pool();
+    assert_eq!(sized(&pool), BROUGHT_NOT_MOVED_OUT_POOL);
+    town_data(&pool)
 }
 
 /// The template without a pool.
@@ -965,8 +1007,10 @@ fn founders_save() -> Vec<u8> {
 }
 
 /// The load check one field at a time (design note, section 9; mutation run): each state
-/// changes one field of an arrival, of a pool child or of a world without a pool, or breaks
-/// one rule of the arrivals' kinship. Each base loads; each changed save does not.
+/// changes one field of an arrival, of a pool child or of a world without a pool, breaks
+/// one rule of the arrivals' kinship, or moves an arrival out against its partnerships (one
+/// formed in the town moves it out, a brought one does not). Each base loads; each changed
+/// save does not.
 #[test]
 fn load_rejects_a_state_changed_in_one_field() {
     for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_FIELDS {
@@ -2112,7 +2156,7 @@ const TIE_COUNTED_BIRTH: (&[Hunk], (usize, u64)) = (
 );
 
 /// The reference's states changed in one field (out4, its notes' section 5b).
-const LOAD_REJECTED_FIELDS: [Hunks; 30] = [
+const LOAD_REJECTED_FIELDS: [Hunks; 32] = [
     (
         "arrival_arrived_one_second_late",
         "orphans_save_end",
@@ -2413,6 +2457,20 @@ const LOAD_REJECTED_FIELDS: [Hunks; 30] = [
         ],
         (14369, 0xbc02_d85c_6ab7_25ec),
     ),
+    (
+        "arrival_moved_out_by_town_partnership_flag_false",
+        "arrival_moved_out_by_town_partnership",
+        (12985, 0x5f68_255f_c4db_f400),
+        &[(3566, 1, "00")],
+        (12985, 0xb773_8cce_1b84_e078),
+    ),
+    (
+        "brought_partnership_member_not_moved_out_moved_out",
+        "brought_partnership_member_not_moved_out",
+        (16904, 0x4b80_af68_46e0_1c3d),
+        &[(3286, 1, "01")],
+        (16904, 0x457e_67a1_1b94_bf0e),
+    ),
 ];
 
 /// The town of four founders without a pool (`founders_world`).
@@ -2422,3 +2480,11 @@ const FOUNDERS_DATA_HASH: u64 = 0x5ae3_d70c_71cf_063a;
 
 /// The second of the mark "pool_child_without_father".
 const POOL_CHILD_WITHOUT_FATHER_AT: i64 = 14515200;
+
+/// "records" before its input: the market round of this second pairs arrival 7 (not moved
+/// out in the pool, his leaving home still to come) with sim 11, which alone moves him out.
+const RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT: i64 = 186278400;
+
+/// The pool with a brought partnership's member not moved out, and its data.
+const BROUGHT_NOT_MOVED_OUT_POOL: (usize, u64) = (10961, 0x8ee0_f947_b74c_76cf);
+const BROUGHT_NOT_MOVED_OUT_DATA_HASH: u64 = 0xc8d7_d7ec_95e3_f2a2;
