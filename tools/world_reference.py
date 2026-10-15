@@ -1993,10 +1993,17 @@ class World:
     switch of this reference only (no household, no `leave_home`, no entry of them): the
     world of the similarity, for the check that the households change no story."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True, capacity=None, pool=None):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True, capacity=None, pool=None, nutrition=()):
         self.seed = seed
         self.tag = tag
         self.switch = switch
+        # The nutrition years of `WorldParams` (ADR-0013 section 1): (year, index) strictly
+        # ascending by year, each index in [0, 1]; a year not named has `N` = 1. Only the body
+        # mapping reads them (tools/census_reference.py), so they change no event of a run;
+        # they are part of `Start` and of the projection. Empty by default (every older tool).
+        self.nutrition = [(int(year), float(index)) for year, index in nutrition]
+        assert all(a[0] < b[0] for a, b in zip(self.nutrition, self.nutrition[1:])), "nutrition_order"
+        assert all(0.0 <= index <= 1.0 and -1_000_000 <= year <= 999_999 for year, index in self.nutrition), "nutrition_out_of_range"
         self.data = REPOSITORY if data is None else data
         # `market` False is a switch of this reference only, not of the core: no round is
         # planned (the null twin of the market, design note of the market, section 7).
@@ -2083,7 +2090,7 @@ class World:
         # The arguments and every call that changes the world (advance, an accepted
         # ArrangePartnership, an override), so that `without_households` can run the same
         # world again with the switch off; not state.
-        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market, capacity=capacity, pool=pool)
+        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market, capacity=capacity, pool=pool, nutrition=nutrition)
         self.script = []
         self.next_household_id = 1
         self.households = {}
@@ -2111,7 +2118,7 @@ class World:
             0,
             varint(seed),
             string(tag),
-            world_params(switch),
+            world_params(switch, self.nutrition),
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
             capacity_bytes(capacity),
@@ -3860,7 +3867,7 @@ class World:
         return (
             varint(PROJECTION_VERSION)
             + some(varint(self.seed))
-            + some(world_params(self.switch))
+            + some(world_params(self.switch, self.nutrition))
             + signed(closed)
             + varint(self.next_sim_id)
             + varint(self.next_partnership_id)
