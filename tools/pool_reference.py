@@ -50,8 +50,10 @@ what a pool person and a pool household carry, the ancestors, the file and its r
    `violations`) rejects a wrong magic, a wrong version, trailing bytes, a household without
    a member of 18 or more at `frozen_at`, members out of order, ancestors out of order, a
    parent key of a person that is no record, an open partnership whose partners are not
-   members (`RULES`, in this order; a body that does not decode is `decode`, no rule of the
-   note); it round-trips byte for byte.
+   members (`FILE_RULES`, in this order; a body that does not decode is `decode`, no rule of
+   the note); then the rules of the records (design note of the pool's records, section 1:
+   P6, N1, N2, P2, P1, N3, P3, P4, P5 strict, N4; `RECORD_RULES`, `record_violations`); it
+   round-trips byte for byte.
 
 The `pool_frequencies` calibration entry (note section 3): `with_pool_frequencies` adds it
 to a frozen calibration document, `check_pool_frequencies` is the pool's data check
@@ -66,6 +68,10 @@ Usage: .venv/bin/python tools/pool_reference.py [--out DIR]
        .venv/bin/python tools/pool_reference.py --scan FOUNDERS YEARS [SCENARIO]
        (one run, the cases of note section 8 present at every year end second
        `y · YEAR`, y = 1 to YEARS; for choosing the runs, not a pin)
+       .venv/bin/python tools/pool_reference.py --check FILE...
+       (reads each pool file: accepted, or the first rule broken and every rule broken)
+       .venv/bin/python tools/pool_reference.py --rejects DIR
+       (every rejected file from the golden pools of tests/golden/pool, without the runs)
 """
 
 import copy
@@ -87,6 +93,7 @@ from world_reference import (
     BIRTH_KIND,
     IDENTICAL,
     LEAVE_HOME_KIND,
+    MONTH,
     PARTNERSHIP_SUBJECT,
     SEPARATION_KIND,
     SIM_SUBJECT,
@@ -952,9 +959,10 @@ class Rejected(Exception):
         self.rule = rule
 
 
-# The rules of the reader in the order it checks them (note section 7), each with the name
-# the known answers use.
-RULES = (
+# The rules of the reader in the order it checks them, each with the name the known answers
+# use (the core's code is `pool.<name>`). First the rules of the file (note of the pool file,
+# section 7), each made into a rejected file from `pool_b`.
+FILE_RULES = (
     "magic",
     "version",
     "trailing_bytes",
@@ -964,6 +972,22 @@ RULES = (
     "parent_not_a_record",
     "partnership_not_members",
 )
+# Then the rules of the records (design note of the pool's records, section 1, in its order:
+# P6, N1, N2, P2, P1, N3, P3, P4, P5, N4), each made into a rejected file from `pool_c`.
+RECORD_RULES = (
+    "frozen_at",
+    "partnership_sex",
+    "pregnancy_mother",
+    "birth_at",
+    "conception_at",
+    "conception_month",
+    "separation_at",
+    "leave_home_at",
+    "carried_time",
+    "past_time",
+)
+RULES = FILE_RULES + RECORD_RULES
+FEMALE_CODE, MALE_CODE = 0, 1
 
 
 def decode_pool(data: bytes) -> dict:
@@ -1018,7 +1042,78 @@ def violations(pool: dict) -> list:
         if h["partnership"] is not None and not {h["partnership"][0], h["partnership"][1]} <= members:
             found.append("partnership_not_members")
             break
+    found += record_violations(pool)
     return found
+
+
+def record_violations(pool: dict) -> list:
+    """The rules of the records (design note of the pool's records, section 1) the pool
+    breaks, in the order of `RECORD_RULES`, each once. None needs the data. "The woman" of
+    a household is its partnership's woman (by key); a household without a partnership has
+    none. A partner or a mother that is not a member of its household is the business of
+    `partnership_not_members` and `pregnancy_mother`; `partnership_sex` reads only the
+    partners that are members."""
+    at = pool["frozen_at"]
+    households = pool["households"]
+    members = [(h, p) for h in households for p in h["members"]]
+
+    def woman_of(h):
+        return None if h["partnership"] is None else h["partnership"][0]
+
+    def mothers_of(h):
+        return {g["mother"] for g in h["pregnancies"]}
+
+    def sex_wrong(h) -> bool:
+        if h["partnership"] is None:
+            return False
+        woman, man, _ = h["partnership"]
+        sexes = {p["lineage_key"]: p["sex"] for p in h["members"]}
+        return sexes.get(woman, FEMALE_CODE) != FEMALE_CODE or sexes.get(man, MALE_CODE) != MALE_CODE
+
+    def pregnancies_wrong(h) -> bool:
+        place = {p["lineage_key"]: i for i, p in enumerate(h["members"])}
+        places = []
+        for g in h["pregnancies"]:
+            i = place.get(g["mother"])
+            if i is None or h["members"][i]["sex"] != FEMALE_CODE or not g["children"]:
+                return True
+            places.append(i)
+        return any(places[j] >= places[j + 1] for j in range(len(places) - 1))
+
+    carried = ("conception_at", "birth_at", "separation_at", "leave_home_at")
+    checks = (
+        # P6: the freeze falls on a year start.
+        ("frozen_at", at % YEAR != 0),
+        # N1: the partnership's woman is female and its man male.
+        ("partnership_sex", any(sex_wrong(h) for h in households)),
+        # N2: each pregnancy's mother is a female member, the mothers distinct and ascending
+        # by their places among the members, the children not empty.
+        ("pregnancy_mother", any(pregnancies_wrong(h) for h in households)),
+        # P2: a pending birth iff the member is the mother of a pregnancy of its household.
+        ("birth_at", any((p["birth_at"] is not None) != (p["lineage_key"] in mothers_of(h)) for h, p in members)),
+        # P1: a pending conception attempt only for the woman, and only if she is not pregnant.
+        (
+            "conception_at",
+            any(p["conception_at"] is not None and (p["lineage_key"] != woman_of(h) or p["lineage_key"] in mothers_of(h)) for h, p in members),
+        ),
+        # N3: a conception attempt falls on a month start.
+        ("conception_month", any(p["conception_at"] is not None and p["conception_at"] % MONTH != 0 for _, p in members)),
+        # P3: a pending separation only for the woman.
+        ("separation_at", any(p["separation_at"] is not None and p["lineage_key"] != woman_of(h) for h, p in members)),
+        # P4: a pending leaving home iff not moved out.
+        ("leave_home_at", any((p["leave_home_at"] is not None) == p["moved_out"] for _, p in members)),
+        # P5: every carried time after the freeze (ADR-0020 section 3: strict).
+        ("carried_time", any(p[name] is not None and p[name] <= at for _, p in members for name in carried)),
+        # N4: births, partnerships and conceptions of the pool run lie at or before the freeze.
+        (
+            "past_time",
+            any(p["born"] > at for _, p in members)
+            or any(h["partnership"] is not None and h["partnership"][2] > at for h in households)
+            or any(g["conceived"] > at for h in households for g in h["pregnancies"]),
+        ),
+    )
+    assert tuple(rule for rule, _ in checks) == RECORD_RULES
+    return [rule for rule, broken in checks if broken]
 
 
 def read_pool(data: bytes) -> dict:
@@ -1393,7 +1488,110 @@ def rejected_files(data: bytes) -> list:
             raise AssertionError(f"accepted {rule}")
         except Rejected as error:
             assert error.rule == rule
-    assert [rule for rule, _, _ in out] == list(RULES)
+    assert [rule for rule, _, _ in out] == list(FILE_RULES)
+    return out
+
+
+def record_rejected_files(data: bytes) -> list:
+    """One rejected file per rule of the records (design note of the pool's records,
+    sections 1 and 3), each from the valid file `data` (`pool_c`'s) with one change that
+    breaks that rule alone (asserted: every other rule of the reader holds). Returns
+    [(rule, how, bytes)] in the order of `RECORD_RULES`."""
+    pool = read_pool(data)
+    at = pool["frozen_at"]
+    households = pool["households"]
+    out = []
+
+    def made(rule: str, how: str, change) -> None:
+        changed = copy.deepcopy(pool)
+        change(changed)
+        out.append((rule, how, encode_pool(changed)))
+
+    def member(h: dict, key: int) -> dict:
+        (found,) = [p for p in h["members"] if p["lineage_key"] == key]
+        return found
+
+    # The first household with a partnership and no pregnancy, the first pregnancy, the
+    # first woman with a pending conception attempt, the first moved-out member, the first
+    # household of exactly two members (each by its place in the file).
+    couple = [i for i, h in enumerate(households) if h["partnership"] is not None and not h["pregnancies"]][0]
+    pregnant = [i for i, h in enumerate(households) if h["pregnancies"]][0]
+    trying = [i for i, h in enumerate(households) if h["partnership"] is not None and member(h, h["partnership"][0])["conception_at"] is not None][0]
+    moved = [(i, j) for i, h in enumerate(households) for j, p in enumerate(h["members"]) if p["moved_out"]][0]
+    pair = [i for i, h in enumerate(households) if len(h["members"]) == 2][0]
+    # The dependent child of household 33 whose leaving home `leave_home_at_start` of
+    # tools/arrival_reference.py moves to `frozen_at` (the same file).
+    leaving = [(33, j) for j, p in enumerate(households[33]["members"]) if p["leave_home_at"] is not None]
+    assert len(leaving) == 1
+    leaving = leaving[0]
+
+    made("frozen_at", "frozen_at + 1", lambda f: f.update(frozen_at=at + 1))
+
+    def swap_partners(f):
+        woman, man, _ = f["households"][couple]["partnership"]
+        w, m = member(f["households"][couple], woman), member(f["households"][couple], man)
+        for field in ("sex", "genome"):
+            w[field], m[field] = m[field], w[field]
+
+    made("partnership_sex", f"household {couple} (the first with a partnership and no pregnancy): the woman's and the man's sex and genome swapped", swap_partners)
+    made(
+        "pregnancy_mother",
+        f"household {pregnant} (the first with a pregnancy): its pregnancy's children removed",
+        lambda f: f["households"][pregnant]["pregnancies"][0].update(children=[]),
+    )
+
+    def no_birth(f):
+        h = f["households"][pregnant]
+        member(h, h["pregnancies"][0]["mother"])["birth_at"] = None
+
+    made("birth_at", f"household {pregnant}: the mother's birth_at set to None", no_birth)
+
+    def conception_to_man(f):
+        h = f["households"][trying]
+        woman, man, _ = h["partnership"]
+        member(h, man)["conception_at"] = member(h, woman)["conception_at"]
+        member(h, woman)["conception_at"] = None
+
+    made("conception_at", f"household {trying} (the first whose woman has conception_at): her conception_at moved to her man", conception_to_man)
+
+    def conception_plus_one(f):
+        h = f["households"][trying]
+        member(h, h["partnership"][0])["conception_at"] += 1
+
+    made("conception_month", f"household {trying}: the woman's conception_at + 1", conception_plus_one)
+
+    def separation_to_man(f):
+        h = f["households"][couple]
+        woman, man, _ = h["partnership"]
+        member(h, man)["separation_at"] = member(h, woman)["separation_at"]
+        member(h, woman)["separation_at"] = None
+
+    made("separation_at", f"household {couple}: the woman's separation_at moved to her man", separation_to_man)
+    made(
+        "leave_home_at",
+        f"household {moved[0]} member {moved[1]} (the first moved out): leave_home_at = frozen_at + YEAR, still moved out",
+        lambda f: f["households"][moved[0]]["members"][moved[1]].update(leave_home_at=at + YEAR),
+    )
+    made(
+        "carried_time",
+        f"household {leaving[0]} member {leaving[1]} (the dependent child of arrival_reference's leave_home_at_start): leave_home_at = frozen_at",
+        lambda f: f["households"][leaving[0]]["members"][leaving[1]].update(leave_home_at=at),
+    )
+    made(
+        "past_time",
+        f"household {pair} (the first with two members): its youngest member born at frozen_at + 1",
+        lambda f: f["households"][pair]["members"][-1].update(born=at + 1),
+    )
+    for rule, _, content in out:
+        decoded = decode_pool(content)
+        assert violations(decoded) == [rule], (rule, violations(decoded))
+        try:
+            read_pool(content)
+            raise AssertionError(f"accepted {rule}")
+        except Rejected as error:
+            assert error.rule == rule
+        assert encode_pool(decoded) == content, "the rejected file round-trips"
+    assert [rule for rule, _, _ in out] == list(RECORD_RULES)
     return out
 
 
@@ -1450,6 +1648,10 @@ SCENARIOS = {
 
 
 def main(argv) -> int:
+    if "--check" in argv:
+        return check_files(argv[argv.index("--check") + 1 :])
+    if "--rejects" in argv:
+        return rejects_from_golden(argv[argv.index("--rejects") + 1])
     if "--scan" in argv:
         at = argv.index("--scan")
         scenario = argv[at + 3] if len(argv) > at + 3 else None
@@ -1496,13 +1698,53 @@ def main(argv) -> int:
         documents = frozen if scenario is None else scenario_documents(frozen, SCENARIOS[scenario])
         world, built = print_run(label, documents, n, years, out)
         if label == REJECT_RUN:
-            for rule, how, content in rejected_files(built["bytes"]):
-                print(f"pool_reject_how {rule} from {label}: {how}")
-                print(f"pool_reject {rule} bytes {len(content)} hash {hash64(content):016x} hex {content.hex()}")
-                if out is not None:
-                    path = Path(out) / "reject"
-                    path.mkdir(parents=True, exist_ok=True)
-                    (path / f"{rule}.bin").write_bytes(content)
+            print_rejected(label, rejected_files(built["bytes"]), out)
+        if label == RECORD_REJECT_RUN:
+            print_rejected(label, record_rejected_files(built["bytes"]), out)
+    return 0
+
+
+def print_rejected(label: str, files: list, out) -> None:
+    for rule, how, content in files:
+        print(f"pool_reject_how {rule} from {label}: {how}")
+        print(f"pool_reject {rule} bytes {len(content)} hash {hash64(content):016x} hex {content.hex()}")
+        if out is not None:
+            path = Path(out) / "reject"
+            path.mkdir(parents=True, exist_ok=True)
+            (path / f"{rule}.bin").write_bytes(content)
+
+
+def check_files(paths: list) -> int:
+    """`--check`: reads each pool file, prints `pool_check <path> bytes <n> xxh3 <hex>
+    accepted` or `... rejected <first rule> all <every rule broken>`. Exit 1 if any is
+    rejected."""
+    rejected = 0
+    for name in paths:
+        data = Path(name).read_bytes()
+        head = f"pool_check {name} bytes {len(data)} xxh3 {hash64(data):016x}"
+        try:
+            pool = decode_pool(data)
+        except Rejected as error:
+            print(f"{head} rejected {error.rule} all {error.rule}")
+            rejected += 1
+            continue
+        found = violations(pool)
+        print(f"{head} rejected {found[0]} all {' '.join(found)}" if found else f"{head} accepted")
+        rejected += bool(found)
+    return 1 if rejected else 0
+
+
+def rejects_from_golden(out) -> int:
+    """`--rejects DIR`: every rejected file from the golden pools (tests/golden/pool, the
+    bytes of the runs `pool_b` and `pool_c`), without the runs; writes `DIR/<rule>.bin` and
+    prints the `pool_reject` rows."""
+    golden = ROOT / "tests" / "golden" / "pool"
+    for label, make in ((REJECT_RUN, rejected_files), (RECORD_REJECT_RUN, record_rejected_files)):
+        files = make((golden / f"{label}.bin").read_bytes())
+        print_rejected(label, files, None)
+        Path(out).mkdir(parents=True, exist_ok=True)
+        for rule, _, content in files:
+            (Path(out) / f"{rule}.bin").write_bytes(content)
     return 0
 
 
@@ -1513,7 +1755,8 @@ def main(argv) -> int:
 # run with the frequencies of `frequent_alleles` (Mendelian afflictions after the
 # assignment); `pool_e` is the natural run of 60 founders to year 81, the first year end of
 # `--scan 60 90` with an open household outside the pool (no member of 18 or more). The
-# rejected files are made from `pool_b`'s file.
+# rejected files of the file rules are made from `pool_b`'s file, those of the record rules
+# from `pool_c`'s (couples, pregnancies, conception attempts, dependent children).
 RUNS = [
     ("pool_a", 60, 60, None),
     ("pool_b", 40, 30, None),
@@ -1526,6 +1769,7 @@ RUNS = [
     ("pool_f", 60, 130, None),
 ]
 REJECT_RUN = "pool_b"
+RECORD_REJECT_RUN = "pool_c"
 
 
 if __name__ == "__main__":
