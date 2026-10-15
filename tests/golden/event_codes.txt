@@ -1,5 +1,6 @@
 # Event codes (ADR-0002). Never renumber; new classes, subjects and kinds take free codes.
 # Changes only in a bless: commit with a five-line report (ADR-0000).
+class immigration 100
 class birth 200
 class general 500
 class death 900
@@ -18,3 +19,4 @@ kind separation 6
 kind market_round 7
 kind leave_home 8
 kind emigration 9
+kind immigration 10

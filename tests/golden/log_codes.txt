@@ -16,6 +16,7 @@ payload 9 core:separated
 payload 10 core:household_formed
 payload 11 core:moved
 payload 12 core:emigrated
+payload 13 core:arrived
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -49,6 +50,10 @@ reject 20 nutrition_year_past
 reject 21 partner_too_young
 reject 22 partners_too_closely_related
 reject 23 capacity_zero
+reject 24 start_pool_and_founders
+reject 25 start_pool_missing
+reject 26 start_pool_n_start
+reject 27 start_pool_households
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
