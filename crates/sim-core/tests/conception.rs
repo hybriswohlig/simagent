@@ -333,6 +333,7 @@ fn a_child_is_exposed_from_its_birth() {
         out: YearOut {
             census: run.out.census.clone(),
             year_hashes: years,
+            trace: Vec::new(),
         },
         log: run.log,
     };
@@ -445,6 +446,7 @@ fn save_load_continue_across_conceptions() {
             out: YearOut {
                 census: part.out.census.clone(),
                 year_hashes: years,
+                trace: Vec::new(),
             },
             log: part.log,
         };
@@ -683,6 +685,7 @@ fn save_load_continue_across_twins() {
             out: YearOut {
                 census: part.out.census.clone(),
                 year_hashes: years,
+                trace: Vec::new(),
             },
             log: part.log,
         };

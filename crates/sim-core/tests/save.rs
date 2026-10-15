@@ -663,6 +663,7 @@ fn save_load_continue_equals_uninterrupted() {
         let resumed = YearOut {
             census: out.census,
             year_hashes: years,
+            trace: Vec::new(),
         };
         assert_eq!(
             finish(loaded, log, resumed),

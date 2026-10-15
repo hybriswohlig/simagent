@@ -1173,12 +1173,15 @@ fn log_codes_are_stable() {
     actual.extend(saves.iter().map(|s| line("save", s)));
     actual.extend(loads.iter().map(|l| line("load", l)));
     // ADR-0004 section 6: the kinds of trace entries.
-    let traces = [TracePayload::BirthdayPlanned {
-        next: SimTime::from_secs(0),
-    }];
+    let traces = [
+        TracePayload::BirthdayPlanned {
+            next: SimTime::from_secs(0),
+        },
+        TracePayload::CurveInputClamped { z_h: 0.0, z_p: 0.0 },
+    ];
     for trace in &traces {
         match trace {
-            TracePayload::BirthdayPlanned { .. } => {}
+            TracePayload::BirthdayPlanned { .. } | TracePayload::CurveInputClamped { .. } => {}
         }
     }
     actual.extend(traces.iter().map(|t| line("trace", t)));

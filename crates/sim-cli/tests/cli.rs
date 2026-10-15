@@ -155,10 +155,7 @@ fn run_writes_the_run_directory() {
             "\n",
         )
     );
-    assert_eq!(
-        text(&out.join("census.csv")),
-        "year,living,lived_secs\n0,1,31449600\n"
-    );
+    assert_eq!(text(&out.join("census.csv")), census(&["0,1,31449600"]));
     // Year hash and log hash from tools/state_reference.py.
     assert_eq!(
         text(&out.join("manifest.json")),
@@ -844,6 +841,19 @@ fn resume_refuses_a_directory_that_does_not_match_its_save() {
     unchanged("census.csv", census.as_bytes());
     restore();
 
+    // A census of an older version: the three columns only.
+    let old = text(&out.join("census.csv"))
+        .lines()
+        .map(|line| line.split(',').take(3).collect::<Vec<_>>().join(",") + "\n")
+        .collect::<String>();
+    fs::write(out.join("census.csv"), &old).expect("writes");
+    assert_eq!(
+        resume(),
+        "error: run_dir_inconsistent: census.csv does not start with the header of this version"
+    );
+    unchanged("census.csv", old.as_bytes());
+    restore();
+
     // A manifest of another moment of the run.
     replace_in(
         &out.join("manifest.json"),
@@ -927,7 +937,7 @@ fn a_session_writes_each_census_row_once() {
     session.finish(&scenario).expect("finishes");
     assert_eq!(
         text(&dir.join("census.csv")),
-        "year,living,lived_secs\n0,1,31449600\n1,1,31449600\n2,1,31449600\n"
+        census(&["0,1,31449600", "1,1,31449600", "2,1,31449600"])
     );
     assert_eq!(text(&dir.join("events.ndjson")).lines().count(), 6);
 }
@@ -1253,4 +1263,25 @@ fn repro_packages_pass() {
             must(&["repro", arg(&path)]);
         }
     }
+}
+
+/// `census.csv` of the repository's data, which have no body traits (ADR-0020 section 7):
+/// the three columns of every run, then the bodies, here all 0 (no evaluation, no clamp of
+/// the 21 parameters of the contract with unit `z` or `cm`, no held curve).
+fn census(rows: &[&str]) -> String {
+    let header = "year,living,lived_secs,body_evaluated,clamped_height_cm,clamped_leg_ratio_z,\
+                  clamped_head_size_z,clamped_body_fat_z,clamped_fat_distribution_z,\
+                  clamped_muscle_z,clamped_shoulder_width_z,clamped_chest_depth_z,\
+                  clamped_hip_width_z,clamped_face_axis_01,clamped_face_axis_02,\
+                  clamped_face_axis_03,clamped_face_axis_04,clamped_face_axis_05,\
+                  clamped_face_axis_06,clamped_face_axis_07,clamped_face_axis_08,\
+                  clamped_face_axis_09,clamped_face_axis_10,clamped_face_axis_11,\
+                  clamped_face_axis_12,curve_clamped";
+    let mut text = format!("{header}\n");
+    for row in rows {
+        text.push_str(row);
+        text.push_str(&",0".repeat(23));
+        text.push('\n');
+    }
+    text
 }

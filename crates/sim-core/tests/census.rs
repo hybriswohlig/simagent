@@ -38,6 +38,7 @@ use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{NutritionYear, WorldParams};
 use sim_core::pool::{Pool, pool_loci, take_households};
 use sim_core::time::SimTime;
+use sim_core::trace::{TraceFilter, TracePayload};
 use sim_core::world::{World, YearOut};
 
 const CENSUS: &str = include_str!("../../../tests/golden/census/census.json");
@@ -369,4 +370,59 @@ fn every_living_sim_is_evaluated_once_a_year() {
         }
     }
     let _ = Pool::from_bytes(POOL_B).expect("pool_b");
+}
+
+/// The trace of a held growth curve (ADR-0012 section 4, design note of the census 3.2):
+/// with every sim traced, (a) gives at each year end exactly the reference's held sims with
+/// `z_h` and `z_p` before the hold; the trace changes no year hash; untraced, none comes.
+#[test]
+fn a_held_curve_is_traced_for_a_traced_sim() {
+    let census: Value = serde_json::from_str(CENSUS).expect("json");
+    let expected = &census["fixtures"]["a_template_extremes"];
+    let (_, scenario, _) = fixtures().into_iter().next().expect("a");
+    let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+    let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+    let run = |filter: TraceFilter| {
+        let data = template_data();
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.set_trace(filter);
+        world.submit(Input::Start(start)).expect("accepted");
+        let mut out = YearOut::default();
+        world.advance_until(&mut out, until, &mut |_| false);
+        let held: Vec<(i64, u64, f64, f64)> = world
+            .take_trace()
+            .into_iter()
+            .filter_map(|entry| match entry.payload {
+                TracePayload::CurveInputClamped { z_h, z_p } => {
+                    Some((entry.t.as_secs(), entry.sim.get(), z_h, z_p))
+                }
+                TracePayload::BirthdayPlanned { .. } => None,
+            })
+            .collect();
+        let hashes: Vec<u64> = out.year_hashes.iter().map(|y| y.hash).collect();
+        (held, hashes)
+    };
+    let (held, hashes) = run(TraceFilter::All);
+    let mut reference = Vec::new();
+    for (year, sims) in expected["curve_clamped_sims"].as_object().expect("by year") {
+        let year: i64 = year.parse().expect("a year");
+        for sim in sims.as_array().expect("sims") {
+            reference.push((
+                (year + 1) * 31_449_600 - 1,
+                sim[0].as_u64().expect("sim"),
+                f64::from_bits(hex_u64(&sim[2])),
+                f64::from_bits(hex_u64(&sim[3])),
+            ));
+        }
+    }
+    reference.sort_by_key(|(t, sim, _, _)| (*t, *sim));
+    assert_eq!(held.len(), reference.len());
+    for ((t, sim, z_h, z_p), (rt, rsim, rz_h, rz_p)) in held.iter().zip(&reference) {
+        assert_eq!((t, sim), (rt, rsim));
+        assert!(close(*z_h, *rz_h) && close(*z_p, *rz_p), "sim {sim} at {t}");
+    }
+    let (none, untraced) = run(TraceFilter::Off);
+    assert!(none.is_empty());
+    assert_eq!(hashes, untraced);
 }
