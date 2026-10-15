@@ -4706,6 +4706,28 @@ def check_pool(world: World) -> None:
         assert [(key, 0 if sex == FEMALE else 1, genome_of(person)) for key, sex, person in children] == [
             (child["lineage_key"], child["sex"], pool_reference.encode_genome(child["genome"])) for child in pregnancy["children"]
         ], mother
+    # The counts of a pool person (ADR-0020 section 5: "ihre Zählungen sind die des Pools plus die
+    # der Stadt"; review of the reference, NOTES2.md section 5g): `births` is the pool's plus its
+    # children born in the town (town and pool children, living or archived); its town
+    # conceptions (of its town children and its running town pregnancy) are numbered on from the
+    # pool's count, and `conceptions` is the pool's plus them. An archived woman may hold one more:
+    # a pregnancy that ended with her death or left with her.
+    for sim, origin in world.origins.items():
+        record = pool.members[world.key_of(sim)][1] if origin["born_pool"] is not None else {"conceptions": 0, "births": 0}
+        living = sim in world.sims
+        conceptions, births = (world.sims[sim][5], world.sims[sim][6]) if living else (world.archive[sim][7], world.archive[sim][8])
+        assert births == record["births"] + len(world.town_births(sim)), (sim, births, record["births"])
+        numbers = set()
+        for child in set(world.sims) | set(world.archive):
+            parents = world.sims[child][7] if child in world.sims else world.archive[child][9]
+            if parents is not None and parents[0] == sim:
+                numbers.add(parents[2])
+        if sim in world.pregnancies and sim not in world.pool_fathers:
+            numbers.add(world.pregnancies[sim][1])
+        town = len(numbers)
+        assert sorted(numbers) == list(range(record["conceptions"], record["conceptions"] + town)), (sim, sorted(numbers), record["conceptions"])
+        allowed = (record["conceptions"] + town,) if living else (record["conceptions"] + town, record["conceptions"] + town + 1)
+        assert conceptions in allowed, (sim, conceptions, allowed)
     # The series of attempts of every living pool person (`World.series_due`).
     for sim in sorted(world.sims):
         if world.is_pool_person(sim):
