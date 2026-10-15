@@ -126,8 +126,10 @@ fn p2_a_quarter_of_the_children_of_two_carriers_have_both_alleles() {
     }
 }
 
-/// P2 exactly: the 2000 children as founders right before the start, the switch on: the
-/// disease of the locus shows for exactly those with `d = 2`; with the switch off for none.
+/// P2 exactly: the 2000 children as founders right before the start, each with its sex and
+/// its two copies, which the pedigree shows back. Whatever the switch, exactly those with
+/// `d = 2` have the disease of the locus, with onset 0, and no carrier has it; it shows as
+/// affected only with the switch on.
 #[test]
 fn p2_only_the_homozygous_are_affected_and_only_with_the_switch_on() {
     let data = common::data();
@@ -136,21 +138,33 @@ fn p2_only_the_homozygous_are_affected_and_only_with_the_switch_on() {
         &parent(true, json!({"x": 0})),
         &parent(true, json!({"y": 0})),
     );
+    let founders: Vec<Founder> = ours
+        .iter()
+        .map(|(zygote, _)| Founder {
+            born: SimTime::from_secs(-1),
+            sex: match zygote.genome.paternal_sex {
+                PaternalSex::X(_) => Sex::Female,
+                PaternalSex::Y(_) => Sex::Male,
+            },
+            alleles: common::dummy(
+                zygote.genome.maternal.allele(0, 0),
+                zygote.genome.paternal.allele(0, 0),
+            ),
+        })
+        .collect();
+    // Each dose with both sexes, so neither a lost copy nor a lost sex hides.
+    for d in 0..=2 {
+        for sex in [Sex::Female, Sex::Male] {
+            assert!(
+                founders
+                    .iter()
+                    .zip(&ours)
+                    .any(|(founder, (_, dose))| *dose == d && founder.sex == sex),
+                "d = {d}, {sex:?}"
+            );
+        }
+    }
     for on in [true, false] {
-        let founders = ours
-            .iter()
-            .map(|(zygote, _)| Founder {
-                born: SimTime::from_secs(-1),
-                sex: match zygote.genome.paternal_sex {
-                    PaternalSex::X(_) => Sex::Female,
-                    PaternalSex::Y(_) => Sex::Male,
-                },
-                alleles: common::dummy(
-                    zygote.genome.maternal.allele(0, 0),
-                    zygote.genome.paternal.allele(0, 0),
-                ),
-            })
-            .collect();
         let mut world = World::new(common::data());
         world
             .submit(Input::Start(Start {
@@ -160,25 +174,28 @@ fn p2_only_the_homozygous_are_affected_and_only_with_the_switch_on() {
                     hereditary_diseases: on,
                     nutrition: Vec::new(),
                 },
-                founders,
+                founders: founders.clone(),
                 couples: Vec::new(),
                 capacity: None,
             }))
             .expect("accepted");
-        let affected: Vec<bool> = world
-            .pedigree()
-            .persons
-            .iter()
-            .map(|person| {
-                person
-                    .diseases
-                    .iter()
-                    .any(|shown| shown.disease.as_str() == "core:disease_ar" && shown.affected)
-            })
-            .collect();
-        assert_eq!(affected.len(), ours.len());
-        for (is, (_, d)) in affected.iter().zip(&ours) {
-            assert_eq!(*is, on && *d == 2, "d = {d}, switch {on}");
+        let persons = world.pedigree().persons;
+        assert_eq!(persons.len(), founders.len());
+        for ((person, founder), (_, d)) in persons.iter().zip(&founders).zip(&ours) {
+            assert_eq!(person.sex, founder.sex);
+            assert_eq!(person.alleles, founder.alleles);
+            let disease: Vec<_> = person
+                .diseases
+                .iter()
+                .filter(|shown| shown.disease.as_str() == "core:disease_ar")
+                .collect();
+            if *d == 2 {
+                assert_eq!(disease.len(), 1, "d = 2");
+                assert!(disease[0].onset == 0.0, "onset {}", disease[0].onset);
+                assert_eq!(disease[0].affected, on, "switch {on}");
+            } else {
+                assert!(disease.is_empty(), "d = {d} has the disease");
+            }
         }
     }
 }
