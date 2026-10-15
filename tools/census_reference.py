@@ -302,13 +302,29 @@ class Margins:
         }
 
 
+def lived_secs(world: wr.World, year: int) -> int:
+    """The seconds lived in calendar year `year` by every sim of the state at its year end,
+    living or archived (ADR-0004 section 8): per sim the length of `[max(born, year_start),
+    min(left, year_start(year + 1)))`, the second of birth lived, the second of leaving
+    (death, emigration) not; a living sim to the end of the year. An integer."""
+    start, end = year * YEAR, (year + 1) * YEAR
+    total = 0
+    for value in world.sims.values():
+        assert value[0] < end
+        total += end - max(value[0], start)
+    for value in world.archive.values():
+        born, left = value[0], value[1]
+        total += max(0, min(left, end) - max(born, start))
+    return total
+
+
 def census_row(evaluator: Evaluator, year: int, margins=None) -> tuple:
     """The census of year `year` at its year end (the world advanced to it): the row and the
     curve-held persons (sim, lineage key, `z_h`, `z_p` before the hold) for the trace."""
     world = evaluator.world
     t = year_end(year)
     assert world.closed == t
-    row = {"year": year, "living": len(world.sims), "body_evaluated": 0, "clamped": [0] * len(CLAMPED_KEYS), "curve_clamped": 0}
+    row = {"year": year, "living": len(world.sims), "lived_secs": lived_secs(world, year), "body_evaluated": 0, "clamped": [0] * len(CLAMPED_KEYS), "curve_clamped": 0}
     held = []
     if not evaluator.body.accepted:
         return row, held
@@ -775,7 +791,7 @@ def text_rows(name: str, record: dict) -> list:
     ]
     for row in record["rows"]:
         counts = " ".join(f"{key}={row['clamped'][i]}" for i, key in enumerate(CLAMPED_KEYS))
-        lines.append(f"census_{name}_row year {row['year']} living {row['living']} body_evaluated {row['body_evaluated']} {counts} curve_clamped {row['curve_clamped']}")
+        lines.append(f"census_{name}_row year {row['year']} living {row['living']} lived_secs {row['lived_secs']} body_evaluated {row['body_evaluated']} {counts} curve_clamped {row['curve_clamped']}")
     totals = [sum(row["clamped"][i] for row in record["rows"]) for i in range(len(CLAMPED_KEYS))]
     lines.append(
         f"census_{name}_totals evaluations {sum(row['body_evaluated'] for row in record['rows'])} curve_clamped {sum(row['curve_clamped'] for row in record['rows'])} "
