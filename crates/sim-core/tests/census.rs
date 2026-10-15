@@ -390,8 +390,21 @@ fn a_held_curve_is_traced_for_a_traced_sim() {
         world.submit(Input::Start(start)).expect("accepted");
         let mut out = YearOut::default();
         world.advance_until(&mut out, until, &mut |_| false);
-        let held: Vec<(i64, u64, f64, f64)> = world
-            .take_trace()
+        // The year's output is handed into the buffer: nothing stays behind.
+        assert!(out.trace.is_empty());
+        let trace = world.take_trace();
+        // Events' and census entries in the order of time over all years, the events of a
+        // second before the census of that second.
+        assert!(trace.windows(2).all(|pair| pair[0].t <= pair[1].t));
+        for pair in trace.windows(2) {
+            if pair[0].t == pair[1].t {
+                let census = |e: &sim_core::trace::TraceEntry| {
+                    matches!(e.payload, TracePayload::CurveInputClamped { .. })
+                };
+                assert!(!census(&pair[0]) || census(&pair[1]), "event after census");
+            }
+        }
+        let held: Vec<(i64, u64, f64, f64)> = trace
             .into_iter()
             .filter_map(|entry| match entry.payload {
                 TracePayload::CurveInputClamped { z_h, z_p } => {
