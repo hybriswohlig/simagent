@@ -114,6 +114,10 @@ def check_all(world: wr.World, deaths: bool = True) -> None:
         check(world)
     if deaths:
         wr.check_deaths(world)
+    # The checks of the carried plans (design note of the carried plans, C2 to C5; NOTES2.md
+    # section 5d): every save of every scenario passes them too.
+    for check in wr.CARRIED_CHECKS:
+        check(world)
 
 
 def make_world(data: wr.Data, seed: int, n_start: int, immigration: bool, switch: bool = True) -> wr.World:
@@ -485,6 +489,9 @@ def arrival_rows_all() -> list:
     world, saves, entries, stopped = staged(arrival_world, ARRIVAL_MARKS, [], end, panic=ARRIVAL_STOP_YEAR * YEAR)
     BASE_SAVES["arrival_save_after_start"] = saves["after_start"]
     BASE_SAVES["arrival_save_after_pool_child_without_father"] = saves["after_pool_child_without_father"]
+    BASE_SAVES["arrival_save_after_town_child_of_pool_persons"] = saves["after_town_child_of_pool_persons"]
+    BASE_SAVES["arrival_save_after_immigration_1"] = saves["after_immigration_1"]
+    BASE_SAVES["arrival_save_end"] = saves["end"]
     name = "arrival"
     rows = common_rows(name, ARRIVAL_POOL, world, ARRIVAL_N_START, True, end)
     rows += [f"{name}_mark {label} {t}" for label, t in ARRIVAL_MARKS.items()]
@@ -854,11 +861,23 @@ def invariant_rows() -> list:
 # States the load checks of section 9 reject
 
 
-def rejecting_checks(world: wr.World) -> list:
-    """The model's load checks that reject the state; a check that fails by another error
-    than an assertion (a broken state it cannot even read) is named with `!` and the error."""
+OLD_CHECKS = (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths)
+# With the checks of the carried plans (NOTES2.md section 5d): the rows of round 6 and the old
+# rows evaluated again; the old rows themselves keep the old list (their output stays as it was).
+ALL_CHECKS = OLD_CHECKS + wr.CARRIED_CHECKS
+
+
+# Every rejected state the earlier rounds printed, as (label of its row kind, name, world), so
+# that round 6 can evaluate them again with the checks of the carried plans in new rows.
+REJECTED = []
+
+
+def rejecting_checks(world: wr.World, checks=OLD_CHECKS) -> list:
+    """The model's load checks (of `checks`) that reject the state; a check that fails by another
+    error than an assertion (a broken state it cannot even read) is named with `!` and the
+    error."""
     names = []
-    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths):
+    for check in checks:
         try:
             check(world)
         except AssertionError:
@@ -919,6 +938,7 @@ def broken_rows() -> list:
     for name, how, world in cases:
         checks = rejecting_checks(world)
         assert checks, f"no load check rejects {name}"
+        REJECTED.append(("load_reject", name, world))
         rows.append(f"load_reject {name} how {how} checks {checks} save {world.save().hex()}")
     rows.append(f"load_base arrival at {base.closed} save {base.save().hex()}")
     BASE_SAVES["load_base"] = base.save()
@@ -958,6 +978,7 @@ def more_broken_rows() -> list:
     def row(name: str, base: str, world: wr.World, how: str) -> None:
         checks = rejecting_checks(world)
         assert checks, f"no load check rejects {name}"
+        REJECTED.append(("load_reject_more", name, world))
         rows.append(f"load_reject_more {name} base {base} clock {world.closed} how {how} checks {checks} save {world.save().hex()}")
 
     # (a) "arrival" right after `Start`: the first mother in SimId order whose pool father
@@ -1156,6 +1177,7 @@ def field_row(name: str, base_label: str, base: bytes, world: wr.World, how: str
     world.kinships = {}
     checks = rejecting_checks(world)
     assert checks, f"no load check rejects {name}"
+    REJECTED.append(("pool_field_reject", name, world))
     changed = world.save()
     hunks = save_hunks(base, changed)
     return (
@@ -1339,10 +1361,10 @@ def brought_not_moved_out_pool() -> tuple:
     return data, man_key
 
 
-def valid_row(label: str, how: str, world: wr.World) -> str:
+def valid_row(label: str, how: str, world: wr.World, checks_list=OLD_CHECKS) -> str:
     """`valid_state <label> how <scenario, seed, inputs> clock <c> pin <length> <xxh3>
     rejecting_checks [] save <hex>`: a state the rules reach, accepted by every model check."""
-    checks = rejecting_checks(world)
+    checks = rejecting_checks(world, checks_list)
     assert checks == [], (label, checks)
     save = world.save()
     return f"valid_state {label} how {how} clock {world.closed} pin {pin(save)} rejecting_checks {checks} save {save.hex()}"
@@ -1412,6 +1434,368 @@ def moved_out_rows() -> list:
         f" cognition {template.cognition_trait.weights} and height {template.height_trait.weights} (the market's utility)"
     )
     return rows
+
+
+# ---------------------------------------------------------------------------------------
+# The plans an arrival brought (design note of the carried plans; NOTES2.md section 5d)
+
+# V3: "arrival" with seed 3 (pool_c, `n_start` 50): household 41 arrives at second 0; its woman
+# (sim 40, 45.5 at the freeze) stays exempt and never conceives; her carried series ends with
+# its failed attempt at 140313600 (the next would be at 50 years). Found by a scan (seeds 0 to 11
+# that put household 41 or 36 at second 0; 3, 7 and 11 have it).
+ENDED_SEED, ENDED_CLOCK, ENDED_WOMAN = 0x3, 140313600, 40
+# V6: pool_d with seed 0xdb (`n_start` 30, as "orphans"): the mother of the pool pregnancy
+# (sim 27) dies at 3263752, before its birth at 19353600. Found by a scan of seeds 0 to 255 of
+# pool_c (`n_start` 50) and pool_d (`n_start` 30) for a pool mother whose first planned death
+# lies before her birth: pool_d seeds 0x8a, 0xdb, 0xde, 0xe4; 0xdb dies first.
+CANCEL_SEED, CANCEL_MOTHER = 0xDB, 27
+# V4: in "arrival" sim 13 (exempt, household 42) conceives in her carried series at 2419200 with
+# sim 12; the child (sim 60) is born at 26611200 (the mark town_child_of_pool_persons).
+CONCEIVED_SECOND, CONCEIVED_WOMAN = 2419200, 13
+# V4b, the base of the row of C2: sim 13's partnership was formed at second 0, so no month lies
+# between its pairing and her series' start. In "arrival" sim 45 (exempt, household 32) conceives
+# at her carried series' start 21772800 with sim 44; one month earlier her attempt draw succeeds
+# (chance 0.2). Found by listing every conception in a carried series of "arrival", "orphans"
+# and "records" with that test (three have such a month; this is the first).
+C2_SECOND, C2_WOMAN = 21772800, 45
+# V5 with twins: in "arrival" the pool pregnancy of household 31 (mother sim 15) has two children,
+# born at 7257600.
+TWINS_SECOND, TWINS_HOUSEHOLD = 7257600, 31
+
+
+def carried_reject(name: str, check, base_label: str, base: bytes, world: wr.World, how: str) -> str:
+    """A rejected state of round 6 in the format of round 4 (`pool_field_reject`), its checks the
+    whole list (`ALL_CHECKS`); asserted to be rejected by exactly `check`."""
+    world.kinships = {}
+    checks = rejecting_checks(world, ALL_CHECKS)
+    assert checks == [check.__name__], (name, checks)
+    changed = world.save()
+    hunks = save_hunks(base, changed)
+    return (
+        f"pool_field_reject {name} base {base_label} base_pin {pin(base)} hunks {len(hunks)} "
+        + " ".join(f"{offset}:{removed.hex()}:{put.hex()}" for offset, removed, put in hunks)
+        + f" changed_pin {pin(changed)} checks {checks} how {how}"
+    )
+
+
+def remove_sim(world: wr.World, sim: int) -> None:
+    """A living sim gone without a trace (its events, its index entries); for a state where a
+    birth never happened. Only for the last SimId."""
+    assert sim == world.next_sim_id - 1 and sim in world.sims
+    key = world.sims[sim][1]
+    del world.sims[sim]
+    world.origins.pop(sim, None)
+    del world.by_key[key]
+    world.queue = [event for event in world.queue if event.subject != (wr.SIM_SUBJECT, sim)]
+    world.next_sim_id -= 1
+
+
+def move_birth(world: wr.World, child: int, born: int) -> None:
+    """A pool child's birth (and arrival) moved to `born`, with what follows from it: its first
+    birthday, its leaving home, its deaths, the exposure of its afflictions."""
+    old = world.sims[child][0]
+    world.sims[child][0] = born
+    world.origins[child]["arrived"] = born
+    world.origins[child]["arrival_year"] = born // YEAR
+    for affliction in world.sims[child][4]:
+        if affliction.exposure is not None and affliction.exposure[1] == old:
+            affliction.exposure[1] = born
+    for event in world.queue:
+        if event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.BIRTHDAY_KIND:
+            event.time = born + YEAR
+        elif event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.LEAVE_HOME_KIND:
+            event.time = world.leave_home_second(child)
+    replan_deaths(world, child)
+
+
+def carried_rows() -> list:
+    """Round 6 (design note of the carried plans, section 3): the valid states V1 to V10 (each
+    passes every check, the new ones included), the rejected states (each by exactly the check of
+    its rule: C1 is `check_pool`'s series line, C2 to C5 the new `check_carried_*`), and the old
+    rejected states evaluated again with the new checks (new rows; the old rows stay)."""
+    copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
+    rows = []
+
+    def valid(label: str, how: str, world: wr.World) -> wr.World:
+        check_all(world)
+        rows.append(valid_row(label, how, world, ALL_CHECKS))
+        return world
+
+    def pinned(label: str, world: wr.World) -> bytes:
+        save = world.save()
+        assert BASE_SAVES.get(label, save) == save, label
+        return save
+
+    # Valid states.
+    start = valid("V1_arrival_save_after_start", "the row arrival_save_after_start: every carried plan at its first second, plan (e, 0)", arrival_world())
+    v1 = pinned("arrival_save_after_start", start)
+    base2 = arrival_world()
+    base2.advance(3 * YEAR - 1)
+    valid("V2_load_base", "the row load_base: carried series after failed attempts, the carried separation of partnership 15 run, immigrants of years 1 and 2", base2)
+    v2 = pinned("load_base", base2)
+    pool_c = town_data(golden_pool(ARRIVAL_POOL))
+    ended = make_world(pool_c, ENDED_SEED, ARRIVAL_N_START, True)
+    ended.advance(ENDED_CLOCK)
+    woman = ENDED_WOMAN
+    number = ended.open_partnership(woman)
+    first = ended.pool_member(woman)["conception_at"] + ended.origins[woman]["arrived"] - pool_c.pool.frozen_at
+    last = [row for row in ended.attempts if row[1] == woman][-1]
+    assert ended.series_exempt(woman, number) and woman not in ended.pregnancies and ended.pending_series(woman) is None
+    assert last[0] == ENDED_CLOCK and not last[4] and wr.as_years(ENDED_CLOCK + MONTH - ended.born_of(woman)) >= ended.data.fertility_end
+    valid(
+        "V3_carried_series_ended",
+        f"'arrival' with seed {hexed(ENDED_SEED)} (pool_c, n_start 50, immigration on, template of map 4, tag {TAG}), no input: sim {woman} (household 41, exempt,"
+        f" carried series from {first}) failed her attempt at {ENDED_CLOCK}, the next would be at 50 years: no attempt; start_input {start_record(ended).hex()}",
+        ended,
+    )
+    v3 = ended.save()
+    pregnant = arrival_world()
+    pregnant.advance(CONCEIVED_SECOND)
+    mother = CONCEIVED_WOMAN
+    father, conception_number, children, conceived = pregnant.pregnancies[mother]
+    assert conceived == CONCEIVED_SECOND and mother not in pregnant.pool_fathers and pregnant.series_exempt(mother, pregnant.open_partnership(mother))
+    valid("V4_carried_conception_pregnant", f"'arrival' (seed 0xff) at {CONCEIVED_SECOND}: sim {mother} (exempt) conceived in her carried series with sim {father}", pregnant)
+    v4 = pregnant.save()
+    born = arrival_world()
+    born.advance(ARRIVAL_MARKS["town_child_of_pool_persons"])
+    (child60,) = [sim for sim in born.sims if (born.sims[sim][7] or (0,))[0] == mother]
+    assert not born.series_exempt(mother, born.open_partnership(mother)) and born.pending_series(mother) == born.series_due(mother) is not None
+    valid(
+        "V4_carried_conception_born",
+        f"the row arrival_save_after_town_child_of_pool_persons: sim {mother}'s child {child60} born at {born.closed}; her series from the town's rule after the birth at {born.pending_series(mother)}",
+        born,
+    )
+    c2 = arrival_world()
+    c2.advance(C2_SECOND)
+    valid("V4b_carried_conception_pregnant", f"'arrival' (seed 0xff) at {C2_SECOND}: sim {C2_WOMAN} (exempt) conceived at her carried series' start with sim {c2.pregnancies[C2_WOMAN][0]}", c2)
+    child_world = arrival_world()
+    child_world.advance(ARRIVAL_MARKS["pool_child_without_father"])
+    valid("V5_arrival_save_after_pool_child_without_father", "the row arrival_save_after_pool_child_without_father: pool child 59 born at b = the clock", child_world)
+    v5 = pinned("arrival_save_after_pool_child_without_father", child_world)
+    twins = arrival_world()
+    twins.advance(TWINS_SECOND)
+    (pregnancy,) = twins.data.pool.households[TWINS_HOUSEHOLD]["pregnancies"]
+    twin_sims = [twins.by_key[child["lineage_key"]] for child in pregnancy["children"]]
+    assert len(twin_sims) == 2 and all(twins.born_of(sim) == TWINS_SECOND for sim in twin_sims)
+    valid("V5_pool_twins_born", f"'arrival' (seed 0xff) at {TWINS_SECOND}: the pool twins of household {TWINS_HOUSEHOLD} (mother sim {twins.by_key[pregnancy['mother']]}) born, sims {twin_sims}", twins)
+    v5t = twins.save()
+    cancel = make_world(town_data(golden_pool(KIN_POOL)), CANCEL_SEED, KIN_N_START, True)
+    cancel_mother_key = cancel.key_of(CANCEL_MOTHER)
+    b = cancel.pool_member(CANCEL_MOTHER)["birth_at"] - cancel.data.pool.frozen_at
+    deaths = sorted(e.time for e in cancel.queue if e.kind == wr.DEATH_KIND and e.subject == (wr.SIM_SUBJECT, CANCEL_MOTHER))
+    cancel.advance(deaths[0])
+    assert CANCEL_MOTHER in cancel.archive and cancel.archive[CANCEL_MOTHER][1] < b and CANCEL_MOTHER not in cancel.pregnancies
+    valid(
+        "V6_pool_pregnancy_cancelled",
+        f"pool_d with seed {hexed(CANCEL_SEED)} (n_start {KIN_N_START}, immigration on, template of map 4, tag {TAG}), no input: the pool mother sim {CANCEL_MOTHER}"
+        f" (key {hexed(cancel_mother_key)}) dies at {deaths[0]}, before her birth at {b}; start_input {start_record(cancel).hex()}",
+        cancel,
+    )
+    pool, _, _ = leave_home_at_start_pool()
+    leave = make_world(town_data(pool), ARRIVAL_SEED, ARRIVAL_N_START, True)
+    valid("V7_leave_home_at_start_after_start", "the row leave_home_at_start save_after_start", leave)
+    leave.advance(0)
+    valid("V7_leave_home_at_start_after_second_0", "the row leave_home_at_start save_after_second_0", leave)
+    micro = micro_world()
+    micro.advance((MICRO_YEAR + 1) * YEAR - 1)
+    valid("V8_micro_save_end", "the row micro_save_end: a carried separation at A in micro step 1 run", micro)
+    tie = make_world(pool_c, TIE_SEED, ARRIVAL_N_START, True)
+    tie.advance(TIE_SECOND)
+    valid("V9_birth_pairing_tie_save_at_t", "the row birth_pairing_tie save_at_t", tie)
+    tie.advance(wr.month_start_after(TIE_SECOND) - 1)
+    valid("V9_birth_pairing_tie_save_before_first_attempt", "the row birth_pairing_tie save_before_first_attempt", tie)
+    arranged = kin_world(RECORDS_SEED)()
+    arranged.advance(RECORDS_INPUTS[0][1] - 1)
+    arranged.arrange(RECORDS_INPUTS[0][2], RECORDS_INPUTS[0][3])
+    valid("V9_records_save_after_arrange", "the row records_save_after_arrange: a carried series replaced by the town's", arranged)
+    orphans = kin_world(ORPHANS_SEED)()
+    orphans.advance(ORPHANS_END)
+    valid("V10_orphans_save_end", "the row orphans_save_end", orphans)
+    founders = wr.World(FOUNDERS_SEED, TAG, True, FOUNDERS, FOUNDERS_COUPLES, wr.Data(*template_documents()))
+    founders.advance(FOUNDERS_CLOCK)
+    valid("V10_founders_world", "the row pool_field_base founders_world", founders)
+
+    # C1: the carried series (check_pool's series line). load_base holds no pending carried
+    # attempt (every carried series of "arrival" has conceived, or ended with its partnership, by
+    # then); the pinned save after the immigration of year 1 (clock YEAR) holds two after failed
+    # attempts (sims 21 and 32).
+    year1 = arrival_world()
+    year1.advance(YEAR)
+    check_all(year1)
+    v2y = pinned("arrival_save_after_immigration_1", year1)
+    assert not [row for row in wr.carried_plans(base2) if row[2] == 0]
+    exempt2 = [(event, owner) for event, owner, slot in sorted(wr.carried_plans(year1), key=lambda r: r[1]) if slot == 0]
+    event, owner = exempt2[0]
+    s_owner = year1.pool_member(owner)["conception_at"] + year1.origins[owner]["arrived"] - year1.data.pool.frozen_at
+    assert event.time > s_owner, "after k >= 1 failed attempts"
+    w = copy_world(year1)
+    (moved,) = [e for e in w.queue if e.insertion == event.insertion]
+    moved.time += MONTH
+    rows.append(carried_reject(
+        "carried_series_one_month_late", wr.check_pool, "arrival_save_after_immigration_1", v2y, w,
+        f"C1 second: sim {owner}'s carried attempt (s = {s_owner}, after {(event.time - s_owner) // MONTH} failed) {event.time} -> {moved.time}",
+    ))
+    exempt1 = [(event, owner) for event, owner, slot in sorted(wr.carried_plans(start), key=lambda r: r[1]) if slot == 0 and event.time >= MONTH]
+    event1, owner1 = exempt1[0]
+    w = copy_world(start)
+    (moved,) = [e for e in w.queue if e.insertion == event1.insertion]
+    moved.time -= MONTH
+    rows.append(carried_reject("carried_series_before_its_start", wr.check_pool, "arrival_save_after_start", v1, w, f"C1 second: sim {owner1}'s first carried attempt s = {event1.time} -> s - MONTH"))
+    w = copy_world(year1)
+    w.queue = [e for e in w.queue if e.insertion != event.insertion]
+    rows.append(carried_reject("carried_series_missing", wr.check_pool, "arrival_save_after_immigration_1", v2y, w, f"C1 presence: sim {owner}'s carried attempt at {event.time} removed with its plan"))
+    (insertion,) = {key[7] for key, _ in ended.fired if key[6] == wr.ATTEMPT_KIND and key[4:6] == (wr.SIM_SUBJECT, woman)}
+    grid = first + ((ended.closed - first) // MONTH + 1) * MONTH
+    w = copy_world(ended)
+    w.queue.append(wr.Event(grid, wr.GENERAL, (wr.SIM_SUBJECT, woman), wr.ATTEMPT_KIND, insertion, variant(3, varint(woman)), MONTH, (w.arrived_by[woman], w.origins[woman]["arrived"])))
+    rows.append(carried_reject(
+        "carried_series_past_fertility", wr.check_pool, "valid_state:V3_carried_series_ended", v3, w,
+        f"C1 end: sim {woman}'s attempt at grid(s) = {grid} added with the seq {insertion} and plan of her series",
+    ))
+
+    # C2: a conception in the carried series lies on its grid.
+    rows += carried_conception_rows(c2, c2.save(), copy_world, C2_WOMAN, "valid_state:V4b_carried_conception_pregnant")
+
+    # C3: each pool pregnancy pending, born, or ended with its mother.
+    w = copy_world(start)
+    w.pregnancies.pop(36)
+    w.pool_fathers.pop(36)
+    w.queue = [e for e in w.queue if not (e.kind == wr.BIRTH_KIND and e.subject == (wr.SIM_SUBJECT, 36))]
+    rows.append(carried_reject("pool_pregnancy_dropped", wr.check_carried_births, "arrival_save_after_start", v1, w, "C3 pending: sim 36's pool pregnancy and its Birth (with its plan) removed"))
+    w = copy_world(child_world)
+    remove_sim(w, 59)
+    w.sims[36][6] -= 1
+    rows.append(carried_reject(
+        "pool_birth_vanished", wr.check_carried_births, "arrival_save_after_pool_child_without_father", v5, w,
+        "C3 consumed: pool child 59 (the last SimId) removed with its events and plans, next SimId 60 -> 59, sim 36's births - 1",
+    ))
+    w = copy_world(child_world)
+    move_birth(w, 59, child_world.closed - 1)
+    rows.append(carried_reject(
+        "pool_child_born_one_second_early", wr.check_carried_births, "arrival_save_after_pool_child_without_father", v5, w,
+        f"C3 consumed: pool child 59 born (and arrived) b - 1 = {child_world.closed - 1}, its first birthday, leaving home, deaths and exposure from there",
+    ))
+    later = max(twin_sims)
+    if later == twins.next_sim_id - 1:
+        w = copy_world(twins)
+        twin_mother = twins.by_key[pregnancy["mother"]]
+        remove_sim(w, later)
+        w.sims[twin_mother][6] -= 1
+        rows.append(carried_reject(
+            "pool_twin_missing", wr.check_carried_births, "valid_state:V5_pool_twins_born", v5t, w,
+            f"C3 consumed: the later twin {later} (the last SimId) removed with its events and plans, next SimId - 1, sim {twin_mother}'s births - 1",
+        ))
+    else:
+        rows.append(f"pool_field_skipped pool_twin_missing reason the later twin {later} is not the last SimId ({twins.next_sim_id - 1})")
+
+    # C4: the plans of the pending carried plans.
+    plans1 = sorted(wr.carried_plans(start), key=lambda r: (r[1], r[2]))
+    for name, slot, pick in (
+        ("carried_attempt_plan_moved", 0, None),
+        ("carried_birth_plan_moved", 1, 36),
+        ("carried_separation_plan_moved", 2, 15),
+        ("carried_leave_home_plan_moved", 3, None),
+    ):
+        (event, owner, _) = next(row for row in plans1 if row[2] == slot and (pick is None or row[0].subject[1] == pick))
+        w = copy_world(start)
+        (moved,) = [e for e in w.queue if e.insertion == event.insertion]
+        moved.plan = (moved.plan[0], moved.plan[1] - 1)
+        rows.append(carried_reject(
+            name, wr.check_carried_plans, "arrival_save_after_start", v1, w,
+            f"C4 planned_at: {['ConceptionAttempt', 'Birth', 'Separation', 'LeaveHome'][slot]} of subject {event.subject[1]} (owner sim {owner}) plan {event.plan} -> {moved.plan}",
+        ))
+    end = arrival_world()
+    end.advance(ARRIVAL_STOP_YEAR * YEAR - 1)
+    check_all(end)
+    candidates = [("load_base", base2, v2), ("arrival_save_after_immigration_1", year1, v2y), ("arrival_save_end", end, pinned("arrival_save_end", end))]
+    for label, world_, save_ in candidates:
+        immigrant = [(event, owner) for event, owner, _ in sorted(wr.carried_plans(world_), key=lambda r: (r[0].insertion)) if world_.origins[owner]["arrived"] > 0]
+        if immigrant:
+            event, owner = immigrant[0]
+            w = copy_world(world_)
+            (moved,) = [e for e in w.queue if e.insertion == event.insertion]
+            moved.plan = (moved.plan[0], moved.plan[1] + 1)
+            rows.append(carried_reject(
+                "carried_plan_planned_later", wr.check_carried_plans, label, save_, w,
+                f"C4 planned_at = A, not <= A: kind {event.kind} of immigrant sim {owner} (A = {world_.origins[owner]['arrived']}) plan {event.plan} -> {moved.plan}"
+                f" (the first base of load_base, arrival_save_after_immigration_1, arrival_save_end with such a plan)",
+            ))
+            break
+    else:
+        rows.append("pool_field_skipped carried_plan_planned_later reason no pending carried plan of an immigrant in load_base, arrival_save_after_immigration_1 or arrival_save_end")
+    members = start.data.pool.members
+    owners = sorted({owner for _, owner, _ in plans1}, key=lambda sim: (start.used.index(members[start.key_of(sim)][0]), sim))
+    households = {}
+    for sim in owners:
+        households.setdefault(members[start.key_of(sim)][0], []).append(sim)
+    (index, pair) = next((index, sims) for index, sims in households.items() if len(sims) >= 2)
+    x = pair[0]
+    w = copy_world(start)
+    changed = [e for e in w.queue if (e.insertion in {event.insertion for event, owner, _ in plans1 if owner == x})]
+    for e in changed:
+        e.plan = (e.plan[0] + 1, e.plan[1])
+    rows.append(carried_reject(
+        "carried_plan_by_other_member", wr.check_carried_plans, "arrival_save_after_start", v1, w,
+        f"C4 by: household {index} (owners {pair}): every pending carried plan of sim {x} by + 1 ({len(changed)} plans), so its by no longer sits at its place below the later member's",
+    ))
+    order = sorted(
+        ((start.used.index(members[start.key_of(owner)][0]), [m['lineage_key'] for m in start.data.pool.households[members[start.key_of(owner)][0]]['members']].index(start.key_of(owner)), slot), event)
+        for event, owner, slot in plans1
+    )
+    first_two = None
+    for (a_key, a), (b_key, b_event) in zip(order, order[1:]):
+        if a_key[0] == b_key[0]:
+            first_two = (a, b_event)
+            break
+    a, b_event = first_two
+    w = copy_world(start)
+    (ea,) = [e for e in w.queue if e.insertion == a.insertion]
+    (eb,) = [e for e in w.queue if e.insertion == b_event.insertion]
+    ea.insertion, eb.insertion = eb.insertion, ea.insertion
+    rows.append(carried_reject(
+        "carried_plans_swapped", wr.check_carried_order, "arrival_save_after_start", v1, w,
+        f"C5: the seqs {a.insertion} (kind {a.kind}, subject {a.subject[1]}) and {b_event.insertion} (kind {b_event.kind}, subject {b_event.subject[1]}) of one household swapped",
+    ))
+
+    # The old rejected states, evaluated again with the new checks.
+    for kind, name, world in REJECTED:
+        world.kinships = {}
+        old, new = rejecting_checks(world), rejecting_checks(world, ALL_CHECKS)
+        gained = [check for check in new if check not in old]
+        rows.append(f"reevaluated {kind} {name} checks_old {old} checks_all {new} gained {gained}")
+    return rows
+
+
+def carried_conception_rows(pregnant: wr.World, base: bytes, copy_world, woman: int, base_label: str) -> list:
+    """C2: the town pregnancy of `woman` (conceived in her carried series, start `s`) moved to the
+    latest month start `m` before `s`, at or after the first month start after her partnership
+    formed and at or after second 0 (a draw's month is no negative number), whose attempt draw
+    succeeds with her chance then and whose birth lies after the clock; its Birth moves with it
+    (time and plan)."""
+    father, number, children, conceived = pregnant.pregnancies[woman]
+    partnership = pregnant.open_partnership(woman)
+    formed = pregnant.partnerships[partnership][2]
+    s = pregnant.pool_member(woman)["conception_at"] + pregnant.origins[woman]["arrived"] - pregnant.data.pool.frozen_at
+    months = pregnant.data.pregnancy_months * MONTH
+    low = max(0, wr.month_start_after(formed))
+    tried = []
+    for m in range(s - MONTH, low - 1, -MONTH):
+        if m + months <= pregnant.closed:
+            break
+        p = pregnant.attempt_chance(woman, father, m)
+        word = wr.words(wr.chacha_key(pregnant.seed, wr.CONCEPTION_ATTEMPT, pregnant.key_of(woman), m // MONTH, pregnant.key_of(father)))[0]
+        tried.append((m, p, wr.bernoulli(word, p)))
+        if wr.bernoulli(word, p):
+            w = copy_world(pregnant)
+            w.pregnancies[woman] = (father, number, children, m)
+            (birth,) = [e for e in w.queue if e.kind == wr.BIRTH_KIND and e.subject == (wr.SIM_SUBJECT, woman)]
+            birth.time = m + months
+            birth.plan = (birth.plan[0], m)
+            return [carried_reject(
+                "carried_conception_before_its_series", wr.check_carried_conceptions, base_label, base, w,
+                f"C2: sim {woman}'s town pregnancy (s = {s}) conceived {conceived} -> {m} (its attempt draw succeeds with chance {p!r}), Birth at {m + months} planned at {m}",
+            )]
+    return [f"pool_field_skipped carried_conception_before_its_series reason no month start in [{low}, {s}) with a succeeding draw and a birth after the clock: {tried}"]
 
 
 def pool_field_rows() -> list:
@@ -1782,6 +2166,7 @@ def main(argv) -> int:
         ("birth_pairing_tie", birth_pairing_tie_rows),
         ("pool_fields", pool_field_rows),
         ("moved_out", moved_out_rows),
+        ("carried", carried_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():

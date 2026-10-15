@@ -4723,6 +4723,132 @@ def check_pool(world: World) -> None:
         assert not events
 
 
+def carried_plans(world: World) -> list:
+    """The pending carried plans of a save (design note of the carried plans, section 2.5), each
+    `(event, owner, slot)`: the attempt of an exempt woman (her series is the one she brought,
+    `World.series_exempt`; slot 0), the `Birth` of a pool pregnancy (slot 1), the `Separation` of
+    a brought partnership (its woman; slot 2), the `LeaveHome` of an arrival (slot 3). The owner
+    is the arrival whose step 5 planned it."""
+    found = []
+    for event in world.queue:
+        subject = event.subject[1]
+        if event.kind == ATTEMPT_KIND and subject in world.sims and world.is_arrival(subject):
+            number_ = world.open_partnership(subject)
+            if number_ is not None and world.series_exempt(subject, number_):
+                found.append((event, subject, 0))
+        elif event.kind == BIRTH_KIND and subject in world.pool_fathers:
+            found.append((event, subject, 1))
+        elif event.kind == SEPARATION_KIND and world.origins and world.arrival_partnership(subject) is not None:
+            found.append((event, world.partnerships[subject][0], 2))
+        elif event.kind == LEAVE_HOME_KIND and world.is_arrival(subject):
+            found.append((event, subject, 3))
+    return found
+
+
+def check_carried_conceptions(world: World) -> None:
+    """C2 (design note of the carried plans, section 2.2): a conception of an arrival `W` in the
+    partnership her household brought, with no child of hers born in the town before it, lies on
+    her carried series' grid: the pool carried a `conception_at`, and `conceived = s + k · MONTH`
+    with `s = conception_at + Δ`, `k >= 0`. The conceptions are her town children (conceived
+    `pregnancy_months` months before their birth) and her running town pregnancy."""
+    if world.data.pool is None or world.pool_start is None:
+        return
+    months = world.data.pregnancy_months * MONTH
+    conceptions = []
+    # Town children only (a pool person with town parents, or a town pregnancy without its
+    # father, is `check_pool`'s to reject, not a conception of a partnership).
+    for sim in set(world.sims) | set(world.archive):
+        parents = world.sims[sim][7] if sim in world.sims else world.archive[sim][9]
+        if parents is not None and not world.is_pool_person(sim) and world.is_arrival(parents[0]):
+            conceptions.append((parents[0], parents[1], world.born_of(sim) - months))
+    for mother, (father, _, _, conceived) in world.pregnancies.items():
+        if mother not in world.pool_fathers and father is not None and world.is_arrival(mother):
+            conceptions.append((mother, father, conceived))
+    for woman, man, conceived in sorted(set(conceptions)):
+        numbers = [
+            n for n, (w, m, formed, ended) in world.partnerships.items() if (w, m) == (woman, man) and formed <= conceived and (ended is None or ended[0] >= conceived)
+        ]
+        assert len(numbers) == 1, (woman, man, conceived, numbers)
+        (number_,) = numbers
+        if world.arrival_partnership(number_) is None or any(b < conceived for b in world.town_births(woman)):
+            continue
+        carried = world.pool_member(woman)["conception_at"]
+        assert carried is not None, (woman, conceived)
+        first = carried + world.origins[woman]["arrived"] - world.data.pool.frozen_at
+        assert conceived >= first and (conceived - first) % MONTH == 0, (woman, conceived, first)
+
+
+def check_carried_births(world: World) -> None:
+    """C3 (design note of the carried plans, section 2.3): each pregnancy of a used household,
+    mother `M`, `b = birth_at + Δ`, is
+    - pending (`M` living, `b` after the clock): `M`'s pregnancy is there, from the pool, and its
+      `Birth` at `b`, class birth, micro 0, no period;
+    - consumed (`b` at or before the clock, `M` living or left at or after `b`): every child of the
+      pregnancy is a pool child born at `b`, with consecutive SimIds in the pregnancy's order;
+    - cancelled (`M` left before `b`): no child of it in the town."""
+    pool = world.data.pool
+    if pool is None or world.pool_start is None:
+        return
+    for index in world.used:
+        for pregnancy in pool.households[index]["pregnancies"]:
+            mother = world.by_key.get(pregnancy["mother"])
+            assert mother is not None and world.is_arrival(mother), pregnancy["mother"]
+            birth_at = world.pool_member(mother)["birth_at"]
+            assert birth_at is not None, mother
+            b = birth_at + world.origins[mother]["arrived"] - pool.frozen_at
+            keys = [child["lineage_key"] for child in pregnancy["children"]]
+            if mother in world.sims and b > world.closed:
+                assert mother in world.pregnancies and world.pool_fathers.get(mother) == pregnancy["father"], mother
+                births = [e for e in world.queue if e.kind == BIRTH_KIND and e.subject == (SIM_SUBJECT, mother)]
+                assert [(e.time, e.cls, e.micro, e.period) for e in births] == [(b, BIRTH, 0, None)], (mother, b)
+            elif mother in world.sims or world.archive[mother][1] >= b:
+                assert mother not in world.pool_fathers, mother
+                sims = [world.by_key.get(key) for key in keys]
+                assert all(sim is not None and world.is_pool_person(sim) and not world.is_arrival(sim) for sim in sims), (mother, sims)
+                assert all(world.born_of(sim) == b for sim in sims), (mother, b, sims)
+                assert all(later == earlier + 1 for earlier, later in zip(sims, sims[1:])), (mother, sims)
+            else:
+                assert not [key for key in keys if key in world.by_key], (mother, keys)
+
+
+def check_carried_plans(world: World) -> None:
+    """C4 (design note of the carried plans, section 2.5; decision Q2): every pending carried plan
+    (`carried_plans`) was planned at its owner's arrival second (`planned_at = A`); one owner's
+    plans name one `by`; and within one household `by − place` is the same for every owner (the
+    `core:arrived` entries of a household are consecutive, in member order)."""
+    if world.data.pool is None or world.pool_start is None:
+        return
+    pool = world.data.pool
+    by_owner, offsets = {}, {}
+    for event, owner, _ in carried_plans(world):
+        by, planned_at = event.plan
+        assert planned_at == world.origins[owner]["arrived"], (owner, event.kind, event.plan)
+        assert by_owner.setdefault(owner, by) == by, (owner, by_owner[owner], by)
+        index, _ = pool.members[world.key_of(owner)]
+        place = [m["lineage_key"] for m in pool.households[index]["members"]].index(world.key_of(owner))
+        assert offsets.setdefault(index, by - place) == by - place, (owner, index, by, place)
+
+
+def check_carried_order(world: World) -> None:
+    """C5 (design note of the carried plans, section 2.6): the pending carried plans, sorted by
+    (their household's place in the used households, the owner's place in its household, the
+    slot: conception, birth, separation, leaving home), have strictly ascending insertion
+    numbers (step 5 plans them in that order; none is planned again)."""
+    if world.data.pool is None or world.pool_start is None:
+        return
+    pool = world.data.pool
+    rows = []
+    for event, owner, slot in carried_plans(world):
+        index, _ = pool.members[world.key_of(owner)]
+        place = [m["lineage_key"] for m in pool.households[index]["members"]].index(world.key_of(owner))
+        rows.append(((world.used.index(index), place, slot), event.insertion))
+    seqs = [insertion for _, insertion in sorted(rows)]
+    assert all(a < b for a, b in zip(seqs, seqs[1:])), sorted(rows)
+
+
+CARRIED_CHECKS = (check_carried_conceptions, check_carried_births, check_carried_plans, check_carried_order)
+
+
 def check_deaths(world: World) -> None:
     """The planned deaths of every living sim are those of its causes (genetics specification
     7.1; design note of the arrival, section 6.4): senescence and accident from its origin
