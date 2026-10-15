@@ -1311,6 +1311,109 @@ def close_kin_rows(orphans: wr.World, base: bytes, copy_world) -> list:
     )]
 
 
+# ---------------------------------------------------------------------------------------
+# Moving out and the seeds of a town child (review of the reference, NOTES2.md section 5c)
+
+# "records" (pool_d, seed 6): arrival sim 7, not moved out in the pool, his carried leaving home
+# at 309657600, is paired by the market round of 186278400 (partnership 6 with sim 11).
+TOWN_PAIRED_SECOND, TOWN_PAIRED_SIM, TOWN_PAIRED_PARTNERSHIP = 186278400, 7, 6
+# pool_c changed: the man of pool household 39 (the first household of `Start` of "arrival"
+# with a partnership: sims 2 and 3, partnership 1) not moved out, his leaving home carried at
+# `frozen_at + YEAR`.
+BROUGHT_HOUSEHOLD = 39
+
+
+def brought_not_moved_out_pool() -> tuple:
+    """pool_c with the man of household 39's open partnership not moved out and a carried
+    leaving home one year after the freeze (the reader and the town's data check allow it;
+    the pool of a pre-run never holds it). Returns (bytes, his key)."""
+    file = pool_reference.read_pool(golden_pool(ARRIVAL_POOL))
+    household = file["households"][BROUGHT_HOUSEHOLD]
+    _, man_key, _ = household["partnership"]
+    (man,) = [m for m in household["members"] if m["lineage_key"] == man_key]
+    assert man["moved_out"] and man["leave_home_at"] is None and file["frozen_at"] - man["born"] >= 18 * YEAR
+    man["moved_out"] = False
+    man["leave_home_at"] = file["frozen_at"] + YEAR
+    data = pool_reference.encode_pool(file)
+    pool_reference.read_pool(data)
+    return data, man_key
+
+
+def valid_row(label: str, how: str, world: wr.World) -> str:
+    """`valid_state <label> how <scenario, seed, inputs> clock <c> pin <length> <xxh3>
+    rejecting_checks [] save <hex>`: a state the rules reach, accepted by every model check."""
+    checks = rejecting_checks(world)
+    assert checks == [], (label, checks)
+    save = world.save()
+    return f"valid_state {label} how {how} clock {world.closed} pin {pin(save)} rejecting_checks {checks} save {save.hex()}"
+
+
+def moved_out_rows() -> list:
+    """1. An arrival moved out only by a partnership formed in the town (valid), and the twin
+    with `moved_out` false (rejected). 2. A brought partnership with a member not moved out
+    (valid after `Start`, from a changed pool_c), and the twin moved out (rejected). 3. The
+    seeds of a town child: no valid save tells them apart in a load check (a row of why)."""
+    copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
+    rows = []
+
+    world = kin_world(RECORDS_SEED)()
+    world.advance(TOWN_PAIRED_SECOND)
+    sim, number = TOWN_PAIRED_SIM, TOWN_PAIRED_PARTNERSHIP
+    woman, man, formed, ended = world.partnerships[number]
+    carried = world.carried_leave_home(sim)
+    assert world.is_arrival(sim) and not world.pool_member(sim)["moved_out"] and sim in (woman, man) and ended is None
+    assert formed == TOWN_PAIRED_SECOND and (formed, woman, man) not in world.input_pairings and world.arrival_partnership(number) is None
+    assert carried is not None and carried > world.closed and world.sims[sim][10]
+    assert not [e for e in world.queue if e.kind == wr.LEAVE_HOME_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
+    label = "arrival_moved_out_by_town_partnership"
+    rows.append(valid_row(
+        label,
+        f"records (pool_d, seed {hexed(RECORDS_SEED)}, n_start {KIN_N_START}, immigration on, template of map 4, tag {TAG}), no input (its ArrangePartnership acts later),"
+        f" run to {TOWN_PAIRED_SECOND}: arrival sim {sim} (pool moved_out false, carried leaving home {carried}) paired by the market round of {formed}"
+        f" (partnership {number}, sims {woman} and {man}), moved out by it alone",
+        world,
+    ))
+    base = world.save()
+    broken = copy_world(world)
+    broken.sims[sim][10] = False
+    rows.append(field_row(f"{label}_flag_false", f"valid_state:{label}", base, broken, f"sim {sim} moved_out false (its town partnership {number} moves it out)"))
+
+    pool, key = brought_not_moved_out_pool()
+    data = town_data(pool)
+    world = make_world(data, ARRIVAL_SEED, ARRIVAL_N_START, True)
+    sim = world.by_key[key]
+    (number,) = [n for n, v in world.partnerships.items() if sim in v[:2]]
+    assert world.arrival_partnership(number) is not None and not world.sims[sim][10] and world.closed == -1
+    leave = [(e.time, e.micro) for e in world.queue if e.kind == wr.LEAVE_HOME_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
+    assert leave == [(YEAR, 0)], leave
+    label = "brought_partnership_member_not_moved_out"
+    rows.append(
+        f"valid_state_pool {label} constructed from {ARRIVAL_POOL}: household {BROUGHT_HOUSEHOLD} man {hexed(key)} moved_out false, leave_home_at frozen_at + YEAR"
+        f" ({data.pool.frozen_at + YEAR}) pool_bytes {len(pool)} pool_xxh3 {hexed(hash64(pool))} data_hash {hexed(data.hash)} pool {pool.hex()}"
+    )
+    rows.append(valid_row(
+        label,
+        f"Start of \"arrival\" (seed {hexed(ARRIVAL_SEED)}, n_start {ARRIVAL_N_START}, immigration on, template of map 4, tag {TAG}) on that pool, no input: sim {sim}"
+        f" in brought partnership {number}, not moved out, its leaving home pending at {YEAR}; start_input {start_record(world).hex()}",
+        world,
+    ))
+    base = world.save()
+    broken = copy_world(world)
+    broken.sims[sim][10] = True
+    rows.append(field_row(f"{label}_moved_out", f"valid_state:{label}", base, broken, f"sim {sim} moved_out true (a brought partnership moves nobody out)"))
+
+    template = wr.Data(*template_documents())
+    weights = [(disease.code, disease.liability.weights) for disease in template.diseases if disease.liability is not None]
+    assert all(w[1] == 0.0 and w[3] == 0.0 for _, w in weights)
+    rows.append(
+        f"town_child_seed_not_buildable liability traits of the template (h2_child, c2_child, h2_adult, c2_adult) {weights}: c2 is 0, and the data check"
+        " (check_liability, data.disease) requires c2 0 for every liability trait, so C never enters a town child's afflictions and both seeds give the same;"
+        f" C enters only phenotypes no load check recomputes: puberty {template.puberty.weights} (menarche, the chance of an attempt),"
+        f" cognition {template.cognition_trait.weights} and height {template.height_trait.weights} (the market's utility)"
+    )
+    return rows
+
+
 def pool_field_rows() -> list:
     """States changed in exactly one field of the pool load check (note section 9; review,
     NOTES2.md section 5b), each as hunks of a pinned save with the model checks that reject it.
@@ -1678,6 +1781,7 @@ def main(argv) -> int:
         ("leave_home_at_start", leave_home_at_start_rows),
         ("birth_pairing_tie", birth_pairing_tie_rows),
         ("pool_fields", pool_field_rows),
+        ("moved_out", moved_out_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():
@@ -1690,6 +1794,8 @@ def main(argv) -> int:
         (out / "carried_before_pool.bin").write_bytes(data)
         data, _, _ = leave_home_at_start_pool()
         (out / "leave_home_at_start_pool.bin").write_bytes(data)
+        data, _ = brought_not_moved_out_pool()
+        (out / "brought_not_moved_out_pool.bin").write_bytes(data)
     return 0
 
 

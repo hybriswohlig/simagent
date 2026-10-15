@@ -4531,6 +4531,13 @@ def check_households(world: World) -> None:
         assert value[11] in households and households[value[11]][0] <= value[1], (sim, value[11])
     in_start_couples = {sim for pair in world.start_couples for sim in pair}
     partnered = {sim for value in world.partnerships.values() for sim in value[:2]}
+    # A partnership an arrival brought moves nobody out in the town (note section 5, step 3:
+    # "nothing else"); the pool's `moved_out` holds what it did in the pool. Only a partnership
+    # formed in the town (an input or a round) moves an arrival out (review of the reference,
+    # NOTES2.md section 5c).
+    town_partnered = {
+        sim for number_, value in world.partnerships.items() if not (world.origins and world.arrival_partnership(number_) is not None) for sim in value[:2]
+    }
     people = {sim: (value[0], value[7], value[10], t) for sim, value in world.sims.items()}
     people.update({sim: (value[0], value[9], value[12], value[1]) for sim, value in world.archive.items()})
     for sim, (born, parents, moved_out, limit) in people.items():
@@ -4547,7 +4554,7 @@ def check_households(world: World) -> None:
             # which is 0 there; the founders' "at or before 0 is passed at the start" is a rule
             # of `_house_founders`, not of an arrival). Review of the reference, NOTES2.md.
             until = world.closed if sim in world.sims else limit
-            want = world.pool_member(sim)["moved_out"] or sim in partnered or (carried is not None and carried <= until)
+            want = world.pool_member(sim)["moved_out"] or sim in town_partnered or (carried is not None and carried <= until)
         else:
             want = (
                 (founder and sim in in_start_couples)
