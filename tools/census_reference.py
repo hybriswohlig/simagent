@@ -70,6 +70,8 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        (default DIR ~/.cache/simagent-notes/ref-census; writes census.json and census.txt)
        ... census_reference.py --scan-a FIRST LAST   (seeds of fixture (a) and their founders
        whose curve is held; for choosing the seed, not a pin)
+       ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
+       of the living at the last year end of the scenario "records" of arrival_reference.py)
 """
 
 import json
@@ -816,6 +818,60 @@ def text_rows(name: str, record: dict) -> list:
     return lines
 
 
+# The scenario "records" of tools/arrival_reference.py (pool_d, seed 6, `n_start` 30,
+# immigration on, the template of map 4): the phenotypes of the living at its last year end.
+# Its town child of one pool and one town person gets the kind `town_of_pool_and_town`.
+RECORDS_KINDS = {"town_of_a_pool_and_a_town_person": "town_of_pool_and_town"}
+
+
+def records_phenotypes() -> dict:
+    """`--records`: the world of "records" (`kin_world(RECORDS_SEED)`), its one input
+    (ArrangePartnership of sims 26 and 31, stamped `18 · YEAR − 1`), run to `RECORDS_END`;
+    per living sim (ascending SimId) its kind and the 35 phenotypes `z` at the age 0 in
+    `BODY_TRAITS_MAP4` order (the seeds and keys of `World.env_of`), as f64 bits."""
+    world = arrival_reference.kin_world(arrival_reference.RECORDS_SEED)()
+    ((label, acts, woman, man),) = arrival_reference.RECORDS_INPUTS
+    assert label == "arrange"
+    world.advance(acts - 1)
+    world.arrange(woman, man)
+    end = arrival_reference.RECORDS_END
+    world.advance(end)
+    assert (end + 1) % YEAR == 0
+    year = (end + 1) // YEAR - 1
+    body = BodyCensusData(world.data, arrival_reference.template_documents())
+    assert body.accepted, body.reason
+    evaluator = Evaluator(world, body)
+    persons, counts = [], {}
+    for sim in sorted(world.sims):
+        parts = evaluator.person_parts(sim)
+        kind = arrival_reference.env_kind(world, sim)
+        kind = RECORDS_KINDS.get(kind, kind)
+        counts[kind] = counts.get(kind, 0) + 1
+        if kind == "town_of_pool_and_town":
+            # Both draws with the world seed at its parents' keys (one parent is no pool person).
+            e_seed, c_seed, parents = parts["seeds"]
+            assert e_seed == c_seed == world.seed and parents == world.parent_keys(sim)
+        persons.append([sim, kind, [bits(parts["z_of"][trait]) for trait in br.BODY_TRAITS_MAP4]])
+    mixed = [sim for sim, kind, _ in persons if kind == "town_of_pool_and_town"]
+    assert [world.born_of(sim) for sim in mixed] == [arrival_reference.RECORDS_MARKS["mixed_child"]], mixed
+    return {
+        "scenario": "records of tools/arrival_reference.py: pool_d, world seed 0x6, tag test:arrival, n_start 30, immigration on, switch on, no nutrition year, template of map 4",
+        "t": end,
+        "year": year,
+        "z_traits": br.BODY_TRAITS_MAP4,
+        "data_hash": hexed(world.data.hash),
+        "pool_hash": hexed(world.data.pool.hash),
+        "start_input_hash": hexed(hash64(world.inputs[0])),
+        "inputs": [
+            {"input": "ArrangePartnership", "woman": woman, "man": man, "stamped": acts - 1, "acts": acts, "record_hex": world.inputs[1].hex(), "record_hash": hexed(hash64(world.inputs[1]))}
+        ],
+        "year_hash_last": hexed(world.year_hashes[-1]),
+        "log_hash": hexed(world.log_hash()),
+        "kind_counts": counts,
+        "persons": persons,
+    }
+
+
 def compact(record: dict) -> dict:
     """The golden candidate of a fixture: everything but the scenario's founders (in its
     own file), the bytes of `Start` (its hash only) and the per-person details (in
@@ -836,6 +892,12 @@ def main(argv) -> int:
     if "--scan-a" in argv:
         i = argv.index("--scan-a")
         return scan_a(int(argv[i + 1], 0), int(argv[i + 2], 0))
+    if "--records" in argv:
+        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
+        document = records_phenotypes()
+        (out / "records_phenotypes.json").write_text(json.dumps(document, indent=1) + "\n")
+        print(f"records t {document['t']} year {document['year']} living {len(document['persons'])} kinds {document['kind_counts']} start_input_hash {document['start_input_hash']}")
+        return 0
     out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
     (out / "scenarios").mkdir(parents=True, exist_ok=True)
     fixtures, timings = {}, {}
