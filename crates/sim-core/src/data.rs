@@ -662,7 +662,7 @@ impl fmt::Display for DataError {
             DataError::Disease => "data.disease",
             DataError::TraitNamed => "data.trait_named",
             DataError::Demography => "data.demography",
-            DataError::Pool(error) => error.code(),
+            DataError::Pool(error) => return fmt::Display::fmt(error, f),
             DataError::PoolCarer => "pool.carer_not_member",
             DataError::PoolSex => "pool.sex",
             DataError::PoolLocus => "pool.locus",
@@ -1636,9 +1636,9 @@ impl Data {
         if !fits {
             return Err(DataError::PoolSex);
         }
-        let loci_known = crate::pool::POOL_LOCI
+        let loci_known = crate::pool::pool_loci()
             .iter()
-            .all(|id| DataId::new(id).is_ok_and(|id| data.loci.contains_key(&id)));
+            .all(|id| data.loci.contains_key(id));
         if !loci_known {
             return Err(DataError::PoolLocus);
         }

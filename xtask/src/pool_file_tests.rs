@@ -138,7 +138,7 @@ struct Run {
     pool_hash: u64,
     file: &'static [u8],
     /// The reference's counts (`<run>_story`): households, persons with the unborn,
-    /// records; and its carriers per locus in the order of `POOL_LOCI` (`<run>_report`).
+    /// records; and its carriers per locus in the order of `pool_loci` (`<run>_report`).
     counts: (u64, u64, u64),
     carriers: [u64; 7],
 }
@@ -358,10 +358,10 @@ fn the_pool_files_are_the_references() {
             .iter()
             .map(|(id, n)| (id.as_str().to_owned(), *n))
             .collect();
-        let mut expected: Vec<(String, u64)> = POOL_LOCI
+        let mut expected: Vec<(String, u64)> = pool_loci()
             .iter()
             .zip(run.carriers)
-            .map(|(id, n)| ((*id).to_owned(), n))
+            .map(|(id, n)| (id.as_str().to_owned(), n))
             .collect();
         expected.sort();
         assert_eq!(carriers, expected, "{}", run.name);

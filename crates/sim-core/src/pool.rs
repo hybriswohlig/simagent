@@ -33,15 +33,18 @@ pub const POOL_FORMAT: u64 = 1;
 
 /// The seven loci the pre-run leaves at the reference allele and the pool assigns
 /// (ADR-0020 section 4).
-pub const POOL_LOCI: [&str; 7] = [
-    "core:disease_ar",
-    "core:disease_ad_late",
-    "core:disease_ad_partial",
-    "core:disease_xr",
-    "core:disease_mt",
-    "core:mc1r",
-    "core:herc2",
-];
+pub fn pool_loci() -> [DataId; 7] {
+    [
+        "core:disease_ar",
+        "core:disease_ad_late",
+        "core:disease_ad_partial",
+        "core:disease_xr",
+        "core:disease_mt",
+        "core:mc1r",
+        "core:herc2",
+    ]
+    .map(|id| DataId::new(id).unwrap_or_else(|_| panic!("invariant pool.locus_id")))
+}
 
 /// The first bytes of a pool file.
 pub const MAGIC: &[u8; 7] = b"SIMPOOL";
@@ -883,12 +886,14 @@ mod tests {
                 conception: 1,
             }),
             social_parents: Vec::new(),
+            pool: None,
         }
     }
 
     fn pregnancy(father: u64) -> state::Pregnancy {
         state::Pregnancy {
-            father: id(father),
+            father: Some(id(father)),
+            pool_father: None,
             conception: 1,
             children: Vec::new(),
             conceived: SimTime::from_secs(0),
