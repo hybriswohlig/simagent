@@ -434,10 +434,7 @@ fn pool_view<'a>(
         let none = loaded.sims.values().all(|sim| sim.pool.is_none())
             && loaded.archive.values().all(|sim| sim.pool.is_none())
             && loaded.pool_used.is_empty()
-            && loaded
-                .pregnancies
-                .values()
-                .all(|p| p.father.is_some() && p.pool_father.is_none());
+            && loaded.pregnancies.values().all(|p| p.pool_father.is_none());
         return none.then_some(view);
     };
     let held = data.pool()?;
@@ -495,9 +492,7 @@ fn pool_view<'a>(
             let at = *arrived.get_or_insert(origin.arrived);
             let delta = at.as_secs().checked_sub(pool.frozen_at.as_secs())?;
             let born = member.born.as_secs().checked_add(delta)?;
-            let year_start = at.as_secs() >= 0 && at.as_secs().rem_euclid(YEAR.as_secs()) == 0;
             let fits = origin.arrived == at
-                && year_start
                 && on_time(at)
                 && u64::try_from(at.as_secs() / YEAR.as_secs()).ok() == Some(origin.arrival_year)
                 && origin.born_pool == Some(member.born)

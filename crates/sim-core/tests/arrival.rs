@@ -907,8 +907,113 @@ fn base_save(label: &str) -> (Vec<u8>, fn() -> Data) {
             World::new(town_data(POOL_C)).save(&[]).expect("saves"),
             ARRIVAL.data,
         ),
+        "orphans_save_end" => {
+            let mut run = Run::start(&ORPHANS);
+            run.play(ORPHANS_END);
+            (run.save(), ORPHANS.data)
+        }
+        "arrival_save_after_pool_child_without_father" => {
+            let mut run = Run::start(&ARRIVAL);
+            run.play(POOL_CHILD_WITHOUT_FATHER_AT);
+            (run.save(), ARRIVAL.data)
+        }
+        "founders_world" => (founders_save(), founders_data),
         _ => unreachable!("a save of the reference"),
     }
+}
+
+/// The template without a pool.
+fn founders_data() -> Data {
+    Data::new(definitions(template())).expect("checked")
+}
+
+/// A town of four founders and no pool at `FOUNDERS_AT`: a couple of 25 and 27, a woman of
+/// 88 and a man of 90. The woman of the couple is pregnant, the old ones have died.
+fn founders_save() -> Vec<u8> {
+    let data = founders_data();
+    assert_eq!(data.hash(), FOUNDERS_DATA_HASH);
+    let founder = |born: i64, sex: Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let start = Start {
+        world_seed: 0xff,
+        founder_tag: DataId::new(TAG).expect("id"),
+        world_params: WorldParams {
+            hereditary_diseases: true,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            founder(-25 * Y, Sex::Female),
+            founder(-27 * Y, Sex::Male),
+            founder(-88 * Y, Sex::Female),
+            founder(-90 * Y, Sex::Male),
+        ],
+        couples: vec![Couple { woman: 0, man: 1 }],
+        capacity: None,
+        pool: None,
+    };
+    assert_eq!(sized(&start_record(&start)), FOUNDERS_START_INPUT);
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    world.take_log();
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(FOUNDERS_AT), &mut |_| false);
+    world.take_log();
+    world.save(&out.year_hashes).expect("saves")
+}
+
+/// The load check one field at a time (design note, section 9; mutation run): each state
+/// changes one field of an arrival, of a pool child or of a world without a pool, or breaks
+/// one rule of the arrivals' kinship. Each base loads; each changed save does not.
+#[test]
+fn load_rejects_a_state_changed_in_one_field() {
+    for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_FIELDS {
+        let (base, data) = base_save(label);
+        assert_eq!(sized(&base), base_pin, "{name}");
+        assert!(World::load(&base, data()).is_ok(), "{name}: the base loads");
+        let mut bytes = base.clone();
+        for (offset, removed, put) in hunks.iter().rev() {
+            bytes.splice(*offset..offset + removed, hex(put));
+        }
+        assert_eq!(sized(&bytes), expected, "{name}");
+        assert_eq!(
+            World::load(&bytes, data()).err(),
+            Some(LoadError::Inconsistent),
+            "{name}"
+        );
+    }
+}
+
+/// "arrival" saved at the end of year 2, loaded and run on, ends as the run without the
+/// save (ADR-0004 test 4): the same year hashes, log, save and state.
+#[test]
+fn a_loaded_town_runs_on_as_the_uninterrupted_one() {
+    let mut run = Run::start(&ARRIVAL);
+    run.play(LOAD_BASE_AT);
+    let bytes = run.save();
+    assert_eq!(sized(&bytes), LOAD_BASE);
+    let (world, years) = World::load(&bytes, town_data(POOL_C)).expect("loads");
+    let mut resumed = Run {
+        world,
+        out: YearOut {
+            census: Vec::new(),
+            year_hashes: years,
+        },
+        log: run.log,
+        data: ARRIVAL.data,
+    };
+    resumed.play(ARRIVAL_END);
+    let hashes: Vec<u64> = resumed.out.year_hashes.iter().map(|y| y.hash).collect();
+    assert_eq!(hashes, ARRIVAL_YEAR_HASHES, "year hashes");
+    assert_eq!(
+        (resumed.log.len(), log_hash(&resumed.log)),
+        ARRIVAL_LOG,
+        "log"
+    );
+    assert_eq!(sized(&resumed.save()), ARRIVAL_SAVE_END, "save at the end");
+    assert_eq!(resumed.world.state_hash(), ARRIVAL_STATE_HASH, "state hash");
 }
 
 /// The load checks of the review (design note, sections 5 and 9; D8): the father of a
@@ -2005,3 +2110,315 @@ const TIE_COUNTED_BIRTH: (&[Hunk], (usize, u64)) = (
     ],
     (17388, 0xa9c6_8a19_3bd2_3aa4),
 );
+
+/// The reference's states changed in one field (out4, its notes' section 5b).
+const LOAD_REJECTED_FIELDS: [Hunks; 30] = [
+    (
+        "arrival_arrived_one_second_late",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(8513, 1, "02")],
+        (14314, 0xabcf_4306_e2f8_2631),
+    ),
+    (
+        "arrival_year_off_by_one",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(8514, 1, "01")],
+        (14314, 0x8fce_e314_4261_283c),
+    ),
+    (
+        "arrival_born_pool_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4372, 1, "82")],
+        (14314, 0x100f_9c3a_8b9f_e253),
+    ),
+    (
+        "arrival_genome_key_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4362, 1, "c8")],
+        (14314, 0xa08e_8bba_a00e_36ea),
+    ),
+    (
+        "arrival_pool_mother_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4380, 9, "caeea683b29ea549")],
+        (14313, 0x6719_5495_3d69_3a6e),
+    ),
+    (
+        "arrival_pool_father_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4390, 10, "ddd0b2b8c5fbd04b")],
+        (14312, 0x0bc3_d6ac_02e3_2427),
+    ),
+    (
+        "arrival_pool_social_parents_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4400, 1, "01caeea683b29ea549")],
+        (14322, 0xd901_f117_3eef_33fa),
+    ),
+    (
+        "arrival_sex_flipped",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(8371, 1, "00")],
+        (14314, 0xe864_6815_98ed_d2a8),
+    ),
+    (
+        "arrival_genome_changed",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4244, 1, "9a")],
+        (14314, 0x7551_ad19_fa41_3c72),
+    ),
+    (
+        "arrival_town_parents_set",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4358, 0, "011615")],
+        (14317, 0x76aa_64d6_1a04_b9e1),
+    ),
+    (
+        "arrival_household_moved_to_another_year",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[
+            (112, 19, ""),
+            (600, 0, "92e3d6fd02001502049aada6adcbb284bf7200"),
+            (682, 39, ""),
+            (761, 19, ""),
+            (849, 19, ""),
+            (
+                925,
+                0,
+                "90c4818e0800130204a0bb8ca1c58498a01c00a0a6feca08001b0205d49ae3bbeacfeb962f00",
+            ),
+            (943, 0, "0096c18d9f0a00160204d49ae3bbeacfeb962f"),
+            (964, 0, "00c2b1a8c40a00190205a0bb8ca1c58498a01c"),
+            (1003, 19, ""),
+            (1111, 0, "00f4f5cefe0e001c0205db86dcd7e8e9bbfac901"),
+            (1350, 10, ""),
+            (1379, 0, "00d0e2fdd51500110501"),
+            (1521, 0, "b68caac22100170204db86dcd7e8e9bbfac90100"),
+            (1661, 40, ""),
+            (2042, 0, "92e5ae99fb0d0014020485d2bc82f8b2ead44d00"),
+            (2123, 0, "bad6d3ca8315001a020585d2bc82f8b2ead44d00"),
+            (2174, 20, ""),
+            (2518, 4, "afc2f80c"),
+            (2620, 1, "8088ff1d"),
+            (2648, 1, "8088ff1d"),
+            (2677, 1, "8088ff1d"),
+            (2701, 2, "8088ff1d01"),
+            (2727, 4, "c7e0e30c"),
+            (2826, 1, "8088ff1d"),
+            (2855, 1, "8088ff1d"),
+            (2880, 2, "8088ff1d01"),
+            (6338, 3, "c785ba"),
+            (6443, 1, "8088ff1d"),
+            (8817, 2, ""),
+            (8989, 0, "088088ff1d"),
+            (9002, 4, ""),
+            (9019, 2, ""),
+            (
+                9033,
+                21,
+                "1f002f002400088088ff1d098088ff1d1900088088ff1d3900098088ff1db6018090f3602a",
+            ),
+            (9073, 0, "098088ff1d"),
+            (9114, 7, "5880c0ba12088088ff1d"),
+            (9146, 0, "088088ff1d"),
+            (9164, 4, ""),
+            (9214, 0, "088088ff1d"),
+            (9222, 0, "098088ff1d"),
+            (9231, 2, ""),
+        ],
+        (14368, 0xba89_96f8_6376_d382),
+    ),
+    (
+        "pool_child_genome_key_changed",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10445, 1, "bf")],
+        (18292, 0x1bce_17d7_0eaa_5a99),
+    ),
+    (
+        "pool_child_arrived_not_born",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10456, 2, "feef")],
+        (18292, 0xccc6_ff17_3351_56b5),
+    ),
+    (
+        "pool_child_arrival_year_off_by_one",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10460, 1, "01")],
+        (18292, 0xcbe4_6ef5_8e3e_b8f2),
+    ),
+    (
+        "pool_child_pool_mother_changed",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10462, 9, "d7eac2caadb9a5bd07")],
+        (18292, 0x98c5_0086_9150_51eb),
+    ),
+    (
+        "pool_child_pool_father_changed",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10472, 10, "b9b4d4cad0ccd1b808")],
+        (18291, 0x9632_3464_81fe_7527),
+    ),
+    (
+        "pool_child_social_parents_set",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10482, 1, "01cd9dd6b0cadf9ece6a")],
+        (18301, 0x235f_0036_f662_e6fa),
+    ),
+    (
+        "pool_child_sex_flipped",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10343, 1, "01")],
+        (18292, 0x70a2_6311_ac96_63f5),
+    ),
+    (
+        "pool_child_genome_changed",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10355, 1, "94")],
+        (18292, 0xdfdc_45a5_1b57_97ff),
+    ),
+    (
+        "pool_child_town_parents_set",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(10442, 0, "012401")],
+        (18295, 0x0ca1_ebfb_3af8_b477),
+    ),
+    (
+        "pool_child_born_after_the_clock",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[
+            (761, 1, "82"),
+            (1065, 1, "82"),
+            (1836, 1, "b2"),
+            (2082, 1, "92"),
+            (3168, 1, "d0"),
+            (10329, 1, "82"),
+            (10431, 1, "82"),
+            (10456, 1, "82"),
+        ],
+        (18292, 0xd595_1aa9_889f_5e44),
+    ),
+    (
+        "pool_child_mother_not_an_arrival",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[(7574, 23, "001501"), (10935, 1, "1d"), (10956, 1, "")],
+        (18271, 0x6389_8d5e_780d_0cc5),
+    ),
+    (
+        "pool_child_mother_left_before_the_birth",
+        "arrival_save_after_pool_child_without_father",
+        (18292, 0xe162_57b4_e6db_e086),
+        &[
+            (33, 1, "e3"),
+            (314, 10, ""),
+            (1389, 20, ""),
+            (3598, 24, "f5013a"),
+            (7494, 107, ""),
+            (10440, 2, "00"),
+            (
+                10934,
+                0,
+                "0124ffc3e1ce07feefeb0d0085d2bc82f8b2ead44dcd9dd6b0cadf9ece6a00809380ba8083a8b116a0b98280caab85a0870185c0c98a80c09188c001889b80d8cd81b0d52180f5d580ca848e806980c0fa8280e0a18aa00100000000000101011501000001cd9dd6b0cadf9ece6a01ffb3e3920700000000",
+            ),
+            (10966, 1, "e3"),
+            (11029, 2, ""),
+            (11274, 2, ""),
+            (11554, 2, ""),
+        ],
+        (18247, 0x8f3e_a498_2728_a637),
+    ),
+    (
+        "no_pool_living_with_pool_origin",
+        "founders_world",
+        (482, 0x7c06_f372_f88b_9308),
+        &[(246, 0, "010001ffd7e6a90600000000")],
+        (494, 0xa86f_cb5c_2b5d_7707),
+    ),
+    (
+        "no_pool_archived_with_pool_origin",
+        "founders_world",
+        (482, 0x7c06_f372_f88b_9308),
+        &[(350, 0, "010001ffbfadcf1400000000")],
+        (494, 0xfb72_99fb_8ffe_4ccb),
+    ),
+    (
+        "no_pool_used_household",
+        "founders_world",
+        (482, 0x7c06_f372_f88b_9308),
+        &[(400, 0, "01")],
+        (483, 0x4d56_0dd9_b372_1fa3),
+    ),
+    (
+        "no_pool_pregnancy_without_father",
+        "founders_world",
+        (482, 0x7c06_f372_f88b_9308),
+        &[(272, 2, "00")],
+        (481, 0x7969_3b32_2aed_3d11),
+    ),
+    (
+        "no_pool_pregnancy_with_pool_father",
+        "founders_world",
+        (482, 0x7c06_f372_f88b_9308),
+        &[(274, 1, "01d388fe84eef9bce93c")],
+        (491, 0xc553_2e6f_65d5_022b),
+    ),
+    (
+        "arrival_social_parent_is_its_pool_parent",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[(4360, 1, "15")],
+        (14314, 0x45ff_7a16_e3cf_33a6),
+    ),
+    (
+        "arrival_partnership_close_kin",
+        "orphans_save_end",
+        (14314, 0x6153_a5c1_c385_e271),
+        &[
+            (31, 3, "0a1a8001"),
+            (1290, 0, "baaea9961300db02050900"),
+            (2224, 1, "dc"),
+            (2471, 1, "19"),
+            (3013, 2, "0219"),
+            (6020, 1, "19"),
+            (6140, 1, "19"),
+            (6333, 1, "09"),
+            (6428, 7, "090a0280a8fb9501001901000002000180a8fb9501"),
+            (6469, 1, "0180a8fb9501"),
+            (6549, 0, "01001980a8fb95"),
+            (8778, 1, "8001"),
+            (9101, 0, "800280a8fb9501"),
+            (9236, 3, "860202"),
+            (14261, 0, "fea7fb950102020a02"),
+        ],
+        (14369, 0xbc02_d85c_6ab7_25ec),
+    ),
+];
+
+/// The town of four founders without a pool (`founders_world`).
+const FOUNDERS_AT: i64 = 16934400;
+const FOUNDERS_START_INPUT: (usize, u64) = (54, 0xa380_9ee9_8bdb_3d5a);
+const FOUNDERS_DATA_HASH: u64 = 0x5ae3_d70c_71cf_063a;
+
+/// The second of the mark "pool_child_without_father".
+const POOL_CHILD_WITHOUT_FATHER_AT: i64 = 14515200;
