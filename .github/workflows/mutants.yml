@@ -1,0 +1,90 @@
+# Mutation runs on GitHub (docs/testregeln.md rule 2): started by hand for a branch whose
+# diff has more than about 150 mutants; smaller runs stay on the Mac (Dario, 2026-10-15).
+# Never a required check, never on push or pull request. Each shard runs the same
+# `cargo mutants --in-diff` as the Mac and prints its missed mutants and timeouts into the
+# log; the run is collected with `gh run view --log`.
+name: mutants
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base commit of the diff (empty: the merge base with origin/main)"
+        required: false
+        default: ""
+      shards:
+        description: "Number of shards"
+        required: true
+        default: "16"
+        type: choice
+        options: ["4", "8", "16", "24"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.shards.outputs.list }}
+    steps:
+      - id: shards
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: echo "list=[$(seq -s, 0 $((SHARDS - 1)))]" >> "$GITHUB_OUTPUT"
+
+  mutants:
+    needs: plan
+    name: mutants (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    # The arm runners cost less per minute; the gate checks both arches.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the diff starts at the merge base with origin/main.
+          fetch-depth: 0
+      - name: Install the toolchain from rust-toolchain.toml
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustc --version
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked --version 27.1.0
+      - name: The diff
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          if [ -z "$BASE" ]; then BASE=$(git merge-base origin/main HEAD); fi
+          git diff "$BASE" HEAD > "$RUNNER_TEMP/branch.diff"
+          echo "base $BASE, $(wc -l < "$RUNNER_TEMP/branch.diff") diff lines"
+      - name: Mutants
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ inputs.shards }}
+        run: >
+          cargo mutants --in-diff "$RUNNER_TEMP/branch.diff"
+          --shard "$SHARD/$SHARDS" --output "$RUNNER_TEMP/mut"
+      - name: Missed and timeouts
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/mut/mutants.out"
+          for kind in caught missed timeout unviable; do
+            echo "$kind $(cat "$out/$kind.txt" 2>/dev/null | wc -l)"
+          done
+          echo "--- missed"; cat "$out/missed.txt" 2>/dev/null || true
+          echo "--- timeout"; cat "$out/timeout.txt" 2>/dev/null || true
