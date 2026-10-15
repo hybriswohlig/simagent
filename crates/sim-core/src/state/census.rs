@@ -2,6 +2,7 @@
 //! and never from earlier rows.
 
 use super::DomainState;
+use crate::body_contract::BodyCensus;
 use crate::time::{SimTime, calendar, year_start};
 
 /// One row of `census.csv`.
@@ -12,6 +13,8 @@ pub struct CensusRow {
     pub living: u64,
     /// Seconds lived in this year by all sims, archive included.
     pub lived_secs: u64,
+    /// The living's bodies at the end of the year (ADR-0020 section 7).
+    pub body: BodyCensus,
 }
 
 /// The row of the year that contains `t`; the observer runs in its last second.
@@ -43,6 +46,7 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
         living: u64::try_from(domain.sims.len())
             .unwrap_or_else(|_| panic!("invariant census.count_range")),
         lived_secs,
+        body: BodyCensus::default(),
     }
 }
 
@@ -132,6 +136,7 @@ mod tests {
                 year: 3,
                 living: 2,
                 lived_secs: (year_secs - 10 * day_secs) + 100 * day_secs + year_secs,
+                body: BodyCensus::default(),
             }
         );
         assert_eq!(
@@ -140,6 +145,7 @@ mod tests {
                 year: 4,
                 living: 2,
                 lived_secs: 2 * year_secs,
+                body: BodyCensus::default(),
             }
         );
         // Year 2: sims 2, 3 and 4 (until its last second); sim 1 is not born yet.
@@ -149,6 +155,7 @@ mod tests {
                 year: 2,
                 living: 2,
                 lived_secs: year_secs + year_secs + (year_secs - 1),
+                body: BodyCensus::default(),
             }
         );
     }
@@ -164,6 +171,7 @@ mod tests {
                 year: -1,
                 living: 0,
                 lived_secs: 0,
+                body: BodyCensus::default(),
             }
         );
     }
