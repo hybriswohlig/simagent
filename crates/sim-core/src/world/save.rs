@@ -352,6 +352,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         switch: &history.switch,
         capacity: history.capacity,
         pool: &view,
+        pairs: &history.pairs,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -1185,6 +1186,8 @@ struct Rules<'a> {
     capacity: Option<u64>,
     /// The pool persons of the save (design note of the arrival, section 9).
     pool: &'a PoolView<'a>,
+    /// (woman, man, formed) of each partnership an input formed.
+    pairs: &'a [(SimId, SimId, SimTime)],
 }
 
 impl Rules<'_> {
@@ -1521,7 +1524,12 @@ fn conception_fits(
         conceived.as_secs() >= 0 && conceived.as_secs().rem_euclid(MONTH.as_secs()) == 0;
     let in_her_series = formed.is_some_and(|formed| {
         let born_before = children_born(loaded, parents.mother, conceived);
-        series_start(rules, formed, &born_before).is_some_and(|start| start <= conceived)
+        series_start(
+            rules,
+            (parents.mother, parents.father, formed),
+            &born_before,
+        )
+        .is_some_and(|start| start <= conceived)
             && conception::may_begin(
                 rules.data,
                 life_seed(rules, &her),
@@ -1625,9 +1633,18 @@ fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<Si
 /// Where her series of attempts in a partnership formed at `formed` begins, given the
 /// times of her births so far: after the pairing, or after the pause of her last birth in
 /// that partnership (ADR-0017 section 4).
-fn series_start(rules: &Rules<'_>, formed: SimTime, births: &[SimTime]) -> Option<SimTime> {
+fn series_start(
+    rules: &Rules<'_>,
+    (woman, man, formed): (SimId, SimId, SimTime),
+    births: &[SimTime],
+) -> Option<SimTime> {
     let pause = rules.data.demography().fertility.pause_months;
-    match births.iter().rev().find(|born| **born >= formed) {
+    // A birth in the second of the pairing came before a pairing of the market (births run
+    // before the round) and after one of an input (it acts before the events of its second;
+    // review).
+    let by_input = rules.pairs.contains(&(woman, man, formed));
+    let in_it = |born: &SimTime| *born > formed || (*born == formed && by_input);
+    match births.iter().rev().find(|born| in_it(born)) {
         Some(born) => conception::series_after_birth(*born, pause),
         None => conception::series_after_pairing(formed),
     }
@@ -1894,17 +1911,16 @@ fn next_attempt(
     if carried_series(loaded, rules, woman, now).is_some() {
         return None;
     }
-    let formed = loaded
+    let open = loaded
         .partnerships
         .values()
-        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?
-        .formed;
+        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?;
     if loaded.pregnancies.contains_key(&woman) {
         return None;
     }
     let clock = SimTime::try_from(now.checked_sub(1)?).ok()?;
     let births = children_born(loaded, woman, SimTime::try_from(now).ok()?);
-    let start = series_start(rules, formed, &births)?;
+    let start = series_start(rules, (woman, open.man, open.formed), &births)?;
     let after_now = conception::month_start_after(clock)?;
     let next = if start > after_now { start } else { after_now };
     let life = if her.pool.is_some() {

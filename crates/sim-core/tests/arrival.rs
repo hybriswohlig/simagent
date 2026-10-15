@@ -115,13 +115,16 @@ fn hex(text: &str) -> Vec<u8> {
 /// the end, the bytes between, and the save as (length, xxh3).
 type Patch = (&'static str, usize, usize, &'static str, (usize, u64));
 
+/// A change of a save: its offset, the bytes removed there, the bytes put in.
+type Hunk = (usize, usize, &'static str);
+
 /// A rejected save as hunks of another save: its case, the save it changes, that save as
-/// (length, xxh3), the hunks (offset, bytes removed, bytes put in), the changed save.
+/// (length, xxh3), the hunks, the changed save.
 type Hunks = (
     &'static str,
     &'static str,
     (usize, u64),
-    &'static [(usize, usize, &'static str)],
+    &'static [Hunk],
     (usize, u64),
 );
 
@@ -980,6 +983,50 @@ fn a_carried_leaving_home_in_second_0_loads_before_and_after() {
     assert_eq!(run.log.len() - from, LEAVE_AT_START_ENTRIES.len());
     run.assert_entries(from, &LEAVE_AT_START_ENTRIES);
     assert_eq!(sized(&run.save()), LEAVE_AT_START_SAVE_AFTER_SECOND_0);
+    run.assert_loads();
+}
+
+/// A woman who gives birth and is paired by the market in the same second (review): the
+/// birth runs before the round, so her series starts from the pairing, at the first month
+/// start after it, not after the pause of the birth. "arrival" with the seed 0xef: woman 27
+/// (single, her pool pregnancy's father a record only) gives birth at `TIE_AT` and the
+/// round of that second pairs her with man 26. Both saves load; the save with her series
+/// after the pause does not.
+#[test]
+fn a_birth_and_a_market_pairing_in_one_second_start_the_series_at_the_pairing() {
+    let data = town_data(POOL_C);
+    let start = start(
+        TIE_SEED,
+        Vec::new(),
+        Vec::new(),
+        pool_start(&data, TIE_SEED, 50, true),
+    );
+    assert_eq!(sized(&start_record(&start)), TIE_START_INPUT);
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    let log = world.take_log();
+    let mut run = Run {
+        world,
+        out: YearOut::default(),
+        log,
+        data: ARRIVAL.data,
+    };
+    run.play(TIE_AT);
+    let at = run.save();
+    assert_eq!(sized(&at), TIE_SAVE_AT);
+    run.assert_loads();
+    let (hunks, expected) = TIE_COUNTED_BIRTH;
+    let mut counted = at.clone();
+    for (offset, removed, put) in hunks.iter().rev() {
+        counted.splice(*offset..offset + removed, hex(put));
+    }
+    assert_eq!(sized(&counted), expected);
+    assert_eq!(
+        World::load(&counted, town_data(POOL_C)).err(),
+        Some(LoadError::Inconsistent)
+    );
+    run.play(TIE_FIRST_ATTEMPT - 1);
+    assert_eq!(sized(&run.save()), TIE_SAVE_BEFORE_ATTEMPT);
     run.assert_loads();
 }
 
@@ -1939,3 +1986,22 @@ const LEAVE_AT_START_ENTRIES: [Entry; 4] = [
         ),
     ),
 ];
+/// The tie of a birth and a pairing of the market in one second (review): "arrival" with the
+/// seed 0xef; woman 27 gives birth at `TIE_AT` and the round of that second pairs her.
+const TIE_SEED: u64 = 0xef;
+const TIE_AT: i64 = 14_515_200;
+/// Her first attempt: the first month start after the pairing, not after the pause.
+const TIE_FIRST_ATTEMPT: i64 = 16_934_400;
+const TIE_START_INPUT: (usize, u64) = (6484, 0xd1e3_00db_46dd_4dbd);
+const TIE_SAVE_AT: (usize, u64) = (17388, 0x3df1_9f9f_fb6c_75d2);
+const TIE_SAVE_BEFORE_ATTEMPT: (usize, u64) = (17579, 0xe8b3_eb1f_9f4d_e1df);
+/// The save at `TIE_AT` with her series moved to after the pause of the birth.
+const TIE_COUNTED_BIRTH: (&[Hunk], (usize, u64)) = (
+    &[
+        (489, 14, ""),
+        (693, 0, "0180a8a70280d0c32900e401031b"),
+        (10478, 5, ""),
+        (10538, 0, "6f80f0eb0d"),
+    ],
+    (17388, 0xa9c6_8a19_3bd2_3aa4),
+);
