@@ -340,6 +340,64 @@ What the model knows:
   changes). `World.kinship_query` returns the value with `S` and the pairs the recursion
   visited; with `depth=None` it counts every known ancestor (the rule before H2, only to
   show what the depth changes).
+- Pool persons in the town (step 11; design note of the arrival, version 2; ADR-0020
+  sections 4 and 5; tools/arrival_reference.py holds the scenarios and NOTES of it):
+  - The data may hold a pool (`Data(..., pool=bytes)`): the bytes of a pool file read with
+    `pool_reference.read_pool` (all the reader's rules), then the data checks
+    `pool.carer_not_member`, `pool.sex` (members and unborn children: the paternal sex
+    chromosome of the genome against the sex), `pool.locus` (one of the seven loci missing
+    from the map), in this order (`PoolDataRejected`). Without a pool the data hash stays;
+    with one it is xxh3 of the postcard of the definitions followed by `varint(pool_seed)
+    + varint(pool_hash)` (`pool_hash` = xxh3 of the file's bytes).
+  - `Start` holds `pool: Option<PoolStart>` after `capacity` (`PoolStart { pool_hash: u64,
+    n_start: u64, immigration: bool, households: Vec<PoolHousehold> }`, each household
+    exactly as the file holds it, `pool_reference.encode_household`). Rejected after the
+    old checks (the couples, then `capacity_zero`), the first that applies:
+    `start_pool_and_founders` (24), `start_pool_missing` (25), `start_pool_n_start` (26),
+    `start_pool_households` (27). The draw (`pool_draw`): per household not yet used `rank
+    = rank(world seed, POOL_RANK = 27, SubjectKey::WORLD, occasion, candidate)` with the
+    candidate the smallest lineage key of a member of 18 or more at `E_p`; ascending by
+    `(rank, candidate)`, taken until the members (unborn children do not count) reach or
+    exceed the number; `Start` with occasion 0 and `n_start` (a pool too small gives all its
+    households, decision of NOTES.md).
+  - Immigration: with `immigration` and `q = (n_start + 50) div 100 > 0`, `Start` plans
+    the periodic event `Immigration { persons: q }` (queue payload variant 9, kind 10,
+    class 100, subject the world) right after its other series (after the emigration's),
+    first at second 0, period YEAR, planned by `core:started`. At year `y` it draws the
+    unused households with occasion `y`; if they cannot reach `q`, nobody arrives and the
+    run stops with the invariant `pool.empty` (`Invariant`).
+  - An arrival (`_arrive`), per household in rank order: (1) per member in its order a new
+    SimId, `core:arrived { lineage_key }` (log payload 13; subjects the sim; causes the
+    input or the plan of the event) and its state (`born = born_pool + Δ`, `Δ = A − E_p`;
+    the pool's counts, `moved_out`, afflictions with the exposure from `A` if the switch is
+    on; `parents` None, `social_parents` [], the carer the member with the pool's carer
+    key; `origins[sim]` = PoolOrigin); (2) a new household, `core:household_formed`
+    (subjects ascending, causes the input or the plan, and the rule), no `core:moved`; (3)
+    the open partnership, `core:partnered` (subjects woman, man; cause her `core:arrived`)
+    formed at `formed_pool + Δ`, nothing else; (4) the pregnancies in member order
+    (`father` the SimId if he has arrived, `pool_father` his key); (5) per member, by its
+    `core:arrived`: the carried conception series, birth, separation (the woman's), leaving
+    home, each at `t_pool + Δ` (`pool.carried_before_arrival` below `A`), the next birthday
+    and the deaths. What the Immigration schedules at its own second goes into the next
+    micro step (ADR-0002: in a handler at `(t, p, m)` a time `t` of the same phase is micro
+    `m + 1`; inputs and later seconds micro 0).
+  - Draws (note section 6.2): `E` and `C` with the pool seed for a pool person (`C` at its
+    PoolOrigin keys, the self-parent rule only if both are None), wish and menarche with
+    the pool seed; a town person whose two biological parents are pool persons has `E`
+    with the world seed and `C` with the pool seed at their keys; everyone else the world
+    seed. Every other draw is the world seed's. Death budgets: detail the arrival year of
+    an arrival (0 else), origin `A` for an arrival.
+  - Kinship over lineage keys (`kinship_by_keys`), order `(0, born_pool)` for an arrival and
+    a record of the pool, `(1, born)` for everyone born in the town; the orphan succession
+    finds the other parent of a pool person by its PoolOrigin keys in its household.
+  - A pool child (born of a pool pregnancy): `core:birth` without the father if he has no
+    SimId, `parents` None, PoolOrigin (genome key of the pool, born_pool None, arrived the
+    birth, arrival year the calendar year of the birth, its mother's key, `pool_father`).
+  - State and versions: `origins` (Sim and ArchivedSim `pool: Option<PoolOrigin>`, the
+    last field of each), `Pregnancy { father: Option<SimId>, pool_father:
+    Option<LineageKey>, conception, children, conceived }`, `pool_used: Vec<u32>` (indices
+    into the pool's households, arrival order) the last field of the projection; projection
+    18, core 37, save format 2, pedigree format 4 (`pool` per person, last).
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -472,10 +530,32 @@ PRERUN_ALLELE = 25
 # The emigration (design note of the emigration, section 1): the field `capacity` of
 # `Start` changes every save (34); the projection stays 17 (the capacity is held only in the
 # payload of the planned event, the input log is not projected).
-PROJECTION_VERSION = 17
-CORE_VERSION = 36
+# Pool persons in the town (design note of the arrival, sections 9 and 10): `pool` of Sim and
+# ArchivedSim, `Pregnancy.father` an option with `pool_father` after it, the used households
+# of the pool (projection 18); the core version and the save format rise with it (37, 2).
+PROJECTION_VERSION = 18
+CORE_VERSION = 37
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+# The pedigree's format (design note of the arrival, section 8): `pool` per person.
+PEDIGREE_FORMAT_VERSION = 4
+# The pool in the town (design note of the arrival, sections 3 and 4): the purpose tag of
+# the draw of the households (the next free tag after POOL_ALLELE, 26), the event
+# `Immigration { persons }` (class 100 before births, kind 10, the queue payload after
+# Emigration, 8), the log payload `core:arrived { lineage_key }` (after core:emigrated, 12),
+# the reject codes of `Start` (after capacity_zero, 23) in the note's order.
+POOL_RANK = 27
+IMMIGRATION_CLASS = 100
+IMMIGRATION_KIND = 10
+IMMIGRATION_VARIANT = 9
+ARRIVED_VARIANT = 13
+START_POOL_AND_FOUNDERS, START_POOL_MISSING, START_POOL_N_START, START_POOL_HOUSEHOLDS = 24, 25, 26, 27
+# The largest micro step (ADR-0002).
+MAX_MICRO_STEP = 64
+# The lines the code lists of tests/golden (protected) need for the arrival; they are not
+# there yet, so the check of the code lists below leaves these reject codes out
+# (tools/arrival_reference.py prints every new line).
+NEW_CODE_LINES_OF_THE_ARRIVAL = (START_POOL_AND_FOUNDERS, START_POOL_MISSING, START_POOL_N_START, START_POOL_HOUSEHOLDS)
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
 # threshold of the wish), so that a last bit of libm in the core cannot flip it.
 DRAW_MARGIN = 1e-12
@@ -518,6 +598,10 @@ WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
 UNKNOWN_FOUNDER, UNKNOWN_SIM, SIM_NOT_ALIVE, PARTNERS_OF_WRONG_SEX, ALREADY_PARTNERED = 13, 9, 10, 11, 12
 PARTNER_TOO_YOUNG, PARTNERS_TOO_CLOSELY_RELATED = 21, 22
 REJECT_NAMES = {
+    START_POOL_AND_FOUNDERS: "start_pool_and_founders",
+    START_POOL_MISSING: "start_pool_missing",
+    START_POOL_N_START: "start_pool_n_start",
+    START_POOL_HOUSEHOLDS: "start_pool_households",
     CAPACITY_ZERO: "capacity_zero",
     UNKNOWN_SIM: "unknown_sim",
     SIM_NOT_ALIVE: "sim_not_alive",
@@ -776,7 +860,7 @@ def standard_normal(seed: int, tag: int, subject: int, occasion: int, detail: in
     return normal_reference(draw[0], draw[1], 0.0, 1.0)[1]
 
 
-def phenotype_parts(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int) -> dict:
+def phenotype_parts(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int, c_seed=None) -> dict:
     """The phenotype `z_t` of a sim at the age `age_seconds` (a duration from its birth)
     and its parts (genetics specification 4.2, ADR-0009 sections 3 and 4): `x =
     as_years(age)`, `s = 1 / (1 + exp((12 − x) / 2))` with the correctly rounded exp, `h2 =
@@ -784,7 +868,10 @@ def phenotype_parts(seed: int, trait: PhenotypeTrait, person: dict, key: int, pa
     0 to 1; `C` = normal(ENV_SHARED, the mother's lineage key, `str_key` of the trait, the
     father's lineage key), with its own key for both without parents (a founder); `E` =
     normal(ENV_INDIVIDUAL, its own key, `str_key` of the trait, 0); `z = ((sqrt(h2) · G) +
-    (sqrt(c2) · C)) + (sqrt(e2) · E)`. `parents` is (mother's key, father's key) or None."""
+    (sqrt(c2) · C)) + (sqrt(e2) · E)`. `parents` is (mother's key, father's key) or None.
+    `seed` draws `E`, `c_seed` (`seed` if None) draws `C` (design note of the arrival,
+    section 6.2: a pool person, or a town person of two pool persons, draws `C` with the
+    pool seed)."""
     g = genetic_value(person, trait)
     x = as_years(age_seconds)
     s = 1.0 / (1.0 + exp_reference((12.0 - x) / 2.0)[1])
@@ -794,15 +881,15 @@ def phenotype_parts(seed: int, trait: PhenotypeTrait, person: dict, key: int, pa
     e2 = (1.0 - h2) - c2
     h2, c2, e2 = held_weight(h2), held_weight(c2), held_weight(e2)
     mother, father = (key, key) if parents is None else parents
-    shared = standard_normal(seed, ENV_SHARED, mother, trait.key, father)
+    shared = standard_normal(seed if c_seed is None else c_seed, ENV_SHARED, mother, trait.key, father)
     own = standard_normal(seed, ENV_INDIVIDUAL, key, trait.key, 0)
     z = ((math.sqrt(h2) * g) + (math.sqrt(c2) * shared)) + (math.sqrt(e2) * own)
     return {"G": g, "x": x, "s": s, "h2": h2, "c2": c2, "e2": e2, "C": shared, "E": own, "z": z, "env": (mother, father)}
 
 
-def phenotype(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int) -> float:
+def phenotype(seed: int, trait: PhenotypeTrait, person: dict, key: int, parents, age_seconds: int, c_seed=None) -> float:
     """`z_t` of `phenotype_parts`."""
-    return phenotype_parts(seed, trait, person, key, parents, age_seconds)["z"]
+    return phenotype_parts(seed, trait, person, key, parents, age_seconds, c_seed)["z"]
 
 
 def libm_margin(name: str, x: float) -> float:
@@ -866,6 +953,119 @@ def whole_number(entry, unit: str) -> int:
     return int(value)
 
 
+class PoolDataRejected(Exception):
+    """The data check of a pool (design note of the arrival, section 2) rejects it: `code` is
+    `pool.carer_not_member`, `pool.sex` or `pool.locus`."""
+
+    def __init__(self, code: str, detail: str = ""):
+        super().__init__(f"{code} {detail}".strip())
+        self.code = code
+
+
+class Invariant(Exception):
+    """An invariant break of the core (a panic with its code): `pool.empty`,
+    `pool.carried_before_arrival`."""
+
+    def __init__(self, code: str, detail: str = ""):
+        super().__init__(f"{code} {detail}".strip())
+        self.code = code
+
+
+# The seven loci of the pool (design note of the pool file, section 3), in its table's order.
+POOL_LOCI = (
+    "core:disease_ar",
+    "core:disease_ad_late",
+    "core:disease_ad_partial",
+    "core:disease_xr",
+    "core:disease_mt",
+    "core:mc1r",
+    "core:herc2",
+)
+
+
+def genome_from_raw(raw: tuple) -> dict:
+    """A genome as the pool file holds it (`pool_reference.decode_genome`: three maternal and
+    three paternal autosome words, the maternal X, (0, the paternal X) or (1, the Y), the mt)
+    in the form of tools/meiosis_reference.py with `paternal_sex` (the form of a child of
+    the meiosis); its bytes are the file's (asserted)."""
+    import pool_reference
+
+    maternal, paternal, x_maternal, (kind, second), mt = raw
+
+    def rows(words_) -> list:
+        return [[(words_[(24 * s + i) // 64] >> ((24 * s + i) % 64)) & 1 for i in range(24)] for s in range(8)]
+
+    def slots(value: int, n: int) -> list:
+        assert value >> n == 0
+        return [(value >> i) & 1 for i in range(n)]
+
+    person = {
+        "autosomes_maternal": rows(maternal),
+        "autosomes_paternal": rows(paternal),
+        "x_maternal": slots(x_maternal, 16),
+        "paternal_sex": {"x": slots(second, 16)} if kind == 0 else {"y": slots(second, 8)},
+        "mt": slots(mt, 8),
+    }
+    assert genome_of(person) == pool_reference.encode_genome(raw)
+    return person
+
+
+class DataPool:
+    """The pool a world's data hold (design note of the arrival, section 2): the file's bytes
+    read by `pool_reference.read_pool` (every rule of the reader; `pool_reference.Rejected`),
+    then the data checks in their order, each over the whole pool before the next:
+    `pool.carer_not_member` (a member's carer key is not a member of its household),
+    `pool.sex` (the paternal sex chromosome of a member's or an unborn child's genome, X for
+    a woman, Y for a man, differs from its sex), `pool.locus` (one of the seven loci missing
+    from the map). Holds the seed, `E_p`, the hash (xxh3 of the bytes), the households, each
+    household's encoding (`pool_reference.encode_household`, what `Start` carries), its
+    candidate (the smallest lineage key of a member of 18 or more at `E_p`, which the reader
+    guarantees) and its number of members, and indices of the members, the unborn children
+    and the records by lineage key."""
+
+    def __init__(self, data: bytes, loci: dict):
+        import pool_reference
+
+        self.bytes = data
+        self.file = pool_reference.read_pool(data)
+        self.hash = hash64(data)
+        self.seed = self.file["pool_seed"]
+        self.frozen_at = self.file["frozen_at"]
+        self.households = self.file["households"]
+        for index, household in enumerate(self.households):
+            keys = {member["lineage_key"] for member in household["members"]}
+            for member in household["members"]:
+                if member["carer"] is not None and member["carer"] not in keys:
+                    raise PoolDataRejected("pool.carer_not_member", f"household {index} member {member['lineage_key']:016x}")
+        for index, household in enumerate(self.households):
+            persons = list(household["members"]) + [child for pregnancy in household["pregnancies"] for child in pregnancy["children"]]
+            for person in persons:
+                if person["genome"][3][0] != person["sex"]:
+                    raise PoolDataRejected("pool.sex", f"household {index} person {person['lineage_key']:016x}")
+        missing = [locus for locus in POOL_LOCI if locus not in loci]
+        if missing:
+            raise PoolDataRejected("pool.locus", " ".join(missing))
+        self.encoded = [pool_reference.encode_household(household) for household in self.households]
+        self.candidates = []
+        self.sizes = []
+        self.members, self.unborn, self.records = {}, {}, {}
+        for index, household in enumerate(self.households):
+            adults = [m["lineage_key"] for m in household["members"] if self.frozen_at - m["born"] >= 18 * YEAR]
+            assert adults, "the reader guarantees a member of 18 or more"
+            self.candidates.append(min(adults))
+            self.sizes.append(len(household["members"]))
+            for member in household["members"]:
+                assert member["lineage_key"] not in self.members
+                self.members[member["lineage_key"]] = (index, member)
+            for pregnancy in household["pregnancies"]:
+                for child in pregnancy["children"]:
+                    assert child["lineage_key"] not in self.unborn
+                    self.unborn[child["lineage_key"]] = (index, pregnancy, child)
+        assert len(set(self.candidates)) == len(self.candidates), "the candidates are unique"
+        for record in self.file["ancestors"]:
+            self.records[record["lineage_key"]] = record
+
+
 class Data:
     """The definitions a world runs on: the life course data, the calibration and the
     genome map as documents (parsed JSON with their texts, in the order of their data
@@ -880,9 +1080,20 @@ class Data:
     market's values with the weights of the similarity terms and the traits of cognition
     and height (`PhenotypeTrait` or None)."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None):
         self.hash = data_reference.documents_hash(demography, calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
+        # The pool of the data (design note of the arrival, section 2), or None.
+        self.pool = None
+        if pool is not None:
+            self.pool = DataPool(pool, self.loci)
+            definitions = (
+                data_reference.demography_bytes(data_reference.strip(demography))
+                + data_reference.calibration_bytes(data_reference.strip(calibration))
+                + data_reference.genome_map_bytes(data_reference.strip(genome_map))
+            )
+            assert xxhash.xxh3_64_intdigest(definitions, seed=0) == self.hash
+            self.hash = xxhash.xxh3_64_intdigest(definitions + varint(self.pool.seed) + varint(self.pool.hash), seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
         # of the map in map order as its terms, and the loci of the mean doses, those whose
         # action is `additive`, in map order (decision 1 of the notes of the measurement: a
@@ -1655,9 +1866,11 @@ assert abs(math.exp(kinship_weight(REPOSITORY) / 32.0) - 3.1622776601683795) <= 
 assert search_chance(18 * YEAR, life_test_data({"core:market_search_height_female": 0.0})) == 0.0
 
 
-def budget_of(seed: int, key: int, code: str) -> float:
-    """The budget `B` of the cause or disease with this code for this lineage key."""
-    return exponential_reference(words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), 0))[0], 1.0)[1]
+def budget_of(seed: int, key: int, code: str, detail: int = 0) -> float:
+    """The budget `B` of the cause or disease with this code for this lineage key; `detail`
+    is the arrival year of an arrival, 0 for everyone else (design note of the arrival,
+    section 6.4)."""
+    return exponential_reference(words(chacha_key(seed, DEATH_BUDGET, key, str_key(code), detail))[0], 1.0)[1]
 
 
 def step_ulps(value: float, ulps: int) -> float:
@@ -1719,7 +1932,7 @@ class Affliction:
 
 
 class Event:
-    def __init__(self, time, cls, subject, kind, insertion, payload, period, plan):
+    def __init__(self, time, cls, subject, kind, insertion, payload, period, plan, micro=0):
         self.time = time
         self.cls = cls
         self.subject = subject
@@ -1728,15 +1941,21 @@ class Event:
         self.payload = payload
         self.period = period
         self.plan = plan
+        # The micro step in (time, phase) (ADR-0002): 0 unless a handler planned it at its own
+        # second and phase (then one more than its own); a periodic event's next occurrence is
+        # a later second, micro 0.
+        self.micro = micro
+
+    def phase(self) -> int:
+        return 1 if self.cls >= OBSERVER else 0
 
     def key(self):
-        phase = 1 if self.cls >= OBSERVER else 0
-        return (self.time, phase, 0, self.cls, self.subject[0], self.subject[1], self.kind, self.insertion)
+        return (self.time, self.phase(), self.micro, self.cls, self.subject[0], self.subject[1], self.kind, self.insertion)
 
     def queue_bytes(self) -> bytes:
         """(time, micro, seq, payload, period), ADR-0002."""
         period = NONE if self.period is None else some(signed(self.period))
-        return signed(self.time) + varint(0) + varint(self.insertion) + self.payload + period
+        return signed(self.time) + varint(self.micro) + varint(self.insertion) + self.payload + period
 
 
 def death_payload(sim: int, code_key: int) -> bytes:
@@ -1774,7 +1993,7 @@ class World:
     switch of this reference only (no household, no `leave_home`, no entry of them): the
     world of the similarity, for the check that the households change no story."""
 
-    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True, capacity=None):
+    def __init__(self, seed: int, tag: str, switch: bool, founders: list, couples=(), data=None, market=True, households=True, capacity=None, pool=None):
         self.seed = seed
         self.tag = tag
         self.switch = switch
@@ -1787,8 +2006,33 @@ class World:
         # them off is for worlds without a capacity only.
         self.capacity = capacity
         assert households or capacity is None, "the emigration needs the households"
-        rejection = start_rejection(founders, couples, self.data, capacity)
+        # `pool` is the field `pool` of `Start` (design note of the arrival, section 3): None or
+        # a PoolStart {"pool_hash", "n_start", "immigration", "households"} (the households as
+        # the file holds them; `pool_start` makes the one the CLI fills in).
+        assert households or pool is None, "the arrival needs the households"
+        rejection = start_rejection(founders, couples, self.data, capacity, pool, seed)
         assert rejection is None, f"Start is rejected: {REJECT_NAMES[rejection]}"
+        self.pool_start = pool
+        # The state of the pool persons (design note of the arrival, sections 6 and 9): per sim,
+        # living or archived, its PoolOrigin (a dict with `genome_key`, `born_pool`, `arrived`,
+        # `arrival_year`, `mother`, `father`, `social_parents`), none for a town person; per
+        # running pregnancy of the pool its `pool_father` (the father's lineage key; the
+        # pregnancy's `father` is then the SimId or None); the households of the pool used, as
+        # indices into the file, in arrival order. All three are state (projected).
+        self.origins = {}
+        self.pool_fathers = {}
+        self.used = []
+        # The lineage keys of every sim, living or archived (an index, not state); the entry
+        # `core:arrived` of each arrival, its carried times shifted (what the checks compare
+        # with the pool's) and every arrival and immigration as a record, for the stories; not
+        # state. `current` is the event whose handler runs (None in an input), for the micro
+        # steps (ADR-0002).
+        self.by_key = {}
+        self.arrived_by = {}
+        self.carried = {}
+        self.arrivals = []
+        self.immigrations = []
+        self.current = None
         # The pedigree of every sim, living or archived, for the kinship (spec 2.7): not
         # state, it follows from the parents; a cache of its values, keyed by the pair.
         self.pedigree = Pedigree()
@@ -1797,6 +2041,7 @@ class World:
         # with at least one single woman in the market age (its record, see
         # `_market_round`); the census at each year end (`census`); not state.
         self.ran = []
+        self.fired = []
         self.rounds = []
         self.census_hashes = []
         # The payload variant of every log entry, in log order (the coverage of the log
@@ -1838,7 +2083,7 @@ class World:
         # The arguments and every call that changes the world (advance, an accepted
         # ArrangePartnership, an override), so that `without_households` can run the same
         # world again with the switch off; not state.
-        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market, capacity=capacity)
+        self.args = dict(seed=seed, tag=tag, switch=switch, founders=founders, couples=couples, data=data, market=market, capacity=capacity, pool=pool)
         self.script = []
         self.next_household_id = 1
         self.households = {}
@@ -1870,6 +2115,7 @@ class World:
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([couple(woman, man) for woman, man in couples]),
             capacity_bytes(capacity),
+            pool_start_bytes(pool),
         )
         self.inputs = [signed(-1) + varint(1) + start]
         self._start(founders)
@@ -1877,10 +2123,16 @@ class World:
             self._partner(woman + 1, man + 1, [variant(2, varint(1))], 0, at_start=True)
         if self.households_on:
             self._house_founders(couples)
+        if pool is not None:
+            # The founders from the pool (design note of the arrival, sections 3 and 5): the
+            # drawn households of the input, in rank order, at second 0 of year 0, caused by
+            # the input; in the input's context every time is micro step 0.
+            draw = pool_draw(self.data.pool, seed, 0, pool["n_start"], [])
+            self._arrive(draw, 0, 0, [variant(2, varint(1))], "start")
 
     # ------------------------------------------------------------------ afflictions
 
-    def afflictions_of(self, key: int, sex: bytes, person: dict, origin: int, parents, age_seconds: int) -> list:
+    def afflictions_of(self, key: int, sex: bytes, person: dict, origin: int, parents, age_seconds: int, c_seed=None) -> list:
         """The afflictions of a sim at its creation, in data order (design note
         section 1; design note of the threshold disease, section 2). `parents` is (the
         mother's lineage key, the father's) or None for a founder, `age_seconds` its age at
@@ -1896,7 +2148,7 @@ class World:
             elif disease.liability is not None:
                 # The threshold disease (3.6): `L` the phenotype of its trait at the age of
                 # the creation; the sim has it iff `L > T`, strictly; no penetrance draw.
-                liability = phenotype(self.seed, disease.liability, person, key, parents, age_seconds)
+                liability = phenotype(self.seed, disease.liability, person, key, parents, age_seconds, c_seed)
                 if not liability > disease.threshold:
                     continue
             else:
@@ -1925,12 +2177,243 @@ class World:
         origin = 0 if parents is None else born
         return key, sex, person, parents, origin, origin - born, afflictions
 
+    # ------------------------------------------------------------------ pool persons
+
+    def is_pool_person(self, sim: int) -> bool:
+        """An arrival or a pool child, living or archived (design note of the arrival,
+        section 1). A world started without a pool has none: a PoolOrigin there is only for
+        `check_pool` to reject; every other rule reads the sim as a town person (review of
+        the reference, NOTES2.md section 5b; no valid state of such a world has one)."""
+        return sim in self.origins and self.pool_start is not None
+
+    def is_arrival(self, sim: int) -> bool:
+        return self.is_pool_person(sim) and self.origins[sim]["born_pool"] is not None
+
+    def origin_of(self, sim: int) -> int:
+        """Where the hazard integral of its deaths starts (design note of the arrival,
+        section 6.4): the arrival second `A` for an arrival, else `max(born, START)`."""
+        if self.is_arrival(sim):
+            return self.origins[sim]["arrived"]
+        return max(self.born_of(sim), 0)
+
+    def death_detail(self, sim: int) -> int:
+        """The detail of its DEATH_BUDGET draws: the arrival year of an arrival, 0 else."""
+        return self.origins[sim]["arrival_year"] if self.is_arrival(sim) else 0
+
+    def own_seed(self, sim: int) -> int:
+        """The seed of its wish and menarche offset (design note of the arrival, section 6.2):
+        the pool seed for a pool person, the world seed else."""
+        return self.data.pool.seed if self.is_pool_person(sim) else self.seed
+
+    def c_seed_of_child(self, mother: int, father: int) -> int:
+        """The seed of `C` of a town person born of these two (section 6.2): the pool seed if
+        both are pool persons, else the world seed."""
+        if self.is_pool_person(mother) and self.is_pool_person(father):
+            return self.data.pool.seed
+        return self.seed
+
+    def env_of(self, sim: int) -> tuple:
+        """(seed of `E`, seed of `C`, the parents' keys `C` reads or None) of a living or
+        archived sim (design note of the arrival, section 6.2): a pool person draws both with
+        the pool seed at its PoolOrigin keys (its own for both only if both are None); a town
+        person of two pool persons `E` with the world seed and `C` with the pool seed at their
+        keys; anyone else both with the world seed at its parents' keys (its own without)."""
+        if self.is_pool_person(sim):
+            origin = self.origins[sim]
+            parents = (origin["mother"], origin["father"])
+            assert (parents[0] is None) == (parents[1] is None), "both PoolOrigin parents or none"
+            return self.data.pool.seed, self.data.pool.seed, None if parents[0] is None else parents
+        parents = self.parent_keys(sim)
+        if parents is None:
+            return self.seed, self.seed, None
+        mother, father = (self.sims[sim][7] if sim in self.sims else self.archive[sim][9])[:2]
+        return self.seed, self.c_seed_of_child(mother, father), parents
+
+    def pool_afflictions(self, items: list, origin: int) -> list:
+        """The afflictions of a pool person (the pool's `(disease, onset)` in data order) as
+        the town holds them: a lethal one with its exposure from `origin` if the switch is on
+        (design note of the arrival, sections 6.1 and 6.3)."""
+        by_key = {disease.key: disease for disease in self.data.diseases}
+        order = [disease.key for disease in self.data.diseases]
+        keys = [key for key, _ in items]
+        assert all(key in by_key for key in keys) and keys == sorted(keys, key=order.index), "the pool's afflictions in data order"
+        return [Affliction(by_key[key], onset, origin if self.switch else None) for key, onset in items]
+
+    def biological_keys(self, sim: int) -> tuple:
+        """The lineage keys of its biological parents (each None if unknown): its PoolOrigin
+        keys for a pool person, its parents' keys for a town person."""
+        if self.is_pool_person(sim):
+            return self.origins[sim]["mother"], self.origins[sim]["father"]
+        parents = self.parent_keys(sim)
+        return (None, None) if parents is None else parents
+
+    def is_biological_parent(self, child: int, person: int) -> bool:
+        """Whether `person` is a biological parent of `child`: by SimId for a town person, by
+        lineage key for a pool person (decision of NOTES.md: the orphan rule's "unless its
+        biological parent" and the load check of the social parents read it so)."""
+        if self.is_pool_person(child):
+            return self.key_of(person) in [key for key in self.biological_keys(child) if key is not None]
+        parents = self.sims[child][7] if child in self.sims else self.archive[child][9]
+        return parents is not None and person in parents[:2]
+
+    def pool_member(self, sim: int) -> dict:
+        """The pool's record of an arrival (its member entry in the file)."""
+        return self.data.pool.members[self.key_of(sim)][1]
+
+    def carried_leave_home(self, sim: int):
+        """The carried `leave_home` of an arrival: the pool's `leave_home_at + Δ`, or None."""
+        member = self.pool_member(sim)
+        if member["leave_home_at"] is None:
+            return None
+        return member["leave_home_at"] + self.origins[sim]["arrived"] - self.data.pool.frozen_at
+
+    def pool_partnerships_before(self, sim: int) -> int:
+        """An arrival's partnerships of the pool that did not come along: the pool's count less
+        one if her household brought her open partnership."""
+        member = self.pool_member(sim)
+        index = self.data.pool.members[self.key_of(sim)][0]
+        partnership = self.data.pool.households[index]["partnership"]
+        brought = partnership is not None and partnership[0] == member["lineage_key"]
+        return member["partnerships"] - (1 if brought else 0)
+
+    def _immigration(self, now: int, plan: bytes, q: int) -> None:
+        """The event `Immigration` at the first second of year `y` (design note of the
+        arrival, section 4): the unused households in the order of `POOL_RANK` with occasion
+        `y`, taken until their members reach or exceed `q`; if all of them cannot reach `q`,
+        nobody arrives and the run stops (`pool.empty`)."""
+        pool = self.data.pool
+        year = now // YEAR
+        free = [index for index in range(len(pool.households)) if index not in self.used]
+        record = {"t": now, "year": year, "q": q, "free": len(free), "free_members": sum(pool.sizes[i] for i in free)}
+        self.immigrations.append(record)
+        if record["free_members"] < q:
+            record["empty"] = True
+            raise Invariant("pool.empty", f"year {year} needs {q}, {record['free_members']} left")
+        draw = pool_draw(pool, self.seed, year, q, self.used)
+        record["draw"] = draw
+        self._arrive(draw, now, year, [plan], "immigration")
+
+    def _arrive(self, draw: list, arrival: int, year: int, causes: list, why: str) -> None:
+        """The arrival of the drawn households at `arrival` (`A`) of year `year`, step by step
+        (design note of the arrival, section 5), per household in rank order; `causes` the
+        input of `Start` or the plan of the event. Returns nothing; each household's record
+        goes to `arrivals`."""
+        pool = self.data.pool
+        delta = arrival - pool.frozen_at
+        rule = variant(3, string(HOUSEHOLD_RULE))
+        for index in draw:
+            assert index not in self.used
+            self.used.append(index)
+            household = pool.households[index]
+            members = household["members"]
+            record = {"t": arrival, "year": year, "why": why, "index": index, "delta": delta, "sims": [], "entries": {}}
+            before = self.next_event_id
+            # 1. The members in the household's order: a SimId, `core:arrived`, the state.
+            sims = []
+            for member in members:
+                sim = self.next_sim_id
+                self.next_sim_id += 1
+                key = member["lineage_key"]
+                assert key not in self.by_key, "lineage_key_unique"
+                entry = self._entry(arrival, [variant(0, varint(sim))], causes, variant(ARRIVED_VARIANT, varint(key)))
+                sex = FEMALE if member["sex"] == 0 else MALE
+                person = genome_from_raw(member["genome"])
+                afflictions = self.pool_afflictions(member["afflictions"], arrival)
+                self.sims[sim] = [
+                    member["born"] + delta, key, sex, person, afflictions, member["conceptions"], member["births"], None,
+                    member["partnerships"], None, member["moved_out"], None, [],
+                ]
+                self.origins[sim] = {
+                    "genome_key": member["genome_key"],
+                    "born_pool": member["born"],
+                    "arrived": arrival,
+                    "arrival_year": year,
+                    "mother": member["mother"],
+                    "father": member["father"],
+                    "social_parents": list(member["social_parents"]),
+                }
+                self.arrived_by[sim] = entry
+                self.pedigree.add(sim)
+                self.by_key[key] = sim
+                sims.append(sim)
+            mine = {member["lineage_key"]: sim for member, sim in zip(members, sims)}
+            for member, sim in zip(members, sims):
+                if member["carer"] is not None:
+                    self.sims[sim][11] = mine[member["carer"]]
+            record["sims"] = sims
+            # 2. The household: `core:household_formed` with the members ascending, no move.
+            number_ = self.next_household_id
+            self.next_household_id += 1
+            self.households[number_] = [arrival, None]
+            formed = self._home_entry(arrival, sorted(sims), causes + [rule], HOUSEHOLD_FORMED_VARIANT, number_)
+            self.home_log.append((arrival, "formed", number_, sorted(sims), f"arrival ({why})", formed))
+            for sim in sims:
+                self.sims[sim][9] = number_
+            record["household"] = number_
+            # 3. The open partnership: `core:partnered` caused by her `core:arrived`, formed at
+            # `formed_pool + Δ`, nothing else.
+            partnership_number = None
+            if household["partnership"] is not None:
+                woman_key, man_key, formed_pool = household["partnership"]
+                woman, man = mine[woman_key], mine[man_key]
+                assert self.sims[woman][2] == FEMALE and self.sims[man][2] == MALE
+                partnership_number = self.next_partnership_id
+                self.next_partnership_id += 1
+                subjects = [variant(0, varint(woman)), variant(0, varint(man))]
+                self._entry(arrival, subjects, [variant(0, varint(self.arrived_by[woman]))], variant(5, varint(partnership_number)))
+                self.partnerships[partnership_number] = [woman, man, formed_pool + delta, None]
+                record["partnership"] = partnership_number
+            # 4. The pregnancies in member order: the father's SimId if he has arrived (living
+            # or archived), else None; `pool_father` his key.
+            for pregnancy in household["pregnancies"]:
+                mother = mine[pregnancy["mother"]]
+                assert mother not in self.pregnancies
+                father = self.by_key.get(pregnancy["father"])
+                children = [(child["lineage_key"], FEMALE if child["sex"] == 0 else MALE, genome_from_raw(child["genome"])) for child in pregnancy["children"]]
+                for child in pregnancy["children"]:
+                    assert child["lineage_key"] not in self.by_key, "lineage_key_unique"
+                self.pregnancies[mother] = (father, pregnancy["conception"], children, pregnancy["conceived"] + delta)
+                self.pool_fathers[mother] = pregnancy["father"]
+            # 5. Per member, by its `core:arrived`: the carried plans, the next birthday, the
+            # deaths.
+            for member, sim in zip(members, sims):
+                by = self.arrived_by[sim]
+                carried = {}
+                born = self.sims[sim][0]
+                for name in ("conception_at", "birth_at", "separation_at", "leave_home_at"):
+                    if member[name] is None:
+                        continue
+                    t = member[name] + delta
+                    if t < arrival:
+                        raise Invariant("pool.carried_before_arrival", f"{name} of {member['lineage_key']:016x} at {t}")
+                    carried[name] = t
+                    if name == "conception_at":
+                        assert self.sims[sim][2] == FEMALE and self.partner_of(sim) is not None
+                        self._schedule(t, GENERAL, (SIM_SUBJECT, sim), ATTEMPT_KIND, variant(3, varint(sim)), MONTH, by, arrival)
+                    elif name == "birth_at":
+                        assert sim in self.pregnancies
+                        self._schedule(t, BIRTH, (SIM_SUBJECT, sim), BIRTH_KIND, variant(4, varint(sim)), None, by, arrival)
+                    elif name == "separation_at":
+                        assert partnership_number is not None and self.partnerships[partnership_number][0] == sim
+                        self.separation_plans.append((partnership_number, None, None, t))
+                        payload = variant(5, varint(partnership_number))
+                        self._schedule(t, GENERAL, (PARTNERSHIP_SUBJECT, partnership_number), SEPARATION_KIND, payload, None, by, arrival)
+                    else:
+                        assert not self.sims[sim][10]
+                        self._schedule(t, GENERAL, (SIM_SUBJECT, sim), LEAVE_HOME_KIND, variant(LEAVE_HOME_VARIANT, varint(sim)), None, by, arrival)
+                self.carried[sim] = carried
+                self._plan_birthday(sim, first_birthday(born, arrival), by, arrival)
+                self._plan_deaths(sim, by, arrival)
+            record["entries"] = list(range(before, self.next_event_id))
+            self.arrivals.append(record)
+
     def liability_of(self, sim: int, disease: Disease) -> float:
         """`L` of a living or archived sim for a threshold disease with a trait of
         liability (design note of the threshold disease, section 2): the phenotype of the
         trait at the age of its creation (the weights do not depend on the age)."""
-        key, _, person, parents, _, age, _ = self.creation_of(sim)
-        return phenotype(self.seed, disease.liability, person, key, parents, age)
+        key, _, person, _, _, age, _ = self.creation_of(sim)
+        e_seed, c_seed, parents = self.env_of(sim)
+        return phenotype(e_seed, disease.liability, person, key, parents, age, c_seed)
 
     def disease_due(self, sim: int, affliction: Affliction):
         """When the sim dies of the lethal affliction if nothing else happens first, or
@@ -1941,7 +2424,7 @@ class World:
             return None
         at_since = as_years(since - born)
         x0 = max(at_since, affliction.onset)
-        remaining = max(budget_of(self.seed, key, affliction.disease.code) - used, 0.0)
+        remaining = max(budget_of(self.seed, key, affliction.disease.code, self.death_detail(sim)) - used, 0.0)
         # A budget the closed periods used up kills in the second the switch goes on
         # again, whatever hazard the age has then (spec 7.1; review of the design).
         if used > 0.0 and remaining <= 0.0:
@@ -1960,9 +2443,9 @@ class World:
         nothing else happens first, or None (never). `nudge` moves the budget, exp and ln
         by whole ulps, and with a fourth number the exp of `m` (a trait of longevity)."""
         born, key, sex, person = self.sims[sim][:4]
-        origin = max(born, 0)
+        origin = self.origin_of(sim)
         x0 = as_years(origin - born)
-        budget = step_ulps(budget_of(self.seed, key, code), nudge[0])
+        budget = step_ulps(budget_of(self.seed, key, code, self.death_detail(sim)), nudge[0])
         if code == SENESCENCE:
             a, b = self.data.senescence[sex]
             m = self.data.multiplier(person, nudge[3] if len(nudge) > 3 else 0)
@@ -1981,7 +2464,7 @@ class World:
         seconds = robust_seconds(lambda nudge: self.cause_seconds(sim, code, nudge), dims)
         if seconds is None:
             return None
-        due = max(self.sims[sim][0], 0) + seconds
+        due = self.origin_of(sim) + seconds
         return due if abs(due) <= MAX_ABS_SECS else None
 
     def _plan_deaths(self, sim: int, by: int, now: int) -> None:
@@ -2217,9 +2700,18 @@ class World:
 
     def _other_parent(self, child: int, gone: int, now: int):
         """The first of the child's mother and father who is not `gone`, lives in the
-        child's household and is fit to care, or None (succession, part 1 section 5)."""
-        parents = self.sims[child][7]
-        for parent in parents[:2] if parents is not None else ():
+        child's household and is fit to care, or None (succession, part 1 section 5). For a
+        pool person the mother and the father are the members of the child's household whose
+        lineage keys are its PoolOrigin keys (design note of the arrival, section 7)."""
+        if self.is_pool_person(child):
+            home = self.sims[child][9]
+            members = {self.key_of(sim): sim for sim in self.members(home)}
+            parents = [members.get(key) for key in self.biological_keys(child) if key is not None]
+            parents = [parent for parent in parents if parent is not None]
+        else:
+            parents = self.sims[child][7]
+            parents = parents[:2] if parents is not None else ()
+        for parent in parents:
             if parent != gone and parent in self.sims and self.sims[parent][9] == self.sims[child][9] and self.fit_to_care(parent, now):
                 return parent
         return None
@@ -2328,11 +2820,9 @@ class World:
             record["added"] = {}
             for child in group:
                 self._set_carer(child, carer, now, f"orphan rule: {record['stage']}")
-                parents = self.sims[child][7]
-                biological = parents[:2] if parents is not None else ()
                 added = []
                 for person in social:
-                    if person not in biological and person not in self.sims[child][12]:
+                    if not self.is_biological_parent(child, person) and person not in self.sims[child][12]:
                         self.sims[child][12].append(person)
                         added.append(person)
                 record["added"][child] = added
@@ -2368,12 +2858,48 @@ class World:
         assert all(seconds(ulps) == nominal for ulps in (-1, 1)), f"a separation hangs on the last bit of {budget!r}"
         return nominal
 
+    def separation_k(self, number_: int) -> int:
+        """`k` of the partnership (design note of the separation, section 6): her
+        `partnerships` less the number of her partnerships with this PartnershipId or a
+        larger one. For a town woman that is the number of her partnerships with a smaller
+        PartnershipId, as before; for an arrival her count carries the pool's (design note
+        of the arrival, section 5: the arrival's own partnership is the pool's last, `k` =
+        her pool count less one; decision of NOTES.md)."""
+        woman = self.partnerships[number_][0]
+        counter = self.sims[woman][8] if woman in self.sims else self.archive[woman][10]
+        later = sum(1 for other, value in self.partnerships.items() if other >= number_ and value[0] == woman)
+        return counter - later
+
+    def arrival_partnership(self, number_: int):
+        """The carried separation `(due or None,)` of a partnership an arrival brought
+        (design note of the arrival, section 9: formed at `formed_pool + Δ`, both partners
+        arrivals of the same household of the pool), else None: its due is not recomputed,
+        it is the woman's `separation_at + Δ` of the pool."""
+        woman, man, formed, _ = self.partnerships[number_]
+        if not (self.is_arrival(woman) and self.is_arrival(man)):
+            return None
+        pool = self.data.pool
+        index, member = pool.members[self.key_of(woman)]
+        household = pool.households[index]
+        if household["partnership"] is None or pool.members[self.key_of(man)][0] != index:
+            return None
+        woman_key, man_key, formed_pool = household["partnership"]
+        delta = self.origins[woman]["arrived"] - pool.frozen_at
+        if (woman_key, man_key, formed_pool + delta) != (self.key_of(woman), self.key_of(man), formed) or self.origins[man]["arrived"] != self.origins[woman]["arrived"]:
+            return None
+        due = None if member["separation_at"] is None else member["separation_at"] + delta
+        return (due,)
+
     def separation_due(self, number_: int):
         """When the partnership separates if nothing else happens first, or None (design
         note section 3; section 6: `k` = the partnerships of the same woman with a smaller
-        PartnershipId)."""
+        PartnershipId, `separation_k`). A partnership an arrival brought has its carried
+        separation (`arrival_partnership`), not recomputed."""
+        carried = self.arrival_partnership(number_) if self.origins else None
+        if carried is not None:
+            return carried[0]
         woman, man, formed, _ = self.partnerships[number_]
-        k = sum(1 for other, value in self.partnerships.items() if other < number_ and value[0] == woman)
+        k = self.separation_k(number_)
         seconds = self.separation_seconds(self.separation_budget(self.key_of(woman), k, self.key_of(man)))
         if seconds is None:
             return None
@@ -2417,7 +2943,7 @@ class World:
         couple_[3] = (now, ENDED_BY_SEPARATION)
         attempts = variant(3, varint(woman))
         self.queue = [other for other in self.queue if other.payload != attempts]
-        k = sum(1 for other, value in self.partnerships.items() if other < number_ and value[0] == woman)
+        k = self.separation_k(number_)
         key = (SEPARATION_BUDGET, self.key_of(woman), k, self.key_of(man))
         draw = variant(4, *(varint(word) for word in key))
         subjects = [variant(0, varint(woman)), variant(0, varint(man))]
@@ -2437,10 +2963,35 @@ class World:
         parents, the order changes nothing). Missing parents and parents outside the set of
         the query count 0. Exact. The cache holds only the final `φ` of a pair (section 1
         of the note): the set of a pair never changes, since parents are fixed at birth."""
-        pair = (min(x, y), max(x, y))
+        # Over lineage keys (design note of the arrival, section 7): the world looks a person
+        # up by SimId, takes its lineage key and queries `kinship_by_keys` with `kin_of`; the
+        # values are those of the SimId pedigree for a town without a pool (the recursion's
+        # order changes nothing exact). The cache is keyed by the pair of lineage keys.
+        kx, ky = self.key_of(x), self.key_of(y)
+        pair = (min(kx, ky), max(kx, ky))
         if pair not in self.kinships:
-            self.kinships[pair] = self.pedigree.phi(x, y)
+            self.kinships[pair] = kinship_by_keys(kx, ky, self.kin_of)[0]
         return self.kinships[pair]
+
+    def kin_of(self, key: int) -> tuple:
+        """`(order, mother, father)` of a lineage key (design note of the arrival, section 7):
+        an arrival (living or archived) `(0, born_pool)` with its PoolOrigin keys; a pool child
+        `(1, born)` with its PoolOrigin keys; a town person `(1, born)` with its parents'
+        lineage keys (from their SimIds) or none; a record of the data's pool that is no
+        person of the town `(0, born)` of the record with the record's parents. Nothing else is
+        reachable (asserted)."""
+        sim = self.by_key.get(key)
+        if sim is not None:
+            origin = self.origins.get(sim)
+            if origin is not None:
+                order = (0, origin["born_pool"]) if origin["born_pool"] is not None else (1, self.born_of(sim))
+                return order, origin["mother"], origin["father"]
+            parents = self.parent_keys(sim)
+            return ((1, self.born_of(sim)),) + ((None, None) if parents is None else parents)
+        pool = self.data.pool
+        assert pool is not None and key in pool.records, f"no person and no record for the key {key:016x}"
+        record = pool.records[key]
+        return (0, record["born"]), record["mother"], record["father"]
 
     def kinship_query(self, x: int, y: int, depth=KINSHIP_DEPTH) -> tuple:
         """`(φ, S, visited)` of one query (`spec_reference.Pedigree.query`), for the known
@@ -2482,7 +3033,8 @@ class World:
         (`phenotype_parts`): its genome, its lineage key, its parents' keys, its age `now −
         born` in seconds."""
         born, key, _, person = self.sims[sim][:4]
-        return phenotype_parts(self.seed, trait, person, key, self.parent_keys(sim), now - born)
+        e_seed, c_seed, parents = self.env_of(sim)
+        return phenotype_parts(e_seed, trait, person, key, parents, now - born, c_seed)
 
     def phenotypes(self, sim: int, now: int) -> list:
         """(weight, z) of each present similarity term (cognition, then height) for a living
@@ -2640,7 +3192,7 @@ class World:
         tilt)` with `u` the draw FERTILITY_WISH at her lineage key; pure, not held. The
         draw keeps `DRAW_MARGIN` from every threshold."""
         data = self.data
-        u = wish_unit(self.seed, self.key_of(woman))
+        u = wish_unit(self.own_seed(woman), self.key_of(woman))
         assert all(abs(u - acc) > DRAW_MARGIN for acc in wish_thresholds(data.wish_shape, data.wish_tilt)), u
         return wish(u, data.wish_shape, data.wish_tilt)
 
@@ -2656,7 +3208,8 @@ class World:
         if self.data.puberty is None:
             return theta_i(self.data.puberty_curve[sex], 0.0)
         age = 0 if now is None else now - born
-        z_p = phenotype(self.seed, self.data.puberty, person, key, self.parent_keys(sim), age)
+        e_seed, c_seed, parents = self.env_of(sim)
+        z_p = phenotype(e_seed, self.data.puberty, person, key, parents, age, c_seed)
         return theta_i(self.data.puberty_curve[sex], z_p)
 
     def menarche_of(self, woman: int, now=None) -> float:
@@ -2664,7 +3217,7 @@ class World:
         FERTILITY_MENARCHE at her lineage key; the form `puberty` only, pure, not held."""
         form = self.data.fertility
         assert form.kind == "puberty"
-        return menarche(self.theta_of(woman, now), menarche_delta(self.seed, self.key_of(woman), form), form)
+        return menarche(self.theta_of(woman, now), menarche_delta(self.own_seed(woman), self.key_of(woman), form), form)
 
     def partner_of(self, woman: int):
         """Her partner in the open partnership, or None."""
@@ -2710,6 +3263,74 @@ class World:
         times = [event.time for event in self.queue if event.kind == ATTEMPT_KIND and event.subject == (SIM_SUBJECT, woman)]
         assert len(times) <= 1
         return times[0] if times else None
+
+    def town_births(self, woman: int) -> list:
+        """The birth seconds of her children born in the town, living or archived: town
+        children (`parents` with her as mother) and pool children (PoolOrigin mother her
+        key)."""
+        key = self.key_of(woman)
+        seconds = []
+        for sim in set(self.sims) | set(self.archive):
+            parents = self.sims[sim][7] if sim in self.sims else self.archive[sim][9]
+            if parents is not None and parents[0] == woman:
+                seconds.append(self.born_of(sim))
+            elif sim in self.origins and self.origins[sim]["born_pool"] is None and self.origins[sim]["mother"] == key:
+                seconds.append(self.born_of(sim))
+        return seconds
+
+    def series_exempt(self, woman: int, number_: int) -> bool:
+        """Whether her series is still the one she brought (review of the reference of the
+        arrival, NOTES2.md): she is an arrival, her open partnership `number_` is the one her
+        household brought (`arrival_partnership`), and no child of hers was born in the
+        town. Only then is her series the carried one, exempt from the town's rule."""
+        return self.is_arrival(woman) and self.arrival_partnership(number_) is not None and not self.town_births(woman)
+
+    def series_due(self, sim: int):
+        """The second of the pending series of attempts the rules give a living sim, or None
+        (ADR-0017 sections 4 and 5: the series is pending exactly when the rule asks for it;
+        design note of the arrival, sections 5 and 9, for the series an arrival brought):
+
+        - none for a man, a pregnant woman, a woman without an open partnership;
+        - exempt (`series_exempt`): the carried series, from `conception_at + Δ` of the pool
+          every MONTH, not recomputed; none if the pool carried none;
+        - else the town's rule: from the last trigger in her open partnership, its forming at
+          `f` (series from the first month start after `f`) or her last birth in the town at
+          `b` (from the first month start at or after `b + max(pause, 1 s)`), the birth the
+          later one if `b > f`, or `b = f` with the partnership of an input (the input acts
+          before the events of its second; a round runs after the births of its second);
+          none if `births >= wish`;
+        - in both the pending one is the first second of that monthly grid after the clock,
+          and it is there if it is the grid's first or `age < E` at it (an attempt that fails
+          at `t` ends the series when `age(t + MONTH) >= E`; the town's first needs `age < E`
+          at it as well)."""
+        her = self.sims[sim]
+        if her[2] != FEMALE or sim in self.pregnancies:
+            return None
+        number_ = self.open_partnership(sim)
+        if number_ is None:
+            return None
+        _, man, formed, _ = self.partnerships[number_]
+
+        def pending(first: int):
+            return first if first > self.closed else first + ((self.closed - first) // MONTH + 1) * MONTH
+
+        if self.series_exempt(sim, number_):
+            carried = self.pool_member(sim)["conception_at"]
+            if carried is None:
+                return None
+            first = carried + self.origins[sim]["arrived"] - self.data.pool.frozen_at
+            t = pending(first)
+            return t if t == first or as_years(t - her[0]) < self.data.fertility_end else None
+        births = self.town_births(sim)
+        last = max(births) if births else None
+        if last is not None and (last > formed or (last == formed and (formed, sim, man) in self.input_pairings)):
+            first = month_start_at_or_after(last + max(self.data.pause_months * MONTH, 1))
+        else:
+            first = month_start_after(formed)
+        if her[6] >= self.wish_of(sim):
+            return None
+        t = pending(first)
+        return t if as_years(t - her[0]) < self.data.fertility_end else None
 
     def _attempt(self, event: Event, now: int, plan: bytes) -> None:
         woman = event.subject[1]
@@ -2788,6 +3409,9 @@ class World:
     def _birth(self, event: Event, now: int, plan: bytes) -> None:
         mother = event.subject[1]
         father, conception_number, children, _ = self.pregnancies.pop(mother)
+        # A pregnancy of the pool (design note of the arrival, section 6.3): its children are
+        # pool children; the father may have no SimId.
+        pool_father = self.pool_fathers.pop(mother, None)
         # Per child in index order: the next SimId and its creation entry, one after the
         # other (design note of the twins, sections 3 and 4).
         born = []
@@ -2795,12 +3419,32 @@ class World:
         for key, sex, person in children:
             child = self.next_sim_id
             self.next_sim_id += 1
-            subjects = [variant(0, varint(child)), variant(0, varint(mother)), variant(0, varint(father))]
+            subjects = [variant(0, varint(child)), variant(0, varint(mother))] + ([] if father is None else [variant(0, varint(father))])
             entry = self._entry(now, subjects, [plan, variant(3, string("core:gestation"))], variant(8, varint(key)))
-            afflictions = self.afflictions_of(key, sex, person, now, (self.key_of(mother), self.key_of(father)), 0)
-            self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0, None, False, None, []]
+            if pool_father is None:
+                c_seed = self.c_seed_of_child(mother, father)
+                afflictions = self.afflictions_of(key, sex, person, now, (self.key_of(mother), self.key_of(father)), 0, c_seed)
+                self.sims[child] = [now, key, sex, person, afflictions, 0, 0, (mother, father, conception_number), 0, None, False, None, []]
+                self.pedigree.add(child, mother, father)
+            else:
+                # A pool child: `parents` None, its PoolOrigin, the pool's afflictions of the
+                # unborn with the exposure from the birth if the switch is on.
+                _, _, unborn = self.data.pool.unborn[key]
+                assert unborn["sex"] == (0 if sex == FEMALE else 1) and genome_of(person) == genome_of(genome_from_raw(unborn["genome"]))
+                afflictions = self.pool_afflictions(unborn["afflictions"], now)
+                self.sims[child] = [now, key, sex, person, afflictions, 0, 0, None, 0, None, False, None, []]
+                self.origins[child] = {
+                    "genome_key": unborn["genome_key"],
+                    "born_pool": None,
+                    "arrived": now,
+                    "arrival_year": now // YEAR,
+                    "mother": self.key_of(mother),
+                    "father": pool_father,
+                    "social_parents": [],
+                }
+                self.pedigree.add(child)
             self.created_by[child] = entry
-            self.pedigree.add(child, mother, father)
+            self.by_key[key] = child
             born.append((child, entry))
             if self.households_on:
                 # The child joins the mother's household, right after its `core:birth`
@@ -2854,6 +3498,13 @@ class World:
         if self.capacity is not None:
             payload = variant(EMIGRATION_VARIANT, varint(self.capacity))
             self._schedule(YEAR - 1, EMIGRATION_CLASS, (WORLD_SUBJECT, 0), EMIGRATION_KIND, payload, YEAR, started, now)
+        # With a pool whose immigration is on and `q > 0` the immigration, right after the other
+        # series (design note of the arrival, section 4; decision of NOTES.md): one periodic
+        # event `Immigration { persons: q }`, first at second 0, period YEAR, planned by
+        # `core:started`.
+        if self.pool_start is not None and self.pool_start["immigration"] and immigration_persons(self.pool_start["n_start"]) > 0:
+            payload = variant(IMMIGRATION_VARIANT, varint(immigration_persons(self.pool_start["n_start"])))
+            self._schedule(0, IMMIGRATION_CLASS, (WORLD_SUBJECT, 0), IMMIGRATION_KIND, payload, YEAR, started, now)
         for index, (born, sex, genes) in enumerate(founders):
             sim = self.next_sim_id
             self.next_sim_id += 1
@@ -2868,10 +3519,8 @@ class World:
             self.sims[sim] = [born, key, sex, person, afflictions, 0, 0, None, 0, None, False, None, []]
             self.created_by[sim] = added
             self.pedigree.add(sim)
-            whole = (now - born) // YEAR
-            on_the_day = born + whole * YEAR == now
-            age = whole if on_the_day and whole >= 1 else whole + 1
-            self._plan_birthday(sim, born + age * YEAR, added, now)
+            self.by_key[key] = sim
+            self._plan_birthday(sim, first_birthday(born, now), added, now)
             self._plan_deaths(sim, added, now)
 
     def override(self, switch: bool) -> None:
@@ -2916,9 +3565,20 @@ class World:
         return event_id
 
     def _schedule(self, time, cls, subject, kind, payload, period, by, planned_at) -> None:
+        """Plans an event (ADR-0002, the micro steps): in the handler of the event `current`
+        at `(t, p, m)` a time before `t`, or `t` in a lower phase, is an error, `t` in the
+        same phase is micro step `m + 1` (at most MAX_MICRO_STEP), anything else micro 0; in
+        an input (`current` None) every time is micro 0 (the input acts in an open second)."""
         insertion = self.next_insertion
         self.next_insertion += 1
-        self.queue.append(Event(time, cls, subject, kind, insertion, payload, period, (by, planned_at)))
+        event = Event(time, cls, subject, kind, insertion, payload, period, (by, planned_at))
+        current = self.current
+        if current is not None:
+            assert time > current.time or (time == current.time and event.phase() >= current.phase()), "scheduler.schedule_in_past"
+            if time == current.time and event.phase() == current.phase():
+                event.micro = current.micro + 1
+                assert event.micro <= MAX_MICRO_STEP, "scheduler.cascade_limit"
+        self.queue.append(event)
 
     def _plan_birthday(self, sim: int, time: int, by: int, now: int) -> None:
         self._schedule(time, GENERAL, (SIM_SUBJECT, sim), BIRTHDAY_KIND, variant(1, varint(sim)), None, by, now)
@@ -2935,46 +3595,69 @@ class World:
             now = event.time
             plan = variant(1, varint(event.plan[0]), signed(event.plan[1]))
             self.ran.append((now, event.kind))
-            if event.kind == YEAR_END_KIND:
-                # The next occurrence is in the queue before the observer looks.
-                event.time += event.period
-                self.queue.append(event)
-                self.year_hashes.append(hash64(self.projection(now - 1)))
-                self.census_hashes.append(hash64(self.census(now - 1)))
-            elif event.kind == MARKET_ROUND_KIND:
-                # Periodic: the next round is in the queue before this one runs.
-                event.time += event.period
-                self.queue.append(event)
-                self._market_round(now, plan)
-            elif event.kind == EMIGRATION_KIND:
-                # Periodic as well: the next one (the same `K`) is in the queue first.
-                assert event.payload == variant(EMIGRATION_VARIANT, varint(self.capacity))
-                event.time += event.period
-                self.queue.append(event)
-                self._emigration(now, plan)
-            elif event.kind == ATTEMPT_KIND:
-                event.time += event.period
-                self.queue.append(event)
-                self._attempt(event, now, plan)
-            elif event.kind == BIRTH_KIND:
-                self._birth(event, now, plan)
-            elif event.kind == SEPARATION_KIND:
-                self._separate(event, now, plan)
-            elif event.kind == LEAVE_HOME_KIND:
-                self._leave_home(event, now, plan)
-            elif event.kind == BIRTHDAY_KIND:
-                sim = event.subject[1]
-                age = (now - self.sims[sim][0]) // YEAR
-                subject = variant(0, varint(sim))
-                entry = self._entry(now, [subject], [plan], variant(2, varint(age)))
-                self._plan_birthday(sim, now + YEAR, entry, now)
-                # The 18th birthday: no longer dependent, no carer (no entry, no move).
-                if self.sims[sim][11] is not None and not self.dependent(sim, now):
-                    assert age == 18, (sim, age)
-                    self._set_carer(sim, None, now, "18th birthday")
-            else:
-                self._die(event, now, plan)
+            # The key of every event that ran with the first entry it wrote (for the order of
+            # the micro steps in the known answers); not state.
+            self.fired.append((event.key(), self.next_event_id))
+            # The handler's context (the micro steps); a periodic event's next occurrence is a
+            # later second, micro 0 (it is in the queue before the handler runs).
+            self.current = copy.copy(event)
+            if event.period is not None:
+                event.micro = 0
+            try:
+                self._run(event, now, plan)
+            finally:
+                self.current = None
         self.closed = limit
+
+    def _run(self, event: Event, now: int, plan: bytes) -> None:
+        """The handler of one event (`advance`)."""
+        if event.kind == YEAR_END_KIND:
+            # The next occurrence is in the queue before the observer looks.
+            event.time += event.period
+            self.queue.append(event)
+            self.year_hashes.append(hash64(self.projection(now - 1)))
+            self.census_hashes.append(hash64(self.census(now - 1)))
+        elif event.kind == MARKET_ROUND_KIND:
+            # Periodic: the next round is in the queue before this one runs.
+            event.time += event.period
+            self.queue.append(event)
+            self._market_round(now, plan)
+        elif event.kind == EMIGRATION_KIND:
+            # Periodic as well: the next one (the same `K`) is in the queue first.
+            assert event.payload == variant(EMIGRATION_VARIANT, varint(self.capacity))
+            event.time += event.period
+            self.queue.append(event)
+            self._emigration(now, plan)
+        elif event.kind == IMMIGRATION_KIND:
+            # Periodic: the next year's is in the queue before this one runs (design note
+            # of the arrival, section 4).
+            q = immigration_persons(self.pool_start["n_start"])
+            assert event.payload == variant(IMMIGRATION_VARIANT, varint(q)) and now % YEAR == 0
+            event.time += event.period
+            self.queue.append(event)
+            self._immigration(now, plan, q)
+        elif event.kind == ATTEMPT_KIND:
+            event.time += event.period
+            self.queue.append(event)
+            self._attempt(event, now, plan)
+        elif event.kind == BIRTH_KIND:
+            self._birth(event, now, plan)
+        elif event.kind == SEPARATION_KIND:
+            self._separate(event, now, plan)
+        elif event.kind == LEAVE_HOME_KIND:
+            self._leave_home(event, now, plan)
+        elif event.kind == BIRTHDAY_KIND:
+            sim = event.subject[1]
+            age = (now - self.sims[sim][0]) // YEAR
+            subject = variant(0, varint(sim))
+            entry = self._entry(now, [subject], [plan], variant(2, varint(age)))
+            self._plan_birthday(sim, now + YEAR, entry, now)
+            # The 18th birthday: no longer dependent, no carer (no entry, no move).
+            if self.sims[sim][11] is not None and not self.dependent(sim, now):
+                assert age == 18, (sim, age)
+                self._set_carer(sim, None, now, "18th birthday")
+        else:
+            self._die(event, now, plan)
 
     def _die(self, event: Event, now: int, plan: bytes) -> None:
         sim = event.subject[1]
@@ -2983,7 +3666,7 @@ class World:
             affliction.disease.code for affliction in afflictions if affliction.exposure is not None
         ]
         code = next(code for code in codes if event.payload == death_payload(sim, str_key(code)))
-        draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(0))
+        draw = variant(4, varint(DEATH_BUDGET), varint(key), varint(str_key(code)), varint(self.death_detail(sim)))
         death_entry = self._entry(now, [variant(0, varint(sim))], [plan, draw], variant(4, string(code)))
         # Every pending event of the sim goes, its `leave_home` too.
         self.queue = [other for other in self.queue if other.subject != (SIM_SUBJECT, sim)]
@@ -3004,6 +3687,7 @@ class World:
                 ]
         # Her pregnancy ends with her.
         self.pregnancies.pop(sim, None)
+        self.pool_fathers.pop(sim, None)
         # The afflictions stay as they were at the death; the household is the last one; the
         # social parents stay (design note of the households, part 2, section 2).
         self.archive[sim] = (
@@ -3103,6 +3787,7 @@ class World:
             # Her pregnancy goes with her, its children are never born (her conception stays
             # counted), as at her death.
             self.pregnancies.pop(sim, None)
+            self.pool_fathers.pop(sim, None)
             self.archive[sim] = (
                 born, now, None, key, sex, person, afflictions, conceptions, births, parents, partnerships,
                 household, moved_out, tuple(social),
@@ -3140,6 +3825,7 @@ class World:
             + (NONE if carer is None else some(varint(carer)))
             + parents_bytes(parents)
             + social_parents_bytes(social)
+            + pool_origin_bytes(self.origins.get(sim))
             for sim, (born, key, sex, person, afflictions, conceptions, births, parents, partnerships, household, moved_out, carer, social) in sorted(
                 self.sims.items()
             )
@@ -3160,6 +3846,7 @@ class World:
             + flag(moved_out)
             + parents_bytes(parents)
             + social_parents_bytes(social)
+            + pool_origin_bytes(self.origins.get(sim))
             for sim, (born, left, cause, key, sex, person, afflictions, conceptions, births, parents, partnerships, household, moved_out, social) in sorted(
                 self.archive.items()
             )
@@ -3168,7 +3855,7 @@ class World:
             varint(number_) + household_bytes(formed, ended) for number_, (formed, ended) in sorted(self.households.items())
         ]
         pregnancies = [
-            varint(mother) + pregnancy_bytes(*value) for mother, value in sorted(self.pregnancies.items())
+            varint(mother) + pregnancy_bytes(*value, pool_father=self.pool_fathers.get(mother)) for mother, value in sorted(self.pregnancies.items())
         ]
         return (
             varint(PROJECTION_VERSION)
@@ -3185,6 +3872,7 @@ class World:
             + seq(households)
             + seq(pregnancies)
             + seq(archive)
+            + used_households_bytes(self.used)
         )
 
     def census(self, closed=None) -> bytes:
@@ -3235,8 +3923,9 @@ class World:
 
     def pedigree_view(self) -> dict:
         """The pedigree of the state (design note of the pedigree, sections 1 to 3 and 5), as
-        the object `pedigree.json` holds, keys in the order of the note: `format_version` 3
-        (2 before the emigration),
+        the object `pedigree.json` holds, keys in the order of the note: `format_version` 4
+        (2 before the emigration, 3 before the arrival; 4 adds `pool` as the last key of each
+        person, `pool_view`),
         then `persons` by SimId (living and archived together), `partnerships` by
         PartnershipId, `households` by HouseholdId.
 
@@ -3305,6 +3994,7 @@ class World:
                     "moved_out": moved_out,
                     "carer": carer,
                     "diseases": diseases,
+                    "pool": self.pool_view(sim),
                 }
             )
         partnerships = [
@@ -3323,7 +4013,26 @@ class World:
             {"household": number_, "formed": formed, "ended": ended}
             for number_, (formed, ended) in sorted(self.households.items())
         ]
-        return {"format_version": 3, "persons": persons, "partnerships": partnerships, "households": households}
+        return {"format_version": PEDIGREE_FORMAT_VERSION, "persons": persons, "partnerships": partnerships, "households": households}
+
+    def pool_view(self, sim: int):
+        """The `pool` of a person in `pedigree.json` format 4 (design note of the arrival,
+        section 8): null for a town person, else `{genome_key, born_pool, arrived,
+        arrival_year, mother_key, father_key, social_parent_keys}` with the keys as 16
+        lowercase hex digits (null where None)."""
+        origin = self.origins.get(sim)
+        if origin is None:
+            return None
+        hexed = lambda key: None if key is None else f"{key:016x}"
+        return {
+            "genome_key": f"{origin['genome_key']:016x}",
+            "born_pool": origin["born_pool"],
+            "arrived": origin["arrived"],
+            "arrival_year": origin["arrival_year"],
+            "mother_key": hexed(origin["mother"]),
+            "father_key": hexed(origin["father"]),
+            "social_parent_keys": [hexed(key) for key in origin["social_parents"]],
+        }
 
     def pedigree_json(self) -> str:
         """The text of `pedigree.json` as serde_json writes it (`json_text`)."""
@@ -3429,13 +4138,133 @@ assert emigration_rate(15, 10) == 0.5 and emigration_rate(30, 10) == 0.5 and emi
 assert emigration_rate(14, 10) == 14.0 / 10.0 - 1.0 < 0.5 and emigration_rate(2, 1) == 0.5
 
 
-def start_rejection(founders: list, couples, data: Data, capacity=None):
+def kinship_by_keys(x, y, kin, depth=KINSHIP_DEPTH) -> tuple:
+    """`(φ, S, visited)` of the genetics specification 2.7 with the depth of H2 (ADR-0020
+    section 4), generic in its key (design note of the arrival, section 7: `kinship.rs`
+    generic in `K: Ord + Copy`): `kin(key)` gives `(order, mother, father)`, each parent
+    on its own (None if unknown); the younger of two is the greater `(order, key)` (the
+    larger key the younger at a tie); a parent's order is strictly smaller than its child's
+    (`parent_not_older`, asserted). The set `S` of the query holds `x`, `y` and every
+    ancestor of either up to `depth` generations; within the query a parent counts iff it
+    is in `S`; the recursion of `spec_reference.Pedigree.query` otherwise."""
+    looked = {}
+
+    def entry(key):
+        if key not in looked:
+            looked[key] = kin(key)
+        return looked[key]
+
+    def parents(key) -> tuple:
+        return entry(key)[1:]
+
+    def ancestors(key) -> set:
+        found, frontier, generation = set(), {key}, 0
+        while frontier and (depth is None or generation < depth):
+            frontier = {parent for person in frontier for parent in parents(person) if parent is not None}
+            found |= frontier
+            generation += 1
+        return found
+
+    s = {x, y} | ancestors(x) | ancestors(y)
+    for person in s:
+        for parent in parents(person):
+            assert parent is None or entry(parent)[0] < entry(person)[0], "parent_not_older"
+    memo = {}
+
+    def known(person) -> tuple:
+        return tuple(parent if parent is not None and parent in s else None for parent in parents(person))
+
+    def rec(a, b):
+        if (entry(a)[0], a) < (entry(b)[0], b):
+            a, b = b, a
+        if (a, b) in memo:
+            return memo[(a, b)]
+        mother, father = known(a)
+        if a == b:
+            inbreeding = rec(mother, father) if mother is not None and father is not None else Fraction(0)
+            value = (1 + inbreeding) / 2
+        else:
+            value = sum((rec(parent, b) for parent in (mother, father) if parent is not None), Fraction(0)) / 2
+        memo[(a, b)] = value
+        return value
+
+    value = rec(x, y)
+    return value, s, set(memo)
+
+
+def first_birthday(born: int, now: int) -> int:
+    """The first birthday of a person who comes into the world at `now` (a founder at the
+    start; an arrival at `A`, design note of the arrival, section 5: `first_birthday(born,
+    A)`): the first anniversary at or after `now`, at least the first."""
+    whole = (now - born) // YEAR
+    on_the_day = born + whole * YEAR == now
+    age = whole if on_the_day and whole >= 1 else whole + 1
+    return born + age * YEAR
+
+
+def immigration_persons(n_start: int) -> int:
+    """`q = (n_start + 50) div 100` (design note of the arrival, section 4)."""
+    return (n_start + 50) // 100
+
+
+def pool_order(pool: DataPool, seed: int, occasion: int, used: list) -> list:
+    """The households of the pool not in `used`, as indices into the file, ascending by
+    `(rank, candidate)` with `rank = rank(seed, POOL_RANK, SubjectKey::WORLD, occasion,
+    candidate)` and the candidate the smallest lineage key of a member of 18 or more at
+    `E_p` (design note of the arrival, section 3; ADR-0001 section 5)."""
+    free = [index for index in range(len(pool.households)) if index not in used]
+    return sorted(free, key=lambda index: (rank(seed, POOL_RANK, WORLD_KEY, occasion, pool.candidates[index]), pool.candidates[index]))
+
+
+def pool_draw(pool: DataPool, seed: int, occasion: int, number: int, used: list) -> list:
+    """The households taken in the order of `pool_order` until the number of their members
+    (unborn children do not count) reaches or exceeds `number`; all of them if they cannot."""
+    taken, members = [], 0
+    for index in pool_order(pool, seed, occasion, used):
+        if members >= number:
+            break
+        taken.append(index)
+        members += pool.sizes[index]
+    return taken
+
+
+def pool_start(data: Data, seed: int, n_start: int, immigration: bool) -> dict:
+    """The `pool` of `Start` the CLI fills in from the scenario's `{n_start, immigration}`
+    and the data (design note of the arrival, section 3): the pool's hash and the drawn
+    households with occasion 0, each as the file holds it."""
+    assert data.pool is not None
+    draw = pool_draw(data.pool, seed, 0, n_start, [])
+    return {"pool_hash": data.pool.hash, "n_start": n_start, "immigration": immigration, "households": [data.pool.households[i] for i in draw]}
+
+
+def pool_start_bytes(pool) -> bytes:
+    """`pool: Option<PoolStart>`, the last field of `Start` (after `capacity`): `PoolStart {
+    pool_hash: u64, n_start: u64, immigration: bool, households: Vec<PoolHousehold> }`, each
+    household as the file writes it (`pool_reference.encode_household`)."""
+    if pool is None:
+        return NONE
+    import pool_reference
+
+    assert 0 <= pool["pool_hash"] < 2**64 and 0 <= pool["n_start"] < 2**64
+    return some(
+        varint(pool["pool_hash"])
+        + varint(pool["n_start"])
+        + flag(pool["immigration"])
+        + seq([pool_reference.encode_household(household) for household in pool["households"]])
+    )
+
+
+def start_rejection(founders: list, couples, data: Data, capacity=None, pool=None, seed=None):
     """The reject code of the couples of `Start`, or None (design note of the market,
     section 4): a couple naming no founder (`unknown_founder`), of the wrong sexes, a
     founder in two couples (`already_partnered`), then a founder of a couple under the
     market age at the start (second 0: `0 − born < 16 · YEAR`, `partner_too_young`).
     Founders are unrelated (φ 0). Then a capacity of 0 (`capacity_zero`, design note of
-    the emigration, section 1; the last field of `Start`, checked last)."""
+    the emigration, section 1). Then the pool, the last field of `Start` (design note of the
+    arrival, section 3), the first that applies: `founders` or `couples` not empty
+    (`start_pool_and_founders`); no pool in the data or `pool_hash` not its hash
+    (`start_pool_missing`); `n_start` 0 (`start_pool_n_start`); `households` not the draw of
+    `pool_start` with the world seed `seed` (`start_pool_households`)."""
     paired = set()
     for woman, man in couples:
         if not (0 <= woman < len(founders) and 0 <= man < len(founders)):
@@ -3452,6 +4281,18 @@ def start_rejection(founders: list, couples, data: Data, capacity=None):
         assert 0 <= capacity < 2**64
         if capacity == 0:
             return CAPACITY_ZERO
+    if pool is not None:
+        if founders or couples:
+            return START_POOL_AND_FOUNDERS
+        if data.pool is None or pool["pool_hash"] != data.pool.hash:
+            return START_POOL_MISSING
+        if pool["n_start"] == 0:
+            return START_POOL_N_START
+        import pool_reference
+
+        draw = pool_draw(data.pool, seed, 0, pool["n_start"], [])
+        if [pool_reference.encode_household(household) for household in pool["households"]] != [data.pool.encoded[i] for i in draw]:
+            return START_POOL_HOUSEHOLDS
     return None
 
 
@@ -3463,8 +4304,17 @@ def check_afflictions(world: World) -> None:
     `L > T`. A save that breaks it is `Inconsistent` in the core, an assertion here."""
     for sim in sorted(set(world.sims) | set(world.archive)):
         key, sex, person, parents, origin, age, held = world.creation_of(sim)
-        want = world.afflictions_of(key, sex, person, origin, parents, age)
         got = [(affliction.disease.code, affliction.onset) for affliction in held]
+        if world.is_pool_person(sim):
+            # A pool person holds the pool's afflictions (design note of the arrival, sections
+            # 6.1 and 6.3), not drawn again.
+            record = world.pool_member(sim) if world.is_arrival(sim) else world.data.pool.unborn[key][2]
+            want = [(world.cause_code(disease), onset) for disease, onset in record["afflictions"]]
+            assert got == want, f"sim {sim}: afflictions {got}"
+            continue
+        e_seed, c_seed, env_parents = world.env_of(sim)
+        assert e_seed == world.seed and env_parents == parents
+        want = world.afflictions_of(key, sex, person, origin, parents, age, c_seed)
         assert got == [(affliction.disease.code, affliction.onset) for affliction in want], f"sim {sim}: afflictions {got}"
 
 
@@ -3497,6 +4347,11 @@ def check_market(world: World) -> None:
         if pending and pending[0] == (formed, woman, man):
             pending.pop(0)
             origin[number_] = "input"
+        elif world.origins and world.arrival_partnership(number_) is not None:
+            # Brought by an arrival (design note of the arrival, section 9): formed at
+            # `formed_pool + Δ`, possibly before second 0, both partners arrivals of one
+            # household.
+            origin[number_] = "arrival"
         else:
             assert formed > 0 and formed % MONTH == 0, (number_, formed)
             origin[number_] = "market"
@@ -3510,7 +4365,7 @@ def check_market(world: World) -> None:
             if later <= first:
                 continue
             a, b = world.partnerships[first], world.partnerships[later]
-            if a[2] == b[2]:
+            if a[2] == b[2] and "arrival" not in (origin[first], origin[later]):
                 assert not (origin[first] == "market" and origin[later] == "input"), (first, later)
             if set(a[:2]) & set(b[:2]):
                 assert a[3] is not None and a[3][0] < b[2], (first, later)
@@ -3546,7 +4401,10 @@ def check_separations(world: World) -> None:
     people.update({sim: (value[4], value[10]) for sim, value in world.archive.items()})
     for sim, (sex, count) in people.items():
         mine = sum(1 for value in world.partnerships.values() if value[0] == sim)
-        assert count == (mine if sex == FEMALE else 0) and (sex == FEMALE or mine == 0), (sim, count, mine)
+        # An arrival's count is the pool's plus the town's (design note of the arrival,
+        # section 9): the pool's count already holds the partnership she brought.
+        base = world.pool_partnerships_before(sim) if world.is_arrival(sim) else 0
+        assert count == ((base + mine) if sex == FEMALE else 0) and (sex == FEMALE or mine == 0), (sim, count, mine, base)
     pending = [event for event in world.queue if event.kind == SEPARATION_KIND]
     for number_, (woman, man, formed, ended) in world.partnerships.items():
         due = world.separation_due(number_)
@@ -3673,22 +4531,47 @@ def check_households(world: World) -> None:
         assert value[11] in households and households[value[11]][0] <= value[1], (sim, value[11])
     in_start_couples = {sim for pair in world.start_couples for sim in pair}
     partnered = {sim for value in world.partnerships.values() for sim in value[:2]}
+    # A partnership an arrival brought moves nobody out in the town (note section 5, step 3:
+    # "nothing else"); the pool's `moved_out` holds what it did in the pool. Only a partnership
+    # formed in the town (an input or a round) moves an arrival out (review of the reference,
+    # NOTES2.md section 5c).
+    town_partnered = {
+        sim for number_, value in world.partnerships.items() if not (world.origins and world.arrival_partnership(number_) is not None) for sim in value[:2]
+    }
     people = {sim: (value[0], value[7], value[10], t) for sim, value in world.sims.items()}
     people.update({sim: (value[0], value[9], value[12], value[1]) for sim, value in world.archive.items()})
     for sim, (born, parents, moved_out, limit) in people.items():
-        founder = parents is None
-        want = (
-            (founder and sim in in_start_couples)
-            or (founder and 0 - born >= 18 * YEAR)
-            or sim in partnered
-            or world.leave_home_second(sim) <= limit
-        )
+        # A founder is a sim without parents that is no pool person (design note of the
+        # arrival, section 6.1). An arrival comes moved out or not as the pool has it, and
+        # its leaving home is the carried one (`carried_leave_home`, the pool's plus `Δ`; not
+        # recomputed with the world seed, section 9).
+        founder = parents is None and not world.is_pool_person(sim)
+        if world.is_arrival(sim):
+            carried = world.carried_leave_home(sim)
+            # The carried leaving home is an event at or after `A` (a carried time at `A` is no
+            # break, section 5), so for the living it has passed only once the clock reached
+            # it: right after `Start` (clock −1) one due at second 0 is still pending (not `t`,
+            # which is 0 there; the founders' "at or before 0 is passed at the start" is a rule
+            # of `_house_founders`, not of an arrival). Review of the reference, NOTES2.md.
+            until = world.closed if sim in world.sims else limit
+            want = world.pool_member(sim)["moved_out"] or sim in town_partnered or (carried is not None and carried <= until)
+        else:
+            want = (
+                (founder and sim in in_start_couples)
+                or (founder and 0 - born >= 18 * YEAR)
+                or sim in partnered
+                or world.leave_home_second(sim) <= limit
+            )
         assert moved_out == want, (sim, moved_out, want)
     pending = [event for event in world.queue if event.kind == LEAVE_HOME_KIND]
     for event in pending:
         assert event.cls == GENERAL and event.subject[0] == SIM_SUBJECT and event.period is None
         assert event.payload == variant(LEAVE_HOME_VARIANT, varint(event.subject[1])) and event.time > world.closed
-    wanted = sorted((sim, world.leave_home_second(sim)) for sim, value in world.sims.items() if not value[10])
+    wanted = sorted(
+        (sim, world.carried_leave_home(sim) if world.is_arrival(sim) else world.leave_home_second(sim))
+        for sim, value in world.sims.items()
+        if not value[10]
+    )
     assert sorted((event.subject[1], event.time) for event in pending) == wanted, (pending, wanted)
     for sim, value in world.sims.items():
         carer = value[11]
@@ -3711,17 +4594,167 @@ def check_households(world: World) -> None:
     social = {sim: (value[7], value[12]) for sim, value in world.sims.items()}
     social.update({sim: (value[9], value[13]) for sim, value in world.archive.items()})
     for sim, (parents, socials) in social.items():
-        biological = parents[:2] if parents is not None else ()
         for person in socials:
             assert 1 <= person < world.next_sim_id and (person in world.sims or person in world.archive), (sim, person)
-            assert person != sim and person not in biological, (sim, person)
+            # Biological by SimId, for a pool person by its PoolOrigin keys (NOTES.md).
+            assert person != sim and not world.is_biological_parent(sim, person), (sim, person)
         assert len(set(socials)) == len(socials), (sim, socials)
+
+
+def check_pool(world: World) -> None:
+    """The load checks of the pool persons (design note of the arrival, section 9) on the state
+    of `world` with the pool of its data, as the loader would see its save with its input
+    log; a broken one is `Inconsistent` there, an assertion here:
+
+    - the used households are exactly the draws, in this order, of `Start` (occasion 0,
+      `n_start`) and, with `immigration` and `q > 0`, of each `Immigration` whose second the
+      clock has passed (year `y` at `y · YEAR <= clock`, occasion `y`, `q`, the households
+      not yet used); a draw that cannot reach `q` stopped the run (`pool.empty`), so no
+      state lies after its second (so they have no repeats); their members are exactly the
+      arrivals, and each arrival's `arrived` is the second of its household's draw (0 for
+      `Start` and year 0, `y · YEAR` else); review of the reference, NOTES2.md;
+    - an arrival: its lineage key a member of the data's pool, its sex, genome, `born_pool`
+      (and genome key, parents' keys, social parents' keys) equal to it, `born = born_pool +
+      (arrived − E_p)`, `arrived` 0 or a year start with `arrival_year` its year;
+    - a pool child: its lineage key an unborn child of a pool pregnancy (its sex, genome,
+      genome key equal to it), `born_pool` None, `arrived` the birth, `arrival_year` its
+      calendar year, its PoolOrigin mother the pregnancy's mother, an arrival, its father the
+      pregnancy's father;
+    - a running pregnancy of the pool (`pool_father`): its mother an arrival, the pool's
+      pregnancy of her (father, conception number, children) with `conceived` shifted, and
+      `father` the sim with the father's key exactly when the father's household came no
+      later in the used households than the mother's (decision 8 of NOTES.md: set once, at
+      her arrival; review, NOTES2.md), else None; any other pregnancy has a `father`;
+    - every living pool person has the series of attempts the rules give it
+      (`World.series_due`: an arrival's is the carried one only while it is the series she
+      brought, else the town's rule; review, NOTES2.md);
+    - with `immigration` and `q > 0` exactly one event `Immigration { persons: q }` (class 100,
+      kind 10, subject the world, period YEAR, planned by `core:started` at 0) at the first
+      year start after the clock; else none.
+    Without a pool there is no pool person, no used household, no pool pregnancy."""
+    import pool_reference
+
+    pool = world.data.pool
+    events = [event for event in world.queue if event.kind == IMMIGRATION_KIND]
+    if pool is None or world.pool_start is None:
+        assert not world.origins and not world.used and not world.pool_fathers and not events
+        # Every pregnancy is a town one, with its father (review, NOTES2.md section 5b).
+        assert all(value[0] is not None for value in world.pregnancies.values()), sorted(world.pregnancies)
+        return
+    q = immigration_persons(world.pool_start["n_start"])
+    draws = [(0, pool_draw(pool, world.seed, 0, world.pool_start["n_start"], []))]
+    if world.pool_start["immigration"] and q > 0:
+        for year in range(0, world.closed // YEAR + 1):
+            taken = [index for _, draw in draws for index in draw]
+            free = [index for index in range(len(pool.households)) if index not in taken]
+            assert sum(pool.sizes[index] for index in free) >= q, f"pool.empty in year {year}: no state after it"
+            draws.append((year * YEAR, pool_draw(pool, world.seed, year, q, taken)))
+    assert world.used == [index for _, draw in draws for index in draw], world.used
+    second_of = {index: second for second, draw in draws for index in draw}
+    members = sorted(m["lineage_key"] for index in world.used for m in pool.households[index]["members"])
+    arrivals = sorted(world.key_of(sim) for sim in world.origins if world.is_arrival(sim))
+    assert members == arrivals, "the members of the used households are the arrivals"
+    for sim in world.origins:
+        if world.is_arrival(sim):
+            assert world.origins[sim]["arrived"] == second_of[pool.members[world.key_of(sim)][0]], sim
+    for sim, origin in world.origins.items():
+        key, sex, person = world.key_of(sim), world.sex_of(sim), (world.sims[sim][3] if sim in world.sims else world.archive[sim][5])
+        born = world.born_of(sim)
+        sex_code = 0 if sex == FEMALE else 1
+        if origin["born_pool"] is not None:
+            assert key in pool.members, sim
+            member = pool.members[key][1]
+            assert sex_code == member["sex"] and genome_of(person) == pool_reference.encode_genome(member["genome"]), sim
+            assert origin["born_pool"] == member["born"] and origin["genome_key"] == member["genome_key"], sim
+            assert (origin["mother"], origin["father"], origin["social_parents"]) == (member["mother"], member["father"], member["social_parents"]), sim
+            assert born == member["born"] + (origin["arrived"] - pool.frozen_at), sim
+            assert origin["arrived"] >= 0 and origin["arrived"] % YEAR == 0 and origin["arrival_year"] == origin["arrived"] // YEAR, sim
+            assert (world.sims[sim][7] if sim in world.sims else world.archive[sim][9]) is None
+        else:
+            assert key in pool.unborn, sim
+            _, pregnancy, child = pool.unborn[key]
+            assert sex_code == child["sex"] and genome_of(person) == pool_reference.encode_genome(child["genome"]), sim
+            assert origin["genome_key"] == child["genome_key"] and origin["arrived"] == born and origin["arrival_year"] == born // YEAR, sim
+            assert origin["mother"] == pregnancy["mother"] and origin["father"] == pregnancy["father"] and origin["social_parents"] == [], sim
+            mother = world.by_key.get(pregnancy["mother"])
+            assert mother is not None and world.is_arrival(mother), sim
+            assert (world.sims[sim][7] if sim in world.sims else world.archive[sim][9]) is None
+            # Born in the town: at or before the clock, while its mother lived (her pregnancy
+            # ends with her death, so an archived mother left at or after the birth). Review
+            # of the reference, NOTES2.md section 5b.
+            assert born <= world.closed, (sim, born, world.closed)
+            assert mother in world.sims or world.archive[mother][1] >= born, (sim, mother)
+    for mother, (father, conception_number, children, conceived) in world.pregnancies.items():
+        if mother not in world.pool_fathers:
+            assert father is not None, mother
+            continue
+        assert world.is_arrival(mother), mother
+        index = pool.members[world.key_of(mother)][0]
+        (pregnancy,) = [g for g in pool.households[index]["pregnancies"] if g["mother"] == world.key_of(mother)]
+        delta = world.origins[mother]["arrived"] - pool.frozen_at
+        assert world.pool_fathers[mother] == pregnancy["father"] and conception_number == pregnancy["conception"], mother
+        assert conceived == pregnancy["conceived"] + delta, mother
+        # Decision 8 of NOTES.md: `father` is set once, at her arrival, to the sim with the
+        # father's key if he exists then: exactly when his household is a used one that came
+        # no later than hers (the same household, or an earlier one in arrival order).
+        his = pool.members[pregnancy["father"]][0] if pregnancy["father"] in pool.members else None
+        attached = his is not None and his in world.used and world.used.index(his) <= world.used.index(index)
+        if attached:
+            assert father is not None and world.key_of(father) == pregnancy["father"], mother
+        else:
+            assert father is None, mother
+        assert [(key, 0 if sex == FEMALE else 1, genome_of(person)) for key, sex, person in children] == [
+            (child["lineage_key"], child["sex"], pool_reference.encode_genome(child["genome"])) for child in pregnancy["children"]
+        ], mother
+    # The series of attempts of every living pool person (`World.series_due`).
+    for sim in sorted(world.sims):
+        if world.is_pool_person(sim):
+            assert world.pending_series(sim) == world.series_due(sim), (sim, world.pending_series(sim), world.series_due(sim))
+    for event in world.queue:
+        if event.kind == ATTEMPT_KIND and world.is_pool_person(event.subject[1]):
+            assert event.cls == GENERAL and event.period == MONTH and event.payload == variant(3, varint(event.subject[1])), event.subject
+    if world.pool_start["immigration"] and q > 0:
+        assert len(events) == 1, events
+        (event,) = events
+        due = (world.closed // YEAR + 1) * YEAR
+        assert event.time == due and event.cls == IMMIGRATION_CLASS and event.subject == (WORLD_SUBJECT, 0), (event.time, world.closed)
+        assert event.period == YEAR and event.payload == variant(IMMIGRATION_VARIANT, varint(q)) and event.plan == (1, 0)
+    else:
+        assert not events
+
+
+def check_deaths(world: World) -> None:
+    """The planned deaths of every living sim are those of its causes (genetics specification
+    7.1; design note of the arrival, section 6.4): senescence and accident from its origin
+    with its detail, each lethal affliction whose exposure runs (`World.cause_due`,
+    `World.disease_due`), and nothing else of the kind death. A check of this reference for
+    the scenarios of the arrival (the loader recomputes the deaths, section 9)."""
+    for sim in world.sims:
+        want = []
+        for code in (SENESCENCE, ACCIDENT):
+            due = world.cause_due(sim, code)
+            if due is not None:
+                want.append((due, death_payload(sim, str_key(code))))
+        for affliction in world.sims[sim][4]:
+            if affliction.exposure is not None and affliction.exposure[1] is not None:
+                due = world.disease_due(sim, affliction)
+                if due is not None:
+                    want.append((due, death_payload(sim, affliction.disease.key)))
+        got = [(event.time, event.payload) for event in world.queue if event.kind == DEATH_KIND and event.subject == (SIM_SUBJECT, sim)]
+        assert sorted(got) == sorted(want), (sim, got, want)
 
 
 def check_unstarted_households(next_household_id: int, households: dict) -> None:
     """A world that never started has no household and the household counter at 1 (review
     of part 1; part 2, section 6)."""
     assert next_household_id == 1 and not households, (next_household_id, households)
+
+
+def check_unstarted_pool(used: list) -> None:
+    """A world that never started has used no household of the pool (design note of the
+    arrival, sections 4 and 9: the used households are those of `Start` and the
+    immigrations, and there was neither; review of the reference, NOTES2.md)."""
+    assert not used, used
 
 
 def story(world: World) -> tuple:
@@ -3767,13 +4800,52 @@ def check_story_kept(world: World) -> World:
     return twin
 
 
-def pregnancy_bytes(father: int, conception_number: int, children: list, conceived: int) -> bytes:
-    """Pregnancy { father: SimId, conception: u32, children: Vec<Unborn>, conceived:
-    SimTime } with Unborn { lineage_key, sex, genome }, the children in index order (design
-    note of the twins, section 4)."""
+def pregnancy_bytes(father, conception_number: int, children: list, conceived: int, pool_father=None) -> bytes:
+    """Pregnancy { father: Option<SimId>, pool_father: Option<LineageKey>, conception: u32,
+    children: Vec<Unborn>, conceived: SimTime } with Unborn { lineage_key, sex, genome }, the
+    children in index order (design note of the twins, section 4; design note of the arrival,
+    section 9: `father` an option, `pool_father` right after it, decision of NOTES.md). A
+    town pregnancy has `father` Some and `pool_father` None; a pool pregnancy `pool_father`
+    Some and `father` Some only if the father has arrived."""
     unborn = [lineage_key(key) + sex + genome_of(person) for key, sex, person in children]
     assert len(unborn) in (1, 2)
-    return varint(father) + varint(conception_number) + seq(unborn) + signed(conceived)
+    # A pregnancy without both (not reachable; `check_pool` rejects it) still has bytes.
+    return (
+        (NONE if father is None else some(varint(father)))
+        + (NONE if pool_father is None else some(lineage_key(pool_father)))
+        + varint(conception_number)
+        + seq(unborn)
+        + signed(conceived)
+    )
+
+
+def pool_origin_bytes(origin) -> bytes:
+    """`pool: Option<PoolOrigin>`, the last field of Sim and ArchivedSim (design note of the
+    arrival, sections 6.1 and 9; the position a decision of NOTES.md): `PoolOrigin {
+    genome_key: GenomeKey, born_pool: Option<SimTime>, arrived: SimTime, arrival_year: u64,
+    mother: Option<LineageKey>, father: Option<LineageKey>, social_parents: Vec<LineageKey> }`
+    in the note's field order."""
+    if origin is None:
+        return NONE
+
+    def option(value, encode) -> bytes:
+        return NONE if value is None else some(encode(value))
+
+    return some(
+        varint(origin["genome_key"])
+        + option(origin["born_pool"], signed)
+        + signed(origin["arrived"])
+        + varint(origin["arrival_year"])
+        + option(origin["mother"], lineage_key)
+        + option(origin["father"], lineage_key)
+        + seq([lineage_key(key) for key in origin["social_parents"]])
+    )
+
+
+def used_households_bytes(used: list) -> bytes:
+    """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
+    arrival order), the last field of the projection (decision of NOTES.md)."""
+    return seq([varint(index) for index in used])
 
 
 def parents_bytes(parents) -> bytes:
@@ -3811,6 +4883,7 @@ EMPTY_PROJECTION = (
     + seq([])  # households
     + seq([])  # pregnancies
     + seq([])  # archive
+    + seq([])  # pool_used
 )
 EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
@@ -3971,7 +5044,7 @@ if __name__ == "__main__":
         ("class", "emigration", str(EMIGRATION_CLASS)),
         ("kind", "emigration", str(EMIGRATION_KIND)),
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),
-    } | {("reject", str(code), name) for code, name in REJECT_NAMES.items()}
+    } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")

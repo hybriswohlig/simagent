@@ -177,6 +177,7 @@ fn p2_only_the_homozygous_are_affected_and_only_with_the_switch_on() {
                 founders: founders.clone(),
                 couples: Vec::new(),
                 capacity: None,
+                pool: None,
             }))
             .expect("accepted");
         let persons = world.pedigree().persons;

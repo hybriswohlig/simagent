@@ -15,12 +15,13 @@ use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::{Counter, HouseholdId, PartnershipId, SimId};
-use crate::input::{Input, InputRecord, Start};
+use crate::input::{Input, InputRecord, PoolStart, Start};
 use crate::kinship::{Kin, KinshipCache};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
 use crate::params::WorldParams;
+use crate::pool::PoolPerson;
 use crate::rng::{Draws, WorldSeed};
 use crate::state::conception;
 use crate::state::{
@@ -34,7 +35,7 @@ use crate::trace::TraceBuffer;
 use crate::version::CORE_VERSION;
 
 /// Rises with every change of the layout of a save (ADR-0006 section 2).
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The first eight bytes of every save.
 const MAGIC: [u8; 8] = *b"SIMAGENT";
@@ -212,6 +213,7 @@ impl World {
         let pending = pending_index(&loaded.queue, &loaded.partnerships);
         let open = open_index(&loaded.partnerships);
         let members = member_index(&loaded.sims);
+        let keys = key_index(&loaded.sims, &loaded.archive);
         let world = World {
             sched,
             state: WorldState {
@@ -223,7 +225,9 @@ impl World {
                     households: loaded.households,
                     pregnancies: loaded.pregnancies,
                     archive: loaded.archive,
+                    pool_used: loaded.pool_used,
                     lineage,
+                    keys,
                     pending,
                     open,
                     kinship: KinshipCache::new(),
@@ -285,7 +289,10 @@ pub(super) fn pending_index(
     let mut index = BTreeMap::new();
     for entry in queue {
         let slot = match &entry.payload {
-            EventPayload::YearEnd | EventPayload::MarketRound | EventPayload::Emigration { .. } => {
+            EventPayload::YearEnd
+            | EventPayload::MarketRound
+            | EventPayload::Emigration { .. }
+            | EventPayload::Immigration { .. } => {
                 continue;
             }
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
@@ -318,6 +325,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         // Never started: the world is empty. The queue is empty too: an event needs an
         // insertion number below the counter, which stands at 1.
         let empty = loaded.world_params.is_none()
+            && loaded.pool_used.is_empty()
             && loaded.sims.is_empty()
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
@@ -335,11 +343,16 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
     let Some(history) = input_log_consistent(loaded, exceptions, seed, data) else {
         return false;
     };
+    let Some(view) = pool_view(loaded, data, seed, history.pool.as_ref(), now) else {
+        return false;
+    };
     let rules = Rules {
         seed,
         data,
         switch: &history.switch,
         capacity: history.capacity,
+        pool: &view,
+        pairs: &history.pairs,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -356,16 +369,267 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && twins_complete(loaded, &rules)
         && sims_consistent(loaded, now, &rules)
         && partnerships_consistent(loaded, now, &rules, &history.pairs)
-        && partnership_counts_consistent(loaded)
+        && partnership_counts_consistent(loaded, &rules)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
-        && births_consistent(loaded)
+        && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
         && queue_consistent(loaded, now, &rules)
         && exceptions.plan_refs.iter().all(|plan| {
             plan.by.is_below(exceptions.next_event_id) && plan.planned_at.as_secs() <= now
         })
         && year_hashes_complete(true, loaded.closed_through, &exceptions.year_hashes)
+}
+
+/// What the loader knows of the pool persons of a save (design note of the arrival,
+/// section 9), after `pool_view` has checked them against the data's pool.
+#[derive(Default)]
+struct PoolView<'a> {
+    /// Each arrival: its record in the pool and the shift `Δ` of its household.
+    arrivals: BTreeMap<SimId, (&'a PoolPerson, i64)>,
+    /// The children of pool pregnancies born in the town.
+    children: BTreeSet<SimId>,
+    /// The partnerships the arrivals brought: the woman's record and the shift.
+    carried: BTreeMap<PartnershipId, (&'a PoolPerson, i64)>,
+    /// The pregnancies brought from the pool, by mother: her record and the shift.
+    pregnancies: BTreeMap<SimId, (&'a PoolPerson, i64)>,
+    /// The persons of each year's immigration, if it runs.
+    immigration: Option<u64>,
+}
+
+impl PoolView<'_> {
+    /// Whether the sim came from the pool (an arrival or a pool child).
+    fn came_from_pool(&self, sim: SimId) -> bool {
+        self.arrivals.contains_key(&sim) || self.children.contains(&sim)
+    }
+}
+
+/// A sim's origin in the pool, living or archived.
+fn pool_of(loaded: &LoadedState, id: SimId) -> Option<&state::PoolOrigin> {
+    loaded
+        .sims
+        .get(&id)
+        .and_then(|sim| sim.pool.as_ref())
+        .or_else(|| loaded.archive.get(&id).and_then(|sim| sim.pool.as_ref()))
+}
+
+/// The pool persons of the save against the data's pool (design note of the arrival,
+/// section 9): `None` if anything is off. Without a pool start nobody came from the pool
+/// and every pregnancy has its father. With one, the used households are distinct, the
+/// founders' are the draw of `Start`; their members are exactly the arrivals, each equal to
+/// its record (sex, genome, birth in the pool, keys) and shifted by its household's
+/// `Δ = arrived − E_p`, arrived in a closed year start with that year; each pool child is an
+/// unborn child of the pool born in the town of an arrival; a pregnancy from the pool is
+/// the arrival's, shifted, its father a person of the town only under his key; a
+/// partnership an arrival brought is the household's, formed at its pool second plus `Δ`.
+fn pool_view<'a>(
+    loaded: &LoadedState,
+    data: &'a Data,
+    seed: u64,
+    start: Option<&PoolStart>,
+    now: i64,
+) -> Option<PoolView<'a>> {
+    let mut view = PoolView::default();
+    let Some(start) = start else {
+        let none = loaded.sims.values().all(|sim| sim.pool.is_none())
+            && loaded.archive.values().all(|sim| sim.pool.is_none())
+            && loaded.pool_used.is_empty()
+            && loaded.pregnancies.values().all(|p| p.pool_father.is_none());
+        return none.then_some(view);
+    };
+    let held = data.pool()?;
+    let pool = held.pool();
+    let persons = start.n_start.saturating_add(50) / 100;
+    view.immigration = (start.immigration && persons > 0).then_some(persons);
+    // The used households are exactly the draws, in their order (review): those of
+    // `Start`, arriving in second 0 while the clock may still stand before it, then those
+    // of each immigration whose second the clock has passed. Each arrives in the second of
+    // its draw; a draw the pool could not fill stopped the run, so no save holds it.
+    let mut drawn: Vec<(usize, i64)> =
+        crate::pool::take_households(pool, seed, 0, &BTreeSet::new(), start.n_start)
+            .0
+            .into_iter()
+            .map(|index| (index, 0))
+            .collect();
+    if let Some(persons) = view.immigration {
+        let mut taken: BTreeSet<usize> = drawn.iter().map(|(index, _)| *index).collect();
+        let mut year = 0_u64;
+        loop {
+            let at = i64::try_from(year).ok()?.checked_mul(YEAR.as_secs())?;
+            if at >= now {
+                break;
+            }
+            let (more, enough) = crate::pool::take_households(pool, seed, year, &taken, persons);
+            if !enough {
+                return None;
+            }
+            taken.extend(more.iter().copied());
+            drawn.extend(more.into_iter().map(|index| (index, at)));
+            year = year.checked_add(1)?;
+        }
+    }
+    let used_fit = loaded.pool_used.len() == drawn.len()
+        && loaded
+            .pool_used
+            .iter()
+            .zip(&drawn)
+            .all(|(used, (index, _))| usize::try_from(*used).ok() == Some(*index));
+    if !used_fit {
+        return None;
+    }
+    let keys = key_index(&loaded.sims, &loaded.archive);
+    // Each pool key's place in the order of arrival: its household's place among the used.
+    let mut place_of: BTreeMap<LineageKey, usize> = BTreeMap::new();
+    let mut arrivals_seen = 0_usize;
+    for (place, (index, second)) in drawn.iter().enumerate() {
+        let household = &pool.households[*index];
+        let on_time = |at: SimTime| at.as_secs() == *second;
+        let mut arrived: Option<SimTime> = None;
+        for member in &household.members {
+            let id = *keys.get(&member.lineage_key)?;
+            let facts = facts(loaded, id)?;
+            let origin = pool_of(loaded, id)?;
+            let at = *arrived.get_or_insert(origin.arrived);
+            let delta = at.as_secs().checked_sub(pool.frozen_at.as_secs())?;
+            let born = member.born.as_secs().checked_add(delta)?;
+            let fits = origin.arrived == at
+                && on_time(at)
+                && u64::try_from(at.as_secs() / YEAR.as_secs()).ok() == Some(origin.arrival_year)
+                && origin.born_pool == Some(member.born)
+                && origin.genome_key == member.genome_key
+                && origin.mother == member.mother
+                && origin.father == member.father
+                && origin.social_parents == member.social_parents
+                && facts.born.as_secs() == born
+                && facts.sex == member.sex
+                && facts.genome == member.genome
+                && facts.parents.is_none();
+            if !fits {
+                return None;
+            }
+            view.arrivals.insert(id, (member, delta));
+            place_of.insert(member.lineage_key, place);
+            arrivals_seen += 1;
+        }
+        let delta = arrived?.as_secs().checked_sub(pool.frozen_at.as_secs())?;
+        if let Some(pair) = household.partnership {
+            let (woman, man) = (*keys.get(&pair.woman)?, *keys.get(&pair.man)?);
+            let formed = pair.formed.as_secs().checked_add(delta)?;
+            let carried = loaded
+                .partnerships
+                .iter()
+                .find(|(_, p)| p.woman == woman && p.man == man && p.formed.as_secs() == formed);
+            let (id, _) = carried?;
+            let record = household
+                .members
+                .iter()
+                .find(|m| m.lineage_key == pair.woman)?;
+            view.carried.insert(*id, (record, delta));
+        }
+        for pregnancy in &household.pregnancies {
+            let mother = *keys.get(&pregnancy.mother)?;
+            let record = household
+                .members
+                .iter()
+                .find(|m| m.lineage_key == pregnancy.mother)?;
+            view.pregnancies.insert(mother, (record, delta));
+        }
+    }
+    // Everyone with a pool birth is an arrival of a used household.
+    let with_pool_birth = loaded
+        .sims
+        .values()
+        .map(|sim| sim.pool.as_ref())
+        .chain(loaded.archive.values().map(|sim| sim.pool.as_ref()))
+        .flatten()
+        .filter(|origin| origin.born_pool.is_some())
+        .count();
+    if with_pool_birth != arrivals_seen {
+        return None;
+    }
+    // The pool children.
+    let others = loaded
+        .sims
+        .iter()
+        .map(|(id, sim)| (*id, sim.pool.as_ref(), sim.born))
+        .chain(
+            loaded
+                .archive
+                .iter()
+                .map(|(id, sim)| (*id, sim.pool.as_ref(), sim.born)),
+        );
+    for (id, origin, born) in others {
+        let Some(origin) = origin.filter(|origin| origin.born_pool.is_none()) else {
+            continue;
+        };
+        let facts = facts(loaded, id)?;
+        let unborn = held.unborn(facts.lineage_key)?;
+        let (pregnancy_mother, pregnancy_father) = pool
+            .households
+            .iter()
+            .flat_map(|h| h.pregnancies.iter())
+            .find(|p| {
+                p.children
+                    .iter()
+                    .any(|c| c.lineage_key == facts.lineage_key)
+            })
+            .map(|p| (p.mother, p.father))?;
+        let mother = *keys.get(&pregnancy_mother)?;
+        let left = loaded.archive.get(&mother).map(|her| her.left);
+        let fits = origin.genome_key == unborn.genome_key
+            && origin.arrived == born
+            && u64::try_from(born.as_secs().div_euclid(YEAR.as_secs())).ok()
+                == Some(origin.arrival_year)
+            && origin.mother == Some(pregnancy_mother)
+            && origin.father == Some(pregnancy_father)
+            && origin.social_parents.is_empty()
+            && facts.sex == unborn.sex
+            && facts.genome == unborn.genome
+            && facts.parents.is_none()
+            && born.as_secs() < now
+            && view.arrivals.contains_key(&mother)
+            && lived_at(left, born);
+        if !fits {
+            return None;
+        }
+        view.children.insert(id);
+    }
+    // The pregnancies: one from the pool is the arrival's, shifted; any other has its
+    // father in the town. The father of a carried pregnancy is the sim with his key exactly
+    // when his household came no later than hers (D8: set at her arrival, review).
+    let pregnancies_fit = loaded.pregnancies.iter().all(|(mother, pregnancy)| {
+        match (pregnancy.pool_father, view.pregnancies.get(mother)) {
+            (Some(father_key), Some((record, delta))) => {
+                let Some(her_place) = place_of.get(&record.lineage_key) else {
+                    return false;
+                };
+                let father = place_of
+                    .get(&father_key)
+                    .filter(|his_place| *his_place <= her_place)
+                    .and_then(|_| keys.get(&father_key).copied());
+                let Some(from) = pool
+                    .households
+                    .iter()
+                    .flat_map(|h| h.pregnancies.iter())
+                    .find(|p| p.mother == record.lineage_key)
+                else {
+                    return false;
+                };
+                let conceived = from.conceived.as_secs().checked_add(*delta);
+                from.father == father_key
+                    && from.conception == pregnancy.conception
+                    && conceived == Some(pregnancy.conceived.as_secs())
+                    && from.children.len() == pregnancy.children.len()
+                    && from.children.iter().zip(&pregnancy.children).all(|(c, u)| {
+                        (c.lineage_key, c.sex, c.genome) == (u.lineage_key, u.sex, u.genome)
+                    })
+                    && pregnancy.father == father
+            }
+            (None, _) => pregnancy.father.is_some(),
+            (Some(_), None) => false,
+        }
+    });
+    pregnancies_fit.then_some(view)
 }
 
 /// What the input log says beyond the projection.
@@ -378,6 +642,8 @@ struct InputHistory {
     founders: u64,
     /// The soft capacity of `Start`.
     capacity: Option<u64>,
+    /// The pool of `Start`, if the town was founded from the pool.
+    pool: Option<PoolStart>,
 }
 
 /// Sequence numbers gapless from 1, stamps that never fall and never lie after the
@@ -451,6 +717,7 @@ fn input_log_consistent(
         pairs,
         founders,
         capacity: start.capacity,
+        pool: start.pool.clone(),
     })
 }
 
@@ -487,6 +754,7 @@ fn partnerships_consistent(
     let age = state::market::market_age(rules.data);
     let limit = rules.data.demography().market.kinship_limit;
     let mut kinship = KinshipCache::new();
+    let keys = key_index(&loaded.sims, &loaded.archive);
     let mut inputs = pairs.iter().peekable();
     // The second of the previous partnership and whether the market formed it.
     let mut previous: Option<(SimTime, bool)> = None;
@@ -499,19 +767,31 @@ fn partnerships_consistent(
         .zip(1_u64..)
         .all(|((id, partnership), number)| {
             let (woman, man, formed) = (partnership.woman, partnership.man, partnership.formed);
-            let by_input = inputs
-                .next_if(|pair| **pair == (woman, man, formed))
-                .is_some();
+            // A partnership an arrival brought was formed in the pool; it came with the
+            // household, in the second of the arrival (design note of the arrival, 9).
+            let carried = rules.pool.carried.contains_key(id);
+            let by_input = !carried
+                && inputs
+                    .next_if(|pair| **pair == (woman, man, formed))
+                    .is_some();
             let round = formed.as_secs() > 0 && formed.as_secs().rem_euclid(MONTH.as_secs()) == 0;
-            let by_market = !by_input && round && formed.as_secs() < now;
-            let in_order = formed_in_order(previous, formed, by_market);
-            previous = Some((formed, by_market));
+            let by_market = !carried && !by_input && round && formed.as_secs() < now;
+            let created = if carried {
+                pool_of(loaded, woman).map_or(formed, |origin| origin.arrived)
+            } else {
+                formed
+            };
+            let in_order = formed_in_order(previous, created, by_market);
+            previous = Some((created, by_market));
             let of_age = [woman, man].iter().all(|sim| {
                 born_of(sim).is_some_and(|born| state::market::of_age(born, formed, age))
             });
-            let related = sex_of(&woman).is_some()
-                && sex_of(&man).is_some()
-                && kinship.phi(woman, man, |sim| kin(loaded, sim)) >= limit;
+            let related = match (keys_of(loaded, woman), keys_of(loaded, man)) {
+                (Some(her), Some(his)) => {
+                    kinship.phi(her, his, |key| kin(loaded, rules.data, &keys, key)) >= limit
+                }
+                _ => false,
+            };
             let first_leave = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
             let separation =
                 separation_due(loaded, rules, *id, partnership).filter(|due| due.as_secs() < now);
@@ -546,7 +826,7 @@ fn partnerships_consistent(
             });
             id.get() == number
                 && together
-                && (by_input || by_market)
+                && (by_input || by_market || carried)
                 && in_order
                 && sex_of(&woman) == Some(Sex::Female)
                 && sex_of(&man) == Some(Sex::Male)
@@ -572,22 +852,68 @@ fn formed_in_order(previous: Option<(SimTime, bool)>, formed: SimTime, by_market
     previous.is_none_or(|(at, market)| at < formed || (at == formed && (!market || by_market)))
 }
 
-/// Birth and parents of a person of the save, for φ; a person the save does not hold has
-/// neither (the checks of the IDs reject such a save).
-fn kin(loaded: &LoadedState, sim: SimId) -> Kin {
-    facts(loaded, sim).map_or(
-        Kin {
-            born: SimTime::START,
-            parents: None,
+/// Order and parents of a person of the save for φ, by its lineage key (design note of the
+/// arrival, section 7): a person of the save, or a record of the data's pool; anything else
+/// has no parents (the checks of the IDs reject such a save).
+fn kin(
+    loaded: &LoadedState,
+    data: &Data,
+    keys: &BTreeMap<LineageKey, SimId>,
+    key: LineageKey,
+) -> Kin<LineageKey> {
+    use state::market::{POOL, TOWN};
+    if let Some(id) = keys.get(&key) {
+        let origin = pool_of(loaded, *id);
+        let Some(person) = facts(loaded, *id) else {
+            return Kin {
+                order: (TOWN, SimTime::START),
+                mother: None,
+                father: None,
+            };
+        };
+        return match origin {
+            Some(from) => Kin {
+                order: from.born_pool.map_or((TOWN, person.born), |at| (POOL, at)),
+                mother: from.mother,
+                father: from.father,
+            },
+            None => Kin {
+                order: (TOWN, person.born),
+                mother: person.parents.and_then(|p| keys_of(loaded, p.mother)),
+                father: person.parents.and_then(|p| keys_of(loaded, p.father)),
+            },
+        };
+    }
+    match data.pool().and_then(|held| held.record(key)) {
+        Some(record) => Kin {
+            order: (POOL, record.born),
+            mother: record.mother,
+            father: record.father,
         },
-        |person| Kin {
-            born: person.born,
-            parents: person.parents.map(|p| (p.mother, p.father)),
+        None => Kin {
+            order: (TOWN, SimTime::START),
+            mother: None,
+            father: None,
         },
-    )
+    }
 }
 
-/// The living members of each household, from the sims (ADR-0018 section 4).
+/// The lineage key of a sim of the save.
+fn keys_of(loaded: &LoadedState, id: SimId) -> Option<LineageKey> {
+    facts(loaded, id).map(|facts| facts.lineage_key)
+}
+
+/// The `SimId` of every person of the save, living or archived, by its lineage key.
+pub(super) fn key_index(
+    sims: &BTreeMap<SimId, Sim>,
+    archive: &BTreeMap<SimId, ArchivedSim>,
+) -> BTreeMap<LineageKey, SimId> {
+    sims.iter()
+        .map(|(id, sim)| (sim.lineage_key, *id))
+        .chain(archive.iter().map(|(id, sim)| (sim.lineage_key, *id)))
+        .collect()
+}
+
 pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId, BTreeSet<SimId>> {
     let mut members: BTreeMap<HouseholdId, BTreeSet<SimId>> = BTreeMap::new();
     for (id, sim) in sims {
@@ -644,8 +970,26 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         let leaves = state::household::leave_second(rules.data, rules.seed, born, key);
         adult_founder || partnered.contains(id) || leaves <= until
     };
+    // An arrival moved out in the pool, or by a partnership formed in the town, or when its
+    // carried leaving home came (design note of the arrival, section 9).
+    let arrival_moved_out = |id: &SimId, until: SimTime| {
+        rules.pool.arrivals.get(id).map(|(record, delta)| {
+            let leaves = record
+                .leave_home_at
+                .and_then(|at| at.as_secs().checked_add(*delta))
+                .is_some_and(|at| at <= until.as_secs());
+            let town_partnership = loaded.partnerships.iter().any(|(pid, p)| {
+                !rules.pool.carried.contains_key(pid) && (p.woman == *id || p.man == *id)
+            });
+            record.moved_out || town_partnership || leaves
+        })
+    };
     let living_fit = loaded.sims.iter().all(|(id, sim)| {
-        let expected = moved_out(id, sim.born, sim.lineage_key, sim.parents.is_none(), t);
+        let founder = sim.parents.is_none() && sim.pool.is_none();
+        // A carried leaving home is an event of its own: it has run once the clock passed
+        // it, also when it falls into second 0 of a town founded from the pool (review).
+        let expected = arrival_moved_out(id, clock)
+            .unwrap_or_else(|| moved_out(id, sim.born, sim.lineage_key, founder, t));
         let home = loaded.households.get(&sim.household);
         let at_home = home.is_some_and(|household| household.ended.is_none());
         let carer_fits = if state::household::dependent(sim, t) {
@@ -686,26 +1030,24 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         sim.moved_out == expected && at_home && carer_fits
     });
     let archived_fit = loaded.archive.iter().all(|(id, sim)| {
-        sim.moved_out
-            == moved_out(
-                id,
-                sim.born,
-                sim.lineage_key,
-                sim.parents.is_none(),
-                sim.left,
-            )
+        let founder = sim.parents.is_none() && sim.pool.is_none();
+        let expected = arrival_moved_out(id, sim.left)
+            .unwrap_or_else(|| moved_out(id, sim.born, sim.lineage_key, founder, sim.left));
+        sim.moved_out == expected
     });
     let social_fit = loaded
         .sims
         .iter()
-        .map(|(id, sim)| (id, sim.parents, &sim.social_parents))
+        .map(|(id, sim)| (id, sim.parents, sim.pool.as_ref(), &sim.social_parents))
         .chain(
             loaded
                 .archive
                 .iter()
-                .map(|(id, sim)| (id, sim.parents, &sim.social_parents)),
+                .map(|(id, sim)| (id, sim.parents, sim.pool.as_ref(), &sim.social_parents)),
         )
-        .all(|(id, parents, social)| social_parents_fit(loaded, *id, parents, social));
+        .all(|(id, parents, pool, social)| {
+            social_parents_fit(loaded, *id, (parents, pool), social)
+        });
     ids_complete && households_fit && archived_known && living_fit && archived_fit && social_fit
 }
 
@@ -714,11 +1056,18 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
 fn social_parents_fit(
     loaded: &LoadedState,
     id: SimId,
-    parents: Option<Parents>,
+    (parents, pool): (Option<Parents>, Option<&state::PoolOrigin>),
     social: &[SimId],
 ) -> bool {
     let known = |sim: &SimId| loaded.sims.contains_key(sim) || loaded.archive.contains_key(sim);
-    let biological = |sim: &SimId| parents.is_some_and(|p| p.mother == *sim || p.father == *sim);
+    // A pool person's biological parents by their keys (design note of the arrival).
+    let biological = |sim: &SimId| {
+        parents.is_some_and(|p| p.mother == *sim || p.father == *sim)
+            || pool.is_some_and(|from| {
+                let key = keys_of(loaded, *sim);
+                key.is_some() && (from.mother == key || from.father == key)
+            })
+    };
     social.iter().enumerate().all(|(place, sim)| {
         known(sim) && *sim != id && !biological(sim) && !social[..place].contains(sim)
     })
@@ -748,20 +1097,35 @@ pub(super) fn open_index(
         .collect()
 }
 
-/// When the partnership `id` separates if both live (ADR-0018 section 3): her partnership
-/// number is the count of her partnerships with a smaller ID.
+/// When the partnership `id` separates if both live (ADR-0018 section 3): one an arrival
+/// brought at its carried second; any other drawn with her partnership number, her count
+/// of partnerships less those with this ID or a larger one (design note of the arrival).
 fn separation_due(
     loaded: &LoadedState,
     rules: &Rules<'_>,
     id: PartnershipId,
     partnership: &Partnership,
 ) -> Option<SimTime> {
-    let earlier = loaded
+    if let Some((record, delta)) = rules.pool.carried.get(&id) {
+        let at = record.separation_at?.as_secs().checked_add(*delta)?;
+        return Some(SimTime::from_secs(at));
+    }
+    let count = loaded
+        .sims
+        .get(&partnership.woman)
+        .map(|her| her.partnerships)
+        .or_else(|| {
+            loaded
+                .archive
+                .get(&partnership.woman)
+                .map(|her| her.partnerships)
+        })?;
+    let later = loaded
         .partnerships
-        .range(..id)
+        .range(id..)
         .filter(|(_, other)| other.woman == partnership.woman)
         .count();
-    let k = u32::try_from(earlier).ok()?;
+    let k = count.checked_sub(u32::try_from(later).ok()?)?;
     let her = facts(loaded, partnership.woman)?.lineage_key;
     let his = facts(loaded, partnership.man)?.lineage_key;
     let address = (her, k, his);
@@ -769,14 +1133,25 @@ fn separation_due(
 }
 
 /// Each woman has formed as many partnerships as there are partnerships whose woman she
-/// is; a man has none (ADR-0018 section 3).
-fn partnership_counts_consistent(loaded: &LoadedState) -> bool {
+/// is, an arrival as many as the pool counted plus those she formed in the town (the one
+/// she brought is in both); a man has none (ADR-0018 section 3).
+fn partnership_counts_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let mut formed: BTreeMap<SimId, u32> = BTreeMap::new();
-    for partnership in loaded.partnerships.values() {
+    for (id, partnership) in &loaded.partnerships {
+        if rules.pool.carried.contains_key(id) {
+            continue;
+        }
         let count = formed.entry(partnership.woman).or_default();
         *count = count.saturating_add(1);
     }
-    let own = |id: &SimId| formed.get(id).copied().unwrap_or(0);
+    let own = |id: &SimId| {
+        let base = rules
+            .pool
+            .arrivals
+            .get(id)
+            .map_or(0, |(record, _)| record.partnerships);
+        base.saturating_add(formed.get(id).copied().unwrap_or(0))
+    };
     loaded
         .sims
         .iter()
@@ -804,18 +1179,45 @@ struct Rules<'a> {
     switch: &'a [(i64, bool)],
     /// The soft capacity of `Start` (ADR-0020 section 6).
     capacity: Option<u64>,
+    /// The pool persons of the save (design note of the arrival, section 9).
+    pool: &'a PoolView<'a>,
+    /// (woman, man, formed) of each partnership an input formed.
+    pairs: &'a [(SimId, SimId, SimTime)],
 }
 
 impl Rules<'_> {
+    /// Where the hazards of a person act from and the detail of its budgets (design note of
+    /// the arrival, section 6.4), as seconds.
+    fn lot(&self, born: SimTime, pool: Option<&state::PoolOrigin>) -> (SimTime, u64) {
+        state::death::mortal(born, pool)
+    }
+
+    /// The seeds of a town person's draws: `C` with the pool seed if both its biological
+    /// parents came from the pool (design note of the arrival, section 6.2).
+    fn town_seeds(&self, loaded: &LoadedState, parents: Option<Parents>) -> state::Seeds {
+        let pool = self.data.pool().map(|held| held.pool().pool_seed);
+        match (parents, pool) {
+            (Some(p), Some(pool))
+                if pool_of(loaded, p.mother).is_some() && pool_of(loaded, p.father).is_some() =>
+            {
+                state::Seeds {
+                    individual: self.seed,
+                    shared: pool,
+                    life: self.seed,
+                }
+            }
+            _ => state::Seeds::one(self.seed),
+        }
+    }
     /// When a sim dies of a lethal affliction if nothing else comes first.
     fn disease_due(
         &self,
         born: SimTime,
-        lineage_key: LineageKey,
+        person: (LineageKey, u64),
         affliction: &Affliction,
     ) -> Option<SimTime> {
         let disease = state::disease::of_key(self.data, affliction.disease)?;
-        state::disease::due(self.seed, born, lineage_key, affliction, disease)
+        state::disease::due(self.seed, born, person, affliction, disease)
     }
 
     /// The causes of a sim in their order: senescence, accident, then its lethal
@@ -824,14 +1226,15 @@ impl Rules<'_> {
         &self,
         facts: (SimTime, LineageKey, Sex, &Genome),
         afflictions: &[Affliction],
+        lot: (SimTime, u64),
     ) -> Vec<(u64, Option<SimTime>)> {
         let (born, lineage_key, _, _) = facts;
-        let everyone = state::death::everyone_dues(self.data, self.seed, facts);
+        let everyone = state::death::everyone_dues(self.data, self.seed, facts, lot);
         let diseases = afflictions
             .iter()
             .filter(|affliction| affliction.exposure.is_some())
             .map(|affliction| {
-                let due = self.disease_due(born, lineage_key, affliction);
+                let due = self.disease_due(born, (lineage_key, lot.1), affliction);
                 (affliction.disease, due)
             });
         everyone.into_iter().chain(diseases).collect()
@@ -845,7 +1248,7 @@ impl Rules<'_> {
     fn exposure_at(
         &self,
         born: SimTime,
-        lineage_key: LineageKey,
+        person: (LineageKey, u64),
         affliction: &Affliction,
         origin: i64,
         at: i64,
@@ -865,7 +1268,7 @@ impl Rules<'_> {
                         exposure: Some(exposure),
                         ..*affliction
                     };
-                    let due = state::disease::due(self.seed, born, lineage_key, &open, disease);
+                    let due = state::disease::due(self.seed, born, person, &open, disease);
                     if due.is_some_and(|due| due < from) {
                         return None;
                     }
@@ -891,31 +1294,52 @@ impl Rules<'_> {
     /// the archive).
     fn afflictions_consistent(
         &self,
-        facts: (SimTime, LineageKey, Sex, &Genome),
-        parents: Option<crate::phenotype::Parents>,
+        (born, lineage_key): (SimTime, LineageKey),
+        drawn: &[Affliction],
         afflictions: &[Affliction],
-        origin: i64,
+        (origin, detail): (i64, u64),
         at: i64,
     ) -> bool {
-        let (born, lineage_key, sex, genome) = facts;
-        let drawn = state::disease::afflictions(
-            self.data,
-            self.seed,
-            (lineage_key, parents),
-            sex,
-            genome,
-            false,
-            SimTime::from_secs(origin),
-        );
         drawn.len() == afflictions.len()
             && drawn.iter().zip(afflictions).all(|(drawn, held)| {
                 let same = drawn.disease == held.disease
                     && drawn.onset == held.onset
                     && drawn.exposure.is_some() == held.exposure.is_some();
                 same && held.exposure.is_none_or(|_| {
-                    self.exposure_at(born, lineage_key, held, origin, at) == held.exposure
+                    self.exposure_at(born, (lineage_key, detail), held, origin, at) == held.exposure
                 })
             })
+    }
+
+    /// The afflictions a sim is created with (without their exposures): a pool person's
+    /// from the pool, a town person's drawn from its genotype with its seeds.
+    fn drawn(&self, loaded: &LoadedState, id: SimId, facts: &Facts) -> Option<Vec<Affliction>> {
+        let held = self.data.pool();
+        let from_pool = |pooled: &[crate::pool::PoolAffliction]| {
+            state::arrival::afflictions(self.data, pooled, SimTime::START, false)
+        };
+        if let Some((record, _)) = self.pool.arrivals.get(&id) {
+            return Some(from_pool(&record.afflictions));
+        }
+        if self.pool.children.contains(&id) {
+            return Some(from_pool(&held?.unborn(facts.lineage_key)?.afflictions));
+        }
+        let keys = match facts.parents {
+            None => None,
+            Some(p) => Some(crate::phenotype::Parents {
+                mother: facts_of_key(loaded, p.mother)?,
+                father: facts_of_key(loaded, p.father)?,
+            }),
+        };
+        Some(state::disease::afflictions(
+            self.data,
+            self.town_seeds(loaded, facts.parents),
+            (facts.lineage_key, keys),
+            facts.sex,
+            &facts.genome,
+            false,
+            SimTime::START,
+        ))
     }
 }
 
@@ -950,45 +1374,40 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data)
 /// departure in a closed second (an event of the first open second has not run yet) and
 /// as the death rule gives it. The IDs are those of `born_consistent`.
 fn sims_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
-    let origin = |born: SimTime| state::death::origin(born).as_secs();
-    // The lineage keys of the parents in the run; `Err` if one is unknown.
-    let keys = |parents: Option<Parents>| match parents {
-        None => Ok(None),
-        Some(p) => match (facts(loaded, p.mother), facts(loaded, p.father)) {
-            (Some(mother), Some(father)) => Ok(Some(crate::phenotype::Parents {
-                mother: mother.lineage_key,
-                father: father.lineage_key,
-            })),
-            _ => Err(()),
-        },
-    };
-    loaded.sims.values().all(|sim| {
-        keys(sim.parents).is_ok_and(|parents| {
-            rules.afflictions_consistent(
-                (sim.born, sim.lineage_key, sim.sex, &sim.genome),
-                parents,
-                &sim.afflictions,
-                origin(sim.born),
-                now,
-            )
-        })
-    }) && loaded.archive.values().all(|sim| {
-        let left = sim.left.as_secs();
-        left < now
-            && keys(sim.parents).is_ok_and(|parents| {
+    let fits =
+        |id: SimId, pool: Option<&state::PoolOrigin>, afflictions: &[Affliction], at: i64| {
+            let Some(facts) = facts(loaded, id) else {
+                return false;
+            };
+            let (origin, detail) = rules.lot(facts.born, pool);
+            rules.drawn(loaded, id, &facts).is_some_and(|drawn| {
                 rules.afflictions_consistent(
-                    (sim.born, sim.lineage_key, sim.sex, &sim.genome),
-                    parents,
-                    &sim.afflictions,
-                    origin(sim.born),
-                    left,
+                    (facts.born, facts.lineage_key),
+                    &drawn,
+                    afflictions,
+                    (origin.as_secs(), detail),
+                    at,
                 )
             })
-            && match sim.left_by {
-                LeftBy::Death { cause } => died_by_the_rule(sim, cause, rules),
-                LeftBy::Emigration => emigrated_by_the_rule(loaded, sim, rules),
-            }
-    })
+        };
+    loaded
+        .sims
+        .iter()
+        .all(|(id, sim)| fits(*id, sim.pool.as_ref(), &sim.afflictions, now))
+        && loaded.archive.iter().all(|(id, sim)| {
+            let left = sim.left.as_secs();
+            left < now
+                && fits(*id, sim.pool.as_ref(), &sim.afflictions, left)
+                && match sim.left_by {
+                    LeftBy::Death { cause } => died_by_the_rule(sim, cause, rules),
+                    LeftBy::Emigration => emigrated_by_the_rule(loaded, sim, rules),
+                }
+        })
+}
+
+/// The lineage key of a sim in exactly one place.
+fn facts_of_key(loaded: &LoadedState, id: SimId) -> Option<LineageKey> {
+    facts(loaded, id).map(|facts| facts.lineage_key)
 }
 
 /// What a sim, living or archived, is born as.
@@ -998,6 +1417,8 @@ struct Facts {
     sex: Sex,
     genome: Genome,
     parents: Option<Parents>,
+    /// Where a pool person came from; `None` for a town person.
+    pool: Option<state::PoolOrigin>,
 }
 
 /// The facts of a sim in exactly one place, the living or the archive; `None` for an ID
@@ -1010,6 +1431,7 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
             sex: sim.sex,
             genome: sim.genome,
             parents: sim.parents,
+            pool: sim.pool.clone(),
         }),
         (None, Some(sim)) => Some(Facts {
             born: sim.born,
@@ -1017,6 +1439,7 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
             sex: sim.sex,
             genome: sim.genome,
             parents: sim.parents,
+            pool: sim.pool.clone(),
         }),
         (None, None) | (Some(_), Some(_)) => None,
     }
@@ -1035,10 +1458,14 @@ fn born_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>, founders: 
         .chain(loaded.archive.keys())
         .all(below_counter)
         && (founders.saturating_add(1)..loaded.next_sim_id).all(|number| {
-            let Some(child) = SimId::try_from(number)
-                .ok()
-                .and_then(|id| facts(loaded, id))
-            else {
+            let Some(id) = SimId::try_from(number).ok() else {
+                return false;
+            };
+            // A pool person is checked by `pool_view`.
+            if rules.pool.came_from_pool(id) {
+                return facts(loaded, id).is_some();
+            }
+            let Some(child) = facts(loaded, id) else {
                 return false;
             };
             let Some(parents) = child.parents else {
@@ -1092,22 +1519,28 @@ fn conception_fits(
         conceived.as_secs() >= 0 && conceived.as_secs().rem_euclid(MONTH.as_secs()) == 0;
     let in_her_series = formed.is_some_and(|formed| {
         let born_before = children_born(loaded, parents.mother, conceived);
-        series_start(rules, formed, &born_before).is_some_and(|start| start <= conceived)
+        series_start(
+            rules,
+            (parents.mother, parents.father, formed),
+            &born_before,
+        )
+        .is_some_and(|start| start <= conceived)
             && conception::may_begin(
                 rules.data,
-                rules.seed,
+                life_seed(rules, &her),
                 her.born,
                 her.lineage_key,
-                u32::try_from(born_before.len()).unwrap_or(u32::MAX),
+                births_before(rules, parents.mother, born_before.len()),
                 conceived,
             )
     });
     let drawn = conception::month_index(conceived).is_some_and(|month| {
         let key = conception::attempt_key(her.lineage_key, him.lineage_key, month);
-        let (Some(woman), Some(man)) = (person(loaded, &her), person(loaded, &him)) else {
+        let (Some(woman), Some(man)) = (person(loaded, rules, &her), person(loaded, rules, &him))
+        else {
             return false;
         };
-        let p = conception::chance(rules.data, rules.seed, &woman, &man, conceived);
+        let p = conception::chance(rules.data, &woman, &man, conceived);
         Draws::new(WorldSeed::new(rules.seed)).bernoulli(key, p)
     });
     // The child is one of the children of that conception, with its genome and sex.
@@ -1119,6 +1552,26 @@ fn conception_fits(
         })
     });
     at_a_month_start && in_her_series && drawn && fits
+}
+
+/// The seed of a woman's wish: the pool seed for a pool person (design note of the
+/// arrival, section 6.2).
+fn life_seed(rules: &Rules<'_>, her: &Facts) -> u64 {
+    match (&her.pool, rules.data.pool()) {
+        (Some(_), Some(held)) => held.pool().pool_seed,
+        _ => rules.seed,
+    }
+}
+
+/// Her live births before a conception: those in the town, and for an arrival those the
+/// pool counted.
+fn births_before(rules: &Rules<'_>, mother: SimId, in_town: usize) -> u32 {
+    let base = rules
+        .pool
+        .arrivals
+        .get(&mother)
+        .map_or(0, |(record, _)| record.births);
+    base.saturating_add(u32::try_from(in_town).unwrap_or(u32::MAX))
 }
 
 /// The children of her conception number `number` with him by the rule: one, or twins
@@ -1147,14 +1600,25 @@ fn pregnancy_months(rules: &Rules<'_>) -> u32 {
     rules.data.demography().fertility.pregnancy_months
 }
 
-/// The birth times of her children born before `before`, in order.
+/// The birth times of her children born in the town before `before`, in order: her town
+/// children and the pool children of her pregnancy from the pool.
 fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<SimTime> {
+    let her_key = facts(loaded, mother).map(|her| her.lineage_key);
+    let hers = |parents: Option<Parents>, pool: Option<&state::PoolOrigin>| {
+        parents.is_some_and(|p| p.mother == mother)
+            || pool.is_some_and(|from| from.born_pool.is_none() && from.mother == her_key)
+    };
     let mut born: Vec<SimTime> = loaded
         .sims
         .values()
-        .map(|sim| (sim.parents, sim.born))
-        .chain(loaded.archive.values().map(|sim| (sim.parents, sim.born)))
-        .filter(|(parents, born)| parents.is_some_and(|p| p.mother == mother) && *born < before)
+        .map(|sim| (hers(sim.parents, sim.pool.as_ref()), sim.born))
+        .chain(
+            loaded
+                .archive
+                .values()
+                .map(|sim| (hers(sim.parents, sim.pool.as_ref()), sim.born)),
+        )
+        .filter(|(mine, born)| *mine && *born < before)
         .map(|(_, born)| born)
         .collect();
     born.sort_unstable();
@@ -1164,9 +1628,18 @@ fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<Si
 /// Where her series of attempts in a partnership formed at `formed` begins, given the
 /// times of her births so far: after the pairing, or after the pause of her last birth in
 /// that partnership (ADR-0017 section 4).
-fn series_start(rules: &Rules<'_>, formed: SimTime, births: &[SimTime]) -> Option<SimTime> {
+fn series_start(
+    rules: &Rules<'_>,
+    (woman, man, formed): (SimId, SimId, SimTime),
+    births: &[SimTime],
+) -> Option<SimTime> {
     let pause = rules.data.demography().fertility.pause_months;
-    match births.iter().rev().find(|born| **born >= formed) {
+    // A birth in the second of the pairing came before a pairing of the market (births run
+    // before the round) and after one of an input (it acts before the events of its second;
+    // review).
+    let by_input = rules.pairs.contains(&(woman, man, formed));
+    let in_it = |born: &SimTime| *born > formed || (*born == formed && by_input);
+    match births.iter().rev().find(|born| in_it(born)) {
         Some(born) => conception::series_after_birth(*born, pause),
         None => conception::series_after_pairing(formed),
     }
@@ -1174,8 +1647,27 @@ fn series_start(rules: &Rules<'_>, formed: SimTime, births: &[SimTime]) -> Optio
 
 /// What the conception rule reads of a sim: its facts and the lineage keys of its
 /// parents.
-fn person<'a>(loaded: &LoadedState, sim: &'a Facts) -> Option<conception::Person<'a>> {
+fn person<'a>(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    sim: &'a Facts,
+) -> Option<conception::Person<'a>> {
     let key_of = |id: SimId| facts(loaded, id).map(|parent| parent.lineage_key);
+    // A pool person: its parents by its pool keys, every draw with the pool seed (design
+    // note of the arrival, section 6.2).
+    if let Some(from) = &sim.pool {
+        let pool = rules.data.pool()?.pool().pool_seed;
+        return Some(conception::Person {
+            born: sim.born,
+            lineage_key: sim.lineage_key,
+            genome: &sim.genome,
+            parents: from
+                .mother
+                .zip(from.father)
+                .map(|(mother, father)| crate::phenotype::Parents { mother, father }),
+            seeds: state::Seeds::one(pool),
+        });
+    }
     let parents = match sim.parents {
         None => None,
         Some(p) => Some(crate::phenotype::Parents {
@@ -1188,24 +1680,40 @@ fn person<'a>(loaded: &LoadedState, sim: &'a Facts) -> Option<conception::Person
         lineage_key: sim.lineage_key,
         genome: &sim.genome,
         parents,
+        seeds: rules.town_seeds(loaded, sim.parents),
     })
 }
 
-/// Each sim has as many live births as there are sims whose mother it is; a man has none
-/// (ADR-0017 section 4).
-fn births_consistent(loaded: &LoadedState) -> bool {
+/// Each sim has as many live births as there are sims whose mother it is, an arrival as
+/// many as the pool counted plus her children born in the town (pool children by her key);
+/// a man has none (ADR-0017 section 4).
+fn births_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let mut children: BTreeMap<SimId, u32> = BTreeMap::new();
-    for parents in loaded
+    let keys = key_index(&loaded.sims, &loaded.archive);
+    let mothers = loaded
         .sims
-        .values()
-        .map(|sim| sim.parents)
-        .chain(loaded.archive.values().map(|sim| sim.parents))
-        .flatten()
-    {
-        let count = children.entry(parents.mother).or_default();
+        .iter()
+        .map(|(id, sim)| (*id, sim.parents))
+        .chain(loaded.archive.iter().map(|(id, sim)| (*id, sim.parents)))
+        .filter_map(|(id, parents)| match parents {
+            Some(p) => Some(p.mother),
+            None if rules.pool.children.contains(&id) => pool_of(loaded, id)?
+                .mother
+                .and_then(|key| keys.get(&key).copied()),
+            None => None,
+        });
+    for mother in mothers {
+        let count = children.entry(mother).or_default();
         *count = count.saturating_add(1);
     }
-    let own = |id: &SimId| children.get(id).copied().unwrap_or(0);
+    let own = |id: &SimId| {
+        let base = rules
+            .pool
+            .arrivals
+            .get(id)
+            .map_or(0, |(record, _)| record.births);
+        base.saturating_add(children.get(id).copied().unwrap_or(0))
+    };
     loaded.sims.iter().all(|(id, sim)| sim.births == own(id))
         && loaded.archive.iter().all(|(id, sim)| sim.births == own(id))
 }
@@ -1217,9 +1725,17 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
         let Some(her) = loaded.sims.get(mother) else {
             return false;
         };
+        // A pregnancy from the pool: `pool_view` checked it against the pool.
+        if pregnancy.pool_father.is_some() {
+            return pregnancy.conception.checked_add(1) == Some(her.conceptions)
+                && pregnancy.conceived.as_secs() < now;
+        }
+        let Some(father) = pregnancy.father else {
+            return false;
+        };
         let parents = Parents {
             mother: *mother,
-            father: pregnancy.father,
+            father,
             conception: pregnancy.conception,
         };
         let child = |unborn: &state::Unborn| Facts {
@@ -1228,10 +1744,11 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
             sex: unborn.sex,
             genome: unborn.genome,
             parents: Some(parents),
+            pool: None,
         };
         // All the children of the conception, in the order of their index.
         let complete = facts(loaded, *mother)
-            .zip(facts(loaded, pregnancy.father))
+            .zip(facts(loaded, father))
             .and_then(|(woman, man)| expected_children(rules, &woman, &man, pregnancy.conception))
             .is_some_and(|children| {
                 children.len() == pregnancy.children.len()
@@ -1325,6 +1842,10 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         }
     }
     for (mother, pregnancy) in &loaded.pregnancies {
+        // A pregnancy from the pool is counted in the pool's number.
+        if pregnancy.pool_father.is_some() {
+            continue;
+        }
         conceived
             .entry(*mother)
             .or_default()
@@ -1336,8 +1857,15 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         // Twins share their conception (spec 11.3).
         own.dedup();
         let numbers: Vec<u32> = own.iter().map(|(number, _)| *number).collect();
-        let all = (0..count).eq(numbers.iter().copied());
-        let but_the_last = archived && count >= 1 && (0..count - 1).eq(numbers.iter().copied());
+        // An arrival's conceptions in the town follow those of the pool.
+        let first = rules
+            .pool
+            .arrivals
+            .get(id)
+            .map_or(0, |(record, _)| record.conceptions);
+        let all = (first..count).eq(numbers.iter().copied());
+        let but_the_last =
+            archived && count > first && (first..count - 1).eq(numbers.iter().copied());
         let in_order = own.windows(2).all(|pair| {
             pair[0]
                 .1
@@ -1373,28 +1901,52 @@ fn next_attempt(
     woman: SimId,
 ) -> Option<SimTime> {
     let her = loaded.sims.get(&woman)?;
-    let formed = loaded
+    // A series an arrival brought follows the pool, after births the town does not see; it
+    // is checked against the pool in the next slice (design note of the arrival, section 9).
+    if carried_series(loaded, rules, woman, now).is_some() {
+        return None;
+    }
+    let open = loaded
         .partnerships
         .values()
-        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?
-        .formed;
+        .find(|partnership| partnership.woman == woman && partnership.ended.is_none())?;
     if loaded.pregnancies.contains_key(&woman) {
         return None;
     }
     let clock = SimTime::try_from(now.checked_sub(1)?).ok()?;
     let births = children_born(loaded, woman, SimTime::try_from(now).ok()?);
-    let start = series_start(rules, formed, &births)?;
+    let start = series_start(rules, (woman, open.man, open.formed), &births)?;
     let after_now = conception::month_start_after(clock)?;
     let next = if start > after_now { start } else { after_now };
+    let life = if her.pool.is_some() {
+        rules.data.pool()?.pool().pool_seed
+    } else {
+        rules.seed
+    };
     conception::may_begin(
         rules.data,
-        rules.seed,
+        life,
         her.born,
         her.lineage_key,
         her.births,
         next,
     )
     .then_some(next)
+}
+
+/// Whether an arrival's attempts are still the series she brought from the pool (review):
+/// her open partnership is the one she brought and no child of hers was born in the town.
+/// `Some(true)` if she brought a series, `Some(false)` if not; `None` once the town's rule
+/// plans her attempts.
+fn carried_series(loaded: &LoadedState, rules: &Rules<'_>, woman: SimId, now: i64) -> Option<bool> {
+    let (record, _) = rules.pool.arrivals.get(&woman)?;
+    let brought = loaded
+        .partnerships
+        .iter()
+        .find(|(_, p)| p.woman == woman && p.ended.is_none())
+        .is_some_and(|(id, _)| rules.pool.carried.contains_key(id));
+    let no_town_child = children_born(loaded, woman, SimTime::try_from(now).ok()?).is_empty();
+    (brought && no_town_child).then_some(record.conception_at.is_some())
 }
 
 /// An archived sim emigrated with its household above the soft capacity (ADR-0020
@@ -1426,6 +1978,7 @@ fn emigrated_by_the_rule(loaded: &LoadedState, sim: &ArchivedSim, rules: &Rules<
         .dues(
             (sim.born, sim.lineage_key, sim.sex, &sim.genome),
             &sim.afflictions,
+            rules.lot(sim.born, sim.pool.as_ref()),
         )
         .iter()
         .all(|(_, due)| due.is_none_or(|at| at > left));
@@ -1440,6 +1993,7 @@ fn died_by_the_rule(sim: &ArchivedSim, cause: u64, rules: &Rules<'_>) -> bool {
     let dues = rules.dues(
         (sim.born, sim.lineage_key, sim.sex, &sim.genome),
         &sim.afflictions,
+        rules.lot(sim.born, sim.pool.as_ref()),
     );
     let Some(position) = dues.iter().position(|(key, _)| *key == cause) else {
         return false;
@@ -1460,6 +2014,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut year_end_seen = false;
     let mut round_seen = false;
     let mut emigration_seen = false;
+    let mut immigration_seen = false;
+    let next_year_start = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs();
+    let now_is_year_start = now.rem_euclid(YEAR.as_secs()) == 0;
     let mut birthdays = BTreeSet::new();
     let mut births = BTreeSet::new();
     let mut attempts = BTreeSet::new();
@@ -1472,6 +2029,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         rules.dues(
             (person.born, person.lineage_key, person.sex, &person.genome),
             &person.afflictions,
+            rules.lot(person.born, person.pool.as_ref()),
         )
     };
     for entry in &loaded.queue {
@@ -1502,6 +2060,21 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && due == next_year_end
                     && rules.capacity == Some(*capacity)
             }
+            EventPayload::Immigration { persons } => {
+                // One yearly series with the persons of `Start`, due at the next year start
+                // (or now, if the clock stands right before one; ADR-0020 section 5).
+                let first = !immigration_seen;
+                immigration_seen = true;
+                let due_at = if now_is_year_start {
+                    now
+                } else {
+                    next_year_start
+                };
+                first
+                    && entry.period == Some(YEAR)
+                    && due == due_at
+                    && rules.pool.immigration == Some(*persons)
+            }
             EventPayload::Birthday { sim } => {
                 entry.period.is_none()
                     && birthdays.insert(*sim)
@@ -1522,25 +2095,55 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 entry.period.is_none()
                     && births.insert(*mother)
                     && loaded.pregnancies.get(mother).is_some_and(|pregnancy| {
-                        conception::birth_of(rules.data, pregnancy.conceived) == Some(entry.time)
+                        // A pregnancy from the pool keeps its carried birth.
+                        let carried =
+                            rules
+                                .pool
+                                .pregnancies
+                                .get(mother)
+                                .and_then(|(record, delta)| {
+                                    record.birth_at?.as_secs().checked_add(*delta)
+                                });
+                        match (pregnancy.pool_father, carried) {
+                            (Some(_), Some(at)) => at == entry.time.as_secs(),
+                            (Some(_), None) => false,
+                            (None, _) => {
+                                conception::birth_of(rules.data, pregnancy.conceived)
+                                    == Some(entry.time)
+                            }
+                        }
                     })
             }
             EventPayload::ConceptionAttempt { woman } => {
+                // A series an arrival brought follows the pool (the next slice checks its
+                // seconds); every other series follows the town's rule.
                 entry.period == Some(MONTH)
                     && attempts.insert(*woman)
-                    && next_attempt(loaded, now, rules, *woman) == Some(entry.time)
+                    && match carried_series(loaded, rules, *woman, now) {
+                        Some(brought) => brought && !loaded.pregnancies.contains_key(woman),
+                        None => next_attempt(loaded, now, rules, *woman) == Some(entry.time),
+                    }
             }
             EventPayload::LeaveHome { sim } => {
                 entry.period.is_none()
                     && leaving.insert(*sim)
                     && loaded.sims.get(sim).is_some_and(|person| {
-                        !person.moved_out
-                            && state::household::leave_second(
+                        // An arrival's leaving home came from the pool.
+                        let carried = rules.pool.arrivals.get(sim).map(|(record, delta)| {
+                            record
+                                .leave_home_at
+                                .and_then(|at| at.as_secs().checked_add(*delta))
+                        });
+                        let due = match carried {
+                            Some(at) => at.map(SimTime::from_secs),
+                            None => Some(state::household::leave_second(
                                 rules.data,
                                 rules.seed,
                                 person.born,
                                 person.lineage_key,
-                            ) == entry.time
+                            )),
+                        };
+                        !person.moved_out && due == Some(entry.time)
                     })
             }
             EventPayload::Separation { partnership: id } => {
@@ -1587,6 +2190,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     year_end_seen
         && round_seen
         && emigration_seen == rules.capacity.is_some()
+        && immigration_seen == rules.pool.immigration.is_some()
         && all_leaving_planned
         && birthdays.len() == loaded.sims.len()
         && all_separations_planned

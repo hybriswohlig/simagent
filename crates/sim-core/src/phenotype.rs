@@ -9,6 +9,25 @@ use crate::lineage::LineageKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, tags};
 use crate::time::SimDuration;
 
+/// The draws of the two environments of a person (ADR-0009 section 3, ADR-0020 section
+/// 5): `E` and `C` may come from different seeds, as for a town-born child of two pool
+/// persons (`C` from the pool seed, `E` from the world seed).
+#[derive(Clone, Copy)]
+pub struct Environment<'a> {
+    pub individual: &'a Draws,
+    pub shared: &'a Draws,
+}
+
+impl<'a> Environment<'a> {
+    /// Both environments from the same draws.
+    pub const fn one(draws: &'a Draws) -> Environment<'a> {
+        Environment {
+            individual: draws,
+            shared: draws,
+        }
+    }
+}
+
 /// The biological parents of a person in the run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parents {
@@ -69,7 +88,7 @@ fn held(weight: f64) -> f64 {
 /// The phenotype `z_t` at the calendar age `age` (ADR-0009 section 4); `None` for a trait
 /// without a phenotype or not in the map.
 pub fn phenotype(
-    draws: &Draws,
+    environment: Environment<'_>,
     data: &Data,
     genome: &Genome,
     own: LineageKey,
@@ -84,8 +103,8 @@ pub fn phenotype(
     let h2 = h2_child + (h2_adult - h2_child) * s;
     let c2 = c2_child + (c2_adult - c2_child) * s;
     let e2 = (1.0 - h2) - c2;
-    let c = shared_environment(draws, t, own, parents);
-    let e = individual_environment(draws, t, own);
+    let c = shared_environment(environment.shared, t, own, parents);
+    let e = individual_environment(environment.individual, t, own);
     Some(
         ((sim_math::sqrt(held(h2)) * g) + (sim_math::sqrt(held(c2)) * c))
             + (sim_math::sqrt(held(e2)) * e),

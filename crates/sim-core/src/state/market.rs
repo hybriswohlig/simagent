@@ -98,63 +98,88 @@ fn utility(data: &Data, differences: [Option<f64>; 2], gap: f64, phi: f64, noise
 
 /// The phenotypes the market compares, cognition and the target height (4.2, 11.2), of a
 /// living sim at `at`; each `None` where the data name no such trait.
-fn compared(
-    domain: &DomainState,
-    data: &Data,
-    draws: &Draws,
-    sim: SimId,
-    at: SimTime,
-) -> [Option<f64>; 2] {
-    let person = super::conception::person(domain, sim);
+fn compared(domain: &DomainState, data: &Data, sim: SimId, at: SimTime) -> [Option<f64>; 2] {
+    let person = super::conception::person(domain, data, sim);
     let age = at
         .checked_since(person.born)
         .unwrap_or_else(|| panic!("invariant market.age"));
     data.pairing_traits().map(|named| {
         named.map(|t| {
-            crate::phenotype::phenotype(
-                draws,
-                data,
-                person.genome,
-                person.lineage_key,
-                person.parents,
-                t,
-                age,
-            )
-            .unwrap_or_else(|| panic!("invariant market.phenotype"))
+            person
+                .phenotype(data, t, age)
+                .unwrap_or_else(|| panic!("invariant market.phenotype"))
         })
     })
 }
 
-/// Birth and parents of a person of the living or the archive, for φ.
-fn kin_of(domain: &DomainState, sim: SimId) -> Kin {
-    let (born, parents) = domain
-        .sims
-        .get(&sim)
-        .map(|person| (person.born, person.parents))
-        .or_else(|| {
-            domain
-                .archive
-                .get(&sim)
-                .map(|person| (person.born, person.parents))
-        })
-        .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()));
+/// The classes of the order of φ (ADR-0020 section 4): everyone with a birth in the pool
+/// run comes before everyone born in the town.
+pub(crate) const POOL: u8 = 0;
+pub(crate) const TOWN: u8 = 1;
+
+/// Order and parents of a person for φ, by its lineage key (design note of the arrival,
+/// section 7): a person of the town, living or archived (a pool person by its pool birth
+/// and its pool keys), or a record of the data's pool.
+///
+/// # Panics
+///
+/// Invariant `kinship.unknown_key` for a key that is neither: every parent key of the pool
+/// is a record (the pool's reader checks it).
+pub(crate) fn kin_of(domain: &DomainState, data: &Data, key: LineageKey) -> Kin<LineageKey> {
+    if let Some(&sim) = domain.keys.get(&key) {
+        let (born, parents, pool) = domain
+            .sims
+            .get(&sim)
+            .map(|person| (person.born, person.parents, person.pool.as_ref()))
+            .or_else(|| {
+                domain
+                    .archive
+                    .get(&sim)
+                    .map(|person| (person.born, person.parents, person.pool.as_ref()))
+            })
+            .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()));
+        return match pool {
+            Some(from) => Kin {
+                order: from.born_pool.map_or((TOWN, born), |at| (POOL, at)),
+                mother: from.mother,
+                father: from.father,
+            },
+            None => Kin {
+                order: (TOWN, born),
+                mother: parents.map(|p| domain.key_of(p.mother)),
+                father: parents.map(|p| domain.key_of(p.father)),
+            },
+        };
+    }
+    let record = data
+        .pool()
+        .and_then(|held| held.record(key))
+        .unwrap_or_else(|| panic!("invariant kinship.unknown_key"));
     Kin {
-        born,
-        parents: parents.map(|p| (p.mother, p.father)),
+        order: (POOL, record.born),
+        mother: record.mother,
+        father: record.father,
     }
 }
 
 /// φ of two persons with the world's cache (ADR-0018 section 2).
-pub(crate) fn phi(domain: &mut DomainState, x: SimId, y: SimId) -> f64 {
+pub(crate) fn phi(domain: &mut DomainState, data: &Data, x: SimId, y: SimId) -> f64 {
     let mut cache = core::mem::take(&mut domain.kinship);
-    let value = phi_with(&mut cache, domain, x, y);
+    let value = phi_with(&mut cache, domain, data, x, y);
     domain.kinship = cache;
     value
 }
 
-/// φ of two persons with the given cache.
-pub(crate) fn phi_with(cache: &mut KinshipCache, domain: &DomainState, x: SimId, y: SimId) -> f64 {
-    cache.phi(x, y, |sim| kin_of(domain, sim))
+/// φ of two persons of the town with the given cache, over their lineage keys.
+pub(crate) fn phi_with(
+    cache: &mut KinshipCache<LineageKey>,
+    domain: &DomainState,
+    data: &Data,
+    x: SimId,
+    y: SimId,
+) -> f64 {
+    let (kx, ky) = (domain.key_of(x), domain.key_of(y));
+    cache.phi(kx, ky, |key| kin_of(domain, data, key))
 }
 
 /// A round of the market at the month start `now` (11.2, ADR-0018 section 1).
@@ -217,7 +242,7 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
                 break;
             }
             let man = men[&his_key];
-            let kinship = phi(domain, woman, man);
+            let kinship = phi(domain, data, woman, man);
             if kinship >= market.kinship_limit {
                 continue;
             }
@@ -225,11 +250,11 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
         }
         // 5. and 6. The largest utility; on a tie the earlier in the list.
         let her_age = super::disease::age(born_of(domain, woman), now);
-        let hers = compared(domain, data, &draws, woman, now);
+        let hers = compared(domain, data, woman, now);
         let mut best: Option<(f64, SimId, LineageKey)> = None;
         for (man, his_key, kinship) in candidates {
             let gap = super::disease::age(born_of(domain, man), now) - her_age;
-            let his = compared(domain, data, &draws, man, now);
+            let his = compared(domain, data, man, now);
             let differences = [0, 1].map(|n| hers[n].zip(his[n]).map(|(a, b)| a - b));
             let noise = draws.gumbel(noise_key(her_key, month, his_key));
             let u = utility(data, differences, gap, kinship, noise);

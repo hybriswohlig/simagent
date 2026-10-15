@@ -49,14 +49,16 @@ fn finite(x: f64) -> FiniteF64 {
 /// parents in the run, for the phenotype of a trait of liability.
 pub(crate) fn afflictions(
     data: &Data,
-    seed: u64,
+    seeds: super::Seeds,
     (lineage_key, parents): (LineageKey, Option<Parents>),
     sex: Sex,
     genome: &Genome,
     switch_on: bool,
     origin: SimTime,
 ) -> Vec<Affliction> {
-    let draws = Draws::new(WorldSeed::new(seed));
+    let draws = Draws::new(WorldSeed::new(seeds.life));
+    let individual = Draws::new(WorldSeed::new(seeds.individual));
+    let shared = Draws::new(WorldSeed::new(seeds.shared));
     let mut held = Vec::new();
     for disease in data.diseases() {
         let affected = match &disease.carrier {
@@ -88,7 +90,10 @@ pub(crate) fn afflictions(
                     .threshold(&disease.code)
                     .unwrap_or_else(|| panic!("invariant disease.threshold"));
                 let liability = phenotype(
-                    &draws,
+                    crate::phenotype::Environment {
+                        individual: &individual,
+                        shared: &shared,
+                    },
                     data,
                     genome,
                     lineage_key,
@@ -195,8 +200,12 @@ pub(crate) fn period_used(
 
 /// The budget of a person for a disease: the same address as every cause of death
 /// (`DEATH_BUDGET`, occasion the key of the code).
-pub(crate) fn budget(seed: u64, lineage_key: LineageKey, disease: &Disease) -> f64 {
-    let key = super::death::budget_key(lineage_key, str_key(&disease.code));
+pub(crate) fn budget(
+    seed: u64,
+    (lineage_key, detail): (LineageKey, u64),
+    disease: &Disease,
+) -> f64 {
+    let key = super::death::budget_key(lineage_key, str_key(&disease.code), detail);
     Draws::new(WorldSeed::new(seed)).exponential(key, 1.0)
 }
 
@@ -208,7 +217,7 @@ pub(crate) fn budget(seed: u64, lineage_key: LineageKey, disease: &Disease) -> f
 pub(crate) fn due(
     seed: u64,
     born: SimTime,
-    lineage_key: LineageKey,
+    person: (LineageKey, u64),
     affliction: &Affliction,
     disease: &Disease,
 ) -> Option<SimTime> {
@@ -217,7 +226,7 @@ pub(crate) fn due(
     let since = exposure.since?;
     let running = age(born, since);
     let start = later(running, affliction.onset.get());
-    let left = (budget(seed, lineage_key, disease) - exposure.used.get()).clamp(0.0, f64::MAX);
+    let left = (budget(seed, person, disease) - exposure.used.get()).clamp(0.0, f64::MAX);
     // A budget the closed periods used up kills in the second the switch goes on again,
     // whatever hazard the age has then (7.1: the budget is spent). A period used something
     // only after the onset, so the onset lies behind.

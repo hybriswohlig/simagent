@@ -191,6 +191,12 @@ def capacity(value) -> bytes:
     return b"\x00" if value is None else b"\x01" + varint(value)
 
 
+def pool_start_none() -> bytes:
+    """`pool: Option<PoolStart>`, the last field of `Start` since scenario format 5 (design
+    note of the arrival, section 3): the option tag 0 for a town of founders."""
+    return b"\x00"
+
+
 # Strand: maternal = 0, paternal = 1. SexChromosome: x = 0, y = 1.
 MATERNAL, PATERNAL = variant(0), variant(1)
 X, Y_CHROMOSOME = variant(0), variant(1)
@@ -241,10 +247,11 @@ def household_fields(household_id: int, moved_out: bool, carer) -> bytes:
 
 
 # Input::Start (variant 0) { world_seed: u64, founder_tag: DataId, world_params:
-# WorldParams, founders: [Founder], couples: [Couple], capacity: Option<u64> }: no causes
-# of death and no fertility, they come from the data (ADR-0017 sections 2 and 4; design
-# note of the fertility in the world, section 1); the capacity last (design note of the
-# emigration, section 1), none here.
+# WorldParams, founders: [Founder], couples: [Couple], capacity: Option<u64>, pool:
+# Option<PoolStart> }: no causes of death and no fertility, they come from the data
+# (ADR-0017 sections 2 and 4; design note of the fertility in the world, section 1); the
+# capacity (design note of the emigration, section 1), none here; the pool last (design note
+# of the arrival, section 3), none here.
 SAMPLE_INPUT = variant(
     0,
     varint(0xFF),
@@ -253,6 +260,7 @@ SAMPLE_INPUT = variant(
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
     capacity(None),
+    pool_start_none(),
 )
 
 # Input::ArrangePartnership (variant 2) { woman: SimId, man: SimId }
@@ -392,6 +400,7 @@ SAMPLE_INPUT_CAPACITY = variant(
     seq([founder(-946_080_000, FEMALE, genotype(WILD, DUMMY))]),
     seq([]),
     capacity(3),
+    pool_start_none(),
 )
 SAMPLE_CAPACITY_NONE = capacity(None)
 SAMPLE_CAPACITY_3 = capacity(3)

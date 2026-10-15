@@ -496,7 +496,7 @@ fn inputs_of_a_person() {
     let born = SimTime::START - DAY;
     let inputs = BodyInputs::of_person(
         &body,
-        &draws,
+        sim_core::phenotype::Environment::one(&draws),
         &genome,
         own,
         None,
@@ -509,7 +509,7 @@ fn inputs_of_a_person() {
     assert_eq!(inputs.herc2, 1);
     assert_eq!(inputs.sex, Sex::Male);
     let muscle = sim_core::phenotype::phenotype(
-        &draws,
+        sim_core::phenotype::Environment::one(&draws),
         &data,
         &genome,
         own,

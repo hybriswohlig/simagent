@@ -291,10 +291,13 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::market::on_round(&mut self.domain, &self.data, &mut ctx);
             }
             EventPayload::LeaveHome { sim } => {
-                state::household::on_leave_home(&mut self.domain, sim, &mut ctx);
+                state::household::on_leave_home(&mut self.domain, &self.data, sim, &mut ctx);
             }
             EventPayload::Emigration { capacity } => {
                 state::emigration::on_emigration(&mut self.domain, capacity, &mut ctx);
+            }
+            EventPayload::Immigration { persons } => {
+                state::arrival::on_immigration(&mut self.domain, &self.data, persons, &mut ctx);
             }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
@@ -322,7 +325,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Separation { .. }
             | EventPayload::MarketRound
             | EventPayload::LeaveHome { .. }
-            | EventPayload::Emigration { .. } => {
+            | EventPayload::Emigration { .. }
+            | EventPayload::Immigration { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -362,6 +366,7 @@ mod tests {
                 .collect(),
             couples: Vec::new(),
             capacity: None,
+            pool: None,
         })
     }
 
@@ -386,6 +391,7 @@ mod tests {
             moved_out: false,
             parents: None,
             social_parents: Vec::new(),
+            pool: None,
         }
     }
 
@@ -560,6 +566,7 @@ mod tests {
                 carer: None,
                 parents: None,
                 social_parents: Vec::new(),
+                pool: None,
             },
         );
         let mut archive = alloc::collections::BTreeMap::new();
@@ -595,24 +602,31 @@ mod tests {
     /// of `test:world` (the varint of its value from tools/rng_reference.py), male (1),
     /// the genome of reference alleles (the three words of each autosome copy 0, the X 0,
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
-    /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0) and no
-    /// social parents (0).
+    /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0), no
+    /// social parents (0) and not from the pool (0). The used households of the pool (none,
+    /// 0) follow the archive.
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
         world.submit(start(&[-5])).expect("accepted");
         let before = world.canonical_bytes();
-        assert_eq!(before.last(), Some(&0), "an empty archive");
+        assert_eq!(
+            before[before.len() - 2..],
+            [0, 0],
+            "an empty archive, no household used"
+        );
         world
             .state
             .domain
             .archive
             .insert(SimId::try_from(2).expect("valid"), archived());
         let mut expected = before.clone();
-        expected.pop();
+        expected.truncate(before.len() - 2);
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
-        expected.extend([1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+        expected.extend([
+            1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        ]);
         assert_eq!(world.canonical_bytes(), expected);
     }
 

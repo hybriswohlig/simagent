@@ -13,10 +13,15 @@ use std::process::Command;
 
 use serde::Deserialize;
 use sim_cli::files::{self, Manifest, Scenario};
+use std::collections::BTreeSet;
+
 use sim_core::canonical::YearHash;
-use sim_core::input::{ForkOverride, Input};
+use sim_core::data::Data;
+use sim_core::data_id::DataId;
+use sim_core::input::{ForkOverride, Input, PoolStart, Start};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
-use sim_core::params::ParamChange;
+use sim_core::params::{ParamChange, WorldParams};
+use sim_core::pool::take_households;
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
 use sim_core::version::CORE_VERSION;
 
@@ -93,6 +98,74 @@ fn fork_run() -> Run {
         .expect("accepted");
     assert_eq!(stamp.t, fork_stamp);
     run_to(part.world, part.out, part.log, scenario().until)
+}
+
+/// The golden scenario of the arrival (`tests/golden/arrival.json`, from
+/// `tools/arrival_reference.py`, ADR-0020 section 5): the template of map 4 with the pool
+/// `pool_c`, a town founded from the pool with the seed 0xff, `n_start` 50 and one immigrant
+/// household a year, the hereditary diseases on, to the end of year 13. Its scenario file
+/// comes with the scenario format 5 of the CLI; until then the start is built here as the
+/// design note draws it: the households of occasion 0 until they bring 50 persons.
+const ARRIVAL_GOLDEN: &str = include_str!("../../../tests/golden/arrival.json");
+const ARRIVAL_END: i64 = 14 * 31_449_600 - 1;
+
+fn arrival_data() -> Data {
+    let definitions = sim_cli::data::definitions_from(
+        include_str!("../../../data/calibration/demography.json"),
+        include_str!("../../../tests/golden/map4_template/calibration/genetics.json"),
+        include_str!("../../../tests/golden/map4_template/genetics/genome_map.json"),
+    )
+    .expect("definitions");
+    Data::with_pool(
+        definitions,
+        include_bytes!("../../../tests/golden/pool/pool_c.bin"),
+    )
+    .expect("checked")
+}
+
+fn arrival_run() -> Run {
+    let data = arrival_data();
+    let held = data.pool().expect("a pool");
+    let (taken, _) = take_households(held.pool(), 0xff, 0, &BTreeSet::new(), 50);
+    let start = Start {
+        world_seed: 0xff,
+        founder_tag: DataId::new("test:arrival").expect("id"),
+        world_params: WorldParams {
+            hereditary_diseases: true,
+            nutrition: Vec::new(),
+        },
+        founders: Vec::new(),
+        couples: Vec::new(),
+        capacity: None,
+        pool: Some(PoolStart {
+            pool_hash: held.hash(),
+            n_start: 50,
+            immigration: true,
+            households: taken
+                .iter()
+                .map(|&index| held.pool().households[index].clone())
+                .collect(),
+        }),
+    };
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    run_to(
+        world,
+        YearOut::default(),
+        Vec::new(),
+        SimTime::from_secs(ARRIVAL_END),
+    )
+}
+
+#[test]
+fn golden_arrival_matches() {
+    let golden: Golden = serde_json::from_str(ARRIVAL_GOLDEN).expect("the golden parses");
+    assert_eq!(golden.core_version, CORE_VERSION);
+    assert_eq!(golden.data_hash, arrival_data().hash());
+    let run = arrival_run();
+    assert_eq!(run.out.year_hashes, golden.year_hashes);
+    assert_eq!(log_hash(&run.log), golden.log_hash);
+    assert_eq!(golden.year_hashes.len(), 14);
 }
 
 /// The golden of the fork (tools/golden_reference.py), and ADR-0001
@@ -258,6 +331,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
         ("market_round", EventPayload::MarketRound),
         ("leave_home", EventPayload::LeaveHome { sim }),
         ("emigration", EventPayload::Emigration { capacity: 1 }),
+        ("immigration", EventPayload::Immigration { persons: 1 }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -270,7 +344,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Separation { .. }
                 | EventPayload::MarketRound
                 | EventPayload::LeaveHome { .. }
-                | EventPayload::Emigration { .. } => {}
+                | EventPayload::Emigration { .. }
+                | EventPayload::Immigration { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -292,10 +367,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::HouseholdFormed { .. } => "core:household_formed",
         LogPayload::Moved { .. } => "core:moved",
         LogPayload::Emigrated { .. } => "core:emigrated",
+        LogPayload::Arrived { .. } => "core:arrived",
     }
 }
 
-const LOG_KINDS: [&str; 13] = [
+const LOG_KINDS: [&str; 14] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -309,6 +385,7 @@ const LOG_KINDS: [&str; 13] = [
     "core:household_formed",
     "core:moved",
     "core:emigrated",
+    "core:arrived",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -328,19 +405,30 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 }
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
-/// appears at least once. The scenarios are the dummy run and its fork at year 5.
+/// appears at least once. The scenarios are the dummy run, its fork at year 5 and the
+/// arrival; only the arrival has a pool, so only it has immigrants.
 #[test]
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
     assert_eq!(
         uncovered(run.world.stats(), &run.log),
-        ["log core:param_changed"],
-        "the dummy run has no override"
+        [
+            "event immigration",
+            "log core:param_changed",
+            "log core:arrived"
+        ],
+        "the dummy run has no override and no pool"
     );
     let fork = fork_run();
+    let arrival = arrival_run();
     let mut log = run.log;
     log.extend(fork.log);
-    assert_eq!(uncovered(fork.world.stats(), &log), Vec::<String>::new());
+    log.extend(arrival.log);
+    let in_neither: Vec<String> = uncovered(fork.world.stats(), &log)
+        .into_iter()
+        .filter(|kind| uncovered(arrival.world.stats(), &log).contains(kind))
+        .collect();
+    assert_eq!(in_neither, Vec::<String>::new());
 }
 
 /// The two fields behind `prefix` in the lines of a code registry in `tests/golden/`.
@@ -369,7 +457,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 9);
+    assert_eq!(kinds.len(), 10);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -377,7 +465,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 13);
+    assert_eq!(logs.len(), 14);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -385,16 +473,18 @@ fn the_coverage_lists_match_the_code_registries() {
 #[test]
 fn every_required_kind_is_checked() {
     let run = fork_run();
+    let mut log = run.log.clone();
+    log.extend(arrival_run().log);
     for missing in LOG_KINDS {
-        let without: Vec<LogEntry> = run
-            .log
+        let without: Vec<LogEntry> = log
             .iter()
             .filter(|entry| log_kind(&entry.payload) != missing)
             .cloned()
             .collect();
+        // The fork has no pool: its own events never include the immigration.
         assert_eq!(
             uncovered(run.world.stats(), &without),
-            [format!("log {missing}")]
+            ["event immigration".to_owned(), format!("log {missing}")]
         );
     }
     // A world that never ran: no event fired, every event kind is reported.
@@ -403,7 +493,7 @@ fn every_required_kind_is_checked() {
         .into_iter()
         .map(|(name, _, _)| format!("event {name}"))
         .collect();
-    assert_eq!(uncovered(idle.stats(), &run.log), events);
+    assert_eq!(uncovered(idle.stats(), &log), events);
 }
 
 /// The canary of the coverage check (ADR-0003 K10): a scenario without founders, and so
@@ -425,6 +515,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event birth",
             "event separation",
             "event leave_home",
+            "event immigration",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -436,7 +527,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:separated",
             "log core:household_formed",
             "log core:moved",
-            "log core:emigrated"
+            "log core:emigrated",
+            "log core:arrived"
         ]
     );
 }

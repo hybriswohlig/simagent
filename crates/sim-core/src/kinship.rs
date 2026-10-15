@@ -25,15 +25,19 @@
 //! does `F` of a child of second cousins. In an inbred pedigree a person can be in the set
 //! by a short route and still close a long path, which then counts.
 //!
-//! "Younger" is a total order: the later second of birth, and in the same second (twins,
-//! founders created together) the larger `SimId`. The ID only breaks ties, it does not
-//! decide the result: φ is symmetric, and the recursion is valid in every order that puts
-//! parents before their children, because then the expanded person is never an ancestor
-//! of the other one. Two persons of the same second are not ancestors of each other, so
-//! either may be expanded. Every parent must be born before its child (in an earlier
-//! second); a lookup that breaks this is the invariant `kinship.parent_not_older`. That
-//! check also bounds the work: the younger person of a pair gets strictly older with
-//! every step, so the recursion can never return to a pair it is working on.
+//! The recursion works on any key `K` (a `SimId` in the tests, a lineage key in the world,
+//! where persons of the pool and their records have no `SimId`, ADR-0020 section 4). Each
+//! person has an order `(class, second)`: the world puts everyone with a birth in the pool
+//! run (class 0, its second there) before everyone born in the town (class 1). "Younger"
+//! is a total order: the greater `(order, key)`; the key only breaks ties (twins, founders
+//! created together), it does not decide the result: φ is symmetric, and the recursion is
+//! valid in every order that puts parents before their children, because then the
+//! expanded person is never an ancestor of the other one. Two persons of the same order
+//! are not ancestors of each other, so either may be expanded. Every parent must come
+//! strictly before its child in `order`; a lookup that breaks this is the invariant
+//! `kinship.parent_not_older`. That check also bounds the work: the younger person of a
+//! pair gets strictly older with every step, so the recursion can never return to a pair
+//! it is working on.
 //!
 //! # Numbers
 //!
@@ -61,8 +65,8 @@
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
+use core::fmt::Debug;
 
-use crate::ids::SimId;
 use crate::time::SimTime;
 
 /// How far up a query looks (genetics specification 2.7, ADR-0020 section 4, Grok's H2):
@@ -72,25 +76,26 @@ pub const DEPTH: u32 = 3;
 
 /// What the recursion needs to know about one person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Kin {
-    /// The second of birth: the later one is the younger person.
-    pub born: SimTime,
-    /// Mother and father, in this order; `None` for a founder.
-    pub parents: Option<(SimId, SimId)>,
+pub struct Kin<K> {
+    /// `(class, second of birth)`: the greater one is the younger person.
+    pub order: (u8, SimTime),
+    /// The mother and the father, each on its own; `None` for one that is not known.
+    pub mother: Option<K>,
+    pub father: Option<K>,
 }
 
 /// A person as one query sees it: its parents only if they belong to the query.
 #[derive(Clone, Copy)]
-struct Seen {
-    born: SimTime,
-    mother: Option<SimId>,
-    father: Option<SimId>,
+struct Seen<K> {
+    order: (u8, SimTime),
+    mother: Option<K>,
+    father: Option<K>,
 }
 
-/// A pair of persons, the smaller ID first: φ is symmetric.
-type Pair = (SimId, SimId);
+/// A pair of persons, the smaller key first: φ is symmetric.
+type Pair<K> = (K, K);
 
-fn pair(a: SimId, b: SimId) -> Pair {
+fn pair<K: Ord>(a: K, b: K) -> Pair<K> {
     if a <= b { (a, b) } else { (b, a) }
 }
 
@@ -98,36 +103,43 @@ fn pair(a: SimId, b: SimId) -> Pair {
 /// it empty: what a pair is worth depends on the query's ancestors (Grok's H2), so no
 /// value carries over, and a long run holds no more than one query's pairs. A caller may
 /// keep one to reuse its allocation.
-#[derive(Clone, Debug, Default)]
-pub struct KinshipCache {
-    values: BTreeMap<Pair, f64>,
+#[derive(Clone, Debug)]
+pub struct KinshipCache<K> {
+    values: BTreeMap<Pair<K>, f64>,
+}
+
+impl<K> Default for KinshipCache<K> {
+    fn default() -> KinshipCache<K> {
+        KinshipCache {
+            values: BTreeMap::new(),
+        }
+    }
 }
 
 /// How φ of a pair follows from other pairs.
 #[derive(Clone, Copy)]
-enum Rule {
+enum Rule<K> {
     Known(f64),
     /// `(1 + φ(parents)) / 2`: a person with itself whose two parents are known.
-    Inbred(Pair),
+    Inbred(Pair<K>),
     /// `(φ(first) + φ(second)) / 2`: the younger person's mother and father with the
     /// older one; a parent the query does not know adds 0.
-    Mean(Option<Pair>, Option<Pair>),
+    Mean(Option<Pair<K>>, Option<Pair<K>>),
 }
 
 /// The persons of the query of `x` and `y`: the two and every ancestor of either up to
 /// `DEPTH` generations.
-fn query_set(x: SimId, y: SimId, lookup: &impl Fn(SimId) -> Kin) -> BTreeSet<SimId> {
+fn query_set<K: Ord + Copy>(x: K, y: K, lookup: &impl Fn(K) -> Kin<K>) -> BTreeSet<K> {
     let mut set = BTreeSet::new();
     for start in [x, y] {
         set.insert(start);
         let mut generation = BTreeSet::from([start]);
         for _ in 0..DEPTH {
             let mut next = BTreeSet::new();
-            for sim in generation {
-                if let Some((mother, father)) = lookup(sim).parents {
-                    next.insert(mother);
-                    next.insert(father);
-                }
+            for person in generation {
+                let kin = lookup(person);
+                next.extend(kin.mother);
+                next.extend(kin.father);
             }
             set.extend(next.iter().copied());
             generation = next;
@@ -136,33 +148,35 @@ fn query_set(x: SimId, y: SimId, lookup: &impl Fn(SimId) -> Kin) -> BTreeSet<Sim
     set
 }
 
-/// `sim` as the query sees it.
+/// `person` as the query sees it.
 ///
 /// # Panics
 ///
-/// Invariant `kinship.parent_not_older`: a parent the query knows is not born before its
-/// child.
-fn seen(sim: SimId, set: &BTreeSet<SimId>, lookup: &impl Fn(SimId) -> Kin) -> Seen {
-    let kin = lookup(sim);
-    let known = |parent: SimId| {
+/// Invariant `kinship.parent_not_older`: a parent the query knows does not come before its
+/// child in `order`.
+fn seen<K: Ord + Copy + Debug>(
+    person: K,
+    set: &BTreeSet<K>,
+    lookup: &impl Fn(K) -> Kin<K>,
+) -> Seen<K> {
+    let kin = lookup(person);
+    let known = |parent: K| {
         set.contains(&parent).then(|| {
             assert!(
-                lookup(parent).born < kin.born,
-                "invariant kinship.parent_not_older: sim {} parent {}",
-                sim.get(),
-                parent.get()
+                lookup(parent).order < kin.order,
+                "invariant kinship.parent_not_older: {person:?} parent {parent:?}"
             );
             parent
         })
     };
     Seen {
-        born: kin.born,
-        mother: kin.parents.and_then(|(mother, _)| known(mother)),
-        father: kin.parents.and_then(|(_, father)| known(father)),
+        order: kin.order,
+        mother: kin.mother.and_then(known),
+        father: kin.father.and_then(known),
     }
 }
 
-fn rule((a, b): Pair, see: &impl Fn(SimId) -> Seen) -> Rule {
+fn rule<K: Ord + Copy>((a, b): Pair<K>, see: &impl Fn(K) -> Seen<K>) -> Rule<K> {
     let seen_a = see(a);
     if a == b {
         return match (seen_a.mother, seen_a.father) {
@@ -171,7 +185,7 @@ fn rule((a, b): Pair, see: &impl Fn(SimId) -> Seen) -> Rule {
         };
     }
     let seen_b = see(b);
-    let (younger, older) = if (seen_a.born, a) > (seen_b.born, b) {
+    let (younger, older) = if (seen_a.order, a) > (seen_b.order, b) {
         (seen_a, b)
     } else {
         (seen_b, a)
@@ -185,31 +199,31 @@ fn rule((a, b): Pair, see: &impl Fn(SimId) -> Seen) -> Rule {
     }
 }
 
-impl KinshipCache {
-    pub const fn new() -> KinshipCache {
+impl<K: Ord + Copy + Debug> KinshipCache<K> {
+    pub const fn new() -> KinshipCache<K> {
         KinshipCache {
             values: BTreeMap::new(),
         }
     }
 
     /// φ of `x` and `y` over the ancestors up to the great-grandparents of the two
-    /// (`DEPTH`); `lookup` gives birth and parents of every person of their ancestry.
+    /// (`DEPTH`); `lookup` gives order and parents of every person of their ancestry.
     /// Bit for bit the same as [`phi`].
     ///
     /// # Panics
     ///
     /// Invariant `kinship.parent_not_older` if `lookup` gives a parent in the query that
-    /// is not born before its child; whatever `lookup` itself panics with for an unknown
-    /// ID.
-    pub fn phi(&mut self, x: SimId, y: SimId, lookup: impl Fn(SimId) -> Kin) -> f64 {
+    /// does not come before its child; whatever `lookup` itself panics with for an unknown
+    /// key.
+    pub fn phi(&mut self, x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> f64 {
         self.values.clear();
         let set = query_set(x, y, &lookup);
-        let see = |sim: SimId| seen(sim, &set, &lookup);
+        let see = |person: K| seen(person, &set, &lookup);
         let first = pair(x, y);
         let mut current = (first, rule(first, &see));
         // The pairs whose rule waits for a term, with that rule, one per step along the
         // chain that leads to `current`.
-        let mut waiting: Vec<(Pair, Rule)> = Vec::new();
+        let mut waiting: Vec<(Pair<K>, Rule<K>)> = Vec::new();
         loop {
             let (at, rule_at) = current;
             match self.apply(rule_at) {
@@ -229,9 +243,9 @@ impl KinshipCache {
     }
 
     /// The value of `rule` if the memory holds its terms, else the first term missing.
-    fn apply(&self, rule: Rule) -> Result<f64, Pair> {
-        let term = |of: Pair| self.values.get(&of).copied().ok_or(of);
-        let optional = |of: Option<Pair>| of.map_or(Ok(0.0), term);
+    fn apply(&self, rule: Rule<K>) -> Result<f64, Pair<K>> {
+        let term = |of: Pair<K>| self.values.get(&of).copied().ok_or(of);
+        let optional = |of: Option<Pair<K>>| of.map_or(Ok(0.0), term);
         match rule {
             Rule::Known(value) => Ok(value),
             Rule::Inbred(parents) => Ok((1.0 + term(parents)?) / 2.0),
@@ -245,6 +259,6 @@ impl KinshipCache {
 /// # Panics
 ///
 /// As [`KinshipCache::phi`].
-pub fn phi(x: SimId, y: SimId, lookup: impl Fn(SimId) -> Kin) -> f64 {
+pub fn phi<K: Ord + Copy + Debug>(x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> f64 {
     KinshipCache::new().phi(x, y, lookup)
 }

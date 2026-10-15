@@ -284,6 +284,7 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=(), house
         + (NONE if carer is None else some(varint(carer)))
         + NONE  # parents
         + seq([])  # social parents
+        + NONE  # pool: a town person (projection 18, design note of the arrival, section 6.1)
     )
 
 
@@ -354,6 +355,7 @@ def projection(
         + seq([varint(1) + household_state(0)])  # households: 1, formed at the start
         + seq([])  # pregnancies
         + seq([])  # archive
+        + seq([])  # pool_used (projection 18)
     )
 
 
@@ -463,6 +465,7 @@ PAIR_AFTER_START = (
     + seq([varint(1) + household_state(0), varint(2) + household_state(0)])  # households
     + seq([])  # pregnancies
     + seq([])  # archive
+    + seq([])  # pool_used (projection 18)
 )
 
 # Save file of ADR-0006: header, projection, exceptions.
@@ -470,8 +473,8 @@ DATA_HASH = world_reference.DATA_HASH
 
 
 def header(data_hash: int) -> bytes:
-    """magic, format_version 1, core_version, data_hash"""
-    return b"SIMAGENT" + varint(1) + varint(CORE_VERSION) + varint(data_hash)
+    """magic, format_version (2 since the arrival), core_version, data_hash"""
+    return b"SIMAGENT" + varint(world_reference.FORMAT_VERSION) + varint(CORE_VERSION) + varint(data_hash)
 
 
 def plan_ref(by: int, planned_at: int) -> bytes:
@@ -493,6 +496,7 @@ TINY_INPUT_LOG = seq(
             seq([founder(-1, FEMALE, TINY_GENES)]),
             seq([]),  # couples
             capacity(None),  # no capacity (design note of the emigration, section 1)
+            NONE,  # no pool (design note of the arrival, section 3)
         )
     ]
 )
@@ -526,6 +530,7 @@ EMPTY_PROJECTION = (
     + seq([])  # households
     + seq([])  # pregnancies
     + seq([])  # archive
+    + seq([])  # pool_used (projection 18)
 )
 EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
@@ -582,6 +587,7 @@ TINY_SAVE_OVERRIDDEN = (
                 seq([founder(-1, FEMALE, TINY_GENES)]),
                 seq([]),  # couples
                 capacity(None),
+                NONE,  # no pool
             ),
             signed(-1) + varint(2) + variant(1, seq([param_change(True)])),
         ]
@@ -1317,9 +1323,12 @@ SECOND_UNIT = unit(words(chacha_key(0xFF, CONCEPTION_ATTEMPT_TAG, CLAN_KEYS[0], 
 assert SECOND_UNIT < 0.25
 # Pregnancy { father, conception, children: [Unborn { lineage_key, sex, genome }],
 # conceived } (projection version 14, design note of the twins, section 4): one child.
+# Since the arrival (projection 18) `father` is an option and `pool_father` (none in a town
+# pregnancy) follows it.
 SECOND_PREGNANCY_BYTES = (
     varint(1)
-    + varint(SECOND_FATHER)
+    + some(varint(SECOND_FATHER))
+    + NONE
     + varint(SECOND_NUMBER)
     + seq([lineage_key(SECOND_KEY) + SECOND_SEX + genome_of(SECOND_PERSON)])
     + signed(SECOND_CONCEIVED)
@@ -4574,6 +4583,7 @@ def start_record(seed: int, tag: str, founders: list, couples: list, capacity_va
             seq([founder(born, sex, genes) for born, sex, genes in founders]),
             seq([world_reference.couple(woman, man) for woman, man in couples]),
             capacity(capacity_value),
+            NONE,  # no pool (design note of the arrival, section 3)
         )
     )
 

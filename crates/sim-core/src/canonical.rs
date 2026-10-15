@@ -24,7 +24,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 17;
+pub const PROJECTION_VERSION: u32 = 18;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -56,6 +56,7 @@ pub(crate) struct LoadedState {
     pub(crate) households: BTreeMap<HouseholdId, Household>,
     pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
+    pub(crate) pool_used: Vec<u32>,
 }
 
 /// The canonical view of the state, in the field order of ADR-0003 5.2. Maps serialize
@@ -76,6 +77,7 @@ pub struct CanonicalState<'a> {
     households: &'a BTreeMap<HouseholdId, Household>,
     pregnancies: &'a BTreeMap<SimId, Pregnancy>,
     archive: &'a BTreeMap<SimId, ArchivedSim>,
+    pool_used: &'a Vec<u32>,
 }
 
 /// The projection of the handler state and the scheduler.
@@ -117,6 +119,7 @@ pub fn canonical_projection<'a>(
         households: &domain.households,
         pregnancies: &domain.pregnancies,
         archive: &domain.archive,
+        pool_used: &domain.pool_used,
     }
 }
 

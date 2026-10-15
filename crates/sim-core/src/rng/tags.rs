@@ -123,6 +123,11 @@ pub const PRERUN_ALLELE: PurposeTag = PurposeTag::from_pinned_list(25);
 /// `str_key` of the locus, detail the gamete (0 maternal, 1 paternal); the pool seed.
 pub const POOL_ALLELE: PurposeTag = PurposeTag::from_pinned_list(26);
 
+/// The order of the households of the pool for a town's founders and each year's
+/// immigrants (ADR-0020 section 5): a rank, subject `WORLD`, occasion 0 at `Start` and the
+/// year for immigration, candidate the smallest lineage key of a member of 18 or more.
+pub const POOL_RANK: PurposeTag = PurposeTag::from_pinned_list(27);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -151,6 +156,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (EMIGRATION, "EMIGRATION"),
     (PRERUN_ALLELE, "PRERUN_ALLELE"),
     (POOL_ALLELE, "POOL_ALLELE"),
+    (POOL_RANK, "POOL_RANK"),
 ];
 
 /// Values of deleted tags; they are never used again.

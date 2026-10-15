@@ -87,6 +87,7 @@ fn sample_input() -> Input {
         }],
         couples: Vec::new(),
         capacity: None,
+        pool: None,
     })
 }
 
@@ -151,10 +152,10 @@ const STAMP_JSON: &str = r#"{"t":5,"seq":1}"#;
 // tools/postcard_reference.py
 const ENTRY_POSTCARD: &str =
     "0780c60a01002a040103000314636f72653a676f6d706572747a5f68617a617264000502010201";
-const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f61720200010000";
+const INPUT_POSTCARD: &str = "00ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f6172020001000000";
 const OVERRIDE_POSTCARD: &str = "01010001";
 const STAMP_POSTCARD: &str = "0a01";
-const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f61720200010000";
+const RECORD_POSTCARD: &str = "010100ff0114746573743a666f726b5f6e6f5f64656e73697479000001ffa3a0860700010f636f72653a646973656173655f6172020001000000";
 const NEGATIVE_STAMP_POSTCARD: &str = "09ffffffffffffff0f";
 const REJECTED_POSTCARD: &str = "00";
 const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
@@ -553,12 +554,14 @@ fn postcard_forms_are_pinned() {
         founders: Vec::new(),
         couples: Vec::new(),
         capacity: None,
+        pool: None,
     });
     let mut expected = vec![0];
     expected.extend(hex(MAX_U64_POSTCARD));
     // The tag, the switch off (one byte 0), no nutrition years, no founders and no
-    // couples (three lengths 0), no capacity (`None`, one byte 0; ADR-0020 section 6).
-    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0, 0]);
+    // couples (three lengths 0), no capacity (`None`, one byte 0; ADR-0020 section 6), no
+    // pool (`None`, one byte 0; ADR-0020 section 5).
+    expected.extend([3, b'a', b':', b'b', 0, 0, 0, 0, 0, 0]);
     assert_eq!(postcard_round_trip(&full_seed), expected);
 }
 
@@ -862,6 +865,7 @@ fn formats_roundtrip_no_json_number_leaves_the_js_safe_range() {
         }],
         couples: Vec::new(),
         capacity: None,
+        pool: None,
     });
     // A lineage key is a full-range number as well.
     let added = serde_json::to_value(&all_payloads()[1]).expect("json");
@@ -918,6 +922,9 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Emigrated {
             household: HouseholdId::try_from(1).expect("valid"),
         },
+        LogPayload::Arrived {
+            lineage_key: LineageKey::founder(&DataId::new("test:x").expect("valid"), 0),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -933,6 +940,7 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Birth { .. }
             | LogPayload::Separated { .. }
             | LogPayload::HouseholdFormed { .. }
+            | LogPayload::Arrived { .. }
             | LogPayload::Moved { .. }
             | LogPayload::Emigrated { .. } => {}
         }
@@ -966,6 +974,10 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::PartnerTooYoung,
         RejectCode::PartnersTooCloselyRelated,
         RejectCode::CapacityZero,
+        RejectCode::StartPoolAndFounders,
+        RejectCode::StartPoolMissing,
+        RejectCode::StartPoolNStart,
+        RejectCode::StartPoolHouseholds,
     ];
     for code in &codes {
         match code {
@@ -992,7 +1004,11 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::NutritionYearPast
             | RejectCode::PartnerTooYoung
             | RejectCode::PartnersTooCloselyRelated
-            | RejectCode::CapacityZero => {}
+            | RejectCode::CapacityZero
+            | RejectCode::StartPoolAndFounders
+            | RejectCode::StartPoolMissing
+            | RejectCode::StartPoolNStart
+            | RejectCode::StartPoolHouseholds => {}
         }
     }
     codes

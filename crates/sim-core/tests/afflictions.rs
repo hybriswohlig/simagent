@@ -52,6 +52,7 @@ fn afflicted(tag: &str, on: bool, founders: Vec<Founder>) -> World {
             founders,
             couples: Vec::new(),
             capacity: None,
+            pool: None,
         }))
         .expect("accepted");
     world
@@ -170,7 +171,7 @@ fn a_visible_disease_never_kills() {
 #[test]
 fn the_afflictions_are_those_of_the_reference() {
     let world = afflicted("test:afflicted", true, the_ten());
-    assert_eq!(world.state_hash(), 0x3cae_07db_2012_5bf3);
+    assert_eq!(world.state_hash(), 0xbc27_4cc7_088d_4a06);
 }
 
 /// A save of "afflicted" loads and gives the same bytes, at the start and after the first

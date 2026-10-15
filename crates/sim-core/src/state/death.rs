@@ -25,13 +25,24 @@ use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::time::{SimDuration, SimTime};
 use crate::world::{EventPayload, SimCtx};
 
-/// The address of the budget of a person for the cause with the key `cause`.
-pub(crate) fn budget_key(lineage_key: LineageKey, cause: u64) -> DrawKey {
+/// The address of the budget of a person for the cause with the key `cause`; `detail` is
+/// the arrival year of a person who arrived from the pool, else 0 (ADR-0020 section 5).
+pub(crate) fn budget_key(lineage_key: LineageKey, cause: u64, detail: u64) -> DrawKey {
     DrawKey {
         tag: tags::DEATH_BUDGET,
         subject: SubjectKey::from(lineage_key),
         occasion: cause,
-        detail: 0,
+        detail,
+    }
+}
+
+/// From when the hazards of a person act and the detail of its budgets (design note of the
+/// arrival, section 6.4): a person who arrived from the pool from its arrival, with its
+/// arrival year; everyone else from its origin (`origin`), with 0.
+pub(crate) fn mortal(born: SimTime, pool: Option<&super::PoolOrigin>) -> (SimTime, u64) {
+    match pool {
+        Some(from) if from.born_pool.is_some() => (from.arrived, from.arrival_year),
+        _ => (origin(born), 0),
     }
 }
 
@@ -55,6 +66,7 @@ pub(crate) fn everyone_dues(
     data: &Data,
     seed: u64,
     facts: (SimTime, LineageKey, Sex, &Genome),
+    (origin, detail): (SimTime, u64),
 ) -> [(u64, Option<SimTime>); 2] {
     let (born, lineage_key, sex, genome) = facts;
     let genetics = data.genetics();
@@ -62,10 +74,9 @@ pub(crate) fn everyone_dues(
         Sex::Female => (genetics.senescence_female, genetics.accident_female),
         Sex::Male => (genetics.senescence_male, genetics.accident_male),
     };
-    let origin = origin(born);
     let start = disease::age(born, origin);
     let draws = Draws::new(WorldSeed::new(seed));
-    let budget = |key: u64| draws.exponential(budget_key(lineage_key, key), 1.0);
+    let budget = |key: u64| draws.exponential(budget_key(lineage_key, key, detail), 1.0);
     let longevity = data.longevity_trait().map(|t| {
         genome
             .genetic_value(t, data)
@@ -117,7 +128,8 @@ pub(crate) fn plan_deaths(
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
     let facts = (person.born, person.lineage_key, person.sex, &person.genome);
-    for (key, due) in everyone_dues(data, seed, facts) {
+    let lot = mortal(person.born, person.pool.as_ref());
+    for (key, due) in everyone_dues(data, seed, facts, lot) {
         let Some(at) = due else {
             continue;
         };
@@ -143,13 +155,14 @@ fn plan_disease_deaths(
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
     let mut planned = Vec::new();
+    let (_, detail) = mortal(person.born, person.pool.as_ref());
     for affliction in &person.afflictions {
         let definition = disease::of_key(data, affliction.disease)
             .unwrap_or_else(|| panic!("invariant death.unknown_disease"));
         if let Some(at) = disease::due(
             seed,
             person.born,
-            person.lineage_key,
+            (person.lineage_key, detail),
             affliction,
             definition,
         ) {
@@ -224,10 +237,15 @@ pub(crate) fn on_death(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let code = cause_code(data, cause).unwrap_or_else(|| panic!("invariant death.unknown_cause"));
-    let Some(lineage_key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
+    let Some((lineage_key, (_, detail))) = domain.sims.get(&sim).map(|person| {
+        (
+            person.lineage_key,
+            mortal(person.born, person.pool.as_ref()),
+        )
+    }) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
-    let draw = budget_key(lineage_key, cause);
+    let draw = budget_key(lineage_key, cause, detail);
     let entry = ctx.emit(
         LogPayload::Death { cause: code },
         vec![Subject::Sim(sim)],
@@ -239,7 +257,7 @@ pub(crate) fn on_death(
         .and_then(|id| domain.partnerships.get(&id))
         .map(|p| if p.woman == sim { p.man } else { p.woman });
     partnership::end_with(domain, sim, EndedBy::Death, ctx);
-    household::death_moves(domain, sim, household, partner, entry, ctx);
+    household::death_moves(domain, data, sim, household, partner, entry, ctx);
 }
 
 /// `sim` leaves the active population for the archive now, by `left_by`: what was planned
@@ -281,6 +299,7 @@ pub(crate) fn archive(
             partnerships: person.partnerships,
             household: person.household,
             moved_out: person.moved_out,
+            pool: person.pool,
             parents: person.parents,
             social_parents: person.social_parents,
         },

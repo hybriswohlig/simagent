@@ -12,14 +12,14 @@ use crate::genome::{LocusAlleles, Sex};
 use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::input::{Input, InputRecord};
 use crate::kinship::KinshipCache;
-use crate::lineage::LineageKey;
+use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
 use crate::state::{Affliction, EndedBy, LeftBy, market};
 use crate::time::SimTime;
 
 /// The version of the form of `pedigree.json` (step 10 added social parents, households,
 /// carers, diseases, the end of a partnership and its kinship; step 11 the emigration).
-pub const PEDIGREE_FORMAT: u32 = 3;
+pub const PEDIGREE_FORMAT: u32 = 4;
 
 /// All sims, all partnerships and all households, each by ID.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -55,6 +55,37 @@ pub struct Person {
     pub carer: Option<SimId>,
     /// Its hereditary diseases in the order of the data (ADR-0017 section 3).
     pub diseases: Vec<Shown>,
+    /// Where a pool person came from (ADR-0020 section 5); `None` for a town person.
+    pub pool: Option<FromPool>,
+}
+
+/// A pool person's origin (design note of the arrival, section 8): its relations as
+/// lineage keys, since its parents may never have come into the town.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FromPool {
+    pub genome_key: GenomeKey,
+    /// Its birth second in the pool run; `None` for a child of a pool pregnancy born in
+    /// the town.
+    pub born_pool: Option<SimTime>,
+    pub arrived: SimTime,
+    pub arrival_year: u64,
+    pub mother_key: Option<LineageKey>,
+    pub father_key: Option<LineageKey>,
+    pub social_parent_keys: Vec<LineageKey>,
+}
+
+impl FromPool {
+    fn of(origin: &crate::state::PoolOrigin) -> FromPool {
+        FromPool {
+            genome_key: origin.genome_key,
+            born_pool: origin.born_pool,
+            arrived: origin.arrived,
+            arrival_year: origin.arrival_year,
+            mother_key: origin.mother,
+            father_key: origin.father,
+            social_parent_keys: origin.social_parents.clone(),
+        }
+    }
 }
 
 /// A hereditary disease of a person: its onset age in years and whether it shows.
@@ -160,6 +191,7 @@ impl crate::world::World {
             moved_out: sim.moved_out,
             carer: sim.carer,
             diseases: shown(&sim.afflictions, sim.born, now),
+            pool: sim.pool.as_ref().map(FromPool::of),
         });
         let archived = domain.archive.iter().map(|(id, sim)| {
             let (died, cause_of_death, emigrated) = match sim.left_by {
@@ -182,6 +214,7 @@ impl crate::world::World {
                 moved_out: sim.moved_out,
                 carer: None,
                 diseases: shown(&sim.afflictions, sim.born, sim.left),
+                pool: sim.pool.as_ref().map(FromPool::of),
             }
         });
         let mut persons: Vec<Person> = living.chain(archived).collect();
@@ -201,7 +234,13 @@ impl crate::world::World {
                     EndedBy::Separation => End::Separation,
                     EndedBy::Emigration => End::Emigration,
                 }),
-                kinship: market::phi_with(&mut cache, domain, partnership.woman, partnership.man),
+                kinship: market::phi_with(
+                    &mut cache,
+                    domain,
+                    data,
+                    partnership.woman,
+                    partnership.man,
+                ),
             })
             .collect();
         let households = domain
@@ -228,7 +267,8 @@ impl crate::world::WorldState {
     pub fn kinship(&self, a: SimId, b: SimId) -> Option<f64> {
         let domain = self.domain();
         let known = |sim: &SimId| domain.sims.contains_key(sim) || domain.archive.contains_key(sim);
-        (known(&a) && known(&b)).then(|| market::phi_with(&mut KinshipCache::new(), domain, a, b))
+        (known(&a) && known(&b))
+            .then(|| market::phi_with(&mut KinshipCache::new(), domain, self.data(), a, b))
     }
 }
 
@@ -259,6 +299,7 @@ mod tests {
             founders: Vec::new(),
             couples: Vec::new(),
             capacity: None,
+            pool: None,
         })
     }
 

@@ -183,6 +183,10 @@ pub enum LogPayload {
     /// (ADR-0020 section 6).
     #[serde(rename = "core:emigrated")]
     Emigrated { household: HouseholdId },
+    /// A person of the pool came into the town (creation entry of a SimId; ADR-0020
+    /// section 5): a founder at `Start` or an immigrant.
+    #[serde(rename = "core:arrived")]
+    Arrived { lineage_key: LineageKey },
 }
 
 /// One entry of the domain log.

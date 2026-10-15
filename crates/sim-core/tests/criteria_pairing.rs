@@ -142,6 +142,7 @@ fn town() -> (Vec<(usize, usize)>, Vec<[f64; 2]>) {
             founders: founders.clone(),
             couples: Vec::new(),
             capacity: None,
+            pool: None,
         }))
         .expect("accepted");
     let mut out = YearOut::default();
@@ -167,7 +168,16 @@ fn town() -> (Vec<(usize, usize)>, Vec<[f64; 2]>) {
             let genome = Genome::with_alleles(founder.sex, &founder.alleles, &data).expect("valid");
             let key = LineageKey::founder(&tag, index);
             traits.clone().map(|t| {
-                phenotype(&draws, &data, &genome, key, None, &t, adult).expect("a phenotype")
+                phenotype(
+                    sim_core::phenotype::Environment::one(&draws),
+                    &data,
+                    &genome,
+                    key,
+                    None,
+                    &t,
+                    adult,
+                )
+                .expect("a phenotype")
             })
         })
         .collect();

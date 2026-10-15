@@ -818,7 +818,10 @@ def golden(world: World) -> str:
 # emigration, 3 by separation; every `φ` 0 (founders, and sim 8 with the founder sim 4).
 PEDIGREE = json.loads(PARENT.pedigree_json())
 FORK_PEDIGREE = json.loads(FORK.pedigree_json())
-assert PEDIGREE["format_version"] == 3 and list(PEDIGREE) == ["format_version", "persons", "partnerships", "households"]
+# Format 4 since the arrival (design note of the arrival, section 8): `pool` null for every
+# person of these runs.
+assert PEDIGREE["format_version"] == 4 and list(PEDIGREE) == ["format_version", "persons", "partnerships", "households"]
+assert all(person["pool"] is None and list(person)[-1] == "pool" for view in (PEDIGREE, FORK_PEDIGREE) for person in view["persons"])
 assert list(PEDIGREE["persons"][0])[5:8] == ["died", "cause_of_death", "emigrated"]
 assert [(p["sim"], p["died"], p["cause_of_death"], p["household"], p["carer"]) for p in PEDIGREE["persons"] if p["emigrated"] is not None] == [
     (sim, None, None, 2, None) for sim in EMIGRANTS

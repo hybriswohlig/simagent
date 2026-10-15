@@ -17,17 +17,7 @@ use crate::prerun::{
     Group, POOL_SEED, data_of, founders, groups, prerun_files, run_observed, start,
 };
 
-/// The seven loci the pre-run leaves at the reference allele and the pool assigns
-/// (ADR-0020 section 4).
-pub const POOL_LOCI: [&str; 7] = [
-    "core:disease_ar",
-    "core:disease_ad_late",
-    "core:disease_ad_partial",
-    "core:disease_xr",
-    "core:disease_mt",
-    "core:mc1r",
-    "core:herc2",
-];
+pub use sim_core::pool::pool_loci;
 
 /// The chromosome each of the seven loci must be on: its rule of inheritance in the pool
 /// depends on it (design note, section 3; review).
@@ -54,7 +44,8 @@ pub fn take_frequencies(calibration: &Json, map: &Json) -> Result<(Json, BTreeMa
     let Some(Json::Object(entry)) = calibration.get("pool_frequencies") else {
         return Err("pool.frequencies_loci: no object pool_frequencies".to_owned());
     };
-    let wanted: BTreeSet<&str> = POOL_LOCI.into_iter().collect();
+    let loci = pool_loci();
+    let wanted: BTreeSet<&str> = loci.iter().map(DataId::as_str).collect();
     let given: BTreeSet<&str> = entry.iter().map(|(id, _)| id.as_str()).collect();
     if given != wanted || given.len() != entry.len() {
         return Err(format!("pool.frequencies_loci: {given:?}"));

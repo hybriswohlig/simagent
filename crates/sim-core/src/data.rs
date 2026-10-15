@@ -4,6 +4,7 @@
 //! loads and reference values of the genome map follow ADR-0008.
 
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -15,7 +16,9 @@ use crate::demography::{Demography, DemographyCalibration, read_demography};
 use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
+use crate::lineage::LineageKey;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
+use crate::pool::{Ancestor, Pool, PoolError, PoolUnborn};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
 pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
@@ -536,6 +539,48 @@ pub struct Data {
     /// For each threshold disease with a trait of liability its threshold
     /// `T = probit(1 − K)` (genetics specification 3.6, ADR-0020 section 2).
     thresholds: BTreeMap<DataId, f64>,
+    /// The pool of the pre-run, if the data hold one (ADR-0020 section 4).
+    pool: Option<Arc<PoolData>>,
+}
+
+/// The pool of the pre-run in the data with its lookups by lineage key (design note of the
+/// arrival, section 2).
+#[derive(Debug, PartialEq)]
+pub struct PoolData {
+    pool: Pool,
+    hash: u64,
+    /// Each record: its place among the ancestors.
+    records: BTreeMap<LineageKey, usize>,
+    /// Each unborn child: its household, its pregnancy there and its place in it.
+    unborn: BTreeMap<LineageKey, (usize, usize, usize)>,
+}
+
+impl PoolData {
+    pub const fn pool(&self) -> &Pool {
+        &self.pool
+    }
+
+    /// `Pool::hash` of the file.
+    pub const fn hash(&self) -> u64 {
+        self.hash
+    }
+
+    /// A record of the ancestors by its lineage key.
+    pub fn record(&self, key: LineageKey) -> Option<&Ancestor> {
+        self.pool.ancestors.get(*self.records.get(&key)?)
+    }
+
+    /// An unborn child of a pregnancy of the pool by its lineage key.
+    pub fn unborn(&self, key: LineageKey) -> Option<&PoolUnborn> {
+        let (household, pregnancy, place) = *self.unborn.get(&key)?;
+        self.pool
+            .households
+            .get(household)?
+            .pregnancies
+            .get(pregnancy)?
+            .children
+            .get(place)
+    }
 }
 
 /// Why definitions are not loaded; the code is stable.
@@ -571,6 +616,14 @@ pub enum DataError {
     /// A value of the life course data outside its range, or a contradiction (ADR-0017
     /// section 1).
     Demography,
+    /// The pool file is rejected by its reader (design note of the pool file, section 7).
+    Pool(PoolError),
+    /// A member's carer is no member of its household (ADR-0020 section 5).
+    PoolCarer,
+    /// A genome of the pool does not fit the person's sex.
+    PoolSex,
+    /// One of the seven loci of the pool is not in the map.
+    PoolLocus,
 }
 
 impl fmt::Display for DataError {
@@ -601,6 +654,10 @@ impl fmt::Display for DataError {
             DataError::Disease => "data.disease",
             DataError::TraitNamed => "data.trait_named",
             DataError::Demography => "data.demography",
+            DataError::Pool(error) => return fmt::Display::fmt(error, f),
+            DataError::PoolCarer => "pool.carer_not_member",
+            DataError::PoolSex => "pool.sex",
+            DataError::PoolLocus => "pool.locus",
         })
     }
 }
@@ -1537,7 +1594,76 @@ impl Data {
             phenotypes,
             sex_differences,
             thresholds,
+            pool: None,
         })
+    }
+
+    /// The definitions with a pool (design note of the arrival, section 2): the bytes of a
+    /// pool file, read with all its checks, then these checks in this order: every carer is
+    /// a member of its household, every genome fits its sex, the seven loci of the pool are
+    /// in the map. The data hash then also covers the pool: xxh3 of the definitions' bytes
+    /// followed by the postcard bytes of `(pool_seed, pool_hash)`.
+    pub fn with_pool(definitions: Definitions, pool_bytes: &[u8]) -> Result<Data, DataError> {
+        let mut data = Data::new(definitions)?;
+        let pool = Pool::from_bytes(pool_bytes).map_err(DataError::Pool)?;
+        for household in &pool.households {
+            let keys: alloc::collections::BTreeSet<LineageKey> =
+                household.members.iter().map(|m| m.lineage_key).collect();
+            if household
+                .members
+                .iter()
+                .any(|m| m.carer.is_some_and(|carer| !keys.contains(&carer)))
+            {
+                return Err(DataError::PoolCarer);
+            }
+        }
+        let fits = pool.households.iter().all(|household| {
+            household.members.iter().all(|m| m.genome.sex() == m.sex)
+                && household
+                    .pregnancies
+                    .iter()
+                    .flat_map(|p| p.children.iter())
+                    .all(|child| child.genome.sex() == child.sex)
+        });
+        if !fits {
+            return Err(DataError::PoolSex);
+        }
+        let loci_known = crate::pool::pool_loci()
+            .iter()
+            .all(|id| data.loci.contains_key(id));
+        if !loci_known {
+            return Err(DataError::PoolLocus);
+        }
+        let mut unborn = BTreeMap::new();
+        for (h, household) in pool.households.iter().enumerate() {
+            for (p, pregnancy) in household.pregnancies.iter().enumerate() {
+                for (c, child) in pregnancy.children.iter().enumerate() {
+                    unborn.insert(child.lineage_key, (h, p, c));
+                }
+            }
+        }
+        let records = pool
+            .ancestors
+            .iter()
+            .enumerate()
+            .map(|(place, record)| (record.lineage_key, place))
+            .collect();
+        let hash = pool.hash();
+        let mut bytes = encode(&data.definitions);
+        bytes.extend(encode(&(pool.pool_seed, hash)));
+        data.hash = stable_hash64(&bytes);
+        data.pool = Some(Arc::new(PoolData {
+            pool,
+            hash,
+            records,
+            unborn,
+        }));
+        Ok(data)
+    }
+
+    /// The pool of the data, if it holds one.
+    pub fn pool(&self) -> Option<&PoolData> {
+        self.pool.as_deref()
     }
 
     /// The threshold `T` of a threshold disease with a trait of liability (ADR-0020 section

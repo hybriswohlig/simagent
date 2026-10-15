@@ -48,28 +48,84 @@ pub(crate) fn on_birth(
         .map(|her| her.household)
         .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", mother.get()));
     // The lineage keys of the parents, for the phenotype of a trait of liability; the
-    // father may have died during the pregnancy.
-    let key_of = |sim: SimId| {
-        domain
-            .sims
-            .get(&sim)
-            .map(|person| person.lineage_key)
-            .or_else(|| domain.archive.get(&sim).map(|person| person.lineage_key))
-            .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()))
-    };
+    // father may have died during the pregnancy, or never come from the pool.
+    let father_key = pregnancy
+        .pool_father
+        .or_else(|| pregnancy.father.map(|father| domain.key_of(father)))
+        .unwrap_or_else(|| panic!("invariant birth.father"));
     let parent_keys = crate::phenotype::Parents {
-        mother: key_of(mother),
-        father: key_of(pregnancy.father),
+        mother: domain.key_of(mother),
+        father: father_key,
     };
+    // A town child of two pool persons draws `C` with the pool seed (design note of the
+    // arrival, section 6.2).
+    let pool_seed = data.pool().map(|held| held.pool().pool_seed);
+    let town_seeds = match (pregnancy.father, pool_seed) {
+        (Some(father), Some(pool))
+            if domain.pool_origin(mother).is_some() && domain.pool_origin(father).is_some() =>
+        {
+            super::Seeds {
+                individual: seed,
+                shared: pool,
+                life: seed,
+            }
+        }
+        _ => super::Seeds::one(seed),
+    };
+    let year = u64::try_from(now.as_secs().div_euclid(crate::time::YEAR.as_secs()))
+        .unwrap_or_else(|_| panic!("invariant time.out_of_range"));
     for unborn in &pregnancy.children {
         let (child, born) = ctx.create_child(
             LogPayload::Birth {
                 lineage_key: unborn.lineage_key,
             },
-            [mother, pregnancy.father],
+            (mother, pregnancy.father),
             Causes::new(ctx.trigger()).with(Cause::Rule(rule.clone())),
         );
         first.get_or_insert(born);
+        // A child of a pregnancy from the pool is a pool person: its afflictions and its
+        // genome key are the pool's (design note of the arrival, section 6.3).
+        let (afflictions, parents, pool) = match pregnancy.pool_father {
+            Some(pool_father) => {
+                let record = data
+                    .pool()
+                    .and_then(|held| held.unborn(unborn.lineage_key))
+                    .unwrap_or_else(|| panic!("invariant pool.unborn"));
+                (
+                    super::arrival::afflictions(data, &record.afflictions, now, switch_on),
+                    None,
+                    Some(super::PoolOrigin {
+                        genome_key: record.genome_key,
+                        born_pool: None,
+                        arrived: now,
+                        arrival_year: year,
+                        mother: Some(parent_keys.mother),
+                        father: Some(pool_father),
+                        social_parents: alloc::vec::Vec::new(),
+                    }),
+                )
+            }
+            None => (
+                disease::afflictions(
+                    data,
+                    town_seeds,
+                    (unborn.lineage_key, Some(parent_keys)),
+                    unborn.sex,
+                    &unborn.genome,
+                    switch_on,
+                    now,
+                ),
+                Some(Parents {
+                    mother,
+                    father: pregnancy
+                        .father
+                        .unwrap_or_else(|| panic!("invariant birth.father")),
+                    conception: pregnancy.conception,
+                }),
+                None,
+            ),
+        };
+        domain.keys.insert(unborn.lineage_key, child);
         domain.sims.insert(
             child,
             Sim {
@@ -77,15 +133,7 @@ pub(crate) fn on_birth(
                 lineage_key: unborn.lineage_key,
                 sex: unborn.sex,
                 genome: unborn.genome,
-                afflictions: disease::afflictions(
-                    data,
-                    seed,
-                    (unborn.lineage_key, Some(parent_keys)),
-                    unborn.sex,
-                    &unborn.genome,
-                    switch_on,
-                    now,
-                ),
+                afflictions,
                 conceptions: 0,
                 births: 0,
                 partnerships: 0,
@@ -93,12 +141,9 @@ pub(crate) fn on_birth(
                 household: mother_household,
                 moved_out: false,
                 carer: Some(mother),
-                parents: Some(Parents {
-                    mother,
-                    father: pregnancy.father,
-                    conception: pregnancy.conception,
-                }),
+                parents,
                 social_parents: alloc::vec::Vec::new(),
+                pool,
             },
         );
         household::born_into(domain, child, mother, ctx);
