@@ -1107,6 +1107,80 @@ def leave_home_at_start_rows() -> list:
 
 
 # ---------------------------------------------------------------------------------------
+# A birth and a pairing by the market in the same second (accepted)
+
+# "arrival" with another seed: the woman of pool household 28 (her pool pregnancy's father is a
+# record only, so she is single) gives birth at second 14515200, a month start, and the round
+# of that second (n = 6; births, class 200, run before it, class 500) pairs her. Found by a
+# scan (not a pin): of the seeds 0 to 4095 with household 28 at second 0 (`Start` with `n_start`
+# 50 or the immigration of year 0), 14 have her MARKET_SEARCH draw of round 6 below her chance
+# (0.0064 at 33 years), and in each of the 14 runs she is paired then; 0xef is the smallest.
+TIE_SEED = 0xEF
+TIE_SECOND = 14515200
+TIE_WOMAN_KEY = 0x6A9C7AFCA6158ECD
+
+
+def birth_pairing_tie_rows() -> list:
+    """The tie of a birth and a pairing in one second: her series starts from the pairing (the
+    first month start after it), not from the pause after the birth (`World.series_due`; the
+    round runs after the births of its second). The saves at the clock of that second and just
+    before her first attempt pass every load check of the model; the same state with her series
+    moved to the second the pause after the birth would give is rejected."""
+    name = "birth_pairing_tie"
+    data = town_data(golden_pool(ARRIVAL_POOL))
+    world = make_world(data, TIE_SEED, ARRIVAL_N_START, True)
+    check_all(world)
+    world.advance(TIE_SECOND)
+    woman = world.by_key[TIE_WOMAN_KEY]
+    number = world.open_partnership(woman)
+    man = world.partnerships[number][1]
+    births = world.town_births(woman)
+    (choice,) = [c for r in world.rounds if r["t"] == TIE_SECOND for c in r["choices"] if c["woman"] == woman]
+    assert births == [TIE_SECOND] and choice["outcome"] == "paired" and choice["partnership"] == number
+    assert world.partnerships[number][2] == TIE_SECOND and (TIE_SECOND, woman, man) not in world.input_pairings
+    assert not [n for n, value in world.partnerships.items() if value[0] == woman and n != number]
+    (child,) = [sim for sim in set(world.sims) | set(world.archive) if world.born_of(sim) == TIE_SECOND and world.is_pool_person(sim) and world.origins[sim]["mother"] == TIE_WOMAN_KEY]
+    first = world.series_due(woman)
+    assert first == wr.month_start_after(TIE_SECOND) == world.pending_series(woman)
+    counted = wr.month_start_at_or_after(TIE_SECOND + max(world.data.pause_months * MONTH, 1))
+    assert counted != first
+    fired = [key for key, _ in world.fired if key[0] == TIE_SECOND]
+    birth_at = [i for i, key in enumerate(fired) if key[6] == wr.BIRTH_KIND and key[5] == woman]
+    round_at = [i for i, key in enumerate(fired) if key[6] == wr.MARKET_ROUND_KIND]
+    assert birth_at and round_at and birth_at[0] < round_at[0]
+    pool = data.pool
+    rows = [
+        f"{name} config pool {ARRIVAL_POOL} (tests/golden/pool/{ARRIVAL_POOL}.bin) pool_bytes {len(golden_pool(ARRIVAL_POOL))} pool_xxh3 {hexed(hash64(golden_pool(ARRIVAL_POOL)))}"
+        f" pool_hash {hexed(pool.hash)} pool_seed {hexed(pool.seed)} frozen_at {pool.frozen_at} data template of map 4 (tests/golden/map4_template, the repository's life course data)"
+        f" data_hash {hexed(data.hash)} seed {hexed(TIE_SEED)} tag {TAG} n_start {ARRIVAL_N_START} immigration True q {wr.immigration_persons(ARRIVAL_N_START)} switch on nutrition [] founders [] couples []",
+        f"{name} scenario_json {scenario_json(TIE_SEED, ARRIVAL_N_START, True, first - 1)}",
+        f"{name} start_input {start_record(world).hex()}",
+        f"{name} case woman {woman} ({env_kind(world, woman)}, key {hexed(TIE_WOMAN_KEY)}, pool household {pool.members[TIE_WOMAN_KEY][0]}, her pool pregnancy's father"
+        f" {hexed(world.origins[child]['father'])} a record only) gives birth at t {TIE_SECOND} (child sim {child}); the market round n {TIE_SECOND // MONTH} of t pairs her"
+        f" with man {man} ({env_kind(world, man)}) partnership {number} formed {TIE_SECOND}; births {world.sims[woman][6]} wish {world.wish_of(woman)}",
+        f"{name} series_due {first} (the first month start after the pairing); counting the birth would give {counted} (the first month start at or after t + pause {world.data.pause_months} months)",
+    ]
+    rows += [f"{name} {row[len(name) + 1:]}" for row in fired_rows(name, world, TIE_SECOND)]
+    checks = rejecting_checks(world)
+    assert checks == [], checks
+    rows.append(f"{name} save_at_t clock {world.closed} pending_series {world.pending_series(woman)} rejecting_checks {checks} save {world.save().hex()}")
+    broken = copy.deepcopy(world, {id(world.data): world.data})
+    (event,) = [e for e in broken.queue if e.kind == wr.ATTEMPT_KIND and e.subject == (wr.SIM_SUBJECT, woman)]
+    event.time = counted
+    wrong = rejecting_checks(broken)
+    assert wrong == ["check_pool"], wrong
+    rows.append(f"{name} counted_birth clock {broken.closed} her series moved to {counted} rejecting_checks {wrong} save {broken.save().hex()}")
+    world.advance(first - 1)
+    assert world.pending_series(woman) == first == world.series_due(woman) and world.open_partnership(woman) == number
+    checks = rejecting_checks(world)
+    assert checks == [], checks
+    rows.append(f"{name} save_before_first_attempt clock {world.closed} pending_series {world.pending_series(woman)} rejecting_checks {checks} save {world.save().hex()}")
+    world.advance(first)
+    assert [row[:3] for row in world.attempts if row[1] == woman][:1] == [(first, woman, man)]
+    return rows
+
+
+# ---------------------------------------------------------------------------------------
 # Codes, data hashes and the main
 
 
@@ -1189,6 +1263,7 @@ def main(argv) -> int:
         ("load_rejections", broken_rows),
         ("load_rejections_more", more_broken_rows),
         ("leave_home_at_start", leave_home_at_start_rows),
+        ("birth_pairing_tie", birth_pairing_tie_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():
