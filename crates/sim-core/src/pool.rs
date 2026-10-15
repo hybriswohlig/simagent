@@ -147,9 +147,10 @@ pub enum PoolError {
     NonCanonical,
 }
 
-impl PoolError {
-    pub const fn code(self) -> &'static str {
-        match self {
+/// The code of the rule a file breaks, as the data check reports it.
+impl core::fmt::Display for PoolError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
             PoolError::Magic => "pool.magic",
             PoolError::Version => "pool.version",
             PoolError::Decode => "pool.decode",
@@ -160,7 +161,7 @@ impl PoolError {
             PoolError::ParentNotARecord => "pool.parent_not_a_record",
             PoolError::PartnershipNotMembers => "pool.partnership_not_members",
             PoolError::NonCanonical => "pool.non_canonical",
-        }
+        })
     }
 }
 

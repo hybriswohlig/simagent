@@ -80,7 +80,7 @@ fn every_pool_file_reads_and_writes_back() {
 #[test]
 fn each_rejected_pool_file_breaks_its_rule() {
     for (bytes, rule) in REJECTED {
-        assert_eq!(Pool::from_bytes(bytes).err(), Some(rule), "{}", rule.code());
+        assert_eq!(Pool::from_bytes(bytes).err(), Some(rule), "{rule}");
     }
 }
 
@@ -147,7 +147,7 @@ fn each_pool_rule_has_its_code() {
         (PoolError::NonCanonical, "pool.non_canonical"),
     ];
     for (error, code) in codes {
-        assert_eq!(error.code(), code);
+        assert_eq!(error.to_string(), code);
     }
 }
 
