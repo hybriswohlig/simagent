@@ -1766,6 +1766,65 @@ def carried_rows() -> list:
     return rows
 
 
+def cancelled_child_rows() -> list:
+    """Round 7 (NOTES2.md section 5e): on V6 (pool_d, seed 0xdb, clock 3263752, the pool mother
+    sim 27 died at 3263752, before her birth `b` = 19353600) the child of her pool pregnancy
+    present anyway, born at her death second (a birth, class 200, would run before her death,
+    class 900, in that second), with everything the rules give a pool child born then: its SimId
+    (the next), its PoolOrigin, the pool's afflictions with the exposure from its birth, her
+    household, her `births` + 1, its creation entry and `core:moved` (log only), its first
+    birthday, its deaths, its leaving home (world seed), and as carer its father (the
+    succession at her death: the other parent in the household, by its PoolOrigin key)."""
+    copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
+    cancel = make_world(town_data(golden_pool(KIN_POOL)), CANCEL_SEED, KIN_N_START, True)
+    cancel.advance(3263752)
+    check_all(cancel)
+    base = cancel.save()
+    mother = CANCEL_MOTHER
+    w = copy_world(cancel)
+    pool = w.data.pool
+    index = pool.members[w.key_of(mother)][0]
+    (pregnancy,) = pool.households[index]["pregnancies"]
+    (record,) = pregnancy["children"]
+    left, home = w.archive[mother][1], w.archive[mother][11]
+    b = w.pool_member(mother)["birth_at"] + w.origins[mother]["arrived"] - pool.frozen_at
+    assert left < b and w.households[home][1] is None
+    father = w.by_key[pregnancy["father"]]
+    assert father in w.sims and w.sims[father][9] == home and w.fit_to_care(father, left)
+    born, key = left, record["lineage_key"]
+    sim = w.next_sim_id
+    w.next_sim_id += 1
+    subjects = [variant(0, varint(sim)), variant(0, varint(mother)), variant(0, varint(father))]
+    entry = w._entry(born, subjects, [variant(3, string("core:gestation"))], variant(8, varint(key)))
+    w.sims[sim] = [
+        born, key, FEMALE if record["sex"] == 0 else wr.MALE, wr.genome_from_raw(record["genome"]), w.pool_afflictions(record["afflictions"], born),
+        0, 0, None, 0, home, False, father, [],
+    ]
+    w.origins[sim] = {
+        "genome_key": record["genome_key"], "born_pool": None, "arrived": born, "arrival_year": born // YEAR,
+        "mother": pregnancy["mother"], "father": pregnancy["father"], "social_parents": [],
+    }
+    w.by_key[key] = sim
+    w.pedigree.add(sim)
+    w.created_by[sim] = entry
+    w._entry(born, [variant(0, varint(sim))], [variant(3, string(wr.HOUSEHOLD_RULE))], variant(wr.MOVED_VARIANT, varint(home)))
+    set_archived(w, mother, 8, w.archive[mother][8] + 1)
+    w._plan_birthday(sim, born + YEAR, entry, born)
+    w._plan_deaths(sim, entry, born)
+    w._plan_leave_home(sim, entry, born)
+    w.kinships = {}
+    checks = rejecting_checks(w, ALL_CHECKS)
+    changed = w.save()
+    hunks = save_hunks(base, changed)
+    return [
+        f"pool_field_reject pool_child_of_a_cancelled_pregnancy base valid_state:V6_pool_pregnancy_cancelled base_pin {pin(base)} hunks {len(hunks)} "
+        + " ".join(f"{offset}:{removed.hex()}:{put.hex()}" for offset, removed, put in hunks)
+        + f" changed_pin {pin(changed)} checks {checks} how C3 cancelled: the child {hexed(key)} of sim {mother}'s pool pregnancy (b = {b}) present as sim {sim},"
+        f" born and arrived {born} (her death second), carer its father sim {father} in her household {home}, with its PoolOrigin, afflictions, first birthday,"
+        f" deaths and leaving home, next SimId {sim} -> {sim + 1}, her births + 1"
+    ]
+
+
 def carried_conception_rows(pregnant: wr.World, base: bytes, copy_world, woman: int, base_label: str) -> list:
     """C2: the town pregnancy of `woman` (conceived in her carried series, start `s`) moved to the
     latest month start `m` before `s`, at or after the first month start after her partnership
@@ -2167,6 +2226,7 @@ def main(argv) -> int:
         ("pool_fields", pool_field_rows),
         ("moved_out", moved_out_rows),
         ("carried", carried_rows),
+        ("cancelled_child", cancelled_child_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():
