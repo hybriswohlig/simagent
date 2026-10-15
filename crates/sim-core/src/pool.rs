@@ -25,7 +25,7 @@ use crate::log::{LogEntry, LogPayload, Subject};
 use crate::phenotype;
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::state::{self, DomainState, Slot};
-use crate::time::{SimTime, YEAR};
+use crate::time::{MONTH, SimTime, YEAR};
 use crate::world::World;
 
 /// The format of the pool file.
@@ -157,6 +157,27 @@ pub enum PoolError {
     AncestorsOutOfOrder,
     ParentNotARecord,
     PartnershipNotMembers,
+    /// `frozen_at` is not a year start.
+    FrozenAt,
+    /// The woman of a partnership is not female, or its man not male.
+    PartnershipSex,
+    /// A pregnancy's mother is not a female member, two have one mother, they do not
+    /// follow the members' order, or one has no child.
+    PregnancyMother,
+    /// A member plans a birth without a pregnancy, or a pregnancy has no birth planned.
+    BirthAt,
+    /// A conception series of another than the partnership's woman, or of a pregnant one.
+    ConceptionAt,
+    /// A conception series off the month grid.
+    ConceptionMonth,
+    /// A separation planned by another than the partnership's woman.
+    SeparationAt,
+    /// Leaving home planned for one moved out, or missing for one at home.
+    LeaveHomeAt,
+    /// A carried time at or before `frozen_at` (ADR-0020 section 3).
+    CarriedTime,
+    /// A birth, a partnership or a conception after `frozen_at`.
+    PastTime,
     /// The file decodes and passes every check but is not written this way (an overlong
     /// varint, review): its hash would not be the hash of what the core writes.
     NonCanonical,
@@ -175,6 +196,16 @@ impl core::fmt::Display for PoolError {
             PoolError::AncestorsOutOfOrder => "pool.ancestors_out_of_order",
             PoolError::ParentNotARecord => "pool.parent_not_a_record",
             PoolError::PartnershipNotMembers => "pool.partnership_not_members",
+            PoolError::FrozenAt => "pool.frozen_at",
+            PoolError::PartnershipSex => "pool.partnership_sex",
+            PoolError::PregnancyMother => "pool.pregnancy_mother",
+            PoolError::BirthAt => "pool.birth_at",
+            PoolError::ConceptionAt => "pool.conception_at",
+            PoolError::ConceptionMonth => "pool.conception_month",
+            PoolError::SeparationAt => "pool.separation_at",
+            PoolError::LeaveHomeAt => "pool.leave_home_at",
+            PoolError::CarriedTime => "pool.carried_time",
+            PoolError::PastTime => "pool.past_time",
             PoolError::NonCanonical => "pool.non_canonical",
         })
     }
@@ -281,6 +312,103 @@ impl Pool {
                     return Err(PoolError::PartnershipNotMembers);
                 }
             }
+        }
+        self.check_records()
+    }
+
+    /// The facts of the records the town relies on (design note of the pool's records,
+    /// section 1), in the order of their codes.
+    fn check_records(&self) -> Result<(), PoolError> {
+        if self.frozen_at.as_secs().rem_euclid(YEAR.as_secs()) != 0 {
+            return Err(PoolError::FrozenAt);
+        }
+        let sex_of = |household: &PoolHousehold, key: LineageKey| {
+            household
+                .members
+                .iter()
+                .find(|m| m.lineage_key == key)
+                .map(|m| m.sex)
+        };
+        for household in &self.households {
+            if let Some(pair) = household.partnership
+                && (sex_of(household, pair.woman) != Some(Sex::Female)
+                    || sex_of(household, pair.man) != Some(Sex::Male))
+            {
+                return Err(PoolError::PartnershipSex);
+            }
+        }
+        for household in &self.households {
+            let place =
+                |key: LineageKey| household.members.iter().position(|m| m.lineage_key == key);
+            let places: Option<Vec<usize>> = household
+                .pregnancies
+                .iter()
+                .map(|p| {
+                    place(p.mother).filter(|_| {
+                        sex_of(household, p.mother) == Some(Sex::Female) && !p.children.is_empty()
+                    })
+                })
+                .collect();
+            if !places.is_some_and(|places| places.windows(2).all(|pair| pair[0] < pair[1])) {
+                return Err(PoolError::PregnancyMother);
+            }
+        }
+        let pregnant = |household: &PoolHousehold, member: &PoolPerson| {
+            household
+                .pregnancies
+                .iter()
+                .any(|p| p.mother == member.lineage_key)
+        };
+        let woman = |household: &PoolHousehold, member: &PoolPerson| {
+            household
+                .partnership
+                .is_some_and(|pair| pair.woman == member.lineage_key)
+        };
+        let members = || {
+            self.households
+                .iter()
+                .flat_map(|h| h.members.iter().map(move |m| (h, m)))
+        };
+        if members().any(|(h, m)| m.birth_at.is_some() != pregnant(h, m)) {
+            return Err(PoolError::BirthAt);
+        }
+        if members().any(|(h, m)| m.conception_at.is_some() && (!woman(h, m) || pregnant(h, m))) {
+            return Err(PoolError::ConceptionAt);
+        }
+        if members().any(|(_, m)| {
+            m.conception_at
+                .is_some_and(|t| t.as_secs().rem_euclid(MONTH.as_secs()) != 0)
+        }) {
+            return Err(PoolError::ConceptionMonth);
+        }
+        if members().any(|(h, m)| m.separation_at.is_some() && !woman(h, m)) {
+            return Err(PoolError::SeparationAt);
+        }
+        if members().any(|(_, m)| m.leave_home_at.is_some() == m.moved_out) {
+            return Err(PoolError::LeaveHomeAt);
+        }
+        let carried = |m: &PoolPerson| {
+            [
+                m.conception_at,
+                m.birth_at,
+                m.separation_at,
+                m.leave_home_at,
+            ]
+            .into_iter()
+            .flatten()
+            .all(|t| t > self.frozen_at)
+        };
+        if members().any(|(_, m)| !carried(m)) {
+            return Err(PoolError::CarriedTime);
+        }
+        let past = |at: SimTime| at <= self.frozen_at;
+        let all_past = self.households.iter().all(|h| {
+            h.members.iter().all(|m| past(m.born))
+                && h.partnership.is_none_or(|pair| past(pair.formed))
+                && h.pregnancies.iter().all(|p| past(p.conceived))
+        });
+        if !all_past {
+            return Err(PoolError::PastTime);
         }
         Ok(())
     }
