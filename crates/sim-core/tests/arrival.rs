@@ -923,6 +923,7 @@ fn base_save(label: &str) -> (Vec<u8>, fn() -> Data) {
         "V3_carried_series_ended" => (town_save(&V3, V3.clock), ARRIVAL.data),
         "V4b_carried_conception_pregnant" => (town_save(&ARRIVAL_AT_SEED, V4B_AT), ARRIVAL.data),
         "V5_pool_twins_born" => (town_save(&ARRIVAL_AT_SEED, V5_TWINS_AT), ARRIVAL.data),
+        "V6_pool_pregnancy_cancelled" => (town_save(&V6, V6.clock), V6.data),
         "arrival_moved_out_by_town_partnership" => {
             let mut run = Run::start(&RECORDS);
             run.play(RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT);
@@ -1027,7 +1028,8 @@ fn town_save(town: &Town, clock: i64) -> Vec<u8> {
 /// valid states of the reference load, among them a carried series ended at the fertility
 /// limit, conceptions in a carried series, pool twins born, and a pool pregnancy ended
 /// with its mother; each state changed in one rule (C1 the series' second, presence and
-/// end; C2 a conception before the series; C3 a pool pregnancy pending, born, or ended;
+/// end; C2 a conception before the series; C3 a pool pregnancy pending, born, or ended
+/// without a child;
 /// C4 the plan of a carried event; C5 their order) does not.
 #[test]
 fn load_checks_the_plans_an_arrival_brought() {
@@ -2590,7 +2592,7 @@ const BROUGHT_NOT_MOVED_OUT_POOL: (usize, u64) = (10961, 0x8ee0_f947_b74c_76cf);
 const BROUGHT_NOT_MOVED_OUT_DATA_HASH: u64 = 0xc8d7_d7ec_95e3_f2a2;
 
 /// The reference's states of the carried plans (out6, its notes' section 5d).
-const LOAD_REJECTED_CARRIED: [Hunks; 16] = [
+const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
     (
         "carried_series_one_month_late",
         "arrival_save_after_immigration_1",
@@ -2770,6 +2772,40 @@ const LOAD_REJECTED_CARRIED: [Hunks; 16] = [
         (16887, 0xc681_ab82_572f_2171),
         &[(69, 1, "0b"), (1895, 1, "0a")],
         (16887, 0x7379_b057_0f07_d572),
+    ),
+    (
+        "pool_child_of_a_cancelled_pregnancy",
+        "V6_pool_pregnancy_cancelled",
+        (12821, 0xa97a_34d1_4abe_10db),
+        &[
+            (30, 4, "20061399"),
+            (353, 0, "0090bc8d2100a201011f"),
+            (806, 0, "0090c4fd9e0400a801071f"),
+            (
+                1290,
+                0,
+                "beb187f90b00a501021fd49ae3bbeacfeb962f00e4f3ffb90c00a601021ff3e1e3d4baa3e9c22c00",
+            ),
+            (1537, 0, "00badec6ae1300a301021fa0bb8ca1c58498a01c"),
+            (1934, 0, "eed9a382930100a701021fdb86dcd7e8e9bbfac90100"),
+            (2318, 0, "ccabc0c9e00c00a401021f85d2bc82f8b2ead44d00"),
+            (2480, 3, "a9011d"),
+            (
+                7238,
+                0,
+                "1f90b48e03cebbc0d298e4dfdcb80101859680d5a184f0dd2f80c6d3808e8eb480da018780a38e80dcea0982858086de8290f929c0e69e80d88fafc02f81c0bb9780a4ca89e0010101000003d49ae3bbeacfeb962f0595c306608247400100000000000000000190b48e03f3e1e3d4baa3e9c22c27e19796a74e47400100000000000000000190b48e03db86dcd7e8e9bbfac90100000000000000000100000000000000000190b48e030000000f00011a000001cebbc0d298e4dfdcb8010090b48e0300018c8dc8be98e1f8837e01b4b68b96ebf1fbe1a60100",
+            ),
+            (7701, 1, "01"),
+            (7765, 1, "99"),
+            (7834, 0, "3b90b48e03"),
+            (7888, 0, "3b90b48e03"),
+            (7940, 0, "3b90b48e033b90b48e03"),
+            (7966, 0, "3b90b48e03"),
+            (8008, 0, "3b90b48e03"),
+            (8046, 0, "3b90b48e03"),
+            (8062, 1, "3d"),
+        ],
+        (13198, 0x5a64_5787_9beb_542c),
     ),
 ];
 
