@@ -979,6 +979,15 @@ mod tests {
                 .expect("directory");
             std::fs::write(&target, text).expect(path);
         }
+        // The other files of the contract module (their functions are taken too).
+        let module = root.join(CONTRACT_MODULE_FILE);
+        let dir = module.parent().expect("the contract module's directory");
+        for file in rust_files(dir).expect("the contract module's files") {
+            let target = copy.join(file.strip_prefix(&root).expect("inside the workspace"));
+            if !target.exists() {
+                std::fs::write(&target, read(&file).expect("a file")).expect("a copy");
+            }
+        }
         copy
     }
 
@@ -1256,8 +1265,13 @@ mod tests {
             )
         );
         // Without the hand-written files the name is free.
-        std::fs::remove_file(copy.join(CONTRACT_MODULE_FILE)).expect("removed");
-        std::fs::remove_file(copy.join(CONTRACT_MAPPING_FILE)).expect("removed");
+        let generated = copy.join(codegen::GENERATED_FILE);
+        let dir = generated.parent().expect("the contract module's directory");
+        for file in rust_files(dir).expect("the contract module's files") {
+            if file != generated {
+                std::fs::remove_file(&file).expect("removed");
+            }
+        }
         assert_eq!(taken_names(&copy), Ok(Vec::new()));
         assert!(generated_types(&copy, &renamed).is_ok());
     }

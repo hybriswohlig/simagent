@@ -3,9 +3,13 @@
 //! reads that file at run time. `BodyParams` are no state: they are not hashed and not
 //! saved.
 
+mod census;
 mod generated;
 mod mapping;
+mod person;
 
+pub use census::BodyCensus;
+pub(crate) use census::count;
 pub use generated::{BodyParamKey, BodyParamSpec, BodyParams, CONTRACT_VERSION, SOURCE_HASH};
 pub use mapping::{
     BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,

@@ -15,6 +15,7 @@
 
 mod common;
 
+use sim_core::body_contract::BodyCensus;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
 use sim_core::ids::SimId;
@@ -96,6 +97,7 @@ fn expected_census() -> Vec<CensusRow> {
             year,
             living: 3,
             lived_secs: 94_348_800,
+            body: BodyCensus::default(),
         })
         .collect()
 }
@@ -281,6 +283,7 @@ fn an_empty_world_runs_only_year_ends() {
             year,
             living: 0,
             lived_secs: 0,
+            body: BodyCensus::default(),
         })
         .collect();
     assert_eq!(out.census, rows);
@@ -312,6 +315,7 @@ fn founders_show_in_the_first_census() {
                 year: 0,
                 living: count,
                 lived_secs: count * 31_449_600,
+                body: BodyCensus::default(),
             }]
         );
     }

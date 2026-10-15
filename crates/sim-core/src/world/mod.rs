@@ -311,7 +311,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
     ) {
         match ev.payload {
             EventPayload::YearEnd => {
-                let row = state::census::census_row(&self.domain, ev.key.time);
+                let mut row = state::census::census_row(&self.domain, ev.key.time);
+                row.body = crate::body_contract::count(&self.domain, &self.data, ev.key.time);
                 out.year_hashes.push(YearHash {
                     year: row.year,
                     hash: canonical::state_hash(self, sched),
