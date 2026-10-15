@@ -38,6 +38,12 @@ diseases on; NOTES.md of the reference says why each was chosen and how to rebui
 - "empty_at_start" (tests/golden/pool/pool_b.bin, 34 members; `n_start` 50): `Start` takes
   every household; the immigration of year 0 at second 0 finds the pool empty.
 - The rejections of `Start` and of the data check, each in its order.
+- States the load checks reject (`load_reject`, from "arrival" at the end of year 2) and,
+  after the review of the reference (NOTES2.md), further states the rules can never produce
+  (`load_reject_more`, each from a pinned save: a carried father dropped, a series of the
+  town's rule missing, two immigrations swapped, a world that never started with a used
+  household), and one accepted state: a carried leaving home due exactly at second 0
+  (`leave_home_at_start`).
 
 Usage: .venv/bin/python tools/arrival_reference.py [--out DIR]
        (with --out the constructed pool files are written to DIR as well)
@@ -466,12 +472,18 @@ ARRIVAL_MARKS = {
 }
 
 
+# The saves the further rejected states start from, as their sections pinned them (label:
+# bytes), so that `more_broken_rows` can assert it starts from the same states.
+BASE_SAVES = {}
+
+
 def arrival_rows_all() -> list:
     probe = arrival_world()
     probe.advance(ARRIVAL_STOP_YEAR * YEAR - 1)
     assert arrival_marks(probe) == ARRIVAL_MARKS, arrival_marks(probe)
     end = ARRIVAL_STOP_YEAR * YEAR - 1
     world, saves, entries, stopped = staged(arrival_world, ARRIVAL_MARKS, [], end, panic=ARRIVAL_STOP_YEAR * YEAR)
+    BASE_SAVES["arrival_save_after_start"] = saves["after_start"]
     name = "arrival"
     rows = common_rows(name, ARRIVAL_POOL, world, ARRIVAL_N_START, True, end)
     rows += [f"{name}_mark {label} {t}" for label, t in ARRIVAL_MARKS.items()]
@@ -549,6 +561,7 @@ RECORDS_END = 19 * YEAR - 1
 
 def records_rows_all() -> list:
     world, saves, entries, _ = staged(kin_world(RECORDS_SEED), RECORDS_MARKS, RECORDS_INPUTS, RECORDS_END)
+    BASE_SAVES["records_save_after_arrange"] = saves["after_arrange"]
     name = "records"
     (placement,) = world.placements
     assert placement["t"] == RECORDS_MARKS["orphan_rule"] and placement["stage"] == "relative"
@@ -902,6 +915,194 @@ def broken_rows() -> list:
         assert checks, f"no load check rejects {name}"
         rows.append(f"load_reject {name} how {how} checks {checks} save {world.save().hex()}")
     rows.append(f"load_base arrival at {base.closed} save {base.save().hex()}")
+    BASE_SAVES["load_base"] = base.save()
+    return rows
+
+
+def unstarted_save(data: wr.Data, used: list) -> bytes:
+    """The save of a world that never started (no input) on `data`, with `used` as its used
+    households (the last field of the projection): the empty save of the model with the
+    data's hash."""
+    empty = wr.used_households_bytes([])
+    assert wr.EMPTY_PROJECTION.endswith(empty)
+    projection = wr.EMPTY_PROJECTION[: -len(empty)] + wr.used_households_bytes(used)
+    return wr.header(data.hash) + projection + seq([]) + varint(1) + seq([]) + seq([])
+
+
+def unstarted_rejecting_checks(next_household_id: int, households: dict, used: list) -> list:
+    """The load checks of a world that never started that reject its state."""
+    names = []
+    for check, args in ((wr.check_unstarted_households, (next_household_id, households)), (wr.check_unstarted_pool, (used,))):
+        try:
+            check(*args)
+        except AssertionError:
+            names.append(check.__name__)
+    return names
+
+
+def more_broken_rows() -> list:
+    """Further states the rules of the note can never produce (review of the reference,
+    NOTES2.md), each a save changed in one respect from a pinned state, with the load checks
+    that reject it: `load_reject_more <name> base <label of the pinned save> clock <clock> how
+    <what changed> checks [...] save <hex>`; a case the scenarios do not hold is a row
+    `load_reject_more_skipped <name> reason ...`."""
+    copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
+    rows = []
+
+    def row(name: str, base: str, world: wr.World, how: str) -> None:
+        checks = rejecting_checks(world)
+        assert checks, f"no load check rejects {name}"
+        rows.append(f"load_reject_more {name} base {base} clock {world.closed} how {how} checks {checks} save {world.save().hex()}")
+
+    # (a) "arrival" right after `Start`: the first mother in SimId order whose pool father
+    # arrived in her household or an earlier one (attached, decision 8) loses him.
+    start = arrival_world()
+    check_all(start)
+    assert BASE_SAVES.get("arrival_save_after_start", start.save()) == start.save()
+    used, members = start.used, start.data.pool.members
+
+    def father_came_no_later(mother: int) -> bool:
+        his = members[start.pool_fathers[mother]][0] if start.pool_fathers[mother] in members else None
+        return his is not None and his in used and used.index(his) <= used.index(members[start.key_of(mother)][0])
+
+    attached = [mother for mother in sorted(start.pregnancies) if mother in start.pool_fathers and father_came_no_later(mother)]
+    mother = attached[0]
+    father = start.pregnancies[mother][0]
+    assert (mother, father) == (9, 8), (mother, father)
+    household = members[start.key_of(mother)][0]
+    assert members[start.pool_fathers[mother]][0] == household
+    broken = copy_world(start)
+    broken.pregnancies[mother] = (None,) + broken.pregnancies[mother][1:]
+    row(
+        "carried_father_dropped", "arrival_save_after_start", broken,
+        f"mother {mother} (pool household {household}, arrival position {used.index(household)}) father {father} (key {hexed(start.pool_fathers[mother])}, the same household) set to None",
+    )
+
+    # (b) A pool pregnancy whose father arrives only in a later household or year: none in
+    # the pools of the scenarios.
+    late = []
+    for pool_name, scenarios in (("pool_c", "arrival, micro"), ("pool_d", "orphans, records")):
+        pool = town_data(golden_pool(pool_name)).pool
+        for index, household_ in enumerate(pool.households):
+            for pregnancy in household_["pregnancies"]:
+                his = pool.members[pregnancy["father"]][0] if pregnancy["father"] in pool.members else None
+                if his != index:
+                    late.append((pool_name, scenarios, index, pregnancy["father"], his))
+    assert late == [("pool_c", "arrival, micro", 28, 0xB9B8567FF6EC1066, None)], late
+    rows.append(
+        "load_reject_more_skipped carried_father_attached_late reason no pool pregnancy of pool_c (arrival, micro) or pool_d (orphans, records)"
+        " has its father in another household of the pool: every father is a member of the mother's household (attached at her arrival)"
+        f" but the father {hexed(late[0][3])} of pool_c household 28, a record only (he died in the pool run), who never arrives"
+    )
+
+    # (c) "records" right after the arrangement of sims 26 and 31 (the input stamped
+    # 18 · YEAR − 1): woman 26, an arrival, has a partnership formed in the town; her series of
+    # attempts (planned by the town's rule) is removed with its plan reference.
+    label, acts, woman, man = RECORDS_INPUTS[0]
+    arranged = kin_world(RECORDS_SEED)()
+    arranged.advance(acts - 1)
+    arranged.arrange(woman, man)
+    check_all(arranged)
+    assert BASE_SAVES.get("records_save_after_arrange", arranged.save()) == arranged.save()
+    number = arranged.open_partnership(woman)
+    assert arranged.is_arrival(woman) and arranged.arrival_partnership(number) is None and arranged.partnerships[number][2] == acts
+    (series,) = [event for event in arranged.queue if event.kind == wr.ATTEMPT_KIND and event.subject == (wr.SIM_SUBJECT, woman)]
+    assert series.time == wr.month_start_after(acts) == arranged.series_due(woman)
+    broken = copy_world(arranged)
+    broken.queue = [event for event in broken.queue if not (event.kind == wr.ATTEMPT_KIND and event.subject == (wr.SIM_SUBJECT, woman))]
+    plans = len(arranged.queue) - len(broken.queue)
+    assert plans == 1
+    row(
+        "town_series_missing", "records_save_after_arrange", broken,
+        f"woman {woman} (arrival) partnership {number} formed {acts} with sim {man} in the town; her series at {series.time} (plan by {series.plan[0]} at {series.plan[1]}) removed from the queue with its plan reference",
+    )
+
+    # (d) "arrival" at the end of year 2: the last two used households swapped.
+    base = arrival_world()
+    base.advance(3 * YEAR - 1)
+    check_all(base)
+    assert BASE_SAVES.get("load_base", base.save()) == base.save()
+    years = {record["index"]: record["year"] for record in base.arrivals if record["why"] == "immigration"}
+    broken = copy_world(base)
+    i, j = len(broken.used) - 2, len(broken.used) - 1
+    a, b = broken.used[i], broken.used[j]
+    assert (a, b) == (5, 12) and (years[a], years[b]) == (1, 2), (a, b)
+    broken.used[i], broken.used[j] = b, a
+    row(
+        "immigration_order_swapped", "load_base", broken,
+        f"used positions {i} and {j} (households {a} of year {years[a]} and {b} of year {years[b]}) swapped: used {broken.used}",
+    )
+
+    # (e) A world that never started, on the data with pool_c, with the used households [0].
+    data = town_data(golden_pool(ARRIVAL_POOL))
+    assert unstarted_rejecting_checks(1, {}, []) == []
+    checks = unstarted_rejecting_checks(1, {}, [0])
+    assert checks
+    rows.append(
+        f"load_reject_more unstarted_with_used_household base unstarted (no input, data with pool_c, data_hash {hexed(data.hash)}, save {unstarted_save(data, []).hex()})"
+        f" clock -1 how used [0] instead of [] checks {checks} save {unstarted_save(data, [0]).hex()}"
+    )
+    return rows
+
+
+# ---------------------------------------------------------------------------------------
+# A carried leaving home due exactly at second 0 (accepted)
+
+
+def leave_home_at_start_pool() -> tuple:
+    """pool_c with the carried `leave_home` of the dependent child of household 33 (the
+    household and child of `carried_before_pool`) at exactly `E_p`: after the shift it is
+    due at second 0, the arrival second of `Start`, which is no invariant break (note
+    section 5). Returns (bytes, the child's key, its old `leave_home_at`)."""
+    file = pool_reference.read_pool(golden_pool(ARRIVAL_POOL))
+    (child,) = [m for m in file["households"][33]["members"] if m["leave_home_at"] is not None]
+    old = child["leave_home_at"]
+    child["leave_home_at"] = file["frozen_at"]
+    data = pool_reference.encode_pool(file)
+    pool_reference.read_pool(data)
+    return data, child["lineage_key"], old
+
+
+def leave_home_at_start_rows() -> list:
+    """`Start` of "arrival" (seed 0xff, `n_start` 50, immigration on) on `leave_home_at_start_pool`:
+    the child (a newborn of household 33, which `Start` draws) has its leaving home planned at
+    second 0 (micro step 0: `Start` is an input); it runs after the immigration of year 0
+    (class 100) in that second. Both saves, right after `Start` (clock −1, the child not moved
+    out, its `leave_home` pending at 0) and after second 0 (moved out), pass every load check
+    of the model."""
+    pool, key, old = leave_home_at_start_pool()
+    data = town_data(pool)
+    world = make_world(data, ARRIVAL_SEED, ARRIVAL_N_START, True)
+    sim = world.by_key[key]
+    frozen = data.pool.frozen_at
+    name = "leave_home_at_start"
+    assert hash64(pool) == data.pool.hash
+    rows = [
+        f"{name} pool constructed from {ARRIVAL_POOL}: household 33 child {hexed(key)} (sim {sim}, born_pool {world.origins[sim]['born_pool']}) leave_home_at {frozen} (= frozen_at; was {old})"
+        f" pool_bytes {len(pool)} pool_xxh3 {hexed(hash64(pool))} pool {pool.hex()}",
+        f"{name} data_hash {hexed(data.hash)} pool_hash {hexed(data.pool.hash)} pool_seed {hexed(data.pool.seed)}",
+        f"{name} start_input {start_record(world).hex()}",
+    ]
+    states = []
+    leave = [event for event in world.queue if event.kind == wr.LEAVE_HOME_KIND and event.subject == (wr.SIM_SUBJECT, sim)]
+    assert [(event.time, event.micro) for event in leave] == [(0, 0)] and not world.sims[sim][10]
+    checks = rejecting_checks(world)
+    assert checks == [], checks
+    pending = [f"t {event.time} micro {event.micro} class {event.cls} seq {event.insertion} plan {event.plan}" for event in leave]
+    states.append(f"{name} save_after_start clock {world.closed} sim {sim} moved_out {world.sims[sim][10]} household {world.sims[sim][9]} carer {world.sims[sim][11]} leave_home_pending {pending} rejecting_checks {checks} save {world.save().hex()}")
+    before = len(world.log)
+    world.advance(0)
+    assert world.sims[sim][10]
+    checks = rejecting_checks(world)
+    assert checks == [], checks
+    states.append(f"{name} save_after_second_0 clock {world.closed} sim {sim} moved_out {world.sims[sim][10]} household {world.sims[sim][9]} carer {world.sims[sim][11]} rejecting_checks {checks} save {world.save().hex()}")
+    rows.append(states[0])
+    rows += [f"{name} {row[len(name) + 1:]}" for row in fired_rows(name, world, 0)]
+    for line in world.log[before:]:
+        rows.append(f"{name} entry_second_0 {line.hex()}")
+        if entry_json(line) is not None:
+            rows.append(f"{name} entry_second_0_json {entry_json(line)}")
+    rows.append(states[1])
     return rows
 
 
@@ -986,6 +1187,8 @@ def main(argv) -> int:
         ("micro", micro_rows_all),
         ("empty_at_start", empty_rows_all),
         ("load_rejections", broken_rows),
+        ("load_rejections_more", more_broken_rows),
+        ("leave_home_at_start", leave_home_at_start_rows),
     ]
     for _, rows_of in sections:
         for row in rows_of():
@@ -996,6 +1199,8 @@ def main(argv) -> int:
         (out / "micro_pool.bin").write_bytes(data)
         data, _ = carried_before_pool()
         (out / "carried_before_pool.bin").write_bytes(data)
+        data, _, _ = leave_home_at_start_pool()
+        (out / "leave_home_at_start_pool.bin").write_bytes(data)
     return 0
 
 

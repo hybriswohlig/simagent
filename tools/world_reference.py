@@ -3262,6 +3262,74 @@ class World:
         assert len(times) <= 1
         return times[0] if times else None
 
+    def town_births(self, woman: int) -> list:
+        """The birth seconds of her children born in the town, living or archived: town
+        children (`parents` with her as mother) and pool children (PoolOrigin mother her
+        key)."""
+        key = self.key_of(woman)
+        seconds = []
+        for sim in set(self.sims) | set(self.archive):
+            parents = self.sims[sim][7] if sim in self.sims else self.archive[sim][9]
+            if parents is not None and parents[0] == woman:
+                seconds.append(self.born_of(sim))
+            elif sim in self.origins and self.origins[sim]["born_pool"] is None and self.origins[sim]["mother"] == key:
+                seconds.append(self.born_of(sim))
+        return seconds
+
+    def series_exempt(self, woman: int, number_: int) -> bool:
+        """Whether her series is still the one she brought (review of the reference of the
+        arrival, NOTES2.md): she is an arrival, her open partnership `number_` is the one her
+        household brought (`arrival_partnership`), and no child of hers was born in the
+        town. Only then is her series the carried one, exempt from the town's rule."""
+        return self.is_arrival(woman) and self.arrival_partnership(number_) is not None and not self.town_births(woman)
+
+    def series_due(self, sim: int):
+        """The second of the pending series of attempts the rules give a living sim, or None
+        (ADR-0017 sections 4 and 5: the series is pending exactly when the rule asks for it;
+        design note of the arrival, sections 5 and 9, for the series an arrival brought):
+
+        - none for a man, a pregnant woman, a woman without an open partnership;
+        - exempt (`series_exempt`): the carried series, from `conception_at + Δ` of the pool
+          every MONTH, not recomputed; none if the pool carried none;
+        - else the town's rule: from the last trigger in her open partnership, its forming at
+          `f` (series from the first month start after `f`) or her last birth in the town at
+          `b` (from the first month start at or after `b + max(pause, 1 s)`), the birth the
+          later one if `b > f`, or `b = f` with the partnership of an input (the input acts
+          before the events of its second; a round runs after the births of its second);
+          none if `births >= wish`;
+        - in both the pending one is the first second of that monthly grid after the clock,
+          and it is there if it is the grid's first or `age < E` at it (an attempt that fails
+          at `t` ends the series when `age(t + MONTH) >= E`; the town's first needs `age < E`
+          at it as well)."""
+        her = self.sims[sim]
+        if her[2] != FEMALE or sim in self.pregnancies:
+            return None
+        number_ = self.open_partnership(sim)
+        if number_ is None:
+            return None
+        _, man, formed, _ = self.partnerships[number_]
+
+        def pending(first: int):
+            return first if first > self.closed else first + ((self.closed - first) // MONTH + 1) * MONTH
+
+        if self.series_exempt(sim, number_):
+            carried = self.pool_member(sim)["conception_at"]
+            if carried is None:
+                return None
+            first = carried + self.origins[sim]["arrived"] - self.data.pool.frozen_at
+            t = pending(first)
+            return t if t == first or as_years(t - her[0]) < self.data.fertility_end else None
+        births = self.town_births(sim)
+        last = max(births) if births else None
+        if last is not None and (last > formed or (last == formed and (formed, sim, man) in self.input_pairings)):
+            first = month_start_at_or_after(last + max(self.data.pause_months * MONTH, 1))
+        else:
+            first = month_start_after(formed)
+        if her[6] >= self.wish_of(sim):
+            return None
+        t = pending(first)
+        return t if as_years(t - her[0]) < self.data.fertility_end else None
+
     def _attempt(self, event: Event, now: int, plan: bytes) -> None:
         woman = event.subject[1]
         her = self.sims[woman]
@@ -4471,7 +4539,13 @@ def check_households(world: World) -> None:
         founder = parents is None and not world.is_pool_person(sim)
         if world.is_arrival(sim):
             carried = world.carried_leave_home(sim)
-            want = world.pool_member(sim)["moved_out"] or sim in partnered or (carried is not None and carried <= limit)
+            # The carried leaving home is an event at or after `A` (a carried time at `A` is no
+            # break, section 5), so for the living it has passed only once the clock reached
+            # it: right after `Start` (clock −1) one due at second 0 is still pending (not `t`,
+            # which is 0 there; the founders' "at or before 0 is passed at the start" is a rule
+            # of `_house_founders`, not of an arrival). Review of the reference, NOTES2.md.
+            until = world.closed if sim in world.sims else limit
+            want = world.pool_member(sim)["moved_out"] or sim in partnered or (carried is not None and carried <= until)
         else:
             want = (
                 (founder and sim in in_start_couples)
@@ -4523,7 +4597,13 @@ def check_pool(world: World) -> None:
     of `world` with the pool of its data, as the loader would see its save with its input
     log; a broken one is `Inconsistent` there, an assertion here:
 
-    - the used households have no repeats, and their members are exactly the arrivals;
+    - the used households are exactly the draws, in this order, of `Start` (occasion 0,
+      `n_start`) and, with `immigration` and `q > 0`, of each `Immigration` whose second the
+      clock has passed (year `y` at `y · YEAR <= clock`, occasion `y`, `q`, the households
+      not yet used); a draw that cannot reach `q` stopped the run (`pool.empty`), so no
+      state lies after its second (so they have no repeats); their members are exactly the
+      arrivals, and each arrival's `arrived` is the second of its household's draw (0 for
+      `Start` and year 0, `y · YEAR` else); review of the reference, NOTES2.md;
     - an arrival: its lineage key a member of the data's pool, its sex, genome, `born_pool`
       (and genome key, parents' keys, social parents' keys) equal to it, `born = born_pool +
       (arrived − E_p)`, `arrived` 0 or a year start with `arrival_year` its year;
@@ -4533,7 +4613,12 @@ def check_pool(world: World) -> None:
       pregnancy's father;
     - a running pregnancy of the pool (`pool_father`): its mother an arrival, the pool's
       pregnancy of her (father, conception number, children) with `conceived` shifted, and
-      `father` None or the sim with the father's key; any other pregnancy has a `father`;
+      `father` the sim with the father's key exactly when the father's household came no
+      later in the used households than the mother's (decision 8 of NOTES.md: set once, at
+      her arrival; review, NOTES2.md), else None; any other pregnancy has a `father`;
+    - every living pool person has the series of attempts the rules give it
+      (`World.series_due`: an arrival's is the carried one only while it is the series she
+      brought, else the town's rule; review, NOTES2.md);
     - with `immigration` and `q > 0` exactly one event `Immigration { persons: q }` (class 100,
       kind 10, subject the world, period YEAR, planned by `core:started` at 0) at the first
       year start after the clock; else none.
@@ -4545,10 +4630,22 @@ def check_pool(world: World) -> None:
     if pool is None or world.pool_start is None:
         assert not world.origins and not world.used and not world.pool_fathers and not events
         return
-    assert len(set(world.used)) == len(world.used), world.used
+    q = immigration_persons(world.pool_start["n_start"])
+    draws = [(0, pool_draw(pool, world.seed, 0, world.pool_start["n_start"], []))]
+    if world.pool_start["immigration"] and q > 0:
+        for year in range(0, world.closed // YEAR + 1):
+            taken = [index for _, draw in draws for index in draw]
+            free = [index for index in range(len(pool.households)) if index not in taken]
+            assert sum(pool.sizes[index] for index in free) >= q, f"pool.empty in year {year}: no state after it"
+            draws.append((year * YEAR, pool_draw(pool, world.seed, year, q, taken)))
+    assert world.used == [index for _, draw in draws for index in draw], world.used
+    second_of = {index: second for second, draw in draws for index in draw}
     members = sorted(m["lineage_key"] for index in world.used for m in pool.households[index]["members"])
     arrivals = sorted(world.key_of(sim) for sim in world.origins if world.is_arrival(sim))
     assert members == arrivals, "the members of the used households are the arrivals"
+    for sim in world.origins:
+        if world.is_arrival(sim):
+            assert world.origins[sim]["arrived"] == second_of[pool.members[world.key_of(sim)][0]], sim
     for sim, origin in world.origins.items():
         key, sex, person = world.key_of(sim), world.sex_of(sim), (world.sims[sim][3] if sim in world.sims else world.archive[sim][5])
         born = world.born_of(sim)
@@ -4581,11 +4678,25 @@ def check_pool(world: World) -> None:
         delta = world.origins[mother]["arrived"] - pool.frozen_at
         assert world.pool_fathers[mother] == pregnancy["father"] and conception_number == pregnancy["conception"], mother
         assert conceived == pregnancy["conceived"] + delta, mother
-        assert father is None or world.key_of(father) == pregnancy["father"], mother
+        # Decision 8 of NOTES.md: `father` is set once, at her arrival, to the sim with the
+        # father's key if he exists then: exactly when his household is a used one that came
+        # no later than hers (the same household, or an earlier one in arrival order).
+        his = pool.members[pregnancy["father"]][0] if pregnancy["father"] in pool.members else None
+        attached = his is not None and his in world.used and world.used.index(his) <= world.used.index(index)
+        if attached:
+            assert father is not None and world.key_of(father) == pregnancy["father"], mother
+        else:
+            assert father is None, mother
         assert [(key, 0 if sex == FEMALE else 1, genome_of(person)) for key, sex, person in children] == [
             (child["lineage_key"], child["sex"], pool_reference.encode_genome(child["genome"])) for child in pregnancy["children"]
         ], mother
-    q = immigration_persons(world.pool_start["n_start"])
+    # The series of attempts of every living pool person (`World.series_due`).
+    for sim in sorted(world.sims):
+        if world.is_pool_person(sim):
+            assert world.pending_series(sim) == world.series_due(sim), (sim, world.pending_series(sim), world.series_due(sim))
+    for event in world.queue:
+        if event.kind == ATTEMPT_KIND and world.is_pool_person(event.subject[1]):
+            assert event.cls == GENERAL and event.period == MONTH and event.payload == variant(3, varint(event.subject[1])), event.subject
     if world.pool_start["immigration"] and q > 0:
         assert len(events) == 1, events
         (event,) = events
@@ -4621,6 +4732,13 @@ def check_unstarted_households(next_household_id: int, households: dict) -> None
     """A world that never started has no household and the household counter at 1 (review
     of part 1; part 2, section 6)."""
     assert next_household_id == 1 and not households, (next_household_id, households)
+
+
+def check_unstarted_pool(used: list) -> None:
+    """A world that never started has used no household of the pool (design note of the
+    arrival, sections 4 and 9: the used households are those of `Start` and the
+    immigrations, and there was neither; review of the reference, NOTES2.md)."""
+    assert not used, used
 
 
 def story(world: World) -> tuple:
