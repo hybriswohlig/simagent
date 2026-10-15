@@ -15,7 +15,7 @@ on:
       shards:
         description: "Number of shards"
         required: true
-        default: "16"
+        default: "8"
         type: choice
         options: ["4", "8", "16", "24"]
 
@@ -27,17 +27,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The base and the shards, fixed once for all shards; the inputs are checked before any
+  # use (a dispatch through the API can send any text).
   plan:
     name: plan
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     outputs:
-      shards: ${{ steps.shards.outputs.list }}
+      shards: ${{ steps.plan.outputs.list }}
+      base: ${{ steps.plan.outputs.base }}
     steps:
-      - id: shards
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: plan
         env:
           SHARDS: ${{ inputs.shards }}
-        run: echo "list=[$(seq -s, 0 $((SHARDS - 1)))]" >> "$GITHUB_OUTPUT"
+          BASE: ${{ inputs.base }}
+        run: |
+          case "$SHARDS" in
+            4) list="[0,1,2,3]" ;;
+            8) list="[0,1,2,3,4,5,6,7]" ;;
+            16) list="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]" ;;
+            24) list="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" ;;
+            *) echo "shards must be 4, 8, 16 or 24"; exit 1 ;;
+          esac
+          if [ -z "$BASE" ]; then BASE=$(git merge-base origin/main HEAD); fi
+          base=$(git rev-parse --verify --end-of-options "${BASE}^{commit}")
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "base $base, head $(git rev-parse HEAD)"
 
   mutants:
     needs: plan
@@ -48,7 +67,7 @@ jobs:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     # The arm runners cost less per minute; the gate checks both arches.
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 150
+    timeout-minutes: 160
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,12 +86,14 @@ jobs:
         run: cargo install cargo-mutants --locked --version 27.1.0
       - name: The diff
         env:
-          BASE: ${{ inputs.base }}
+          BASE: ${{ needs.plan.outputs.base }}
         run: |
-          if [ -z "$BASE" ]; then BASE=$(git merge-base origin/main HEAD); fi
           git diff "$BASE" HEAD > "$RUNNER_TEMP/branch.diff"
           echo "base $BASE, $(wc -l < "$RUNNER_TEMP/branch.diff") diff lines"
       - name: Mutants
+        id: mutants
+        # Shorter than the job, so the summary below still runs.
+        timeout-minutes: 140
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ inputs.shards }}
@@ -81,8 +102,17 @@ jobs:
           --shard "$SHARD/$SHARDS" --output "$RUNNER_TEMP/mut"
       - name: Missed and timeouts
         if: always()
+        env:
+          OUTCOME: ${{ steps.mutants.outcome }}
         run: |
+          # success: no missed mutant; failure: missed, timeouts or an error (exit code in
+          # the step above); cancelled or skipped: the counts below are partial or absent.
+          echo "mutants step: $OUTCOME"
           out="$RUNNER_TEMP/mut/mutants.out"
+          if [ ! -f "$out/outcomes.json" ]; then
+            echo "no results: the shard did not finish (install, baseline or deadline)"
+            exit 0
+          fi
           for kind in caught missed timeout unviable; do
             echo "$kind $(cat "$out/$kind.txt" 2>/dev/null | wc -l)"
           done
