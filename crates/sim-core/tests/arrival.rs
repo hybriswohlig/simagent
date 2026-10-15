@@ -23,7 +23,7 @@
 //!   end of year 18: an orphan finds a relative only through the records; a child of a pool
 //!   person and a town person.
 //! - "micro": `pool_c` with the carried separation of the woman of household 41 moved to
-//!   `E_p`, so that it falls due in the second she arrives (year 3), to the end of year 3.
+//!   `E_p`; the data check rejects it (a carried time at the freeze, ADR-0020 section 3).
 //! - "empty_at_start": `pool_b` (29 households, 33 members): `Start` takes every household,
 //!   the immigration at second 0 finds none.
 
@@ -207,8 +207,8 @@ fn changed_pool_c(change: impl FnOnce(&mut Pool)) -> Vec<u8> {
     pool.to_bytes()
 }
 
-/// `pool_c` with the carried separation of the woman of household 41 at `E_p`: after the
-/// shift it falls due in the second she arrives ("micro").
+/// `pool_c` with the carried separation of the woman of household 41 at `E_p` ("micro"),
+/// which would fall due in the second she arrives; the data check rejects it.
 fn micro_pool() -> Vec<u8> {
     changed_pool_c(|pool| {
         let frozen_at = pool.frozen_at;

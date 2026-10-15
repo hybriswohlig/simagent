@@ -2,8 +2,10 @@
 //! of `tools/pool_reference.py` in `tests/golden/pool/`: every pool file of the reference
 //! reads and writes back byte for byte, and each rejected file breaks exactly its rule.
 
+use sim_core::genome::Sex;
 use sim_core::lineage::LineageKey;
 use sim_core::pool::{Pool, PoolError};
+use sim_core::time::SimTime;
 
 const FILES: [(&str, &[u8]); 6] = [
     (
@@ -272,4 +274,273 @@ fn one_pool_parent_that_is_no_record_is_rejected() {
         pregnancy.father = unknown;
     });
     assert_eq!(unborn.err(), Some(PoolError::ParentNotARecord));
+}
+
+/// `pool_c` read, changed by `change`, written again: the reader's verdict on it. `pool_c`
+/// has partnerships, pregnancies and carried series, which the record rules read.
+fn changed_c(change: impl Fn(&mut Pool)) -> Result<Pool, PoolError> {
+    let (_, bytes) = FILES[2];
+    let mut pool = Pool::from_bytes(bytes).expect("pool_c");
+    change(&mut pool);
+    Pool::from_bytes(&pool.to_bytes())
+}
+
+/// The first household with a pregnancy, and the first whose woman carries a series.
+fn with_pregnancy(pool: &Pool) -> usize {
+    pool.households
+        .iter()
+        .position(|h| !h.pregnancies.is_empty())
+        .expect("a pregnancy")
+}
+
+fn with_series(pool: &Pool) -> (usize, usize) {
+    pool.households
+        .iter()
+        .enumerate()
+        .find_map(|(h, household)| {
+            household
+                .members
+                .iter()
+                .position(|m| m.conception_at.is_some())
+                .map(|m| (h, m))
+        })
+        .expect("a carried series")
+}
+
+fn shifted(t: SimTime, by: i64) -> SimTime {
+    SimTime::from_secs(t.as_secs() + by)
+}
+
+/// The record rules one condition at a time (design note of the pool's records, section 1;
+/// review): each change breaks exactly the rule named, the boundary just inside passes.
+#[test]
+fn each_record_rule_rejects_each_of_its_conditions() {
+    let pool = Pool::from_bytes(FILES[2].1).expect("pool_c");
+    let p = with_pregnancy(&pool);
+    let mother = pool.households[p].pregnancies[0].mother;
+    let (s, w) = with_series(&pool);
+    let at_home = |pool: &Pool| {
+        pool.households
+            .iter()
+            .enumerate()
+            .find_map(|(h, household)| {
+                household
+                    .members
+                    .iter()
+                    .position(|m| !m.moved_out)
+                    .map(|m| (h, m))
+            })
+            .expect("one at home")
+    };
+    let (hh, mh) = at_home(&pool);
+    let moved = pool
+        .households
+        .iter()
+        .enumerate()
+        .find_map(|(h, household)| {
+            household
+                .members
+                .iter()
+                .position(|m| m.moved_out && m.lineage_key != mother)
+                .map(|m| (h, m))
+        })
+        .expect("one moved out");
+    let flip = |sex: Sex| match sex {
+        Sex::Female => Sex::Male,
+        Sex::Male => Sex::Female,
+    };
+    let cases: Vec<(&str, Result<Pool, PoolError>, Option<PoolError>)> = vec![
+        // N2: the mother a member, female, once, in the members' order.
+        (
+            "mother no member",
+            changed_c(|pool| {
+                let stranger = pool.households[p + 1].members[0].lineage_key;
+                pool.households[p].pregnancies[0].mother = stranger;
+            }),
+            Some(PoolError::PregnancyMother),
+        ),
+        (
+            // A single mother: with a partnership her sex would break N1 first.
+            "mother male",
+            changed_c(|pool| {
+                let single = pool
+                    .households
+                    .iter_mut()
+                    .find(|h| !h.pregnancies.is_empty() && h.partnership.is_none())
+                    .expect("a single mother");
+                let key = single.pregnancies[0].mother;
+                let her = single
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lineage_key == key)
+                    .expect("her");
+                her.sex = flip(her.sex);
+            }),
+            Some(PoolError::PregnancyMother),
+        ),
+        (
+            "two pregnancies of one mother",
+            changed_c(|pool| {
+                let again = pool.households[p].pregnancies[0].clone();
+                pool.households[p].pregnancies.push(again);
+            }),
+            Some(PoolError::PregnancyMother),
+        ),
+        // P2 both ways.
+        (
+            "birth without pregnancy",
+            changed_c(|pool| {
+                let at = shifted(pool.frozen_at, 1);
+                pool.households[hh].members[mh].birth_at = Some(at);
+            }),
+            Some(PoolError::BirthAt),
+        ),
+        (
+            "pregnancy without birth",
+            changed_c(|pool| {
+                let her = pool.households[p]
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lineage_key == mother)
+                    .expect("her");
+                her.birth_at = None;
+            }),
+            Some(PoolError::BirthAt),
+        ),
+        // P1: only the partnership's woman, not pregnant.
+        (
+            "series of a pregnant woman",
+            changed_c(|pool| {
+                let at = pool.households[s].members[w].conception_at;
+                let her = pool.households[p]
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lineage_key == mother)
+                    .expect("her");
+                her.conception_at = at;
+            }),
+            Some(PoolError::ConceptionAt),
+        ),
+        (
+            "series of another member",
+            changed_c(|pool| {
+                let at = pool.households[s].members[w].conception_at;
+                let other = (0..pool.households[s].members.len())
+                    .find(|m| *m != w)
+                    .expect("another member");
+                pool.households[s].members[w].conception_at = None;
+                pool.households[s].members[other].conception_at = at;
+            }),
+            Some(PoolError::ConceptionAt),
+        ),
+        // N3 and P5's boundary for the series.
+        (
+            "series off the month grid",
+            changed_c(|pool| {
+                let at = pool.households[s].members[w].conception_at.expect("set");
+                pool.households[s].members[w].conception_at = Some(shifted(at, 1));
+            }),
+            Some(PoolError::ConceptionMonth),
+        ),
+        // P4 both ways.
+        (
+            "leaving home planned for one moved out",
+            changed_c(|pool| {
+                let at = shifted(pool.frozen_at, 1);
+                pool.households[moved.0].members[moved.1].leave_home_at = Some(at);
+            }),
+            Some(PoolError::LeaveHomeAt),
+        ),
+        (
+            "no leaving home for one at home",
+            changed_c(|pool| pool.households[hh].members[mh].leave_home_at = None),
+            Some(PoolError::LeaveHomeAt),
+        ),
+        // P5 for each field: at the freeze rejected, one second later accepted.
+        (
+            "series at the freeze",
+            changed_c(|pool| pool.households[s].members[w].conception_at = Some(pool.frozen_at)),
+            Some(PoolError::CarriedTime),
+        ),
+        (
+            "birth at the freeze",
+            changed_c(|pool| {
+                let at = pool.frozen_at;
+                let her = pool.households[p]
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lineage_key == mother)
+                    .expect("her");
+                her.birth_at = Some(at);
+            }),
+            Some(PoolError::CarriedTime),
+        ),
+        (
+            "birth just after the freeze",
+            changed_c(|pool| {
+                let at = shifted(pool.frozen_at, 1);
+                let her = pool.households[p]
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lineage_key == mother)
+                    .expect("her");
+                her.birth_at = Some(at);
+            }),
+            None,
+        ),
+        (
+            "leaving home at the freeze",
+            changed_c(|pool| {
+                pool.households[hh].members[mh].leave_home_at = Some(pool.frozen_at);
+            }),
+            Some(PoolError::CarriedTime),
+        ),
+        (
+            "leaving home just after the freeze",
+            changed_c(|pool| {
+                let at = shifted(pool.frozen_at, 1);
+                pool.households[hh].members[mh].leave_home_at = Some(at);
+            }),
+            None,
+        ),
+        // N4: born, formed and conceived at the freeze pass, one second later not.
+        (
+            "born at the freeze",
+            changed_c(|pool| pool.households[hh].members[mh].born = pool.frozen_at),
+            None,
+        ),
+        (
+            "partnership formed after the freeze",
+            changed_c(|pool| {
+                let at = shifted(pool.frozen_at, 1);
+                let pair = pool.households[s].partnership.as_mut().expect("a pair");
+                pair.formed = at;
+            }),
+            Some(PoolError::PastTime),
+        ),
+        (
+            "conceived at the freeze",
+            changed_c(|pool| pool.households[p].pregnancies[0].conceived = pool.frozen_at),
+            None,
+        ),
+        (
+            "conceived after the freeze",
+            changed_c(|pool| {
+                pool.households[p].pregnancies[0].conceived = shifted(pool.frozen_at, 1);
+            }),
+            Some(PoolError::PastTime),
+        ),
+        // Precedence: a pool breaking the freeze and a later rule reports the freeze.
+        (
+            "freeze off a year start and a past time",
+            changed_c(|pool| {
+                pool.households[p].pregnancies[0].conceived = shifted(pool.frozen_at, 2);
+                pool.frozen_at = shifted(pool.frozen_at, 1);
+            }),
+            Some(PoolError::FrozenAt),
+        ),
+    ];
+    for (name, verdict, expected) in cases {
+        assert_eq!(verdict.err(), expected, "{name}");
+    }
 }

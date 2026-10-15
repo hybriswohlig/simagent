@@ -1101,7 +1101,7 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let living_fit = loaded.sims.iter().all(|(id, sim)| {
         let founder = sim.parents.is_none() && sim.pool.is_none();
         // A carried leaving home is an event of its own: it has run once the clock passed
-        // it, also when it falls into second 0 of a town founded from the pool (review).
+        // it (a valid pool carries none at its freeze, so none falls into second 0).
         let expected = arrival_moved_out(id, clock)
             .unwrap_or_else(|| moved_out(id, sim.born, sim.lineage_key, founder, t));
         let home = loaded.households.get(&sim.household);
