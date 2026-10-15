@@ -17,6 +17,7 @@ mod common;
 use std::collections::BTreeMap;
 
 use sim_core::ageing::bio_age;
+use sim_core::body_contract::BodyCensus;
 use sim_core::body_contract::BodyParamKey;
 use sim_core::canonical::YearHash;
 use sim_core::data::Data;
@@ -204,6 +205,7 @@ fn a_sim_dies_when_its_budget_runs_out() {
         year,
         living,
         lived_secs: lived(secs),
+        body: BodyCensus::default(),
     };
     assert_eq!(
         run.out.census,
