@@ -44,6 +44,7 @@ use sim_core::world::{World, YearOut};
 const CENSUS: &str = include_str!("../../../tests/golden/census/census.json");
 const BODIES: &str = include_str!("../../../tests/golden/census/bodies.json");
 const PHENOTYPES: &str = include_str!("../../../tests/golden/census/phenotypes.json");
+const PURE_HEIGHTS: &str = include_str!("../../../tests/golden/census/pure_heights.json");
 const RECORDS_PHENOTYPES: &str =
     include_str!("../../../tests/golden/census/records_phenotypes.json");
 const POOL_B: &[u8] = include_bytes!("../../../tests/golden/pool/pool_b.bin");
@@ -558,6 +559,7 @@ fn the_phenotype_view_of_a_child_of_one_pool_person() {
         .iter()
         .map(|t| DataId::new(t.as_str().expect("id")).expect("id"))
         .collect();
+    check_pure_heights(&world, "records");
     let persons = golden["persons"].as_array().expect("persons");
     assert_eq!(persons.len(), 22);
     assert!(persons.iter().any(|p| p[1] == "town_of_pool_and_town"));
@@ -574,5 +576,65 @@ fn the_phenotype_view_of_a_child_of_one_pool_person() {
                 sim.get()
             );
         }
+    }
+}
+
+/// The reference's pure heights of a fixture (ADR-0015 section 4, the full height of the
+/// mapping never clamped): every living person's at each snapshot that `world` has
+/// reached, and at the end every archived person's at its leaving second.
+fn check_pure_heights(world: &World, name: &str) {
+    let golden: Value = serde_json::from_str(PURE_HEIGHTS).expect("json");
+    let fixture = &golden["fixtures"][name];
+    let now = world.closed_through();
+    for shot in fixture["snapshots"].as_array().expect("snapshots") {
+        let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+        if t != now {
+            continue;
+        }
+        for person in shot["persons"].as_array().expect("persons") {
+            let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+            let ours = world.state().pure_height(sim, t).expect("a height");
+            let reference = f64::from_bits(hex_u64(&person[3]));
+            assert!(
+                close(ours, reference),
+                "{name}: sim {} at {}",
+                sim.get(),
+                shot["year"]
+            );
+        }
+    }
+    if fixture["archived"]["run_end"].as_i64() == Some(now.as_secs()) {
+        for person in fixture["archived"]["persons"].as_array().expect("archived") {
+            let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+            let left = SimTime::from_secs(person[2].as_i64().expect("left"));
+            let ours = world.state().pure_height(sim, left).expect("a height");
+            let reference = f64::from_bits(hex_u64(&person[5]));
+            assert!(close(ours, reference), "{name}: archived sim {}", sim.get());
+        }
+    }
+}
+
+/// The pure height (ADR-0015 section 4, criterion P6) on (a), (b) and (b2): at each snapshot
+/// every living person's, at the end every archived person's, as the reference's.
+#[test]
+fn the_pure_height_is_the_references() {
+    let golden: Value = serde_json::from_str(PURE_HEIGHTS).expect("json");
+    for (name, scenario, data) in fixtures().into_iter().take(3) {
+        let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.submit(Input::Start(start)).expect("accepted");
+        let mut out = YearOut::default();
+        for shot in golden["fixtures"][name]["snapshots"]
+            .as_array()
+            .expect("snapshots")
+        {
+            let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+            world.advance_until(&mut out, t, &mut |_| false);
+            check_pure_heights(&world, name);
+        }
+        let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+        world.advance_until(&mut out, until, &mut |_| false);
+        check_pure_heights(&world, name);
     }
 }
