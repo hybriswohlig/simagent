@@ -935,6 +935,7 @@ fn base_save(label: &str) -> (Vec<u8>, fn() -> Data) {
         "V4b_carried_conception_pregnant" => (town_save(&ARRIVAL_AT_SEED, V4B_AT), ARRIVAL.data),
         "V5_pool_twins_born" => (town_save(&ARRIVAL_AT_SEED, V5_TWINS_AT), ARRIVAL.data),
         "V6_pool_pregnancy_cancelled" => (town_save(&V6, V6.clock), V6.data),
+        "series_end_boundary" => (town_save(&SERIES_END, MONTH_1), SERIES_END.data),
         "arrival_moved_out_by_town_partnership" => {
             let mut run = Run::start(&RECORDS);
             run.play(RECORDS_MOVED_OUT_BY_TOWN_PARTNERSHIP_AT);
@@ -1061,6 +1062,91 @@ fn load_checks_the_plans_an_arrival_brought() {
         assert!(World::load(&bytes, data()).is_ok(), "{name} loads");
     }
     for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_CARRIED {
+        let (base, data) = base_save(label);
+        assert_eq!(sized(&base), base_pin, "{name}");
+        assert!(World::load(&base, data()).is_ok(), "{name}: the base loads");
+        let mut bytes = base.clone();
+        for (offset, removed, put) in hunks.iter().rev() {
+            bytes.splice(*offset..offset + removed, hex(put));
+        }
+        assert_eq!(sized(&bytes), expected, "{name}");
+        assert_eq!(
+            World::load(&bytes, data()).err(),
+            Some(LoadError::Inconsistent),
+            "{name}"
+        );
+    }
+}
+
+/// `pool_c` with the woman of household 24 born so that the second attempt of her carried
+/// series falls exactly at 50 years, the end of her fertility.
+fn series_end_pool() -> Vec<u8> {
+    changed_pool_c(|pool| {
+        let household = &mut pool.households[24];
+        let woman = household.partnership.expect("a partnership").woman;
+        let her = household
+            .members
+            .iter_mut()
+            .find(|m| m.lineage_key == woman)
+            .expect("the woman");
+        let first = her.conception_at.expect("a carried series").as_secs();
+        her.born = SimTime::from_secs(first + 2_419_200 - 50 * Y);
+    })
+}
+
+fn series_end_data() -> Data {
+    let pool = series_end_pool();
+    assert_eq!(sized(&pool), SERIES_END_POOL);
+    town_data(&pool)
+}
+
+/// "arrival" on that pool: woman 28 fails her carried attempt at its first second; the next
+/// would come exactly at the end of her fertility, so none is pending.
+const SERIES_END: Town = Town {
+    data: series_end_data,
+    seed: 0xff,
+    n_start: 50,
+    clock: MONTH_1,
+};
+
+/// "arrival" with the seed 6: pool household 38 arrives with the immigration of year 1 and
+/// its pool child is born in year 1. A pool child's deaths come from its birth with the
+/// detail 0, not from its arrival year (design note of the arrival, 6.4).
+const IMMIGRANT_CHILD: Town = Town {
+    data: || town_data(POOL_C),
+    seed: 6,
+    n_start: 50,
+    clock: 2 * Y - 1,
+};
+
+/// The last gaps of the mutation runs (the reference's round 9): the pending immigration
+/// broken in its period, its second or its persons; a pool mother's conceptions off by one;
+/// a carried series with its attempt at the end of fertility. Each base loads, each changed
+/// save does not; and a pool child of an immigrant born in year 1 runs as the reference.
+#[test]
+fn load_rejects_the_last_states_of_the_mutation_runs() {
+    let data = (IMMIGRANT_CHILD.data)();
+    let start = start(6, Vec::new(), Vec::new(), pool_start(&data, 6, 50, true));
+    let mut run = Run {
+        world: World::new(data),
+        out: YearOut::default(),
+        log: Vec::new(),
+        data: IMMIGRANT_CHILD.data,
+    };
+    run.world.submit(Input::Start(start)).expect("accepted");
+    run.log.extend(run.world.take_log());
+    run.play(IMMIGRANT_CHILD.clock);
+    let hashes: Vec<u64> = run.out.year_hashes.iter().map(|y| y.hash).collect();
+    assert_eq!(hashes, IMMIGRANT_CHILD_YEAR_HASHES);
+    assert_eq!(log_hash(&run.log), IMMIGRANT_CHILD_LOG_HASH);
+    assert_eq!(run.world.state_hash(), IMMIGRANT_CHILD_STATE_HASH);
+    assert_eq!(sized(&run.save()), IMMIGRANT_CHILD_SAVE);
+    run.assert_loads();
+    assert_eq!(
+        sized(&town_save(&SERIES_END, SERIES_END.clock)),
+        SERIES_END_SAVE
+    );
+    for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_ROUND_9 {
         let (base, data) = base_save(label);
         assert_eq!(sized(&base), base_pin, "{name}");
         assert!(World::load(&base, data()).is_ok(), "{name}: the base loads");
@@ -2643,3 +2729,58 @@ const V4_SAVE: (usize, u64) = (17268, 0x0b30_54a5_c8ec_e064);
 const V4B_SAVE: (usize, u64) = (18581, 0x83a2_f784_3f4e_6ba6);
 const V5_TWINS_SAVE: (usize, u64) = (17656, 0xf40a_6465_d36e_a861);
 const V6_SAVE: (usize, u64) = (12821, 0xa97a_34d1_4abe_10db);
+
+/// The reference's round 9 (out9, its notes' section 5g).
+const LOAD_REJECTED_ROUND_9: [Hunks; 5] = [
+    (
+        "immigration_period_not_a_year",
+        "load_base",
+        (20695, 0xf509_3f7b_da81_7ed0),
+        &[(44, 1, "82")],
+        (20695, 0xcdcc_1532_d332_e77b),
+    ),
+    (
+        "immigration_not_due",
+        "load_base",
+        (20695, 0xf509_3f7b_da81_7ed0),
+        &[
+            (35, 13, ""),
+            (887, 0, "018088ff1d80a0fc7700030901"),
+            (12871, 2, ""),
+            (13352, 0, "0100"),
+        ],
+        (20695, 0x4fed_7972_6178_9d62),
+    ),
+    (
+        "immigration_persons_off_by_one",
+        "load_base",
+        (20695, 0xf509_3f7b_da81_7ed0),
+        &[(42, 1, "02")],
+        (20695, 0xe025_be39_0912_941e),
+    ),
+    (
+        "pool_mother_conceptions_off_by_one",
+        "arrival_save_after_start",
+        (16887, 0xc681_ab82_572f_2171),
+        &[(7035, 1, "02")],
+        (16887, 0xf31c_9c3b_63c3_1596),
+    ),
+    (
+        "series_end_boundary_attempt_present",
+        "series_end_boundary",
+        (17254, 0x8b41_ca26_4bbe_4afd),
+        &[
+            (34, 1, "cd"),
+            (70, 0, "80d0ce040066031c0180a8a702"),
+            (10088, 5, "cd010100050036"),
+        ],
+        (17269, 0x3cc7_89c3_99b5_c4ca),
+    ),
+];
+
+const SERIES_END_POOL: (usize, u64) = (10957, 0xee94_2e56_5b74_4552);
+const SERIES_END_SAVE: (usize, u64) = (17254, 0x8b41_ca26_4bbe_4afd);
+const IMMIGRANT_CHILD_YEAR_HASHES: [u64; 2] = [0x5336_b22a_0f86_ef0e, 0xdd77_0aa9_236a_a350];
+const IMMIGRANT_CHILD_LOG_HASH: u64 = 0xdec1_31e5_a000_d64e;
+const IMMIGRANT_CHILD_STATE_HASH: u64 = 0x9ab7_bb3d_e95f_8ab0;
+const IMMIGRANT_CHILD_SAVE: (usize, u64) = (20535, 0x7203_dd9e_b604_e2cd);
