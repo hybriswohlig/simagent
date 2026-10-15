@@ -12,6 +12,7 @@ mod contract_base;
 mod kat;
 mod map4;
 mod ordered;
+mod pool_file;
 mod prerun;
 mod release_run;
 mod results;

@@ -10,6 +10,7 @@ use sim_core::data_id::{DataId, str_key};
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::input::{Founder, Input, Start};
 use sim_core::lineage::LineageKey;
+use sim_core::log::LogEntry;
 use sim_core::measure::Measurement;
 use sim_core::mortality;
 use sim_core::params::WorldParams;
@@ -100,8 +101,13 @@ fn plain(json: &Json) -> Result<String> {
 /// and `map` (design note, section 1).
 pub fn prerun_data(root: &Path, calibration: &Json, map: &Json) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
+    data_of(&demography, calibration, map)
+}
+
+/// The data of these three documents, read as the CLI reads data files.
+pub fn data_of(demography: &Json, calibration: &Json, map: &Json) -> Result<Data> {
     let definitions = Definitions {
-        demography: serde_json::from_str(&plain(&demography)?)
+        demography: serde_json::from_str(&plain(demography)?)
             .map_err(|error| format!("demography: {error}"))?,
         calibration: serde_json::from_str(&plain(calibration)?)
             .map_err(|error| format!("calibration: {error}"))?,
@@ -320,20 +326,31 @@ pub fn start(tag: &DataId, seed: u64, founders: Vec<Founder>, capacity: u64) -> 
 /// A run to `until` (inclusive); the world and its year output. The log is dropped year
 /// by year: a run of 750 years would otherwise hold millions of entries.
 pub fn run(data: Data, start: Input, until: SimTime) -> Result<(World, YearOut)> {
+    run_observed(data, start, until, &mut |_| {})
+}
+
+/// `run`, handing every batch of the log to `observe` before it is dropped (the pool run
+/// reads the genome keys from it).
+pub fn run_observed(
+    data: Data,
+    start: Input,
+    until: SimTime,
+    observe: &mut dyn FnMut(&[LogEntry]),
+) -> Result<(World, YearOut)> {
     let mut world = World::new(data);
     world
         .submit(start)
         .map_err(|rejected| format!("Start rejected: {:?}", rejected.code))?;
-    world.take_log();
+    observe(&world.take_log());
     let mut out = YearOut::default();
     let mut year_end = YEAR.as_secs() - 1;
     while year_end < until.as_secs() {
         world.advance_until(&mut out, SimTime::from_secs(year_end), &mut |_| false);
-        world.take_log();
+        observe(&world.take_log());
         year_end += YEAR.as_secs();
     }
     world.advance_until(&mut out, until, &mut |_| false);
-    world.take_log();
+    observe(&world.take_log());
     Ok((world, out))
 }
 
@@ -560,7 +577,7 @@ fn write_files(dir: &Path, calibration: &Json, map: &Json) -> Result {
 }
 
 /// The map and calibration of a run directory (as `write_files` writes them).
-fn read_files(dir: &Path) -> Result<(Json, Json)> {
+pub fn read_files(dir: &Path) -> Result<(Json, Json)> {
     let read = |path: &str| -> Result<Json> {
         let text = std::fs::read_to_string(dir.join(path))
             .map_err(|error| format!("cannot read {}: {error}", dir.join(path).display()))?;
@@ -606,7 +623,7 @@ pub fn ratios_between(before: &Json, after: &Json) -> Vec<(String, f64)> {
 }
 
 /// The founder groups of a run (design note, section 3).
-fn print_groups(label: &str, groups: &[Group]) {
+pub fn print_groups(label: &str, groups: &[Group]) {
     for group in groups {
         println!(
             "{label} group {:?} age {} weight {:?} count {}",
@@ -618,7 +635,7 @@ fn print_groups(label: &str, groups: &[Group]) {
 /// What every run reports (design note, section 3): the census, the measurement against
 /// the map it ran on, and per generation the births, mothers, fathers, `N_e` and the
 /// additive variance of growth and cognition.
-fn print_run(label: &str, map: &Json, world: &World, out: &YearOut) -> Result<Measurement> {
+pub fn print_run(label: &str, map: &Json, world: &World, out: &YearOut) -> Result<Measurement> {
     for row in &out.census {
         println!("{label} year {} living {}", row.year, row.living);
     }
@@ -724,36 +741,28 @@ pub fn measure(root: &Path, options: &Options) -> Result {
     ))
 }
 
-/// The pool run on the frozen map (design note, section 3): to `years · YEAR` inclusive;
-/// its save goes to `options.out` for the pool slice.
+/// The pool run on the frozen map (design note of the pre-run, section 3; design note of
+/// the pool file): to `years · YEAR` inclusive; its pool goes to `options.out/pool.bin`.
 pub fn pool(root: &Path, options: &Options) -> Result {
     let dir = options.map.as_ref().ok_or("pool needs --map <dir>")?;
-    let read = |path: &str| -> Result<Json> {
-        let text = std::fs::read_to_string(dir.join(path))
-            .map_err(|error| format!("cannot read {path}: {error}"))?;
-        Json::parse(&text)
-    };
-    let (calibration, map) = prerun_files(
-        &read("calibration/genetics.json")?,
-        &read("genetics/genome_map.json")?,
-    );
-    let data = prerun_data(root, &calibration, &map)?;
-    println!("pool data_hash {:016x}", data.hash());
-    let tag = DataId::new("core:prerun_pool").map_err(|_| "a tag".to_owned())?;
-    let groups = groups(&data, options.founders);
-    print_groups("pool", &groups);
-    let founders = founders(&data, &groups, &tag, POOL_SEED);
-    let input = start(&tag, POOL_SEED, founders, options.founders);
-    let until = SimTime::from_secs(options.years * YEAR.as_secs());
-    let (world, out) = run(data, input, until)?;
-    print_run("pool", &map, &world, &out)?;
-    let save = world
-        .save(&out.year_hashes)
-        .map_err(|error| format!("cannot save: {error:?}"))?;
+    let (calibration, map) = read_files(dir)?;
+    let demography = crate::map4::read(root, "data/calibration/demography.json")?;
+    let (pool, report, _) = crate::pool_file::pool_of(
+        &demography,
+        &calibration,
+        &map,
+        options.founders,
+        options.years,
+        &mut |world, out, groups| {
+            print_groups("pool", groups);
+            print_run("pool", &map, world, out).map(|_| ())
+        },
+    )?;
+    crate::pool_file::print_report(&pool, &report);
     std::fs::create_dir_all(&options.out)
         .map_err(|error| format!("cannot create {}: {error}", options.out.display()))?;
-    std::fs::write(options.out.join("pool.save"), save)
-        .map_err(|error| format!("cannot write the save: {error}"))
+    std::fs::write(options.out.join("pool.bin"), pool.to_bytes())
+        .map_err(|error| format!("cannot write the pool: {error}"))
 }
 
 /// The value of the option `name` in `args`: none without the option; an error if the
