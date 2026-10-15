@@ -18,7 +18,7 @@ use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
 use crate::lineage::LineageKey;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
-use crate::pool::{Ancestor, Pool, PoolError, PoolPerson, PoolUnborn};
+use crate::pool::{Ancestor, Pool, PoolError, PoolUnborn};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
 pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
@@ -549,8 +549,6 @@ pub struct Data {
 pub struct PoolData {
     pool: Pool,
     hash: u64,
-    /// Each member: its household and its place there.
-    members: BTreeMap<LineageKey, (usize, usize)>,
     /// Each record: its place among the ancestors.
     records: BTreeMap<LineageKey, usize>,
     /// Each unborn child: its household, its pregnancy there and its place in it.
@@ -565,12 +563,6 @@ impl PoolData {
     /// `Pool::hash` of the file.
     pub const fn hash(&self) -> u64 {
         self.hash
-    }
-
-    /// A member of a household of the pool by its lineage key.
-    pub fn member(&self, key: LineageKey) -> Option<&PoolPerson> {
-        let (household, place) = *self.members.get(&key)?;
-        self.pool.households.get(household)?.members.get(place)
     }
 
     /// A record of the ancestors by its lineage key.
@@ -1642,12 +1634,6 @@ impl Data {
         if !loci_known {
             return Err(DataError::PoolLocus);
         }
-        let mut members = BTreeMap::new();
-        for (h, household) in pool.households.iter().enumerate() {
-            for (m, member) in household.members.iter().enumerate() {
-                members.insert(member.lineage_key, (h, m));
-            }
-        }
         let mut unborn = BTreeMap::new();
         for (h, household) in pool.households.iter().enumerate() {
             for (p, pregnancy) in household.pregnancies.iter().enumerate() {
@@ -1669,7 +1655,6 @@ impl Data {
         data.pool = Some(Arc::new(PoolData {
             pool,
             hash,
-            members,
             records,
             unborn,
         }));
