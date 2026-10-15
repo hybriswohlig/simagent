@@ -1,0 +1,7388 @@
+{
+ "format_version": 1,
+ "written_by": "tools/census_reference.py (independent of crates/)",
+ "core_version_modelled": 37,
+ "projection_version_modelled": 18,
+ "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
+ "clamped_keys": [
+  "height_cm",
+  "leg_ratio_z",
+  "head_size_z",
+  "body_fat_z",
+  "fat_distribution_z",
+  "muscle_z",
+  "shoulder_width_z",
+  "chest_depth_z",
+  "hip_width_z",
+  "face_axis_01",
+  "face_axis_02",
+  "face_axis_03",
+  "face_axis_04",
+  "face_axis_05",
+  "face_axis_06",
+  "face_axis_07",
+  "face_axis_08",
+  "face_axis_09",
+  "face_axis_10",
+  "face_axis_11",
+  "face_axis_12"
+ ],
+ "param_keys": [
+  "body_form_age",
+  "face_form_age",
+  "height_cm",
+  "leg_ratio_z",
+  "head_size_z",
+  "body_fat_z",
+  "fat_distribution_z",
+  "muscle_z",
+  "shoulder_width_z",
+  "chest_depth_z",
+  "hip_width_z",
+  "face_axis_01",
+  "face_axis_02",
+  "face_axis_03",
+  "face_axis_04",
+  "face_axis_05",
+  "face_axis_06",
+  "face_axis_07",
+  "face_axis_08",
+  "face_axis_09",
+  "face_axis_10",
+  "face_axis_11",
+  "face_axis_12",
+  "skin_eumelanin",
+  "skin_pheomelanin",
+  "hair_eumelanin",
+  "hair_pheomelanin",
+  "iris_melanin",
+  "hair_curl",
+  "hair_density",
+  "balding_stage",
+  "hair_grey_fraction",
+  "eyebrow_density",
+  "beard_density",
+  "beard_coverage",
+  "body_hair",
+  "freckle_density",
+  "face_wrinkles",
+  "skin_laxity",
+  "age_spots",
+  "posture_stoop",
+  "androgenic_development",
+  "estrogenic_development",
+  "breast_development"
+ ],
+ "z_traits": [
+  "core:growth",
+  "core:puberty",
+  "core:leg_ratio",
+  "core:head_size",
+  "core:body_fat",
+  "core:fat_distribution",
+  "core:muscle",
+  "core:shoulder_width",
+  "core:chest_depth",
+  "core:hip_width",
+  "core:face_01",
+  "core:face_02",
+  "core:face_03",
+  "core:face_04",
+  "core:face_05",
+  "core:face_06",
+  "core:face_07",
+  "core:face_08",
+  "core:face_09",
+  "core:face_10",
+  "core:face_11",
+  "core:face_12",
+  "core:pigment",
+  "core:hair_darkness",
+  "core:androgen",
+  "core:estrogen",
+  "core:breast",
+  "core:curl",
+  "core:freckle",
+  "core:beard",
+  "core:body_hair",
+  "core:bald",
+  "core:hair_density",
+  "core:grey",
+  "core:skin_age"
+ ],
+ "hashes": "xxh3-64 seed 0; person hash = xxh3_64(the 44 params as f64 LE in param_keys order); snapshot hash = xxh3_64(concat over the living by ascending SimId of (u64 LE SimId ++ those 352 bytes)); start_input_hash = xxh3_64(the input record of Start: i64 stamp -1, sequence 1, the postcard of Start)",
+ "scenarios": "scenarios/<fixture>.json (format 5 as tools/arrival_reference.py writes it; the CLI fills pool_hash and households)",
+ "fixtures": {
+  "a_template_extremes": {
+   "data": "tests/golden/map4_template with data/calibration/demography.json",
+   "data_hash": "5ae3d70c71cf063a",
+   "body_data": "accepted",
+   "start_input_hash": "5a334c7f285f7bfb",
+   "year_hashes": [
+    "e5f6d41849300c95",
+    "a716f43c59268c20",
+    "0d929a9a6b2d7277",
+    "b6b38f64075d5341",
+    "59a61a22e4972f68",
+    "22060a4ebc2635b4",
+    "ef27567b085be6bd",
+    "5a27d9c50a9747ac",
+    "b9158239cf5a0f13",
+    "47df5e3fc892f8c5",
+    "feae3eb19bd07684",
+    "f0ffbfc01bf7c990",
+    "9826a81f98ab7646",
+    "6037ff811bbfdc06",
+    "289fb9c3fd7b729c",
+    "67c4baae0b06e3fa",
+    "0510fe0124a6ac5f",
+    "f6732f3403a56730",
+    "78d186ef8d5895f2",
+    "610cb81fb4dd27ae"
+   ],
+   "log_hash": "b3a77a447c4e5cde",
+   "rows": [
+    {
+     "year": 0,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      1,
+      2,
+      1,
+      0,
+      0,
+      2,
+      2,
+      0,
+      0,
+      2,
+      2,
+      3,
+      7,
+      6,
+      2,
+      4,
+      2,
+      4,
+      3,
+      5,
+      3
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 1,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      2,
+      1,
+      0,
+      1,
+      2,
+      3,
+      0,
+      0,
+      2,
+      2,
+      4,
+      7,
+      7,
+      2,
+      4,
+      4,
+      5,
+      3,
+      6,
+      3
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 2,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      1,
+      2,
+      3,
+      0,
+      0,
+      2,
+      2,
+      4,
+      7,
+      8,
+      3,
+      4,
+      4,
+      7,
+      4,
+      6,
+      3
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 3,
+     "living": 44,
+     "body_evaluated": 44,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      1,
+      2,
+      3,
+      0,
+      0,
+      2,
+      2,
+      4,
+      7,
+      9,
+      3,
+      4,
+      4,
+      7,
+      4,
+      6,
+      3
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 4,
+     "living": 47,
+     "body_evaluated": 47,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      1,
+      3,
+      4,
+      1,
+      0,
+      3,
+      4,
+      4,
+      8,
+      10,
+      3,
+      4,
+      6,
+      7,
+      5,
+      7,
+      4
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 5,
+     "living": 51,
+     "body_evaluated": 51,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 6,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 7,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 8,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 9,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 10,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 11,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 12,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 13,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 14,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 15,
+     "living": 52,
+     "body_evaluated": 52,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      10,
+      4,
+      5,
+      6,
+      7,
+      5,
+      7,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 16,
+     "living": 53,
+     "body_evaluated": 53,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      11,
+      4,
+      5,
+      6,
+      8,
+      5,
+      8,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 17,
+     "living": 53,
+     "body_evaluated": 53,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      1,
+      0,
+      3,
+      4,
+      5,
+      8,
+      11,
+      4,
+      5,
+      6,
+      8,
+      5,
+      8,
+      5
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 18,
+     "living": 55,
+     "body_evaluated": 55,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      2,
+      0,
+      3,
+      4,
+      5,
+      8,
+      11,
+      5,
+      6,
+      6,
+      8,
+      5,
+      8,
+      6
+     ],
+     "curve_clamped": 3
+    },
+    {
+     "year": 19,
+     "living": 55,
+     "body_evaluated": 55,
+     "clamped": [
+      0,
+      3,
+      1,
+      0,
+      3,
+      5,
+      4,
+      2,
+      0,
+      3,
+      4,
+      5,
+      8,
+      11,
+      5,
+      6,
+      6,
+      8,
+      5,
+      8,
+      6
+     ],
+     "curve_clamped": 3
+    }
+   ],
+   "curve_clamped_sims": {
+    "0": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "1": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "2": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "3": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "4": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "5": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "6": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "7": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "8": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "9": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "10": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "11": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "12": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "13": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "14": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "15": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "16": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "17": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "18": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ],
+    "19": [
+     [
+      2,
+      "a62aefd72bad3bba",
+      "c019749d93626fac",
+      "c00cc2706a613c05"
+     ],
+     [
+      3,
+      "c23fc9c48affdb7f",
+      "c01a599fdb1b2d87",
+      "c003932b7bb33de4"
+     ],
+     [
+      22,
+      "e51cedf47a5aa740",
+      "4018c685fc460f13",
+      "40064c4d19dd85f1"
+     ]
+    ]
+   },
+   "margins": {
+    "nearest_clamp_bound": {
+     "distance": 2.323749826427246e-05,
+     "ulps_of_bound": 26163097131.0,
+     "key": "face_axis_08",
+     "bound": 4.0,
+     "raw": 4.000023237498264,
+     "raw_bits": "4010000617712e2b",
+     "year": 1,
+     "sim": 33
+    },
+    "nearest_curve_bound": {
+     "distance": 0.19387048890691272,
+     "role": "z_h",
+     "z": 6.193870488906913,
+     "z_bits": "4018c685fc460f13",
+     "year": 0,
+     "sim": 22
+    }
+   },
+   "held_founders_at_start": [
+    [
+     1,
+     "c019749d93626fac",
+     "c00cc2706a613c05"
+    ],
+    [
+     2,
+     "c01a599fdb1b2d87",
+     "c003932b7bb33de4"
+    ],
+    [
+     21,
+     "4018c685fc460f13",
+     "40064c4d19dd85f1"
+    ]
+   ],
+   "until": 628991999,
+   "snapshots": [
+    {
+     "year": 0,
+     "t": 31449599,
+     "living": 31,
+     "hash": "eb6d199053c2d989",
+     "persons": [
+      [
+       1,
+       "9b726262101b0ada",
+       "bca8eaadfe97d8b8"
+      ],
+      [
+       2,
+       "a62aefd72bad3bba",
+       "7accbb3237057362"
+      ],
+      [
+       3,
+       "c23fc9c48affdb7f",
+       "0738f7f82e74dc64"
+      ],
+      [
+       4,
+       "a0a410524214770f",
+       "637d347c6c3677b8"
+      ],
+      [
+       5,
+       "5f398050958d8676",
+       "1fd17de6a18a31eb"
+      ],
+      [
+       6,
+       "c6578125a1a49b55",
+       "525f7870ead5f1b7"
+      ],
+      [
+       7,
+       "acd7aec4a9845c28",
+       "7f50487c8135154b"
+      ],
+      [
+       8,
+       "afb83178064cbd96",
+       "d789e6f6851744cb"
+      ],
+      [
+       9,
+       "3027d6dab26466a6",
+       "9ba67e1483de3135"
+      ],
+      [
+       10,
+       "fb0be85b19761872",
+       "0c92841bfa177981"
+      ],
+      [
+       11,
+       "4f23350d799cf0ca",
+       "e25fb17962dcb7d4"
+      ],
+      [
+       12,
+       "e67e5790c1780ce8",
+       "c406a4373ab13eb2"
+      ],
+      [
+       13,
+       "fe3e5c94d1e3a64f",
+       "f106933f1ff9172c"
+      ],
+      [
+       14,
+       "82c2de966e9d99b8",
+       "dd836afe47930eda"
+      ],
+      [
+       15,
+       "f0d3ef00d5c28d00",
+       "b617c39cd686dd07"
+      ],
+      [
+       16,
+       "f5a0fafb549346cc",
+       "25f2e28bb534d1fd"
+      ],
+      [
+       17,
+       "e00e9df2dabe4b5c",
+       "6bfabc16ce68dbe1"
+      ],
+      [
+       18,
+       "8c97c91c1a9095c3",
+       "d10db5fea8e9450f"
+      ],
+      [
+       19,
+       "fc5ce8dea47a9139",
+       "c527f7f361081f7b"
+      ],
+      [
+       20,
+       "95c1986cb5084770",
+       "1ee1c7376aff2f50"
+      ],
+      [
+       21,
+       "ba23171fac4abea9",
+       "744c34f17158d84f"
+      ],
+      [
+       22,
+       "e51cedf47a5aa740",
+       "baaf4dd424a94295"
+      ],
+      [
+       23,
+       "f7646a7a9876ae1b",
+       "5b7cfab0d3aa1b09"
+      ],
+      [
+       24,
+       "c41eb8e61293d991",
+       "16625a5f5d2e79f1"
+      ],
+      [
+       25,
+       "260b1a4b06a37957",
+       "39c95189f04d0d05"
+      ],
+      [
+       26,
+       "7016d935197c5d0e",
+       "55d35e478062b3bc"
+      ],
+      [
+       27,
+       "c41e045de4dcbac6",
+       "225c1eb9788ccc7b"
+      ],
+      [
+       28,
+       "968c2e19473288c5",
+       "45168ba49d971844"
+      ],
+      [
+       29,
+       "24ee191f76d8e82e",
+       "d6ee737ae52c1e07"
+      ],
+      [
+       30,
+       "4e9153d0035d04cd",
+       "bd366e9a67a64da4"
+      ],
+      [
+       31,
+       "949bfae3257af850",
+       "4410818c3a1f9130"
+      ]
+     ]
+    },
+    {
+     "year": 7,
+     "t": 251596799,
+     "living": 52,
+     "hash": "4049f098a7e41c87",
+     "persons": [
+      [
+       1,
+       "9b726262101b0ada",
+       "8be8730b3ec89d9e"
+      ],
+      [
+       2,
+       "a62aefd72bad3bba",
+       "9dd2db1360cd790b"
+      ],
+      [
+       3,
+       "c23fc9c48affdb7f",
+       "9225759a335cc09f"
+      ],
+      [
+       4,
+       "a0a410524214770f",
+       "1bbde5ab0ec3d253"
+      ],
+      [
+       5,
+       "5f398050958d8676",
+       "ab23381d0d579e57"
+      ],
+      [
+       6,
+       "c6578125a1a49b55",
+       "39f7915974fef1c5"
+      ],
+      [
+       7,
+       "acd7aec4a9845c28",
+       "002b5d2c07b9b885"
+      ],
+      [
+       8,
+       "afb83178064cbd96",
+       "637f0b32546f61de"
+      ],
+      [
+       9,
+       "3027d6dab26466a6",
+       "b2c631fe1c5ff716"
+      ],
+      [
+       10,
+       "fb0be85b19761872",
+       "0535147fc4c48a74"
+      ],
+      [
+       11,
+       "4f23350d799cf0ca",
+       "b91fe7c4c81d894b"
+      ],
+      [
+       12,
+       "e67e5790c1780ce8",
+       "da2e4fe7e3601ebf"
+      ],
+      [
+       13,
+       "fe3e5c94d1e3a64f",
+       "908667f2bae324da"
+      ],
+      [
+       14,
+       "82c2de966e9d99b8",
+       "6ec4645bf72214c7"
+      ],
+      [
+       15,
+       "f0d3ef00d5c28d00",
+       "08996cbc58fd7ab0"
+      ],
+      [
+       16,
+       "f5a0fafb549346cc",
+       "2ffc710d17a90d13"
+      ],
+      [
+       17,
+       "e00e9df2dabe4b5c",
+       "8144549e30862616"
+      ],
+      [
+       18,
+       "8c97c91c1a9095c3",
+       "a64f20d1b7db760f"
+      ],
+      [
+       19,
+       "fc5ce8dea47a9139",
+       "f206fc77083ea68f"
+      ],
+      [
+       20,
+       "95c1986cb5084770",
+       "c798879061489255"
+      ],
+      [
+       21,
+       "ba23171fac4abea9",
+       "eb6670010fe64145"
+      ],
+      [
+       22,
+       "e51cedf47a5aa740",
+       "6f9fc7ffc677ecf5"
+      ],
+      [
+       23,
+       "f7646a7a9876ae1b",
+       "4cfd6da458ae9259"
+      ],
+      [
+       24,
+       "c41eb8e61293d991",
+       "a9c926f6ef9b3dc8"
+      ],
+      [
+       25,
+       "260b1a4b06a37957",
+       "5401de7a93cff666"
+      ],
+      [
+       26,
+       "7016d935197c5d0e",
+       "6bfe556261cd1d30"
+      ],
+      [
+       27,
+       "c41e045de4dcbac6",
+       "cb4a6ac7f8fbc66f"
+      ],
+      [
+       28,
+       "968c2e19473288c5",
+       "116d8de9ad3d3b8b"
+      ],
+      [
+       29,
+       "24ee191f76d8e82e",
+       "53dbf0df9eac76b0"
+      ],
+      [
+       30,
+       "4e9153d0035d04cd",
+       "8dddf7dd687ee5ff"
+      ],
+      [
+       31,
+       "949bfae3257af850",
+       "9e36a4af663dc180"
+      ],
+      [
+       32,
+       "d561246567bbb53b",
+       "1730862807720705"
+      ],
+      [
+       33,
+       "1c5053bf709327b8",
+       "646efce5d81761de"
+      ],
+      [
+       34,
+       "a787d95ea6cd440e",
+       "e61dd6e919864f00"
+      ],
+      [
+       35,
+       "7a4984fac7caf262",
+       "164513b25da05eb2"
+      ],
+      [
+       36,
+       "482424f8194b3934",
+       "1da546f15419e18c"
+      ],
+      [
+       37,
+       "ce22b685dcfa8073",
+       "426d7dc6c93aa8e3"
+      ],
+      [
+       38,
+       "182da02969501a7f",
+       "6a9714a758277834"
+      ],
+      [
+       39,
+       "2a9d5d53a4f9e64b",
+       "a752a6a1dcf628c0"
+      ],
+      [
+       40,
+       "48df7ab7c97fde95",
+       "71d5b821501edc53"
+      ],
+      [
+       41,
+       "8e4e8312d0679194",
+       "94e5b6d5f63a1b84"
+      ],
+      [
+       42,
+       "4c1dd06e6dd5d59f",
+       "bbc9454ecd741c19"
+      ],
+      [
+       43,
+       "de2055828f5b24c1",
+       "f660eda72e8599fd"
+      ],
+      [
+       44,
+       "8ab0ce1441db3ae8",
+       "f483c58c90107222"
+      ],
+      [
+       45,
+       "c663dc712600a57b",
+       "feb0d939004d210c"
+      ],
+      [
+       46,
+       "429b1ca442da69af",
+       "13691c67d77baa84"
+      ],
+      [
+       47,
+       "bc89a772bc9277bd",
+       "aeef41c2480f935e"
+      ],
+      [
+       48,
+       "26e7c1b2b3f91005",
+       "cd6037e9eac1eaa2"
+      ],
+      [
+       49,
+       "abede5bf6838e8db",
+       "bdd62234ea0e44ef"
+      ],
+      [
+       50,
+       "0a2e1cf3b303a390",
+       "e453d3e97c271522"
+      ],
+      [
+       51,
+       "4912ee63bd737f36",
+       "f235f5edb849b16e"
+      ],
+      [
+       52,
+       "6c83f83aa6979b31",
+       "ed3b6a70a6e9e414"
+      ]
+     ]
+    },
+    {
+     "year": 19,
+     "t": 628991999,
+     "living": 55,
+     "hash": "930b4b3171f7dba2",
+     "persons": [
+      [
+       1,
+       "9b726262101b0ada",
+       "9614704c016a24c5"
+      ],
+      [
+       2,
+       "a62aefd72bad3bba",
+       "d940cec22939c80d"
+      ],
+      [
+       3,
+       "c23fc9c48affdb7f",
+       "0016097f9d228309"
+      ],
+      [
+       4,
+       "a0a410524214770f",
+       "dbb040634e69daef"
+      ],
+      [
+       5,
+       "5f398050958d8676",
+       "d17d4967b307ff1b"
+      ],
+      [
+       6,
+       "c6578125a1a49b55",
+       "cd4ff7dd36334fbc"
+      ],
+      [
+       7,
+       "acd7aec4a9845c28",
+       "60baacdf2aaefc25"
+      ],
+      [
+       8,
+       "afb83178064cbd96",
+       "b09e79665740d4c3"
+      ],
+      [
+       9,
+       "3027d6dab26466a6",
+       "f46d61c3e924b26a"
+      ],
+      [
+       10,
+       "fb0be85b19761872",
+       "912326dd27886aef"
+      ],
+      [
+       11,
+       "4f23350d799cf0ca",
+       "5b1dc20cd01770ab"
+      ],
+      [
+       12,
+       "e67e5790c1780ce8",
+       "9f045150beb18b23"
+      ],
+      [
+       13,
+       "fe3e5c94d1e3a64f",
+       "c65402d3a377a85a"
+      ],
+      [
+       14,
+       "82c2de966e9d99b8",
+       "91bb450ade19de45"
+      ],
+      [
+       15,
+       "f0d3ef00d5c28d00",
+       "59a99631996b4e8c"
+      ],
+      [
+       16,
+       "f5a0fafb549346cc",
+       "764a0f8ea89757a4"
+      ],
+      [
+       17,
+       "e00e9df2dabe4b5c",
+       "98ef1a8823875f89"
+      ],
+      [
+       18,
+       "8c97c91c1a9095c3",
+       "7eca8aaf2cb6e129"
+      ],
+      [
+       19,
+       "fc5ce8dea47a9139",
+       "a71eca66b076f39d"
+      ],
+      [
+       20,
+       "95c1986cb5084770",
+       "c5fd37fce95b6901"
+      ],
+      [
+       21,
+       "ba23171fac4abea9",
+       "8a29c74c20511210"
+      ],
+      [
+       22,
+       "e51cedf47a5aa740",
+       "6a83290d69b371e1"
+      ],
+      [
+       23,
+       "f7646a7a9876ae1b",
+       "b8cfaac7823d7c83"
+      ],
+      [
+       24,
+       "c41eb8e61293d991",
+       "8e94930acb89082c"
+      ],
+      [
+       25,
+       "260b1a4b06a37957",
+       "d5f9cdd32d28b648"
+      ],
+      [
+       26,
+       "7016d935197c5d0e",
+       "db0f7230d21baf4e"
+      ],
+      [
+       27,
+       "c41e045de4dcbac6",
+       "c7b745d965d42c21"
+      ],
+      [
+       28,
+       "968c2e19473288c5",
+       "f351f3fcb7e01085"
+      ],
+      [
+       29,
+       "24ee191f76d8e82e",
+       "167bb08921585ecd"
+      ],
+      [
+       30,
+       "4e9153d0035d04cd",
+       "0b9d4cc14f8d461d"
+      ],
+      [
+       31,
+       "949bfae3257af850",
+       "6aaeb90663dbe655"
+      ],
+      [
+       32,
+       "d561246567bbb53b",
+       "2b3ee262e9ddc972"
+      ],
+      [
+       33,
+       "1c5053bf709327b8",
+       "90db9ed7a8e2f161"
+      ],
+      [
+       34,
+       "a787d95ea6cd440e",
+       "c581425cc1de6340"
+      ],
+      [
+       35,
+       "7a4984fac7caf262",
+       "061ea0c5424adcf9"
+      ],
+      [
+       36,
+       "482424f8194b3934",
+       "35c7ce29b0ee0d16"
+      ],
+      [
+       37,
+       "ce22b685dcfa8073",
+       "5c77e00e9936df9e"
+      ],
+      [
+       38,
+       "182da02969501a7f",
+       "af9f698d5e912b97"
+      ],
+      [
+       39,
+       "2a9d5d53a4f9e64b",
+       "6be3c521c41aae5a"
+      ],
+      [
+       40,
+       "48df7ab7c97fde95",
+       "f4bb502cbee5c0f6"
+      ],
+      [
+       41,
+       "8e4e8312d0679194",
+       "d72e1556e60b93b8"
+      ],
+      [
+       42,
+       "4c1dd06e6dd5d59f",
+       "bea1034f5588874e"
+      ],
+      [
+       43,
+       "de2055828f5b24c1",
+       "3eb88ac5b6aa19a4"
+      ],
+      [
+       44,
+       "8ab0ce1441db3ae8",
+       "83d4e282e13a3802"
+      ],
+      [
+       45,
+       "c663dc712600a57b",
+       "d00ec41ceac3bc7f"
+      ],
+      [
+       46,
+       "429b1ca442da69af",
+       "8eff370c1b235448"
+      ],
+      [
+       47,
+       "bc89a772bc9277bd",
+       "4526cb4514e31ba7"
+      ],
+      [
+       48,
+       "26e7c1b2b3f91005",
+       "a820d20dc80382a5"
+      ],
+      [
+       49,
+       "abede5bf6838e8db",
+       "9b7ccab4359ebd8a"
+      ],
+      [
+       50,
+       "0a2e1cf3b303a390",
+       "f54bcf8a5d44355b"
+      ],
+      [
+       51,
+       "4912ee63bd737f36",
+       "134e4b6a0ae0473e"
+      ],
+      [
+       52,
+       "6c83f83aa6979b31",
+       "19242ea7c1c7f57f"
+      ],
+      [
+       53,
+       "16b733db963b09fe",
+       "8a239ce27cacad2d"
+      ],
+      [
+       54,
+       "9a38252e721c8979",
+       "5015abd63a1e44e6"
+      ],
+      [
+       55,
+       "1ab03f596a9b6ae0",
+       "407207b6a971155c"
+      ]
+     ]
+    }
+   ]
+  },
+  "b_pool_c_immigration": {
+   "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_c.bin",
+   "data_hash": "6cac772d1146140e",
+   "body_data": "accepted",
+   "start_input_hash": "eff9bb7bd6f2f006",
+   "year_hashes": [
+    "e08a305ef3f8a9f0",
+    "dc533bcde5c1fe92",
+    "1de7f8e732211532",
+    "0f6ebb39d859cb3a",
+    "afd1d194b7a18cda",
+    "1d312c0e14976197",
+    "78114985f04ed687",
+    "a502d6ffe428ebd9",
+    "694899bf935f1429",
+    "5496f8c299e8cb40",
+    "978476df226e0008",
+    "41b97f2a853fc113",
+    "69f5244c346e7c1e",
+    "2764d2e1a5321697"
+   ],
+   "log_hash": "3811f8430deb22ef",
+   "rows": [
+    {
+     "year": 0,
+     "living": 60,
+     "body_evaluated": 60,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 1,
+     "living": 65,
+     "body_evaluated": 65,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 2,
+     "living": 70,
+     "body_evaluated": 70,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 3,
+     "living": 77,
+     "body_evaluated": 77,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 4,
+     "living": 83,
+     "body_evaluated": 83,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 5,
+     "living": 88,
+     "body_evaluated": 88,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 6,
+     "living": 90,
+     "body_evaluated": 90,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 7,
+     "living": 92,
+     "body_evaluated": 92,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 8,
+     "living": 96,
+     "body_evaluated": 96,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 9,
+     "living": 99,
+     "body_evaluated": 99,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 10,
+     "living": 98,
+     "body_evaluated": 98,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 11,
+     "living": 100,
+     "body_evaluated": 100,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 12,
+     "living": 103,
+     "body_evaluated": 103,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 13,
+     "living": 104,
+     "body_evaluated": 104,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    }
+   ],
+   "curve_clamped_sims": {},
+   "margins": {
+    "nearest_clamp_bound": {
+     "distance": 0.5125689956437869,
+     "ulps_of_bound": 577101384445757.0,
+     "key": "face_axis_08",
+     "bound": 4.0,
+     "raw": 3.487431004356213,
+     "raw_bits": "400be64239f62186",
+     "year": 0,
+     "sim": 46
+    },
+    "nearest_curve_bound": {
+     "distance": 3.2930908952192675,
+     "role": "z_p",
+     "z": -2.7069091047807325,
+     "z_bits": "c005a7bff5f2391b",
+     "year": 0,
+     "sim": 36
+    }
+   },
+   "pool": {
+    "pool_hash": "e4a73ea334e74b6c",
+    "pool_seed": "0000000011b019a2",
+    "frozen_at": 62899200
+   },
+   "g6_effects": [
+    {
+     "year": 9,
+     "sim": 95,
+     "arrived": 251596800,
+     "born": -487468800,
+     "dropped_years": [
+      -2,
+      3
+     ],
+     "height_cm": "4064689aeb26e2a4",
+     "height_cm_without_g6": "4064549aeb26e2a4"
+    },
+    {
+     "year": 9,
+     "sim": 101,
+     "arrived": 283046400,
+     "born": 254016000,
+     "dropped_years": [
+      -2,
+      3,
+      8
+     ],
+     "height_cm": "40561758dbdc0146",
+     "height_cm_without_g6": "4055bebb520363bc"
+    },
+    {
+     "year": 13,
+     "sim": 95,
+     "arrived": 251596800,
+     "born": -487468800,
+     "dropped_years": [
+      -2,
+      3
+     ],
+     "height_cm": "4064689aeb26e2a4",
+     "height_cm_without_g6": "4064549aeb26e2a4"
+    },
+    {
+     "year": 13,
+     "sim": 101,
+     "arrived": 283046400,
+     "born": 254016000,
+     "dropped_years": [
+      -2,
+      3,
+      8
+     ],
+     "height_cm": "405df39f3d00ae29",
+     "height_cm_without_g6": "405d9b01b328109f"
+    },
+    {
+     "year": 13,
+     "sim": 108,
+     "arrived": 408844800,
+     "born": -424569600,
+     "dropped_years": [
+      -2,
+      3,
+      8
+     ],
+     "height_cm": "406710ac16ec97ac",
+     "height_cm_without_g6": "4067079bc97140dc"
+    },
+    {
+     "year": 13,
+     "sim": 109,
+     "arrived": 408844800,
+     "born": -235872000,
+     "dropped_years": [
+      -2,
+      3,
+      8
+     ],
+     "height_cm": "406448031ca26a89",
+     "height_cm_without_g6": "406420031ca26a89"
+    }
+   ],
+   "arrivals": [
+    {
+     "t": 0,
+     "year": 0,
+     "draw": [
+      2
+     ]
+    },
+    {
+     "t": 31449600,
+     "year": 1,
+     "draw": [
+      5
+     ]
+    },
+    {
+     "t": 62899200,
+     "year": 2,
+     "draw": [
+      12
+     ]
+    },
+    {
+     "t": 94348800,
+     "year": 3,
+     "draw": [
+      41
+     ]
+    },
+    {
+     "t": 125798400,
+     "year": 4,
+     "draw": [
+      1
+     ]
+    },
+    {
+     "t": 157248000,
+     "year": 5,
+     "draw": [
+      36
+     ]
+    },
+    {
+     "t": 188697600,
+     "year": 6,
+     "draw": [
+      8
+     ]
+    },
+    {
+     "t": 220147200,
+     "year": 7,
+     "draw": [
+      18
+     ]
+    },
+    {
+     "t": 251596800,
+     "year": 8,
+     "draw": [
+      21
+     ]
+    },
+    {
+     "t": 283046400,
+     "year": 9,
+     "draw": [
+      40
+     ]
+    },
+    {
+     "t": 314496000,
+     "year": 10,
+     "draw": [
+      10
+     ]
+    },
+    {
+     "t": 345945600,
+     "year": 11,
+     "draw": [
+      4
+     ]
+    },
+    {
+     "t": 377395200,
+     "year": 12,
+     "draw": [
+      34
+     ]
+    },
+    {
+     "t": 408844800,
+     "year": 13,
+     "draw": [
+      29
+     ]
+    }
+   ],
+   "until": 440294399,
+   "snapshots": [
+    {
+     "year": 0,
+     "t": 31449599,
+     "living": 60,
+     "hash": "1142f282aa00482b",
+     "persons": [
+      [
+       1,
+       "b6dec2f8b43a2551",
+       "c0eb4f8f3946504f"
+      ],
+      [
+       2,
+       "662dcf73a9feafbf",
+       "ac9dfe316a7495e2"
+      ],
+      [
+       3,
+       "e3e01318fff7245d",
+       "c48ae21db48e367a"
+      ],
+      [
+       4,
+       "a7b96beb23629b00",
+       "bbfc602a4ff85125"
+      ],
+      [
+       5,
+       "ec7e1a49451e6772",
+       "cc36b8a6f4f544b1"
+      ],
+      [
+       6,
+       "5d5ba560e9ae18b1",
+       "ad8b446b2d25f70b"
+      ],
+      [
+       7,
+       "f52f3e898fd0654e",
+       "396313dead3efb9b"
+      ],
+      [
+       8,
+       "b6c820c959c70975",
+       "ec0f0ddce940c92f"
+      ],
+      [
+       9,
+       "df5ec30b4851ac78",
+       "02269668d5ed6236"
+      ],
+      [
+       10,
+       "64c8241aee6b4487",
+       "9e093011c3924128"
+      ],
+      [
+       11,
+       "95d9052b582d6595",
+       "aec4b7989f78a1e1"
+      ],
+      [
+       12,
+       "5780e05ab5e2b867",
+       "3c403a5aef5c2352"
+      ],
+      [
+       13,
+       "d68ef15022fc2434",
+       "f3bee8f6cece4fda"
+      ],
+      [
+       14,
+       "d41c26b68d0f94c3",
+       "bfc67fb8ef05adf8"
+      ],
+      [
+       15,
+       "403af8b23398414c",
+       "3eb78605cfb8482a"
+      ],
+      [
+       16,
+       "85b9a8e75d8c43ca",
+       "ed0912d21e083c95"
+      ],
+      [
+       17,
+       "da130c3e8407385c",
+       "134c7708d665b9e1"
+      ],
+      [
+       18,
+       "d47baee63306983f",
+       "be45d2e58344afa6"
+      ],
+      [
+       19,
+       "ed9410666d19cf46",
+       "3dc4126f8d15069b"
+      ],
+      [
+       20,
+       "5fc9f2ffdae91dee",
+       "2b6c492d774504ad"
+      ],
+      [
+       21,
+       "692fd5707e82bdfe",
+       "bb4e4a17223f4c41"
+      ],
+      [
+       22,
+       "21de4f8820bb3ce0",
+       "26877448ecc45ab9"
+      ],
+      [
+       23,
+       "18dec021889504a1",
+       "3c5b894c4b6f9ce0"
+      ],
+      [
+       24,
+       "9d4f0ec46c9ebff1",
+       "74d5aa283a5130b0"
+      ],
+      [
+       25,
+       "8e7d99a0e665e977",
+       "951a7506bc6f5020"
+      ],
+      [
+       26,
+       "5b3f31c991360e40",
+       "322d6d8a965bbe23"
+      ],
+      [
+       27,
+       "dff08d2eed5e37a7",
+       "106ef35da15452d0"
+      ],
+      [
+       28,
+       "d066245fb4b2d430",
+       "579d130334720f1b"
+      ],
+      [
+       29,
+       "eb1cfd0f31dbb42c",
+       "4823a0a19bf7f708"
+      ],
+      [
+       30,
+       "37384508c8eb1fa8",
+       "c00c87279a10bce2"
+      ],
+      [
+       31,
+       "73335ece7c54a3bb",
+       "e9dc333fdd96bad8"
+      ],
+      [
+       32,
+       "10accb82ba8758fb",
+       "54ecdaa651e956d0"
+      ],
+      [
+       33,
+       "552a3ec1e9367c7a",
+       "fb3a56ecef312f92"
+      ],
+      [
+       34,
+       "651719c064f7babe",
+       "689fa0eeb7313dab"
+      ],
+      [
+       35,
+       "9524f54114d7e237",
+       "15f4a9ae4f0d32e8"
+      ],
+      [
+       36,
+       "6a9c7afca6158ecd",
+       "53d71e27a28aff29"
+      ],
+      [
+       37,
+       "c0e8483b3693957b",
+       "293b0d0b0397565a"
+      ],
+      [
+       38,
+       "b63cb8ceb10a951c",
+       "0065ca85a862b037"
+      ],
+      [
+       39,
+       "f443e1c9222e02c8",
+       "4a5c3d102c380a03"
+      ],
+      [
+       40,
+       "f5974b95230711d3",
+       "c4ee3d4ce90b5ecc"
+      ],
+      [
+       41,
+       "0b631b86c8d92efb",
+       "e23e5924b4ac3530"
+      ],
+      [
+       42,
+       "0871466509551a39",
+       "d20c841e8eae3ef1"
+      ],
+      [
+       43,
+       "56a669027bcb6e80",
+       "1779996651560b64"
+      ],
+      [
+       44,
+       "c6f939cbea7637f8",
+       "c16e615a29bab709"
+      ],
+      [
+       45,
+       "a7d57b4bf08da7a5",
+       "cad0d25832bd2c20"
+      ],
+      [
+       46,
+       "dc0e0cfd8eac6dad",
+       "9befc250d211b2af"
+      ],
+      [
+       47,
+       "8aea59208cc0304a",
+       "de27916b1b8959e1"
+      ],
+      [
+       48,
+       "c8db2a6802daa959",
+       "3401e5489c046e0a"
+      ],
+      [
+       49,
+       "b54b0e32de955557",
+       "23123df2e01416ac"
+      ],
+      [
+       50,
+       "a590316eccd48764",
+       "05e4e990b7be3e58"
+      ],
+      [
+       51,
+       "94b562ee3bb0208e",
+       "828d596b71830676"
+      ],
+      [
+       52,
+       "6ab3279069f3fbfb",
+       "5a03d110e5b08558"
+      ],
+      [
+       53,
+       "8300371e756a9df8",
+       "66b660cdcbb0d819"
+      ],
+      [
+       54,
+       "a944fd970db04123",
+       "c1d99effef76e30b"
+      ],
+      [
+       55,
+       "8d74ac1fbbab4bca",
+       "3c3e96bbd5e60914"
+      ],
+      [
+       56,
+       "72e19dd0591dd8b1",
+       "cb295324bb36a974"
+      ],
+      [
+       57,
+       "0e4975fbb94bd3ac",
+       "1f6ceef42a68819e"
+      ],
+      [
+       58,
+       "da630a699749be4d",
+       "644498854bd6da6e"
+      ],
+      [
+       59,
+       "a2987c6b27f1213e",
+       "f778b8c5ad966702"
+      ],
+      [
+       60,
+       "174b4393de060a34",
+       "d72708f52ef8f6ad"
+      ]
+     ]
+    },
+    {
+     "year": 9,
+     "t": 314495999,
+     "living": 99,
+     "hash": "2f179c5fdafff576",
+     "persons": [
+      [
+       1,
+       "b6dec2f8b43a2551",
+       "5e49713734246bf3"
+      ],
+      [
+       2,
+       "662dcf73a9feafbf",
+       "f1d28d18900d92de"
+      ],
+      [
+       3,
+       "e3e01318fff7245d",
+       "e4bc64bd925b1334"
+      ],
+      [
+       4,
+       "a7b96beb23629b00",
+       "c5b5749bcd10ba95"
+      ],
+      [
+       5,
+       "ec7e1a49451e6772",
+       "4d3d1865498d82c6"
+      ],
+      [
+       6,
+       "5d5ba560e9ae18b1",
+       "eb8cc18fd905e8d9"
+      ],
+      [
+       7,
+       "f52f3e898fd0654e",
+       "e0b8ec59bd1f6993"
+      ],
+      [
+       8,
+       "b6c820c959c70975",
+       "26afbfadd314edf2"
+      ],
+      [
+       9,
+       "df5ec30b4851ac78",
+       "1c4ba6e2dd9c2eab"
+      ],
+      [
+       10,
+       "64c8241aee6b4487",
+       "b7b64f8404869e73"
+      ],
+      [
+       11,
+       "95d9052b582d6595",
+       "5ed83d0a203c945d"
+      ],
+      [
+       12,
+       "5780e05ab5e2b867",
+       "836af1880e52b4f2"
+      ],
+      [
+       13,
+       "d68ef15022fc2434",
+       "4ab09c22551d16d4"
+      ],
+      [
+       14,
+       "d41c26b68d0f94c3",
+       "59420b0609afb063"
+      ],
+      [
+       15,
+       "403af8b23398414c",
+       "a60be0f0e60eeae6"
+      ],
+      [
+       17,
+       "da130c3e8407385c",
+       "40afdd96906551d8"
+      ],
+      [
+       18,
+       "d47baee63306983f",
+       "13be535dab0b741c"
+      ],
+      [
+       19,
+       "ed9410666d19cf46",
+       "524b49627fcf5e8a"
+      ],
+      [
+       20,
+       "5fc9f2ffdae91dee",
+       "d2eed789cac46203"
+      ],
+      [
+       21,
+       "692fd5707e82bdfe",
+       "4b602748eaa141f8"
+      ],
+      [
+       22,
+       "21de4f8820bb3ce0",
+       "1c7e38ab1cb3bfbc"
+      ],
+      [
+       23,
+       "18dec021889504a1",
+       "2bde965bb2692f11"
+      ],
+      [
+       24,
+       "9d4f0ec46c9ebff1",
+       "e37b24355376c39a"
+      ],
+      [
+       25,
+       "8e7d99a0e665e977",
+       "ed8c15ff15f9ea35"
+      ],
+      [
+       26,
+       "5b3f31c991360e40",
+       "3cc366c3562f99cc"
+      ],
+      [
+       27,
+       "dff08d2eed5e37a7",
+       "1c61bfb2ff3ff535"
+      ],
+      [
+       28,
+       "d066245fb4b2d430",
+       "8072ddd011ebbd7c"
+      ],
+      [
+       29,
+       "eb1cfd0f31dbb42c",
+       "54024a01d43d80a4"
+      ],
+      [
+       30,
+       "37384508c8eb1fa8",
+       "3677e00bbc2251ed"
+      ],
+      [
+       31,
+       "73335ece7c54a3bb",
+       "08a9732086a3084f"
+      ],
+      [
+       32,
+       "10accb82ba8758fb",
+       "1a110960fd48d263"
+      ],
+      [
+       33,
+       "552a3ec1e9367c7a",
+       "eb83bd8e0f04ba62"
+      ],
+      [
+       34,
+       "651719c064f7babe",
+       "45a55dd95d44cbe3"
+      ],
+      [
+       35,
+       "9524f54114d7e237",
+       "928f359cbfa5a982"
+      ],
+      [
+       36,
+       "6a9c7afca6158ecd",
+       "d98c466b20254384"
+      ],
+      [
+       37,
+       "c0e8483b3693957b",
+       "aa910d02ed9ccec0"
+      ],
+      [
+       38,
+       "b63cb8ceb10a951c",
+       "c64d0529ec6b1965"
+      ],
+      [
+       39,
+       "f443e1c9222e02c8",
+       "d802c6571fc6b2bf"
+      ],
+      [
+       40,
+       "f5974b95230711d3",
+       "fdcd6f251c91834d"
+      ],
+      [
+       41,
+       "0b631b86c8d92efb",
+       "68f14700ed84f0cc"
+      ],
+      [
+       42,
+       "0871466509551a39",
+       "38eaa5be4bdb9119"
+      ],
+      [
+       43,
+       "56a669027bcb6e80",
+       "6424879395a2c8c5"
+      ],
+      [
+       44,
+       "c6f939cbea7637f8",
+       "6071916a9e56843b"
+      ],
+      [
+       45,
+       "a7d57b4bf08da7a5",
+       "d3c7bce5e7f99b6f"
+      ],
+      [
+       46,
+       "dc0e0cfd8eac6dad",
+       "5faf6d3121d48618"
+      ],
+      [
+       47,
+       "8aea59208cc0304a",
+       "84352ed1ad50a114"
+      ],
+      [
+       48,
+       "c8db2a6802daa959",
+       "aeb1ebddeccddd4d"
+      ],
+      [
+       49,
+       "b54b0e32de955557",
+       "a4beb43dd0faa7ed"
+      ],
+      [
+       50,
+       "a590316eccd48764",
+       "3a52c78d29e0506c"
+      ],
+      [
+       51,
+       "94b562ee3bb0208e",
+       "82d2f1db32d6131f"
+      ],
+      [
+       52,
+       "6ab3279069f3fbfb",
+       "a3e84984a9566281"
+      ],
+      [
+       53,
+       "8300371e756a9df8",
+       "fd6c16011d2a529b"
+      ],
+      [
+       54,
+       "a944fd970db04123",
+       "759923cb11825541"
+      ],
+      [
+       55,
+       "8d74ac1fbbab4bca",
+       "7b2c4c7470c7883d"
+      ],
+      [
+       56,
+       "72e19dd0591dd8b1",
+       "bc1734c87921dbda"
+      ],
+      [
+       57,
+       "0e4975fbb94bd3ac",
+       "6ad6987c47405feb"
+      ],
+      [
+       58,
+       "da630a699749be4d",
+       "5c3f9a985dc34d96"
+      ],
+      [
+       59,
+       "a2987c6b27f1213e",
+       "c60b7f7f7dd6555a"
+      ],
+      [
+       60,
+       "174b4393de060a34",
+       "31be3eb79a36aefd"
+      ],
+      [
+       62,
+       "ddc89b50dc047575",
+       "e61538205a932fb4"
+      ],
+      [
+       63,
+       "537e4414c04ff121",
+       "27f103a4a3f4de52"
+      ],
+      [
+       64,
+       "5daa7f3aef225be2",
+       "ac2951a0bb9161df"
+      ],
+      [
+       65,
+       "8362293e5b66ae90",
+       "896d2999925d39ae"
+      ],
+      [
+       66,
+       "48e5d05abb428a4b",
+       "3ff6a0f7359a3eee"
+      ],
+      [
+       67,
+       "b45c38b228aa75e9",
+       "8767b01b08a8fcbf"
+      ],
+      [
+       68,
+       "c7f36b56db22f6d3",
+       "edb24535a152b107"
+      ],
+      [
+       69,
+       "29c541c2a6bea066",
+       "4575fd3822bb826c"
+      ],
+      [
+       70,
+       "0bbe95967c813a30",
+       "b400a8fac129fe3d"
+      ],
+      [
+       71,
+       "1e36d9e314d3667a",
+       "ae7a019d9473da18"
+      ],
+      [
+       72,
+       "81fdb2cf14aadf02",
+       "1c2dac8049e45dbe"
+      ],
+      [
+       73,
+       "19334e274bbd6bcb",
+       "973c25e92bd48de8"
+      ],
+      [
+       74,
+       "41f571f10bd3d06d",
+       "c23194080b5963ee"
+      ],
+      [
+       75,
+       "5a4ae66cd6f482de",
+       "ae04a82dd0a004e9"
+      ],
+      [
+       76,
+       "6b3f98c595a516fe",
+       "08025965c428c258"
+      ],
+      [
+       77,
+       "345b713f6c107ef0",
+       "5fe00560635ba1ee"
+      ],
+      [
+       78,
+       "237bf6a5c99f303a",
+       "bc83d1118b5472e7"
+      ],
+      [
+       79,
+       "c6a19af9a505153a",
+       "b04606c1dc0823b2"
+      ],
+      [
+       80,
+       "b109ef95d7d221e8",
+       "3b9fa76a0f2214af"
+      ],
+      [
+       81,
+       "3d34525f61edd708",
+       "5f09b57c02999ffc"
+      ],
+      [
+       82,
+       "1f15be3e58164777",
+       "d99bd1cc64b57d65"
+      ],
+      [
+       83,
+       "a7c8a8d0e6c9ea83",
+       "ff718b30b28be56b"
+      ],
+      [
+       84,
+       "4721025b99eb4380",
+       "a686762c244a3472"
+      ],
+      [
+       85,
+       "42b9e87eb96acdf1",
+       "0a491e5295e6b0d4"
+      ],
+      [
+       86,
+       "d214aef11b6cb34b",
+       "f24fae5d3d824fda"
+      ],
+      [
+       87,
+       "36592432f994db9a",
+       "0217fec168afe112"
+      ],
+      [
+       88,
+       "bfa0ddd3b80cad97",
+       "e58a193e07d1ba3b"
+      ],
+      [
+       89,
+       "8c43f934ade1a3bf",
+       "5933b3ef88bbc6f9"
+      ],
+      [
+       90,
+       "917fa0aed517f1a2",
+       "ee49273b1a2e2e4c"
+      ],
+      [
+       91,
+       "18f0b7f956de9598",
+       "00ec79026cd47cb1"
+      ],
+      [
+       92,
+       "e3c0902672afda30",
+       "5b80538b8c3f249d"
+      ],
+      [
+       93,
+       "ffefc37a0f193d5d",
+       "90db22a31236fd0a"
+      ],
+      [
+       94,
+       "5434987821ab4835",
+       "2f7b703dc71e775a"
+      ],
+      [
+       95,
+       "8ab32d5bc0ae4e2f",
+       "ce1e22b14deed67b"
+      ],
+      [
+       96,
+       "b9889c78950b5608",
+       "1a2f53e518b534ce"
+      ],
+      [
+       97,
+       "7f96752358252bf9",
+       "a4a4b549caef76f3"
+      ],
+      [
+       98,
+       "4946588d7b120855",
+       "6adaade2670e3271"
+      ],
+      [
+       99,
+       "dfb0d27bfa7766d5",
+       "2fce0c0b2dc2cadb"
+      ],
+      [
+       100,
+       "f310e450e665fef9",
+       "90e96783688584db"
+      ],
+      [
+       101,
+       "6fcfd036482eb68d",
+       "d30bb16e0abbaa11"
+      ]
+     ]
+    },
+    {
+     "year": 13,
+     "t": 440294399,
+     "living": 104,
+     "hash": "d0a290950ad5a8f1",
+     "persons": [
+      [
+       2,
+       "662dcf73a9feafbf",
+       "449d5c8a273f147a"
+      ],
+      [
+       3,
+       "e3e01318fff7245d",
+       "531de3e7ff974669"
+      ],
+      [
+       4,
+       "a7b96beb23629b00",
+       "6902210f0e432e84"
+      ],
+      [
+       5,
+       "ec7e1a49451e6772",
+       "04834957fb406f18"
+      ],
+      [
+       6,
+       "5d5ba560e9ae18b1",
+       "830be2e7dba4c12d"
+      ],
+      [
+       7,
+       "f52f3e898fd0654e",
+       "38863468e6618f9e"
+      ],
+      [
+       8,
+       "b6c820c959c70975",
+       "30b871c4ae4f4950"
+      ],
+      [
+       9,
+       "df5ec30b4851ac78",
+       "559c377e6f4832e1"
+      ],
+      [
+       10,
+       "64c8241aee6b4487",
+       "080f37d25d4773a7"
+      ],
+      [
+       11,
+       "95d9052b582d6595",
+       "943e036fc326c775"
+      ],
+      [
+       12,
+       "5780e05ab5e2b867",
+       "6db3ac695502951d"
+      ],
+      [
+       13,
+       "d68ef15022fc2434",
+       "61fc4ff9e97b9823"
+      ],
+      [
+       14,
+       "d41c26b68d0f94c3",
+       "d320312d085ae21a"
+      ],
+      [
+       15,
+       "403af8b23398414c",
+       "6d827a2951ccfe43"
+      ],
+      [
+       17,
+       "da130c3e8407385c",
+       "0639e58aa1232ae5"
+      ],
+      [
+       18,
+       "d47baee63306983f",
+       "74510ba2bfcd20b9"
+      ],
+      [
+       19,
+       "ed9410666d19cf46",
+       "2e11714d220548c0"
+      ],
+      [
+       20,
+       "5fc9f2ffdae91dee",
+       "78c280b668443d43"
+      ],
+      [
+       21,
+       "692fd5707e82bdfe",
+       "5947ade340118c13"
+      ],
+      [
+       22,
+       "21de4f8820bb3ce0",
+       "a39e64d4f7fea43b"
+      ],
+      [
+       23,
+       "18dec021889504a1",
+       "e87b7822480301c0"
+      ],
+      [
+       24,
+       "9d4f0ec46c9ebff1",
+       "ad1c6f47f9a9441e"
+      ],
+      [
+       26,
+       "5b3f31c991360e40",
+       "ba15c62c6c6a6c07"
+      ],
+      [
+       27,
+       "dff08d2eed5e37a7",
+       "7c277a1e5c9d3028"
+      ],
+      [
+       28,
+       "d066245fb4b2d430",
+       "9f92906bf99d9515"
+      ],
+      [
+       29,
+       "eb1cfd0f31dbb42c",
+       "1dbfbc71f61aff06"
+      ],
+      [
+       30,
+       "37384508c8eb1fa8",
+       "990025b2de25838a"
+      ],
+      [
+       31,
+       "73335ece7c54a3bb",
+       "3a1b94e5aa6af1f0"
+      ],
+      [
+       32,
+       "10accb82ba8758fb",
+       "eebca3001b9f98f1"
+      ],
+      [
+       33,
+       "552a3ec1e9367c7a",
+       "e9c1eef584bd1cdb"
+      ],
+      [
+       34,
+       "651719c064f7babe",
+       "b5bfd50b7a78cebd"
+      ],
+      [
+       35,
+       "9524f54114d7e237",
+       "97c332516e324c78"
+      ],
+      [
+       36,
+       "6a9c7afca6158ecd",
+       "085c7c6d7597fde1"
+      ],
+      [
+       38,
+       "b63cb8ceb10a951c",
+       "0a478cd379d1e90c"
+      ],
+      [
+       39,
+       "f443e1c9222e02c8",
+       "f7b49327bbe41ab8"
+      ],
+      [
+       40,
+       "f5974b95230711d3",
+       "60af2f0892e8460a"
+      ],
+      [
+       41,
+       "0b631b86c8d92efb",
+       "ca8452799783a290"
+      ],
+      [
+       42,
+       "0871466509551a39",
+       "4871674d7a9906cc"
+      ],
+      [
+       43,
+       "56a669027bcb6e80",
+       "c33f81783c670086"
+      ],
+      [
+       44,
+       "c6f939cbea7637f8",
+       "8c20aaff67e569b4"
+      ],
+      [
+       45,
+       "a7d57b4bf08da7a5",
+       "bc8683d5aed0a721"
+      ],
+      [
+       46,
+       "dc0e0cfd8eac6dad",
+       "8f999288557bb316"
+      ],
+      [
+       48,
+       "c8db2a6802daa959",
+       "a3f10e50a0c361c1"
+      ],
+      [
+       49,
+       "b54b0e32de955557",
+       "92e67d77cdfc2a4f"
+      ],
+      [
+       50,
+       "a590316eccd48764",
+       "0694ef4ed40a722c"
+      ],
+      [
+       51,
+       "94b562ee3bb0208e",
+       "0e01d1110f8027b5"
+      ],
+      [
+       52,
+       "6ab3279069f3fbfb",
+       "f8109c1f91d311ea"
+      ],
+      [
+       53,
+       "8300371e756a9df8",
+       "e3a3abc3eeebfc53"
+      ],
+      [
+       54,
+       "a944fd970db04123",
+       "ff95f3c09f97e95b"
+      ],
+      [
+       55,
+       "8d74ac1fbbab4bca",
+       "b1c0541c9c496ec7"
+      ],
+      [
+       56,
+       "72e19dd0591dd8b1",
+       "7005e21c7908a816"
+      ],
+      [
+       57,
+       "0e4975fbb94bd3ac",
+       "7de5f41715d61f76"
+      ],
+      [
+       58,
+       "da630a699749be4d",
+       "05e5bf73cd04ac1b"
+      ],
+      [
+       59,
+       "a2987c6b27f1213e",
+       "d8466df1ec26ee4e"
+      ],
+      [
+       60,
+       "174b4393de060a34",
+       "d6eebd25b5796a57"
+      ],
+      [
+       62,
+       "ddc89b50dc047575",
+       "9778582ac13f4bd3"
+      ],
+      [
+       63,
+       "537e4414c04ff121",
+       "2baba12dd315ec2f"
+      ],
+      [
+       64,
+       "5daa7f3aef225be2",
+       "d54c0f87896f3182"
+      ],
+      [
+       65,
+       "8362293e5b66ae90",
+       "f8026ef211561f60"
+      ],
+      [
+       66,
+       "48e5d05abb428a4b",
+       "8bc2b48267ac6741"
+      ],
+      [
+       67,
+       "b45c38b228aa75e9",
+       "5e56497db4757e12"
+      ],
+      [
+       68,
+       "c7f36b56db22f6d3",
+       "a794dc565ae1c891"
+      ],
+      [
+       69,
+       "29c541c2a6bea066",
+       "feaa4609bf51230b"
+      ],
+      [
+       70,
+       "0bbe95967c813a30",
+       "a85fc4b25642fe09"
+      ],
+      [
+       71,
+       "1e36d9e314d3667a",
+       "70c088ae2fadd818"
+      ],
+      [
+       72,
+       "81fdb2cf14aadf02",
+       "88aa95fb15290902"
+      ],
+      [
+       73,
+       "19334e274bbd6bcb",
+       "eb693d59ef592136"
+      ],
+      [
+       74,
+       "41f571f10bd3d06d",
+       "27c4f05715936144"
+      ],
+      [
+       75,
+       "5a4ae66cd6f482de",
+       "11c298163fb339af"
+      ],
+      [
+       76,
+       "6b3f98c595a516fe",
+       "f8f3f0600237e0f9"
+      ],
+      [
+       77,
+       "345b713f6c107ef0",
+       "d1542b2cb232a02d"
+      ],
+      [
+       78,
+       "237bf6a5c99f303a",
+       "007f3616eb31ae87"
+      ],
+      [
+       79,
+       "c6a19af9a505153a",
+       "1b3fa851844b312a"
+      ],
+      [
+       80,
+       "b109ef95d7d221e8",
+       "8343b3674dcbd3aa"
+      ],
+      [
+       81,
+       "3d34525f61edd708",
+       "bff87d1ed2877a7c"
+      ],
+      [
+       82,
+       "1f15be3e58164777",
+       "1b565c17826aa7f9"
+      ],
+      [
+       83,
+       "a7c8a8d0e6c9ea83",
+       "472453a8f4439322"
+      ],
+      [
+       84,
+       "4721025b99eb4380",
+       "0d2f1a338de09a75"
+      ],
+      [
+       85,
+       "42b9e87eb96acdf1",
+       "d7c2c061cbcf876f"
+      ],
+      [
+       86,
+       "d214aef11b6cb34b",
+       "48f41f6ef2a00c52"
+      ],
+      [
+       87,
+       "36592432f994db9a",
+       "56af8a3768c95624"
+      ],
+      [
+       88,
+       "bfa0ddd3b80cad97",
+       "92aec06d5146e0c7"
+      ],
+      [
+       89,
+       "8c43f934ade1a3bf",
+       "fd27933cd82ef8ad"
+      ],
+      [
+       90,
+       "917fa0aed517f1a2",
+       "2ef21d21753d54df"
+      ],
+      [
+       91,
+       "18f0b7f956de9598",
+       "30f2d0fb0a504c4c"
+      ],
+      [
+       92,
+       "e3c0902672afda30",
+       "67afa73cf05a50ab"
+      ],
+      [
+       93,
+       "ffefc37a0f193d5d",
+       "0f291d7837169ad3"
+      ],
+      [
+       94,
+       "5434987821ab4835",
+       "ec274567cd34f91a"
+      ],
+      [
+       95,
+       "8ab32d5bc0ae4e2f",
+       "b11b9c465729d4e6"
+      ],
+      [
+       96,
+       "b9889c78950b5608",
+       "a7cb48b270b62cf5"
+      ],
+      [
+       97,
+       "7f96752358252bf9",
+       "cf0eed9bd66fc451"
+      ],
+      [
+       98,
+       "4946588d7b120855",
+       "ec85639bd23cc733"
+      ],
+      [
+       99,
+       "dfb0d27bfa7766d5",
+       "8bb49e76a3513abf"
+      ],
+      [
+       100,
+       "f310e450e665fef9",
+       "bb8e5ddbc888bfff"
+      ],
+      [
+       101,
+       "6fcfd036482eb68d",
+       "c694e3cb42f71001"
+      ],
+      [
+       102,
+       "b69f89d6d42a60c3",
+       "bdea8d113122eaed"
+      ],
+      [
+       103,
+       "7f705509787648b7",
+       "5669f07b42e4712c"
+      ],
+      [
+       104,
+       "e41bde33627f9f3f",
+       "c924b2826f08b2e7"
+      ],
+      [
+       105,
+       "5936a0053bb6baf7",
+       "1d1e40277faa2dd1"
+      ],
+      [
+       106,
+       "f1c832b312ba58f0",
+       "642d1c43d6838cc0"
+      ],
+      [
+       107,
+       "8de79e6f2f02f8b8",
+       "505652156c33cbc5"
+      ],
+      [
+       108,
+       "4620a03a7deab450",
+       "9ec846511efbbf6e"
+      ],
+      [
+       109,
+       "39f117c1aaae3273",
+       "d403b4c97b3f0553"
+      ],
+      [
+       110,
+       "72bdccd30e355235",
+       "620ffa6368cee6d8"
+      ]
+     ]
+    }
+   ]
+  },
+  "b2_pool_b_start": {
+   "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_b.bin",
+   "data_hash": "e3e123a216aadc64",
+   "body_data": "accepted",
+   "start_input_hash": "4df205f4f10eef87",
+   "year_hashes": [
+    "a25123c00bca7ef1",
+    "2832b886c5197c83",
+    "85e945dd14cbe970",
+    "b6547b409a9ebf26",
+    "ebe4e54666fdfdbc",
+    "3090ff7a0cddf2b2",
+    "634a297cf83e608f",
+    "4df5b08713278754",
+    "13393b5364265e38",
+    "40061371f440aea7",
+    "697fa6e05bd8ed66",
+    "19f5902676a36b04",
+    "ca54da46256f7343",
+    "3fdecabd4060d197",
+    "233367c53541399c",
+    "8c0dd84296d61936",
+    "0cccdea3a40785fa",
+    "b9473f666a88c991",
+    "00b6af18fc20a9ba",
+    "bb0e93e642762685"
+   ],
+   "log_hash": "b101ab9b2187f279",
+   "rows": [
+    {
+     "year": 0,
+     "living": 33,
+     "body_evaluated": 33,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 1,
+     "living": 33,
+     "body_evaluated": 33,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 2,
+     "living": 34,
+     "body_evaluated": 34,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 3,
+     "living": 33,
+     "body_evaluated": 33,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 4,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 5,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 6,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 7,
+     "living": 30,
+     "body_evaluated": 30,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 8,
+     "living": 28,
+     "body_evaluated": 28,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 9,
+     "living": 27,
+     "body_evaluated": 27,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 10,
+     "living": 26,
+     "body_evaluated": 26,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 11,
+     "living": 26,
+     "body_evaluated": 26,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 12,
+     "living": 26,
+     "body_evaluated": 26,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 13,
+     "living": 25,
+     "body_evaluated": 25,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 14,
+     "living": 23,
+     "body_evaluated": 23,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 15,
+     "living": 22,
+     "body_evaluated": 22,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 16,
+     "living": 22,
+     "body_evaluated": 22,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 17,
+     "living": 22,
+     "body_evaluated": 22,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 18,
+     "living": 20,
+     "body_evaluated": 20,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 19,
+     "living": 20,
+     "body_evaluated": 20,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    }
+   ],
+   "curve_clamped_sims": {},
+   "margins": {
+    "nearest_clamp_bound": {
+     "distance": 0.8665107239655034,
+     "ulps_of_bound": 975604343390895.0,
+     "key": "face_axis_06",
+     "bound": -4.0,
+     "raw": -3.1334892760344966,
+     "raw_bits": "c0091162d3577aa2",
+     "year": 0,
+     "sim": 30
+    },
+    "nearest_curve_bound": {
+     "distance": 3.2930908952192675,
+     "role": "z_p",
+     "z": -2.7069091047807325,
+     "z_bits": "c005a7bff5f2391b",
+     "year": 0,
+     "sim": 5
+    }
+   },
+   "pool": {
+    "pool_hash": "28af470e4c3038f4",
+    "pool_seed": "0000000011b019a2",
+    "frozen_at": 943488000
+   },
+   "g6_effects": [],
+   "arrivals": [],
+   "until": 628991999,
+   "snapshots": [
+    {
+     "year": 0,
+     "t": 31449599,
+     "living": 33,
+     "hash": "4a31b6bd36adeb76",
+     "persons": [
+      [
+       1,
+       "a7b96beb23629b00",
+       "68b0f375849e8e06"
+      ],
+      [
+       2,
+       "81fdb2cf14aadf02",
+       "2eb33dff38dec35d"
+      ],
+      [
+       3,
+       "e3e01318fff7245d",
+       "72d32474b05e32e5"
+      ],
+      [
+       4,
+       "237bf6a5c99f303a",
+       "2f70ad515e426b65"
+      ],
+      [
+       5,
+       "6a9c7afca6158ecd",
+       "7967e8fe04ee5a9d"
+      ],
+      [
+       6,
+       "211e516e762a9f2b",
+       "e79d605fdd120fe9"
+      ],
+      [
+       7,
+       "a7d57b4bf08da7a5",
+       "a5005f7c0319ca7b"
+      ],
+      [
+       8,
+       "403af8b23398414c",
+       "c754d6dfc20a8504"
+      ],
+      [
+       9,
+       "10accb82ba8758fb",
+       "af8d551553e85ab8"
+      ],
+      [
+       10,
+       "ec7e1a49451e6772",
+       "1e3cadaf312786fc"
+      ],
+      [
+       11,
+       "5d8ecb745831c6e1",
+       "cf2d0a9157f505cf"
+      ],
+      [
+       12,
+       "f4e48788daea7249",
+       "8903f74f2df8c113"
+      ],
+      [
+       13,
+       "b63cb8ceb10a951c",
+       "1575e90a26077dfb"
+      ],
+      [
+       14,
+       "692fd5707e82bdfe",
+       "685fb1adbde0d53b"
+      ],
+      [
+       15,
+       "d066245fb4b2d430",
+       "c66972304ad6d07c"
+      ],
+      [
+       16,
+       "7f705509787648b7",
+       "ffbf8ea4b2495428"
+      ],
+      [
+       17,
+       "6cb73fe65d09ef84",
+       "be05bb588cae1c3c"
+      ],
+      [
+       18,
+       "5d5ba560e9ae18b1",
+       "e7d023bf067f39b8"
+      ],
+      [
+       20,
+       "efd1ae8a7f873273",
+       "cc99151888c70804"
+      ],
+      [
+       21,
+       "b54b0e32de955557",
+       "820c50a7d8f2203e"
+      ],
+      [
+       22,
+       "dff08d2eed5e37a7",
+       "e25d3d70e75a0273"
+      ],
+      [
+       23,
+       "aa43d19eb3d7d088",
+       "00b25fa132a1eaef"
+      ],
+      [
+       24,
+       "9d4f0ec46c9ebff1",
+       "37435bb8f5f70746"
+      ],
+      [
+       25,
+       "d47baee63306983f",
+       "188e8999ea5d696e"
+      ],
+      [
+       26,
+       "8ab32d5bc0ae4e2f",
+       "a81017e672bc9337"
+      ],
+      [
+       27,
+       "2b1a74f1d8ac7e48",
+       "127a96920380dafe"
+      ],
+      [
+       28,
+       "94b562ee3bb0208e",
+       "8ecf984e1af758a3"
+      ],
+      [
+       29,
+       "9524f54114d7e237",
+       "bc385390f66fb062"
+      ],
+      [
+       30,
+       "eada4e9afc191d58",
+       "f098ed8e949ccccc"
+      ],
+      [
+       31,
+       "b9889c78950b5608",
+       "14a33138b33fa02c"
+      ],
+      [
+       32,
+       "6f35254407f7f17d",
+       "b7bac2b35df611e3"
+      ],
+      [
+       33,
+       "f52f3e898fd0654e",
+       "6596164f579232c2"
+      ],
+      [
+       34,
+       "dd1803b31bed8f8a",
+       "49d8a63da69bf498"
+      ]
+     ]
+    },
+    {
+     "year": 9,
+     "t": 314495999,
+     "living": 27,
+     "hash": "6c4cb49bf5321164",
+     "persons": [
+      [
+       3,
+       "e3e01318fff7245d",
+       "554baf15a4f373d1"
+      ],
+      [
+       4,
+       "237bf6a5c99f303a",
+       "25d9797f344c8a91"
+      ],
+      [
+       5,
+       "6a9c7afca6158ecd",
+       "45d094186014e5d9"
+      ],
+      [
+       6,
+       "211e516e762a9f2b",
+       "84b9ce140d798a07"
+      ],
+      [
+       7,
+       "a7d57b4bf08da7a5",
+       "38f2e3c563183de5"
+      ],
+      [
+       8,
+       "403af8b23398414c",
+       "c991c558b83f16b0"
+      ],
+      [
+       9,
+       "10accb82ba8758fb",
+       "c7673086f826c0f7"
+      ],
+      [
+       10,
+       "ec7e1a49451e6772",
+       "d402f4f1278770b6"
+      ],
+      [
+       11,
+       "5d8ecb745831c6e1",
+       "4cf5caca831bc6c3"
+      ],
+      [
+       12,
+       "f4e48788daea7249",
+       "e11b43cd472da968"
+      ],
+      [
+       13,
+       "b63cb8ceb10a951c",
+       "a3ddb2d0c6856d9a"
+      ],
+      [
+       14,
+       "692fd5707e82bdfe",
+       "f4617a4a11ff7520"
+      ],
+      [
+       15,
+       "d066245fb4b2d430",
+       "df0772c2790a2cd9"
+      ],
+      [
+       17,
+       "6cb73fe65d09ef84",
+       "5210d2e80c566072"
+      ],
+      [
+       18,
+       "5d5ba560e9ae18b1",
+       "f8bedd45ba41d5fc"
+      ],
+      [
+       21,
+       "b54b0e32de955557",
+       "f58eab2f39d9dc7a"
+      ],
+      [
+       22,
+       "dff08d2eed5e37a7",
+       "7200b7947ed7f1cb"
+      ],
+      [
+       23,
+       "aa43d19eb3d7d088",
+       "a118572071434cdf"
+      ],
+      [
+       24,
+       "9d4f0ec46c9ebff1",
+       "e897ecd0590f82a8"
+      ],
+      [
+       25,
+       "d47baee63306983f",
+       "cf11aaf48d1fc09f"
+      ],
+      [
+       26,
+       "8ab32d5bc0ae4e2f",
+       "c848830c8786af9b"
+      ],
+      [
+       27,
+       "2b1a74f1d8ac7e48",
+       "22917ed9be429785"
+      ],
+      [
+       30,
+       "eada4e9afc191d58",
+       "8f0289443b50d930"
+      ],
+      [
+       32,
+       "6f35254407f7f17d",
+       "efd59583e01805dc"
+      ],
+      [
+       33,
+       "f52f3e898fd0654e",
+       "f3ded343095afed5"
+      ],
+      [
+       34,
+       "dd1803b31bed8f8a",
+       "2e3bf9db213a037c"
+      ],
+      [
+       35,
+       "17cd64f00e1ec2ae",
+       "5e97e9482c74c29d"
+      ]
+     ]
+    },
+    {
+     "year": 19,
+     "t": 628991999,
+     "living": 20,
+     "hash": "1fefe14a12550c60",
+     "persons": [
+      [
+       3,
+       "e3e01318fff7245d",
+       "ea3ba718d1ddc1fb"
+      ],
+      [
+       4,
+       "237bf6a5c99f303a",
+       "00876e95dbbbe7c6"
+      ],
+      [
+       6,
+       "211e516e762a9f2b",
+       "e727c97a02468f04"
+      ],
+      [
+       7,
+       "a7d57b4bf08da7a5",
+       "f2ba71211d7f6bb3"
+      ],
+      [
+       8,
+       "403af8b23398414c",
+       "d9e31bde7f8d5453"
+      ],
+      [
+       9,
+       "10accb82ba8758fb",
+       "3c1c8a586ad6dfe7"
+      ],
+      [
+       11,
+       "5d8ecb745831c6e1",
+       "4d14362310e88685"
+      ],
+      [
+       12,
+       "f4e48788daea7249",
+       "68a84f0e4369ad42"
+      ],
+      [
+       14,
+       "692fd5707e82bdfe",
+       "ca7283cc4fade4a6"
+      ],
+      [
+       18,
+       "5d5ba560e9ae18b1",
+       "6f116975d3945f9d"
+      ],
+      [
+       22,
+       "dff08d2eed5e37a7",
+       "dabfaf89e796ef50"
+      ],
+      [
+       23,
+       "aa43d19eb3d7d088",
+       "2fb4fc38bd5bb17e"
+      ],
+      [
+       25,
+       "d47baee63306983f",
+       "f58baf83cfc1475b"
+      ],
+      [
+       26,
+       "8ab32d5bc0ae4e2f",
+       "4c0cbebc77082d07"
+      ],
+      [
+       27,
+       "2b1a74f1d8ac7e48",
+       "b1ff573e1c4322b3"
+      ],
+      [
+       30,
+       "eada4e9afc191d58",
+       "4fd83447208ab89b"
+      ],
+      [
+       32,
+       "6f35254407f7f17d",
+       "36e93f77ebef419d"
+      ],
+      [
+       33,
+       "f52f3e898fd0654e",
+       "b57ef8bcd417ca39"
+      ],
+      [
+       34,
+       "dd1803b31bed8f8a",
+       "a23233fdf6828291"
+      ],
+      [
+       35,
+       "17cd64f00e1ec2ae",
+       "7d5f2f080030070a"
+      ]
+     ]
+    }
+   ]
+  },
+  "c_prerun_small": {
+   "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
+   "data_hash": "b17afdcd296175ac",
+   "body_data": "rejected data.body_traits: core:mc1r is no recessive autosomal locus",
+   "start_input_hash": "90cc678794e0610c",
+   "year_hashes": [
+    "28e70d241496e285",
+    "1a405456571c3ae7",
+    "a0eba0d30fbf6153",
+    "58d2e95266e65eb3",
+    "18d7c1fa0c9ee063",
+    "e326b38714514642",
+    "b2cad80cec0caadc",
+    "e780d5c62940a3f4",
+    "34c140e2a3783879",
+    "5cbb94894a28cc11",
+    "7f6423a0ca3caf14",
+    "2c11150738f3e098",
+    "af18f387f10598ac",
+    "18d5c32b23082b2b",
+    "582d8cfd948e8252",
+    "219d4318e67080eb",
+    "7db5644edb03b255",
+    "9785d3acf9123177",
+    "87f334ec9d40a756",
+    "c45d9cb7f7dbba71",
+    "0eebdf67dc7fde73",
+    "a6996eea0f538f0b",
+    "4dd89f5f10d03827",
+    "fc857b4d52158ad7",
+    "b18d962ffbdbf934",
+    "ab1024604199676a",
+    "28f325fbd5caa0d3",
+    "841cc085279faa04",
+    "10e74d5aedf512b0",
+    "08163d4fbad309ff"
+   ],
+   "log_hash": "20943224d56e373d",
+   "rows": [
+    {
+     "year": 0,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 1,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 2,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 3,
+     "living": 41,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 4,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 5,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 6,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 7,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 8,
+     "living": 40,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 9,
+     "living": 38,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 10,
+     "living": 38,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 11,
+     "living": 37,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 12,
+     "living": 37,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 13,
+     "living": 36,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 14,
+     "living": 36,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 15,
+     "living": 36,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 16,
+     "living": 36,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 17,
+     "living": 36,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 18,
+     "living": 35,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 19,
+     "living": 34,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 20,
+     "living": 34,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 21,
+     "living": 33,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 22,
+     "living": 32,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 23,
+     "living": 32,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 24,
+     "living": 32,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 25,
+     "living": 32,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 26,
+     "living": 31,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 27,
+     "living": 31,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 28,
+     "living": 31,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 29,
+     "living": 31,
+     "body_evaluated": 0,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    }
+   ],
+   "curve_clamped_sims": {},
+   "margins": null,
+   "until": 943487999,
+   "snapshots": []
+  },
+  "c_prerun_small_reference_alleles": {
+   "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
+   "data_hash": "b17afdcd296175ac",
+   "body_data": "accepted with MC1R and HERC2 read as 0 copies (not the note's rule)",
+   "start_input_hash": "90cc678794e0610c",
+   "year_hashes": [
+    "28e70d241496e285",
+    "1a405456571c3ae7",
+    "a0eba0d30fbf6153",
+    "58d2e95266e65eb3",
+    "18d7c1fa0c9ee063",
+    "e326b38714514642",
+    "b2cad80cec0caadc",
+    "e780d5c62940a3f4",
+    "34c140e2a3783879",
+    "5cbb94894a28cc11",
+    "7f6423a0ca3caf14",
+    "2c11150738f3e098",
+    "af18f387f10598ac",
+    "18d5c32b23082b2b",
+    "582d8cfd948e8252",
+    "219d4318e67080eb",
+    "7db5644edb03b255",
+    "9785d3acf9123177",
+    "87f334ec9d40a756",
+    "c45d9cb7f7dbba71",
+    "0eebdf67dc7fde73",
+    "a6996eea0f538f0b",
+    "4dd89f5f10d03827",
+    "fc857b4d52158ad7",
+    "b18d962ffbdbf934",
+    "ab1024604199676a",
+    "28f325fbd5caa0d3",
+    "841cc085279faa04",
+    "10e74d5aedf512b0",
+    "08163d4fbad309ff"
+   ],
+   "log_hash": "20943224d56e373d",
+   "rows": [
+    {
+     "year": 0,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 1,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 2,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 3,
+     "living": 41,
+     "body_evaluated": 41,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 4,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 5,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 6,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 7,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 8,
+     "living": 40,
+     "body_evaluated": 40,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 9,
+     "living": 38,
+     "body_evaluated": 38,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 10,
+     "living": 38,
+     "body_evaluated": 38,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 11,
+     "living": 37,
+     "body_evaluated": 37,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 12,
+     "living": 37,
+     "body_evaluated": 37,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 13,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 14,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 15,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 16,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 17,
+     "living": 36,
+     "body_evaluated": 36,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 18,
+     "living": 35,
+     "body_evaluated": 35,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 19,
+     "living": 34,
+     "body_evaluated": 34,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 20,
+     "living": 34,
+     "body_evaluated": 34,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 21,
+     "living": 33,
+     "body_evaluated": 33,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 22,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 23,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 24,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 25,
+     "living": 32,
+     "body_evaluated": 32,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 26,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 27,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 28,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    },
+    {
+     "year": 29,
+     "living": 31,
+     "body_evaluated": 31,
+     "clamped": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "curve_clamped": 0
+    }
+   ],
+   "curve_clamped_sims": {},
+   "margins": {
+    "nearest_clamp_bound": {
+     "distance": 0.9549084447715925,
+     "ulps_of_bound": 1075131329011571.0,
+     "key": "face_axis_06",
+     "bound": -4.0,
+     "raw": -3.0450915552284075,
+     "raw_bits": "c0085c58f618411a",
+     "year": 0,
+     "sim": 30
+    },
+    "nearest_curve_bound": {
+     "distance": 2.9436999162279145,
+     "role": "z_h",
+     "z": -3.0563000837720855,
+     "z_bits": "c008734d7554815e",
+     "year": 0,
+     "sim": 30
+    }
+   },
+   "until": 943487999,
+   "snapshots": []
+  }
+ },
+ "selection_cases": [
+  {
+   "name": "bound_exact_green",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     748,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     747,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     746,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     745,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     744,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     743,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     742,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     741,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     740,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ]
+   ],
+   "n": 100000,
+   "green": true,
+   "reason": null
+  },
+  {
+   "name": "bound_plus_one_red",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     748,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     747,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     746,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     745,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     744,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     743,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     742,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     741,
+     10000,
+     {
+      "muscle_z": 10
+     }
+    ],
+    [
+     740,
+     10000,
+     {
+      "muscle_z": 11
+     }
+    ]
+   ],
+   "n": 100000,
+   "green": false,
+   "reason": "rate muscle_z"
+  },
+  {
+   "name": "height_at_bound_green",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     10000,
+     {
+      "height_cm": 100
+     }
+    ],
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     740,
+     10000,
+     {}
+    ]
+   ],
+   "n": 100000,
+   "green": true,
+   "reason": null
+  },
+  {
+   "name": "ten_years_99999_red",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     9999,
+     {}
+    ],
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     740,
+     10000,
+     {}
+    ]
+   ],
+   "n": 99999,
+   "green": false,
+   "reason": "fewer_than_100000"
+  },
+  {
+   "name": "eleven_years_green",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     9999,
+     {}
+    ],
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     740,
+     10000,
+     {}
+    ],
+    [
+     739,
+     3,
+     {}
+    ]
+   ],
+   "n": 100002,
+   "green": true,
+   "reason": null
+  },
+  {
+   "name": "year_gap_red",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     10000,
+     {}
+    ],
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     739,
+     10000,
+     {}
+    ]
+   ],
+   "n": 100000,
+   "green": false,
+   "reason": "year_gap"
+  },
+  {
+   "name": "last_year_missing_red",
+   "last_year": 749,
+   "rows": [
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     740,
+     10000,
+     {}
+    ],
+    [
+     739,
+     10000,
+     {}
+    ]
+   ],
+   "n": 100000,
+   "green": false,
+   "reason": "not_the_last_year"
+  },
+  {
+   "name": "extra_year_red",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     10000,
+     {}
+    ],
+    [
+     748,
+     10000,
+     {}
+    ],
+    [
+     747,
+     10000,
+     {}
+    ],
+    [
+     746,
+     10000,
+     {}
+    ],
+    [
+     745,
+     10000,
+     {}
+    ],
+    [
+     744,
+     10000,
+     {}
+    ],
+    [
+     743,
+     10000,
+     {}
+    ],
+    [
+     742,
+     10000,
+     {}
+    ],
+    [
+     741,
+     10000,
+     {}
+    ],
+    [
+     740,
+     10000,
+     {}
+    ],
+    [
+     739,
+     5,
+     {}
+    ]
+   ],
+   "n": 100005,
+   "green": false,
+   "reason": "year_not_needed"
+  },
+  {
+   "name": "nine_years_red",
+   "last_year": 749,
+   "rows": [
+    [
+     749,
+     20000,
+     {}
+    ],
+    [
+     748,
+     20000,
+     {}
+    ],
+    [
+     747,
+     20000,
+     {}
+    ],
+    [
+     746,
+     20000,
+     {}
+    ],
+    [
+     745,
+     20000,
+     {}
+    ],
+    [
+     744,
+     20000,
+     {}
+    ],
+    [
+     743,
+     20000,
+     {}
+    ],
+    [
+     742,
+     20000,
+     {}
+    ],
+    [
+     741,
+     20000,
+     {}
+    ]
+   ],
+   "n": 180000,
+   "green": false,
+   "reason": "fewer_than_ten_years"
+  },
+  {
+   "name": "select_rows_40000",
+   "years": [
+    749,
+    748,
+    747,
+    746,
+    745,
+    744,
+    743,
+    742,
+    741,
+    740
+   ]
+  },
+  {
+   "name": "select_rows_9000",
+   "years": [
+    749,
+    748,
+    747,
+    746,
+    745,
+    744,
+    743,
+    742,
+    741,
+    740,
+    739,
+    738
+   ]
+  }
+ ]
+}
