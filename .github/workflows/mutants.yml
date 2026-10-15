@@ -73,7 +73,9 @@ jobs:
         with:
           # The whole history: the diff starts at the merge base with origin/main.
           fetch-depth: 0
+      # Setup at most 27 minutes, the mutants 125: the summary keeps its minutes in the 160.
       - name: Install the toolchain from rust-toolchain.toml
+        timeout-minutes: 10
         run: |
           if ! command -v rustup >/dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
@@ -83,8 +85,10 @@ jobs:
           rustup toolchain install
           rustc --version
       - name: Install cargo-mutants
+        timeout-minutes: 15
         run: cargo install cargo-mutants --locked --version 27.1.0
       - name: The diff
+        timeout-minutes: 2
         env:
           BASE: ${{ needs.plan.outputs.base }}
         run: |
@@ -92,8 +96,7 @@ jobs:
           echo "base $BASE, $(wc -l < "$RUNNER_TEMP/branch.diff") diff lines"
       - name: Mutants
         id: mutants
-        # Shorter than the job, so the summary below still runs.
-        timeout-minutes: 140
+        timeout-minutes: 125
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ inputs.shards }}
@@ -108,6 +111,9 @@ jobs:
           # success: no missed mutant; failure: missed, timeouts or an error (exit code in
           # the step above); cancelled or skipped: the counts below are partial or absent.
           echo "mutants step: $OUTCOME"
+          if [ "$OUTCOME" != "success" ] && [ "$OUTCOME" != "failure" ]; then
+            echo "the counts below are possibly partial"
+          fi
           out="$RUNNER_TEMP/mut/mutants.out"
           if [ ! -f "$out/outcomes.json" ]; then
             echo "no results: the shard did not finish (install, baseline or deadline)"
