@@ -54,15 +54,18 @@ fn raised(x: f64, n: u32) -> f64 {
     (0..n).fold(1.0, |product, _| product * x)
 }
 
-/// `m = (Σ x) / n`.
-pub fn mean(values: &[f64]) -> f64 {
-    total(values.iter().copied()) / count(values.len())
+/// `m = (Σ x) / n`; `None` without a value.
+pub fn mean(values: &[f64]) -> Option<f64> {
+    (!values.is_empty()).then(|| total(values.iter().copied()) / count(values.len()))
 }
 
-/// `V = Σ (x − m)² / (n − 1)`.
-pub fn variance(values: &[f64]) -> f64 {
-    let m = mean(values);
-    total(values.iter().map(|x| (x - m) * (x - m))) / (count(values.len()) - 1.0)
+/// `V = Σ (x − m)² / (n − 1)`; `None` below two values.
+pub fn variance(values: &[f64]) -> Option<f64> {
+    if values.len() < 2 {
+        return None;
+    }
+    let m = mean(values)?;
+    Some(total(values.iter().map(|x| (x - m) * (x - m))) / (count(values.len()) - 1.0))
 }
 
 /// The sums of squares and products about the means: `S_xx`, `S_yy`, `S_xy`, one pass
@@ -77,21 +80,30 @@ fn moments(pairs: &[(f64, f64)]) -> [f64; 3] {
     })
 }
 
-/// Pearson's `r = S_xy / sqrt(S_xx · S_yy)`.
-pub fn pearson(pairs: &[(f64, f64)]) -> f64 {
+/// Pearson's `r = S_xy / sqrt(S_xx · S_yy)`; `None` below two pairs or unless
+/// `S_xx · S_yy > 0` (a constant side).
+pub fn pearson(pairs: &[(f64, f64)]) -> Option<f64> {
+    if pairs.len() < 2 {
+        return None;
+    }
     let [xx, yy, xy] = moments(pairs);
-    xy / sqrt(xx * yy)
+    let product = xx * yy;
+    (product > 0.0).then(|| xy / sqrt(product))
 }
 
-/// The least-squares slope of `y` on `x`, `S_xy / S_xx`.
-pub fn slope(pairs: &[(f64, f64)]) -> f64 {
+/// The least-squares slope of `y` on `x`, `S_xy / S_xx`; `None` below two pairs or unless
+/// `S_xx > 0`.
+pub fn slope(pairs: &[(f64, f64)]) -> Option<f64> {
+    if pairs.len() < 2 {
+        return None;
+    }
     let [xx, _, xy] = moments(pairs);
-    xy / xx
+    (xx > 0.0).then(|| xy / xx)
 }
 
-/// Fisher's `F(r) = 0.5 · ln((1 + r) / (1 − r))`.
-pub fn fisher(r: f64) -> f64 {
-    0.5 * ln((1.0 + r) / (1.0 - r))
+/// Fisher's `F(r) = 0.5 · ln((1 + r) / (1 − r))`; `None` outside `(−1, 1)`.
+pub fn fisher(r: f64) -> Option<f64> {
+    (-1.0 < r && r < 1.0).then(|| 0.5 * ln((1.0 + r) / (1.0 - r)))
 }
 
 /// The standard normal distribution function: 100 halvings of `[0, 1]` against `probit`,
@@ -110,30 +122,34 @@ pub fn phi(x: f64) -> f64 {
 }
 
 /// The power of the check `|c − value| ≤ tol` when the value lies at `alt` with standard
-/// error `se`: `Φ((c − tol − alt) / se) + Φ((alt − c − tol) / se)`.
-pub fn power(c: f64, tol: f64, alt: f64, se: f64) -> f64 {
-    phi((c - tol - alt) / se) + phi((alt - c - tol) / se)
+/// error `se` (the spec's W values take the alternative's): `Φ((c − tol − alt) / se) +
+/// Φ((alt − c − tol) / se)`. `None` unless `se > 0` (`Φ` of NaN would read as near 0).
+pub fn power(c: f64, tol: f64, alt: f64, se: f64) -> Option<f64> {
+    (se > 0.0).then(|| phi((c - tol - alt) / se) + phi((alt - c - tol) / se))
 }
 
-/// The tolerance of P3 at `n` families: `4 sqrt((1 − 0.64 · 0.6) / (0.6 n))` (W8.3a).
-pub fn p3_tolerance(n: usize) -> f64 {
-    4.0 * sqrt((1.0 - 0.64 * 0.6) / (0.6 * count(n)))
+/// The tolerance of P3 at `n` families: `4 sqrt((1 − 0.64 · 0.6) / (0.6 n))` (W8.3a);
+/// `None` without a family.
+pub fn p3_tolerance(n: usize) -> Option<f64> {
+    (n > 0).then(|| 4.0 * sqrt((1.0 - 0.64 * 0.6) / (0.6 * count(n))))
 }
 
-/// The tolerance of P4 on `ln V` at `n` units: `4 sqrt(2 / (n − 1))` (W8.4a).
-pub fn p4_tolerance(n: usize) -> f64 {
-    4.0 * sqrt(2.0 / (count(n) - 1.0))
+/// The tolerance of P4 on `ln V` at `n` units: `4 sqrt(2 / (n − 1))` (W8.4a); `None` below
+/// two units.
+pub fn p4_tolerance(n: usize) -> Option<f64> {
+    (n > 1).then(|| 4.0 * sqrt(2.0 / (count(n) - 1.0)))
 }
 
-/// The tolerance on Fisher's z scale at `n` pairs: `4 / sqrt(n − 3)` (W8.5a, W8.7a).
-pub fn fisher_tolerance(n: usize) -> f64 {
-    4.0 / sqrt(count(n) - 3.0)
+/// The tolerance on Fisher's z scale at `n` pairs: `4 / sqrt(n − 3)` (W8.5a, W8.7a); `None`
+/// below four pairs.
+pub fn fisher_tolerance(n: usize) -> Option<f64> {
+    (n > 3).then(|| 4.0 / sqrt(count(n) - 3.0))
 }
 
 /// The tolerance of the share never partnered by 50 at `n` women: `4 sqrt(0.09 / n)`
-/// (spec 8.1, the model's 0.10).
-pub fn never_tolerance(n: usize) -> f64 {
-    4.0 * sqrt(0.09 / count(n))
+/// (spec 8.1, the model's 0.10); `None` without a woman.
+pub fn never_tolerance(n: usize) -> Option<f64> {
+    (n > 0).then(|| 4.0 * sqrt(0.09 / count(n)))
 }
 
 /// A share against its expectation: the sample share, the expected share and the standard
@@ -158,17 +174,20 @@ pub fn mc1r_expectation(n: u32) -> f64 {
 
 /// P9 on `core:mc1r`: per family whether both parents are unaffected (`y_f`) and its
 /// expectation `E_f`; the share `Σ y_f / N` against `Σ E_f / N`, standard error
-/// `sqrt(Σ E_f (1 − E_f)) / N`.
-pub fn mc1r_share(families: &[(bool, f64)]) -> Share {
+/// `sqrt(Σ E_f (1 − E_f)) / N`; `None` without a family.
+pub fn mc1r_share(families: &[(bool, f64)]) -> Option<Share> {
+    if families.is_empty() {
+        return None;
+    }
     let n = count(families.len());
     let yes = families.iter().filter(|family| family.0).count();
-    Share {
+    Some(Share {
         value: count(yes) / n,
         expected: total(families.iter().map(|family| family.1)) / n,
         se: sqrt(total(
             families.iter().map(|family| family.1 * (1.0 - family.1)),
         )) / n,
-    }
+    })
 }
 
 /// The tolerance of P9 on `core:mc1r`, four standard errors (W8.9c).
@@ -176,11 +195,12 @@ pub fn mc1r_tolerance(share: &Share) -> f64 {
     4.0 * share.se
 }
 
-/// The mean of a count per person and its standard error `sqrt(V / n)` (births per woman).
-pub fn mean_se(values: &[u64]) -> (f64, f64) {
+/// The mean of a count per person and its standard error `sqrt(V / n)` (births per woman);
+/// `None` below two persons.
+pub fn mean_se(values: &[u64]) -> Option<(f64, f64)> {
     let values: Vec<f64> = values.iter().map(|value| real(*value)).collect();
     let n = count(values.len());
-    (mean(&values), sqrt(variance(&values) / n))
+    Some((mean(&values)?, sqrt(variance(&values)? / n)))
 }
 
 /// A smoothed Kaplan-Meier median in years and its standard error.
@@ -238,8 +258,8 @@ pub struct LifeTable {
 
 /// The period life table of one sex (Chiang II, one-year ages, `a_x` = 0.5): `exposure[x]`
 /// the seconds lived at age `x` in the period and `deaths[x]` the deaths there, the last
-/// entry the open interval `ω` (100 years and older in a town). `None` if an age has no exposure or the
-/// open interval no death (a finding, red).
+/// entry the open interval `ω` (100 years and older in a town). `None` if an age has no
+/// exposure or the open interval no death (a finding, red).
 pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
     let omega = exposure.len().checked_sub(1)?;
     if deaths.len() != exposure.len() || exposure.contains(&0) || deaths[omega] == 0 {
@@ -282,6 +302,9 @@ pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
     })
 }
 
+/// The seeds of the village check (K2).
+pub const VILLAGE_SEEDS: usize = 20;
+
 /// The village check (K2) over the seeds: `V̄`, `Ē`, `s` and its standard error
 /// `s / sqrt(seeds)`, the verdict `|V̄ − Ē| ≤ 4 se` and its power against 1.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -309,20 +332,40 @@ pub fn village_expectation(h2: f64, blocks: &[(u64, u64)]) -> f64 {
     h2 * kept + (1.0 - h2)
 }
 
+/// Why the village check is red before its numbers count (K2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VillageFinding {
+    /// Fewer than `VILLAGE_SEEDS` seeds.
+    BelowMinimum,
+    /// A village whose units have no variance (K2: the test is red).
+    NoVariance,
+    /// Every variance equal: no standard error, so no power.
+    NoSpread,
+}
+
 /// The village check over the seeds' variances `v` and expectations `e`, both in seed
 /// order.
-pub fn village(v: &[f64], e: &[f64]) -> Village {
-    let (mean_v, mean_e) = (mean(v), mean(e));
-    let s = sqrt(variance(v));
+pub fn village(v: &[f64], e: &[f64]) -> Result<Village, VillageFinding> {
+    if v.len() < VILLAGE_SEEDS || e.len() != v.len() {
+        return Err(VillageFinding::BelowMinimum);
+    }
+    if v.contains(&0.0) {
+        return Err(VillageFinding::NoVariance);
+    }
+    let (Some(mean_v), Some(mean_e), Some(var)) = (mean(v), mean(e), variance(v)) else {
+        return Err(VillageFinding::BelowMinimum);
+    };
+    let s = sqrt(var);
     let se = s / sqrt(count(v.len()));
-    Village {
+    let power = power(mean_e, 4.0 * se, 1.0, se).ok_or(VillageFinding::NoSpread)?;
+    Ok(Village {
         mean_v,
         mean_e,
         s,
         se,
         pass: (mean_v - mean_e).abs() <= 4.0 * se,
-        power: power(mean_e, 4.0 * se, 1.0, se),
-    }
+        power,
+    })
 }
 
 /// SplitMix64 (Vigna), as P7.
