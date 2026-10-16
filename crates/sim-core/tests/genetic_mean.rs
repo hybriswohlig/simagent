@@ -255,3 +255,30 @@ fn the_reference_pins_the_genetic_values() {
         }
     }
 }
+
+/// The mean adds its magnitude to the bound, right at the edge (mutants): longevity's terms
+/// reach 8 (the reference's bound); with `sigma_ref` = 8.5 / f64::MAX the value 8 / sigma
+/// is finite and 9 / sigma is not, so a mean of 1 (or −1) turns an accepted map into one
+/// whose genetic value could overflow; 8 − 1 or 8 · 1 would not.
+#[test]
+fn the_bound_adds_the_mean_s_magnitude() {
+    let edge = |mean: Option<f64>| {
+        let (calibration, mut map) = template_files();
+        for t in map["traits"].as_array_mut().expect("traits") {
+            if t["id"] == json!("core:longevity") {
+                t["sigma_ref"] = json!(8.5 / f64::MAX);
+                if let Some(mean) = mean {
+                    t["mean_ref"] = json!(mean);
+                }
+            }
+        }
+        data_of(calibration, map)
+    };
+    assert!(edge(None).is_ok());
+    for mean in [1.0, -1.0] {
+        assert!(
+            matches!(edge(Some(mean)), Err(DataError::TraitBounds)),
+            "{mean}"
+        );
+    }
+}
