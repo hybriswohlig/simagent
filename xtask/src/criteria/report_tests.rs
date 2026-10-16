@@ -195,10 +195,23 @@ fn a_verdict_reads_the_minimum_then_the_values_then_the_tolerance() {
         against(10, 10, Some(1.5 + 5e-10), 1.0, Some(0.5)),
         verdict(Some(false), Some("outside"), true)
     );
-    // Below the minimum the margin decides nothing, so nothing is fragile.
+    // `fragile` is the reference's rule whatever `n`: below the minimum too (review).
     assert_eq!(
         against(1, 10, Some(1.5), 1.0, Some(0.5)),
-        red("below_minimum")
+        verdict(Some(false), Some("below_minimum"), true)
+    );
+    // A NaN value or tolerance is outside, never green and never fragile (review).
+    for (value, tol) in [(f64::NAN, 0.5), (1.0, f64::NAN)] {
+        assert_eq!(against(10, 10, Some(value), 1.0, Some(tol)), red("outside"));
+    }
+    // Reported only: no verdict, `fragile` as for a check.
+    assert_eq!(
+        Verdict::reported(Some(1.5), 1.0, Some(0.5)),
+        verdict(None, None, true)
+    );
+    assert_eq!(
+        Verdict::reported(Some(1.2), 1.0, Some(0.5)),
+        verdict(None, None, false)
     );
 }
 
@@ -206,8 +219,13 @@ fn a_verdict_reads_the_minimum_then_the_values_then_the_tolerance() {
 fn a_band_holds_its_ends() {
     let band = [2.5, 4.0];
     assert_eq!(within(Some(3.0), band), verdict(Some(true), None, false));
-    assert_eq!(within(Some(2.5), band), verdict(Some(true), None, true));
-    assert_eq!(within(Some(4.0), band), verdict(Some(true), None, true));
+    // The ends belong to the band; a band is never fragile (the reference's rule, review).
+    assert_eq!(within(Some(2.5), band), verdict(Some(true), None, false));
+    assert_eq!(within(Some(4.0), band), verdict(Some(true), None, false));
+    assert_eq!(
+        within(Some(f64::NAN), band),
+        verdict(Some(false), Some("outside"), false)
+    );
     assert_eq!(
         within(Some(4.5), band),
         verdict(Some(false), Some("outside"), false)
@@ -546,6 +564,12 @@ fn the_village_block_reports_its_findings_with_its_numbers() {
     );
     let alive = village(60, Some(&village_of(vec![1.0, 3.0], 5)));
     assert_eq!(alive["finding"], Value::Null);
+    // A block without parent blocks has no expectation, not the empty product 1 (review).
+    let bare = Village {
+        blocks: Vec::new(),
+        ..village_of(vec![1.0, 3.0], 5)
+    };
+    assert_eq!(village(60, Some(&bare))["expectation"], Value::Null);
 }
 
 #[test]
