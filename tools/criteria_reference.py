@@ -371,10 +371,31 @@ def km_median_se(hist: list, never: int, med: float) -> float:
     return math.sqrt(0.25 / float(n)) / dens
 
 
+def life_table_finding(exposure: list, deaths: list):
+    """Why a life table is undefined (review round 2, note section 10), checked in this order,
+    or None: `bad_lengths` (the lists empty or of different lengths), `zero_exposure` (any
+    `E_x` = 0), `no_open_deaths` (`D_ω` = 0), `q_at_least_one` (a closed age with `q_x ≥ 1`,
+    that is `m_x ≥ 2`: `l` would reach 0 or turn negative). `q_x` is computed exactly as in
+    `life_table`."""
+    if not exposure or len(exposure) != len(deaths):
+        return "bad_lengths"
+    if any(e == 0 for e in exposure):
+        return "zero_exposure"
+    if deaths[-1] == 0:
+        return "no_open_deaths"
+    for e, d in zip(exposure[:-1], deaths[:-1]):
+        m = float(d) / (float(e) / YEAR_F)
+        if m / (1.0 + 0.5 * m) >= 1.0:
+            return "q_at_least_one"
+    return None
+
+
 def life_table(exposure: list, deaths: list):
     """The period life table (note section 3, I-3): Chiang II with one-year ages and `a_x` =
     0.5; `exposure` and `deaths` per age `x` = 0 to ω − 1 and the open interval ω last
-    (integers: seconds and counts). None (a finding) if any `E_x` is 0 or `D_ω` is 0. The
+    (integers: seconds and counts). None (red, a finding) where `life_table_finding` names
+    one (review round 2). A table of the open interval alone (one entry) is valid: `e_0 =
+    l_0 / m_ω / l_0`, its variance the open term alone. The
     order of every operation (NOTES.md): `y_x = E_x / 31449600.0`, `m_x = D_x / y_x`, `q_x =
     m_x / (1.0 + 0.5 · m_x)`, `l_0 = 1.0`, `l_{x+1} = l_x · (1.0 − q_x)`, `L_x = 0.5 · (l_x +
     l_{x+1})`, `L_ω = l_ω / m_ω`, `T_ω = L_ω`, `T_x = L_x + T_{x+1}` downwards, `e_x = T_x /
@@ -382,10 +403,9 @@ def life_table(exposure: list, deaths: list):
     over `x < ω` ascending of `((l_x · l_x) · (t · t)) · Var(q_x)` with `t = 0.5 + e_{x+1}`,
     then plus `((l_ω · l_ω) · D_ω) / ((y_ω · y_ω) · (((m_ω · m_ω) · m_ω) · m_ω))`; `se =
     sqrt(Var(e_0))`."""
-    w = len(exposure) - 1
-    assert len(deaths) == w + 1 and w >= 1
-    if any(e == 0 for e in exposure) or deaths[w] == 0:
+    if life_table_finding(exposure, deaths) is not None:
         return None
+    w = len(exposure) - 1
     y = [float(e) / YEAR_F for e in exposure]
     m = [float(d) / yx for d, yx in zip(deaths, y)]
     q = [m[x] / (1.0 + 0.5 * m[x]) for x in range(w)]
@@ -1498,7 +1518,7 @@ def f11_checks(rows: Rows) -> list:
         obj = check_obj(f"f11_e0_{sex}", len(lt["units"]), 0, lt["units"], e0, TARGET_E0[sex], None if se is None else 4.0 * se, [],
                         se=fbits(se), exposure=lt["E"], deaths=lt["D"], zero_exposure=[x for x, e in enumerate(lt["E"]) if e == 0])
         if table is None:
-            obj["finding"] = "zero_exposure" if any(e == 0 for e in lt["E"]) else "no_open_deaths"
+            obj["finding"] = life_table_finding(lt["E"], lt["D"])
         out.append(obj)
     for sex in ("f", "m"):
         s = h2t_sample(rows, sex)
@@ -1757,6 +1777,44 @@ def review_round_1_vectors() -> dict:
     return out
 
 
+# Review round 2: the edges of the life table (exposure in seconds, deaths).
+LIFE_TABLE_EDGES = [
+    ("empty", [], []),
+    ("lengths_2_3", [YEAR, YEAR], [1, 1, 1]),
+    ("q0_one", [YEAR, YEAR], [2, 1]),
+    ("q0_above_one", [YEAR, YEAR], [3, 1]),
+    ("open_only", [4 * YEAR], [2]),
+    ("two_ages_q0_two_thirds", [YEAR, YEAR], [1, 1]),
+    ("two_ages_q0_just_below_one", [YEAR + 1, YEAR], [2, 1]),
+]
+
+
+def life_table_edges() -> dict:
+    """`life_table_edges` of estimators.json (review round 2): per case the lists, the finding
+    and `e_0`, `Var(e_0)`, SE as bits (null where undefined). By hand: `open_only` `y` 4, `m`
+    0.5, `e_0` = 1 / 0.5 = 2, `Var` = (1 · 2) / (16 · 0.0625) = 2, SE `sqrt 2`;
+    `two_ages_q0_two_thirds` `q_0` 2/3, `l_1` 1/3, `T_1` = 1/3, `T_0` = 2/3 + 1/3, `e_0` 1,
+    `Var` = 2.25 · 4/27 + 1/9 = 4/9, SE 2/3 (each up to rounding)."""
+    out = {}
+    for name, exposure, deaths in LIFE_TABLE_EDGES:
+        table = life_table(exposure, deaths)
+        out[name] = {
+            "E": exposure, "D": deaths, "finding": life_table_finding(exposure, deaths),
+            "e0": None if table is None else bits(table["e0"]), "var_e0": None if table is None else bits(table["var_e0"]),
+            "se": None if table is None else bits(table["se"]), "q": None if table is None else [bits(q) for q in table["q"]],
+        }
+    expected = {"empty": "bad_lengths", "lengths_2_3": "bad_lengths", "q0_one": "q_at_least_one", "q0_above_one": "q_at_least_one"}
+    for name, finding in expected.items():
+        assert out[name]["finding"] == finding and out[name]["e0"] is None, name
+    open_only = life_table([4 * YEAR], [2])
+    assert open_only["e0"] == 2.0 and open_only["var_e0"] == 2.0 and open_only["se"] == math.sqrt(2.0)
+    two = life_table([YEAR, YEAR], [1, 1])
+    assert abs(two["e0"] - 1.0) <= 1e-15 and abs(two["var_e0"] - 4.0 / 9.0) <= 1e-15 and abs(two["se"] - 2.0 / 3.0) <= 1e-15
+    near = life_table([YEAR + 1, YEAR], [2, 1])
+    assert 0.9999999 < near["q"][0] < 1.0
+    return out
+
+
 def estimator_vectors() -> dict:
     mx, my, sxx, syy, sxy = pearson_parts(EST_X, EST_Y)
     hist = [0] * HIST_MONTHS
@@ -1818,6 +1876,7 @@ def estimator_vectors() -> dict:
         },
         "probit_rows_differing_from_core": check_probit(),
         **review_round_1_vectors(),
+        "life_table_edges": life_table_edges(),
     }
 
 
