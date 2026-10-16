@@ -7,6 +7,99 @@ use sim_core::body_contract::{BodyCensus, CLAMPED_KEYS};
 use sim_core::world::CensusRow;
 
 use super::*;
+use crate::ordered::Json;
+
+/// A record as `record` writes it (the gate reads it once the pool is in the repository).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Record {
+    pub pool_hash: u64,
+    pub data_hash: u64,
+    pub core_version: u32,
+    pub rows: Vec<Row>,
+}
+
+/// Reads a record: exactly the fields `record` writes, in its order, hashes as 16 lower-case
+/// hex digits, counts as non-negative integers.
+pub(crate) fn read_record(text: &str) -> Result<Record> {
+    let json = Json::parse(text)?;
+    let [pool_hash, data_hash, core_version, rows] = fields(
+        &json,
+        ["pool_hash", "data_hash", "core_version", "rows"],
+        "the record",
+    )?;
+    let rows = rows
+        .as_array()
+        .ok_or("rows: not an array")?
+        .iter()
+        .map(read_row)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Record {
+        pool_hash: hex(pool_hash, "pool_hash")?,
+        data_hash: hex(data_hash, "data_hash")?,
+        core_version: u32::try_from(count(core_version, "core_version")?)
+            .map_err(|_| "core_version: out of range".to_owned())?,
+        rows,
+    })
+}
+
+fn read_row(json: &Json) -> Result<Row> {
+    let [year, living, evaluated, clamped, curve_clamped] = fields(
+        json,
+        ["year", "living", "evaluated", "clamped", "curve_clamped"],
+        "a row",
+    )?;
+    let keys = CLAMPED_KEYS.map(|key| key.as_str());
+    let counts = fields(clamped, keys, "clamped")?;
+    let mut by_key = [0; 21];
+    for (slot, (value, key)) in by_key.iter_mut().zip(counts.into_iter().zip(keys)) {
+        *slot = count(value, key)?;
+    }
+    let year = match year {
+        Json::Number(number) => number.as_i64(),
+        _ => None,
+    }
+    .ok_or("year: not an integer")?;
+    Ok(Row {
+        year,
+        living: count(living, "living")?,
+        evaluated: count(evaluated, "evaluated")?,
+        clamped: by_key,
+        curve_clamped: count(curve_clamped, "curve_clamped")?,
+    })
+}
+
+/// The values of an object that holds exactly `names`, in this order.
+fn fields<'a, const N: usize>(
+    json: &'a Json,
+    names: [&str; N],
+    what: &str,
+) -> Result<[&'a Json; N]> {
+    let Json::Object(entries) = json else {
+        return Err(format!("{what}: not an object"));
+    };
+    let found: Vec<&str> = entries.iter().map(|(key, _)| key.as_str()).collect();
+    if found != names {
+        return Err(format!("{what}: the fields {found:?}, not {names:?}"));
+    }
+    Ok(std::array::from_fn(|index| &entries[index].1))
+}
+
+fn count(json: &Json, name: &str) -> Result<u64> {
+    json.as_u64()
+        .ok_or_else(|| format!("{name}: not a non-negative integer"))
+}
+
+fn hex(json: &Json, name: &str) -> Result<u64> {
+    let text = json.as_str().unwrap_or_default();
+    let digits = text.len() == 16
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !digits {
+        return Err(format!("{name}: not 16 lower-case hex digits"));
+    }
+    u64::from_str_radix(text, 16).map_err(|error| format!("{name}: {error}"))
+}
 
 /// A census row of `year` with `evaluated` bodies and no clamp.
 fn row(year: i64, evaluated: u64) -> CensusRow {
