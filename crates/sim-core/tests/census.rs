@@ -27,17 +27,22 @@ mod common;
 use std::collections::BTreeSet;
 
 use serde_json::Value;
-use sim_core::body_contract::{BodyParamKey, CLAMPED_KEYS};
+use sim_core::body_contract::{BodyData, BodyInputs, BodyParamKey, CLAMPED_KEYS, body_params};
 use sim_core::data::Data;
+use sim_core::data::DataError;
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
+use sim_core::genome::Genome;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::hash::stable_hash64;
 use sim_core::ids::{InputSeq, SimId};
 use sim_core::input::{ArrangePartnership, Couple, Founder, Input, InputRecord, PoolStart, Start};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{NutritionYear, WorldParams};
+use sim_core::phenotype::Environment;
 use sim_core::pool::{Pool, pool_loci, take_households};
+use sim_core::rng::{Draws, WorldSeed};
 use sim_core::time::{SimDuration, SimTime};
 use sim_core::trace::{TraceFilter, TracePayload};
 use sim_core::world::{World, YearOut};
@@ -668,5 +673,77 @@ fn the_census_reads_absent_pigment_loci_as_the_reference_allele() {
         let row = first_year_end(prerun_data_with(&[kept]));
         assert!(row.living > 0, "{kept}");
         assert_eq!(row.body.evaluated, 0, "{kept}");
+    }
+}
+
+/// The census's view in detail (design note of the census 6.1, review): `BodyData::new`
+/// rejects the pre-run's data, `BodyData::census` takes them and reads both pigment doses as
+/// 0, so a body there equals the body of the same genome on the template, where both loci
+/// stand at the reference allele, in every value bit for bit. One pigment locus without the
+/// other, or a present locus of another form, is no body for the census either.
+#[test]
+fn the_census_view_reads_absent_pigment_loci_as_dose_zero() {
+    let prerun = prerun_data();
+    let on_template = template_data();
+    assert_eq!(BodyData::new(&prerun).err(), Some(DataError::BodyTraits));
+    for kept in ["core:mc1r", "core:herc2"] {
+        let data = prerun_data_with(&[kept]);
+        assert_eq!(
+            BodyData::census(&data).err(),
+            Some(DataError::BodyTraits),
+            "{kept}"
+        );
+    }
+    for (locus, field, value) in [
+        ("core:mc1r", "action", "dominant"),
+        ("core:herc2", "chromosome", "x"),
+    ] {
+        let (calibration, mut genome_map) = template();
+        let entry = genome_map["loci"]
+            .as_array_mut()
+            .expect("loci")
+            .iter_mut()
+            .find(|entry| entry["id"] == locus)
+            .expect("the locus");
+        entry[field] = Value::from(value);
+        let data = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+            .expect("data");
+        assert_eq!(
+            BodyData::census(&data).err(),
+            Some(DataError::BodyTraits),
+            "{locus}"
+        );
+    }
+    let census = BodyData::census(&prerun).expect("the census's view");
+    let strict = BodyData::new(&on_template).expect("the template's body");
+    let draws = Draws::new(WorldSeed::new(7));
+    let own = LineageKey::founder(&DataId::new("test:census").expect("id"), 0);
+    for sex in [Sex::Female, Sex::Male] {
+        let genome = Genome::reference(sex);
+        let inputs = |body: &BodyData<'_>| {
+            BodyInputs::of_person(
+                body,
+                Environment::one(&draws),
+                &genome,
+                own,
+                None,
+                SimTime::START,
+                sim_core::time::YEAR * 30,
+                &[],
+                30.0,
+            )
+        };
+        let (ours, theirs) = (inputs(&census), inputs(&strict));
+        assert_eq!((ours.mc1r, ours.herc2), (0, 0));
+        assert_eq!((theirs.mc1r, theirs.herc2), (0, 0));
+        let (ours, theirs) = (body_params(&census, &ours), body_params(&strict, &theirs));
+        for key in BodyParamKey::ALL {
+            assert_eq!(
+                ours.params.get(key).to_bits(),
+                theirs.params.get(key).to_bits(),
+                "{sex:?} {}",
+                key.as_str()
+            );
+        }
     }
 }
