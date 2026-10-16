@@ -2,7 +2,8 @@
 //! section 7, fixture 3): T1 `pool_d`, seed 6, `n_start` 30, no immigration, 60 years (two
 //! town generations); T2 `pool_c`, seed 0xff, `n_start` 50, immigration, to the end of year
 //! 13 (arrivals with births, pool children, carried couples, one formed at the arrival
-//! second). Integers, keys and words exact; `z` and `gl` within `1e-12 · max(1, |x|)`.
+//! second). Each town on the documents its pool was extracted from. Integers, keys and
+//! words exact; `z` and `gl` within `1e-12 · max(1, |x|)`.
 
 use std::collections::BTreeSet;
 
@@ -28,11 +29,30 @@ fn root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-/// The template of map 4 with the repository's life course data and this pool, as the
-/// arrival tests and `tools/arrival_reference.py` build it.
+/// This pool on the documents it was extracted from, whose data hash is its `frozen_hash`
+/// (design note of the pool's records, section 6), as the arrival tests and
+/// `tools/arrival_reference.py` build it: `pool_c` on those of the pool run `father_dies`
+/// without `pool_frequencies` (`tests/golden/father_dies`), `pool_d` on the template of
+/// map 4 with the repository's life course data.
 fn town_data(pool: &[u8]) -> Data {
-    crate::criteria::town::town_data(&root(), &root().join("tests/golden/map4_template"), pool)
-        .expect("the town's data")
+    let root = root();
+    let (demography, documents) = if pool == POOL_C {
+        (
+            "tests/golden/father_dies/calibration/demography.json",
+            "tests/golden/father_dies",
+        )
+    } else {
+        (
+            "data/calibration/demography.json",
+            "tests/golden/map4_template",
+        )
+    };
+    let demography = crate::map4::read(&root, demography).expect("demography");
+    let (calibration, map) =
+        crate::prerun::read_files(&root.join(documents)).expect("the documents");
+    let definitions =
+        crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions");
+    Data::with_pool(definitions, pool).expect("checked")
 }
 
 /// A pool town of the reference's (tag `test:arrival`, no capacity) run to `end`.

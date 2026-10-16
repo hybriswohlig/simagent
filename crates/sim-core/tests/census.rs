@@ -6,7 +6,8 @@
 //!   genomes), two nutrition shocks, 20 years: 19 of the 21 keys clamp, the growth curve
 //!   holds three founders every year;
 //! - (b) "arrival" on `pool_c` with three shocks: an arrival does without the years before
-//!   its arrival (G6), to the exact boundary;
+//!   its arrival (G6), to the exact boundary; on the documents `pool_c` was extracted from
+//!   (`tests/golden/father_dies`, design note of the pool's records, section 6);
 //! - (b2) `pool_b` founded at the start, without immigration;
 //! - (c) the small pre-run run: data without MC1R and HERC2, read as the reference allele
 //!   (design note of the census 6.1), so every living body is evaluated.
@@ -68,7 +69,7 @@ fn fixtures() -> [(&'static str, &'static str, Data); 4] {
         (
             "b_pool_c_immigration",
             include_str!("../../../tests/golden/census/b_pool_c_immigration.json"),
-            pool_data(POOL_C),
+            pool_c_data(),
         ),
         (
             "b2_pool_b_start",
@@ -95,11 +96,30 @@ fn template_data() -> Data {
     Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("data")
 }
 
+/// The template with the pool of these bytes (`pool_b`, `pool_d`).
 fn pool_data(pool: &[u8]) -> Data {
     let (calibration, genome_map) = template();
     Data::with_pool(
         common::definitions(calibration, genome_map).expect("definitions"),
         pool,
+    )
+    .expect("data")
+}
+
+/// `pool_c` on the documents it was extracted from: those of the pool run `father_dies`
+/// without `pool_frequencies` (`tests/golden/father_dies`), whose data hash is the pool's
+/// `frozen_hash`.
+fn pool_c_data() -> Data {
+    let (calibration, genome_map) = common::files_from(
+        include_str!("../../../tests/golden/father_dies/calibration/genetics.json"),
+        include_str!("../../../tests/golden/father_dies/genetics/genome_map.json"),
+    );
+    let demography = common::demography_from(include_str!(
+        "../../../tests/golden/father_dies/calibration/demography.json"
+    ));
+    Data::with_pool(
+        common::definitions_with(demography, calibration, genome_map).expect("definitions"),
+        POOL_C,
     )
     .expect("data")
 }

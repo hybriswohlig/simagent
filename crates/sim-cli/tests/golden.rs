@@ -101,19 +101,22 @@ fn fork_run() -> Run {
 }
 
 /// The golden scenario of the arrival (`tests/golden/arrival.json`, from
-/// `tools/arrival_reference.py`, ADR-0020 section 5): the template of map 4 with the pool
-/// `pool_c`, a town founded from the pool with the seed 0xff, `n_start` 50 and one immigrant
-/// household a year, the hereditary diseases on, to the end of year 13. Its scenario file
-/// comes with the scenario format 5 of the CLI; until then the start is built here as the
-/// design note draws it: the households of occasion 0 until they bring 50 persons.
+/// `tools/arrival_reference.py`, ADR-0020 section 5): the pool `pool_c` on the documents it
+/// was extracted from, those of the pool run `father_dies` without `pool_frequencies`
+/// (`tests/golden/father_dies`, whose data hash is the pool's `frozen_hash`, design note of
+/// the pool's records, section 6), a town founded from the pool with the seed 0xff,
+/// `n_start` 50 and one immigrant household a year, the hereditary diseases on, to the end
+/// of year 13. Its scenario file comes with the scenario format 5 of the CLI; until then the
+/// start is built here as the design note draws it: the households of occasion 0 until they
+/// bring 50 persons.
 const ARRIVAL_GOLDEN: &str = include_str!("../../../tests/golden/arrival.json");
 const ARRIVAL_END: i64 = 14 * 31_449_600 - 1;
 
 fn arrival_data() -> Data {
     let definitions = sim_cli::data::definitions_from(
-        include_str!("../../../data/calibration/demography.json"),
-        include_str!("../../../tests/golden/map4_template/calibration/genetics.json"),
-        include_str!("../../../tests/golden/map4_template/genetics/genome_map.json"),
+        include_str!("../../../tests/golden/father_dies/calibration/demography.json"),
+        include_str!("../../../tests/golden/father_dies/calibration/genetics.json"),
+        include_str!("../../../tests/golden/father_dies/genetics/genome_map.json"),
     )
     .expect("definitions");
     Data::with_pool(

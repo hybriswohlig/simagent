@@ -94,7 +94,16 @@ fn without_numbers(value: &mut Value) {
     reason = "not every test crate changes the life course data"
 )]
 pub fn demography() -> Value {
-    let read: Value = serde_json::from_str(DEMOGRAPHY).expect("json");
+    demography_from(DEMOGRAPHY)
+}
+
+/// Life course data from its text (a fixture's), as a JSON value without its text.
+#[allow(
+    dead_code,
+    reason = "not every test crate reads other life course data"
+)]
+pub fn demography_from(text: &str) -> Value {
+    let read: Value = serde_json::from_str(text).expect("json");
     let texts = &["source", "as_of", "note"];
     without(
         without(
