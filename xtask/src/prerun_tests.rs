@@ -1510,6 +1510,8 @@ fn a_world_on_the_frozen_map_reads_its_means() {
         &next,
         &newborn_means(&world, &next_data, 30).expect("means"),
     );
+    // An iteration never carries a mean on: the frozen map fed back is the next map (review).
+    assert_eq!(next_map(&frozen, &measurement), next);
     for (case, map) in [(&cases[4], &frozen), (&cases[5], &next)] {
         let (run_calibration, run_map) = prerun_files(&calibration, map);
         let data = prerun_data(&root(), &run_calibration, &run_map).expect("data");
