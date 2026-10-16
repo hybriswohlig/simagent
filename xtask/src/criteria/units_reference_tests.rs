@@ -95,7 +95,7 @@ fn the_reference_pins_the_hand_units() {
     );
     assert_eq!((mc1r.copies, mc1r.parents), (copies, parents), "q");
     assert_eq!(
-        mc1r.q.to_bits(),
+        mc1r.q.expect("family parents").to_bits(),
         (stats::real(copies) / stats::real(2 * parents)).to_bits(),
         "q"
     );

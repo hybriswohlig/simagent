@@ -409,7 +409,7 @@ fn p9_mc1r_takes_families_with_an_affected_child() {
     let mc1r = town(&export).p9_mc1r();
     assert!(mc1r.in_band());
     assert_eq!((mc1r.copies, mc1r.parents), (5, 17));
-    assert_eq!(mc1r.q.to_bits(), (5.0_f64 / 34.0).to_bits());
+    assert_eq!(mc1r.q.map(f64::to_bits), Some((5.0_f64 / 34.0).to_bits()));
     // X: Aa x Aa, three zygotes (E_3), anchored at its affected child. Y: an aa parent, two
     // zygotes (GK-4), anchored at the twin of multiple index 0.
     assert_eq!(mc1r.units.anchors, vec![0x101, 0x201]);
@@ -429,7 +429,7 @@ fn p9_mc1r_outside_the_band_keeps_q_and_its_sample() {
     // Four distinct parents with five copies: q = 5 / 8 lies outside, and the report still
     // counts and hashes the sample (the reference's T1).
     let mc1r = town(&two).p9_mc1r();
-    assert_eq!((mc1r.copies, mc1r.parents, mc1r.q), (5, 4, 0.625));
+    assert_eq!((mc1r.copies, mc1r.parents, mc1r.q), (5, 4, Some(0.625)));
     assert!(!mc1r.in_band());
     assert_eq!(mc1r.units.anchors, vec![0x101, 0x201]);
     // 25 families of 50 parents: the band [0.13, 0.17] holds its ends.
@@ -447,7 +447,7 @@ fn p9_mc1r_outside_the_band_keeps_q_and_its_sample() {
         let q = real(copies) / 100.0;
         let mc1r = town(&export).p9_mc1r();
         assert_eq!(mc1r.in_band(), inside, "{copies}");
-        assert_eq!(mc1r.q.to_bits(), q.to_bits());
+        assert_eq!(mc1r.q.map(f64::to_bits), Some(q.to_bits()));
         assert!(mc1r.units.anchors.is_empty());
     }
 }
@@ -883,4 +883,18 @@ fn the_longevity_sample_takes_town_born_lives_ended_in_the_town() {
     assert_eq!(men.units.anchors, vec![7]);
     assert_eq!(men.units.values, vec![(55.0, 3007.0)]);
     assert_eq!((men.emigrated, men.living), (0, 0));
+}
+
+#[test]
+fn without_a_family_q_has_no_value() {
+    // Two founders and no child: no family, no parent, no frequency (the reference's null).
+    let alone = export(
+        40 * Y,
+        vec![person(1, true, -30 * Y), person(2, false, -30 * Y)],
+        vec![],
+    );
+    let mc1r = town(&alone).p9_mc1r();
+    assert_eq!((mc1r.copies, mc1r.parents, mc1r.q), (0, 0, None));
+    assert!(!mc1r.in_band());
+    assert!(mc1r.units.values.is_empty());
 }
