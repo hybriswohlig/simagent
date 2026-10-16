@@ -133,6 +133,15 @@ def variance(xs: list):
     return acc / float(len(xs) - 1)
 
 
+def mean_se(xs: list):
+    """The SE of a mean, `sqrt(V / n)` (births per woman); None below 2 values (review round
+    1). The mean itself is defined from one value on."""
+    v = variance(xs)
+    if v is None:
+        return None
+    return math.sqrt(v / float(len(xs)))
+
+
 def pearson_parts(xs: list, ys: list):
     """(`m_x`, `m_y`, `S_xx`, `S_yy`, `S_xy`): the means first, then one pass with
     `dx = x − m_x`, `dy = y − m_y`, `S_xx += dx · dx`, `S_yy += dy · dy`, `S_xy += dx · dy`
@@ -308,8 +317,12 @@ def close(a: float, b: float, rel: float = 1e-12) -> bool:
     return abs(a - b) <= rel * max(1.0, abs(a))
 
 
-def power(c: float, tol: float, alt: float, se: float) -> float:
-    """`Φ(((c − tol) − alt) / se) + Φ(((alt − c) − tol) / se)` (note section 3)."""
+def power(c, tol, alt, se):
+    """`Φ(((c − tol) − alt) / se) + Φ(((alt − c) − tol) / se)` (note section 3). Undefined
+    (None) unless `se > 0` (review round 1, note section 10: NaN, 0 and negative `se` give
+    None; `Φ` of NaN would read as a probability near 0), or if an input is undefined."""
+    if c is None or tol is None or alt is None or se is None or not se > 0.0:
+        return None
     return phi(((c - tol) - alt) / se) + phi(((alt - c) - tol) / se)
 
 
@@ -336,16 +349,21 @@ def km_median(hist: list, never: int):
     return None
 
 
+def km_median_window(med: float) -> tuple:
+    """The window of `median_se`: `lo = max(0, trunc((med − 1.0) · 13.0))`, `hi = min(650,
+    trunc((med + 1.0) · 13.0) + 1)`, `hi` excluded (truncation toward 0; below 0 the `max`
+    makes floor and truncation agree)."""
+    return max(0, int((med - 1.0) * 13.0)), min(HIST_MONTHS, int((med + 1.0) * 13.0) + 1)
+
+
 def km_median_se(hist: list, never: int, med: float) -> float:
-    """life_reference `median_se`: `lo = max(0, trunc((med − 1.0) · 13.0))`, `hi = min(650,
-    trunc((med + 1.0) · 13.0) + 1)`, `dens = ((Σ hist[lo..hi]) / n) / ((hi − lo) / 13.0)`
-    (the sum an integer, `hi` excluded), `se = sqrt(0.25 / n) / dens`."""
+    """life_reference `median_se`: the window `km_median_window`, `dens = ((Σ hist[lo..hi]) /
+    n) / ((hi − lo) / 13.0)` (the sum an integer), `se = sqrt(0.25 / n) / dens`."""
     n = 0
     for h in hist:
         n += h
     n += never
-    lo = max(0, int((med - 1.0) * 13.0))
-    hi = min(HIST_MONTHS, int((med + 1.0) * 13.0) + 1)
+    lo, hi = km_median_window(med)
     s = 0
     for h in hist[lo:hi]:
         s += h
@@ -437,10 +455,21 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
     """K2 (note section 3): `V̄`, `Ē` folds over the seed list divided by 20; `s = sqrt(Σ (V_i
     − V̄)² / 19)`, `se = s / sqrt(20)`, `tol = 4.0 · se`, pass iff `|V̄ − Ē| ≤ tol`; the power
     against 1 `power(Ē, tol, 1.0, se)`; below 0.9 the runs extend by 300 years (`extend`),
-    at 2100 red. The decision reads `s` and `Ē` only. Twin: `V_i / V̄` must be red."""
+    at 2100 red. The decision reads `s` and `Ē` only. Twin: `V_i / V̄` must be red.
+
+    Review round 1 (note section 10): red with a finding before the numbers count, in this
+    order: fewer than 20 seeds (`below_minimum`), any `V_i` exactly 0.0 (`no_variance`, K2),
+    `se` not above 0 (`no_spread`, no power). A finding gives {"n", "pass": False,
+    "decision": "red", "finding"} and no numbers."""
     assert len(vs) == len(es)
+
+    def finding(name: str) -> dict:
+        return {"n": len(vs), "pass": False, "decision": "red", "finding": name}
+
     if len(vs) < VILLAGE_SEEDS:
-        return {"n": len(vs), "pass": False, "finding": "below_minimum"}
+        return finding("below_minimum")
+    if any(v == 0.0 for v in vs):
+        return finding("no_variance")
     n = float(len(vs))
     v_bar = fold(vs) / n
     e_bar = fold(es) / n
@@ -450,6 +479,8 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
         acc = acc + d * d
     s = math.sqrt(acc / float(len(vs) - 1))
     se = s / math.sqrt(n)
+    if not se > 0.0:
+        return finding("no_spread")
     tol = 4.0 * se
     pw = power(e_bar, tol, 1.0, se)
     passed = abs(v_bar - e_bar) <= tol
@@ -546,9 +577,11 @@ def se_slope(b: float, n: int) -> float:
     return math.sqrt((1.0 - (b * b) * 0.6) / (0.6 * float(n)))
 
 
-def power_p3(n: int) -> float:
+def power_p3(n: int):
     """Against slope 1 with the SE of the alternative (W8.3b): `power(0.8, tol_p3(n), 1.0,
-    se_slope(1.0, n))`."""
+    se_slope(1.0, n))`; None for `n` = 0."""
+    if n < 1:
+        return None
     return power(TARGET_P3, tol_p3(n), 1.0, se_slope(1.0, n))
 
 
@@ -559,8 +592,11 @@ def tol_log_var(n: int):
     return 4.0 * math.sqrt(2.0 / float(n - 1))
 
 
-def power_p4(n: int) -> float:
-    """Against `ln 0.664` (W8.4d): `power(0.0, tol, ln(0.664), sqrt(2.0 / (n − 1)))`."""
+def power_p4(n: int):
+    """Against `ln 0.664` (W8.4d): `power(0.0, tol, ln(0.664), sqrt(2.0 / (n − 1)))`; None
+    below 2."""
+    if n < 2:
+        return None
     return power(0.0, tol_log_var(n), math.log(P4_WRONG), math.sqrt(2.0 / float(n - 1)))
 
 
@@ -571,8 +607,10 @@ def tol_fisher(n: int):
     return 4.0 / math.sqrt(float(n - 3))
 
 
-def power_fisher(target: float, alt: float, n: int) -> float:
-    """`power(F(target), tol_fisher(n), F(alt), 1.0 / sqrt(n − 3))`."""
+def power_fisher(target: float, alt: float, n: int):
+    """`power(F(target), tol_fisher(n), F(alt), 1.0 / sqrt(n − 3))`; None below 4."""
+    if n < 4:
+        return None
     return power(fisher(target), tol_fisher(n), fisher(alt), 1.0 / math.sqrt(float(n - 3)))
 
 
@@ -588,9 +626,11 @@ def tol_mc1r(es: list):
     return (4.0 * math.sqrt(mc1r_sums(es)[1])) / float(len(es))
 
 
-def power_mc1r(es: list) -> float:
+def power_mc1r(es: list):
     """Against the share 0.5 with its own SE (W8.9d): `power(Σ E_f / N, tol_mc1r, 0.5,
-    sqrt((0.5 · 0.5) / N))`."""
+    sqrt((0.5 · 0.5) / N))`; None for no family."""
+    if not es:
+        return None
     n = float(len(es))
     return power(mc1r_sums(es)[0] / n, tol_mc1r(es), 0.5, math.sqrt((0.5 * 0.5) / n))
 
@@ -1311,7 +1351,7 @@ def fisher_check(name: str, xs: list, ys: list, anchors: list, target_r: float, 
     n = len(xs)
     r = pearson(xs, ys)
     value, target, tol = fisher(r), fisher(target_r), tol_fisher(n)
-    pw = power_fisher(target_r, alt_r, n) if n >= 4 else None
+    pw = power_fisher(target_r, alt_r, n)
     extra = {"r": fbits(r), "power": fbits(pw)}
     if twin_ys is not None:
         tr = pearson(xs, twin_ys)
@@ -1324,7 +1364,7 @@ def p3_check(fams: list) -> dict:
     n = len(fams)
     b = slope(u["x"], u["y"])
     tb = slope(u["x"], shuffled(u["y"], SEED_P3))
-    pw = power_p3(n) if n >= 1 else None
+    pw = power_p3(n)
     tol = tol_p3(n)
     return check_obj("p3", n, MIN_P3, u["anchors"], b, TARGET_P3, tol, ["power"], power=fbits(pw), twin=twin_obj(n, MIN_P3, tb, TARGET_P3, tol))
 
@@ -1344,7 +1384,7 @@ def p4_city_check(rows: Rows) -> dict:
         twin_value = math.log(tv) if tv is not None and tv > 0.0 else None
         tol = tol_log_var(n)
         decade = check_obj(f"p4_city_{k}", n, MIN_P4, [p["key"] for p in units], value, 0.0, tol, ["value", "power", "twin.value"],
-                           k=k, variance=fbits(v), power=fbits(power_p4(n) if n >= 2 else None),
+                           k=k, variance=fbits(v), power=fbits(power_p4(n)),
                            twin=twin_obj(n, MIN_P4, twin_value, 0.0, tol, variance=fbits(tv)))
         all_pass = all_pass and decade["pass"]
         twin_all = twin_all and decade["twin"]["pass"]
@@ -1399,7 +1439,7 @@ def p9_mc1r_check(fams: list) -> dict:
     value = share(k, n)
     expectation = None if n == 0 else mc1r_sums(es)[0] / float(n)
     tol = tol_mc1r(es)
-    pw = power_mc1r(es) if n >= 1 else None
+    pw = power_mc1r(es)
     pi = shuffled(list(range(len(fams))), SEED_P9_MC1R)
     tk = 0
     for s in sample:
@@ -1433,8 +1473,7 @@ def f11_checks(rows: Rows) -> list:
     births = f11_births(rows)
     ys = [float(y) for _, y in births]
     n = len(ys)
-    m, v = mean(ys), variance(ys)
-    se = None if v is None else math.sqrt(v / float(n))
+    m, v, se = mean(ys), variance(ys), mean_se(ys)
     out.append(check_obj("f11_births", n, 0, [k for k, _ in births], m, TARGET_BIRTHS, None if se is None else 4.0 * se, [],
                          variance=fbits(v), se=fbits(se), total=int(fold(ys))))
     early = f11_early_births(rows)
@@ -1621,6 +1660,103 @@ EST_VILLAGE_V2 = [0.71, 0.83, 0.69, 0.77, 0.74, 0.81, 0.66, 0.79, 0.72, 0.85, 0.
 EST_VILLAGE_E2 = [0.7512, 0.7488, 0.7531, 0.7476, 0.7505, 0.7521, 0.7493, 0.7517, 0.7484, 0.7509, 0.7526, 0.7499, 0.7513, 0.7481, 0.7502, 0.7518, 0.7495, 0.7507, 0.749, 0.7511]
 
 
+# Review round 1: the undefined cases, more tolerances, median windows, village findings.
+UNDEF_VARYING = [0.1, 0.4, -0.2, 0.9]
+UNDEF_CONSTANT = [0.5, 0.5, 0.5, 0.5]  # a constant whose fold mean is exact (2.0 / 4)
+NEAR_CONSTANT = [0.1, 0.1, 0.1]  # constant, but its fold mean is not 0.1
+NEAR_CONSTANT_Y = [0.2, 0.5, 0.9]
+MEDIAN_WINDOWS = {
+    "a": ({286: 1, 287: 1, 300: 5, 313: 2}, 1),
+    "b": ({649: 4}, 1),
+    "c": ({2: 4}, 1),
+}
+
+
+def review_round_1_vectors() -> dict:
+    """The keys `undefined`, `defined_near_constant`, `tolerances_more`, `median_windows`,
+    `village_findings` of estimators.json (review round 1 of the estimators)."""
+    nan = float("nan")
+    out = {}
+    pearson_cases = [([], []), ([0.3], [0.9]), (UNDEF_CONSTANT, UNDEF_VARYING), (UNDEF_VARYING, UNDEF_CONSTANT)]
+    slope_cases = [([0.3], [0.9]), (UNDEF_CONSTANT, UNDEF_VARYING)]
+    power_cases = [(TARGET_P3, 0.0906, 1.0, 0.0), (TARGET_P3, 0.0906, 1.0, -1.0), (TARGET_P3, 0.0906, 1.0, nan)]
+    for xs, ys in pearson_cases:
+        assert pearson(xs, ys) is None
+    for xs, ys in slope_cases:
+        assert slope(xs, ys) is None
+    for r in (1.0, -1.0, 1.5):
+        assert fisher(r) is None
+    for case in power_cases:
+        assert power(*case) is None
+    assert mean([]) is None and variance([0.7]) is None and tol_mc1r([]) is None
+    assert tol_p3(0) is None and tol_never(0) is None and all(tol_log_var(n) is None for n in (0, 1))
+    assert all(tol_fisher(n) is None for n in range(4))
+    zero_slope = slope(UNDEF_VARYING, UNDEF_CONSTANT)
+    assert bits(zero_slope) == bits(0.0)
+    one = [2.0]
+    assert mean(one) == 2.0 and mean_se(one) is None
+    seq_bits = lambda xs: [bits(x) for x in xs]
+    out["undefined"] = {
+        "mean": [{"x": []}],
+        "variance": [{"x": seq_bits([0.7])}],
+        "pearson": [{"x": seq_bits(xs), "y": seq_bits(ys)} for xs, ys in pearson_cases],
+        "slope": [{"x": seq_bits(xs), "y": seq_bits(ys)} for xs, ys in slope_cases],
+        "slope_constant_y_is_zero": {"x": seq_bits(UNDEF_VARYING), "y": seq_bits(UNDEF_CONSTANT), "slope": bits(zero_slope)},
+        "fisher": seq_bits([1.0, -1.0, 1.5]),
+        "power": [{"c": bits(c), "tol": bits(t), "alt": bits(a), "se": bits(se)} for c, t, a, se in power_cases],
+        "tol_p3": [0], "tol_log_var": [0, 1], "tol_fisher": [0, 1, 2, 3], "tol_never": [0], "tol_mc1r_families": [0],
+        "births_one_value": {"values": [2], "mean": bits(2.0), "variance": None, "se": None},
+    }
+    near = pearson(NEAR_CONSTANT, NEAR_CONSTANT_Y)
+    mx, _, sxx, _, _ = pearson_parts(NEAR_CONSTANT, NEAR_CONSTANT_Y)
+    assert near is not None and sxx > 0.0 and mx != 0.1
+    out["defined_near_constant"] = {"x": seq_bits(NEAR_CONSTANT), "y": seq_bits(NEAR_CONSTANT_Y), "mean_x": bits(mx),
+                                    "s_xx": bits(sxx), "r": bits(near), "slope": bits(slope(NEAR_CONSTANT, NEAR_CONSTANT_Y))}
+    out["tolerances_more"] = {
+        "p3": {str(n): bits(tol_p3(n)) for n in (500, 8000)},
+        "p4": {str(n): bits(tol_log_var(n)) for n in (3, 9)},
+        "fisher": {str(n): bits(tol_fisher(n)) for n in (4, 403)},
+        "never": {"9": bits(tol_never(9))},
+        "mc1r_16_half": bits(tol_mc1r([0.5] * 16)),
+    }
+    assert tol_log_var(3) == 4.0 and tol_log_var(9) == 2.0 and tol_fisher(4) == 4.0 and tol_fisher(403) == 0.2
+    assert tol_mc1r([0.5] * 16) == 0.5
+    windows = {}
+    for name, (counts, never) in MEDIAN_WINDOWS.items():
+        hist = [0] * HIST_MONTHS
+        for k, h in counts.items():
+            hist[k] = h
+        med = km_median(hist, never)
+        lo, hi = km_median_window(med)
+        inside = 0
+        for h in hist[lo:hi]:
+            inside += h
+        windows[name] = {"hist": {str(k): h for k, h in counts.items()}, "never": never, "median": bits(med),
+                         "se": bits(km_median_se(hist, never, med)), "lo": lo, "hi": hi, "inside": inside}
+    # By hand: (a) n 10, half 5, k 300 with c 2: (299.5 + 3/5) / 13; window [287, 314) holds
+    # 287, 300, 313 = 8 (one month down or up: 7). (b) n 5: (648.5 + 2.5/4) / 13; [636, 650).
+    # (c) n 5: (1.5 + 2.5/4) / 13; trunc(-10.875) = -10, so [0, 16).
+    assert (windows["a"]["lo"], windows["a"]["hi"], windows["a"]["inside"]) == (287, 314, 8)
+    assert (windows["b"]["lo"], windows["b"]["hi"], windows["b"]["inside"]) == (636, 650, 4)
+    assert (windows["c"]["lo"], windows["c"]["hi"], windows["c"]["inside"]) == (0, 16, 4)
+    assert from_bits(windows["a"]["median"]) == 300.1 / 13.0
+    out["median_windows"] = windows
+    no_variance = list(EST_VILLAGE_V)
+    no_variance[5] = 0.0
+    cases = {
+        "below_minimum": (EST_VILLAGE_V[:19], EST_VILLAGE_E[:19]),
+        "no_variance": (no_variance, EST_VILLAGE_E),
+        "no_spread": ([0.5] * 20, [0.5] * 20),
+    }
+    findings = {}
+    for name, (vs, es) in cases.items():
+        result = village_aggregate(vs, es, 1200)
+        assert result == {"n": len(vs), "pass": False, "decision": "red", "finding": name}, result
+        findings[name] = {"v": seq_bits(vs), "e": seq_bits(es), "result": result}
+    out["village_findings"] = findings
+    return out
+
+
 def estimator_vectors() -> dict:
     mx, my, sxx, syy, sxy = pearson_parts(EST_X, EST_Y)
     hist = [0] * HIST_MONTHS
@@ -1659,7 +1795,7 @@ def estimator_vectors() -> dict:
         "life_table": {"E": EST_LIFE_E, "D": EST_LIFE_D, "e0": bits(table["e0"]), "var_e0": bits(table["var_e0"]),
                        "se": bits(table["se"]), "q": [bits(q) for q in table["q"]], "l": [bits(l) for l in table["l"]],
                        "e": [bits(e) for e in table["e"]]},
-        "births": {"values": EST_BIRTHS, "mean": bits(mb), "variance": bits(vb), "se": bits(math.sqrt(vb / float(len(by))))},
+        "births": {"values": EST_BIRTHS, "mean": bits(mb), "variance": bits(vb), "se": bits(mean_se(by))},
         "share": {"k": 7, "n": 1234, "value": bits(share(7, 1234))},
         "p9_expectation": {str(n): bits(p9_expectation(n)) for n in range(1, 6)},
         "phi": {repr(x): bits(phi(x)) for x in EST_PHI},
@@ -1681,6 +1817,7 @@ def estimator_vectors() -> dict:
             "aggregate": {k: (bits(v) if isinstance(v, float) else v) for k, v in drifted.items()},
         },
         "probit_rows_differing_from_core": check_probit(),
+        **review_round_1_vectors(),
     }
 
 
