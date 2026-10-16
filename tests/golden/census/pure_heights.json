@@ -1,6 +1,6 @@
 {
  "written_by": "tools/census_reference.py (independent of crates/)",
- "note": "pure height (ADR-0015 section 4, criterion P6) = kappa_i * H(x; theta_i) - v_i, x = as_years(min(age, 25 years)), v_i the nutrition loss over [born, born + min(age, 25 years)) with G6 for an arrival; no loss of age, no clamp; snapshot persons [sim, kind, pure bits, pure minus the loss of age at bio_age bits (= raw height_cm before the clamp)]; archived persons [sim, kind, leaving second, cause, the same two values at the leaving second]",
+ "note": "pure height (ADR-0015 section 4, genetics specification 10.2, criterion P6) = kappa_i * H(x; theta_i) - v_i - Verlust(b), never clamped (= raw height_cm before the clamp); height_before_age_loss = kappa_i * H(x; theta_i) - v_i; x = as_years(min(age, 25 years)), v_i the nutrition loss over [born, born + min(age, 25 years)) with G6 for an arrival, Verlust(b) the loss of age at b = bio_age (ADR-0014); snapshot persons [sim, kind, height_before_age_loss bits, pure height bits]; archived persons [sim, kind, leaving second, cause, the same two values at the leaving second]",
  "fixtures": {
   "a_template_extremes": {
    "snapshots": [

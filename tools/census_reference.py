@@ -71,7 +71,8 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        ... census_reference.py --scan-a FIRST LAST   (seeds of fixture (a) and their founders
        whose curve is held; for choosing the seed, not a pin)
        ... census_reference.py --phenotypes FILE   (the golden phenotypes.json, compact)
-       ... census_reference.py --pure-heights [--out DIR]   (pure_heights.json, ADR-0015 4)
+       ... census_reference.py --pure-heights [--out DIR]   (pure_heights.json: the pure height of
+       ADR-0015 4 and spec 10.2, and the height before the loss of age)
        ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
        of the living at the last year end of the scenario "records" of arrival_reference.py)
 """
@@ -216,7 +217,7 @@ class Evaluator:
         if sim in world.sims:
             born, key, sex, genome = world.sims[sim][:4]
         else:
-            # An archived sim (the pure height at its leaving second): (born, left, cause, key, sex, genome, ...).
+            # An archived sim (its heights at its leaving second): (born, left, cause, key, sex, genome, ...).
             value = world.archive[sim]
             born, key, sex, genome = value[0], value[3], value[4], value[5]
         e_seed, c_seed, parents = world.env_of(sim)
@@ -960,12 +961,14 @@ def phenotypes_document() -> dict:
     return {"written_by": "tools/census_reference.py (independent of crates/)", "z_traits": br.BODY_TRAITS_MAP4, "note": PHENOTYPES_NOTE, "fixtures": fixtures}
 
 
-def pure_height(evaluator: Evaluator, sim: int, t: int) -> tuple:
-    """The pure height of ADR-0015 section 4 at `t` (criterion P6): `κ_i · H(x; θ_i) − v_i(x)`
-    with `x = as_years(min(t − born, 25 · YEAR))` and the nutrition loss over `[born, born +
-    min(age, 25 years))` (G6 for an arrival), as `body_reference.raw_values` computes it before
-    the loss of age; no clamp. Also that minus the loss of age at `b = bio_age` (the raw
-    `height_cm` before the clamp, the literal `κ_i · H − v_i − Verlust` of the ADR)."""
+def heights(evaluator: Evaluator, sim: int, t: int) -> tuple:
+    """(`height_before_age_loss`, `pure_height`) of a sim at `t`. `height_before_age_loss =
+    κ_i · H(x; θ_i) − v_i(x)` with `x = as_years(min(t − born, 25 · YEAR))` and the nutrition
+    loss `v_i` over `[born, born + min(age, 25 years))` (G6 for an arrival), as
+    `body_reference.raw_values` computes it before the loss of age. The pure height (ADR-0015
+    section 4, genetics specification 10.2, criterion P6) is `κ_i · H − v_i − Verlust(b)`:
+    that minus the loss of age at `b = bio_age` (ADR-0014), never clamped; it is the raw
+    `height_cm` before the clamp."""
     parts = evaluator.person_parts(sim)
     values = evaluator.body.values
     age = t - parts["born"]
@@ -973,20 +976,24 @@ def pure_height(evaluator: Evaluator, sim: int, t: int) -> tuple:
     x_seconds = min(age, 25 * YEAR)
     x = as_years(x_seconds)
     curve = br.individual_curve(values, parts["sex"], parts["z"]["z_h"], parts["z"]["z_p"])
-    height = curve["kappa"] * br.mean_height(values, parts["sex"], x, curve["theta_i"])
-    height = height - br.nutrition_loss(values, nutrition_of(evaluator.world, sim), parts["born"], x_seconds, curve["theta_i"])
+    height_before_age_loss = curve["kappa"] * br.mean_height(values, parts["sex"], x, curve["theta_i"])
+    height_before_age_loss = height_before_age_loss - br.nutrition_loss(
+        values, nutrition_of(evaluator.world, sim), parts["born"], x_seconds, curve["theta_i"]
+    )
     b = br.bio_age(as_years(age), parts["delta"], values.bio_age_weight)
-    return height, height - br.old_age_loss(values, parts["sex"], b)
+    pure_height = height_before_age_loss - br.old_age_loss(values, parts["sex"], b)
+    return height_before_age_loss, pure_height
 
 
 def pure_living(evaluator: Evaluator, t: int) -> list:
     world = evaluator.world
     persons = []
     for sim in sorted(world.sims):
-        pure, with_age = pure_height(evaluator, sim, t)
-        # The mapping's raw height is the pure height minus the loss of age, bit for bit.
-        assert bits(evaluator.evaluate(sim, t)["raw"]["height_cm"]) == bits(with_age), sim
-        persons.append([sim, kind_name(world, sim), bits(pure), bits(with_age)])
+        before_age_loss, pure = heights(evaluator, sim, t)
+        # The mapping's raw height (before the clamp) is the pure height, bit for bit.
+        assert bits(evaluator.evaluate(sim, t)["raw"]["height_cm"]) == bits(pure), sim
+        # Columns: sim, kind, height before the loss of age, pure height.
+        persons.append([sim, kind_name(world, sim), bits(before_age_loss), bits(pure)])
     return persons
 
 
@@ -995,8 +1002,9 @@ def pure_archived(evaluator: Evaluator) -> list:
     persons = []
     for sim in sorted(world.archive):
         left, cause = world.archive[sim][1], world.archive[sim][2]
-        pure, with_age = pure_height(evaluator, sim, left)
-        persons.append([sim, kind_name(world, sim), left, "emigration" if cause is None else world.cause_code(cause), bits(pure), bits(with_age)])
+        before_age_loss, pure = heights(evaluator, sim, left)
+        # Columns: sim, kind, leaving second, cause, height before the loss of age, pure height.
+        persons.append([sim, kind_name(world, sim), left, "emigration" if cause is None else world.cause_code(cause), bits(before_age_loss), bits(pure)])
     return persons
 
 
@@ -1024,9 +1032,11 @@ def pure_heights_document() -> dict:
     return {
         "written_by": "tools/census_reference.py (independent of crates/)",
         "note": (
-            "pure height (ADR-0015 section 4, criterion P6) = kappa_i * H(x; theta_i) - v_i, x = as_years(min(age, 25 years)), "
-            "v_i the nutrition loss over [born, born + min(age, 25 years)) with G6 for an arrival; no loss of age, no clamp; "
-            "snapshot persons [sim, kind, pure bits, pure minus the loss of age at bio_age bits (= raw height_cm before the clamp)]; "
+            "pure height (ADR-0015 section 4, genetics specification 10.2, criterion P6) = kappa_i * H(x; theta_i) - v_i - Verlust(b), "
+            "never clamped (= raw height_cm before the clamp); height_before_age_loss = kappa_i * H(x; theta_i) - v_i; "
+            "x = as_years(min(age, 25 years)), v_i the nutrition loss over [born, born + min(age, 25 years)) with G6 for an arrival, "
+            "Verlust(b) the loss of age at b = bio_age (ADR-0014); "
+            "snapshot persons [sim, kind, height_before_age_loss bits, pure height bits]; "
             "archived persons [sim, kind, leaving second, cause, the same two values at the leaving second]"
         ),
         "fixtures": fixtures,
