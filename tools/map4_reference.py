@@ -417,6 +417,9 @@ def check_map(doc: dict) -> list:
         largest = float(len(loaded[trait["id"]])) + sum(
             abs(entry["weight"]) * len(loaded[entry["trait"]]) for entry in trait["includes"]
         )
+        mean = data_reference.mean_ref_of(trait)  # absent (the template), or finite (Grok GF-1)
+        if mean is not None:
+            largest = largest + abs(mean)  # |mean_ref| last, before the division
         assert math.isfinite(largest / trait["sigma_ref"]) and largest / trait["sigma_ref"] <= 2.0**1022, "data.trait_bounds"
     additive = [locus for locus in loci if isinstance(locus["action"], dict)]
     autosomal = [locus for locus in loci if locus["chromosome"] == "autosome"]

@@ -64,7 +64,12 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
         month, count, hour, per_standard_deviation (ADR-0017 section 1); one enum for
         both calibration files
   GenomeMap { format_version: u32, map_version: u32, traits: Vec<Trait>, loci: Vec<Locus> }
-  Trait { id: DataId, sigma_ref: f64, exclusive: bool, includes: Vec<Load> }
+  Trait { id: DataId, sigma_ref: f64, mean_ref: Option<f64>, exclusive: bool,
+          includes: Vec<Load> }   (`mean_ref`, Grok GF-1, genetics specification 4.1: the
+          optional field of the map's trait entry after `sigma_ref`, a JSON number; skipped
+          when absent (`skip_serializing_if`), so a map without it hashes as before, byte
+          for byte; when present the byte 0x01 then the f64, as postcard writes `Some(f64)`.
+          JSON `null` is absent, as serde reads an `Option`)
   Load { trait: DataId, weight: f64 }
   Locus { id: DataId, chromosome: Chromosome, segment: u8, slot: u8, action: Action,
           mark: Mark, mutation: MutationDirection }
@@ -78,6 +83,7 @@ Usage: python3 tools/data_reference.py [DATA_DIR]
 """
 
 import json
+import math
 import struct
 import sys
 from pathlib import Path
@@ -268,6 +274,57 @@ def check_named_traits(calibration, genome_map) -> None:
         assert named is None or named in traits, f"{field} {named} is no trait of the map"
         if field in PHENOTYPE_TRAITS:
             assert named is None or named in weighted, f"{field} {named} has no phenotype weights"
+
+
+def trait_bound(genome_map, trait_id: str) -> float:
+    """The bound of a trait's `A` (ADR-0008 section 3, `data.trait_bounds`): the fold from
+    +0.0 of the largest magnitude of each term over the doses 0, 1 and 2, in the order of
+    `A` (first the loci that load on the trait, in map order, coefficient `λ · β`; then per
+    included trait in the order of `includes` the loci that load on it, coefficient `(w · λ)
+    · β`; additive and threshold loci), each term `|c · (d − d_ref)|`; with a `mean_ref`
+    (Grok GF-1) its magnitude is added last. Each term must be finite and, for a load (not
+    an include), one of its three values not 0; the fold must be finite."""
+    traits = {entry["id"]: entry for entry in genome_map["traits"]}
+    entry = traits[trait_id]
+    acc = 0.0
+
+    def group(target: str, include_weight):
+        nonlocal acc
+        for locus in genome_map["loci"]:
+            action = locus["action"]
+            if isinstance(action, str):
+                continue
+            ((_, weights),) = action.items()
+            for load in weights["loads"]:
+                if load["trait"] != target:
+                    continue
+                lam, beta, d_ref = float(load["weight"]), float(weights["effect"]), float(weights["d_ref"])
+                coefficient = lam * beta if include_weight is None else (include_weight * lam) * beta
+                terms = [coefficient * (dose - d_ref) for dose in (0.0, 1.0, 2.0)]
+                assert all(math.isfinite(term) for term in terms), f"data.trait_bounds {trait_id}: a term of {locus['id']} is not finite"
+                assert include_weight is not None or any(term != 0.0 for term in terms), f"data.trait_bounds {trait_id}: every term of {locus['id']} is 0"
+                acc = acc + max(abs(term) for term in terms)
+
+    group(trait_id, None)
+    for include in entry["includes"]:
+        group(include["trait"], float(include["weight"]))
+    mean = mean_ref_of(entry)
+    if mean is not None:
+        acc = acc + abs(mean)
+    assert math.isfinite(acc), f"data.trait_bounds {trait_id}: the bound is not finite"
+    return acc
+
+
+def check_trait_bounds(calibration, genome_map) -> None:
+    """`data.trait_bounds` (ADR-0008 section 3, ADR-0009 section 2): per trait the bound
+    (`trait_bound`, with `|mean_ref|` when present) divided by `sigma_ref` is finite, and at
+    most 2^1022 for a trait with a phenotype row in the calibration. Without a `mean_ref`
+    nothing is added."""
+    rows = {row["trait"] for row in calibration["traits"]}
+    for entry in genome_map["traits"]:
+        quotient = trait_bound(genome_map, entry["id"]) / float(entry["sigma_ref"])
+        assert math.isfinite(quotient), f"data.trait_bounds {entry['id']}: the bound over sigma_ref is not finite"
+        assert entry["id"] not in rows or quotient <= 2.0**1022, f"data.trait_bounds {entry['id']}: the bound over sigma_ref is above 2^1022"
 
 
 def f64_bits(value: float) -> str:
@@ -478,12 +535,37 @@ def action_bytes(action) -> bytes:
     )
 
 
+def mean_ref_of(entry) -> "float | None":
+    """The `mean_ref` of a trait entry of the map (Grok GF-1, genetics specification 4.1):
+    None if the field is absent or `null` (serde's `Option`, `#[serde(default)]`), else the
+    JSON number as f64, finite and not -0.0 (a `FiniteF64`, ADR-0008 section 2; a number,
+    not a bool)."""
+    value = entry.get("mean_ref")
+    if value is None:
+        return None
+    assert isinstance(value, (int, float)) and not isinstance(value, bool), f"data.trait_mean {entry['id']}: {value!r}"
+    value = float(value)
+    assert math.isfinite(value), f"data.trait_mean {entry['id']}: {value!r}"
+    # A `FiniteF64` (ADR-0008 section 2): finite, and -0.0 is a read error.
+    assert not (value == 0.0 and math.copysign(1.0, value) < 0.0), f"data.trait_mean {entry['id']}: -0.0"
+    return value
+
+
+def trait_bytes(entry) -> bytes:
+    """Trait: `id`, `sigma_ref`, `mean_ref` (only when present: 0x01 then the f64; nothing
+    when absent, `skip_serializing_if`), `exclusive`, `includes`."""
+    out = string(entry["id"]) + f64(float(entry["sigma_ref"]))
+    mean = mean_ref_of(entry)
+    if mean is not None:
+        out += u8(1) + f64(mean)
+    return out + boolean(entry["exclusive"]) + loads_bytes(entry["includes"])
+
+
 def genome_map_bytes(doc) -> bytes:
     out = varint(doc["format_version"]) + varint(doc["map_version"])
     out += varint(len(doc["traits"]))
     for entry in doc["traits"]:
-        out += string(entry["id"]) + f64(float(entry["sigma_ref"]))
-        out += boolean(entry["exclusive"]) + loads_bytes(entry["includes"])
+        out += trait_bytes(entry)
     out += varint(len(doc["loci"]))
     for locus in doc["loci"]:
         out += string(locus["id"])
@@ -516,12 +598,13 @@ def documents_hash(demography, calibration, genome_map) -> int:
     parsed JSON (test data built in memory, or the files): the text fields checked, then
     stripped, as the core sees them. A named trait of liability is checked
     (`check_liability`); its threshold `T` is kept with the data, not hashed on its own (the
-    hash covers `K`)."""
+    hash covers `K`). The bounds of the traits are checked (`check_trait_bounds`)."""
     check_demography_format(demography)
     check_calibration_format(calibration)
     check_text(demography, calibration, genome_map)
     check_named_traits(calibration, genome_map)
     check_liability(calibration, genome_map)
+    check_trait_bounds(calibration, genome_map)
     demography, calibration, genome_map = strip(demography), strip(calibration), strip(genome_map)
     return xxhash.xxh3_64_intdigest(
         demography_bytes(demography) + calibration_bytes(calibration) + genome_map_bytes(genome_map),
