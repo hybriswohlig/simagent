@@ -880,5 +880,109 @@
     "finding": "no_spread"
    }
   }
+ },
+ "life_table_edges": {
+  "empty": {
+   "E": [],
+   "D": [],
+   "finding": "bad_lengths",
+   "e0": null,
+   "var_e0": null,
+   "se": null,
+   "q": null
+  },
+  "lengths_2_3": {
+   "E": [
+    31449600,
+    31449600
+   ],
+   "D": [
+    1,
+    1,
+    1
+   ],
+   "finding": "bad_lengths",
+   "e0": null,
+   "var_e0": null,
+   "se": null,
+   "q": null
+  },
+  "q0_one": {
+   "E": [
+    31449600,
+    31449600
+   ],
+   "D": [
+    2,
+    1
+   ],
+   "finding": "q_at_least_one",
+   "e0": null,
+   "var_e0": null,
+   "se": null,
+   "q": null
+  },
+  "q0_above_one": {
+   "E": [
+    31449600,
+    31449600
+   ],
+   "D": [
+    3,
+    1
+   ],
+   "finding": "q_at_least_one",
+   "e0": null,
+   "var_e0": null,
+   "se": null,
+   "q": null
+  },
+  "open_only": {
+   "E": [
+    125798400
+   ],
+   "D": [
+    2
+   ],
+   "finding": null,
+   "e0": "4000000000000000",
+   "var_e0": "4000000000000000",
+   "se": "3ff6a09e667f3bcd",
+   "q": []
+  },
+  "two_ages_q0_two_thirds": {
+   "E": [
+    31449600,
+    31449600
+   ],
+   "D": [
+    1,
+    1
+   ],
+   "finding": null,
+   "e0": "3ff0000000000000",
+   "var_e0": "3fdc71c71c71c71e",
+   "se": "3fe5555555555556",
+   "q": [
+    "3fe5555555555555"
+   ]
+  },
+  "two_ages_q0_just_below_one": {
+   "E": [
+    31449601,
+    31449600
+   ],
+   "D": [
+    2,
+    1
+   ],
+   "finding": null,
+   "e0": "3fe000000ccd99a3",
+   "var_e0": "3e5334666e0eeee3",
+   "se": "3f21877dadd21ef3",
+   "q": [
+    "3feffffff776eee9"
+   ]
+  }
  }
 }
