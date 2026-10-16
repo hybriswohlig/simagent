@@ -197,6 +197,20 @@ fn person_row(
     })
 }
 
+/// Whether a couple was carried in from the pool (section 1): the pool held the two as a
+/// household's open partnership, she arrived (`arrived`), and it was formed by her
+/// arrival. A pair the town's market forms at the arrival second is not carried unless the
+/// pool holds it; a carried pair that forms again later is not carried the second time.
+fn carried(
+    partnerships: &BTreeSet<(LineageKey, LineageKey)>,
+    arrived: Option<SimTime>,
+    woman: LineageKey,
+    man: LineageKey,
+    formed: SimTime,
+) -> bool {
+    partnerships.contains(&(woman, man)) && arrived.is_some_and(|at| formed <= at)
+}
+
 /// The export of `world` run to `end` (its last second, inclusive; the world must have
 /// closed exactly that second), with `observer` fed every batch of its log: the header, the
 /// persons in ascending lineage key, the couples in ascending `(formed, woman, man)`.
@@ -239,11 +253,13 @@ pub fn write(world: &World, observer: &Observer, end: SimTime) -> Result<String>
         .map(|couple| {
             let woman = *key_of.get(&couple.woman).ok_or("a couple's woman")?;
             let man = *key_of.get(&couple.man).ok_or("a couple's man")?;
-            // Carried: the pool held the two as a household's open partnership, she
-            // arrived, and it was formed by her arrival (a pair formed at the arrival
-            // second by the market is not carried unless the pool holds it).
-            let carried = facts.partnerships.contains(&(woman, man))
-                && arrived.get(&woman).is_some_and(|at| couple.formed <= *at);
+            let carried = carried(
+                &facts.partnerships,
+                arrived.get(&woman).copied(),
+                woman,
+                man,
+                couple.formed,
+            );
             Ok(CoupleRow {
                 woman: woman.get(),
                 man: man.get(),

@@ -214,16 +214,10 @@ fn field<'a>(line: &'a Value, name: &str) -> Result<&'a Value> {
     line.get(name).ok_or_else(|| format!("no field {name}"))
 }
 
+/// A hex number; its form (16 lowercase digits) is the round trip's to check.
 fn hex(value: &Value) -> Result<u64> {
     let text = value.as_str().ok_or("hex: not a string")?;
-    if text.len() != 16
-        || !text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(format!("hex: {text:?} is not 16 lowercase hex digits"));
-    }
-    u64::from_str_radix(text, 16).map_err(|e| e.to_string())
+    u64::from_str_radix(text, 16).map_err(|e| format!("hex {text:?}: {e}"))
 }
 
 fn optional<T>(value: &Value, read: impl Fn(&Value) -> Result<T>) -> Result<Option<T>> {
@@ -250,15 +244,9 @@ fn bits(value: &Value) -> Result<f64> {
     hex(value).map(f64::from_bits)
 }
 
+/// The header's values; the format, version, year and month are constants of its line,
+/// so the round trip checks them.
 fn header(line: &Value) -> Result<Header> {
-    if field(line, "format")?.as_str() != Some("simagent.criteria")
-        || count(field(line, "version")?)? != 1
-    {
-        return Err("not a criteria export of version 1".into());
-    }
-    if int(field(line, "year")?)? != YEAR || int(field(line, "month")?)? != MONTH {
-        return Err("the year or month differs from the core's".into());
-    }
     let traits = field(line, "traits")?
         .as_array()
         .ok_or("traits: not a list")?
