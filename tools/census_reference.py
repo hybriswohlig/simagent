@@ -61,7 +61,9 @@ The fixtures (NOTES.md says why each was chosen and what is unclear):
   immigration of `q` ≥ 1 for more than a second; `pool_b` holds 33 persons, so `n_start` ≥ 50
   takes them all at the start and the immigration of year 0 stops the run with `pool.empty`),
   the scenario "arrival" of tools/arrival_reference.py (seed 0xff, `n_start` 50, immigration
-  on, switch on) with three nutrition shocks, year ends 0 to 13 (the pool runs out in year 14).
+  on, switch on, on the documents of `father_dies` that pool_c was made from:
+  `arrival_reference.pool_documents`) with three nutrition shocks, year ends 0 to 13 (the pool
+  runs out in year 14).
 - (b2) `b2_pool_b_start`: the pool `pool_b` at the start without immigration (`n_start` 50:
   every household), two nutrition shocks, 20 years.
 - (c) `c_prerun_small`: the small run of tools/prerun_reference.py (40 founders, seed
@@ -802,8 +804,15 @@ B2_NUTRITION = [(-1, 0.5), (5, 0.7)]
 B2_SNAPSHOTS = (0, 9, 19)
 
 
+# The documents of a pool town (design note of the pool's records, section 6): those its pool
+# was extracted from (`arrival_reference.pool_documents`), named in the record.
+DOCUMENTS_NOTE = {
+    "pool_c": "the documents of father_dies (tools/pool_reference.py: tests/golden/map4_template with data/calibration/demography.json and the scenario's values)",
+}
+
+
 def pool_fixture(pool_name: str, seed: int, n_start: int, immigration: bool, years: int, nutrition, snapshot_years) -> tuple:
-    documents = arrival_reference.template_documents()
+    documents = arrival_reference.pool_documents(pool_name)
     data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents)
     world = wr.World(seed, arrival_reference.TAG, True, [], (), data, pool=wr.pool_start(data, seed, n_start, immigration), nutrition=nutrition)
     body = BodyCensusData(data, documents)
@@ -811,7 +820,7 @@ def pool_fixture(pool_name: str, seed: int, n_start: int, immigration: bool, yea
     kind_of = lambda sim: arrival_reference.env_kind(world, sim)
     record, evaluator, elapsed = run_fixture(
         pool_name, world, body, years, snapshot_years, kind_of, scenario_start(world, [], ()),
-        f"tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/{pool_name}.bin",
+        DOCUMENTS_NOTE.get(pool_name, "tests/golden/map4_template with data/calibration/demography.json") + f" and the pool tests/golden/pool/{pool_name}.bin",
     )
     record["arrivals"] = [
         {"t": rec["t"] if "t" in rec else None, "year": rec.get("year"), "draw": rec.get("draw")} for rec in world.immigrations
@@ -1170,7 +1179,7 @@ def a_world() -> tuple:
 
 
 def pool_world(pool_name: str, seed: int, n_start: int, immigration: bool, nutrition) -> tuple:
-    documents = arrival_reference.template_documents()
+    documents = arrival_reference.pool_documents(pool_name)
     data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents)
     world = wr.World(seed, arrival_reference.TAG, True, [], (), data, pool=wr.pool_start(data, seed, n_start, immigration), nutrition=nutrition)
     return world, documents

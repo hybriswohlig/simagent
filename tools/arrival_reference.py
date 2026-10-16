@@ -6,18 +6,23 @@ pool in the data, `Start` with a pool, the draw with POOL_RANK, the event `Immig
 arrival, the pool children, the draws with the pool seed, the death budgets with the arrival
 year, the kinship over lineage keys, the orphan succession by key, the pedigree format 4, the
 save with the new fields and the load checks `check_pool`); this tool runs its scenarios on
-the template of map 4 (tests/golden/map4_template with the repository's life course data,
-nutrition index 1 all along: no nutrition year) with pool files of tools/pool_reference.py,
-and prints `label value` lines.
+the documents each pool was extracted from (`pool_documents`; design note of the pool's
+records, section 6: the data reject a pool whose `frozen_hash` is not their hash): the
+template of map 4 (tests/golden/map4_template with the repository's life course data) for
+pool_b and pool_d, the documents of the scenario `father_dies` of tools/pool_reference.py
+(the template with its values, without `pool_frequencies`) for pool_c; nutrition index 1 all
+along (no nutrition year); with pool files of tools/pool_reference.py, and prints `label
+value` lines.
 
 The scenarios (each its world seed, its pool, `n_start`, the switch of the hereditary
 diseases on; NOTES.md of the reference says why each was chosen and how to rebuild it):
 
 - "arrival" (tests/golden/pool/pool_c.bin, 75 members in 43 households, a pool run of two
-  years: young couples, babies, pregnancies; `n_start` 50, immigration on, `q` = 1, seed
-  0xff): `Start` takes 29 households (51 persons); one household a year arrives from second
-  0 of year 0 on; the pool runs out in year 14 (`pool.empty` at `14 · YEAR`). It holds a pool
-  pregnancy whose father died in the pool run (a record only): the child is born in the town
+  years: young couples, babies, pregnancies; on the documents of `father_dies`; `n_start` 50,
+  immigration on, `q` = 1, seed 0xff): `Start` takes 29 households (51 persons); one
+  household a year arrives from second 0 of year 0 on; the pool runs out in year 14
+  (`pool.empty` at `14 · YEAR`). It holds a pool pregnancy whose father died in the pool run
+  (a record only): the child is born in the town
   without a father among the subjects of its `core:birth`; a carried separation; dependent
   children with their carers; children born in the town of two pool persons (`C` with the
   pool seed, `E` with the world seed); an immigrant of year 1 who dies (the detail of the
@@ -46,7 +51,8 @@ diseases on; NOTES.md of the reference says why each was chosen and how to rebui
   (`leave_home_at_start`).
 
 Usage: .venv/bin/python tools/arrival_reference.py [--out DIR]
-       (with --out the constructed pool files are written to DIR as well)
+       (with --out the constructed pool files are written to DIR as well, and the CLI's
+       golden of the arrival as DIR/arrival.json, the file tests/golden/arrival.json)
        .venv/bin/python tools/arrival_reference.py --scan POOL N_START YEARS SEED...
        (the cases of the scenarios per seed; for choosing the seeds, not a pin)
 """
@@ -67,6 +73,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "tests" / "golden" / "map4_template"
 POOLS = ROOT / "tests" / "golden" / "pool"
 TAG = "test:arrival"
+# What the rows name as the documents of a town on pool_c.
+FATHER_DIES_TEXT = "the documents of father_dies (tools/pool_reference.py: the template of map 4 with the scenario's values, without pool_frequencies)"
 
 
 def hexed(value: int) -> str:
@@ -87,8 +95,23 @@ def golden_pool(name: str) -> bytes:
     return (POOLS / f"{name}.bin").read_bytes()
 
 
+def pool_documents(name: str) -> tuple:
+    """The documents a town that loads the golden pool `name` runs on (design note of the
+    pool's records, section 6, Q5 (i)): the frozen documents the pool was extracted from,
+    without `pool_frequencies` (`pool_reference.town_documents`), whose data hash is the
+    pool's `frozen_hash`. `pool_c` runs on the documents of the scenario `father_dies`; every
+    other golden pool on the template of map 4 (`pool_d`'s scenario changes only
+    `pool_frequencies`)."""
+    return pool_reference.town_documents(name)
+
+
 def town_data(pool: bytes, documents=None) -> wr.Data:
     return wr.Data(*(template_documents() if documents is None else documents), pool=pool)
+
+
+def golden_town_data(name: str) -> wr.Data:
+    """The data of a town that loads the golden pool `name`, on its documents."""
+    return town_data(golden_pool(name), pool_documents(name))
 
 
 def with_carried_at_frozen(pool: bytes, member_key: int, field: str) -> bytes:
@@ -132,8 +155,9 @@ def staged(make, marks: dict, inputs: list, end: int, panic=None) -> tuple:
     the entries of the second; around each input the saves before and after it and its
     entries. Every save passes the load checks. With `panic` (a second after `end`) the world
     is then advanced to it and must stop with an invariant there (`pool.empty`). Returns
-    (world, saves, entries, stopped) with `stopped` (code, second) or None; the run in one go
-    gives the same log and save at `end`."""
+    (world, saves, entries, stopped) with `stopped` (code, second, the entries written in the
+    stopped second, the Immigration record) or None; the world returned is at `end` (the stop
+    runs on a copy); the run in one go gives the same log and save at `end`."""
     world = make()
     check_all(world)
     saves, entries = {"after_start": world.save()}, {"start": list(world.log)}
@@ -177,11 +201,14 @@ def staged(make, marks: dict, inputs: list, end: int, panic=None) -> tuple:
     stopped = None
     if panic is not None:
         assert panic > end
-        before = len(world.log)
+        # On a copy, so that the world returned stays at `end` (its state hash is the state's
+        # at `end`, as tests/arrival.rs pins it; the stopped advance changes the state).
+        stopper = copy.deepcopy(world, {id(world.data): world.data})
+        before = len(stopper.log)
         try:
-            world.advance(panic)
+            stopper.advance(panic)
         except wr.Invariant as error:
-            stopped = (error.code, world.immigrations[-1]["t"], world.log[before:])
+            stopped = (error.code, stopper.immigrations[-1]["t"], stopper.log[before:], stopper.immigrations[-1])
         assert stopped is not None, "the run did not stop"
     return world, saves, entries, stopped
 
@@ -321,8 +348,12 @@ def arrival_rows(name: str, world: wr.World) -> list:
             if entry_json(line) is not None:
                 rows.append(f"{name}_arrival_entry_json household {record['household']} {entry_json(line)}")
     for record in world.immigrations:
-        rows.append(f"{name}_immigration t {record['t']} year {record['year']} q {record['q']} free_households {record['free']} free_members {record['free_members']} draw {record.get('draw')} empty {record.get('empty', False)}")
+        rows.append(immigration_row(name, record))
     return rows
+
+
+def immigration_row(name: str, record: dict) -> str:
+    return f"{name}_immigration t {record['t']} year {record['year']} q {record['q']} free_households {record['free']} free_members {record['free_members']} draw {record.get('draw')} empty {record.get('empty', False)}"
 
 
 def death_rows(name: str, world: wr.World) -> list:
@@ -442,7 +473,7 @@ ARRIVAL_STOP_YEAR = 14
 
 
 def arrival_world() -> wr.World:
-    return make_world(town_data(golden_pool(ARRIVAL_POOL)), ARRIVAL_SEED, ARRIVAL_N_START, True)
+    return make_world(golden_town_data(ARRIVAL_POOL), ARRIVAL_SEED, ARRIVAL_N_START, True)
 
 
 def arrival_marks(world: wr.World) -> dict:
@@ -480,6 +511,21 @@ ARRIVAL_MARKS = {
 # The saves the further rejected states start from, as their sections pinned them (label:
 # bytes), so that `more_broken_rows` can assert it starts from the same states.
 BASE_SAVES = {}
+# The CLI's golden of the arrival (tests/golden/arrival.json), set by `arrival_rows_all`.
+GOLDEN = {}
+
+
+def golden_text(data_hash: int, year_hashes: list, log_hash: int) -> str:
+    """tests/golden/arrival.json: the core version, the data hash, the year hashes and the log
+    hash of "arrival" to the end of year 13, as serde_json's pretty printer writes them (two
+    spaces, a final newline)."""
+    document = {
+        "core_version": wr.CORE_VERSION,
+        "data_hash": hexed(data_hash),
+        "year_hashes": [{"year": year, "hash": hexed(value)} for year, value in enumerate(year_hashes)],
+        "log_hash": hexed(log_hash),
+    }
+    return json.dumps(document, indent=2) + "\n"
 
 
 def arrival_rows_all() -> list:
@@ -495,15 +541,22 @@ def arrival_rows_all() -> list:
     BASE_SAVES["arrival_save_end"] = saves["end"]
     name = "arrival"
     rows = common_rows(name, ARRIVAL_POOL, world, ARRIVAL_N_START, True, end)
+    # The Immigration that stops the run (on the copy `staged` advanced), after the others.
+    last = max(i for i, row in enumerate(rows) if row.startswith(f"{name}_immigration "))
+    rows.insert(last + 1, immigration_row(name, stopped[3]))
     rows += [f"{name}_mark {label} {t}" for label, t in ARRIVAL_MARKS.items()]
     rows += draw_rows(name, world, ARRIVAL_STOP_YEAR - 1, world.used[:-1])
     rows += scenario_output(name, world, saves, entries)
     rows += fired_rows(name, world, 0)
     rows += pool_child_rows(name, world)
     rows += pedigree_rows(name, "end", world)
-    code, at, written = stopped
+    code, at, written, immigration = stopped
+    # The stop writes nothing, so the log and the year hashes are those of the run to `end`.
+    assert written == [] and len(world.year_hashes) == ARRIVAL_STOP_YEAR
+    GOLDEN["arrival.json"] = golden_text(world.data.hash, world.year_hashes, world.log_hash())
+    rows.append(f"{name}_golden_json {json.dumps(json.loads(GOLDEN['arrival.json']), separators=(',', ':'))}")
     rows.append(f"{name}_not_stopped through {end} (the end of year {ARRIVAL_STOP_YEAR - 1}): the save {name}_save_end")
-    rows.append(f"{name}_stopped invariant {code} at {at} year {at // YEAR} entries_before_the_stop {[line.hex() for line in written]} immigration {world.immigrations[-1]}")
+    rows.append(f"{name}_stopped invariant {code} at {at} year {at // YEAR} entries_before_the_stop {[line.hex() for line in written]} immigration {immigration}")
     return rows
 
 
@@ -534,7 +587,7 @@ ORPHANS_SEED, RECORDS_SEED = 5, 6
 
 
 def kin_world(seed: int):
-    return lambda: make_world(town_data(golden_pool(KIN_POOL)), seed, KIN_N_START, True)
+    return lambda: make_world(golden_town_data(KIN_POOL), seed, KIN_N_START, True)
 
 
 ORPHANS_MARKS = {"succession_first": 17104015, "succession_second": 33206750, "orphan_rule": 119487822}
@@ -624,7 +677,7 @@ def micro_pool() -> tuple:
 
 def micro_world() -> wr.World:
     data, _ = micro_pool()
-    return make_world(town_data(data), ARRIVAL_SEED, ARRIVAL_N_START, True)
+    return make_world(town_data(data, pool_documents(ARRIVAL_POOL)), ARRIVAL_SEED, ARRIVAL_N_START, True)
 
 
 def micro_rows_all() -> list:
@@ -641,7 +694,7 @@ EMPTY_POOL, EMPTY_N_START = "pool_b", 50
 
 
 def empty_rows_all() -> list:
-    data = town_data(golden_pool(EMPTY_POOL))
+    data = golden_town_data(EMPTY_POOL)
     world = make_world(data, ARRIVAL_SEED, EMPTY_N_START, True)
     check_all(world)
     assert world.used == wr.pool_order(data.pool, ARRIVAL_SEED, 0, []) and sum(data.pool.sizes) < EMPTY_N_START
@@ -693,9 +746,9 @@ def start_rejection_rows() -> list:
     """Each rejected `Start` (the first rule that applies, in the note's order after the old
     checks): its case, the code, the input bytes. On the data with pool_c unless named."""
     seed = ARRIVAL_SEED
-    data = town_data(golden_pool(ARRIVAL_POOL))
+    data = golden_town_data(ARRIVAL_POOL)
     plain = wr.Data(*template_documents())
-    other = town_data(golden_pool(EMPTY_POOL))
+    other = golden_town_data(EMPTY_POOL)
     good = wr.pool_start(data, seed, ARRIVAL_N_START, True)
     founder = [(-30 * YEAR, FEMALE, [])]
     man = [(-30 * YEAR, FEMALE, []), (-31 * YEAR, wr.MALE, [])]
@@ -761,8 +814,13 @@ def modified_pool(changes) -> bytes:
 
 
 def data_rejection_rows() -> list:
-    """Each pool the data check rejects (note section 2, in its order), from pool_c, and the
-    reader's rejected files of tests/golden/pool/reject, which the data cannot hold either."""
+    """Each pool the data check rejects (note section 2, in its order; `pool.frozen_hash` after
+    `pool.locus`, design note of the pool's records, section 6), from pool_c on its own
+    documents (`father_dies`, so that a row of an earlier check breaks only that check; a map
+    without a locus has another data hash as well, so the locus rows also break
+    `pool.frozen_hash`, which is checked after), the rows of K7, and the reader's rejected
+    files of tests/golden/pool/reject, which the data cannot hold either. Each row's code is
+    asserted."""
     file = pool_reference.read_pool(golden_pool(ARRIVAL_POOL))
     # A dependent child of household 21 and a member of household 20.
     (child,) = [m for m in file["households"][21]["members"] if m["carer"] is not None]
@@ -786,21 +844,31 @@ def data_rejection_rows() -> list:
         sex(f)
 
     template = template_documents()
+    own = pool_documents(ARRIVAL_POOL)
+    frozen = pool_reference.read_pool(golden_pool(ARRIVAL_POOL))["frozen_hash"]
+    template_hash = wr.Data(*template).hash
+    stamp = f"pool_c's frozen_hash {hexed(frozen)}, the template's data hash {hexed(template_hash)}"
     cases = [
-        ("carer_not_member", modified_pool(carer), template, f"household 21 member {hexed(child['lineage_key'])} carer {hexed(stranger)} of household 20"),
-        ("sex_of_a_member", modified_pool(sex), template, f"household 0 member {hexed(single['lineage_key'])} sex flipped"),
-        ("sex_of_an_unborn_child", modified_pool(unborn_sex), template, f"household 28 unborn {hexed(unborn['lineage_key'])} sex flipped"),
-        ("locus_mc1r_missing", golden_pool(ARRIVAL_POOL), without_locus(template, "core:mc1r"), "the map without core:mc1r"),
-        ("locus_herc2_missing", golden_pool(ARRIVAL_POOL), without_locus(template, "core:herc2"), "the map without core:herc2"),
-        ("order_carer_before_sex", modified_pool(both), template, "both"),
-        ("order_sex_before_locus", modified_pool(sex), without_locus(template, "core:mc1r"), "both"),
-        ("order_carer_before_locus", modified_pool(carer), without_locus(template, "core:herc2"), "both"),
+        ("carer_not_member", modified_pool(carer), own, "pool.carer_not_member", f"household 21 member {hexed(child['lineage_key'])} carer {hexed(stranger)} of household 20"),
+        ("sex_of_a_member", modified_pool(sex), own, "pool.sex", f"household 0 member {hexed(single['lineage_key'])} sex flipped"),
+        ("sex_of_an_unborn_child", modified_pool(unborn_sex), own, "pool.sex", f"household 28 unborn {hexed(unborn['lineage_key'])} sex flipped"),
+        ("locus_mc1r_missing", golden_pool(ARRIVAL_POOL), without_locus(own, "core:mc1r"), "pool.locus", "the map without core:mc1r"),
+        ("locus_herc2_missing", golden_pool(ARRIVAL_POOL), without_locus(own, "core:herc2"), "pool.locus", "the map without core:herc2"),
+        ("frozen_hash_pool_c_on_the_template", golden_pool(ARRIVAL_POOL), template, "pool.frozen_hash", f"pool_c on the template of map 4 ({stamp}; K7)"),
+        ("frozen_hash_pool_d_on_father_dies", golden_pool(KIN_POOL), own, "pool.frozen_hash", f"pool_d (frozen_hash {hexed(template_hash)}, the template's) on the documents of father_dies (data hash {hexed(frozen)})"),
+        ("frozen_hash_changed", modified_pool(lambda f: f.update(frozen_hash=frozen ^ 1)), own, "pool.frozen_hash", f"pool_c with frozen_hash {hexed(frozen)} xor 1 on its own documents"),
+        ("order_carer_before_sex", modified_pool(both), own, "pool.carer_not_member", "both"),
+        ("order_sex_before_locus", modified_pool(sex), without_locus(own, "core:mc1r"), "pool.sex", "both"),
+        ("order_carer_before_locus", modified_pool(carer), without_locus(own, "core:herc2"), "pool.carer_not_member", "both"),
+        ("order_locus_before_frozen_hash", golden_pool(ARRIVAL_POOL), without_locus(template, "core:mc1r"), "pool.locus", "pool_c on the template without core:mc1r: both"),
+        ("order_sex_before_frozen_hash", modified_pool(sex), template, "pool.sex", "pool_c with household 0's member's sex flipped on the template: both"),
     ]
     rows = []
-    for name, pool, documents, how in cases:
+    for name, pool, documents, code, how in cases:
         try:
             wr.Data(*documents, pool=pool)
         except wr.PoolDataRejected as error:
+            assert error.code == code, (name, error.code, code)
             rows.append(f"data_reject {name} code {error.code} how {how} pool_bytes {len(pool)} pool_hash {hexed(hash64(pool))} pool {pool.hex()}")
             continue
         raise AssertionError(f"the data check accepts {name}")
@@ -833,7 +901,7 @@ def carried_time_row(name: str, pool: bytes, how: str) -> str:
     (asserted)."""
     assert pool_reference.violations(pool_reference.decode_pool(pool)) == ["carried_time"]
     try:
-        town_data(pool)
+        town_data(pool, pool_documents(ARRIVAL_POOL))
     except pool_reference.Rejected as error:
         assert error.rule == "carried_time"
         return f"pool_carried_time_reject {name} pool_bytes {len(pool)} pool_xxh3 {hexed(hash64(pool))} code pool.{error.rule} how {how}"
@@ -900,14 +968,16 @@ def broken_rows() -> list:
     broken.origins[child]["arrived"] += 1
     cases.append(("pool_child_arrived_not_born", f"sim {child}", broken))
 
+    # The immigrant of year 1 (sim 61 on the template, sim 62 on the documents of father_dies).
+    (immigrant,) = [record["sims"][0] for record in base.arrivals if record["year"] == 1]
     broken = copy_world()
-    broken.origins[61]["arrived"] += 1
-    broken.sims[61][0] += 1
-    cases.append(("arrival_not_at_a_year_start", f"sim 61 arrived {broken.origins[61]['arrived']}", broken))
+    broken.origins[immigrant]["arrived"] += 1
+    broken.sims[immigrant][0] += 1
+    cases.append(("arrival_not_at_a_year_start", f"sim {immigrant} arrived {broken.origins[immigrant]['arrived']}", broken))
 
     broken = copy_world()
-    broken.origins[61]["arrival_year"] = 2
-    cases.append(("arrival_year_not_its_year", "sim 61 arrival_year 2", broken))
+    broken.origins[immigrant]["arrival_year"] = 2
+    cases.append(("arrival_year_not_its_year", f"sim {immigrant} arrival_year 2", broken))
 
     broken = copy_world()
     town = [mother for mother in sorted(broken.pregnancies) if mother not in broken.pool_fathers]
@@ -999,7 +1069,7 @@ def more_broken_rows() -> list:
     # the pools of the scenarios.
     late = []
     for pool_name, scenarios in (("pool_c", "arrival, micro"), ("pool_d", "orphans, records")):
-        pool = town_data(golden_pool(pool_name)).pool
+        pool = golden_town_data(pool_name).pool
         for index, household_ in enumerate(pool.households):
             for pregnancy in household_["pregnancies"]:
                 his = pool.members[pregnancy["father"]][0] if pregnancy["father"] in pool.members else None
@@ -1051,7 +1121,7 @@ def more_broken_rows() -> list:
     )
 
     # (e) A world that never started, on the data with pool_c, with the used households [0].
-    data = town_data(golden_pool(ARRIVAL_POOL))
+    data = golden_town_data(ARRIVAL_POOL)
     assert unstarted_rejecting_checks(1, {}, []) == []
     checks = unstarted_rejecting_checks(1, {}, [0])
     assert checks
@@ -1356,7 +1426,7 @@ def moved_out_rows() -> list:
     rows.append(field_row(f"{label}_flag_false", f"valid_state:{label}", base, broken, f"sim {sim} moved_out false (its town partnership {number} moves it out)"))
 
     pool, key = brought_not_moved_out_pool()
-    data = town_data(pool)
+    data = town_data(pool, pool_documents(ARRIVAL_POOL))
     world = make_world(data, ARRIVAL_SEED, ARRIVAL_N_START, True)
     sim = world.by_key[key]
     (number,) = [n for n, v in world.partnerships.items() if sim in v[:2]]
@@ -1370,7 +1440,7 @@ def moved_out_rows() -> list:
     )
     rows.append(valid_row(
         label,
-        f"Start of \"arrival\" (seed {hexed(ARRIVAL_SEED)}, n_start {ARRIVAL_N_START}, immigration on, template of map 4, tag {TAG}) on that pool, no input: sim {sim}"
+        f"Start of \"arrival\" (seed {hexed(ARRIVAL_SEED)}, n_start {ARRIVAL_N_START}, immigration on, {FATHER_DIES_TEXT}, tag {TAG}) on that pool, no input: sim {sim}"
         f" in brought partnership {number}, not moved out, its leaving home pending at {YEAR}; start_input {start_record(world).hex()}",
         world,
     ))
@@ -1405,7 +1475,8 @@ ENDED_SEED, ENDED_CLOCK, ENDED_WOMAN = 0x3, 140313600, 40
 # lies before her birth: pool_d seeds 0x8a, 0xdb, 0xde, 0xe4; 0xdb dies first.
 CANCEL_SEED, CANCEL_MOTHER = 0xDB, 27
 # V4: in "arrival" sim 13 (exempt, household 42) conceives in her carried series at 2419200 with
-# sim 12; the child (sim 60) is born at 26611200 (the mark town_child_of_pool_persons).
+# sim 12; the child (sim 60; twins 60 and 61 on the documents of father_dies) is born at
+# 26611200 (the mark town_child_of_pool_persons).
 CONCEIVED_SECOND, CONCEIVED_WOMAN = 2419200, 13
 # V4b, the base of the row of C2: sim 13's partnership was formed at second 0, so no month lies
 # between its pairing and her series' start. In "arrival" sim 45 (exempt, household 32) conceives
@@ -1488,7 +1559,7 @@ def carried_rows() -> list:
     base2.advance(3 * YEAR - 1)
     valid("V2_load_base", "the row load_base: carried series after failed attempts, the carried separation of partnership 15 run, immigrants of years 1 and 2", base2)
     v2 = pinned("load_base", base2)
-    pool_c = town_data(golden_pool(ARRIVAL_POOL))
+    pool_c = golden_town_data(ARRIVAL_POOL)
     ended = make_world(pool_c, ENDED_SEED, ARRIVAL_N_START, True)
     ended.advance(ENDED_CLOCK)
     woman = ENDED_WOMAN
@@ -1499,7 +1570,7 @@ def carried_rows() -> list:
     assert last[0] == ENDED_CLOCK and not last[4] and wr.as_years(ENDED_CLOCK + MONTH - ended.born_of(woman)) >= ended.data.fertility_end
     valid(
         "V3_carried_series_ended",
-        f"'arrival' with seed {hexed(ENDED_SEED)} (pool_c, n_start 50, immigration on, template of map 4, tag {TAG}), no input: sim {woman} (household 41, exempt,"
+        f"'arrival' with seed {hexed(ENDED_SEED)} (pool_c, n_start 50, immigration on, {FATHER_DIES_TEXT}, tag {TAG}), no input: sim {woman} (household 41, exempt,"
         f" carried series from {first}) failed her attempt at {ENDED_CLOCK}, the next would be at 50 years: no attempt; start_input {start_record(ended).hex()}",
         ended,
     )
@@ -1513,11 +1584,14 @@ def carried_rows() -> list:
     v4 = pregnant.save()
     born = arrival_world()
     born.advance(ARRIVAL_MARKS["town_child_of_pool_persons"])
-    (child60,) = [sim for sim in born.sims if (born.sims[sim][7] or (0,))[0] == mother]
+    # One child on the template; twins (sims 60 and 61) on the documents of father_dies.
+    children = sorted(sim for sim in born.sims if (born.sims[sim][7] or (0,))[0] == mother)
+    assert children and all(born.born_of(sim) == born.closed for sim in children)
+    what = f"child {children[0]}" if len(children) == 1 else f"children {children}"
     assert not born.series_exempt(mother, born.open_partnership(mother)) and born.pending_series(mother) == born.series_due(mother) is not None
     valid(
         "V4_carried_conception_born",
-        f"the row arrival_save_after_town_child_of_pool_persons: sim {mother}'s child {child60} born at {born.closed}; her series from the town's rule after the birth at {born.pending_series(mother)}",
+        f"the row arrival_save_after_town_child_of_pool_persons: sim {mother}'s {what} born at {born.closed}; her series from the town's rule after the birth at {born.pending_series(mother)}",
         born,
     )
     c2 = arrival_world()
@@ -1534,7 +1608,7 @@ def carried_rows() -> list:
     assert len(twin_sims) == 2 and all(twins.born_of(sim) == TWINS_SECOND for sim in twin_sims)
     valid("V5_pool_twins_born", f"'arrival' (seed 0xff) at {TWINS_SECOND}: the pool twins of household {TWINS_HOUSEHOLD} (mother sim {twins.by_key[pregnancy['mother']]}) born, sims {twin_sims}", twins)
     v5t = twins.save()
-    cancel = make_world(town_data(golden_pool(KIN_POOL)), CANCEL_SEED, KIN_N_START, True)
+    cancel = make_world(golden_town_data(KIN_POOL), CANCEL_SEED, KIN_N_START, True)
     cancel_mother_key = cancel.key_of(CANCEL_MOTHER)
     b = cancel.pool_member(CANCEL_MOTHER)["birth_at"] - cancel.data.pool.frozen_at
     deaths = sorted(e.time for e in cancel.queue if e.kind == wr.DEATH_KIND and e.subject == (wr.SIM_SUBJECT, CANCEL_MOTHER))
@@ -1614,9 +1688,18 @@ def carried_rows() -> list:
     w = copy_world(child_world)
     remove_sim(w, 59)
     w.sims[36][6] -= 1
+    # On the documents of father_dies sim 36 is paired in the town (partnership 16, formed
+    # 7257600): her series starts after the pause from the birth. Without the birth the town's
+    # rule puts it elsewhere (check_pool's series line), so it moves with the birth and only C3
+    # breaks. On the template she was single (no series).
+    series = ""
+    for event in [e for e in w.queue if e.kind == wr.ATTEMPT_KIND and e.subject == (wr.SIM_SUBJECT, 36)]:
+        due = w.series_due(36)
+        series += f", her pending attempt {event.time} -> {due} (the town's rule without the birth; plan kept)"
+        event.time = due
     rows.append(carried_reject(
         "pool_birth_vanished", wr.check_carried_births, "arrival_save_after_pool_child_without_father", v5, w,
-        "C3 consumed: pool child 59 (the last SimId) removed with its events and plans, next SimId 60 -> 59, sim 36's births - 1",
+        f"C3 consumed: pool child 59 (the last SimId) removed with its events and plans, next SimId 60 -> 59, sim 36's births - 1{series}",
     ))
     w = copy_world(child_world)
     move_birth(w, 59, child_world.closed - 1)
@@ -1725,7 +1808,7 @@ def cancelled_child_rows() -> list:
     birthday, its deaths, its leaving home (world seed), and as carer its father (the
     succession at her death: the other parent in the household, by its PoolOrigin key)."""
     copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
-    cancel = make_world(town_data(golden_pool(KIN_POOL)), CANCEL_SEED, KIN_N_START, True)
+    cancel = make_world(golden_town_data(KIN_POOL), CANCEL_SEED, KIN_N_START, True)
     cancel.advance(3263752)
     check_all(cancel)
     base = cancel.save()
@@ -1842,7 +1925,7 @@ def round9_rows() -> list:
         f"sim {mother} (her pool pregnancy pending, unchanged): conceptions {start.sims[mother][5]} -> {w.sims[mother][5]}",
     ))
 
-    pool_c = town_data(golden_pool(ARRIVAL_POOL))
+    pool_c = golden_town_data(ARRIVAL_POOL)
     world = make_world(pool_c, IMMIGRANT_CHILD_SEED, ARRIVAL_N_START, True)
     world.advance(2 * YEAR - 1)
     (record,) = [r for r in world.arrivals if r["index"] == IMMIGRANT_CHILD_HOUSEHOLD]
@@ -1859,7 +1942,7 @@ def round9_rows() -> list:
     assert all(b1 != b0 for _, b1, b0 in with_year)
     rows.append(valid_row(
         "immigrant_pool_child_born_in_year_1",
-        f"'arrival' with seed {hexed(IMMIGRANT_CHILD_SEED)} (pool_c, n_start 50, immigration on, template of map 4, tag {TAG}), no input, run to the end of year 1:"
+        f"'arrival' with seed {hexed(IMMIGRANT_CHILD_SEED)} (pool_c, n_start 50, immigration on, {FATHER_DIES_TEXT}, tag {TAG}), no input, run to the end of year 1:"
         f" pool household {IMMIGRANT_CHILD_HOUSEHOLD} arrives with the immigration of year 1 (sims {record['sims']}); its pool child sim {child} born {born} (year 1);"
         f" start_input {start_record(world).hex()}",
         world, ALL_CHECKS,
@@ -1871,7 +1954,7 @@ def round9_rows() -> list:
     )
 
     pool, key = boundary_pool(pool_c)
-    data = town_data(pool)
+    data = town_data(pool, pool_documents(ARRIVAL_POOL))
     world = make_world(data, ARRIVAL_SEED, ARRIVAL_N_START, True)
     woman = world.by_key[key]
     s = world.pool_member(woman)["conception_at"] + world.origins[woman]["arrived"] - data.pool.frozen_at
@@ -2148,10 +2231,15 @@ def pool_field_rows() -> list:
 # "arrival" with another seed: the woman of pool household 28 (her pool pregnancy's father is a
 # record only, so she is single) gives birth at second 14515200, a month start, and the round
 # of that second (n = 6; births, class 200, run before it, class 500) pairs her. Found by a
-# scan (not a pin): of the seeds 0 to 4095 with household 28 at second 0 (`Start` with `n_start`
-# 50 or the immigration of year 0), 14 have her MARKET_SEARCH draw of round 6 below her chance
-# (0.0064 at 33 years), and in each of the 14 runs she is paired then; 0xef is the smallest.
-TIE_SEED = 0xEF
+# scan (not a pin). On the template: of the seeds 0 to 4095 with household 28 at second 0
+# (`Start` with `n_start` 50 or the immigration of year 0), 14 have her MARKET_SEARCH draw of
+# round 6 below her chance (0.0064 at 33 years), and in each of the 14 runs she is paired then;
+# 0xef was the smallest. On the documents of father_dies (pool_c's own, design note of the
+# pool's records, section 6) women search more (`c` 0.2) and with 0xef she is paired in round 1
+# (2419200), so the case is lost there; the seeds in ascending order with household 28 at second
+# 0 for which every assertion of `birth_pairing_tie_rows` holds begin 0xe, 0x37 (the 11th and
+# the 40th such seed); 0xe is the smallest.
+TIE_SEED = 0xE
 TIE_SECOND = 14515200
 TIE_WOMAN_KEY = 0x6A9C7AFCA6158ECD
 
@@ -2163,7 +2251,7 @@ def birth_pairing_tie_rows() -> list:
     before her first attempt pass every load check of the model; the same state with her series
     moved to the second the pause after the birth would give is rejected."""
     name = "birth_pairing_tie"
-    data = town_data(golden_pool(ARRIVAL_POOL))
+    data = golden_town_data(ARRIVAL_POOL)
     world = make_world(data, TIE_SEED, ARRIVAL_N_START, True)
     check_all(world)
     world.advance(TIE_SECOND)
@@ -2187,7 +2275,7 @@ def birth_pairing_tie_rows() -> list:
     pool = data.pool
     rows = [
         f"{name} config pool {ARRIVAL_POOL} (tests/golden/pool/{ARRIVAL_POOL}.bin) pool_bytes {len(golden_pool(ARRIVAL_POOL))} pool_xxh3 {hexed(hash64(golden_pool(ARRIVAL_POOL)))}"
-        f" pool_hash {hexed(pool.hash)} pool_seed {hexed(pool.seed)} frozen_at {pool.frozen_at} data template of map 4 (tests/golden/map4_template, the repository's life course data)"
+        f" pool_hash {hexed(pool.hash)} pool_seed {hexed(pool.seed)} frozen_at {pool.frozen_at} data {FATHER_DIES_TEXT}"
         f" data_hash {hexed(data.hash)} seed {hexed(TIE_SEED)} tag {TAG} n_start {ARRIVAL_N_START} immigration True q {wr.immigration_persons(ARRIVAL_N_START)} switch on nutrition [] founders [] couples []",
         f"{name} scenario_json {scenario_json(TIE_SEED, ARRIVAL_N_START, True, first - 1)}",
         f"{name} start_input {start_record(world).hex()}",
@@ -2234,17 +2322,37 @@ def code_rows() -> list:
     ]
     for code in wr.NEW_CODE_LINES_OF_THE_ARRIVAL:
         rows.append(f"line_for_log_codes reject {code} {wr.REJECT_NAMES[code]}")
-    rows.append("arrival_invariants pool.empty pool.carried_before_arrival; data checks pool.carer_not_member pool.sex pool.locus")
+    rows.append("arrival_invariants pool.empty pool.carried_before_arrival; data checks pool.carer_not_member pool.sex pool.locus pool.frozen_hash")
     template = template_documents()
     plain = wr.Data(*template)
     rows.append(f"data_hash template_without_pool {hexed(plain.hash)}")
-    for name in ("pool_a", "pool_b", "pool_c", "pool_d", "pool_e"):
+    father_dies = pool_documents(ARRIVAL_POOL)
+    assert father_dies != template
+    rows.append(f"data_hash father_dies_without_pool {hexed(wr.Data(*father_dies).hash)} (the documents of pool_c's scenario without pool_frequencies)")
+    # Each golden pool on its own documents (design note of the pool's records, section 6):
+    # the data hash before the pool is the pool's frozen_hash, then the pool appended.
+    for name, _, _, scenario in pool_reference.RUNS:
         pool = golden_pool(name)
-        data = town_data(pool)
+        documents = pool_documents(name)
+        label = "template" if documents == template else scenario
+        data = town_data(pool, documents)
+        assert data.pool.frozen_hash == wr.Data(*documents).hash
         rows.append(
-            f"data_hash template_with_{name} {hexed(data.hash)} pool_seed {hexed(data.pool.seed)} pool_hash {hexed(data.pool.hash)}"
+            f"data_hash {label}_with_{name} {hexed(data.hash)} frozen_hash {hexed(data.pool.frozen_hash)} pool_seed {hexed(data.pool.seed)} pool_hash {hexed(data.pool.hash)}"
             f" appended {(varint(data.pool.seed) + varint(data.pool.hash)).hex()} households {len(data.pool.households)} members {sum(data.pool.sizes)}"
         )
+    # K7 (design note of the pool's records, section 3, tests/arrival.rs): pool_c on the plain
+    # template is rejected, on the documents of father_dies accepted; pool_d (its scenario
+    # changes only pool_frequencies, outside the hash) on the template accepted.
+    for name, documents, label in (("pool_c", template, "template"), ("pool_c", father_dies, "father_dies"), ("pool_d", template, "template")):
+        try:
+            data = town_data(golden_pool(name), documents)
+        except wr.PoolDataRejected as error:
+            assert (name, label, error.code) == ("pool_c", "template", "pool.frozen_hash"), (name, label, error.code)
+            rows.append(f"k7 {name} on {label} rejected code {error.code} frozen_hash {hexed(pool_reference.read_pool(golden_pool(name))['frozen_hash'])} documents_hash {hexed(wr.Data(*documents).hash)}")
+            continue
+        assert label == "father_dies" or name == "pool_d"
+        rows.append(f"k7 {name} on {label} accepted data_hash {hexed(data.hash)} frozen_hash {hexed(data.pool.frozen_hash)} pool_hash {hexed(data.pool.hash)}")
     return rows
 
 
@@ -2263,7 +2371,7 @@ def placement_through(world: wr.World, record: dict) -> str:
 def scan(pool_name: str, n_start: int, years: int, seeds: list) -> None:
     """The cases per seed (not a pin): who died (arrivals with their arrival year), the
     successions and placements, the town-born children and the separations."""
-    data = town_data(golden_pool(pool_name))
+    data = golden_town_data(pool_name)
     for seed in seeds:
         world = make_world(data, seed, n_start, True)
         stopped = None
@@ -2311,6 +2419,7 @@ def main(argv) -> int:
             print(row, flush=True)
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
+        (out / "arrival.json").write_text(GOLDEN["arrival.json"])
         data, _ = micro_pool()
         (out / "micro_pool.bin").write_bytes(data)
         data, _ = carried_before_pool()
@@ -2319,7 +2428,7 @@ def main(argv) -> int:
         (out / "leave_home_at_start_pool.bin").write_bytes(data)
         data, _ = brought_not_moved_out_pool()
         (out / "brought_not_moved_out_pool.bin").write_bytes(data)
-        data, _ = boundary_pool(town_data(golden_pool(ARRIVAL_POOL)))
+        data, _ = boundary_pool(golden_town_data(ARRIVAL_POOL))
         (out / "series_end_boundary_pool.bin").write_bytes(data)
     return 0
 

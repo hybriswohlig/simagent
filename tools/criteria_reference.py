@@ -2276,7 +2276,9 @@ TOWNS = {
 
 def town_world(name: str):
     pool_name, seed, n_start, immigration, switch, end = TOWNS[name]
-    documents = ar.template_documents()
+    # The documents its pool was extracted from (design note of the pool's records, section 6):
+    # the documents of father_dies for pool_c, the template for pool_d.
+    documents = ar.pool_documents(pool_name)
     world = ar.make_world(ar.town_data(ar.golden_pool(pool_name), documents), seed, n_start, immigration, switch)
     for year in range((end + 1) // YEAR):
         world.advance(min((year + 1) * YEAR - 1, end))

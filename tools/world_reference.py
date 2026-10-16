@@ -348,7 +348,9 @@ What the model knows:
     `pool_reference.read_pool` (all the reader's rules), then the data checks
     `pool.carer_not_member`, `pool.sex` (members and unborn children: the paternal sex
     chromosome of the genome against the sex), `pool.locus` (one of the seven loci missing
-    from the map), in this order (`PoolDataRejected`). Without a pool the data hash stays;
+    from the map), `pool.frozen_hash` (the pool's `frozen_hash` is not the data hash of
+    these documents before the pool is appended; design note of the pool's records, section
+    6), in this order (`PoolDataRejected`). Without a pool the data hash stays;
     with one it is xxh3 of the postcard of the definitions followed by `varint(pool_seed)
     + varint(pool_hash)` (`pool_hash` = xxh3 of the file's bytes).
   - `Start` holds `pool: Option<PoolStart>` after `capacity` (`PoolStart { pool_hash: u64,
@@ -963,8 +965,9 @@ def whole_number(entry, unit: str) -> int:
 
 
 class PoolDataRejected(Exception):
-    """The data check of a pool (design note of the arrival, section 2) rejects it: `code` is
-    `pool.carer_not_member`, `pool.sex` or `pool.locus`."""
+    """The data check of a pool (design note of the arrival, section 2; design note of the
+    pool's records, section 6) rejects it: `code` is `pool.carer_not_member`, `pool.sex`,
+    `pool.locus` or `pool.frozen_hash`."""
 
     def __init__(self, code: str, detail: str = ""):
         super().__init__(f"{code} {detail}".strip())
@@ -1026,13 +1029,15 @@ class DataPool:
     `pool.carer_not_member` (a member's carer key is not a member of its household),
     `pool.sex` (the paternal sex chromosome of a member's or an unborn child's genome, X for
     a woman, Y for a man, differs from its sex), `pool.locus` (one of the seven loci missing
-    from the map). Holds the seed, `E_p`, the hash (xxh3 of the bytes), the households, each
+    from the map), `pool.frozen_hash` (the file's `frozen_hash` differs from `data_hash`, the
+    hash of the data's documents before the pool's bytes are appended; the file's `data_hash`
+    is not read). Holds the seed, `E_p`, the hash (xxh3 of the bytes), the households, each
     household's encoding (`pool_reference.encode_household`, what `Start` carries), its
     candidate (the smallest lineage key of a member of 18 or more at `E_p`, which the reader
     guarantees) and its number of members, and indices of the members, the unborn children
     and the records by lineage key."""
 
-    def __init__(self, data: bytes, loci: dict):
+    def __init__(self, data: bytes, loci: dict, data_hash: int):
         import pool_reference
 
         self.bytes = data
@@ -1054,6 +1059,9 @@ class DataPool:
         missing = [locus for locus in POOL_LOCI if locus not in loci]
         if missing:
             raise PoolDataRejected("pool.locus", " ".join(missing))
+        if self.file["frozen_hash"] != data_hash:
+            raise PoolDataRejected("pool.frozen_hash", f"pool {self.file['frozen_hash']:016x} data {data_hash:016x}")
+        self.frozen_hash = self.file["frozen_hash"]
         self.encoded = [pool_reference.encode_household(household) for household in self.households]
         self.candidates = []
         self.sizes = []
@@ -1095,7 +1103,7 @@ class Data:
         # The pool of the data (design note of the arrival, section 2), or None.
         self.pool = None
         if pool is not None:
-            self.pool = DataPool(pool, self.loci)
+            self.pool = DataPool(pool, self.loci, self.hash)
             definitions = (
                 data_reference.demography_bytes(data_reference.strip(demography))
                 + data_reference.calibration_bytes(data_reference.strip(calibration))
