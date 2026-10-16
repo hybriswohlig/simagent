@@ -5,7 +5,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::Value;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::{Genome, Sex};
@@ -18,10 +17,11 @@ use sim_core::time::{SimDuration, SimTime};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::World;
 
+use super::export::{CoupleRow, Header, RawGenome, Row, couple_line, header_line, person_line};
+
 type Result<T> = std::result::Result<T, String>;
 
 const YEAR: i64 = 31_449_600;
-const MONTH: i64 = 2_419_200;
 
 /// The traits of `z` and the age each is read at: growth and pigment have equal child and
 /// adult weights (age 0), cognition is read at 60 years as P7 reads it.
@@ -57,18 +57,6 @@ impl Observer {
             }
         }
     }
-}
-
-fn hex(value: u64) -> String {
-    format!("\"{value:016x}\"")
-}
-
-fn bits(value: f64) -> String {
-    hex(value.to_bits())
-}
-
-fn or_null(value: Option<String>) -> String {
-    value.unwrap_or_else(|| "null".to_owned())
 }
 
 /// What the pool data say about its persons: the live births an arrival brought, the place
@@ -108,52 +96,51 @@ fn pool_facts(data: &Data) -> PoolFacts {
     facts
 }
 
-/// The raw genome as section 1 writes it: `{"m":[3 hex],"p":[3 hex],"x":…,"px":…,"y":…,"mt":…}`,
-/// read from the genome's own serialised form.
-fn genome_json(genome: &Genome) -> Result<String> {
+/// The raw genome of section 1, read from the genome's own serialised form: the two
+/// autosome sets, the maternal X, the paternal X or Y, the mitochondria.
+fn raw_genome(genome: &Genome) -> Result<RawGenome> {
     let value = serde_json::to_value(genome).map_err(|e| e.to_string())?;
-    let words = |name: &str| -> Result<String> {
-        let words = value[name]
-            .as_array()
-            .filter(|words| words.len() == 3)
-            .ok_or_else(|| format!("genome: {name}"))?;
-        let words: Vec<String> = words
-            .iter()
-            .map(|word| word.as_u64().map(hex).ok_or("genome: a word"))
-            .collect::<std::result::Result<_, _>>()?;
-        Ok(format!("[{}]", words.join(",")))
+    let words = |name: &str| -> Result<[u64; 3]> {
+        let word = |i: usize| {
+            value[name][i]
+                .as_u64()
+                .ok_or_else(|| format!("genome: {name}"))
+        };
+        match value[name].as_array().map(Vec::len) {
+            Some(3) => Ok([word(0)?, word(1)?, word(2)?]),
+            _ => Err(format!("genome: {name}")),
+        }
     };
-    let number = |value: &Value| value.as_u64().map(|n| n.to_string());
     let paternal = &value["paternal_sex"];
-    Ok(format!(
-        "{{\"m\":{},\"p\":{},\"x\":{},\"px\":{},\"y\":{},\"mt\":{}}}",
-        words("maternal")?,
-        words("paternal")?,
-        number(&value["maternal_x"]).ok_or("genome: x")?,
-        or_null(number(&paternal["x"])),
-        or_null(number(&paternal["y"])),
-        number(&value["mt"]).ok_or("genome: mt")?,
-    ))
+    Ok(RawGenome {
+        maternal: words("maternal")?,
+        paternal: words("paternal")?,
+        x: value["maternal_x"].as_u64().ok_or("genome: x")?,
+        paternal_x: paternal["x"].as_u64(),
+        y: paternal["y"].as_u64(),
+        mt: value["mt"].as_u64().ok_or("genome: mt")?,
+    })
 }
 
 fn id(text: &str) -> Result<DataId> {
     DataId::new(text).map_err(|e| format!("{text}: {e:?}"))
 }
 
-/// One person's line, its fields in the order of section 1.
-fn person_line(
+/// One person's row (section 1). A town child born in the run must have its conception in
+/// the observer, or the observer missed a batch of the log.
+fn person_row(
     world: &World,
     person: &Person,
     key_of: &BTreeMap<SimId, LineageKey>,
     observer: &Observer,
     facts: &PoolFacts,
-) -> Result<String> {
+) -> Result<Row> {
     let data = world.data();
     let key = person.lineage_key;
     let parent = |sim: Option<SimId>, from_pool: Option<LineageKey>| {
         sim.and_then(|sim| key_of.get(&sim).copied())
             .or(from_pool)
-            .map(|key| hex(key.get()))
+            .map(LineageKey::get)
     };
     let pool = person.pool.as_ref();
     let kind = match pool {
@@ -165,8 +152,13 @@ fn person_line(
         Some(origin) => origin.genome_key.get(),
         None => observer.keys.of(key).get(),
     };
-    let multiple = match kind {
-        0 => observer.multiple.get(&key).copied(),
+    let mult = match kind {
+        0 if person.mother.is_some() => Some(
+            *observer
+                .multiple
+                .get(&key)
+                .ok_or_else(|| format!("no conception of {:016x} in the log", key.get()))?,
+        ),
         2 => Some(
             *facts
                 .place
@@ -185,45 +177,46 @@ fn person_line(
     };
     let genome = Genome::with_alleles(person.sex, &person.alleles, data)
         .map_err(|e| format!("genome of {:016x}: {e:?}", key.get()))?;
-    let z = TRAITS
-        .iter()
-        .map(|(name, age)| {
-            let age = SimDuration::from_secs(*age);
-            let value = world.state().phenotype(person.sim, &id(name)?, age);
-            value
-                .map(bits)
-                .ok_or_else(|| format!("no {name} of {:016x}", key.get()))
-        })
-        .collect::<Result<Vec<String>>>()?;
-    let gl = genome
-        .genetic_value(&id(LONGEVITY)?, data)
-        .ok_or("no longevity trait")?;
-    let mc1r = genome.dose(data.locus(&id(MC1R)?).ok_or("no mc1r locus")?);
-    Ok(format!(
-        "{{\"k\":\"p\",\"key\":{},\"gkey\":{},\"sex\":\"{}\",\"born\":{},\"died\":{},\"emig\":{},\"mother\":{},\"father\":{},\"pool\":{kind},\"arrived\":{},\"mult\":{},\"brought\":{brought},\"genome\":{},\"z\":[{}],\"gl\":{},\"mc1r\":{mc1r}}}",
-        hex(key.get()),
-        hex(gkey),
-        if person.sex == Sex::Female { "f" } else { "m" },
-        person.born.as_secs(),
-        or_null(person.died.map(|t| t.as_secs().to_string())),
-        or_null(person.emigrated.map(|t| t.as_secs().to_string())),
-        or_null(parent(person.mother, pool.and_then(|o| o.mother_key))),
-        or_null(parent(person.father, pool.and_then(|o| o.father_key))),
-        or_null(
-            pool.filter(|_| kind == 1)
-                .map(|o| o.arrived.as_secs().to_string())
-        ),
-        or_null(multiple.map(|n| n.to_string())),
-        genome_json(&genome)?,
-        z.join(","),
-        bits(gl),
-    ))
+    let mut z = [0.0; 3];
+    for (value, (name, age)) in z.iter_mut().zip(TRAITS) {
+        *value = world
+            .state()
+            .phenotype(person.sim, &id(name)?, SimDuration::from_secs(age))
+            .ok_or_else(|| format!("no {name} of {:016x}", key.get()))?;
+    }
+    Ok(Row {
+        key: key.get(),
+        gkey,
+        female: person.sex == Sex::Female,
+        born: person.born.as_secs(),
+        died: person.died.map(SimTime::as_secs),
+        emig: person.emigrated.map(SimTime::as_secs),
+        mother: parent(person.mother, pool.and_then(|o| o.mother_key)),
+        father: parent(person.father, pool.and_then(|o| o.father_key)),
+        pool: kind,
+        arrived: pool.filter(|_| kind == 1).map(|o| o.arrived.as_secs()),
+        mult,
+        brought,
+        genome: raw_genome(&genome)?,
+        z,
+        gl: genome
+            .genetic_value(&id(LONGEVITY)?, data)
+            .ok_or("no longevity trait")?,
+        mc1r: genome.dose(data.locus(&id(MC1R)?).ok_or("no mc1r locus")?),
+    })
 }
 
-/// The export of `world` run to `end` (its last second, inclusive), with `observer` fed
-/// every batch of its log: the header, the persons in ascending lineage key, the couples
-/// in ascending `(formed, woman, man)`, one line each.
+/// The export of `world` run to `end` (its last second, inclusive; the world must have
+/// closed exactly that second), with `observer` fed every batch of its log: the header, the
+/// persons in ascending lineage key, the couples in ascending `(formed, woman, man)`.
 pub fn write(world: &World, observer: &Observer, end: SimTime) -> Result<String> {
+    if world.closed_through() != end {
+        return Err(format!(
+            "the world closed {} seconds, not the end {}",
+            world.closed_through().as_secs(),
+            end.as_secs()
+        ));
+    }
     let data = world.data();
     let pedigree = world.pedigree();
     let world_seed = world.state().world_seed().ok_or("the world has no Start")?;
@@ -243,16 +236,13 @@ pub fn write(world: &World, observer: &Observer, end: SimTime) -> Result<String>
         })
         .collect();
     let facts = pool_facts(data);
-    let mut persons: Vec<(u64, String)> = pedigree
+    let mut rows: Vec<Row> = pedigree
         .persons
         .iter()
-        .map(|person| {
-            let line = person_line(world, person, &key_of, observer, &facts)?;
-            Ok((person.lineage_key.get(), line))
-        })
+        .map(|person| person_row(world, person, &key_of, observer, &facts))
         .collect::<Result<_>>()?;
-    persons.sort_by_key(|(key, _)| *key);
-    let mut couples: Vec<(i64, u64, u64, bool)> = pedigree
+    rows.sort_by_key(|row| row.key);
+    let mut couples: Vec<CoupleRow> = pedigree
         .partnerships
         .iter()
         .map(|couple| {
@@ -263,34 +253,38 @@ pub fn write(world: &World, observer: &Observer, end: SimTime) -> Result<String>
             // second by the market is not carried unless the pool holds it).
             let carried = facts.partnerships.contains(&(woman, man))
                 && arrived.get(&woman).is_some_and(|at| couple.formed <= *at);
-            Ok((couple.formed.as_secs(), woman.get(), man.get(), carried))
+            Ok(CoupleRow {
+                woman: woman.get(),
+                man: man.get(),
+                formed: couple.formed.as_secs(),
+                carried,
+            })
         })
         .collect::<Result<_>>()?;
-    couples.sort_by_key(|(formed, woman, man, _)| (*formed, *woman, *man));
-    let traits: Vec<String> = TRAITS
-        .iter()
-        .map(|(name, age)| format!("[\"{name}\",{age}]"))
-        .collect();
-    let mut text = format!(
-        "{{\"format\":\"simagent.criteria\",\"version\":1,\"core_version\":{CORE_VERSION},\"data_hash\":{},\"world_seed\":{},\"pool_seed\":{},\"end\":{},\"year\":{YEAR},\"month\":{MONTH},\"traits\":[{}],\"longevity\":\"{LONGEVITY}\",\"mc1r\":\"{MC1R}\",\"persons\":{},\"couples\":{}}}\n",
-        hex(data.hash()),
-        hex(world_seed),
-        or_null(data.pool().map(|pool| hex(pool.pool().pool_seed))),
-        end.as_secs(),
-        traits.join(","),
-        persons.len(),
-        couples.len(),
-    );
-    for (_, line) in persons {
-        text.push_str(&line);
+    couples.sort_by_key(|couple| (couple.formed, couple.woman, couple.man));
+    let header = Header {
+        core_version: u64::from(CORE_VERSION),
+        data_hash: data.hash(),
+        world_seed,
+        pool_seed: data.pool().map(|pool| pool.pool().pool_seed),
+        end: end.as_secs(),
+        traits: TRAITS
+            .iter()
+            .map(|(name, age)| ((*name).to_owned(), *age))
+            .collect(),
+        longevity: LONGEVITY.to_owned(),
+        mc1r: MC1R.to_owned(),
+        persons: u64::try_from(rows.len()).map_err(|e| e.to_string())?,
+        couples: u64::try_from(couples.len()).map_err(|e| e.to_string())?,
+    };
+    let mut text = header_line(&header) + "\n";
+    for row in &rows {
+        text.push_str(&person_line(row));
         text.push('\n');
     }
-    for (formed, woman, man, carried) in couples {
-        text.push_str(&format!(
-            "{{\"k\":\"c\",\"woman\":{},\"man\":{},\"formed\":{formed},\"carried\":{carried}}}\n",
-            hex(woman),
-            hex(man),
-        ));
+    for couple in &couples {
+        text.push_str(&couple_line(couple));
+        text.push('\n');
     }
     Ok(text)
 }
