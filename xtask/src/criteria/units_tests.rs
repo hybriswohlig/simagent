@@ -902,3 +902,39 @@ fn without_a_family_q_has_no_value() {
     assert!(!mc1r.in_band());
     assert!(mc1r.units.values.is_empty());
 }
+
+/// Emigrating exactly at the 18th-birthday second is not leaving before it: the child counts
+/// (one second earlier it does not; mutants).
+#[test]
+fn emigrating_at_the_18th_birthday_second_counts() {
+    let rows = |emig| {
+        vec![
+            person(1, true, -20 * Y),
+            person(5, false, -20 * Y),
+            Row {
+                emig: Some(emig),
+                ..child(10, true, 11 * Y, 1, 5)
+            },
+        ]
+    };
+    let at = export(40 * Y - 1, rows(29 * Y), vec![]);
+    assert_eq!(town(&at).p4_city(1).anchors, vec![10]);
+    let before = export(40 * Y - 1, rows(29 * Y - 1), vec![]);
+    assert!(town(&before).p4_city(1).anchors.is_empty());
+}
+
+/// `y_f` needs both parents unaffected: an affected father alone makes it false, as an
+/// affected mother does (mutants).
+#[test]
+fn y_f_reads_both_parents() {
+    for (mother, father, unaffected) in [(1, 1, true), (2, 1, false), (1, 2, false)] {
+        let rows = vec![
+            parent(0x10, true, mother),
+            parent(0x11, false, father),
+            kid(0x100, Y, 0x10, 0x11, 2),
+        ];
+        let export = export(40 * Y - 1, rows, vec![]);
+        let mc1r = town(&export).p9_mc1r();
+        assert_eq!(mc1r.units.values[0].0, unaffected, "{mother} {father}");
+    }
+}
