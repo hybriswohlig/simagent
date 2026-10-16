@@ -11,6 +11,8 @@ use sim_core::world::CensusRow;
 use super::*;
 use crate::ordered::Json;
 
+type Result<T> = std::result::Result<T, String>;
+
 /// A record as `record` writes it (the gate reads it once the pool is in the repository).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Record {

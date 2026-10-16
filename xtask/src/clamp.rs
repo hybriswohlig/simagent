@@ -2,15 +2,17 @@
 //! the last ten yearly censuses of the pool run, earlier years one at a time while they hold
 //! fewer than 100 000 evaluations; per clamped parameter at most 0.1 percent of them. The
 //! pool command writes the selected rows as `reference_census.json` next to `pool.bin`, also
-//! when the bound fails (the finding then goes to Grok); the gate reads the record once the
-//! pool is in the repository (design note of the census, section 6).
+//! when the check fails (the command is then red and the finding goes to Grok); the gate
+//! checks the record again once the pool is in the repository (design note of the census,
+//! section 6). Selection and check follow the independent reference
+//! (`tools/census_reference.py`).
+
+use std::collections::BTreeMap;
 
 use sim_core::body_contract::CLAMPED_KEYS;
 use sim_core::world::CensusRow;
 
 use crate::ordered::Json;
-
-type Result<T> = std::result::Result<T, String>;
 
 /// The evaluations the sample needs at least (ADR-0005 section 8; protected list).
 pub const SAMPLE: u64 = 100_000;
@@ -44,36 +46,24 @@ impl Row {
     }
 }
 
-/// The sample of a run of `years` years from its census: the rows must be the run's year
-/// ends in order without a gap, the last one the year `years − 1` (the run's last second
-/// never reaches its year end). Takes the last ten rows, then earlier ones one at a time
-/// while they hold fewer than `SAMPLE` evaluations; a run too short for the sample gives all
-/// its rows (and `findings` names the shortfall).
-pub fn select(census: &[CensusRow], years: i64) -> Result<Vec<Row>> {
-    let last = census.last().ok_or("the run has no census")?;
-    if last.year != years - 1 {
-        return Err(format!(
-            "the census ends in year {}, the run's last year end is {}",
-            last.year,
-            years - 1
-        ));
+/// The sample of a run whose last year end is `last_year`, from its census: from that year
+/// back, the last ten years, then earlier ones one at a time while they hold fewer than
+/// `SAMPLE` evaluations, as long as the years follow each other (the reference's
+/// `select_rows`). Whatever is wrong with it, `check` names.
+pub fn select(census: &[CensusRow], last_year: i64) -> Vec<Row> {
+    let by_year: BTreeMap<i64, &CensusRow> = census.iter().map(|row| (row.year, row)).collect();
+    let mut chosen = Vec::new();
+    let mut sum = 0;
+    let mut year = last_year;
+    while let Some(row) = by_year.get(&year) {
+        if chosen.len() >= LAST_YEARS && sum >= SAMPLE {
+            break;
+        }
+        sum = sum_of([sum, row.body.evaluated]);
+        chosen.push(Row::of(row));
+        year -= 1;
     }
-    if let Some(pair) = census
-        .windows(2)
-        .find(|pair| pair[1].year != pair[0].year + 1)
-    {
-        return Err(format!(
-            "the census jumps from year {} to {}",
-            pair[0].year, pair[1].year
-        ));
-    }
-    let mut from = census.len().saturating_sub(LAST_YEARS);
-    let mut sum = sum_of(census[from..].iter().map(|row| row.body.evaluated));
-    while sum < SAMPLE && from > 0 {
-        from -= 1;
-        sum = sum_of([sum, census[from].body.evaluated]);
-    }
-    Ok(census[from..].iter().map(Row::of).collect())
+    chosen
 }
 
 fn sum_of(values: impl IntoIterator<Item = u64>) -> u64 {
@@ -88,26 +78,57 @@ pub fn evaluations(rows: &[Row]) -> u64 {
     sum_of(rows.iter().map(|row| row.evaluated))
 }
 
-/// What breaks the criterion: a sample below `SAMPLE`, and every clamped parameter above 0.1
-/// percent of the evaluations; empty when it holds.
-pub fn findings(rows: &[Row]) -> Vec<String> {
+/// The verdict on a sample: its evaluations and, unless it is green, the first rule it
+/// breaks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verdict {
+    pub n: u64,
+    pub reason: Option<String>,
+}
+
+/// The check of a sample of a run whose last year end is `last_year` (the reference's
+/// `check_record`), in this order: its years are `last_year`, `last_year − 1`, … without a
+/// gap (`not_the_last_year`, `year_gap`), at least ten (`fewer_than_ten_years`), an eleventh
+/// or later year only while the later ones hold fewer than `SAMPLE` (`year_not_needed`);
+/// at least `SAMPLE` evaluations (`fewer_than_100000`); per clamped parameter
+/// `1000 · clamped ≤ n` (`rate <key>`).
+pub fn check(rows: &[Row], last_year: i64) -> Verdict {
+    let mut ordered: Vec<&Row> = rows.iter().collect();
+    ordered.sort_by_key(|row| core::cmp::Reverse(row.year));
     let n = evaluations(rows);
-    let mut found = Vec::new();
-    if n < SAMPLE {
-        found.push(format!(
-            "the sample holds {n} evaluations, fewer than {SAMPLE}"
-        ));
+    let red = |reason: String| Verdict {
+        n,
+        reason: Some(reason),
+    };
+    if ordered.first().is_none_or(|row| row.year != last_year) {
+        return red("not_the_last_year".into());
     }
-    for (index, key) in CLAMPED_KEYS.iter().enumerate() {
-        let count = sum_of(rows.iter().map(|row| row.clamped[index]));
+    if ordered
+        .windows(2)
+        .any(|pair| pair[1].year != pair[0].year - 1)
+    {
+        return red("year_gap".into());
+    }
+    if ordered.len() < LAST_YEARS {
+        return red("fewer_than_ten_years".into());
+    }
+    let mut later = 0;
+    for (place, row) in ordered.iter().enumerate() {
+        if place >= LAST_YEARS && later >= SAMPLE {
+            return red("year_not_needed".into());
+        }
+        later = sum_of([later, row.evaluated]);
+    }
+    if n < SAMPLE {
+        return red(format!("fewer_than_{SAMPLE}"));
+    }
+    for (place, key) in CLAMPED_KEYS.iter().enumerate() {
+        let count = sum_of(rows.iter().map(|row| row.clamped[place]));
         if PER_MILLE * u128::from(count) > u128::from(n) {
-            found.push(format!(
-                "{}: {count} of {n} clamped, above 0.1 percent",
-                key.as_str()
-            ));
+            return red(format!("rate {}", key.as_str()));
         }
     }
-    found
+    Verdict { n, reason: None }
 }
 
 /// The sample's rates, one line per clamped parameter.
