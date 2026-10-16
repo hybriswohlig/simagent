@@ -122,3 +122,39 @@ fn the_command_names_its_three_paths() {
         assert!(command(&root(), &wrong).is_err(), "{wrong:?}");
     }
 }
+
+/// A frozen map's calibration still holds `pool_frequencies` (the pre-run's file); the
+/// town's data drop them, as the pool was extracted without them: the same data as the
+/// calibration without the entry (review).
+#[test]
+fn the_towns_data_drop_the_pool_frequencies() {
+    let template = root().join("tests/golden/map4_template");
+    let plain = town_data(&root(), &template, POOL_D).expect("the town's data");
+    let dir = std::env::temp_dir().join(format!("simagent-town-{}", std::process::id()));
+    let frequencies: Value = serde_json::from_str(include_str!(
+        "../../../tests/golden/pool/pool_frequencies.json"
+    ))
+    .expect("json");
+    let mut calibration: Value = serde_json::from_str(include_str!(
+        "../../../tests/golden/map4_template/calibration/genetics.json"
+    ))
+    .expect("json");
+    calibration["pool_frequencies"] = frequencies["pool_frequencies"].clone();
+    for (path, text) in [
+        (
+            "calibration/genetics.json",
+            serde_json::to_string_pretty(&calibration).expect("json"),
+        ),
+        (
+            "genetics/genome_map.json",
+            include_str!("../../../tests/golden/map4_template/genetics/genome_map.json").to_owned(),
+        ),
+    ] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("a parent")).expect("a directory");
+        std::fs::write(&file, text).expect("written");
+    }
+    let stripped = town_data(&root(), &dir, POOL_D);
+    std::fs::remove_dir_all(&dir).expect("removed");
+    assert_eq!(stripped.expect("the town's data").hash(), plain.hash());
+}
