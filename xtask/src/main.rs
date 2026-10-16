@@ -6,6 +6,7 @@ mod bench;
 mod budget;
 mod canary;
 mod checks;
+mod clamp;
 mod codegen;
 mod contract;
 mod contract_base;
