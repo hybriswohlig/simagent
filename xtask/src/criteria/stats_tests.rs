@@ -621,3 +621,19 @@ fn the_reference_pins_the_boundaries() {
         );
     }
 }
+
+/// Review round 2: the life table's edges, from the reference.
+#[test]
+fn the_reference_pins_the_life_table_edges() {
+    let fixture = fixture();
+    for (name, case) in fixture["life_table_edges"].as_object().expect("cases") {
+        let table = life_table(&counts(&case["E"]), &counts(&case["D"]));
+        if case["finding"].is_null() {
+            let table = table.expect("a table");
+            exact(name, table.e0, &case["e0"]);
+            exact(name, table.se, &case["se"]);
+        } else {
+            assert_eq!(table, None, "{name}");
+        }
+    }
+}
