@@ -493,7 +493,7 @@ fn the_pool_command_writes_the_file_of_the_reference() {
     assert!(written == run.file, "the file differs");
     // The record of the clamp rate beside it, bound to this pool and its run's data, its rows
     // the run's last year ends (design note of the census, section 6).
-    let record = crate::clamp::read_record(&census.expect("the record")).expect("a record");
+    let record = crate::clamp::tests::read_record(&census.expect("the record")).expect("a record");
     let pool = Pool::from_bytes(&written).expect("the pool");
     assert_eq!(record.pool_hash, pool.hash());
     assert_eq!(record.data_hash, pool.data_hash);
