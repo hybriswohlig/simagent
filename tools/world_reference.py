@@ -58,8 +58,9 @@ What the model knows:
 - The traits of longevity and of the puberty timing (step 11, the pre-run on the template
   of map 4, design note of the pre-run tool; genetics specification 5.2, 7.2, 11.4;
   ADR-0012, ADR-0017 section 2): with a trait of longevity named (`longevity_trait`, a
-  trait of the map without a phenotype row), `g_L` is its genetic value `G = A / σ_ref`
-  (`genetic_value`, the map of the run), `ĝ` is `g_L` held on [−6, 6]
+  trait of the map without a phenotype row), `g_L` is its genetic value `G = A / σ_ref`,
+  or `G = (A − m_ref) / σ_ref` with a `mean_ref` in the map (`genetic_value`, the map of
+  the run; Grok GF-1, genetics specification 4.1), `ĝ` is `g_L` held on [−6, 6]
   (`LONGEVITY_INPUT_BOUND`; above 6 is 6, below −6 is −6) and `m = exp(−(σ_g · ĝ))` with
   the correctly rounded exp (`Data.multiplier`; `ĝ = 0` gives `exp(−0)` = 1 exactly).
   With a trait of the puberty timing named (`puberty_trait`, with a phenotype row whose
@@ -95,7 +96,8 @@ What the model knows:
   load check: every sim holds exactly these afflictions with these onsets.
 - The measurement (step 11, design note of the measurement; ADR-0020 section 3):
   `additive_value` is `A_t`, the fold `genetic_value` divides by `sigma_ref` (the same bits
-  as before); `measure_of` / `World.measure` take the living in ascending lineage key and
+  as before), after subtracting the trait's `mean_ref` if the map has one (Grok GF-1);
+  `measure_of` / `World.measure` take the living in ascending lineage key and
   give per trait of the map (map order) the mean and sigma of `A` (both sums from +0.0, the
   divisor `n`, `σ` the correctly rounded root) and per additive locus (map order) the mean
   dose (integer sum, one division); none without a living sim. `measurement_json` is the
@@ -719,12 +721,13 @@ class FertilityForm:
 
 class TraitTerms:
     """A trait of the map as its genetic value reads it (genetics specification 4.1; ADR-0008
-    sections 1 and 3): its data ID, `sigma_ref` and the groups of the fold `A` (first the
-    loci that load on it, then per included trait in the order of `includes` the loci that
-    load on that one; each group in map order, each locus with its coefficient `λ · β`, or
-    `(w · λ) · β` in an included group, and `d_ref`). Every trait of the map has these,
-    with a phenotype row or without (the measurement, design note of the measurement,
-    section 1, reads every trait)."""
+    sections 1 and 3): its data ID, `sigma_ref`, `mean_ref` (Grok GF-1: the f64 of the map's
+    optional field, or None without it, `data_reference.mean_ref_of`) and the groups of the
+    fold `A` (first the loci that load on it, then per included trait in the order of
+    `includes` the loci that load on that one; each group in map order, each locus with its
+    coefficient `λ · β`, or `(w · λ) · β` in an included group, and `d_ref`). Every trait of
+    the map has these, with a phenotype row or without (the measurement, design note of the
+    measurement, section 1, reads every trait)."""
 
     def __init__(self, trait_id: str, genome_map: dict):
         traits = {entry["id"]: entry for entry in genome_map["traits"]}
@@ -732,6 +735,7 @@ class TraitTerms:
         self.id = trait_id
         self.sigma_ref = float(entry["sigma_ref"])
         assert self.sigma_ref > 0.0
+        self.mean_ref = data_reference.mean_ref_of(entry)
 
         def group(target: str, include_weight):
             loci = []
@@ -784,9 +788,14 @@ def additive_value(person: dict, trait: TraitTerms) -> float:
 
 
 def genetic_value(person: dict, trait: TraitTerms) -> float:
-    """`G_t = A_t / σ_t,ref` (ADR-0008 section 3): `additive_value` divided once by
-    `sigma_ref`."""
-    return additive_value(person, trait) / trait.sigma_ref
+    """`G_t = (A_t − m_t,ref) / σ_t,ref` (genetics specification 4.1, Grok GF-1; ADR-0008
+    section 3): `additive_value` minus the trait's `mean_ref` (one subtraction), then divided
+    once by `sigma_ref`. Without a `mean_ref` in the map it is `A_t / σ_t,ref` exactly as
+    before (no subtraction at all, the same bits)."""
+    value = additive_value(person, trait)
+    if trait.mean_ref is not None:
+        value = value - trait.mean_ref
+    return value / trait.sigma_ref
 
 
 def measure_of(persons: list, data) -> dict:

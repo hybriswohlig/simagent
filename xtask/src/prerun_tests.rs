@@ -1362,7 +1362,30 @@ fn a_measurement_run_writes_the_next_map() {
     };
     measure_run(&root(), &options, 1).expect("a run");
     let (calibration, map) = read_files(&out).expect("the files");
+    let (frozen_calibration, frozen) = read_files(&out.join("frozen")).expect("the frozen files");
     std::fs::remove_dir_all(&out).expect("removed");
+    // The map this run would freeze: the next map with the reference's newborn means (GF-1).
+    assert_eq!(frozen_calibration, calibration);
+    let case = &gf_cases()[0];
+    for t in frozen
+        .get("traits")
+        .and_then(Json::as_array)
+        .expect("traits")
+    {
+        let id = t.get("id").and_then(Json::as_str).expect("an id");
+        let mean = match t.get("mean_ref") {
+            Some(Json::Number(n)) => n.as_f64().expect("a float"),
+            _ => panic!("mean_ref of {id}"),
+        };
+        assert_eq!(mean.to_bits(), hex(&case["frozen"]["mean_ref"][id]), "{id}");
+    }
+    assert!(
+        map.get("traits")
+            .and_then(Json::as_array)
+            .expect("traits")
+            .iter()
+            .all(|t| t.get("mean_ref").is_none())
+    );
     let (template_calibration, _) = crate::map4::template(&root()).expect("the template");
     assert_eq!(calibration, template_calibration);
     let written: Vec<(String, u64)> = map
@@ -1388,4 +1411,176 @@ fn a_measurement_run_writes_the_next_map() {
         .map(|(id, _, sigma, _)| ((*id).to_owned(), *sigma))
         .collect();
     assert_eq!(written, expected);
+}
+
+const GF: &str = include_str!("../../tests/golden/gl_mean/prerun.json");
+
+fn gf_cases() -> Vec<serde_json::Value> {
+    let fixture: serde_json::Value = serde_json::from_str(GF).expect("json");
+    fixture["cases"].as_array().expect("cases").clone()
+}
+
+fn hex(value: &serde_json::Value) -> u64 {
+    u64::from_str_radix(value.as_str().expect("hex"), 16).expect("hex")
+}
+
+/// A small run of the reference's (`founders` founders of the pre-run on `map`, `years`
+/// years, founders and world at `seed`).
+fn small_run(map_data: Data, founders_n: u64, years: i64, seed: u64) -> World {
+    let (_, _, first) = first_data();
+    let name = tag("core:prerun_measure");
+    let all = founders(&first, &groups(&first, founders_n), &name, seed);
+    let until = SimTime::from_secs(years * YEAR.as_secs() - 1);
+    run(map_data, start(&name, seed, all, founders_n), until)
+        .expect("a run")
+        .0
+}
+
+fn scenario(case: &serde_json::Value) -> (u64, i64, u64) {
+    let s = &case["scenario"];
+    let seed = s["seed"].as_str().expect("a seed").trim_start_matches("0x");
+    (
+        s["founders"].as_u64().expect("founders"),
+        s["years"].as_i64().expect("years"),
+        u64::from_str_radix(seed, 16).expect("hex"),
+    )
+}
+
+/// Grok GF-1 against `tools/prerun_reference.py`: per trait the mean of `A` of the births
+/// of the last full 30-year block (dead and emigrated counted), under the `d_ref` the run
+/// freezes; the next map unchanged, the frozen map with `mean_ref`. Four runs: block 0 of a
+/// 30-year run, of a 45-year run (later births excluded), block 1 of a 60-year run (a death
+/// counted), and a seed with dead and emigrated newborns.
+#[test]
+fn the_newborn_means_are_the_references() {
+    for case in gf_cases().iter().take(4) {
+        let name = case["name"].as_str().expect("a name");
+        let (founders_n, years, seed) = scenario(case);
+        let (calibration, map, data) = first_data();
+        let world = small_run(data, founders_n, years, seed);
+        assert_eq!(
+            world.state_hash(),
+            hex(&case["story"]["state_hash"]),
+            "{name}"
+        );
+        let measurement = world.state().measure().expect("somebody lives");
+        let next = next_map(&map, &measurement);
+        let (next_calibration, next_run_map) = prerun_files(&calibration, &next);
+        let next_data = prerun_data(&root(), &next_calibration, &next_run_map).expect("data");
+        assert_eq!(
+            next_data.hash(),
+            hex(&case["next_map"]["data_hash"]),
+            "{name}"
+        );
+        let means = newborn_means(&world, &next_data, years).expect("newborn means");
+        for want in case["traits"].as_array().expect("traits") {
+            let id = want["trait"].as_str().expect("a trait");
+            let (_, mean) = means
+                .iter()
+                .find(|(t, _)| t.as_str() == id)
+                .expect("measured");
+            assert_eq!(
+                mean.to_bits(),
+                hex(&want["newborn_mean_bits"]),
+                "{name} {id}"
+            );
+        }
+        let frozen = frozen_map(&next, &means);
+        let frozen_data = prerun_data(&root(), &calibration, &frozen).expect("frozen data");
+        assert_eq!(
+            frozen_data.hash(),
+            hex(&case["frozen"]["data_hash"]),
+            "{name}"
+        );
+    }
+}
+
+/// A world on a map that carries the means (case e) differs from the same run on the map
+/// without them (case f): every `G` of the world subtracts its mean.
+#[test]
+fn a_world_on_the_frozen_map_reads_its_means() {
+    let cases = gf_cases();
+    let (calibration, map, data) = first_data();
+    let world = small_run(data, 40, 30, MEASURE_SEED);
+    let measurement = world.state().measure().expect("somebody lives");
+    let next = next_map(&map, &measurement);
+    let (next_calibration, next_run_map) = prerun_files(&calibration, &next);
+    let next_data = prerun_data(&root(), &next_calibration, &next_run_map).expect("data");
+    let frozen = frozen_map(
+        &next,
+        &newborn_means(&world, &next_data, 30).expect("means"),
+    );
+    // An iteration never carries a mean on: the frozen map fed back is the next map (review).
+    assert_eq!(next_map(&frozen, &measurement), next);
+    for (case, map) in [(&cases[4], &frozen), (&cases[5], &next)] {
+        let (run_calibration, run_map) = prerun_files(&calibration, map);
+        let data = prerun_data(&root(), &run_calibration, &run_map).expect("data");
+        assert_eq!(
+            data.hash(),
+            hex(&case["scenario"]["data_hash"]),
+            "{}",
+            case["name"]
+        );
+        let world = small_run(data, 40, 30, MEASURE_SEED);
+        assert_eq!(
+            world.state_hash(),
+            hex(&case["story"]["state_hash"]),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn the_frozen_map_carries_the_means_after_sigma_ref_and_a_short_run_has_none() {
+    let (_, map) = crate::map4::template(&root()).expect("the template");
+    let id = tag("core:longevity");
+    let frozen = frozen_map(&map, &[(id, 0.5)]);
+    let longevity = frozen
+        .get("traits")
+        .and_then(Json::as_array)
+        .and_then(|traits| {
+            traits
+                .iter()
+                .find(|t| t.get("id").and_then(Json::as_str) == Some("core:longevity"))
+        })
+        .expect("longevity");
+    let Json::Object(entries) = longevity else {
+        panic!("an object");
+    };
+    let keys: Vec<&str> = entries.iter().map(|(key, _)| key.as_str()).collect();
+    let at = keys
+        .iter()
+        .position(|key| *key == "sigma_ref")
+        .expect("sigma_ref");
+    assert_eq!(keys.get(at + 1), Some(&"mean_ref"));
+    // Frozen twice: one mean, not two.
+    let again = frozen_map(&frozen, &[(tag("core:longevity"), 0.5)]);
+    assert_eq!(again, frozen);
+    let (_, _, data) = first_data();
+    let world = small_run(data, 40, 29, MEASURE_SEED);
+    let (_, _, data) = first_data();
+    assert!(newborn_means(&world, &data, 29).is_err());
+}
+
+/// A block without a birth has no mean: two men found a town that never has a child
+/// (mutants).
+#[test]
+fn a_block_without_births_has_no_mean() {
+    let (_, _, data) = first_data();
+    let man = |age: i64| Founder {
+        born: SimTime::from_secs(-age * YEAR.as_secs()),
+        sex: Sex::Male,
+        alleles: Vec::new(),
+    };
+    let input = start(
+        &tag("core:prerun_measure"),
+        MEASURE_SEED,
+        vec![man(20), man(25)],
+        2,
+    );
+    let until = SimTime::from_secs(30 * YEAR.as_secs() - 1);
+    let (world, _) = run(data, input, until).expect("a run");
+    let (_, _, data) = first_data();
+    assert!(newborn_means(&world, &data, 30).is_err());
 }

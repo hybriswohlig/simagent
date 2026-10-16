@@ -32,7 +32,8 @@ One evaluation (note sections 1 and 3.1), for the living sim `s` at `t`:
   `world_reference.phenotype_parts`) at the age 0 (the weights do not depend on the age,
   `BodyData::new` checks that), each read by its roles (`body_reference.ROLES`, map 4 names).
 - the copies of allele 1 at `core:mc1r` and `core:herc2`.
-- `g_L = genetic_value` of `longevity_trait` (`A / σ_ref`), `ĝ` held on [−6, 6]
+- `g_L = genetic_value` of `longevity_trait` (`A / σ_ref`, or `(A − m_ref) / σ_ref` with a
+  `mean_ref` in the map, Grok GF-1), `ĝ` held on [−6, 6]
   (`longevity_input`), `Δ = ((−σ_g) · ĝ) / b_sex` with `b_sex` the Gompertz `b` of the sex
   (ADR-0017 section 2, left to right as written; `Δ` is 0 without a trait of longevity).
 - `b = bio_age(x, Δ, w)` (7.4, `w` = `core:bio_age_weight`).

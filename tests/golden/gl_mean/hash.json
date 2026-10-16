@@ -1,0 +1,222 @@
+{
+ "what": "data hashes (xxh3-64, seed 0, over the postcard bytes of the three definition sets; tools/data_reference.py) of the template of map 4 with and without mean_ref (Grok GF-1)",
+ "encoding": "Trait { id, sigma_ref, mean_ref, exclusive, includes }: mean_ref only when present, as postcard writes Some(f64): the byte 0x01, then the f64 as 8 bytes little endian; when absent nothing (skip_serializing_if), so every map without it hashes as before",
+ "demography": "data/calibration/demography.json of the worktree (the template has none of its own)",
+ "build": "take tests/golden/map4_template/genetics/genome_map.json, insert \"mean_ref\": <value> right after \"sigma_ref\" in the named trait entries; calibration tests/golden/map4_template/calibration/genetics.json; life course data data/calibration/demography.json",
+ "cases": [
+  {
+   "name": "a_template",
+   "what": "the template of map 4 (tests/golden/map4_template) with the repository's life course data, unchanged: no mean_ref anywhere",
+   "mean_ref": {},
+   "data_hash": "5ae3d70c71cf063a",
+   "definitions_bytes": 16784,
+   "genome_map_bytes": 9114,
+   "traits": {
+    "core:growth": {
+     "json": "{\n      \"id\": \"core:growth\",\n      \"sigma_ref\": 2.8284271247461903,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0b636f72653a67726f777468cd3b7f669ea006400000"
+    },
+    "core:longevity": {
+     "json": "{\n      \"id\": \"core:longevity\",\n      \"sigma_ref\": 2.0,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0e636f72653a6c6f6e67657669747900000000000000400000"
+    }
+   }
+  },
+  {
+   "name": "b_two_means",
+   "what": "the same with \"mean_ref\": 0.25 on core:longevity and -0.5 on core:growth (each right after sigma_ref)",
+   "mean_ref": {
+    "core:longevity": {
+     "value": 0.25,
+     "bits": "3fd0000000000000"
+    },
+    "core:growth": {
+     "value": -0.5,
+     "bits": "bfe0000000000000"
+    }
+   },
+   "data_hash": "79a96c45fbdbc9dd",
+   "definitions_bytes": 16802,
+   "genome_map_bytes": 9132,
+   "traits": {
+    "core:growth": {
+     "json": "{\n      \"id\": \"core:growth\",\n      \"sigma_ref\": 2.8284271247461903,\n      \"mean_ref\": -0.5,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0b636f72653a67726f777468cd3b7f669ea0064001000000000000e0bf0000"
+    },
+    "core:longevity": {
+     "json": "{\n      \"id\": \"core:longevity\",\n      \"sigma_ref\": 2.0,\n      \"mean_ref\": 0.25,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0e636f72653a6c6f6e676576697479000000000000004001000000000000d03f0000"
+    }
+   }
+  },
+  {
+   "name": "c_longevity_zero",
+   "what": "the same with \"mean_ref\": 0.0 on core:longevity only (present but zero)",
+   "mean_ref": {
+    "core:longevity": {
+     "value": 0.0,
+     "bits": "0000000000000000"
+    }
+   },
+   "data_hash": "986d48c5397bdd37",
+   "definitions_bytes": 16793,
+   "genome_map_bytes": 9123,
+   "traits": {
+    "core:growth": {
+     "json": "{\n      \"id\": \"core:growth\",\n      \"sigma_ref\": 2.8284271247461903,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0b636f72653a67726f777468cd3b7f669ea006400000"
+    },
+    "core:longevity": {
+     "json": "{\n      \"id\": \"core:longevity\",\n      \"sigma_ref\": 2.0,\n      \"mean_ref\": 0.0,\n      \"exclusive\": false,\n      \"includes\": [],\n      \"description\": \"Trait of the template of map 4 with 8 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3).\"\n    }",
+     "bytes": "0e636f72653a6c6f6e67657669747900000000000000400100000000000000000000"
+    }
+   }
+  }
+ ],
+ "bounds": {
+  "rule": "bound = fold from +0.0, in the order of A, of max over d in {0, 1, 2} of |c * (d - d_ref)|; then bound + |mean_ref| when present (absent: nothing added); bound / sigma_ref finite, and <= 2^1022 for a trait with a phenotype row",
+  "cases": [
+   {
+    "name": "template",
+    "what": "the template: bound of core:longevity 8 (8 loci, |1 * (d - 1)| at most 1), over sigma_ref 2",
+    "sigma_ref_longevity": 2.0,
+    "mean_ref": {},
+    "bound_longevity": 8.0,
+    "bound_longevity_bits": "4020000000000000",
+    "bound_over_sigma_bits": "4010000000000000",
+    "data_hash": "5ae3d70c71cf063a",
+    "accepted": true
+   },
+   {
+    "name": "b_two_means",
+    "what": "map (b): + |0.25| on core:longevity, + |-0.5| on core:growth",
+    "sigma_ref_longevity": 2.0,
+    "mean_ref": {
+     "core:longevity": {
+      "value": 0.25,
+      "bits": "3fd0000000000000"
+     },
+     "core:growth": {
+      "value": -0.5,
+      "bits": "bfe0000000000000"
+     }
+    },
+    "bound_longevity": 8.25,
+    "bound_longevity_bits": "4020800000000000",
+    "bound_over_sigma_bits": "4010800000000000",
+    "data_hash": "79a96c45fbdbc9dd",
+    "accepted": true
+   },
+   {
+    "name": "tiny_sigma",
+    "what": "sigma_ref 1e-10 on core:longevity, no mean: 8 / 1e-10 is finite: accepted",
+    "sigma_ref_longevity": 1e-10,
+    "mean_ref": {},
+    "bound_longevity": 8.0,
+    "bound_longevity_bits": "4020000000000000",
+    "bound_over_sigma_bits": "4232a05f20000000",
+    "data_hash": "45638eedc3457205",
+    "accepted": true
+   },
+   {
+    "name": "tiny_sigma_huge_mean",
+    "what": "the same with mean_ref 1e308: (8 + 1e308) / 1e-10 is not finite: rejected, data.trait_bounds",
+    "sigma_ref_longevity": 1e-10,
+    "mean_ref": {
+     "core:longevity": {
+      "value": 1e+308,
+      "bits": "7fe1ccf385ebc8a0"
+     }
+    },
+    "bound_longevity": 1e+308,
+    "bound_longevity_bits": "7fe1ccf385ebc8a0",
+    "bound_over_sigma_bits": "7ff0000000000000",
+    "accepted": false,
+    "rejected": "data.trait_bounds core:longevity: the bound over sigma_ref is not finite"
+   },
+   {
+    "name": "negative_zero_mean",
+    "what": "mean_ref -0.0: a FiniteF64 rejects -0.0 (ADR-0008 section 2): rejected when read",
+    "sigma_ref_longevity": 2.0,
+    "mean_ref": {
+     "core:longevity": {
+      "value": -0.0,
+      "bits": "8000000000000000"
+     }
+    },
+    "bound_error": "data.trait_mean core:longevity: -0.0",
+    "accepted": false,
+    "rejected": "data.trait_mean core:longevity: -0.0"
+   }
+  ]
+ },
+ "unchanged": {
+  "what": "maps without mean_ref: the data hash of the new reference equals that of tools/data_reference.py at 830ebd1 (before mean_ref), checked for each",
+  "dirs": [
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/data",
+    "data_hash": "adab502757b4045c"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/data_traits",
+    "data_hash": "3061cb5298c19dd9"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/data_body",
+    "data_hash": "3dc6ca65e8e12df3"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/data_pairing",
+    "data_hash": "f30d7e89b331130d"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/data_liability",
+    "data_hash": "6d4bc6e5dce0bb22"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/map3",
+    "data_hash": "adab502757b4045c"
+   },
+   {
+    "dir": "~/Projects/simagent/wt-11-ref-gf/tests/golden/map4_template",
+    "data_hash": "5ae3d70c71cf063a"
+   },
+   {
+    "dir": "~/.cache/simagent-prerun/measure/frozen",
+    "data_hash": null,
+    "rejected_by_both": "calibration fields ['cognition_trait', 'diseases', 'fertility', 'format_version', 'height_trait', 'longevity_trait', 'po"
+   },
+   {
+    "dir": "~/.cache/simagent-prerun/measure/frozen/run-1",
+    "data_hash": "6a8910e7b0e99553"
+   },
+   {
+    "dir": "~/.cache/simagent-prerun/measure/frozen/run-2",
+    "data_hash": "315e4b8f1c6cecb4"
+   },
+   {
+    "dir": "~/.cache/simagent-prerun/measure/frozen/run-3",
+    "data_hash": "d0e49010b11f3329"
+   },
+   {
+    "dir": "~/.cache/simagent-notes/ref-pool-f/frozen_map",
+    "data_hash": null,
+    "rejected_by_both": "calibration fields ['cognition_trait', 'diseases', 'fertility', 'format_version', 'height_trait', 'longevity_trait', 'po"
+   },
+   {
+    "dir": "~/.cache/simagent-notes/ref-pool-f/frozen_map_father_dies",
+    "data_hash": null,
+    "rejected_by_both": "calibration fields ['cognition_trait', 'diseases', 'fertility', 'format_version', 'height_trait', 'longevity_trait', 'po"
+   },
+   {
+    "dir": "~/.cache/simagent-notes/ref-pool-f/frozen_map_frequent_alleles",
+    "data_hash": null,
+    "rejected_by_both": "calibration fields ['cognition_trait', 'diseases', 'fertility', 'format_version', 'height_trait', 'longevity_trait', 'po"
+   },
+   {
+    "dir": "pre-run documents of run 1 (prerun_reference.prerun_documents of the template)",
+    "data_hash": "b17afdcd296175ac"
+   }
+  ]
+ }
+}
