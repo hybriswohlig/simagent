@@ -537,7 +537,8 @@ def action_bytes(action) -> bytes:
 
 def mean_ref_of(entry) -> "float | None":
     """The `mean_ref` of a trait entry of the map (Grok GF-1, genetics specification 4.1):
-    None if the field is absent or `null` (serde's `Option`, `#[serde(default)]`), else the
+    None if the field is absent or `null` (a missing serde `Option`, no `serde(default)`,
+    ADR-0007), else the
     JSON number as f64, finite and not -0.0 (a `FiniteF64`, ADR-0008 section 2; a number,
     not a bool)."""
     value = entry.get("mean_ref")
