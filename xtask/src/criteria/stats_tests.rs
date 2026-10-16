@@ -664,3 +664,17 @@ fn counts_are_exact_up_to_two_to_the_53() {
 fn a_count_above_two_to_the_53_stops() {
     life_table(&[(1 << 53) + 1], &[1]).ok();
 }
+
+/// Review round 5: a count is converted before a constant is subtracted, as the reference
+/// does, so `n − 1` and `n − 3` stop above 2^53 just as `n` does.
+#[test]
+#[should_panic(expected = "invariant criteria.exact")]
+fn p4_converts_n_before_subtracting() {
+    p4_tolerance((1 << 53) + 1);
+}
+
+#[test]
+#[should_panic(expected = "invariant criteria.exact")]
+fn fisher_converts_n_before_subtracting() {
+    fisher_tolerance((1 << 53) + 3);
+}
