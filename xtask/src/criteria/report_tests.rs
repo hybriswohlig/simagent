@@ -438,7 +438,7 @@ fn mc1r_at_its_minimum_passes_and_its_twin_over_every_family_keeps_the_count() {
     let sample = Mc1r {
         copies: 120,
         parents: 400,
-        q: 0.15,
+        q: Some(0.15),
         units: Units {
             values: (0..400).map(|i| (i < 289, mc1r_expectation(1))).collect(),
             anchors: (0..400).collect(),
@@ -483,7 +483,7 @@ fn mc1r_without_an_affected_family_is_below_its_minimum() {
     let check = mc1r(&Mc1r {
         copies: 3,
         parents: 10,
-        q: 0.15,
+        q: Some(0.15),
         units: Units::default(),
         families: Vec::new(),
         unaffected: vec![true; 5],
@@ -542,7 +542,7 @@ fn the_village_block_reports_its_findings_with_its_numbers() {
     let dead = village(60, Some(&village_of(vec![1.0, 3.0], 0)));
     assert_eq!(
         (&dead["variance"], &dead["finding"]),
-        (&hex(2.0), &json!("no_living"))
+        (&hex(2.0), &json!("no_living_person"))
     );
     let alive = village(60, Some(&village_of(vec![1.0, 3.0], 5)));
     assert_eq!(alive["finding"], Value::Null);
