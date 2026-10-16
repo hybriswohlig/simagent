@@ -28,7 +28,7 @@ pub(crate) fn count(
     held: &mut dyn FnMut(SimId, f64, f64),
 ) -> BodyCensus {
     let mut census = BodyCensus::default();
-    let Ok(body) = BodyData::new(data) else {
+    let Ok(body) = BodyData::census(data) else {
         return census;
     };
     let world = domain

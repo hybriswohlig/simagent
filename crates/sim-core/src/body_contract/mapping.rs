@@ -96,10 +96,14 @@ pub const CLAMPED_KEYS: [BodyParamKey; 21] = [
 /// The calendar age up to which `x = min(b, 25)` follows the age (10.1, 7.4).
 const MATURE_YEARS: i64 = 25;
 
-/// Definitions checked for the mapping (ADR-0015 section 2). Only `BodyData::new` makes one.
+/// Definitions checked for the mapping (ADR-0015 section 2). Only `BodyData::new` and, for
+/// the census, `BodyData::census` make one.
 #[derive(Clone, Copy, Debug)]
 pub struct BodyData<'a> {
     data: &'a Data,
+    /// Whether the map holds the two pigment loci; without them (only the census of the
+    /// pre-run's data) both doses are 0.
+    pigment_loci: bool,
 }
 
 impl<'a> BodyData<'a> {
@@ -107,6 +111,19 @@ impl<'a> BodyData<'a> {
     /// adult weights are bitwise equal, and both pigment loci stand in the map as recessive
     /// loci on an autosome; else `data.body_traits`.
     pub fn new(data: &'a Data) -> Result<BodyData<'a>, DataError> {
+        BodyData::checked(data, false)
+    }
+
+    /// The census's view (ADR-0015 section 2): as `new`, and data whose map holds neither
+    /// pigment locus pass too, with both doses 0. That is the reference allele the pre-run
+    /// gives MC1R and HERC2 (ADR-0020 section 3), so its censuses count the clamp rate of the
+    /// reference population (section 7). One locus without the other is still
+    /// `data.body_traits`.
+    pub(crate) fn census(data: &'a Data) -> Result<BodyData<'a>, DataError> {
+        BodyData::checked(data, true)
+    }
+
+    fn checked(data: &'a Data, absent_pigment: bool) -> Result<BodyData<'a>, DataError> {
         let traits_ok = body_traits().iter().all(|t| {
             data.phenotype_weights(t)
                 .is_some_and(|[h2_child, c2_child, h2_adult, c2_adult]| {
@@ -114,6 +131,7 @@ impl<'a> BodyData<'a> {
                         && c2_child.to_bits() == c2_adult.to_bits()
                 })
         });
+        let present = |name: &DataId| data.genome_map().loci.iter().any(|l| l.id == *name);
         let loci_ok = [mc1r(), herc2()].iter().all(|name| {
             data.genome_map().loci.iter().any(|locus| {
                 locus.id == *name
@@ -121,10 +139,17 @@ impl<'a> BodyData<'a> {
                     && locus.chromosome == Chromosome::Autosome
             })
         });
-        if traits_ok && loci_ok {
-            Ok(BodyData { data })
-        } else {
-            Err(DataError::BodyTraits)
+        let neither = !present(&mc1r()) && !present(&herc2());
+        match (traits_ok, loci_ok, absent_pigment && neither) {
+            (true, true, _) => Ok(BodyData {
+                data,
+                pigment_loci: true,
+            }),
+            (true, false, true) => Ok(BodyData {
+                data,
+                pigment_loci: false,
+            }),
+            _ => Err(DataError::BodyTraits),
         }
     }
 
@@ -280,6 +305,9 @@ impl<'a> BodyInputs<'a> {
             .unwrap_or_else(|| panic!("invariant body.phenotype"))
         });
         let dose = |name: DataId| {
+            if !body.pigment_loci {
+                return 0;
+            }
             let locus = data
                 .genome_map()
                 .loci
