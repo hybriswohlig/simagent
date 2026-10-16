@@ -98,6 +98,19 @@ def flat(pairs: list) -> list:
 # Section 2 and 3: the numeric rules and the estimators
 
 
+EXACT_LIMIT = 2**53
+
+
+def exact(n: int) -> float:
+    """An integer count or span of seconds as f64 (review round 4, note section 10): every
+    such value an estimator reads is at most 2^53 in magnitude, so the conversion is exact;
+    above it both sides stop (Rust's invariant `criteria.exact`, here an assertion), never a
+    finding. The magnitude, because a span (the age gap) may be negative."""
+    assert isinstance(n, int) and not isinstance(n, bool), n
+    assert -EXACT_LIMIT <= n <= EXACT_LIMIT, f"criteria.exact: {n}"
+    return float(n)
+
+
 def fold(values) -> float:
     """An explicit left fold from +0.0 in the given order (note section 2; never `sum()`)."""
     acc = 0.0
@@ -118,7 +131,7 @@ def mean(xs: list):
     """`m = (Σ x) / n`; None for no value."""
     if not xs:
         return None
-    return fold(xs) / float(len(xs))
+    return fold(xs) / exact(len(xs))
 
 
 def variance(xs: list):
@@ -130,7 +143,7 @@ def variance(xs: list):
     for x in xs:
         d = x - m
         acc = acc + d * d
-    return acc / float(len(xs) - 1)
+    return acc / exact(len(xs) - 1)
 
 
 def mean_se(xs: list):
@@ -139,7 +152,7 @@ def mean_se(xs: list):
     v = variance(xs)
     if v is None:
         return None
-    return math.sqrt(v / float(len(xs)))
+    return math.sqrt(v / exact(len(xs)))
 
 
 def pearson_parts(xs: list, ys: list):
@@ -191,7 +204,7 @@ def share(k: int, n: int):
     """`p̂ = k / n` (both exact integers converted once); None for `n` = 0."""
     if n == 0:
         return None
-    return float(k) / float(n)
+    return exact(k) / exact(n)
 
 
 # The probit (ADR-0019): AS241 (Wichura 1988) as `sim_math::probit`, the coefficients and
@@ -340,11 +353,11 @@ def km_median(hist: list, never: int):
     for h in hist:
         n += h
     n += never
-    half = float(n) / 2.0
+    half = exact(n) / 2.0
     c = 0
     for k, h in enumerate(hist):
-        if h > 0 and float(c + h) >= half:
-            return ((float(k) - 0.5) + (half - float(c)) / float(h)) / 13.0
+        if h > 0 and exact(c + h) >= half:
+            return ((exact(k) - 0.5) + (half - exact(c)) / exact(h)) / 13.0
         c += h
     return None
 
@@ -367,8 +380,8 @@ def km_median_se(hist: list, never: int, med: float) -> float:
     s = 0
     for h in hist[lo:hi]:
         s += h
-    dens = (float(s) / float(n)) / (float(hi - lo) / 13.0)
-    return math.sqrt(0.25 / float(n)) / dens
+    dens = (exact(s) / exact(n)) / (exact(hi - lo) / 13.0)
+    return math.sqrt(0.25 / exact(n)) / dens
 
 
 def life_table_parts(exposure: list, deaths: list) -> tuple:
@@ -380,8 +393,8 @@ def life_table_parts(exposure: list, deaths: list) -> tuple:
     different lengths), `zero_exposure` (any `E_x` = 0), `no_open_deaths` (`D_ω` = 0),
     `q_at_least_one` (a closed age with `q_x ≥ 1`, that is `m_x ≥ 2`), `l_underflow` (any `l_x`,
     x = 0 to ω, not above 0.0: a run of `q` just below 1 underflows `l` to 0), `not_finite`
-    (`e_0` or its SE not finite; a last guard, which no input of the domain reaches, NOTES.md
-    section 9). A table of the open interval alone (one entry) is valid: `e_0 = (l_0 / m_ω) /
+    (`e_0` or its SE not finite; a last guard, which no input of the domain reaches: counts and
+    seconds at most 2^53, at most 101 ages, NOTES.md section 9; above 2^53 `exact` stops). A table of the open interval alone (one entry) is valid: `e_0 = (l_0 / m_ω) /
     l_0`, its variance the open term alone.
 
     The order of every operation (NOTES.md): `y_x = E_x / 31449600.0`, `m_x = D_x / y_x`, `q_x =
@@ -398,8 +411,8 @@ def life_table_parts(exposure: list, deaths: list) -> tuple:
     if deaths[-1] == 0:
         return "no_open_deaths", None
     w = len(exposure) - 1
-    y = [float(e) / YEAR_F for e in exposure]
-    m = [float(d) / yx for d, yx in zip(deaths, y)]
+    y = [exact(e) / YEAR_F for e in exposure]
+    m = [exact(d) / yx for d, yx in zip(deaths, y)]
     q = [m[x] / (1.0 + 0.5 * m[x]) for x in range(w)]
     if any(qx >= 1.0 for qx in q):
         return "q_at_least_one", None
@@ -414,13 +427,13 @@ def life_table_parts(exposure: list, deaths: list) -> tuple:
     for x in range(w - 1, -1, -1):
         t[x] = big_l[x] + t[x + 1]
     e = [t[x] / l[x] for x in range(w + 1)]
-    var_q = [((q[x] * q[x]) * (1.0 - q[x])) / float(deaths[x]) if deaths[x] > 0 else 0.0 for x in range(w)]
+    var_q = [((q[x] * q[x]) * (1.0 - q[x])) / exact(deaths[x]) if deaths[x] > 0 else 0.0 for x in range(w)]
     acc = 0.0
     for x in range(w):
         lead = 0.5 + e[x + 1]
         acc = acc + ((l[x] * l[x]) * (lead * lead)) * var_q[x]
     m4 = ((m[w] * m[w]) * m[w]) * m[w]
-    last = ((l[w] * l[w]) * float(deaths[w])) / ((y[w] * y[w]) * m4)
+    last = ((l[w] * l[w]) * exact(deaths[w])) / ((y[w] * y[w]) * m4)
     var_e0 = acc + last
     se = math.sqrt(var_e0) if var_e0 >= 0.0 else math.nan
     if not (math.isfinite(e[0]) and math.isfinite(se)):
@@ -461,7 +474,7 @@ def n_e(n_m: int, n_f: int) -> float:
     """`N_e,g = (4 N_m N_f) / (N_m + N_f)`: numerator and denominator exact integers, each
     converted once, one division."""
     assert n_m > 0 and n_f > 0
-    return float(4 * n_m * n_f) / float(n_m + n_f)
+    return exact(4 * n_m * n_f) / exact(n_m + n_f)
 
 
 def village_expectation(blocks: list, h2: float = VILLAGE_H2) -> float:
@@ -499,14 +512,14 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
         return finding("below_minimum")
     if any(v == 0.0 for v in vs):
         return finding("no_variance")
-    n = float(len(vs))
+    n = exact(len(vs))
     v_bar = fold(vs) / n
     e_bar = fold(es) / n
     acc = 0.0
     for v in vs:
         d = v - v_bar
         acc = acc + d * d
-    s = math.sqrt(acc / float(len(vs) - 1))
+    s = math.sqrt(acc / exact(len(vs) - 1))
     se = s / math.sqrt(n)
     if not se > 0.0:
         return finding("no_spread")
@@ -523,7 +536,7 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
     for v in twin_vs:
         d = v - twin_bar
         acc = acc + d * d
-    twin_se = math.sqrt(acc / float(len(vs) - 1)) / math.sqrt(n)
+    twin_se = math.sqrt(acc / exact(len(vs) - 1)) / math.sqrt(n)
     twin_pass = abs(twin_bar - e_bar) <= 4.0 * twin_se
     return {
         "n": len(vs), "v_bar": v_bar, "e_bar": e_bar, "s": s, "se": se, "tol": tol, "power": pw,
@@ -597,13 +610,13 @@ def tol_p3(n: int):
     """`4.0 · sqrt((1.0 − 0.64 · 0.6) / (0.6 · n))`; None for `n` = 0."""
     if n < 1:
         return None
-    return 4.0 * math.sqrt((1.0 - 0.64 * 0.6) / (0.6 * float(n)))
+    return 4.0 * math.sqrt((1.0 - 0.64 * 0.6) / (0.6 * exact(n)))
 
 
 def se_slope(b: float, n: int) -> float:
     """The SE of the slope under the slope `b` (spec_reference `slope`): `sqrt((1.0 − (b · b)
     · 0.6) / (0.6 · n))`."""
-    return math.sqrt((1.0 - (b * b) * 0.6) / (0.6 * float(n)))
+    return math.sqrt((1.0 - (b * b) * 0.6) / (0.6 * exact(n)))
 
 
 def power_p3(n: int):
@@ -618,7 +631,7 @@ def tol_log_var(n: int):
     """`4.0 · sqrt(2.0 / (n − 1))`; None below 2."""
     if n < 2:
         return None
-    return 4.0 * math.sqrt(2.0 / float(n - 1))
+    return 4.0 * math.sqrt(2.0 / exact(n - 1))
 
 
 def power_p4(n: int):
@@ -626,21 +639,21 @@ def power_p4(n: int):
     below 2."""
     if n < 2:
         return None
-    return power(0.0, tol_log_var(n), math.log(P4_WRONG), math.sqrt(2.0 / float(n - 1)))
+    return power(0.0, tol_log_var(n), math.log(P4_WRONG), math.sqrt(2.0 / exact(n - 1)))
 
 
 def tol_fisher(n: int):
     """`4.0 / sqrt(n − 3)`; None below 4."""
     if n < 4:
         return None
-    return 4.0 / math.sqrt(float(n - 3))
+    return 4.0 / math.sqrt(exact(n - 3))
 
 
 def power_fisher(target: float, alt: float, n: int):
     """`power(F(target), tol_fisher(n), F(alt), 1.0 / sqrt(n − 3))`; None below 4."""
     if n < 4:
         return None
-    return power(fisher(target), tol_fisher(n), fisher(alt), 1.0 / math.sqrt(float(n - 3)))
+    return power(fisher(target), tol_fisher(n), fisher(alt), 1.0 / math.sqrt(exact(n - 3)))
 
 
 def mc1r_sums(es: list) -> tuple:
@@ -652,7 +665,7 @@ def tol_mc1r(es: list):
     """`(4.0 · sqrt(Σ E_f (1 − E_f))) / N`; None for no family."""
     if not es:
         return None
-    return (4.0 * math.sqrt(mc1r_sums(es)[1])) / float(len(es))
+    return (4.0 * math.sqrt(mc1r_sums(es)[1])) / exact(len(es))
 
 
 def power_mc1r(es: list):
@@ -660,7 +673,7 @@ def power_mc1r(es: list):
     sqrt((0.5 · 0.5) / N))`; None for no family."""
     if not es:
         return None
-    n = float(len(es))
+    n = exact(len(es))
     return power(mc1r_sums(es)[0] / n, tol_mc1r(es), 0.5, math.sqrt((0.5 * 0.5) / n))
 
 
@@ -668,7 +681,7 @@ def tol_never(n: int):
     """`4.0 · sqrt(0.09 / n)` (the model `p` 0.10 of 8.1)."""
     if n < 1:
         return None
-    return 4.0 * math.sqrt(0.09 / float(n))
+    return 4.0 * math.sqrt(0.09 / exact(n))
 
 
 _SPEC = {}
@@ -1277,7 +1290,7 @@ def f11_gap_couples(rows: Rows) -> list:
 
 def gap_years(rows: Rows, c: dict) -> float:
     """`(born(woman) − born(man)) / YEAR`: the exact i64 difference to f64, then divided."""
-    return float(rows.by_key[c["woman"]]["born"] - rows.by_key[c["man"]]["born"]) / YEAR_F
+    return exact(rows.by_key[c["woman"]]["born"] - rows.by_key[c["man"]]["born"]) / YEAR_F
 
 
 PERIOD = (100 * YEAR, 200 * YEAR)
@@ -1454,7 +1467,7 @@ def p9_mc1r_check(fams: list) -> dict:
     sample = m["sample"]
     n = len(sample)
     anchors = [s["anchor"] for s in sample]
-    q = None if m["parents"] == 0 else float(m["copies"]) / float(2 * m["parents"])
+    q = None if m["parents"] == 0 else exact(m["copies"]) / exact(2 * m["parents"])
     extra = {"q": fbits(q), "q_parents": m["parents"], "q_copies": m["copies"], "affected": n}
     if q is None or not MC1R_Q_BAND[0] <= q <= MC1R_Q_BAND[1]:
         obj = check_obj("p9_mc1r", n, MIN_MC1R, anchors, None, None, None, [], **extra)
@@ -1466,7 +1479,7 @@ def p9_mc1r_check(fams: list) -> dict:
     for s in sample:
         k += s["y"]
     value = share(k, n)
-    expectation = None if n == 0 else mc1r_sums(es)[0] / float(n)
+    expectation = None if n == 0 else mc1r_sums(es)[0] / exact(n)
     tol = tol_mc1r(es)
     pw = power_mc1r(es)
     pi = shuffled(list(range(len(fams))), SEED_P9_MC1R)
@@ -1500,7 +1513,7 @@ def f11_checks(rows: Rows) -> list:
                 obj["pass"], obj["finding"], obj["report_only"] = None, None, True
         out += [median, never]
     births = f11_births(rows)
-    ys = [float(y) for _, y in births]
+    ys = [exact(y) for _, y in births]
     n = len(ys)
     m, v, se = mean(ys), variance(ys), mean_se(ys)
     out.append(check_obj("f11_births", n, 0, [k for k, _ in births], m, TARGET_BIRTHS, None if se is None else 4.0 * se, [],
@@ -1531,7 +1544,7 @@ def f11_checks(rows: Rows) -> list:
         out.append(obj)
     for sex in ("f", "m"):
         s = h2t_sample(rows, sex)
-        ts = [float(p["died"] - p["born"]) / YEAR_F for p in s["units"]]
+        ts = [exact(p["died"] - p["born"]) / YEAR_F for p in s["units"]]
         gl = [p["gl"] for p in s["units"]]
         r = pearson(ts, gl)
         obj = fisher_check(f"f11_h2t_{sex}", ts, gl, [p["key"] for p in s["units"]], math.sqrt(TARGET_H2T_R2), math.sqrt(TARGET_H2T_R2), 0)
@@ -1852,7 +1865,7 @@ def estimator_vectors() -> dict:
         hist[k] = h
     med = km_median(hist, EST_NEVER)
     table = life_table(EST_LIFE_E, EST_LIFE_D)
-    by = [float(y) for y in EST_BIRTHS]
+    by = [exact(y) for y in EST_BIRTHS]
     vb, mb = variance(by), mean(by)
     village = village_aggregate(EST_VILLAGE_V, EST_VILLAGE_E, 1200)
     village_at_end = village_aggregate(EST_VILLAGE_V, EST_VILLAGE_E, 2100)
@@ -2268,8 +2281,31 @@ def export_and_report(name: str, export: dict, out: Path) -> tuple:
     return back, rep
 
 
+def check_domain() -> None:
+    """Review round 4: `E = [2^53]`, `D = [1]` is a table; `E = [2^53 + 1]` stops with
+    `criteria.exact` (an assertion, never a finding); so do a share, a histogram count, a
+    village count and a span above 2^53."""
+    assert life_table([EXACT_LIMIT], [1]) is not None
+    stops = [
+        lambda: life_table([EXACT_LIMIT + 1], [1]),
+        lambda: life_table([YEAR, YEAR], [1, EXACT_LIMIT + 1]),
+        lambda: share(1, EXACT_LIMIT + 1),
+        lambda: km_median([0] * HIST_MONTHS, EXACT_LIMIT + 1),
+        lambda: n_e(2**26, 2**26),
+        lambda: exact(-(EXACT_LIMIT + 1)),
+    ]
+    for stop in stops:
+        try:
+            stop()
+        except AssertionError as error:
+            assert str(error).startswith("criteria.exact"), error
+        else:
+            raise AssertionError("a value above 2^53 did not stop")
+
+
 def write_fixtures(out: Path) -> list:
     out.mkdir(parents=True, exist_ok=True)
+    check_domain()
     lines = []
     est = estimator_vectors()
     dump(out / "estimators.json", est)
