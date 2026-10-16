@@ -32,7 +32,9 @@ pub const MIN_MC1R: usize = 400;
 const MC1R_Q: f64 = 0.15;
 const MC1R_P: f64 = 0.85;
 
-/// An integer count or a span of seconds as `f64`; every one stays far below 2^53.
+/// An integer count or a span of seconds as `f64`, exact up to 2^53, the domain of every
+/// estimator (a town has under 2e12 seconds per age); above it the invariant
+/// `criteria.exact` stops the run, as the reference stops (review).
 pub fn real(n: u64) -> f64 {
     i64::try_from(n)
         .ok()
