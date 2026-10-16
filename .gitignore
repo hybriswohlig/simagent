@@ -2,3 +2,9 @@
 /runs
 .DS_Store
 __pycache__/
+# The planning (docs/, HANDOFF.md, CLAUDE.md) lives in a private repository, checked out
+# at docs/; HANDOFF.md and CLAUDE.md are links into it.
+/docs/
+/HANDOFF.md
+/CLAUDE.md
+/.claude/
