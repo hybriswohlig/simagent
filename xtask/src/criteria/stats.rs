@@ -258,8 +258,9 @@ pub struct LifeTable {
 
 /// The period life table of one sex (Chiang II, one-year ages, `a_x` = 0.5): `exposure[x]`
 /// the seconds lived at age `x` in the period and `deaths[x]` the deaths there, the last
-/// entry the open interval `ω` (100 years and older in a town). `None` if an age has no
-/// exposure or the open interval no death (a finding, red).
+/// entry the open interval `ω` (100 years and older in a town; the open interval alone is a
+/// table too). `None` (a finding, red) for empty or unequal lists, an age without exposure,
+/// an open interval without a death, or a closed age with `q_x ≥ 1`.
 pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
     let omega = exposure.len().checked_sub(1)?;
     if deaths.len() != exposure.len() || exposure.contains(&0) || deaths[omega] == 0 {
@@ -272,6 +273,10 @@ pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
         .map(|(d, y)| real(*d) / y)
         .collect();
     let q: Vec<f64> = rates[..omega].iter().map(|m| m / (1.0 + 0.5 * m)).collect();
+    // A death rate of 2 or more a year gives q ≥ 1: no one would live on (review).
+    if !q.iter().all(|q_x| *q_x < 1.0) {
+        return None;
+    }
     let mut l = vec![1.0];
     for q_x in &q {
         let last = l[l.len() - 1];
