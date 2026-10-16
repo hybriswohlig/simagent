@@ -188,16 +188,19 @@ fn the_median_needs_half_and_the_life_table_needs_every_age() {
     let median = partnership_median(&hist, 4).expect("4 of 8");
     // half = 4 = before (0) + 4: (300 − 0.5 + 4 / 4) / 13.
     assert!((median.median - 300.5 / 13.0).abs() < 1e-12);
-    assert!(
-        life_table(&[1, 0, 1], &[0, 0, 1]).is_none(),
-        "an age without exposure"
+    assert_eq!(
+        life_table(&[1, 0, 1], &[0, 0, 1]),
+        Err(LifeFinding::ZeroExposure)
     );
-    assert!(
-        life_table(&[1, 1, 1], &[1, 1, 0]).is_none(),
-        "no death in the open age"
+    assert_eq!(
+        life_table(&[1, 1, 1], &[1, 1, 0]),
+        Err(LifeFinding::NoOpenDeaths)
     );
-    assert!(life_table(&[1, 1], &[0, 1, 1]).is_none(), "lengths differ");
-    assert!(life_table(&[], &[]).is_none());
+    assert_eq!(
+        life_table(&[1, 1], &[0, 1, 1]),
+        Err(LifeFinding::BadLengths)
+    );
+    assert_eq!(life_table(&[], &[]), Err(LifeFinding::BadLengths));
     // One open age only: e_0 = 1 / m_ω = exposure in years per death.
     let year = 31_449_600;
     let open = life_table(&[4 * year], &[2]).expect("a table");
@@ -628,12 +631,20 @@ fn the_reference_pins_the_life_table_edges() {
     let fixture = fixture();
     for (name, case) in fixture["life_table_edges"].as_object().expect("cases") {
         let table = life_table(&counts(&case["E"]), &counts(&case["D"]));
-        if case["finding"].is_null() {
-            let table = table.expect("a table");
-            exact(name, table.e0, &case["e0"]);
-            exact(name, table.se, &case["se"]);
-        } else {
-            assert_eq!(table, None, "{name}");
-        }
+        let finding = match case["finding"].as_str() {
+            None => {
+                let table = table.expect("a table");
+                exact(name, table.e0, &case["e0"]);
+                exact(name, table.se, &case["se"]);
+                continue;
+            }
+            Some("bad_lengths") => LifeFinding::BadLengths,
+            Some("zero_exposure") => LifeFinding::ZeroExposure,
+            Some("no_open_deaths") => LifeFinding::NoOpenDeaths,
+            Some("q_at_least_one") => LifeFinding::QAtLeastOne,
+            Some("l_underflow") => LifeFinding::LUnderflow,
+            Some(other) => panic!("{name}: {other}"),
+        };
+        assert_eq!(table, Err(finding), "{name}");
     }
 }
