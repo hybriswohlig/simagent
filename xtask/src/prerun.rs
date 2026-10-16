@@ -436,11 +436,16 @@ pub fn generations(world: &World) -> Result<Vec<Generation>> {
 }
 
 /// The map of the next run: every additive locus's `d_ref` its mean dose, every trait's
-/// `sigma_ref` its measured `σ` (design note, section 4).
+/// `sigma_ref` its measured `σ` (design note, section 4), and no `mean_ref` (only a frozen
+/// map carries one, Grok GF-1).
 pub fn next_map(map: &Json, measurement: &Measurement) -> Json {
     let mut map = map.clone();
     if let Some(traits) = map.get_mut("traits").and_then(Json::as_array_mut) {
         for t in traits {
+            // Only a frozen map carries a mean (Grok GF-1): an iteration map never does.
+            if let Json::Object(entries) = t {
+                entries.retain(|(key, _)| key != "mean_ref");
+            }
             let id = t.get("id").and_then(Json::as_str).unwrap_or("").to_owned();
             if let Some(spread) = measurement
                 .traits
