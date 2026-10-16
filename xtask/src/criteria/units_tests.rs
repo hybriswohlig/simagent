@@ -423,10 +423,10 @@ fn p9_mc1r_takes_families_with_an_affected_child() {
 
 #[test]
 fn p9_mc1r_outside_the_band_reports_q_and_no_sample() {
-    let export = export(40 * Y, mc1r_families(), vec![]);
+    let two = export(40 * Y, mc1r_families(), vec![]);
     // Four distinct parents with five copies.
     assert_eq!(
-        town(&export).p9_mc1r().err(),
+        town(&two).p9_mc1r().err(),
         Some(Finding::Mc1rFrequency { q: 0.625 })
     );
     // 25 families of 50 parents: the band [0.13, 0.17] holds its ends.
@@ -467,6 +467,7 @@ fn p4_takes_each_mothers_first_child_of_the_decade_without_move_up() {
         person(6, false, -20 * Y),
         person(7, false, -20 * Y),
         person(8, true, -20 * Y),
+        person(9, true, -20 * Y),
         // Mother 1: the oldest emigrates at 17, the next does not move up.
         Row {
             emig: Some(28 * Y),
@@ -492,13 +493,15 @@ fn p4_takes_each_mothers_first_child_of_the_decade_without_move_up() {
         // who turns 18 only after the end.
         child(80, true, 10 * Y, 8, 7),
         child(81, true, 22 * Y, 8, 7),
+        // Mother 9: a child whose 18th birthday is the end second (counts).
+        child(90, true, 22 * Y - 1, 9, 7),
     ];
     let export = export(40 * Y - 1, rows, vec![]);
     let town = town(&export);
     for decade in 0..DECADES {
         let want: Vec<u64> = match decade {
             1 => vec![20, 31, 40, 80],
-            2 => vec![50],
+            2 => vec![50, 90],
             _ => vec![],
         };
         let units = town.p4_city(decade);
@@ -586,6 +589,20 @@ fn a_village_with_one_unit_or_nobody_alive_is_a_finding() {
             living: 0
         })
     );
+    // 40 years: g* = (40 - 18) div 30 - 1 = -1. A child born before the start in that
+    // block is not village-born.
+    let short = vec![
+        person(1, true, -40 * Y),
+        child(2, true, -20 * Y, 1, 3),
+        person(3, false, -40 * Y),
+    ];
+    assert_eq!(
+        town(&export(40 * Y - 1, short, vec![])).village().err(),
+        Some(Finding::Village {
+            units: 0,
+            living: 3
+        })
+    );
 }
 
 /// Couples of town-born persons, arrivals and a pool child, with two carried couples.
@@ -607,6 +624,8 @@ fn couples_town() -> Export {
         arrival(14, false, -40 * Y, 0),
         arrival(15, false, -33 * Y, 0),
         person(16, false, -24 * Y),
+        arrival(8, true, -26 * Y, 0),
+        person(17, false, -30 * Y),
     ];
     let carried = |formed, woman, man| CoupleRow {
         carried: true,
@@ -621,6 +640,7 @@ fn couples_town() -> Export {
         couple(13 * Y, 3, 12),
         couple(14 * Y, 5, 13),
         couple(17 * Y, 6, 15),
+        couple(19 * Y, 8, 17),
     ];
     export(40 * Y, rows, couples)
 }
@@ -630,7 +650,7 @@ fn pair_correlations_take_first_partnerships_of_town_born_partners() {
     let export = couples_town();
     let town = town(&export);
     // (7, 16) is carried; (2, 11) is 11's second, (1, 12) 1's second, (3, 12) 12's
-    // second; (6, 15) has an arrival.
+    // second; (6, 15) and (8, 17) have an arrival.
     let growth = town.couple_pairs(Trait::Growth);
     assert_eq!(growth.anchors, vec![1, 11, 5, 13]);
     assert_eq!(growth.values, vec![(1.0, 11.0), (5.0, 13.0)]);
@@ -644,9 +664,9 @@ fn the_age_gap_takes_every_couple_not_carried() {
     let units = town(&couples_town()).age_gap();
     assert_eq!(
         units.anchors,
-        vec![1, 11, 2, 11, 1, 12, 3, 12, 5, 13, 6, 15]
+        vec![1, 11, 2, 11, 1, 12, 3, 12, 5, 13, 6, 15, 8, 17]
     );
-    assert_eq!(units.values, vec![3.0, 2.0, 3.5, -1.5, 3.0, 3.0]);
+    assert_eq!(units.values, vec![3.0, 2.0, 3.5, -1.5, 3.0, 3.0, 4.0]);
 }
 
 #[test]
@@ -706,6 +726,11 @@ fn births_count_what_a_woman_brought_and_her_town_children_before_50() {
             brought: 3,
             ..arrival(2, true, -51 * Y, 0)
         },
+        // Arrived exactly at her 50th birthday: in, with what she brought.
+        Row {
+            brought: 1,
+            ..arrival(6, true, -50 * Y, 0)
+        },
         person(3, false, -20 * Y),
         // Three town children, twins among them.
         person(4, true, -10 * Y),
@@ -726,8 +751,8 @@ fn births_count_what_a_woman_brought_and_her_town_children_before_50() {
     ];
     let export = export(60 * Y - 1, rows, vec![]);
     let units = town(&export).births();
-    assert_eq!(units.anchors, vec![1, 4]);
-    assert_eq!(units.values, vec![3, 3]);
+    assert_eq!(units.anchors, vec![1, 4, 6]);
+    assert_eq!(units.values, vec![3, 3, 1]);
 }
 
 #[test]
@@ -790,6 +815,12 @@ fn the_life_table_counts_seconds_and_deaths_in_the_period_by_age() {
             emig: Some(99 * Y),
             ..person(8, false, -10 * Y)
         },
+        // Leaves at 70; a death after leaving is not one in the town.
+        Row {
+            emig: Some(120 * Y),
+            died: Some(130 * Y),
+            ..child(5, false, 50 * Y, 9, 0x99)
+        },
     ];
     let export = export(180 * Y - 1, rows, vec![]);
     let town = town(&export);
@@ -807,10 +838,11 @@ fn the_life_table_counts_seconds_and_deaths_in_the_period_by_age() {
     let men = town.life_table(false);
     let mut exposure = [0; AGES];
     exposure[40..90].fill(YS);
+    exposure[50..70].fill(2 * YS);
     exposure[90] = 10;
     let mut deaths = [0; AGES];
     deaths[90] = 1;
-    assert_eq!(men.anchors, vec![7]);
+    assert_eq!(men.anchors, vec![5, 7]);
     assert_eq!((men.exposure, men.deaths), (exposure, deaths));
 }
 
@@ -830,6 +862,12 @@ fn the_longevity_sample_takes_town_born_lives_ended_in_the_town() {
             ..child(2, true, 10 * Y, 9, 0x99)
         },
         child(3, true, 20 * Y, 9, 0x99),
+        // A death after leaving is not one in the town.
+        Row {
+            emig: Some(40 * Y),
+            died: Some(50 * Y),
+            ..child(10, true, 30 * Y, 9, 0x99)
+        },
         // Born at 90 years: out.
         child(4, true, 90 * Y, 9, 0x99),
         Row {
@@ -850,7 +888,7 @@ fn the_longevity_sample_takes_town_born_lives_ended_in_the_town() {
     let women = town.longevity(true);
     assert_eq!(women.units.anchors, vec![1, 6]);
     assert_eq!(women.units.values, vec![(80.5, 3001.0), (11.0, 3006.0)]);
-    assert_eq!((women.emigrated, women.living), (1, 1));
+    assert_eq!((women.emigrated, women.living), (2, 1));
     let men = town.longevity(false);
     assert_eq!(men.units.anchors, vec![7]);
     assert_eq!(men.units.values, vec![(55.0, 3007.0)]);
