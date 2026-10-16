@@ -1824,8 +1824,12 @@ pub(crate) mod testing {
     pub(crate) fn data() -> Data {
         let read = |text| serde_json::from_str::<Value>(text).expect("json");
         let (calibration, genome_map) = without_text(
-            read(include_str!("../../../data/calibration/genetics.json")),
-            read(include_str!("../../../data/genetics/genome_map.json")),
+            read(include_str!(
+                "../../../tests/golden/map3/calibration/genetics.json"
+            )),
+            read(include_str!(
+                "../../../tests/golden/map3/genetics/genome_map.json"
+            )),
         );
         let mut demography = read(include_str!("../../../data/calibration/demography.json"));
         for list in ["values", "fertility_wish_shape", "leave_home_ages"] {
