@@ -194,3 +194,94 @@ fn each_rule_rejects() {
         .replace("\"couples\":1", "\"couples\":2");
     assert!(read(&ordered).is_ok());
 }
+
+/// Review: the form is the formatters' only, and a person's fields keep their rules.
+#[test]
+fn only_the_export_form_and_consistent_persons_are_read() {
+    let good = lines(&[HEADER, MOTHER, CHILD, COUPLE]);
+    assert!(read(&good).is_ok());
+    let mother = |from: &str, to: &str| {
+        assert!(MOTHER.contains(from), "{from}");
+        lines(&[HEADER, &MOTHER.replacen(from, to, 1), CHILD, COUPLE])
+    };
+    let child = |from: &str, to: &str| {
+        assert!(CHILD.contains(from), "{from}");
+        lines(&[HEADER, MOTHER, &CHILD.replacen(from, to, 1), COUPLE])
+    };
+    let cases = [
+        ("no final newline", good.trim_end().to_owned()),
+        ("a space", mother("\"sex\":\"f\"", "\"sex\": \"f\"")),
+        (
+            "two keys swapped",
+            mother(
+                "\"died\":900000000,\"emig\":null",
+                "\"emig\":null,\"died\":900000000",
+            ),
+        ),
+        (
+            "an extra field",
+            mother("\"mc1r\":2}", "\"mc1r\":2,\"note\":1}"),
+        ),
+        (
+            "an extra header field",
+            lines(&[
+                &HEADER.replace("\"couples\":1}", "\"couples\":1,\"x\":0}"),
+                MOTHER,
+                CHILD,
+                COUPLE,
+            ]),
+        ),
+        (
+            "an extra couple field",
+            lines(&[
+                HEADER,
+                MOTHER,
+                CHILD,
+                &COUPLE.replace("true}", "true,\"x\":0}"),
+            ]),
+        ),
+        ("a kind of 3", mother("\"pool\":1", "\"pool\":3")),
+        ("three MC1R copies", mother("\"mc1r\":2", "\"mc1r\":3")),
+        (
+            "a death and an emigration",
+            child("\"died\":null", "\"died\":150"),
+        ),
+        (
+            "an arrival without its second",
+            mother("\"arrived\":0", "\"arrived\":null"),
+        ),
+        (
+            "a town child with an arrival second",
+            child("\"arrived\":null", "\"arrived\":5"),
+        ),
+        (
+            "births brought by a town child",
+            child("\"brought\":0", "\"brought\":1"),
+        ),
+        (
+            "a multiple index of an arrival",
+            mother("\"mult\":null", "\"mult\":0"),
+        ),
+        (
+            "a pool child without its multiple index",
+            child(
+                "\"pool\":0,\"arrived\":null,\"mult\":0",
+                "\"pool\":2,\"arrived\":null,\"mult\":null",
+            ),
+        ),
+        (
+            "a man with a paternal X",
+            child("\"px\":null,\"y\":1", "\"px\":1,\"y\":null"),
+        ),
+        (
+            "a woman with a Y",
+            mother("\"px\":4,\"y\":null", "\"px\":null,\"y\":4"),
+        ),
+        ("a man with both", child("\"px\":null", "\"px\":0")),
+    ];
+    for (name, text) in cases {
+        assert!(read(&text).is_err(), "{name} was read");
+    }
+    // A pool child born in the town has its multiple index: read.
+    assert!(read(&child("\"pool\":0", "\"pool\":2")).is_ok());
+}

@@ -42,8 +42,15 @@ fn town_data(pool: &[u8]) -> Data {
     Data::with_pool(definitions, pool).expect("checked")
 }
 
-/// The export of a pool town run from the households of the draw for occasion 0 to `end`.
-fn export_of(pool: &[u8], seed: u64, n_start: u64, immigration: bool, end: i64) -> String {
+/// A pool town run from the households of the draw for occasion 0 to `end`, its log fed
+/// to the export's observer.
+fn run_town(
+    pool: &[u8],
+    seed: u64,
+    n_start: u64,
+    immigration: bool,
+    end: i64,
+) -> (sim_core::world::World, Observer) {
     let data = town_data(pool);
     let held = data.pool().expect("a pool");
     let (taken, _) = take_households(held.pool(), seed, 0, &BTreeSet::new(), n_start);
@@ -73,7 +80,25 @@ fn export_of(pool: &[u8], seed: u64, n_start: u64, immigration: bool, end: i64) 
         observer.observe(entries)
     })
     .expect("a run");
-    write(&world, &observer, end).expect("an export")
+    (world, observer)
+}
+
+/// The export of a pool town to `end`.
+fn export_of(pool: &[u8], seed: u64, n_start: u64, immigration: bool, end: i64) -> String {
+    let (world, observer) = run_town(pool, seed, n_start, immigration, end);
+    write(&world, &observer, SimTime::from_secs(end)).expect("an export")
+}
+
+/// Review: the writer refuses an end the world did not close, and a town child whose
+/// conception the observer never saw (it would silently write the child's own key as its
+/// genome key and no multiple index).
+#[test]
+fn the_writer_checks_its_end_and_its_observer() {
+    let end = 60 * YEAR - 1;
+    let (world, observer) = run_town(POOL_D, 6, 30, false, end);
+    assert!(write(&world, &observer, SimTime::from_secs(end - 1)).is_err());
+    assert!(write(&world, &Observer::default(), SimTime::from_secs(end)).is_err());
+    assert!(write(&world, &observer, SimTime::from_secs(end)).is_ok());
 }
 
 fn close(a: f64, b: f64) -> bool {
