@@ -224,13 +224,17 @@ pub struct GenomeMap {
 }
 
 /// A trait the core computes a genetic value for (ADR-0008 section 1): its reference
-/// standard deviation, whether its loci may load on nothing else, and the traits whose
-/// loci go into its raw value with a weight.
+/// standard deviation, the reference mean of its raw value if the map froze one (Grok
+/// GF-1, genetics specification 4.1; none means 0), whether its loci may load on nothing
+/// else, and the traits whose loci go into its raw value with a weight.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Trait {
     pub id: DataId,
     pub sigma_ref: FiniteF64,
+    /// Encoded for the data hash only when present, so a map without it keeps its hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_ref: Option<FiniteF64>,
     pub exclusive: bool,
     pub includes: Vec<Load>,
 }
@@ -530,7 +534,7 @@ pub struct Data {
     loci: BTreeMap<DataId, usize>,
     /// For each trait its terms in the order of the fold and its `sigma_ref` (ADR-0008
     /// section 3).
-    traits: BTreeMap<DataId, (Vec<Term>, f64)>,
+    traits: BTreeMap<DataId, (Vec<Term>, f64, Option<f64>)>,
     /// For each trait with a phenotype its weights: h2 and c2 of the child, then of the
     /// adult (ADR-0009 section 1).
     phenotypes: BTreeMap<DataId, [f64; 4]>,
@@ -874,8 +878,8 @@ pub(crate) fn terms(map: &GenomeMap, t: &Trait) -> Vec<Term> {
 /// The largest magnitude the genetic value of `t` can reach, and that it is finite for
 /// every genome (ADR-0008 section 3): every term
 /// is finite at the doses 0, 1 and 2, every term of a load is not 0 at one of them, and
-/// the fold of their largest magnitudes is finite and stays finite divided by
-/// `sigma_ref`.
+/// the fold of their largest magnitudes, with the magnitude of `mean_ref`, is finite and
+/// stays finite divided by `sigma_ref`.
 fn bound(map: &GenomeMap, t: &Trait) -> Result<f64, DataError> {
     // The terms of the trait's own loads come first (see `terms`); only they must not
     // vanish. An include term of 0 adds nothing and is finite.
@@ -891,6 +895,10 @@ fn bound(map: &GenomeMap, t: &Trait) -> Result<f64, DataError> {
             0.0,
             |most: f64, c| if c.abs() > most { c.abs() } else { most },
         );
+    }
+    // A reference mean moves every value by itself (Grok GF-1).
+    if let Some(mean) = t.mean_ref {
+        largest += mean.get().abs();
     }
     let scaled = largest / t.sigma_ref.get();
     if !largest.is_finite() || !scaled.is_finite() {
@@ -1548,7 +1556,10 @@ impl Data {
         let traits = map
             .traits
             .iter()
-            .map(|t| (t.id.clone(), (terms(map, t), t.sigma_ref.get())))
+            .map(|t| {
+                let mean = t.mean_ref.map(FiniteF64::get);
+                (t.id.clone(), (terms(map, t), t.sigma_ref.get(), mean))
+            })
             .collect();
         let phenotypes = definitions
             .calibration
@@ -1684,11 +1695,11 @@ impl Data {
         self.sex_differences.get(id).copied()
     }
 
-    /// The terms of a trait in the order of its fold and its `sigma_ref`, if the map has
-    /// the trait (ADR-0008 section 3).
-    pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64)> {
-        let (terms, sigma) = self.traits.get(id)?;
-        Some((terms, *sigma))
+    /// The terms of a trait in the order of its fold, its `sigma_ref` and its `mean_ref`,
+    /// if the map has the trait (ADR-0008 section 3, Grok GF-1).
+    pub(crate) fn trait_terms(&self, id: &DataId) -> Option<(&[Term], f64, Option<f64>)> {
+        let (terms, sigma, mean) = self.traits.get(id)?;
+        Some((terms, *sigma, *mean))
     }
 
     /// The trait of the puberty timing, if the data name one (genetics specification 5.2,
@@ -1902,6 +1913,7 @@ mod tests {
         map.traits = alloc::vec![Trait {
             id: id("test:t"),
             sigma_ref: FiniteF64::try_new(1.0).expect("finite"),
+            mean_ref: None,
             exclusive: false,
             includes: alloc::vec::Vec::new(),
         }];

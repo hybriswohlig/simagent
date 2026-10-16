@@ -213,18 +213,20 @@ impl Genome {
     }
 
     /// The genetic value `G_t` of trait `t` (genetics specification 4.1, ADR-0008
-    /// section 3): the additive value divided by `sigma_ref`. `None` if the map has no
+    /// section 3, Grok GF-1): the additive value less the map's `mean_ref`, divided by
+    /// `sigma_ref`; without a `mean_ref` exactly `A / sigma_ref`. `None` if the map has no
     /// such trait.
     pub fn genetic_value(&self, t: &DataId, data: &Data) -> Option<f64> {
-        let (_, sigma) = data.trait_terms(t)?;
-        Some(self.additive_value(t, data)? / sigma)
+        let (_, sigma, mean) = data.trait_terms(t)?;
+        let a = self.additive_value(t, data)?;
+        Some(mean.map_or(a, |mean| a - mean) / sigma)
     }
 
     /// The additive value `A_t` of trait `t` (ADR-0008 section 3, ADR-0020 section 3): the
     /// terms folded from 0 in their order, before the division by `sigma_ref`. `None` if
     /// the map has no such trait.
     pub fn additive_value(&self, t: &DataId, data: &Data) -> Option<f64> {
-        let (terms, _) = data.trait_terms(t)?;
+        let (terms, _, _) = data.trait_terms(t)?;
         Some(terms.iter().fold(0.0, |sum, term| {
             let locus = data
                 .genome_map()
