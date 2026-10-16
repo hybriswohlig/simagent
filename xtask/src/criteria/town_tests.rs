@@ -191,3 +191,67 @@ fn the_open_town_decides_h2t_and_only_it() {
         vec!["f11_e0_m: outside", "p3: the negative twin is green"]
     );
 }
+
+/// T1's plan (the reference's first small town).
+fn t1() -> Plan {
+    Plan {
+        seed: 6,
+        tag: "test:arrival",
+        n_start: 30,
+        capacity: None,
+        immigration: false,
+        end: SimTime::from_secs(60 * YEAR - 1),
+    }
+}
+
+/// Nothing is written unless every town ran: a failing second town leaves no fresh first
+/// town beside the stale files of an earlier run (review).
+#[test]
+fn the_towns_write_nothing_unless_every_town_ran() {
+    let data = town_data(&root(), &root().join("tests/golden/map4_template"), POOL_D)
+        .expect("the town's data");
+    let dir = std::env::temp_dir().join(format!("simagent-towns-red-{}", std::process::id()));
+    let failing = Plan {
+        tag: "no namespace",
+        ..t1()
+    };
+    let runs: [(Plan, std::path::PathBuf, fn(&str) -> bool); 2] = [
+        (t1(), dir.clone(), decided_closed),
+        (failing, dir.join("open"), decided_open),
+    ];
+    let result = towns(&data, &runs);
+    let written = dir.exists();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(result.is_err(), "{result:?}");
+    assert!(!written, "a town was written though the other failed");
+}
+
+/// Both towns run on the same data; each one's export and report land in its own directory,
+/// and the reds are those of the checks each town decides.
+#[test]
+fn the_towns_write_each_town_and_split_the_reds() {
+    let data = town_data(&root(), &root().join("tests/golden/map4_template"), POOL_D)
+        .expect("the town's data");
+    let dir = std::env::temp_dir().join(format!("simagent-towns-{}", std::process::id()));
+    let runs: [(Plan, std::path::PathBuf, fn(&str) -> bool); 2] = [
+        (t1(), dir.clone(), decided_closed),
+        (t1(), dir.join("open"), decided_open),
+    ];
+    let got = towns(&data, &runs);
+    let read = |path: std::path::PathBuf| std::fs::read_to_string(path).expect("written");
+    let (closed, open, exports) = (
+        read(dir.join("report.json")),
+        read(dir.join("open/report.json")),
+        [dir.join("export.ndjson"), dir.join("open/export.ndjson")].map(read),
+    );
+    std::fs::remove_dir_all(&dir).expect("removed");
+    let want: Value = serde_json::from_str(T1_REPORT).expect("the reference's report");
+    for written in [&closed, &open] {
+        let written: Value = serde_json::from_str(written).expect("a report");
+        assert_eq!(decisions(&written), decisions(&want));
+    }
+    assert_eq!(exports[0], exports[1]);
+    let mut reds_of = reds(&want, &decided_closed);
+    reds_of.extend(reds(&want, &decided_open));
+    assert_eq!(got.expect("both ran"), reds_of);
+}
