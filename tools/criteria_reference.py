@@ -928,7 +928,13 @@ def read_export(text: str) -> dict:
     """The strict reader: every line one object with exactly the keys of the note in their
     order, the header first, `persons` person lines strictly ascending by key, then `couples`
     couple lines ascending by (formed, woman, man), a newline after every line; keys and bits
-    16 lowercase hex digits."""
+    16 lowercase hex digits. The header's traits, longevity and MC1R exactly those of the
+    note; per person (the rules of the Rust reader, review of step 3b): `pool` in {0, 1, 2},
+    `mc1r` 0 to 2, not both `died` and `emig`, `arrived` non-null exactly for `pool` = 1,
+    `brought` 0 unless `pool` = 1, `mult` null for `pool` = 1 and non-null for `pool` = 2, for
+    `pool` = 0 `mult` non-null exactly when `mother` is (a town child has its index, a founder
+    none), a woman's genome with `px` and no `y`, a man's with `y` and no `px`. `check_reader`
+    holds one rejected export per rule."""
     _require(text.endswith("\n"), "the last line has no newline")
     lines = text[:-1].split("\n")
     objs = [json.loads(raw) for raw in lines]
@@ -938,7 +944,9 @@ def read_export(text: str) -> dict:
     _require(list(h) == HEADER_KEYS, "header keys")
     _require(h["format"] == FORMAT and h["version"] == VERSION, "format or version")
     _require(h["year"] == YEAR and h["month"] == MONTH, "year or month")
-    _require(h["traits"] == [list(t) for t in TRAITS] and h["longevity"] == LONGEVITY and h["mc1r"] == MC1R, "traits")
+    _require(h["traits"] == [list(t) for t in TRAITS], "traits")
+    _require(h["longevity"] == LONGEVITY, "longevity")
+    _require(h["mc1r"] == MC1R, "mc1r")
     _require(all(_int(h[k]) for k in ("core_version", "end", "persons", "couples")), "header integers")
     header = dict(h)
     header["data_hash"], header["world_seed"] = _key(h["data_hash"]), _key(h["world_seed"])
@@ -947,16 +955,24 @@ def read_export(text: str) -> dict:
     persons = []
     for obj in objs[1 : 1 + h["persons"]]:
         _require(list(obj) == PERSON_KEYS and obj["k"] == "p", "person keys")
-        _require(obj["sex"] in ("f", "m") and obj["pool"] in (0, 1, 2), "sex or pool")
+        _require(obj["sex"] in ("f", "m"), "sex")
+        _require(obj["pool"] in (0, 1, 2), "pool")
         _require(all(_int(obj[k]) for k in ("born", "brought", "mc1r")), "person integers")
         _require(all(_int(obj[k], True) for k in ("died", "emig", "arrived", "mult")), "person optional integers")
+        _require(0 <= obj["mc1r"] <= 2, "mc1r")
+        _require(len(obj["z"]) == 3, "z")
         _require(not (obj["died"] is not None and obj["emig"] is not None), "died and emigrated")
         _require((obj["arrived"] is not None) == (obj["pool"] == 1), "arrived iff pool 1")
-        _require((obj["mult"] is None) or obj["pool"] != 1, "mult of an arrival")
-        _require(0 <= obj["mc1r"] <= 2 and len(obj["z"]) == 3, "mc1r or z")
+        _require(obj["brought"] == 0 or obj["pool"] == 1, "brought of a town-born person")
+        _require(obj["mult"] is None or obj["pool"] != 1, "mult of an arrival")
+        _require(obj["mult"] is not None or obj["pool"] != 2, "mult of a pool child")
+        _require(obj["pool"] != 0 or (obj["mult"] is None) == (obj["mother"] is None), "mult iff mother of a town person")
         g = obj["genome"]
         _require(list(g) == GENOME_KEYS and len(g["m"]) == 3 and len(g["p"]) == 3, "genome keys")
-        _require((g["px"] is None) != (g["y"] is None), "one paternal sex chromosome")
+        if obj["sex"] == "f":
+            _require(g["px"] is not None and g["y"] is None, "paternal X of a woman")
+        else:
+            _require(g["y"] is not None and g["px"] is None, "Y of a man")
         for word in g["m"] + g["p"]:
             _key(word)
         person = dict(obj)
@@ -2218,7 +2234,9 @@ def synthetic_export(families_n: int = 12_000, seed: int = 20261016) -> dict:
     def gamete(copies: int) -> int:
         return 1 if (copies == 2 or (copies == 1 and rng.random() < 0.5)) else 0
 
-    genome = {"m": [hx(0)] * 3, "p": [hx(0)] * 3, "x": 0, "px": 0, "y": None, "mt": 0}
+    genomes = {"f": {"m": [hx(0)] * 3, "p": [hx(0)] * 3, "x": 0, "px": 0, "y": None, "mt": 0},
+               "m": {"m": [hx(0)] * 3, "p": [hx(0)] * 3, "x": 0, "px": None, "y": 0, "mt": 0}}
+    genome = genomes["f"]
     for i in range(families_n):
         mother_key, father_key = 0x1000_0000 + 2 * i, 0x1000_0001 + 2 * i
         zm = rng.gauss(0.0, 1.0)
@@ -2228,7 +2246,7 @@ def synthetic_export(families_n: int = 12_000, seed: int = 20261016) -> dict:
         for key, sex, z, zp, c in ((mother_key, "f", zm, pm, cm), (father_key, "m", zf, pf, cf)):
             persons.append({"key": key, "gkey": key, "sex": sex, "born": -25 * YEAR, "died": None, "emig": None,
                             "mother": None, "father": None, "pool": 1, "arrived": 0, "mult": None, "brought": 0,
-                            "genome": genome, "z": [z, zp, 0.0], "gl": 0.0, "mc1r": c})
+                            "genome": genomes[sex], "z": [z, zp, 0.0], "gl": 0.0, "mc1r": c})
         couples.append({"woman": mother_key, "man": father_key, "formed": -2 * YEAR, "carried": True})
         mp = (zm + zf) / 2.0
         shared = rng.gauss(0.0, 1.0)
@@ -2283,6 +2301,66 @@ def export_and_report(name: str, export: dict, out: Path) -> tuple:
     return back, rep
 
 
+def check_reader() -> None:
+    """One rejected export per rule of the reader (review of step 3b): each case changes one
+    field of the hand export (the header, an arrival 0x0101, the pool child 0x0631, the town
+    child 0x0301, the town man 0x0401) and must be rejected with that rule's message; the
+    unchanged text is read."""
+    text = export_text(hand_export())
+    read_export(text)
+
+    def header(change) -> str:
+        lines = text.split("\n")
+        h = json.loads(lines[0])
+        change(h)
+        lines[0] = line(h)
+        return "\n".join(lines)
+
+    def person(key: int, change) -> str:
+        lines = text.split("\n")
+        for i, raw in enumerate(lines):
+            if raw.startswith('{"k":"p","key":"%s"' % hx(key)):
+                obj = json.loads(raw)
+                change(obj)
+                lines[i] = line(obj)
+                return "\n".join(lines)
+        raise AssertionError(hx(key))
+
+    def put(**fields):
+        return lambda obj: obj.update(fields)
+
+    def genome(**fields):
+        return lambda obj: obj["genome"].update(fields)
+
+    cognition = list(TRAITS[2])
+    cases = [
+        ("traits", header(lambda h: h.update(traits=[list(TRAITS[1]), list(TRAITS[0]), cognition]))),
+        ("traits", header(lambda h: h.update(traits=[list(TRAITS[0]), list(TRAITS[1]), [TRAITS[2][0], TRAITS[2][1] - 1]]))),
+        ("longevity", header(lambda h: h.update(longevity="core:lifespan"))),
+        ("mc1r", header(lambda h: h.update(mc1r="core:herc2"))),
+        ("pool", person(0x0101, put(pool=3))),
+        ("mc1r", person(0x0101, put(mc1r=3))),
+        ("died and emigrated", person(0x0101, put(emig=100 * YEAR - 1))),
+        ("arrived iff pool 1", person(0x0101, put(arrived=None))),
+        ("arrived iff pool 1", person(0x0301, put(arrived=0))),
+        ("brought of a town-born person", person(0x0301, put(brought=1))),
+        ("brought of a town-born person", person(0x0631, put(brought=1))),
+        ("mult of an arrival", person(0x0101, put(mult=0))),
+        ("mult of a pool child", person(0x0631, put(mult=None))),
+        ("mult iff mother of a town person", person(0x0301, put(mult=None))),
+        ("mult iff mother of a town person", person(0x0301, put(mother=None, father=None))),
+        ("paternal X of a woman", person(0x0101, genome(px=None, y=0))),
+        ("Y of a man", person(0x0401, genome(px=0, y=None))),
+    ]
+    for rule, bad in cases:
+        try:
+            read_export(bad)
+        except ExportError as error:
+            assert str(error) == rule, (rule, str(error))
+        else:
+            raise AssertionError(f"accepted: {rule}")
+
+
 def check_domain() -> None:
     """Review round 4: `E = [2^53]`, `D = [1]` is a table; `E = [2^53 + 1]` stops with
     `criteria.exact` (an assertion, never a finding); so do a share, a histogram count, a
@@ -2313,6 +2391,7 @@ def check_domain() -> None:
 
 def write_fixtures(out: Path) -> list:
     out.mkdir(parents=True, exist_ok=True)
+    check_reader()
     check_domain()
     lines = []
     est = estimator_vectors()
