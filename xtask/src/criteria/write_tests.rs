@@ -8,9 +8,8 @@ use std::collections::BTreeSet;
 
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::input::{Input, PoolStart, Start};
+use sim_core::input::{Input, Start};
 use sim_core::params::WorldParams;
-use sim_core::pool::take_households;
 use sim_core::time::SimTime;
 
 use super::{Observer, carried, write};
@@ -32,18 +31,11 @@ fn root() -> std::path::PathBuf {
 /// The template of map 4 with the repository's life course data and this pool, as the
 /// arrival tests and `tools/arrival_reference.py` build it.
 fn town_data(pool: &[u8]) -> Data {
-    let root = root();
-    let demography =
-        crate::map4::read(&root, "data/calibration/demography.json").expect("demography");
-    let (calibration, map) =
-        crate::prerun::read_files(&root.join("tests/golden/map4_template")).expect("the template");
-    let definitions =
-        crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions");
-    Data::with_pool(definitions, pool).expect("checked")
+    crate::criteria::town::town_data(&root(), &root().join("tests/golden/map4_template"), pool)
+        .expect("the town's data")
 }
 
-/// A pool town run from the households of the draw for occasion 0 to `end`, its log fed
-/// to the export's observer.
+/// A pool town of the reference's (tag `test:arrival`, no capacity) run to `end`.
 fn run_town(
     pool: &[u8],
     seed: u64,
@@ -51,36 +43,15 @@ fn run_town(
     immigration: bool,
     end: i64,
 ) -> (sim_core::world::World, Observer) {
-    let data = town_data(pool);
-    let held = data.pool().expect("a pool");
-    let (taken, _) = take_households(held.pool(), seed, 0, &BTreeSet::new(), n_start);
-    let start = Start {
-        world_seed: seed,
-        founder_tag: DataId::new("test:arrival").expect("id"),
-        world_params: WorldParams {
-            hereditary_diseases: true,
-            nutrition: Vec::new(),
-        },
-        founders: Vec::new(),
-        couples: Vec::new(),
+    let plan = crate::criteria::town::Plan {
+        seed,
+        tag: "test:arrival",
+        n_start,
         capacity: None,
-        pool: Some(PoolStart {
-            pool_hash: held.hash(),
-            n_start,
-            immigration,
-            households: taken
-                .iter()
-                .map(|&index| held.pool().households[index].clone())
-                .collect(),
-        }),
+        immigration,
+        end: SimTime::from_secs(end),
     };
-    let mut observer = Observer::default();
-    let end = SimTime::from_secs(end);
-    let (world, _) = crate::prerun::run_observed(data, Input::Start(start), end, &mut |entries| {
-        observer.observe(entries)
-    })
-    .expect("a run");
-    (world, observer)
+    crate::criteria::town::run_town(town_data(pool), &plan).expect("a run")
 }
 
 /// The export of a pool town to `end`.
