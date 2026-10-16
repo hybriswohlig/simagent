@@ -6,8 +6,10 @@
 //! `cargo run --release --locked -p xtask -- criteria town --map <dir> --pool <pool.bin>
 //! --out <dir>`
 //!
-//! It writes `export.ndjson` and `report.json` into `<dir>` and is red when a check is red
-//! or a negative twin is green.
+//! It writes `export.ndjson` and `report.json` into `<dir>`, runs the same town without
+//! capacity (so without emigration) into `<dir>/open`, and is red when a check is red or a
+//! negative twin is green: `h²_T` is decided in the open town (Grok GH-1: emigration tilts
+//! the lifespans of those who die in the town), every other check in the criteria town.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -74,6 +76,25 @@ pub fn criteria_town() -> Plan {
     }
 }
 
+/// The same town without capacity, so without emigration, where `h²_T` is measured (Grok
+/// GH-1): every town-born person lives and dies in the town.
+pub fn open_town() -> Plan {
+    Plan {
+        capacity: None,
+        ..criteria_town()
+    }
+}
+
+/// The checks decided in the open town (Grok GH-1).
+pub fn decided_open(check: &str) -> bool {
+    check.starts_with("f11_h2t_")
+}
+
+/// The checks decided in the criteria town: all others.
+pub fn decided_closed(check: &str) -> bool {
+    !decided_open(check)
+}
+
 /// A pool town founded from the households of the draw for occasion 0 until they bring
 /// `n_start` persons, run to its end with the hereditary diseases on, its log fed to the
 /// export's observer.
@@ -110,11 +131,15 @@ pub fn run_town(data: Data, plan: &Plan) -> Result<(World, Observer)> {
 
 /// What makes a report red (spec 8.1): every check whose `pass` is false, and every negative
 /// twin whose `pass` is true (a twin must be red). P4 city counts as one check over its
-/// decades; reported-only checks (`pass` null) count for neither.
-pub fn reds(report: &Value) -> Vec<String> {
+/// decades; reported-only checks (`pass` null) count for neither. Only the checks for which
+/// `taken` holds count.
+pub fn reds(report: &Value, taken: &dyn Fn(&str) -> bool) -> Vec<String> {
     let mut reds = Vec::new();
     for check in report["checks"].as_array().into_iter().flatten() {
         let name = check["check"].as_str().unwrap_or("?");
+        if !taken(name) {
+            continue;
+        }
         if check["pass"] == Value::Bool(false) {
             let finding = check["finding"].as_str().unwrap_or("red");
             reds.push(format!("{name}: {finding}"));
@@ -149,23 +174,30 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         );
     }
     let bytes = std::fs::read(pool).map_err(|e| format!("{pool}: {e}"))?;
-    let data = town_data(root, Path::new(map), &bytes)?;
-    let plan = criteria_town();
-    let (world, observer) = run_town(data, &plan)?;
-    let text = write(&world, &observer, plan.end)?;
-    let report = report(&text)?;
     let out = Path::new(out);
-    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    std::fs::write(out.join("export.ndjson"), &text).map_err(|e| e.to_string())?;
-    let mut json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-    json.push('\n');
-    std::fs::write(out.join("report.json"), json).map_err(|e| e.to_string())?;
-    println!("criteria town: {}", out.display());
-    let reds = reds(&report);
-    if reds.is_empty() {
+    let mut all = Vec::new();
+    let decides: [fn(&str) -> bool; 2] = [decided_closed, decided_open];
+    let runs = [
+        (criteria_town(), out.to_path_buf()),
+        (open_town(), out.join("open")),
+    ];
+    for ((plan, dir), taken) in runs.into_iter().zip(decides) {
+        let data = town_data(root, Path::new(map), &bytes)?;
+        let (world, observer) = run_town(data, &plan)?;
+        let text = write(&world, &observer, plan.end)?;
+        let report = report(&text)?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(dir.join("export.ndjson"), &text).map_err(|e| e.to_string())?;
+        let mut json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+        json.push('\n');
+        std::fs::write(dir.join("report.json"), json).map_err(|e| e.to_string())?;
+        println!("criteria town: {}", dir.display());
+        all.extend(reds(&report, &taken));
+    }
+    if all.is_empty() {
         Ok(())
     } else {
-        Err(format!("red:\n  {}", reds.join("\n  ")))
+        Err(format!("red:\n  {}", all.join("\n  ")))
     }
 }
 
