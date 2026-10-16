@@ -142,6 +142,12 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         return Err(USAGE.into());
     }
     let (map, pool, out) = (value("--map")?, value("--pool")?, value("--out")?);
+    if cfg!(debug_assertions) {
+        // The result is the same in both profiles (the gate runs both); only the time is not.
+        eprintln!(
+            "criteria town: a debug build takes many times longer; use cargo run --release --locked -p xtask -- criteria town ..."
+        );
+    }
     let bytes = std::fs::read(pool).map_err(|e| format!("{pool}: {e}"))?;
     let data = town_data(root, Path::new(map), &bytes)?;
     let plan = criteria_town();
