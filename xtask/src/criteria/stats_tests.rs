@@ -678,3 +678,13 @@ fn p4_converts_n_before_subtracting() {
 fn fisher_converts_n_before_subtracting() {
     fisher_tolerance((1 << 53) + 3);
 }
+
+/// The smallest defined cases: two values have a variance, two pairs a correlation and a
+/// slope (mutants of the size checks).
+#[test]
+fn two_values_are_enough() {
+    assert_eq!(variance(&[1.0, 3.0]), Some(2.0));
+    assert_eq!(pearson(&[(0.0, 1.0), (1.0, 3.0)]), Some(1.0));
+    assert_eq!(slope(&[(0.0, 1.0), (1.0, 3.0)]), Some(2.0));
+    assert_eq!(mean_se(&[1, 3]), Some((2.0, 1.0)));
+}
