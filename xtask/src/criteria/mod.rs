@@ -12,5 +12,6 @@
 pub mod export;
 pub mod report;
 pub mod stats;
+pub mod town;
 pub mod units;
 pub mod write;
