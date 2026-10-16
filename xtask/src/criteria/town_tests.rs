@@ -44,6 +44,29 @@ fn decisions(report: &Value) -> Vec<Value> {
     all
 }
 
+/// A pool on the documents it was extracted from, whose data hash is its `frozen_hash`:
+/// `pool_c` on those of `father_dies` (with their own life course data), every other pool on
+/// the template with the repository's (design note of the pool's records, section 6).
+fn small_town_data(pool: &[u8]) -> sim_core::data::Data {
+    let (demography, documents) = if pool == POOL_C {
+        (
+            "tests/golden/father_dies/calibration/demography.json",
+            "tests/golden/father_dies",
+        )
+    } else {
+        (
+            "data/calibration/demography.json",
+            "tests/golden/map4_template",
+        )
+    };
+    let demography = crate::map4::read(&root(), demography).expect("demography");
+    let (calibration, map) =
+        crate::prerun::read_files(&root().join(documents)).expect("the documents");
+    let definitions =
+        crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions");
+    sim_core::data::Data::with_pool(definitions, pool).expect("checked")
+}
+
 /// The whole pipeline in Rust (data, run, export, report) decides every check of T1 and T2
 /// as the reference's report does.
 #[test]
@@ -53,8 +76,7 @@ fn the_small_towns_are_decided_as_the_reference_decides() {
         (POOL_C, 0xff, 50, true, 14, T2_REPORT),
     ];
     for (pool, seed, n_start, immigration, years, want) in towns {
-        let data = town_data(&root(), &root().join("tests/golden/map4_template"), pool)
-            .expect("the town's data");
+        let data = small_town_data(pool);
         let plan = Plan {
             seed,
             tag: "test:arrival",
