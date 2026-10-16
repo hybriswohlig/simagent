@@ -538,7 +538,7 @@ PRERUN_ALLELE = 25
 # ArchivedSim, `Pregnancy.father` an option with `pool_father` after it, the used households
 # of the pool (projection 18); the core version and the save format rise with it (37, 2).
 PROJECTION_VERSION = 18
-CORE_VERSION = 37
+CORE_VERSION = 38
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
