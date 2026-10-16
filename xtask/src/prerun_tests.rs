@@ -1562,3 +1562,25 @@ fn the_frozen_map_carries_the_means_after_sigma_ref_and_a_short_run_has_none() {
     let (_, _, data) = first_data();
     assert!(newborn_means(&world, &data, 29).is_err());
 }
+
+/// A block without a birth has no mean: two men found a town that never has a child
+/// (mutants).
+#[test]
+fn a_block_without_births_has_no_mean() {
+    let (_, _, data) = first_data();
+    let man = |age: i64| Founder {
+        born: SimTime::from_secs(-age * YEAR.as_secs()),
+        sex: Sex::Male,
+        alleles: Vec::new(),
+    };
+    let input = start(
+        &tag("core:prerun_measure"),
+        MEASURE_SEED,
+        vec![man(20), man(25)],
+        2,
+    );
+    let until = SimTime::from_secs(30 * YEAR.as_secs() - 1);
+    let (world, _) = run(data, input, until).expect("a run");
+    let (_, _, data) = first_data();
+    assert!(newborn_means(&world, &data, 30).is_err());
+}
