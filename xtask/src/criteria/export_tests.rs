@@ -337,3 +337,24 @@ fn the_multiple_index_and_the_header_names_are_fixed() {
     // A founder without mother and multiple index: read.
     assert!(read(&child("\"mother\":\"0000000000000001\",\"father\":null,\"pool\":0,\"arrived\":null,\"mult\":0", "\"mother\":null,\"father\":null,\"pool\":0,\"arrived\":null,\"mult\":null")).is_ok());
 }
+
+/// A person or a couple twice is out of order (strictly ascending; mutants).
+#[test]
+fn a_line_twice_is_rejected() {
+    let twice_person = lines(&[
+        &HEADER.replace("\"persons\":2", "\"persons\":3"),
+        MOTHER,
+        MOTHER,
+        CHILD,
+        COUPLE,
+    ]);
+    let twice_couple = lines(&[
+        &HEADER.replace("\"couples\":1", "\"couples\":2"),
+        MOTHER,
+        CHILD,
+        COUPLE,
+        COUPLE,
+    ]);
+    assert!(read(&twice_person).is_err(), "a person twice");
+    assert!(read(&twice_couple).is_err(), "a couple twice");
+}

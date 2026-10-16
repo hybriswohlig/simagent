@@ -13,7 +13,7 @@ use sim_core::params::WorldParams;
 use sim_core::pool::take_households;
 use sim_core::time::SimTime;
 
-use super::{Observer, write};
+use super::{Observer, carried, write};
 use crate::criteria::export::{Export, Row, read};
 
 const POOL_C: &[u8] = include_bytes!("../../../tests/golden/pool/pool_c.bin");
@@ -172,5 +172,82 @@ fn the_export_is_the_references_text() {
     assert_ne!(
         masked(&t1.replacen("\"pool\":0", "\"pool\":2", 1)),
         masked(T1)
+    );
+}
+
+/// A town of two `Start` founders on the template without a pool: founders have no
+/// conception in the log, so no multiple index, and the export needs none (mutants).
+#[test]
+fn founders_have_no_multiple_index() {
+    let root = root();
+    let demography =
+        crate::map4::read(&root, "data/calibration/demography.json").expect("demography");
+    let (calibration, map) =
+        crate::prerun::read_files(&root.join("tests/golden/map4_template")).expect("the template");
+    let data = Data::new(
+        crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions"),
+    )
+    .expect("checked");
+    let founder = |sex| sim_core::input::Founder {
+        born: SimTime::from_secs(-20 * YEAR),
+        sex,
+        alleles: Vec::new(),
+    };
+    let start = Start {
+        world_seed: 3,
+        founder_tag: DataId::new("test:founders").expect("id"),
+        world_params: WorldParams {
+            hereditary_diseases: true,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            founder(sim_core::genome::Sex::Female),
+            founder(sim_core::genome::Sex::Male),
+        ],
+        couples: Vec::new(),
+        capacity: None,
+        pool: None,
+    };
+    let mut observer = Observer::default();
+    let end = SimTime::from_secs(YEAR - 1);
+    let (world, _) = crate::prerun::run_observed(data, Input::Start(start), end, &mut |entries| {
+        observer.observe(entries)
+    })
+    .expect("a run");
+    let export = read(&write(&world, &observer, end).expect("an export")).expect("read");
+    assert_eq!(export.header.pool_seed, None);
+    assert_eq!(export.rows.len(), 2);
+    for row in &export.rows {
+        assert_eq!((row.pool, row.mother, row.mult), (0, None, None));
+    }
+}
+
+/// `carried` (section 1): the pool held the pair, she arrived, and it was formed by her
+/// arrival; each condition alone is not enough (mutants).
+#[test]
+fn carried_needs_the_pool_pair_and_her_arrival() {
+    let tag = DataId::new("test:carried").expect("id");
+    let key = |n: u64| sim_core::lineage::LineageKey::founder(&tag, n);
+    let pairs: BTreeSet<_> = [(key(1), key(2))].into_iter().collect();
+    let at = |s: i64| Some(SimTime::from_secs(s));
+    assert!(
+        carried(&pairs, at(10), key(1), key(2), SimTime::from_secs(10)),
+        "at her arrival"
+    );
+    assert!(
+        carried(&pairs, at(10), key(1), key(2), SimTime::from_secs(-5)),
+        "before"
+    );
+    assert!(
+        !carried(&pairs, at(10), key(1), key(2), SimTime::from_secs(11)),
+        "formed again later"
+    );
+    assert!(
+        !carried(&pairs, at(10), key(1), key(3), SimTime::from_secs(10)),
+        "the market at her arrival"
+    );
+    assert!(
+        !carried(&pairs, None, key(1), key(2), SimTime::from_secs(10)),
+        "she did not arrive"
     );
 }
