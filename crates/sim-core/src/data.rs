@@ -232,8 +232,10 @@ pub struct GenomeMap {
 pub struct Trait {
     pub id: DataId,
     pub sigma_ref: FiniteF64,
-    /// Encoded for the data hash only when present, so a map without it keeps its hash.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional in the file (a missing `Option` reads as none, without `serde(default)`,
+    /// ADR-0007), and encoded for the data hash only when present, so a map without it
+    /// keeps its hash.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mean_ref: Option<FiniteF64>,
     pub exclusive: bool,
     pub includes: Vec<Load>,
