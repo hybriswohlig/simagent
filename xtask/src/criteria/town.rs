@@ -6,13 +6,14 @@
 //! `cargo run --release --locked -p xtask -- criteria town --map <dir> --pool <pool.bin>
 //! --out <dir>`
 //!
-//! It writes `export.ndjson` and `report.json` into `<dir>`, runs the same town without
-//! capacity (so without emigration) into `<dir>/open`, and is red when a check is red or a
-//! negative twin is green: `h²_T` is decided in the open town (Grok GH-1: emigration tilts
-//! the lifespans of those who die in the town), every other check in the criteria town.
+//! It runs the town and the same town without capacity (so without emigration) on one data,
+//! then writes `export.ndjson` and `report.json` into `<dir>` and `<dir>/open`; it is red
+//! when a check is red or a negative twin is green: `h²_T` is decided in the open town (Grok
+//! GH-1: emigration tilts the lifespans of those who die in the town), every other check in
+//! the criteria town.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sim_core::data::Data;
@@ -174,31 +175,46 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         );
     }
     let bytes = std::fs::read(pool).map_err(|e| format!("{pool}: {e}"))?;
+    let data = town_data(root, Path::new(map), &bytes)?;
     let out = Path::new(out);
-    let mut all = Vec::new();
-    let decides: [fn(&str) -> bool; 2] = [decided_closed, decided_open];
-    let runs = [
-        (criteria_town(), out.to_path_buf()),
-        (open_town(), out.join("open")),
+    let runs: [Run; 2] = [
+        (criteria_town(), out.to_path_buf(), decided_closed),
+        (open_town(), out.join("open"), decided_open),
     ];
-    for ((plan, dir), taken) in runs.into_iter().zip(decides) {
-        let data = town_data(root, Path::new(map), &bytes)?;
-        let (world, observer) = run_town(data, &plan)?;
-        let text = write(&world, &observer, plan.end)?;
-        let report = report(&text)?;
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        std::fs::write(dir.join("export.ndjson"), &text).map_err(|e| e.to_string())?;
-        let mut json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-        json.push('\n');
-        std::fs::write(dir.join("report.json"), json).map_err(|e| e.to_string())?;
-        println!("criteria town: {}", dir.display());
-        all.extend(reds(&report, &taken));
-    }
+    let all = towns(&data, &runs)?;
     if all.is_empty() {
         Ok(())
     } else {
         Err(format!("red:\n  {}", all.join("\n  ")))
     }
+}
+
+/// A town to run: its plan, its directory and the checks it decides.
+pub type Run = (Plan, PathBuf, fn(&str) -> bool);
+
+/// Runs every town on the same data, then writes each one's `export.ndjson` and
+/// `report.json` into its directory: nothing is written unless every town ran, so a failed
+/// open town never leaves a fresh criteria town beside stale files (review). Returns the reds
+/// of the checks each town decides.
+pub fn towns(data: &Data, runs: &[Run]) -> Result<Vec<String>> {
+    let mut ran = Vec::new();
+    for (plan, dir, taken) in runs {
+        let (world, observer) = run_town(data.clone(), plan)?;
+        let text = write(&world, &observer, plan.end)?;
+        let report = report(&text)?;
+        ran.push((dir, text, report, taken));
+    }
+    let mut all = Vec::new();
+    for (dir, text, report, taken) in ran {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(dir.join("export.ndjson"), &text).map_err(|e| e.to_string())?;
+        let mut json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+        json.push('\n');
+        std::fs::write(dir.join("report.json"), json).map_err(|e| e.to_string())?;
+        println!("criteria town: {}", dir.display());
+        all.extend(reds(&report, taken));
+    }
+    Ok(all)
 }
 
 #[cfg(test)]

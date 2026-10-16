@@ -215,7 +215,7 @@ fn the_towns_write_nothing_unless_every_town_ran() {
         tag: "no namespace",
         ..t1()
     };
-    let runs: [(Plan, std::path::PathBuf, fn(&str) -> bool); 2] = [
+    let runs: [Run; 2] = [
         (t1(), dir.clone(), decided_closed),
         (failing, dir.join("open"), decided_open),
     ];
@@ -233,7 +233,7 @@ fn the_towns_write_each_town_and_split_the_reds() {
     let data = town_data(&root(), &root().join("tests/golden/map4_template"), POOL_D)
         .expect("the town's data");
     let dir = std::env::temp_dir().join(format!("simagent-towns-{}", std::process::id()));
-    let runs: [(Plan, std::path::PathBuf, fn(&str) -> bool); 2] = [
+    let runs: [Run; 2] = [
         (t1(), dir.clone(), decided_closed),
         (t1(), dir.join("open"), decided_open),
     ];
