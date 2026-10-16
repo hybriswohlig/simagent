@@ -586,3 +586,29 @@ fn the_report_goes_beside_the_export_unless_named() {
     assert!(command(&[]).is_err());
     assert!(command(&["town".to_owned()]).is_err());
 }
+
+/// The command takes `report`, the export and at most an output path (mutants).
+#[test]
+fn the_command_takes_report_an_export_and_at_most_an_output() {
+    let args = |list: &[&str]| list.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for wrong in [
+        args(&["town", "export.ndjson"]),
+        args(&["report", "export.ndjson", "out.json", "more"]),
+        args(&["report"]),
+    ] {
+        assert_eq!(command(&wrong), Err(USAGE.to_owned()), "{wrong:?}");
+    }
+    let missing = command(&args(&["report", "no/such/export.ndjson"])).expect_err("no file");
+    assert!(missing.contains("no/such/export.ndjson"), "{missing}");
+    // A real export, written beside its report.
+    let dir = std::env::temp_dir().join(format!("simagent-criteria-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let export = dir.join("hand.ndjson");
+    std::fs::write(&export, HAND).expect("written");
+    let written = command(&args(&["report", export.to_str().expect("utf-8")]));
+    let report = std::fs::read_to_string(dir.join("report.json"));
+    std::fs::remove_dir_all(&dir).expect("removed");
+    assert_eq!(written, Ok(()));
+    let report: Value = serde_json::from_str(&report.expect("a report")).expect("json");
+    assert_eq!(report["persons"], json!(44));
+}
