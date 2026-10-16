@@ -252,6 +252,7 @@ fn golden_save_is_reproduced_and_continues() {
     let resumed = YearOut {
         census: Vec::new(),
         year_hashes: years,
+        trace: Vec::new(),
     };
     let rest = run_to(loaded, resumed, part.log, scenario().until);
     assert_eq!(rest.out.year_hashes, golden.year_hashes);

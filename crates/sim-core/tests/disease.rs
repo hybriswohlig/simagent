@@ -365,6 +365,7 @@ fn save_load_continue_across_the_switch() {
             out: YearOut {
                 census: part.out.census.clone(),
                 year_hashes: years,
+                trace: Vec::new(),
             },
             log: part.log,
         };

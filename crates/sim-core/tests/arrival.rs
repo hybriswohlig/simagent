@@ -1243,6 +1243,7 @@ fn a_loaded_town_runs_on_as_the_uninterrupted_one() {
         out: YearOut {
             census: Vec::new(),
             year_hashes: years,
+            trace: Vec::new(),
         },
         log: run.log,
         data: ARRIVAL.data,

@@ -317,6 +317,7 @@ fn save_load_continue_across_the_deaths() {
         let mut out = YearOut {
             census: part.out.census.clone(),
             year_hashes: years,
+            trace: Vec::new(),
         };
         loaded.advance_until(&mut out, SimTime::from_secs(end), &mut |_| false);
         let mut log = part.log;

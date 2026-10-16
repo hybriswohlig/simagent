@@ -532,6 +532,7 @@ fn a_save_after_pairing_a_mother_as_her_child_comes_of_age_loads() {
         out: YearOut {
             census: run.out.census.clone(),
             year_hashes: years,
+            trace: Vec::new(),
         },
         log: Vec::new(),
         input: false,

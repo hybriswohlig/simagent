@@ -22,7 +22,7 @@ use crate::log::{Cause, LogEntry, PlanRef};
 use crate::params::WorldParams;
 use crate::state::{self, DomainState};
 use crate::time::{AdvanceOutcome, Ctx, Fired, Handler, RunStats, Scheduler, SimTime};
-use crate::trace::{TraceBuffer, TraceEntry, TraceFilter};
+use crate::trace::{TraceBuffer, TraceEntry, TraceFilter, TracePayload};
 use ctx::{IdCounters, LogBuffer};
 
 /// The input log: the only replay source (ADR-0004 section 6). It lives outside the
@@ -34,10 +34,13 @@ struct InputLog {
 
 /// What the observer `YearEnd` writes per year: output, not state (ADR-0002). Neither
 /// hashed nor saved; a save gets the year hashes handed along (ADR-0003 5.3).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct YearOut {
     pub census: Vec<CensusRow>,
     pub year_hashes: Vec<YearHash>,
+    /// Trace entries the observer wrote; `advance_until` moves them into the trace
+    /// buffer, so `take_trace` stays their only exit (ADR-0004 section 6).
+    pub trace: Vec<TraceEntry>,
 }
 
 pub struct World {
@@ -114,7 +117,9 @@ impl World {
         limit: SimTime,
         stop: &mut dyn FnMut(&WorldState) -> bool,
     ) -> AdvanceOutcome {
-        self.sched.advance_until(&mut self.state, out, limit, stop)
+        let outcome = self.sched.advance_until(&mut self.state, out, limit, stop);
+        self.state.trace.absorb(core::mem::take(&mut out.trace));
+        outcome
     }
 
     /// The state hash between two calls (ADR-0003 5.4).
@@ -312,7 +317,23 @@ impl Handler<EventPayload, PlanRef> for WorldState {
         match ev.payload {
             EventPayload::YearEnd => {
                 let mut row = state::census::census_row(&self.domain, ev.key.time);
-                row.body = crate::body_contract::count(&self.domain, &self.data, ev.key.time);
+                let t = ev.key.time;
+                let trace = &self.trace;
+                let entries = &mut out.trace;
+                row.body = crate::body_contract::count(
+                    &self.domain,
+                    &self.data,
+                    t,
+                    &mut |sim, z_h, z_p| {
+                        if trace.includes(sim) {
+                            entries.push(TraceEntry {
+                                t,
+                                sim,
+                                payload: TracePayload::CurveInputClamped { z_h, z_p },
+                            });
+                        }
+                    },
+                );
                 out.year_hashes.push(YearHash {
                     year: row.year,
                     hash: canonical::state_hash(self, sched),

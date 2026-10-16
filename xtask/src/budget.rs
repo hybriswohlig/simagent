@@ -26,11 +26,15 @@ pub fn entry_times(events: &str) -> Result<Vec<i64>, String> {
     Ok(times)
 }
 
-/// The rows `(year, lived_secs)` in the text of a `census.csv`.
+/// The rows `(year, lived_secs)` in the text of a `census.csv`: its first three columns
+/// are those of every run (ADR-0004 section 8), the body columns follow (ADR-0020 7).
 pub fn census_rows(census: &str) -> Result<Vec<(i64, u64)>, String> {
     let mut lines = census.lines().zip(1..);
     match lines.next() {
-        Some(("year,living,lived_secs", _)) => {}
+        Some((header, _))
+            if header
+                .strip_prefix("year,living,lived_secs")
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(',')) => {}
         Some(_) => return Err("census.csv does not start with year,living,lived_secs".to_string()),
         None => return Err("census.csv has no row".to_string()),
     }
@@ -38,7 +42,7 @@ pub fn census_rows(census: &str) -> Result<Vec<(i64, u64)>, String> {
     for (line, number) in lines {
         let columns: Vec<&str> = line.split(',').collect();
         let row = match columns.as_slice() {
-            [year, _living, lived_secs] => year.parse().ok().zip(lived_secs.parse().ok()),
+            [year, _living, lived_secs, ..] => year.parse().ok().zip(lived_secs.parse().ok()),
             _ => None,
         };
         rows.push(
@@ -200,6 +204,15 @@ mod tests {
             Err("census.csv has no row".to_string())
         );
         assert_eq!(census_rows(""), Err("census.csv has no row".to_string()));
+        // The body columns follow the three (ADR-0020 section 7).
+        assert_eq!(
+            census_rows("year,living,lived_secs,body_evaluated\n0,1,31449600,1\n"),
+            Ok(vec![(0, 31_449_600)])
+        );
+        assert_eq!(
+            census_rows("year,living,lived_secsx\n0,1,5\n"),
+            Err("census.csv does not start with year,living,lived_secs".to_string())
+        );
         assert_eq!(
             census_rows("living,year,lived_secs\n0,1,5\n"),
             Err("census.csv does not start with year,living,lived_secs".to_string())
