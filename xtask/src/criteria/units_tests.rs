@@ -589,20 +589,20 @@ fn a_village_with_one_unit_or_nobody_alive_is_a_finding() {
             living: 0
         })
     );
-    // 40 years: g* = (40 - 18) div 30 - 1 = -1. A child born before the start in that
-    // block is not village-born.
+    // 40 years: 40 - 18 < 30, no measured block (the reference's rule; a flooring
+    // division would give block -1). 48 years is the first with one, block 0.
     let short = vec![
         person(1, true, -40 * Y),
         child(2, true, -20 * Y, 1, 3),
         person(3, false, -40 * Y),
     ];
+    let town_of = |end| export(end, short.clone(), vec![]);
     assert_eq!(
-        town(&export(40 * Y - 1, short, vec![])).village().err(),
-        Some(Finding::Village {
-            units: 0,
-            living: 3
-        })
+        town(&town_of(40 * Y - 1)).village().err(),
+        Some(Finding::NoBlock)
     );
+    assert_eq!(town(&town_of(48 * Y - 2)).village_block(), None);
+    assert_eq!(town(&town_of(48 * Y - 1)).village_block(), Some(0));
 }
 
 /// Couples of town-born persons, arrivals and a pool child, with two carried couples.
