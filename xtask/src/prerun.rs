@@ -106,15 +106,20 @@ pub fn prerun_data(root: &Path, calibration: &Json, map: &Json) -> Result<Data> 
 
 /// The data of these three documents, read as the CLI reads data files.
 pub fn data_of(demography: &Json, calibration: &Json, map: &Json) -> Result<Data> {
-    let definitions = Definitions {
+    Data::new(definitions_of(demography, calibration, map)?)
+        .map_err(|error| format!("the pre-run data: {error}"))
+}
+
+/// The definitions of these three documents without their text fields.
+pub fn definitions_of(demography: &Json, calibration: &Json, map: &Json) -> Result<Definitions> {
+    Ok(Definitions {
         demography: serde_json::from_str(&plain(demography)?)
             .map_err(|error| format!("demography: {error}"))?,
         calibration: serde_json::from_str(&plain(calibration)?)
             .map_err(|error| format!("calibration: {error}"))?,
         genome_map: serde_json::from_str(&plain(map)?)
             .map_err(|error| format!("genome map: {error}"))?,
-    };
-    Data::new(definitions).map_err(|error| format!("the pre-run data: {error}"))
+    })
 }
 
 /// One group of founders: a sex and a whole age, its weight and its count.
