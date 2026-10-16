@@ -43,13 +43,6 @@ struct Verdict {
     fragile: bool,
 }
 
-/// The verdict of a check that is reported only (F11 men).
-const REPORT_ONLY: Verdict = Verdict {
-    pass: None,
-    finding: None,
-    fragile: false,
-};
-
 impl Verdict {
     fn red(finding: &'static str) -> Verdict {
         Verdict {
@@ -59,42 +52,62 @@ impl Verdict {
         }
     }
 
-    fn of(outside: bool, margin: f64) -> Verdict {
+    /// Reported only (F11 men): no verdict, `fragile` as for any check.
+    fn reported(value: Option<f64>, target: f64, tol: Option<f64>) -> Verdict {
         Verdict {
-            pass: Some(!outside),
-            finding: outside.then_some("outside"),
-            fragile: margin.abs() <= FRAGILE,
+            pass: None,
+            finding: None,
+            fragile: fragile(value, target, tol),
         }
+    }
+}
+
+/// Whether a decision lies within 1e-9 of its boundary, `||value − target| − tol| ≤ 1e-9`,
+/// whenever value and tolerance are defined, whatever `n` (the reference's rule; a value
+/// compared within 1e-12 could flip it). A NaN is never fragile; a band never is.
+fn fragile(value: Option<f64>, target: f64, tol: Option<f64>) -> bool {
+    match (value, tol) {
+        (Some(value), Some(tol)) => ((value - target).abs() - tol).abs() <= FRAGILE,
+        _ => false,
     }
 }
 
 /// `|value − target| ≤ tol` at `n` units: red below the minimum, then if the value or the
-/// tolerance is undefined, then outside.
+/// tolerance is undefined, then outside. Only a value within passes, so NaN is outside.
 fn against(n: usize, min: usize, value: Option<f64>, target: f64, tol: Option<f64>) -> Verdict {
-    if n < min {
-        return Verdict::red("below_minimum");
-    }
-    match (value, tol) {
-        (Some(value), Some(tol)) => {
-            let off = (value - target).abs();
-            Verdict::of(off > tol, off - tol)
+    let finding = if n < min {
+        Some("below_minimum")
+    } else {
+        match (value, tol) {
+            (Some(value), Some(tol)) => {
+                let inside = (value - target).abs() <= tol;
+                if inside { None } else { Some("outside") }
+            }
+            _ => Some("undefined"),
         }
-        _ => Verdict::red("undefined"),
+    };
+    Verdict {
+        pass: Some(finding.is_none()),
+        finding,
+        fragile: fragile(value, target, tol),
     }
 }
 
-/// `value` in the inclusive band `[lo, hi]`.
+/// `value` in the inclusive band `[lo, hi]`; only a value inside passes, so NaN is outside.
+/// A band is never fragile (the reference's rule).
 fn within(value: Option<f64>, [lo, hi]: [f64; 2]) -> Verdict {
     let Some(value) = value else {
         return Verdict::red("undefined");
     };
-    let (below, above) = (value - lo, hi - value);
-    let margin = if below.abs() < above.abs() {
-        below
+    if lo <= value && value <= hi {
+        Verdict {
+            pass: Some(true),
+            finding: None,
+            fragile: false,
+        }
     } else {
-        above
-    };
-    Verdict::of(below < 0.0 || above < 0.0, margin)
+        Verdict::red("outside")
+    }
 }
 
 fn bits(x: f64) -> Value {
@@ -364,7 +377,10 @@ fn partnerships(town: &Town, female: bool) -> [Value; 2] {
             against(n, 0, share, 0.1, never_tol),
         ]
     } else {
-        [REPORT_ONLY; 2]
+        [
+            Verdict::reported(value, 23.5, tol),
+            Verdict::reported(share, 0.1, never_tol),
+        ]
     };
     let only = if female {
         json!({})
@@ -506,7 +522,8 @@ fn village(years: i64, village: Option<&Village>) -> Value {
     json!({
         "check": "village_block", "end_years": years, "g_star": village.block, "n": n,
         "units": hash(&village.units.anchors), "variance": maybe(variance(&village.units.values)),
-        "expectation": bits(village_expectation(VILLAGE_H2, &pairs)), "blocks": blocks,
+        "expectation": if pairs.is_empty() { Value::Null } else { bits(village_expectation(VILLAGE_H2, &pairs)) },
+        "blocks": blocks,
         "living": village.living, "finding": finding,
     })
 }
