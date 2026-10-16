@@ -70,7 +70,8 @@ pub struct Family {
 pub struct Mc1r {
     pub copies: u64,
     pub parents: u64,
-    pub q: f64,
+    /// `None` without a family parent (no frequency to estimate).
+    pub q: Option<f64>,
     pub units: Units<(bool, f64)>,
     pub families: Vec<usize>,
     pub unaffected: Vec<bool>,
@@ -80,7 +81,7 @@ impl Mc1r {
     /// Whether `q` lies in `[0.13, 0.17]` (K5); outside, the check is red with `q` and
     /// reads no expectation.
     pub fn in_band(&self) -> bool {
-        (0.13..=0.17).contains(&self.q)
+        self.q.is_some_and(|q| (0.13..=0.17).contains(&q))
     }
 }
 
@@ -346,7 +347,7 @@ impl<'a> Town<'a> {
             .map(|key| u64::from(self.row(*key).mc1r))
             .sum();
         let parents = tally(parents.len());
-        let q = real(copies) / real(2 * parents);
+        let q = (parents > 0).then(|| real(copies) / real(2 * parents));
         let unaffected: Vec<bool> = (self.families.iter())
             .map(|family| self.row(family.mother).mc1r < 2 && self.row(family.father).mc1r < 2)
             .collect();
