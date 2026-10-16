@@ -371,47 +371,43 @@ def km_median_se(hist: list, never: int, med: float) -> float:
     return math.sqrt(0.25 / float(n)) / dens
 
 
-def life_table_finding(exposure: list, deaths: list):
-    """Why a life table is undefined (review round 2, note section 10), checked in this order,
-    or None: `bad_lengths` (the lists empty or of different lengths), `zero_exposure` (any
-    `E_x` = 0), `no_open_deaths` (`D_ω` = 0), `q_at_least_one` (a closed age with `q_x ≥ 1`,
-    that is `m_x ≥ 2`: `l` would reach 0 or turn negative). `q_x` is computed exactly as in
-    `life_table`."""
-    if not exposure or len(exposure) != len(deaths):
-        return "bad_lengths"
-    if any(e == 0 for e in exposure):
-        return "zero_exposure"
-    if deaths[-1] == 0:
-        return "no_open_deaths"
-    for e, d in zip(exposure[:-1], deaths[:-1]):
-        m = float(d) / (float(e) / YEAR_F)
-        if m / (1.0 + 0.5 * m) >= 1.0:
-            return "q_at_least_one"
-    return None
+def life_table_parts(exposure: list, deaths: list) -> tuple:
+    """(finding, table) of the period life table (note section 3, I-3; review rounds 2 and 3,
+    note section 10): Chiang II with one-year ages and `a_x` = 0.5; `exposure` and `deaths`
+    per age `x` = 0 to ω − 1 and the open interval ω last (integers: seconds and counts).
 
+    Undefined (finding, None), checked in this order: `bad_lengths` (the lists empty or of
+    different lengths), `zero_exposure` (any `E_x` = 0), `no_open_deaths` (`D_ω` = 0),
+    `q_at_least_one` (a closed age with `q_x ≥ 1`, that is `m_x ≥ 2`), `l_underflow` (any `l_x`,
+    x = 0 to ω, not above 0.0: a run of `q` just below 1 underflows `l` to 0), `not_finite`
+    (`e_0` or its SE not finite; a last guard, which no input of the domain reaches, NOTES.md
+    section 9). A table of the open interval alone (one entry) is valid: `e_0 = (l_0 / m_ω) /
+    l_0`, its variance the open term alone.
 
-def life_table(exposure: list, deaths: list):
-    """The period life table (note section 3, I-3): Chiang II with one-year ages and `a_x` =
-    0.5; `exposure` and `deaths` per age `x` = 0 to ω − 1 and the open interval ω last
-    (integers: seconds and counts). None (red, a finding) where `life_table_finding` names
-    one (review round 2). A table of the open interval alone (one entry) is valid: `e_0 =
-    l_0 / m_ω / l_0`, its variance the open term alone. The
-    order of every operation (NOTES.md): `y_x = E_x / 31449600.0`, `m_x = D_x / y_x`, `q_x =
+    The order of every operation (NOTES.md): `y_x = E_x / 31449600.0`, `m_x = D_x / y_x`, `q_x =
     m_x / (1.0 + 0.5 · m_x)`, `l_0 = 1.0`, `l_{x+1} = l_x · (1.0 − q_x)`, `L_x = 0.5 · (l_x +
     l_{x+1})`, `L_ω = l_ω / m_ω`, `T_ω = L_ω`, `T_x = L_x + T_{x+1}` downwards, `e_x = T_x /
     l_x`; `Var(q_x) = ((q_x · q_x) · (1.0 − q_x)) / D_x` (0 if `D_x` = 0); `Var(e_0)` the fold
     over `x < ω` ascending of `((l_x · l_x) · (t · t)) · Var(q_x)` with `t = 0.5 + e_{x+1}`,
     then plus `((l_ω · l_ω) · D_ω) / ((y_ω · y_ω) · (((m_ω · m_ω) · m_ω) · m_ω))`; `se =
     sqrt(Var(e_0))`."""
-    if life_table_finding(exposure, deaths) is not None:
-        return None
+    if not exposure or len(exposure) != len(deaths):
+        return "bad_lengths", None
+    if any(e == 0 for e in exposure):
+        return "zero_exposure", None
+    if deaths[-1] == 0:
+        return "no_open_deaths", None
     w = len(exposure) - 1
     y = [float(e) / YEAR_F for e in exposure]
     m = [float(d) / yx for d, yx in zip(deaths, y)]
     q = [m[x] / (1.0 + 0.5 * m[x]) for x in range(w)]
+    if any(qx >= 1.0 for qx in q):
+        return "q_at_least_one", None
     l = [1.0]
     for x in range(w):
         l.append(l[x] * (1.0 - q[x]))
+    if any(not lx > 0.0 for lx in l):
+        return "l_underflow", None
     big_l = [0.5 * (l[x] + l[x + 1]) for x in range(w)]
     t = [0.0] * (w + 1)
     t[w] = l[w] / m[w]
@@ -426,7 +422,20 @@ def life_table(exposure: list, deaths: list):
     m4 = ((m[w] * m[w]) * m[w]) * m[w]
     last = ((l[w] * l[w]) * float(deaths[w])) / ((y[w] * y[w]) * m4)
     var_e0 = acc + last
-    return {"e0": e[0], "var_e0": var_e0, "se": math.sqrt(var_e0), "q": q, "l": l, "e": e}
+    se = math.sqrt(var_e0) if var_e0 >= 0.0 else math.nan
+    if not (math.isfinite(e[0]) and math.isfinite(se)):
+        return "not_finite", None
+    return None, {"e0": e[0], "var_e0": var_e0, "se": se, "q": q, "l": l, "e": e}
+
+
+def life_table_finding(exposure: list, deaths: list):
+    """Why the life table is undefined (`life_table_parts`), or None."""
+    return life_table_parts(exposure, deaths)[0]
+
+
+def life_table(exposure: list, deaths: list):
+    """The life table (`life_table_parts`), or None (red, a finding)."""
+    return life_table_parts(exposure, deaths)[1]
 
 
 P9_Q = 0.15
@@ -1786,6 +1795,14 @@ LIFE_TABLE_EDGES = [
     ("open_only", [4 * YEAR], [2]),
     ("two_ages_q0_two_thirds", [YEAR, YEAR], [1, 1]),
     ("two_ages_q0_just_below_one", [YEAR + 1, YEAR], [2, 1]),
+    # Review round 3: every q about 0.9999999841 < 1, but l[42] underflows to 0.
+    ("l_underflow", [YEAR + 1] * 100 + [YEAR], [2] * 100 + [1]),
+]
+# Outside the domain (deaths are counts, never negative; an unsigned count cannot hold
+# these): negative deaths with m just above −2 make 1 − q about 6.3e7, l overflows to inf
+# (above 0, so not `l_underflow`) and e_0 = inf / inf is NaN: the only way to `not_finite`.
+LIFE_TABLE_OUT_OF_DOMAIN = [
+    ("negative_deaths_l_overflow", [YEAR + 1] * 100 + [YEAR], [-2] * 100 + [1]),
 ]
 
 
@@ -1803,7 +1820,9 @@ def life_table_edges() -> dict:
             "e0": None if table is None else bits(table["e0"]), "var_e0": None if table is None else bits(table["var_e0"]),
             "se": None if table is None else bits(table["se"]), "q": None if table is None else [bits(q) for q in table["q"]],
         }
-    expected = {"empty": "bad_lengths", "lengths_2_3": "bad_lengths", "q0_one": "q_at_least_one", "q0_above_one": "q_at_least_one"}
+    expected = {"empty": "bad_lengths", "lengths_2_3": "bad_lengths", "q0_one": "q_at_least_one", "q0_above_one": "q_at_least_one",
+                "l_underflow": "l_underflow"}
+    assert all(q < 1.0 for q in [m / (1.0 + 0.5 * m) for m in [2.0 / ((YEAR + 1) / YEAR_F)]])
     for name, finding in expected.items():
         assert out[name]["finding"] == finding and out[name]["e0"] is None, name
     open_only = life_table([4 * YEAR], [2])
@@ -1812,6 +1831,17 @@ def life_table_edges() -> dict:
     assert abs(two["e0"] - 1.0) <= 1e-15 and abs(two["var_e0"] - 4.0 / 9.0) <= 1e-15 and abs(two["se"] - 2.0 / 3.0) <= 1e-15
     near = life_table([YEAR + 1, YEAR], [2, 1])
     assert 0.9999999 < near["q"][0] < 1.0
+    return out
+
+
+def life_table_out_of_domain() -> dict:
+    """Inputs outside the domain (negative deaths) that reach `not_finite`; kept apart from
+    `life_table_edges` so that a reader of unsigned counts can skip them."""
+    out = {}
+    for name, exposure, deaths in LIFE_TABLE_OUT_OF_DOMAIN:
+        finding = life_table_finding(exposure, deaths)
+        assert finding == "not_finite", (name, finding)
+        out[name] = {"E": exposure, "D": deaths, "finding": finding, "e0": None, "var_e0": None, "se": None, "q": None}
     return out
 
 
@@ -1877,6 +1907,7 @@ def estimator_vectors() -> dict:
         "probit_rows_differing_from_core": check_probit(),
         **review_round_1_vectors(),
         "life_table_edges": life_table_edges(),
+        "life_table_out_of_domain": life_table_out_of_domain(),
     }
 
 
