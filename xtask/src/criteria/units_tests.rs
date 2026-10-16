@@ -590,7 +590,11 @@ fn a_village_keeps_its_units_and_the_living_for_the_reports_findings() {
     ];
     let town_of = |end| export(end, short.clone(), vec![]);
     assert_eq!(town(&town_of(40 * Y - 1)).village(), None);
+    assert_eq!(town(&town_of(47 * Y - 1)).village_block(), None);
+    // Not a year end: no whole number of years (review).
     assert_eq!(town(&town_of(48 * Y - 2)).village_block(), None);
+    assert_eq!(town(&town_of(108 * Y - 2)).village_block(), None);
+    assert_eq!(town(&town_of(108 * Y - 1)).village_block(), Some(2));
     assert_eq!(town(&town_of(48 * Y - 1)).village_block(), Some(0));
 }
 

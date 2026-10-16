@@ -193,6 +193,12 @@ fn the_reference_pins_the_hand_units() {
             (exposure, deaths),
             "life table {sex}"
         );
+        // Every row of the sex is a unit of its table (NOTES item 15).
+        assert_eq!(
+            u64::try_from(table.anchors.len()).expect("small"),
+            count(&want["rows"]),
+            "life-table rows {sex}"
+        );
         let longevity = town.longevity(female);
         let want_h2 = &want_h2t(sex);
         assert_eq!(
