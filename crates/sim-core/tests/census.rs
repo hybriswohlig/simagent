@@ -696,7 +696,7 @@ fn the_census_view_reads_absent_pigment_loci_as_dose_zero() {
     }
     for (locus, field, value) in [
         ("core:mc1r", "action", "dominant"),
-        ("core:herc2", "chromosome", "x"),
+        ("core:herc2", "action", "dominant"),
     ] {
         let (calibration, mut genome_map) = template();
         let entry = genome_map["loci"]

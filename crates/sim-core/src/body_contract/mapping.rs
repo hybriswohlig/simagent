@@ -119,7 +119,7 @@ impl<'a> BodyData<'a> {
     /// gives MC1R and HERC2 (ADR-0020 section 3), so its censuses count the clamp rate of the
     /// reference population (section 7). One locus without the other is still
     /// `data.body_traits`.
-    pub(crate) fn census(data: &'a Data) -> Result<BodyData<'a>, DataError> {
+    pub fn census(data: &'a Data) -> Result<BodyData<'a>, DataError> {
         BodyData::checked(data, true)
     }
 
