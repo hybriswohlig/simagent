@@ -1901,33 +1901,33 @@
    ]
   },
   "b_pool_c_immigration": {
-   "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_c.bin",
-   "data_hash": "6cac772d1146140e",
+   "data": "the documents of father_dies (tools/pool_reference.py: tests/golden/map4_template with data/calibration/demography.json and the scenario's values) and the pool tests/golden/pool/pool_c.bin",
+   "data_hash": "2f5ffab01421f28a",
    "body_data": "accepted",
-   "start_input_hash": "eff9bb7bd6f2f006",
+   "start_input_hash": "db33f0998d01ce48",
    "year_hashes": [
-    "e08a305ef3f8a9f0",
-    "dc533bcde5c1fe92",
-    "1de7f8e732211532",
-    "0f6ebb39d859cb3a",
-    "afd1d194b7a18cda",
-    "1d312c0e14976197",
-    "78114985f04ed687",
-    "a502d6ffe428ebd9",
-    "694899bf935f1429",
-    "5496f8c299e8cb40",
-    "978476df226e0008",
-    "41b97f2a853fc113",
-    "69f5244c346e7c1e",
-    "2764d2e1a5321697"
+    "793d81b8642b6545",
+    "b2fbcdf2f85d9c58",
+    "f5161027b8662d58",
+    "c1e6a327eed3b9a0",
+    "c351cb7a574de050",
+    "900d4b1e9396be9b",
+    "350586dc3a273fcb",
+    "59ba4f6cc300c70c",
+    "fc14f4e75ff1253c",
+    "454e1afe8fa6a32f",
+    "867e48a8b2eefbb0",
+    "ea0cbd2044cc6a27",
+    "14e73c31c827e202",
+    "2e901c70b3e89413"
    ],
-   "log_hash": "3811f8430deb22ef",
+   "log_hash": "a7f50c2cd8fcb27c",
    "rows": [
     {
      "year": 0,
-     "living": 60,
-     "lived_secs": 1799884800,
-     "body_evaluated": 60,
+     "living": 59,
+     "lived_secs": 1773899409,
+     "body_evaluated": 59,
      "clamped": [
       0,
       0,
@@ -1956,7 +1956,7 @@
     {
      "year": 1,
      "living": 65,
-     "lived_secs": 1995840000,
+     "lived_secs": 1969228800,
      "body_evaluated": 65,
      "clamped": [
       0,
@@ -1985,9 +1985,9 @@
     },
     {
      "year": 2,
-     "living": 70,
-     "lived_secs": 2162764800,
-     "body_evaluated": 70,
+     "living": 71,
+     "lived_secs": 2178911163,
+     "body_evaluated": 71,
      "clamped": [
       0,
       0,
@@ -2015,9 +2015,9 @@
     },
     {
      "year": 3,
-     "living": 77,
-     "lived_secs": 2336947200,
-     "body_evaluated": 77,
+     "living": 76,
+     "lived_secs": 2344204800,
+     "body_evaluated": 76,
      "clamped": [
       0,
       0,
@@ -2045,9 +2045,9 @@
     },
     {
      "year": 4,
-     "living": 83,
-     "lived_secs": 2552256000,
-     "body_evaluated": 83,
+     "living": 84,
+     "lived_secs": 2547417600,
+     "body_evaluated": 84,
      "clamped": [
       0,
       0,
@@ -2075,9 +2075,9 @@
     },
     {
      "year": 5,
-     "living": 88,
-     "lived_secs": 2781373261,
-     "body_evaluated": 88,
+     "living": 90,
+     "lived_secs": 2841853261,
+     "body_evaluated": 90,
      "clamped": [
       0,
       0,
@@ -2106,7 +2106,7 @@
     {
      "year": 6,
      "living": 90,
-     "lived_secs": 2808977440,
+     "lived_secs": 2843122960,
      "body_evaluated": 90,
      "clamped": [
       0,
@@ -2135,9 +2135,9 @@
     },
     {
      "year": 7,
-     "living": 92,
-     "lived_secs": 2871590400,
-     "body_evaluated": 92,
+     "living": 91,
+     "lived_secs": 2861913600,
+     "body_evaluated": 91,
      "clamped": [
       0,
       0,
@@ -2166,7 +2166,7 @@
     {
      "year": 8,
      "living": 96,
-     "lived_secs": 3019161600,
+     "lived_secs": 3043303979,
      "body_evaluated": 96,
      "clamped": [
       0,
@@ -2195,9 +2195,9 @@
     },
     {
      "year": 9,
-     "living": 99,
-     "lived_secs": 3113510400,
-     "body_evaluated": 99,
+     "living": 98,
+     "lived_secs": 3108177705,
+     "body_evaluated": 98,
      "clamped": [
       0,
       0,
@@ -2255,9 +2255,9 @@
     },
     {
      "year": 11,
-     "living": 100,
-     "lived_secs": 3142540800,
-     "body_evaluated": 100,
+     "living": 99,
+     "lived_secs": 3113510400,
+     "body_evaluated": 99,
      "clamped": [
       0,
       0,
@@ -2286,7 +2286,7 @@
     {
      "year": 12,
      "living": 103,
-     "lived_secs": 3210278400,
+     "lived_secs": 3181248000,
      "body_evaluated": 103,
      "clamped": [
       0,
@@ -2315,9 +2315,9 @@
     },
     {
      "year": 13,
-     "living": 104,
-     "lived_secs": 3314827039,
-     "body_evaluated": 104,
+     "living": 105,
+     "lived_secs": 3325195089,
+     "body_evaluated": 105,
      "clamped": [
       0,
       0,
@@ -2366,26 +2366,14 @@
     }
    },
    "pool": {
-    "pool_hash": "e4a73ea334e74b6c",
+    "pool_hash": "ec01a0ff07260ad1",
     "pool_seed": "0000000011b019a2",
     "frozen_at": 62899200
    },
    "g6_effects": [
     {
      "year": 9,
-     "sim": 95,
-     "arrived": 251596800,
-     "born": -487468800,
-     "dropped_years": [
-      -2,
-      3
-     ],
-     "height_cm": "4064689aeb26e2a4",
-     "height_cm_without_g6": "4064549aeb26e2a4"
-    },
-    {
-     "year": 9,
-     "sim": 101,
+     "sim": 106,
      "arrived": 283046400,
      "born": 254016000,
      "dropped_years": [
@@ -2398,19 +2386,7 @@
     },
     {
      "year": 13,
-     "sim": 95,
-     "arrived": 251596800,
-     "born": -487468800,
-     "dropped_years": [
-      -2,
-      3
-     ],
-     "height_cm": "4064689aeb26e2a4",
-     "height_cm_without_g6": "4064549aeb26e2a4"
-    },
-    {
-     "year": 13,
-     "sim": 101,
+     "sim": 106,
      "arrived": 283046400,
      "born": 254016000,
      "dropped_years": [
@@ -2423,7 +2399,7 @@
     },
     {
      "year": 13,
-     "sim": 108,
+     "sim": 114,
      "arrived": 408844800,
      "born": -424569600,
      "dropped_years": [
@@ -2436,7 +2412,7 @@
     },
     {
      "year": 13,
-     "sim": 109,
+     "sim": 115,
      "arrived": 408844800,
      "born": -235872000,
      "dropped_years": [
@@ -2553,8 +2529,8 @@
     {
      "year": 0,
      "t": 31449599,
-     "living": 60,
-     "hash": "1142f282aa00482b",
+     "living": 59,
+     "hash": "b28bf3e32ccedbd5",
      "persons": [
       [
        1,
@@ -2737,11 +2713,6 @@
        "53d71e27a28aff29"
       ],
       [
-       37,
-       "c0e8483b3693957b",
-       "293b0d0b0397565a"
-      ],
-      [
        38,
        "b63cb8ceb10a951c",
        "0065ca85a862b037"
@@ -2765,11 +2736,6 @@
        42,
        "0871466509551a39",
        "d20c841e8eae3ef1"
-      ],
-      [
-       43,
-       "56a669027bcb6e80",
-       "1779996651560b64"
       ],
       [
        44,
@@ -2855,14 +2821,19 @@
        60,
        "174b4393de060a34",
        "d72708f52ef8f6ad"
+      ],
+      [
+       61,
+       "26537558026fb444",
+       "f762b1564fe5bd53"
       ]
      ]
     },
     {
      "year": 9,
      "t": 314495999,
-     "living": 99,
-     "hash": "2f179c5fdafff576",
+     "living": 98,
+     "hash": "b681f5794fef5a46",
      "persons": [
       [
        1,
@@ -2893,11 +2864,6 @@
        6,
        "5d5ba560e9ae18b1",
        "eb8cc18fd905e8d9"
-      ],
-      [
-       7,
-       "f52f3e898fd0654e",
-       "e0b8ec59bd1f6993"
       ],
       [
        8,
@@ -3040,11 +3006,6 @@
        "d98c466b20254384"
       ],
       [
-       37,
-       "c0e8483b3693957b",
-       "aa910d02ed9ccec0"
-      ],
-      [
        38,
        "b63cb8ceb10a951c",
        "c64d0529ec6b1965"
@@ -3068,16 +3029,6 @@
        42,
        "0871466509551a39",
        "38eaa5be4bdb9119"
-      ],
-      [
-       43,
-       "56a669027bcb6e80",
-       "6424879395a2c8c5"
-      ],
-      [
-       44,
-       "c6f939cbea7637f8",
-       "6071916a9e56843b"
       ],
       [
        45,
@@ -3160,202 +3111,217 @@
        "31be3eb79a36aefd"
       ],
       [
-       62,
+       61,
+       "26537558026fb444",
+       "d5f72cfc859f2d02"
+      ],
+      [
+       63,
        "ddc89b50dc047575",
        "e61538205a932fb4"
       ],
       [
-       63,
+       64,
        "537e4414c04ff121",
        "27f103a4a3f4de52"
       ],
       [
-       64,
+       65,
        "5daa7f3aef225be2",
        "ac2951a0bb9161df"
       ],
       [
-       65,
+       66,
        "8362293e5b66ae90",
        "896d2999925d39ae"
       ],
       [
-       66,
+       67,
+       "11861ea226ab0a09",
+       "7fa7312664baa820"
+      ],
+      [
+       68,
        "48e5d05abb428a4b",
        "3ff6a0f7359a3eee"
       ],
       [
-       67,
+       69,
        "b45c38b228aa75e9",
        "8767b01b08a8fcbf"
       ],
       [
-       68,
+       70,
+       "efb24f006662ab1b",
+       "da88dedca2ac45d1"
+      ],
+      [
+       71,
        "c7f36b56db22f6d3",
        "edb24535a152b107"
       ],
       [
-       69,
+       72,
        "29c541c2a6bea066",
        "4575fd3822bb826c"
       ],
       [
-       70,
+       73,
+       "69837d83631edc64",
+       "3c8e68f5e960ad47"
+      ],
+      [
+       74,
        "0bbe95967c813a30",
        "b400a8fac129fe3d"
       ],
       [
-       71,
+       75,
        "1e36d9e314d3667a",
        "ae7a019d9473da18"
       ],
       [
-       72,
+       76,
        "81fdb2cf14aadf02",
        "1c2dac8049e45dbe"
       ],
       [
-       73,
+       77,
        "19334e274bbd6bcb",
        "973c25e92bd48de8"
       ],
       [
-       74,
+       78,
        "41f571f10bd3d06d",
        "c23194080b5963ee"
       ],
       [
-       75,
-       "5a4ae66cd6f482de",
-       "ae04a82dd0a004e9"
-      ],
-      [
-       76,
+       79,
        "6b3f98c595a516fe",
        "08025965c428c258"
       ],
       [
-       77,
-       "345b713f6c107ef0",
-       "5fe00560635ba1ee"
-      ],
-      [
-       78,
+       80,
        "237bf6a5c99f303a",
        "bc83d1118b5472e7"
       ],
       [
-       79,
+       81,
        "c6a19af9a505153a",
        "b04606c1dc0823b2"
       ],
       [
-       80,
+       82,
        "b109ef95d7d221e8",
        "3b9fa76a0f2214af"
       ],
       [
-       81,
+       83,
        "3d34525f61edd708",
        "5f09b57c02999ffc"
       ],
       [
-       82,
+       84,
        "1f15be3e58164777",
        "d99bd1cc64b57d65"
       ],
       [
-       83,
+       85,
+       "625652120a3fe7b9",
+       "86a3f6c9ab745bd7"
+      ],
+      [
+       86,
        "a7c8a8d0e6c9ea83",
        "ff718b30b28be56b"
       ],
       [
-       84,
+       87,
+       "467e42b8a518dc1f",
+       "13ee4f7ac3f3d5cb"
+      ],
+      [
+       88,
        "4721025b99eb4380",
        "a686762c244a3472"
       ],
       [
-       85,
+       89,
        "42b9e87eb96acdf1",
        "0a491e5295e6b0d4"
       ],
       [
-       86,
+       90,
        "d214aef11b6cb34b",
        "f24fae5d3d824fda"
       ],
       [
-       87,
+       91,
        "36592432f994db9a",
        "0217fec168afe112"
       ],
       [
-       88,
+       92,
+       "f2e06f7c1218f9c8",
+       "b115f034752b7071"
+      ],
+      [
+       93,
        "bfa0ddd3b80cad97",
        "e58a193e07d1ba3b"
       ],
       [
-       89,
+       94,
        "8c43f934ade1a3bf",
-       "5933b3ef88bbc6f9"
+       "9e9a2b66ee1d7f4e"
       ],
       [
-       90,
+       95,
        "917fa0aed517f1a2",
        "ee49273b1a2e2e4c"
       ],
       [
-       91,
+       96,
        "18f0b7f956de9598",
        "00ec79026cd47cb1"
       ],
       [
-       92,
-       "e3c0902672afda30",
-       "5b80538b8c3f249d"
-      ],
-      [
-       93,
+       97,
        "ffefc37a0f193d5d",
        "90db22a31236fd0a"
       ],
       [
-       94,
-       "5434987821ab4835",
-       "2f7b703dc71e775a"
-      ],
-      [
-       95,
-       "8ab32d5bc0ae4e2f",
-       "ce1e22b14deed67b"
-      ],
-      [
-       96,
+       99,
        "b9889c78950b5608",
        "1a2f53e518b534ce"
       ],
       [
-       97,
+       100,
        "7f96752358252bf9",
        "a4a4b549caef76f3"
       ],
       [
-       98,
+       101,
+       "0b19171a262a5c72",
+       "3ab7466910fd56fb"
+      ],
+      [
+       102,
        "4946588d7b120855",
        "6adaade2670e3271"
       ],
       [
-       99,
+       103,
+       "dfbef692199dd023",
+       "532de9faa5100f90"
+      ],
+      [
+       104,
        "dfb0d27bfa7766d5",
        "2fce0c0b2dc2cadb"
       ],
       [
-       100,
-       "f310e450e665fef9",
-       "90e96783688584db"
-      ],
-      [
-       101,
+       106,
        "6fcfd036482eb68d",
        "d30bb16e0abbaa11"
       ]
@@ -3364,8 +3330,8 @@
     {
      "year": 13,
      "t": 440294399,
-     "living": 104,
-     "hash": "d0a290950ad5a8f1",
+     "living": 105,
+     "hash": "32b0c681811ebc26",
      "persons": [
       [
        2,
@@ -3391,11 +3357,6 @@
        6,
        "5d5ba560e9ae18b1",
        "830be2e7dba4c12d"
-      ],
-      [
-       7,
-       "f52f3e898fd0654e",
-       "38863468e6618f9e"
       ],
       [
        8,
@@ -3558,16 +3519,6 @@
        "4871674d7a9906cc"
       ],
       [
-       43,
-       "56a669027bcb6e80",
-       "c33f81783c670086"
-      ],
-      [
-       44,
-       "c6f939cbea7637f8",
-       "8c20aaff67e569b4"
-      ],
-      [
        45,
        "a7d57b4bf08da7a5",
        "bc8683d5aed0a721"
@@ -3643,247 +3594,267 @@
        "d6eebd25b5796a57"
       ],
       [
-       62,
+       61,
+       "26537558026fb444",
+       "18d4a44dc0cdf5ab"
+      ],
+      [
+       63,
        "ddc89b50dc047575",
        "9778582ac13f4bd3"
       ],
       [
-       63,
+       64,
        "537e4414c04ff121",
        "2baba12dd315ec2f"
       ],
       [
-       64,
+       65,
        "5daa7f3aef225be2",
        "d54c0f87896f3182"
       ],
       [
-       65,
+       66,
        "8362293e5b66ae90",
        "f8026ef211561f60"
       ],
       [
-       66,
+       67,
+       "11861ea226ab0a09",
+       "5a7de39e402328ec"
+      ],
+      [
+       68,
        "48e5d05abb428a4b",
        "8bc2b48267ac6741"
       ],
       [
-       67,
+       69,
        "b45c38b228aa75e9",
        "5e56497db4757e12"
       ],
       [
-       68,
+       70,
+       "efb24f006662ab1b",
+       "09a96f5e5d3f4173"
+      ],
+      [
+       71,
        "c7f36b56db22f6d3",
        "a794dc565ae1c891"
       ],
       [
-       69,
+       72,
        "29c541c2a6bea066",
        "feaa4609bf51230b"
       ],
       [
-       70,
+       73,
+       "69837d83631edc64",
+       "1d397517ed0b2ed6"
+      ],
+      [
+       74,
        "0bbe95967c813a30",
        "a85fc4b25642fe09"
       ],
       [
-       71,
+       75,
        "1e36d9e314d3667a",
        "70c088ae2fadd818"
       ],
       [
-       72,
+       76,
        "81fdb2cf14aadf02",
        "88aa95fb15290902"
       ],
       [
-       73,
+       77,
        "19334e274bbd6bcb",
        "eb693d59ef592136"
       ],
       [
-       74,
+       78,
        "41f571f10bd3d06d",
        "27c4f05715936144"
       ],
       [
-       75,
-       "5a4ae66cd6f482de",
-       "11c298163fb339af"
-      ],
-      [
-       76,
+       79,
        "6b3f98c595a516fe",
        "f8f3f0600237e0f9"
       ],
       [
-       77,
-       "345b713f6c107ef0",
-       "d1542b2cb232a02d"
-      ],
-      [
-       78,
+       80,
        "237bf6a5c99f303a",
        "007f3616eb31ae87"
       ],
       [
-       79,
+       81,
        "c6a19af9a505153a",
        "1b3fa851844b312a"
       ],
       [
-       80,
+       82,
        "b109ef95d7d221e8",
        "8343b3674dcbd3aa"
       ],
       [
-       81,
+       83,
        "3d34525f61edd708",
        "bff87d1ed2877a7c"
       ],
       [
-       82,
+       84,
        "1f15be3e58164777",
        "1b565c17826aa7f9"
       ],
       [
-       83,
+       85,
+       "625652120a3fe7b9",
+       "8eafb0a30783ae29"
+      ],
+      [
+       86,
        "a7c8a8d0e6c9ea83",
        "472453a8f4439322"
       ],
       [
-       84,
+       87,
+       "467e42b8a518dc1f",
+       "ee50d750f5d898c0"
+      ],
+      [
+       88,
        "4721025b99eb4380",
        "0d2f1a338de09a75"
       ],
       [
-       85,
+       89,
        "42b9e87eb96acdf1",
        "d7c2c061cbcf876f"
       ],
       [
-       86,
+       90,
        "d214aef11b6cb34b",
        "48f41f6ef2a00c52"
       ],
       [
-       87,
+       91,
        "36592432f994db9a",
        "56af8a3768c95624"
       ],
       [
-       88,
+       92,
+       "f2e06f7c1218f9c8",
+       "734ef30537998bdb"
+      ],
+      [
+       93,
        "bfa0ddd3b80cad97",
        "92aec06d5146e0c7"
       ],
       [
-       89,
+       94,
        "8c43f934ade1a3bf",
-       "fd27933cd82ef8ad"
+       "098276449b4a662a"
       ],
       [
-       90,
+       95,
        "917fa0aed517f1a2",
        "2ef21d21753d54df"
       ],
       [
-       91,
+       96,
        "18f0b7f956de9598",
        "30f2d0fb0a504c4c"
       ],
       [
-       92,
-       "e3c0902672afda30",
-       "67afa73cf05a50ab"
-      ],
-      [
-       93,
+       97,
        "ffefc37a0f193d5d",
        "0f291d7837169ad3"
       ],
       [
-       94,
-       "5434987821ab4835",
-       "ec274567cd34f91a"
-      ],
-      [
-       95,
-       "8ab32d5bc0ae4e2f",
-       "b11b9c465729d4e6"
-      ],
-      [
-       96,
+       99,
        "b9889c78950b5608",
        "a7cb48b270b62cf5"
       ],
       [
-       97,
+       100,
        "7f96752358252bf9",
        "cf0eed9bd66fc451"
       ],
       [
-       98,
+       101,
+       "0b19171a262a5c72",
+       "4223c98f451cb582"
+      ],
+      [
+       102,
        "4946588d7b120855",
        "ec85639bd23cc733"
       ],
       [
-       99,
+       103,
+       "dfbef692199dd023",
+       "46dd5671a168f500"
+      ],
+      [
+       104,
        "dfb0d27bfa7766d5",
        "8bb49e76a3513abf"
       ],
       [
-       100,
-       "f310e450e665fef9",
-       "bb8e5ddbc888bfff"
-      ],
-      [
-       101,
+       106,
        "6fcfd036482eb68d",
        "c694e3cb42f71001"
       ],
       [
-       102,
+       107,
        "b69f89d6d42a60c3",
        "bdea8d113122eaed"
       ],
       [
-       103,
+       108,
+       "4a25a3bebed2addb",
+       "27bc01e4bb9567e6"
+      ],
+      [
+       109,
        "7f705509787648b7",
        "5669f07b42e4712c"
       ],
       [
-       104,
-       "e41bde33627f9f3f",
-       "c924b2826f08b2e7"
-      ],
-      [
-       105,
+       110,
        "5936a0053bb6baf7",
        "1d1e40277faa2dd1"
       ],
       [
-       106,
+       111,
        "f1c832b312ba58f0",
        "642d1c43d6838cc0"
       ],
       [
-       107,
+       112,
        "8de79e6f2f02f8b8",
        "505652156c33cbc5"
       ],
       [
-       108,
+       113,
+       "03205e9953fae471",
+       "79cf076d9e50b995"
+      ],
+      [
+       114,
        "4620a03a7deab450",
        "9ec846511efbbf6e"
       ],
       [
-       109,
+       115,
        "39f117c1aaae3273",
        "d403b4c97b3f0553"
       ],
       [
-       110,
+       116,
        "72bdccd30e355235",
        "620ffa6368cee6d8"
       ]
@@ -3893,9 +3864,9 @@
   },
   "b2_pool_b_start": {
    "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_b.bin",
-   "data_hash": "e3e123a216aadc64",
+   "data_hash": "e294ebcbe2babe0d",
    "body_data": "accepted",
-   "start_input_hash": "4df205f4f10eef87",
+   "start_input_hash": "34402b18cd4ef988",
    "year_hashes": [
     "a25123c00bca7ef1",
     "2832b886c5197c83",
@@ -4543,7 +4514,7 @@
     }
    },
    "pool": {
-    "pool_hash": "28af470e4c3038f4",
+    "pool_hash": "8fbc3d92596336b6",
     "pool_seed": "0000000011b019a2",
     "frozen_at": 943488000
    },
