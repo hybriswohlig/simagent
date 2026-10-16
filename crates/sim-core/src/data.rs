@@ -630,6 +630,9 @@ pub enum DataError {
     PoolSex,
     /// One of the seven loci of the pool is not in the map.
     PoolLocus,
+    /// The pool was extracted from other data: its `frozen_hash` is not the hash of these
+    /// data before the pool is appended (Grok K7 and P1, ADR-0020 section 10).
+    PoolFrozenHash,
 }
 
 impl fmt::Display for DataError {
@@ -664,6 +667,7 @@ impl fmt::Display for DataError {
             DataError::PoolCarer => "pool.carer_not_member",
             DataError::PoolSex => "pool.sex",
             DataError::PoolLocus => "pool.locus",
+            DataError::PoolFrozenHash => "pool.frozen_hash",
         })
     }
 }
@@ -1614,8 +1618,10 @@ impl Data {
     /// The definitions with a pool (design note of the arrival, section 2): the bytes of a
     /// pool file, read with all its checks, then these checks in this order: every carer is
     /// a member of its household, every genome fits its sex, the seven loci of the pool are
-    /// in the map. The data hash then also covers the pool: xxh3 of the definitions' bytes
-    /// followed by the postcard bytes of `(pool_seed, pool_hash)`.
+    /// in the map, and the pool's `frozen_hash` is the hash of these definitions (the pool was
+    /// extracted from these data, Grok K7 and P1). The data hash then also covers the pool:
+    /// xxh3 of the definitions' bytes followed by the postcard bytes of
+    /// `(pool_seed, pool_hash)`.
     pub fn with_pool(definitions: Definitions, pool_bytes: &[u8]) -> Result<Data, DataError> {
         let mut data = Data::new(definitions)?;
         let pool = Pool::from_bytes(pool_bytes).map_err(DataError::Pool)?;
@@ -1646,6 +1652,11 @@ impl Data {
             .all(|id| data.loci.contains_key(id));
         if !loci_known {
             return Err(DataError::PoolLocus);
+        }
+        // `data.hash` is still the hash of the definitions alone: the pool's bytes are
+        // appended below.
+        if pool.frozen_hash != data.hash {
+            return Err(DataError::PoolFrozenHash);
         }
         let mut unborn = BTreeMap::new();
         for (h, household) in pool.households.iter().enumerate() {
