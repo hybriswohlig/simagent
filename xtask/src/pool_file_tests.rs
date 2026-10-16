@@ -486,18 +486,21 @@ fn the_pool_command_writes_the_file_of_the_reference() {
         years: run.years,
         map: Some(dir.join("map")),
     };
-    crate::prerun::pool(&root(), &options).expect("a pool");
+    // A run this small cannot fill the sample of the clamp rate: the command writes both
+    // files and is red (design note of the census, section 6).
+    let error = crate::prerun::pool(&root(), &options).expect_err("red");
+    assert!(error.contains("fewer_than_100000"), "{error}");
     let written = std::fs::read(dir.join("out/pool.bin")).expect("the file");
     let census = std::fs::read_to_string(dir.join("out/reference_census.json"));
     std::fs::remove_dir_all(&dir).expect("removed");
     assert!(written == run.file, "the file differs");
     // The record of the clamp rate beside it, bound to this pool and its run's data, its rows
-    // the run's last year ends (design note of the census, section 6).
+    // the run's year ends from the last one back (design note of the census, section 6).
     let record = crate::clamp::tests::read_record(&census.expect("the record")).expect("a record");
     let pool = Pool::from_bytes(&written).expect("the pool");
     assert_eq!(record.pool_hash, pool.hash());
     assert_eq!(record.data_hash, pool.data_hash);
     assert_eq!(record.core_version, sim_core::version::CORE_VERSION);
-    let last = record.rows.last().expect("rows");
-    assert_eq!(last.year, run.years - 1);
+    let first = record.rows.first().expect("rows");
+    assert_eq!(first.year, run.years - 1);
 }
