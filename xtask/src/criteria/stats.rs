@@ -256,15 +256,38 @@ pub struct LifeTable {
     pub se: f64,
 }
 
+/// Why a life table is undefined (a finding, red), in the order the checks run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LifeFinding {
+    /// The lists are empty or of different lengths.
+    BadLengths,
+    /// An age has no exposure.
+    ZeroExposure,
+    /// The open interval has no death.
+    NoOpenDeaths,
+    /// A closed age has `q_x ≥ 1`: a death rate of 2 or more a year.
+    QAtLeastOne,
+    /// The survivors `l_x` underflow to 0 (many ages with `q` just below 1).
+    LUnderflow,
+    /// `e_0` or its error is not finite (a last guard; counts cannot reach it).
+    NotFinite,
+}
+
 /// The period life table of one sex (Chiang II, one-year ages, `a_x` = 0.5): `exposure[x]`
 /// the seconds lived at age `x` in the period and `deaths[x]` the deaths there, the last
 /// entry the open interval `ω` (100 years and older in a town; the open interval alone is a
-/// table too). `None` (a finding, red) for empty or unequal lists, an age without exposure,
-/// an open interval without a death, or a closed age with `q_x ≥ 1`.
-pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
-    let omega = exposure.len().checked_sub(1)?;
-    if deaths.len() != exposure.len() || exposure.contains(&0) || deaths[omega] == 0 {
-        return None;
+/// table too).
+pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Result<LifeTable, LifeFinding> {
+    let omega = exposure
+        .len()
+        .checked_sub(1)
+        .filter(|_| deaths.len() == exposure.len())
+        .ok_or(LifeFinding::BadLengths)?;
+    if exposure.contains(&0) {
+        return Err(LifeFinding::ZeroExposure);
+    }
+    if deaths[omega] == 0 {
+        return Err(LifeFinding::NoOpenDeaths);
     }
     let years: Vec<f64> = exposure.iter().map(|e| real(*e) / YEAR_SECS).collect();
     let rates: Vec<f64> = deaths
@@ -273,14 +296,16 @@ pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
         .map(|(d, y)| real(*d) / y)
         .collect();
     let q: Vec<f64> = rates[..omega].iter().map(|m| m / (1.0 + 0.5 * m)).collect();
-    // A death rate of 2 or more a year gives q ≥ 1: no one would live on (review).
     if !q.iter().all(|q_x| *q_x < 1.0) {
-        return None;
+        return Err(LifeFinding::QAtLeastOne);
     }
     let mut l = vec![1.0];
     for q_x in &q {
         let last = l[l.len() - 1];
         l.push(last * (1.0 - q_x));
+    }
+    if !l.iter().all(|l_x| *l_x > 0.0) {
+        return Err(LifeFinding::LUnderflow);
     }
     let mut lived: Vec<f64> = (0..omega).map(|x| 0.5 * (l[x] + l[x + 1])).collect();
     lived.push(l[omega] / rates[omega]);
@@ -301,10 +326,15 @@ pub fn life_table(exposure: &[u64], deaths: &[u64]) -> Option<LifeTable> {
     }));
     let (l_w, y_w, m_w) = (l[omega], years[omega], rates[omega]);
     let open = l_w * l_w * real(deaths[omega]) / (y_w * y_w * raised(m_w, 4));
-    Some(LifeTable {
+    let table = LifeTable {
         e0: e[0],
         se: sqrt(closed + open),
-    })
+    };
+    if table.e0.is_finite() && table.se.is_finite() {
+        Ok(table)
+    } else {
+        Err(LifeFinding::NotFinite)
+    }
 }
 
 /// The seeds of the village check (K2).
