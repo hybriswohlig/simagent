@@ -61,35 +61,38 @@ pub struct Family {
     pub children: Vec<u64>,
 }
 
-/// A check that cannot run on this export (red, with what it found).
-#[derive(Clone, Debug, PartialEq)]
-pub enum Finding {
-    /// The `core:mc1r` frequency among the family parents lies outside `[0.13, 0.17]` (K5).
-    Mc1rFrequency { q: f64 },
-    /// The village has fewer than two units in its block or nobody alive (K2).
-    Village { units: usize, living: usize },
-    /// The run is too short for a measured block: `E − 18 < 30` years.
-    NoBlock,
-}
-
-/// P9 on `core:mc1r`: `q`, per family with an affected child `(y_f, E_f)` anchored at its
-/// earliest affected child, that family's canonical index, and per family whether both
-/// parents are unaffected (the twin takes the parents of other families).
+/// P9 on `core:mc1r`: the copies over the distinct parents of all families and `q`; per
+/// family with an affected child `(y_f, E_f)` anchored at its earliest affected child,
+/// that family's canonical index, and per family whether both parents are unaffected (the
+/// twin takes the parents of other families). The sample is listed whatever `q`: the
+/// report counts and hashes it also when `q` makes the check red.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mc1r {
+    pub copies: u64,
+    pub parents: u64,
     pub q: f64,
     pub units: Units<(bool, f64)>,
     pub families: Vec<usize>,
     pub unaffected: Vec<bool>,
 }
 
-/// The village (G4, G5): the measured block `g*`, its units (`z_h`) and `(N_m, N_f)` of
-/// the blocks 0 to `g*` with births, ascending.
+impl Mc1r {
+    /// Whether `q` lies in `[0.13, 0.17]` (K5); outside, the check is red with `q` and
+    /// reads no expectation.
+    pub fn in_band(&self) -> bool {
+        (0.13..=0.17).contains(&self.q)
+    }
+}
+
+/// The village (G4, G5): the measured block `g*`, its units (`z_h`), `(g, N_m, N_f)` of the
+/// blocks 0 to `g*` with births, ascending, and the persons alive at the end (no row
+/// without `died` and `emig` makes the check red, as fewer than two units do).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Village {
     pub block: i64,
     pub units: Units<f64>,
-    pub blocks: Vec<(u64, u64)>,
+    pub blocks: Vec<(i64, u64, u64)>,
+    pub living: u64,
 }
 
 /// The first partnerships of one sex: the histogram by month of age, the count without one
@@ -102,8 +105,7 @@ pub struct Partnerships {
 }
 
 /// The period life table's input of one sex: seconds lived and deaths by age, and as
-/// anchors the persons with either, ascending (the note names no anchors here; these are
-/// the rows the table reads).
+/// anchors every row of the sex, ascending (section 4: "every row, per sex").
 #[derive(Clone, Debug, PartialEq)]
 pub struct LifeInput {
     pub exposure: [u64; AGES],
@@ -332,11 +334,10 @@ impl<'a> Town<'a> {
         self.pairs(&pairs, Trait::Pigment)
     }
 
-    /// P9 on `core:mc1r` (K5, GK-3, GK-4): `q` over the distinct parents of all families
-    /// (a finding outside `[0.13, 0.17]`, without expectations); per family with an
-    /// affected child `y_f` (both parents unaffected) and `E_f` at its distinct genome
-    /// keys.
-    pub fn p9_mc1r(&self) -> Result<Mc1r, Finding> {
+    /// P9 on `core:mc1r` (K5, GK-3, GK-4): `q` over the distinct parents of all families;
+    /// per family with an affected child `y_f` (both parents unaffected) and `E_f` at its
+    /// distinct genome keys.
+    pub fn p9_mc1r(&self) -> Mc1r {
         let parents: BTreeSet<u64> = (self.families.iter())
             .flat_map(|family| [family.mother, family.father])
             .collect();
@@ -344,10 +345,8 @@ impl<'a> Town<'a> {
             .iter()
             .map(|key| u64::from(self.row(*key).mc1r))
             .sum();
-        let q = real(copies) / real(2 * tally(parents.len()));
-        if !(0.13..=0.17).contains(&q) {
-            return Err(Finding::Mc1rFrequency { q });
-        }
+        let parents = tally(parents.len());
+        let q = real(copies) / real(2 * parents);
         let unaffected: Vec<bool> = (self.families.iter())
             .map(|family| self.row(family.mother).mc1r < 2 && self.row(family.father).mc1r < 2)
             .collect();
@@ -367,12 +366,14 @@ impl<'a> Town<'a> {
                 families.push(i);
             }
         }
-        Ok(Mc1r {
+        Mc1r {
+            copies,
+            parents,
             q,
             units,
             families,
             unaffected,
-        })
+        }
     }
 
     /// G5: per mother her first town-born child born in `[from, to)` (and `born ≥ 0`) by
@@ -415,10 +416,10 @@ impl<'a> Town<'a> {
         (years - 18 >= 30).then(|| (years - 18) / 30 - 1)
     }
 
-    /// `(N_m, N_f)` of the blocks 0 to `block` with births, ascending: the distinct father
-    /// and mother keys of the town-born rows born in each (the reference's reading: an
-    /// arrival is not a birth of the village).
-    pub fn parent_blocks(&self, block: i64) -> Vec<(u64, u64)> {
+    /// `(g, N_m, N_f)` of the blocks `g` = 0 to `block` with births, ascending: the
+    /// distinct father and mother keys of the town-born rows born in each (the reference's
+    /// reading: an arrival is not a birth of the village).
+    pub fn parent_blocks(&self, block: i64) -> Vec<(i64, u64, u64)> {
         let span = 30 * YEAR;
         let mut parents: BTreeMap<i64, (BTreeSet<u64>, BTreeSet<u64>)> = BTreeMap::new();
         for row in self.rows().filter(|row| row.pool != 1) {
@@ -428,31 +429,24 @@ impl<'a> Town<'a> {
                 mothers.extend(row.mother);
             }
         }
-        (parents.values())
-            .map(|(fathers, mothers)| (tally(fathers.len()), tally(mothers.len())))
+        (parents.iter())
+            .map(|(g, (fathers, mothers))| (*g, tally(fathers.len()), tally(mothers.len())))
             .collect()
     }
 
-    /// The village: block `g*`, its units as the town's, and the blocks' parents. No
-    /// block, fewer than two units, or nobody alive at the end (no row without `died` and
-    /// `emig`) is a finding.
-    pub fn village(&self) -> Result<Village, Finding> {
+    /// The village: block `g*`, its units as the town's, the blocks' parents and the
+    /// living at the end; `None` without a measured block.
+    pub fn village(&self) -> Option<Village> {
         let span = 30 * YEAR;
-        let block = self.village_block().ok_or(Finding::NoBlock)?;
-        let units = self.firsts(block * span, (block + 1) * span);
+        let block = self.village_block()?;
         let living = (self.rows())
             .filter(|row| row.died.is_none() && row.emig.is_none())
             .count();
-        if units.values.len() < 2 || living == 0 {
-            return Err(Finding::Village {
-                units: units.values.len(),
-                living,
-            });
-        }
-        Ok(Village {
+        Some(Village {
             block,
-            units,
+            units: self.firsts(block * span, (block + 1) * span),
             blocks: self.parent_blocks(block),
+            living: tally(living),
         })
     }
 
@@ -569,12 +563,12 @@ impl<'a> Town<'a> {
             anchors: Vec::new(),
         };
         for row in self.rows().filter(|row| row.female == female) {
+            table.anchors.push(row.key);
             let exit = [row.died, row.emig]
                 .into_iter()
                 .flatten()
                 .fold(self.export.header.end + 1, i64::min);
             let (mut t, to) = (entry(row).max(start), exit.min(stop));
-            let mut counted = t < to;
             while t < to {
                 let age = (t - row.born).div_euclid(YEAR);
                 let next = (row.born + (age + 1) * YEAR).min(to);
@@ -587,10 +581,6 @@ impl<'a> Town<'a> {
                 .filter(|died| (start..stop).contains(died) && !left_before(row, *died));
             if let Some(died) = died {
                 table.deaths[open((died - row.born).div_euclid(YEAR))] += 1;
-                counted = true;
-            }
-            if counted {
-                table.anchors.push(row.key);
             }
         }
         table
