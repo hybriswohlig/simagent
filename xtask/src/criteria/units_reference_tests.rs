@@ -68,7 +68,8 @@ fn the_reference_pins_the_hand_units() {
         pairs(&want["p9_polygenic"]),
         "P9 polygenic"
     );
-    let mc1r = town.p9_mc1r().expect("q in the band");
+    let mc1r = town.p9_mc1r();
+    assert!(mc1r.in_band());
     let sample = want["p9_mc1r"]["sample"].as_array().expect("sample");
     assert_eq!(
         mc1r.units.anchors,
@@ -92,6 +93,7 @@ fn the_reference_pins_the_hand_units() {
         count(&want["p9_mc1r"]["copies"]),
         count(&want["p9_mc1r"]["parents"]),
     );
+    assert_eq!((mc1r.copies, mc1r.parents), (copies, parents), "q");
     assert_eq!(
         mc1r.q.to_bits(),
         (stats::real(copies) / stats::real(2 * parents)).to_bits(),
@@ -207,20 +209,22 @@ fn the_reference_pins_the_hand_units() {
     let village = &want["village"];
     let block = town.village_block().expect("200 years");
     assert_eq!(block, village["g_star"].as_i64().expect("g*"));
-    let blocks: Vec<(u64, u64)> = village["blocks"]
+    let blocks: Vec<(i64, u64, u64)> = village["blocks"]
         .as_array()
         .expect("blocks")
         .iter()
-        .map(|b| (count(&b[1]), count(&b[2])))
+        .map(|b| (b[0].as_i64().expect("g"), count(&b[1]), count(&b[2])))
         .collect();
     assert_eq!(town.parent_blocks(block), blocks, "N_m, N_f");
-    // The hand village has no unit in its block: a finding, as the reference reports.
+    // The hand village has no unit in its block (the report's finding) and one living.
     assert!(keys(&village["units"]).is_empty());
     assert_eq!(
         town.village(),
-        Err(Finding::Village {
-            units: 0,
-            living: usize::try_from(count(&village["living"])).expect("small"),
+        Some(Village {
+            block,
+            units: Units::default(),
+            blocks,
+            living: count(&village["living"]),
         })
     );
 }

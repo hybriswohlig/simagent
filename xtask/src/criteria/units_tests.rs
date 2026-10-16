@@ -406,7 +406,9 @@ fn p9_mc1r_takes_families_with_an_affected_child() {
     }
     rows.extend([parent(0x3c, true, 0), kid(0x306, 5 * Y, 0x3c, 0x21, 0)]);
     let export = export(40 * Y, rows, vec![]);
-    let mc1r = town(&export).p9_mc1r().expect("q in the band");
+    let mc1r = town(&export).p9_mc1r();
+    assert!(mc1r.in_band());
+    assert_eq!((mc1r.copies, mc1r.parents), (5, 17));
     assert_eq!(mc1r.q.to_bits(), (5.0_f64 / 34.0).to_bits());
     // X: Aa x Aa, three zygotes (E_3), anchored at its affected child. Y: an aa parent, two
     // zygotes (GK-4), anchored at the twin of multiple index 0.
@@ -422,13 +424,14 @@ fn p9_mc1r_takes_families_with_an_affected_child() {
 }
 
 #[test]
-fn p9_mc1r_outside_the_band_reports_q_and_no_sample() {
+fn p9_mc1r_outside_the_band_keeps_q_and_its_sample() {
     let two = export(40 * Y, mc1r_families(), vec![]);
-    // Four distinct parents with five copies.
-    assert_eq!(
-        town(&two).p9_mc1r().err(),
-        Some(Finding::Mc1rFrequency { q: 0.625 })
-    );
+    // Four distinct parents with five copies: q = 5 / 8 lies outside, and the report still
+    // counts and hashes the sample (the reference's T1).
+    let mc1r = town(&two).p9_mc1r();
+    assert_eq!((mc1r.copies, mc1r.parents, mc1r.q), (5, 4, 0.625));
+    assert!(!mc1r.in_band());
+    assert_eq!(mc1r.units.anchors, vec![0x101, 0x201]);
     // 25 families of 50 parents: the band [0.13, 0.17] holds its ends.
     for (copies, inside) in [(12, false), (13, true), (17, true), (18, false)] {
         let mut rows = Vec::new();
@@ -442,17 +445,10 @@ fn p9_mc1r_outside_the_band_reports_q_and_no_sample() {
         }
         let export = export(40 * Y, rows, vec![]);
         let q = real(copies) / 100.0;
-        match town(&export).p9_mc1r() {
-            Ok(mc1r) => {
-                assert!(inside, "{copies}");
-                assert_eq!(mc1r.q.to_bits(), q.to_bits());
-                assert!(mc1r.units.anchors.is_empty());
-            }
-            Err(finding) => {
-                assert!(!inside, "{copies}");
-                assert_eq!(finding, Finding::Mc1rFrequency { q });
-            }
-        }
+        let mc1r = town(&export).p9_mc1r();
+        assert_eq!(mc1r.in_band(), inside, "{copies}");
+        assert_eq!(mc1r.q.to_bits(), q.to_bits());
+        assert!(mc1r.units.anchors.is_empty());
     }
 }
 
@@ -551,30 +547,29 @@ fn village_rows() -> Vec<Row> {
 #[test]
 fn the_village_measures_the_last_block_whose_youngest_reach_18() {
     let export = export(108 * Y - 1, village_rows(), vec![]);
-    let village = town(&export).village().expect("a village");
+    let village = town(&export).village().expect("a block");
     // g* = (108 - 18) div 30 - 1 = 2: the birth years 60 to 89.
     assert_eq!(village.block, 2);
     // Mother 10: her first (20), not 21. Mother 13: her first (22) dies at 6, 23 does
     // not move up. Mother 14: 24; 25 is born in block 3.
     assert_eq!(village.units.anchors, vec![20, 24]);
     assert_eq!(village.units.values, vec![20.0, 24.0]);
-    assert_eq!(village.blocks, vec![(2, 3), (1, 3)]);
+    assert_eq!(village.blocks, vec![(0, 2, 3), (2, 1, 3)]);
+    // 16 rows, 12 emigrated and 22 died.
+    assert_eq!(village.living, 14);
 }
 
 #[test]
-fn a_village_with_one_unit_or_nobody_alive_is_a_finding() {
+fn a_village_keeps_its_units_and_the_living_for_the_reports_findings() {
     let one: Vec<Row> = village_rows()
         .into_iter()
         .filter(|row| row.key != 24)
         .collect();
     // Living at the end: 14 of the 16 rows (12 emigrated, 22 died), less 24.
-    assert_eq!(
-        town(&export(108 * Y - 1, one, vec![])).village().err(),
-        Some(Finding::Village {
-            units: 1,
-            living: 13
-        })
-    );
+    let village = town(&export(108 * Y - 1, one, vec![]))
+        .village()
+        .expect("a block");
+    assert_eq!((village.units.anchors, village.living), (vec![20], 13));
     let dead: Vec<Row> = village_rows()
         .into_iter()
         .map(|row| Row {
@@ -582,13 +577,10 @@ fn a_village_with_one_unit_or_nobody_alive_is_a_finding() {
             ..row
         })
         .collect();
-    assert_eq!(
-        town(&export(108 * Y - 1, dead, vec![])).village().err(),
-        Some(Finding::Village {
-            units: 2,
-            living: 0
-        })
-    );
+    let village = town(&export(108 * Y - 1, dead, vec![]))
+        .village()
+        .expect("a block");
+    assert_eq!((village.units.anchors, village.living), (vec![20, 24], 0));
     // 40 years: 40 - 18 < 30, no measured block (the reference's rule; a flooring
     // division would give block -1). 48 years is the first with one, block 0.
     let short = vec![
@@ -597,10 +589,7 @@ fn a_village_with_one_unit_or_nobody_alive_is_a_finding() {
         person(3, false, -40 * Y),
     ];
     let town_of = |end| export(end, short.clone(), vec![]);
-    assert_eq!(
-        town(&town_of(40 * Y - 1)).village().err(),
-        Some(Finding::NoBlock)
-    );
+    assert_eq!(town(&town_of(40 * Y - 1)).village(), None);
     assert_eq!(town(&town_of(48 * Y - 2)).village_block(), None);
     assert_eq!(town(&town_of(48 * Y - 1)).village_block(), Some(0));
 }
@@ -833,7 +822,8 @@ fn the_life_table_counts_seconds_and_deaths_in_the_period_by_age() {
     let mut deaths = [0; AGES];
     deaths[30] = 1;
     deaths[90] = 1;
-    assert_eq!(women.anchors, vec![1, 2, 3, 4, 6]);
+    // Every row of the sex (section 4), also those the period does not reach.
+    assert_eq!(women.anchors, vec![1, 2, 3, 4, 6, 9]);
     assert_eq!((women.exposure, women.deaths), (exposure, deaths));
     let men = town.life_table(false);
     let mut exposure = [0; AGES];
@@ -842,7 +832,7 @@ fn the_life_table_counts_seconds_and_deaths_in_the_period_by_age() {
     exposure[90] = 10;
     let mut deaths = [0; AGES];
     deaths[90] = 1;
-    assert_eq!(men.anchors, vec![5, 7]);
+    assert_eq!(men.anchors, vec![5, 7, 8]);
     assert_eq!((men.exposure, men.deaths), (exposure, deaths));
 }
 
