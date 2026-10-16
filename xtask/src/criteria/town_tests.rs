@@ -119,7 +119,16 @@ fn the_command_names_its_three_paths() {
         args(&["--map", "m", "--pool", "p", "--out"]),
         args(&["--map", "m", "--pool", "p", "--into", "o"]),
     ] {
-        assert!(command(&root(), &wrong).is_err(), "{wrong:?}");
+        assert_eq!(command(&root(), &wrong), Err(USAGE.to_owned()), "{wrong:?}");
+    }
+    // Every path is read after its own name, in any order: the pool is read first, so the
+    // error names exactly the pool's path (mutants).
+    for right in [
+        args(&["--map", "m", "--pool", "no/such/pool.bin", "--out", "o"]),
+        args(&["--out", "o", "--pool", "no/such/pool.bin", "--map", "m"]),
+    ] {
+        let error = command(&root(), &right).expect_err("no pool");
+        assert!(error.starts_with("no/such/pool.bin: "), "{error}");
     }
 }
 
