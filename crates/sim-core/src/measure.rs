@@ -9,6 +9,10 @@ use serde::Serialize;
 
 use crate::data::Action;
 use crate::data_id::DataId;
+use crate::ids::SimId;
+use crate::phenotype::{self, Environment};
+use crate::rng::{Draws, WorldSeed};
+use crate::time::SimDuration;
 use crate::world::WorldState;
 
 /// The measurement of the living at one moment.
@@ -105,5 +109,41 @@ impl WorldState {
             traits,
             loci,
         })
+    }
+}
+
+impl WorldState {
+    /// The phenotype of trait `trait_id` of a sim, living or archived, at the age `age`
+    /// (genetics specification 4.1): its genome, `E` and `C` from its seeds and its parents'
+    /// lineage keys (design note of the arrival, 6.2). `None` for an unknown sim or trait.
+    /// A view for the criteria and the export: it reads the state, never changes it.
+    pub fn phenotype(&self, sim: SimId, trait_id: &DataId, age: SimDuration) -> Option<f64> {
+        let domain = self.domain();
+        let (genome, key) = domain
+            .sims
+            .get(&sim)
+            .map(|person| (&person.genome, person.lineage_key))
+            .or_else(|| {
+                domain
+                    .archive
+                    .get(&sim)
+                    .map(|person| (&person.genome, person.lineage_key))
+            })?;
+        let data = self.data();
+        let seeds = domain.seeds(data, sim);
+        let individual = Draws::new(WorldSeed::new(seeds.individual));
+        let shared = Draws::new(WorldSeed::new(seeds.shared));
+        phenotype::phenotype(
+            Environment {
+                individual: &individual,
+                shared: &shared,
+            },
+            data,
+            genome,
+            key,
+            domain.parent_keys(sim),
+            trait_id,
+            age,
+        )
     }
 }

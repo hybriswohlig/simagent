@@ -32,19 +32,24 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::hash::stable_hash64;
-use sim_core::ids::InputSeq;
-use sim_core::input::{Couple, Founder, Input, InputRecord, PoolStart, Start};
+use sim_core::ids::{InputSeq, SimId};
+use sim_core::input::{ArrangePartnership, Couple, Founder, Input, InputRecord, PoolStart, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{NutritionYear, WorldParams};
 use sim_core::pool::{Pool, pool_loci, take_households};
-use sim_core::time::SimTime;
+use sim_core::time::{SimDuration, SimTime};
 use sim_core::trace::{TraceFilter, TracePayload};
 use sim_core::world::{World, YearOut};
 
 const CENSUS: &str = include_str!("../../../tests/golden/census/census.json");
 const BODIES: &str = include_str!("../../../tests/golden/census/bodies.json");
+const PHENOTYPES: &str = include_str!("../../../tests/golden/census/phenotypes.json");
+const PURE_HEIGHTS: &str = include_str!("../../../tests/golden/census/pure_heights.json");
+const RECORDS_PHENOTYPES: &str =
+    include_str!("../../../tests/golden/census/records_phenotypes.json");
 const POOL_B: &[u8] = include_bytes!("../../../tests/golden/pool/pool_b.bin");
 const POOL_C: &[u8] = include_bytes!("../../../tests/golden/pool/pool_c.bin");
+const POOL_D: &[u8] = include_bytes!("../../../tests/golden/pool/pool_d.bin");
 
 /// The fixtures: their name, scenario and data.
 fn fixtures() -> [(&'static str, &'static str, Data); 4] {
@@ -438,4 +443,198 @@ fn a_held_curve_is_traced_for_a_traced_sim() {
     let (none, untraced) = run(TraceFilter::Off);
     assert!(none.is_empty());
     assert_eq!(hashes, untraced);
+}
+
+/// The phenotype view (criteria plan, step 2): at the snapshots of (a), (b) and (b2) every
+/// living person's 35 body phenotypes at age 0 are the reference's, within the census's
+/// tolerance; among them founders, arrivals, pool children, town children of two pool
+/// persons (`C` from the pool seed) and of town persons. A person who dies later keeps them.
+#[test]
+fn the_phenotype_view_is_the_references() {
+    let golden: Value = serde_json::from_str(PHENOTYPES).expect("json");
+    let traits: Vec<DataId> = golden["z_traits"]
+        .as_array()
+        .expect("traits")
+        .iter()
+        .map(|t| DataId::new(t.as_str().expect("id")).expect("id"))
+        .collect();
+    let mut kinds = BTreeSet::new();
+    for (name, scenario, data) in fixtures().into_iter().take(3) {
+        let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.submit(Input::Start(start)).expect("accepted");
+        let mut out = YearOut::default();
+        let mut seen: Vec<(u64, Vec<f64>)> = Vec::new();
+        for shot in golden["fixtures"][name].as_array().expect("snapshots") {
+            let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+            world.advance_until(&mut out, t, &mut |_| false);
+            for person in shot["persons"].as_array().expect("persons") {
+                let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+                kinds.insert(person[1].as_str().expect("kind").to_owned());
+                let ours: Vec<f64> = traits
+                    .iter()
+                    .map(|t| {
+                        world
+                            .state()
+                            .phenotype(sim, t, SimDuration::ZERO)
+                            .expect("a phenotype")
+                    })
+                    .collect();
+                for ((t, z), bits) in traits
+                    .iter()
+                    .zip(&ours)
+                    .zip(person[2].as_array().expect("z"))
+                {
+                    let reference = f64::from_bits(hex_u64(bits));
+                    assert!(close(*z, reference), "{name}: sim {} {t:?}", sim.get());
+                }
+                seen.push((sim.get(), ours));
+            }
+        }
+        // To the end: the dead keep their phenotypes.
+        let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+        world.advance_until(&mut out, until, &mut |_| false);
+        for (sim, values) in &seen {
+            let sim = SimId::try_from(*sim).expect("id");
+            for (t, z) in traits.iter().zip(values) {
+                assert_eq!(
+                    world.state().phenotype(sim, t, SimDuration::ZERO),
+                    Some(*z),
+                    "{name}"
+                );
+            }
+        }
+    }
+    let expected: BTreeSet<String> = [
+        "arrival",
+        "founder",
+        "pool_child",
+        "town_of_town_persons",
+        "town_of_two_pool_persons",
+    ]
+    .iter()
+    .map(|k| (*k).to_owned())
+    .collect();
+    assert_eq!(kinds, expected);
+}
+
+/// The phenotype view on "records" (the arrival's scenario, `pool_d`, seed 6, `n_start` 30,
+/// sims 26 and 31 paired by an input at 18 years) at its last year end: the reference's
+/// phenotypes of every living person, among them sim 38, a town child of one arrival and
+/// one town person (`C` from the world seed).
+#[test]
+fn the_phenotype_view_of_a_child_of_one_pool_person() {
+    let golden: Value = serde_json::from_str(RECORDS_PHENOTYPES).expect("json");
+    let data = pool_data(POOL_D);
+    assert_eq!(data.hash(), hex_u64(&golden["data_hash"]));
+    let scenario = serde_json::json!({"start": {
+        "world_seed": "0000000000000006", "founder_tag": "test:arrival",
+        "world_params": {"hereditary_diseases": true, "nutrition": []},
+        "founders": [], "couples": [], "pool": {"n_start": 30, "immigration": true}
+    }});
+    let start = start_of(&scenario, &data);
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut out = YearOut::default();
+    let mut log = world.take_log();
+    world.advance_until(&mut out, SimTime::from_secs(566_092_799), &mut |_| false);
+    world
+        .submit(Input::ArrangePartnership(ArrangePartnership {
+            woman: SimId::try_from(26).expect("id"),
+            man: SimId::try_from(31).expect("id"),
+        }))
+        .expect("accepted");
+    let t = SimTime::from_secs(golden["t"].as_i64().expect("t"));
+    world.advance_until(&mut out, t, &mut |_| false);
+    log.extend(world.take_log());
+    assert_eq!(
+        out.year_hashes.last().map(|y| y.hash),
+        Some(hex_u64(&golden["year_hash_last"]))
+    );
+    assert_eq!(log_hash(&log), hex_u64(&golden["log_hash"]));
+    let traits: Vec<DataId> = golden["z_traits"]
+        .as_array()
+        .expect("traits")
+        .iter()
+        .map(|t| DataId::new(t.as_str().expect("id")).expect("id"))
+        .collect();
+    check_pure_heights(&world, "records");
+    let persons = golden["persons"].as_array().expect("persons");
+    assert_eq!(persons.len(), 22);
+    assert!(persons.iter().any(|p| p[1] == "town_of_pool_and_town"));
+    for person in persons {
+        let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+        for (t, bits) in traits.iter().zip(person[2].as_array().expect("z")) {
+            let ours = world
+                .state()
+                .phenotype(sim, t, SimDuration::ZERO)
+                .expect("a phenotype");
+            assert!(
+                close(ours, f64::from_bits(hex_u64(bits))),
+                "sim {} {t:?}",
+                sim.get()
+            );
+        }
+    }
+}
+
+/// The reference's pure heights of a fixture (ADR-0015 section 4, the full height of the
+/// mapping never clamped): every living person's at each snapshot that `world` has
+/// reached, and at the end every archived person's at its leaving second.
+fn check_pure_heights(world: &World, name: &str) {
+    let golden: Value = serde_json::from_str(PURE_HEIGHTS).expect("json");
+    let fixture = &golden["fixtures"][name];
+    let now = world.closed_through();
+    for shot in fixture["snapshots"].as_array().expect("snapshots") {
+        let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+        if t != now {
+            continue;
+        }
+        for person in shot["persons"].as_array().expect("persons") {
+            let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+            let ours = world.state().pure_height(sim, t).expect("a height");
+            let reference = f64::from_bits(hex_u64(&person[3]));
+            assert!(
+                close(ours, reference),
+                "{name}: sim {} at {}",
+                sim.get(),
+                shot["year"]
+            );
+        }
+    }
+    if fixture["archived"]["run_end"].as_i64() == Some(now.as_secs()) {
+        for person in fixture["archived"]["persons"].as_array().expect("archived") {
+            let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("id");
+            let left = SimTime::from_secs(person[2].as_i64().expect("left"));
+            let ours = world.state().pure_height(sim, left).expect("a height");
+            let reference = f64::from_bits(hex_u64(&person[5]));
+            assert!(close(ours, reference), "{name}: archived sim {}", sim.get());
+        }
+    }
+}
+
+/// The pure height (ADR-0015 section 4, criterion P6) on (a), (b) and (b2): at each snapshot
+/// every living person's, at the end every archived person's, as the reference's.
+#[test]
+fn the_pure_height_is_the_references() {
+    let golden: Value = serde_json::from_str(PURE_HEIGHTS).expect("json");
+    for (name, scenario, data) in fixtures().into_iter().take(3) {
+        let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.submit(Input::Start(start)).expect("accepted");
+        let mut out = YearOut::default();
+        for shot in golden["fixtures"][name]["snapshots"]
+            .as_array()
+            .expect("snapshots")
+        {
+            let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+            world.advance_until(&mut out, t, &mut |_| false);
+            check_pure_heights(&world, name);
+        }
+        let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+        world.advance_until(&mut out, until, &mut |_| false);
+        check_pure_heights(&world, name);
+    }
 }

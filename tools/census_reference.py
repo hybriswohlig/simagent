@@ -70,6 +70,11 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        (default DIR ~/.cache/simagent-notes/ref-census; writes census.json and census.txt)
        ... census_reference.py --scan-a FIRST LAST   (seeds of fixture (a) and their founders
        whose curve is held; for choosing the seed, not a pin)
+       ... census_reference.py --phenotypes FILE   (the golden phenotypes.json, compact)
+       ... census_reference.py --pure-heights [--out DIR]   (pure_heights.json: the pure height of
+       ADR-0015 4 and spec 10.2, and the height before the loss of age)
+       ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
+       of the living at the last year end of the scenario "records" of arrival_reference.py)
 """
 
 import json
@@ -209,7 +214,12 @@ class Evaluator:
         if sim in self.fixed:
             return self.fixed[sim]
         world, body = self.world, self.body
-        born, key, sex, genome = world.sims[sim][:4]
+        if sim in world.sims:
+            born, key, sex, genome = world.sims[sim][:4]
+        else:
+            # An archived sim (its heights at its leaving second): (born, left, cause, key, sex, genome, ...).
+            value = world.archive[sim]
+            born, key, sex, genome = value[0], value[3], value[4], value[5]
         e_seed, c_seed, parents = world.env_of(sim)
         z_of, parts = {}, {}
         for trait, terms in body.traits.items():
@@ -816,6 +826,223 @@ def text_rows(name: str, record: dict) -> list:
     return lines
 
 
+# The scenario "records" of tools/arrival_reference.py (pool_d, seed 6, `n_start` 30,
+# immigration on, the template of map 4): the phenotypes of the living at its last year end.
+# Its town child of one pool and one town person gets the kind `town_of_pool_and_town`.
+RECORDS_KINDS = {"town_of_a_pool_and_a_town_person": "town_of_pool_and_town"}
+
+
+def records_phenotypes() -> dict:
+    """`--records`: the world of "records" (`kin_world(RECORDS_SEED)`), its one input
+    (ArrangePartnership of sims 26 and 31, stamped `18 · YEAR − 1`), run to `RECORDS_END`;
+    per living sim (ascending SimId) its kind and the 35 phenotypes `z` at the age 0 in
+    `BODY_TRAITS_MAP4` order (the seeds and keys of `World.env_of`), as f64 bits."""
+    world = arrival_reference.kin_world(arrival_reference.RECORDS_SEED)()
+    ((label, acts, woman, man),) = arrival_reference.RECORDS_INPUTS
+    assert label == "arrange"
+    world.advance(acts - 1)
+    world.arrange(woman, man)
+    end = arrival_reference.RECORDS_END
+    world.advance(end)
+    assert (end + 1) % YEAR == 0
+    year = (end + 1) // YEAR - 1
+    body = BodyCensusData(world.data, arrival_reference.template_documents())
+    assert body.accepted, body.reason
+    evaluator = Evaluator(world, body)
+    persons, counts = [], {}
+    for sim in sorted(world.sims):
+        parts = evaluator.person_parts(sim)
+        kind = arrival_reference.env_kind(world, sim)
+        kind = RECORDS_KINDS.get(kind, kind)
+        counts[kind] = counts.get(kind, 0) + 1
+        if kind == "town_of_pool_and_town":
+            # Both draws with the world seed at its parents' keys (one parent is no pool person).
+            e_seed, c_seed, parents = parts["seeds"]
+            assert e_seed == c_seed == world.seed and parents == world.parent_keys(sim)
+        persons.append([sim, kind, [bits(parts["z_of"][trait]) for trait in br.BODY_TRAITS_MAP4]])
+    mixed = [sim for sim, kind, _ in persons if kind == "town_of_pool_and_town"]
+    assert [world.born_of(sim) for sim in mixed] == [arrival_reference.RECORDS_MARKS["mixed_child"]], mixed
+    return {
+        "scenario": "records of tools/arrival_reference.py: pool_d, world seed 0x6, tag test:arrival, n_start 30, immigration on, switch on, no nutrition year, template of map 4",
+        "t": end,
+        "year": year,
+        "z_traits": br.BODY_TRAITS_MAP4,
+        "data_hash": hexed(world.data.hash),
+        "pool_hash": hexed(world.data.pool.hash),
+        "start_input_hash": hexed(hash64(world.inputs[0])),
+        "inputs": [
+            {"input": "ArrangePartnership", "woman": woman, "man": man, "stamped": acts - 1, "acts": acts, "record_hex": world.inputs[1].hex(), "record_hash": hexed(hash64(world.inputs[1]))}
+        ],
+        "year_hash_last": hexed(world.year_hashes[-1]),
+        "log_hash": hexed(world.log_hash()),
+        "kind_counts": counts,
+        "persons": persons,
+    }
+
+
+# ---------------------------------------------------------------------------------------
+# The phenotypes golden and the pure height (fixtures a, b, b2 and "records")
+
+PHENOTYPES_NOTE = (
+    "each living person's 35 body phenotypes z at age 0 (weights of age 0) at the snapshots of census.json, as f64 bits, with its kind"
+)
+
+
+def a_world() -> tuple:
+    data, documents = a_data()
+    founders, couples, _ = a_founders(documents[2])
+    return wr.World(A_SEED, A_TAG, True, founders, couples, data, nutrition=A_NUTRITION), documents
+
+
+def pool_world(pool_name: str, seed: int, n_start: int, immigration: bool, nutrition) -> tuple:
+    documents = arrival_reference.template_documents()
+    data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents)
+    world = wr.World(seed, arrival_reference.TAG, True, [], (), data, pool=wr.pool_start(data, seed, n_start, immigration), nutrition=nutrition)
+    return world, documents
+
+
+# The worlds of the fixtures as `fixture_a` and `pool_fixture` build them: (make, years,
+# snapshot years).
+FIXTURE_RUNS = {
+    "a_template_extremes": (a_world, A_YEARS, A_SNAPSHOTS),
+    "b_pool_c_immigration": (lambda: pool_world(B_POOL, B_SEED, B_N_START, True, B_NUTRITION), B_YEARS, B_SNAPSHOTS),
+    "b2_pool_b_start": (lambda: pool_world(B2_POOL, B2_SEED, B2_N_START, False, B2_NUTRITION), B2_YEARS, B2_SNAPSHOTS),
+}
+
+
+def kind_name(world: wr.World, sim: int) -> str:
+    """`arrival_reference.env_kind` with the town child of one pool and one town person named
+    `town_of_pool_and_town`."""
+    kind = arrival_reference.env_kind(world, sim)
+    return RECORDS_KINDS.get(kind, kind)
+
+
+def walk(name: str, at_snapshot, at_end) -> None:
+    """Runs fixture `name` year by year, calling `at_snapshot(evaluator, year)` at each
+    snapshot year end and `at_end(evaluator, end)` after the last year end."""
+    make, years, snapshot_years = FIXTURE_RUNS[name]
+    world, documents = make()
+    body = BodyCensusData(world.data, documents)
+    assert body.accepted, body.reason
+    evaluator = Evaluator(world, body)
+    for year in range(years):
+        world.advance(year_end(year))
+        if year in snapshot_years:
+            at_snapshot(evaluator, year)
+    at_end(evaluator, year_end(years - 1))
+
+
+def records_world() -> tuple:
+    world = arrival_reference.kin_world(arrival_reference.RECORDS_SEED)()
+    ((_, acts, woman, man),) = arrival_reference.RECORDS_INPUTS
+    world.advance(acts - 1)
+    world.arrange(woman, man)
+    world.advance(arrival_reference.RECORDS_END)
+    return world, arrival_reference.template_documents()
+
+
+def phenotypes_document() -> dict:
+    """The golden `tests/golden/census/phenotypes.json`: per fixture a, b, b2 and snapshot the
+    living by SimId with kind and the 35 `z` (as `census_details.json`)."""
+    fixtures = {}
+    for name in FIXTURE_RUNS:
+        snapshots = []
+
+        def at_snapshot(evaluator, year):
+            world = evaluator.world
+            persons = []
+            for sim in sorted(world.sims):
+                parts = evaluator.person_parts(sim)
+                persons.append([sim, kind_name(world, sim), [bits(parts["z_of"][trait]) for trait in br.BODY_TRAITS_MAP4]])
+            snapshots.append({"year": year, "t": year_end(year), "persons": persons})
+
+        walk(name, at_snapshot, lambda evaluator, end: None)
+        fixtures[name] = snapshots
+    return {"written_by": "tools/census_reference.py (independent of crates/)", "z_traits": br.BODY_TRAITS_MAP4, "note": PHENOTYPES_NOTE, "fixtures": fixtures}
+
+
+def heights(evaluator: Evaluator, sim: int, t: int) -> tuple:
+    """(`height_before_age_loss`, `pure_height`) of a sim at `t`. `height_before_age_loss =
+    κ_i · H(x; θ_i) − v_i(x)` with `x = as_years(min(t − born, 25 · YEAR))` and the nutrition
+    loss `v_i` over `[born, born + min(age, 25 years))` (G6 for an arrival), as
+    `body_reference.raw_values` computes it before the loss of age. The pure height (ADR-0015
+    section 4, genetics specification 10.2, criterion P6) is `κ_i · H − v_i − Verlust(b)`:
+    that minus the loss of age at `b = bio_age` (ADR-0014), never clamped; it is the raw
+    `height_cm` before the clamp."""
+    parts = evaluator.person_parts(sim)
+    values = evaluator.body.values
+    age = t - parts["born"]
+    assert age >= 0, (sim, t)
+    x_seconds = min(age, 25 * YEAR)
+    x = as_years(x_seconds)
+    curve = br.individual_curve(values, parts["sex"], parts["z"]["z_h"], parts["z"]["z_p"])
+    height_before_age_loss = curve["kappa"] * br.mean_height(values, parts["sex"], x, curve["theta_i"])
+    height_before_age_loss = height_before_age_loss - br.nutrition_loss(
+        values, nutrition_of(evaluator.world, sim), parts["born"], x_seconds, curve["theta_i"]
+    )
+    b = br.bio_age(as_years(age), parts["delta"], values.bio_age_weight)
+    pure_height = height_before_age_loss - br.old_age_loss(values, parts["sex"], b)
+    return height_before_age_loss, pure_height
+
+
+def pure_living(evaluator: Evaluator, t: int) -> list:
+    world = evaluator.world
+    persons = []
+    for sim in sorted(world.sims):
+        before_age_loss, pure = heights(evaluator, sim, t)
+        # The mapping's raw height (before the clamp) is the pure height, bit for bit.
+        assert bits(evaluator.evaluate(sim, t)["raw"]["height_cm"]) == bits(pure), sim
+        # Columns: sim, kind, height before the loss of age, pure height.
+        persons.append([sim, kind_name(world, sim), bits(before_age_loss), bits(pure)])
+    return persons
+
+
+def pure_archived(evaluator: Evaluator) -> list:
+    world = evaluator.world
+    persons = []
+    for sim in sorted(world.archive):
+        left, cause = world.archive[sim][1], world.archive[sim][2]
+        before_age_loss, pure = heights(evaluator, sim, left)
+        # Columns: sim, kind, leaving second, cause, height before the loss of age, pure height.
+        persons.append([sim, kind_name(world, sim), left, "emigration" if cause is None else world.cause_code(cause), bits(before_age_loss), bits(pure)])
+    return persons
+
+
+def pure_heights_document() -> dict:
+    fixtures = {}
+    for name in FIXTURE_RUNS:
+        record = {"snapshots": []}
+
+        def at_snapshot(evaluator, year):
+            record["snapshots"].append({"year": year, "t": year_end(year), "persons": pure_living(evaluator, year_end(year))})
+
+        def at_end(evaluator, end):
+            record["archived"] = {"run_end": end, "persons": pure_archived(evaluator)}
+
+        walk(name, at_snapshot, at_end)
+        fixtures[name] = record
+    world, documents = records_world()
+    body = BodyCensusData(world.data, documents)
+    evaluator = Evaluator(world, body)
+    end = arrival_reference.RECORDS_END
+    fixtures["records"] = {
+        "snapshots": [{"year": (end + 1) // YEAR - 1, "t": end, "persons": pure_living(evaluator, end)}],
+        "archived": {"run_end": end, "persons": pure_archived(evaluator)},
+    }
+    return {
+        "written_by": "tools/census_reference.py (independent of crates/)",
+        "note": (
+            "pure height (ADR-0015 section 4, genetics specification 10.2, criterion P6) = kappa_i * H(x; theta_i) - v_i - Verlust(b), "
+            "never clamped (= raw height_cm before the clamp); height_before_age_loss = kappa_i * H(x; theta_i) - v_i; "
+            "x = as_years(min(age, 25 years)), v_i the nutrition loss over [born, born + min(age, 25 years)) with G6 for an arrival, "
+            "Verlust(b) the loss of age at b = bio_age (ADR-0014); "
+            "snapshot persons [sim, kind, height_before_age_loss bits, pure height bits]; "
+            "archived persons [sim, kind, leaving second, cause, the same two values at the leaving second]"
+        ),
+        "fixtures": fixtures,
+    }
+
+
 def compact(record: dict) -> dict:
     """The golden candidate of a fixture: everything but the scenario's founders (in its
     own file), the bytes of `Start` (its hash only) and the per-person details (in
@@ -836,6 +1063,24 @@ def main(argv) -> int:
     if "--scan-a" in argv:
         i = argv.index("--scan-a")
         return scan_a(int(argv[i + 1], 0), int(argv[i + 2], 0))
+    if "--phenotypes" in argv:
+        target = Path(argv[argv.index("--phenotypes") + 1])
+        target.write_text(json.dumps(phenotypes_document(), separators=(",", ":")))
+        print(f"wrote {target}")
+        return 0
+    if "--pure-heights" in argv:
+        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
+        document = pure_heights_document()
+        (out / "pure_heights.json").write_text(json.dumps(document, indent=1) + "\n")
+        for name, record in document["fixtures"].items():
+            print(f"pure_heights {name} snapshots {[(snap['year'], len(snap['persons'])) for snap in record['snapshots']]} archived {len(record['archived']['persons'])}")
+        return 0
+    if "--records" in argv:
+        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
+        document = records_phenotypes()
+        (out / "records_phenotypes.json").write_text(json.dumps(document, indent=1) + "\n")
+        print(f"records t {document['t']} year {document['year']} living {len(document['persons'])} kinds {document['kind_counts']} start_input_hash {document['start_input_hash']}")
+        return 0
     out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
     (out / "scenarios").mkdir(parents=True, exist_ok=True)
     fixtures, timings = {}, {}
