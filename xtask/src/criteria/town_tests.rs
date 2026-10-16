@@ -69,7 +69,7 @@ fn the_small_towns_are_decided_as_the_reference_decides() {
         let want: Value = serde_json::from_str(want).expect("the reference's report");
         assert_eq!(decisions(&got), decisions(&want), "seed {seed}");
         // Small towns are red: below the minimum, MC1R's q outside its band.
-        assert!(!reds(&got).is_empty());
+        assert!(!reds(&got, &|_| true).is_empty());
     }
 }
 
@@ -100,7 +100,7 @@ fn a_red_check_and_a_green_twin_make_a_report_red() {
         {"check": "f11_median_m", "pass": null, "finding": null},
     ]});
     assert_eq!(
-        reds(&report),
+        reds(&report, &|_| true),
         vec![
             "p5_siblings: outside",
             "p9_polygenic: the negative twin is green",
@@ -108,7 +108,7 @@ fn a_red_check_and_a_green_twin_make_a_report_red() {
         ]
     );
     let green = json!({"checks": [{"check": "p3", "pass": true, "twin": {"pass": false}}]});
-    assert!(reds(&green).is_empty());
+    assert!(reds(&green, &|_| true).is_empty());
 }
 
 #[test]
@@ -166,4 +166,28 @@ fn the_towns_data_drop_the_pool_frequencies() {
     let stripped = town_data(&root(), &dir, POOL_D);
     std::fs::remove_dir_all(&dir).expect("removed");
     assert_eq!(stripped.expect("the town's data").hash(), plain.hash());
+}
+
+/// Grok GH-1: the open town is the criteria town without capacity, and it alone decides
+/// `h²_T`; the criteria town decides every other check.
+#[test]
+fn the_open_town_decides_h2t_and_only_it() {
+    assert_eq!(
+        open_town(),
+        Plan {
+            capacity: None,
+            ..criteria_town()
+        }
+    );
+    let report = json!({"checks": [
+        {"check": "f11_h2t_f", "pass": false, "finding": "outside"},
+        {"check": "f11_h2t_m", "pass": true},
+        {"check": "f11_e0_m", "pass": false, "finding": "outside"},
+        {"check": "p3", "pass": true, "twin": {"pass": true}},
+    ]});
+    assert_eq!(reds(&report, &decided_open), vec!["f11_h2t_f: outside"]);
+    assert_eq!(
+        reds(&report, &decided_closed),
+        vec!["f11_e0_m: outside", "p3: the negative twin is green"]
+    );
 }
