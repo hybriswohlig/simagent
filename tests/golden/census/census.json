@@ -4980,7 +4980,7 @@
   "c_prerun_small": {
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
    "data_hash": "b17afdcd296175ac",
-   "body_data": "rejected data.body_traits: core:mc1r is no recessive autosomal locus",
+   "body_data": "accepted without core:mc1r and core:herc2 in the map, both read as 0 copies (note section 6.1)",
    "start_input_hash": "90cc678794e0610c",
    "year_hashes": [
     "28e70d241496e285",
@@ -5020,7 +5020,7 @@
      "year": 0,
      "living": 40,
      "lived_secs": 1257984000,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5050,7 +5050,7 @@
      "year": 1,
      "living": 40,
      "lived_secs": 1272499199,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5080,7 +5080,7 @@
      "year": 2,
      "living": 40,
      "lived_secs": 1257984000,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5110,7 +5110,7 @@
      "year": 3,
      "living": 41,
      "lived_secs": 1282176000,
-     "body_evaluated": 0,
+     "body_evaluated": 41,
      "clamped": [
       0,
       0,
@@ -5140,7 +5140,7 @@
      "year": 4,
      "living": 40,
      "lived_secs": 1289433599,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5170,7 +5170,7 @@
      "year": 5,
      "living": 40,
      "lived_secs": 1284595199,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5200,7 +5200,7 @@
      "year": 6,
      "living": 40,
      "lived_secs": 1262822399,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5230,7 +5230,7 @@
      "year": 7,
      "living": 40,
      "lived_secs": 1257984000,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5260,7 +5260,7 @@
      "year": 8,
      "living": 40,
      "lived_secs": 1257984000,
-     "body_evaluated": 0,
+     "body_evaluated": 40,
      "clamped": [
       0,
       0,
@@ -5290,7 +5290,7 @@
      "year": 9,
      "living": 38,
      "lived_secs": 1284595197,
-     "body_evaluated": 0,
+     "body_evaluated": 38,
      "clamped": [
       0,
       0,
@@ -5320,7 +5320,7 @@
      "year": 10,
      "living": 38,
      "lived_secs": 1195084800,
-     "body_evaluated": 0,
+     "body_evaluated": 38,
      "clamped": [
       0,
       0,
@@ -5350,7 +5350,7 @@
      "year": 11,
      "living": 37,
      "lived_secs": 1183638376,
-     "body_evaluated": 0,
+     "body_evaluated": 37,
      "clamped": [
       0,
       0,
@@ -5380,7 +5380,7 @@
      "year": 12,
      "living": 37,
      "lived_secs": 1163635200,
-     "body_evaluated": 0,
+     "body_evaluated": 37,
      "clamped": [
       0,
       0,
@@ -5410,7 +5410,7 @@
      "year": 13,
      "living": 36,
      "lived_secs": 1147456389,
-     "body_evaluated": 0,
+     "body_evaluated": 36,
      "clamped": [
       0,
       0,
@@ -5440,7 +5440,7 @@
      "year": 14,
      "living": 36,
      "lived_secs": 1132185600,
-     "body_evaluated": 0,
+     "body_evaluated": 36,
      "clamped": [
       0,
       0,
@@ -5470,7 +5470,7 @@
      "year": 15,
      "living": 36,
      "lived_secs": 1132185600,
-     "body_evaluated": 0,
+     "body_evaluated": 36,
      "clamped": [
       0,
       0,
@@ -5500,7 +5500,7 @@
      "year": 16,
      "living": 36,
      "lived_secs": 1132185600,
-     "body_evaluated": 0,
+     "body_evaluated": 36,
      "clamped": [
       0,
       0,
@@ -5530,7 +5530,7 @@
      "year": 17,
      "living": 36,
      "lived_secs": 1132185600,
-     "body_evaluated": 0,
+     "body_evaluated": 36,
      "clamped": [
       0,
       0,
@@ -5560,7 +5560,7 @@
      "year": 18,
      "living": 35,
      "lived_secs": 1128104625,
-     "body_evaluated": 0,
+     "body_evaluated": 35,
      "clamped": [
       0,
       0,
@@ -5590,7 +5590,7 @@
      "year": 19,
      "living": 34,
      "lived_secs": 1075121168,
-     "body_evaluated": 0,
+     "body_evaluated": 34,
      "clamped": [
       0,
       0,
@@ -5620,7 +5620,7 @@
      "year": 20,
      "living": 34,
      "lived_secs": 1069286400,
-     "body_evaluated": 0,
+     "body_evaluated": 34,
      "clamped": [
       0,
       0,
@@ -5650,7 +5650,7 @@
      "year": 21,
      "living": 33,
      "lived_secs": 1068078057,
-     "body_evaluated": 0,
+     "body_evaluated": 33,
      "clamped": [
       0,
       0,
@@ -5680,7 +5680,7 @@
      "year": 22,
      "living": 32,
      "lived_secs": 1029729935,
-     "body_evaluated": 0,
+     "body_evaluated": 32,
      "clamped": [
       0,
       0,
@@ -5710,7 +5710,7 @@
      "year": 23,
      "living": 32,
      "lived_secs": 1006387200,
-     "body_evaluated": 0,
+     "body_evaluated": 32,
      "clamped": [
       0,
       0,
@@ -5740,7 +5740,7 @@
      "year": 24,
      "living": 32,
      "lived_secs": 1006387200,
-     "body_evaluated": 0,
+     "body_evaluated": 32,
      "clamped": [
       0,
       0,
@@ -5770,7 +5770,7 @@
      "year": 25,
      "living": 32,
      "lived_secs": 1006387200,
-     "body_evaluated": 0,
+     "body_evaluated": 32,
      "clamped": [
       0,
       0,
@@ -5800,7 +5800,7 @@
      "year": 26,
      "living": 31,
      "lived_secs": 975774954,
-     "body_evaluated": 0,
+     "body_evaluated": 31,
      "clamped": [
       0,
       0,
@@ -5830,7 +5830,7 @@
      "year": 27,
      "living": 31,
      "lived_secs": 974937600,
-     "body_evaluated": 0,
+     "body_evaluated": 31,
      "clamped": [
       0,
       0,
@@ -5860,7 +5860,7 @@
      "year": 28,
      "living": 31,
      "lived_secs": 974937600,
-     "body_evaluated": 0,
+     "body_evaluated": 31,
      "clamped": [
       0,
       0,
@@ -5890,7 +5890,7 @@
      "year": 29,
      "living": 31,
      "lived_secs": 969961925,
-     "body_evaluated": 0,
+     "body_evaluated": 31,
      "clamped": [
       0,
       0,
@@ -5918,14 +5918,33 @@
     }
    ],
    "curve_clamped_sims": {},
-   "margins": null,
+   "margins": {
+    "nearest_clamp_bound": {
+     "distance": 0.9549084447715925,
+     "ulps_of_bound": 1075131329011571.0,
+     "key": "face_axis_06",
+     "bound": -4.0,
+     "raw": -3.0450915552284075,
+     "raw_bits": "c0085c58f618411a",
+     "year": 0,
+     "sim": 30
+    },
+    "nearest_curve_bound": {
+     "distance": 2.9436999162279145,
+     "role": "z_h",
+     "z": -3.0563000837720855,
+     "z_bits": "c008734d7554815e",
+     "year": 0,
+     "sim": 30
+    }
+   },
    "until": 943487999,
    "snapshots": []
   },
   "c_prerun_small_reference_alleles": {
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
    "data_hash": "b17afdcd296175ac",
-   "body_data": "accepted with MC1R and HERC2 read as 0 copies (not the note's rule)",
+   "body_data": "accepted with MC1R and HERC2 read as 0 copies (the twin of c, which reaches the same rows by the rule of note section 6.1)",
    "start_input_hash": "90cc678794e0610c",
    "year_hashes": [
     "28e70d241496e285",
