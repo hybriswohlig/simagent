@@ -1,0 +1,7728 @@
+{
+ "what": "small pre-runs (tools/prerun_reference.py) with the newborn means of Grok GF-1 and the frozen map's mean_ref",
+ "rule": "the newborn mean of a trait: everyone born in the last full block of 30 birth years of the run (blocks [30 g, 30 g + 30) years from the start, g = years div 30 - 1; born div (30 * YEAR) = g; living, dead and emigrated), taken in ascending lineage key; A_i the additive value under the map this run freezes (d_ref = the measured mean doses of the living at the last census, here the measure at years * YEAR - 1); m = (sum of A_i folded from +0.0) / n, n as f64. Only the frozen map writes it, as mean_ref right after sigma_ref, for every trait; the next map of the iteration has d_ref and sigma_ref only (a rerun of a run reproduces its world, d_ref and sigma_ref bit for bit)",
+ "data": "the pre-run documents of the template (prerun_reference.prerun_documents: the template of map 4 without the five disease loci, MC1R and HERC2 and without the Mendelian diseases) with data/calibration/demography.json; the frozen map is the template's map with the measured d_ref, sigma_ref and mean_ref (prerun_reference.frozen_documents)",
+ "fields": "traits: living_mean (A under the run's map, the living), sigma (the measured sigma), newborn_mean (the rule), newborn_mean_with_run_d_ref (the same people under the run's own d_ref: what a wrong d_ref gives); newborn.persons: everyone counted, with A of core:longevity and core:growth under the frozen d_ref; *_bits are f64 as 16 hex digits big endian",
+ "cases": [
+  {
+   "name": "a_small",
+   "what": "the small pre-run of the note (prerun_reference print_run 'prerun_small'): run 1 on the template's pre-run documents (d_ref 1, sigma_start, no mean_ref); the last full block of 30 birth years is block 0, [0, 30)",
+   "scenario": {
+    "founders": 40,
+    "years": 30,
+    "seed": "0x11b019a1",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 943487999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "b17afdcd296175ac"
+   },
+   "story": {
+    "ever": 46,
+    "living": 31,
+    "archived": 15,
+    "log_hash": "20943224d56e373d",
+    "state_hash": "9decd28b3c6cf950",
+    "log_entries": 1236,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      2,
+      94348799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      3,
+      125798399,
+      41,
+      1,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      40,
+      0,
+      0,
+      1
+     ],
+     [
+      5,
+      188697599,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      6,
+      220147199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      7,
+      251596799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      8,
+      283046399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      38,
+      1,
+      0,
+      3
+     ],
+     [
+      10,
+      345945599,
+      38,
+      0,
+      0,
+      0
+     ],
+     [
+      11,
+      377395199,
+      37,
+      0,
+      1,
+      0
+     ],
+     [
+      12,
+      408844799,
+      37,
+      0,
+      0,
+      0
+     ],
+     [
+      13,
+      440294399,
+      36,
+      0,
+      1,
+      0
+     ],
+     [
+      14,
+      471743999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      597542399,
+      35,
+      0,
+      1,
+      0
+     ],
+     [
+      19,
+      628991999,
+      34,
+      0,
+      1,
+      0
+     ],
+     [
+      20,
+      660441599,
+      34,
+      0,
+      0,
+      0
+     ],
+     [
+      21,
+      691891199,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      22,
+      723340799,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      23,
+      754790399,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      24,
+      786239999,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      27,
+      880588799,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      28,
+      912038399,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      29,
+      943487999,
+      31,
+      1,
+      1,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 943487999,
+    "living": 31
+   },
+   "newborn": {
+    "block": 0,
+    "years": [
+     0,
+     30
+    ],
+    "born": 6,
+    "living": 5,
+    "died": 0,
+    "emigrated": 1,
+    "born_after_block": 0,
+    "persons": [
+     {
+      "sim": 44,
+      "lineage_key": "3907466e54276fc7",
+      "born": 215308800,
+      "parents": [
+       1,
+       16,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffe739ce739ce72",
+      "A_growth_bits": "c005ef7bdef7bdef"
+     },
+     {
+      "sim": 41,
+      "lineage_key": "7ddb2cebb3112e4b",
+      "born": 48384000,
+      "parents": [
+       2,
+       18,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfece739ce739ce5",
+      "A_growth_bits": "c00def7bdef7bdef"
+     },
+     {
+      "sim": 42,
+      "lineage_key": "810cd92b960bf881",
+      "born": 101606400,
+      "parents": [
+       2,
+       18,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "3ff18c6318c6318c",
+      "A_growth_bits": "3fd084210842107e"
+     },
+     {
+      "sim": 45,
+      "lineage_key": "d7ae02fba27aa10f",
+      "born": 287884800,
+      "parents": [
+       3,
+       13,
+       0
+      ],
+      "status": "emigrated 314495999",
+      "A_longevity_bits": "c0179ce739ce739d",
+      "A_growth_bits": "3fd084210842108c"
+     },
+     {
+      "sim": 43,
+      "lineage_key": "e29740017280d420",
+      "born": 162086400,
+      "parents": [
+       1,
+       16,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffe739ce739ce72",
+      "A_growth_bits": "bfe7bdef7bdef7bf"
+     },
+     {
+      "sim": 46,
+      "lineage_key": "fe1284ba9d82c92c",
+      "born": 921715200,
+      "parents": [
+       44,
+       8,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "4000c6318c6318c6",
+      "A_growth_bits": "3ff4210842108422"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3ffc72b1fe0c055a",
+     "newborn_mean": 1.0,
+     "newborn_mean_bits": "3ff0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3ff0000000000000"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "bfc0842108421084",
+     "sigma_bits": "3ff670f45b759720",
+     "newborn_mean": 0.46236559139784933,
+     "newborn_mean_bits": "3fdd9765d9765d95",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "bfc8c6318c6318c6",
+     "sigma_bits": "3ff46383cfa75afc",
+     "newborn_mean": 0.6935483870967741,
+     "newborn_mean_bits": "3fe6318c6318c631",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "3fc4a5294a5294a5",
+     "sigma_bits": "3fec4501514ec51c",
+     "newborn_mean": 0.338709677419355,
+     "newborn_mean_bits": "3fd5ad6b5ad6b5b0",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "bfb0842108421084",
+     "sigma_bits": "3ff0d8f49e34f9bc",
+     "newborn_mean": 0.5645161290322581,
+     "newborn_mean_bits": "3fe2108421084211",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "bfaf6171f6171f61",
+     "sigma_bits": "3ff0c783bf26e3f8",
+     "newborn_mean": -0.3887096774193548,
+     "newborn_mean_bits": "bfd8e09e8e09e8e0",
+     "newborn_mean_with_run_d_ref_bits": "bfdccccccccccccd"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "3f8dbaa1dbaa1da5",
+     "sigma_bits": "3feabb0224e331f3",
+     "newborn_mean": -0.039516129032258096,
+     "newborn_mean_bits": "bfa43b7543b75440",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999ab"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "bfe18c6318c6318c",
+     "sigma_bits": "4000bc86ef1180c1",
+     "newborn_mean": -0.7849462365591394,
+     "newborn_mean_bits": "bfe91e4791e4791b",
+     "newborn_mean_with_run_d_ref_bits": "bff5555555555555"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3fa0842108421084",
+     "sigma_bits": "3feffbbc95ff4922",
+     "newborn_mean": -0.032258064516129004,
+     "newborn_mean_bits": "bfa0842108421080",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "bfa0842108421084",
+     "sigma_bits": "3ffed000edec8124",
+     "newborn_mean": -0.8010752688172041,
+     "newborn_mean_bits": "bfe9a2689a2689a1",
+     "newborn_mean_with_run_d_ref_bits": "bfeaaaaaaaaaaaab"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "3fb8c6318c6318c6",
+     "sigma_bits": "3feecb936e173b85",
+     "newborn_mean": -0.2634408602150537,
+     "newborn_mean_bits": "bfd0dc370dc370db",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfd1a6d01a6d01a5",
+     "sigma_bits": "3fe6053055bde692",
+     "newborn_mean": -0.08252688172043013,
+     "newborn_mean_bits": "bfb5207b5207b522",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfcb0b8fb0b8fb0a",
+     "sigma_bits": "3fe2d8dcf2de6357",
+     "newborn_mean": 0.18629032258064523,
+     "newborn_mean_bits": "3fc7d85c7d85c7db",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "3fbc7d85c7d85c7b",
+     "sigma_bits": "3fec984843793444",
+     "newborn_mean": -0.3029569892473119,
+     "newborn_mean_bits": "bfd363a5b63a5b65",
+     "newborn_mean_with_run_d_ref_bits": "bfc8888888888888"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bfde09e8e09e8e08",
+     "sigma_bits": "3fe90ec78b4057ef",
+     "newborn_mean": -0.3889784946236559,
+     "newborn_mean_bits": "bfd8e5060e5060e5",
+     "newborn_mean_with_run_d_ref_bits": "bfeb777777777777"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "bfbd50edd50edd54",
+     "sigma_bits": "3fe5fbe3ea611797",
+     "newborn_mean": 0.2561827956989249,
+     "newborn_mean_bits": "3fd0654c8654c868",
+     "newborn_mean_with_run_d_ref_bits": "3fc2222222222221"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "3fc25fcb25fcb25f",
+     "sigma_bits": "3fe721bd57e00cc5",
+     "newborn_mean": 0.49811827956989246,
+     "newborn_mean_bits": "3fdfe12b7e12b7e1",
+     "newborn_mean_with_run_d_ref_bits": "3fe4888888888888"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "3fc25fcb25fcb260",
+     "sigma_bits": "3fe80ac62409e2f8",
+     "newborn_mean": -0.3352150537634409,
+     "newborn_mean_bits": "bfd57429d7429d75",
+     "newborn_mean_with_run_d_ref_bits": "bfc8888888888888"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "3fa7f2c97f2c97f2",
+     "sigma_bits": "3fe9bf6cb6d4e597",
+     "newborn_mean": -0.07177419354838703,
+     "newborn_mean_bits": "bfb25fcb25fcb25b",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "3fd7a3827a3827a3",
+     "sigma_bits": "3febecf32eba891f",
+     "newborn_mean": 0.1056451612903226,
+     "newborn_mean_bits": "3fbb0b8fb0b8fb0d",
+     "newborn_mean_with_run_d_ref_bits": "3fde666666666664"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bfbd50edd50edd4e",
+     "sigma_bits": "3fea7b7152422dc2",
+     "newborn_mean": -0.2438172043010753,
+     "newborn_mean_bits": "bfcf3566f3566f37",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "3fc25fcb25fcb25d",
+     "sigma_bits": "3fe8621624d63990",
+     "newborn_mean": 0.16478494623655912,
+     "newborn_mean_bits": "3fc517ac517ac517",
+     "newborn_mean_with_run_d_ref_bits": "3fd3bbbbbbbbbbbb"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "3fbc7d85c7d85c7e",
+     "sigma_bits": "3fe916652fce3fba",
+     "newborn_mean": -0.1362903225806452,
+     "newborn_mean_bits": "bfc171f6171f6173",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "3fd294a5294a5295",
+     "sigma_bits": "3ff377626a88f93b",
+     "newborn_mean": 0.37634408602150565,
+     "newborn_mean_bits": "3fd816058160581b",
+     "newborn_mean_with_run_d_ref_bits": "3fe5555555555555"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "3fb8c6318c6318c6",
+     "sigma_bits": "3fedb405df2be54a",
+     "newborn_mean": -0.09677419354838701,
+     "newborn_mean_bits": "bfb8c6318c6318c0",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fc4a5294a5294a5",
+     "sigma_bits": "3fee846412c70821",
+     "newborn_mean": 0.17204301075268832,
+     "newborn_mean_bits": "3fc605816058160b",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "3fe7bdef7bdef7be",
+     "sigma_bits": "40043701c4c925d1",
+     "newborn_mean": -0.9086021505376344,
+     "newborn_mean_bits": "bfed1344d1344d13",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "3fb8c6318c6318c6",
+     "sigma_bits": "3feecb936e173b86",
+     "newborn_mean": 0.06989247311827952,
+     "newborn_mean_bits": "3fb1e4791e4791e1",
+     "newborn_mean_with_run_d_ref_bits": "3fc5555555555555"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "bfa0842108421084",
+     "sigma_bits": "3feeeeedaddd7588",
+     "newborn_mean": 0.36559139784946243,
+     "newborn_mean_bits": "3fd765d9765d9767",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "3f8dbaa1dbaa1da5",
+     "sigma_bits": "3feb386685fc2c89",
+     "newborn_mean": -0.3728494623655914,
+     "newborn_mean_bits": "bfd7dcc3fdcc3fdd",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "3fcd50edd50edd51",
+     "sigma_bits": "3ff08107f7affcbb",
+     "newborn_mean": 0.3209677419354838,
+     "newborn_mean_bits": "3fd48abc48abc489",
+     "newborn_mean_with_run_d_ref_bits": "3fe1999999999999"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3fc680d3680d3681",
+     "sigma_bits": "3fe98f937b5afd09",
+     "newborn_mean": -0.20080645161290314,
+     "newborn_mean_bits": "bfc9b4069b4069b1",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "3fece739ce739ce7",
+     "sigma_bits": "40036bfc5e471906",
+     "newborn_mean": -1.2365591397849462,
+     "newborn_mean_bits": "bff3c8f23c8f23c9",
+     "newborn_mean_with_run_d_ref_bits": "bfd5555555555555"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "3fb0842108421084",
+     "sigma_bits": "3ff3c7517c01edbc",
+     "newborn_mean": 0.435483870967742,
+     "newborn_mean_bits": "3fdbdef7bdef7be0",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "3fc8c6318c6318c6",
+     "sigma_bits": "40036dbdbbe71027",
+     "newborn_mean": -0.8602150537634407,
+     "newborn_mean_bits": "bfeb86e1b86e1b85",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "bfb0842108421084",
+     "sigma_bits": "3ffc23273d94358d",
+     "newborn_mean": -0.2688172043010753,
+     "newborn_mean_bits": "bfd1344d1344d135",
+     "newborn_mean_with_run_d_ref_bits": "bfd5555555555555"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "3fb8c6318c6318c6",
+     "sigma_bits": "3ff238ec0e8f85ee",
+     "newborn_mean": 0.40322580645161304,
+     "newborn_mean_bits": "3fd9ce739ce739d1",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfc0842108421084",
+     "sigma_bits": "3ff2f32219fb6b17",
+     "newborn_mean": -0.5376344086021506,
+     "newborn_mean_bits": "bfe1344d1344d135",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3fe5ad6b5ad6b5ad"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fe7bdef7bdef7be"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff5294a5294a529"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3ff39ce739ce739d"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3fedef7bdef7bdef"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fe39ce739ce739d"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3ff4210842108421"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3ff318c6318c6319"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3ff318c6318c6319"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3fe9ce739ce739ce"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3fedef7bdef7bdef"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fdad6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff318c6318c6319"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3fe9ce739ce739ce"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff4210842108421"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3ff4a5294a5294a5"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3fedef7bdef7bdef"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe5ad6b5ad6b5ad"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ff8421084210842"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3ff4210842108421"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3ff4a5294a5294a5"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3ff5294a5294a529"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3ff2108421084211"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3fe7bdef7bdef7be"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff4a5294a5294a5"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3fedef7bdef7bdef"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff318c6318c6319"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3fe7bdef7bdef7be"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fe8c6318c6318c6"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3fe9ce739ce739ce"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3ff294a5294a5295"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3ff39ce739ce739d"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3ff0842108421084"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3ff18c6318c6318c"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3fece739ce739ce7"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3fedef7bdef7bdef"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3fead6b5ad6b5ad7"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3febdef7bdef7bdf"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff1084210842108"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3fe5ad6b5ad6b5ad"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3feef7bdef7bdef8"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "27a6d310c620f992"
+   },
+   "frozen": {
+    "data_hash": "bde640bc588c43db",
+    "genome_map_json_bytes": 77243,
+    "genome_map_json_xxh3": "c794d5ecab4f14df",
+    "data_hash_without_mean_ref": "f3a196cce7404668",
+    "mean_ref": {
+     "core:androgen": "3ff0000000000000",
+     "core:bald": "3fdd9765d9765d95",
+     "core:beard": "3fe6318c6318c631",
+     "core:body_fat": "3fd5ad6b5ad6b5b0",
+     "core:body_hair": "3fe2108421084211",
+     "core:breast": "bfd8e09e8e09e8e0",
+     "core:chest_depth": "bfa43b7543b75440",
+     "core:cognition": "bfe91e4791e4791b",
+     "core:curl": "bfa0842108421080",
+     "core:disease_liability": "bfe9a2689a2689a1",
+     "core:estrogen": "bfd0dc370dc370db",
+     "core:face_01": "bfb5207b5207b522",
+     "core:face_02": "3fc7d85c7d85c7db",
+     "core:face_03": "bfd363a5b63a5b65",
+     "core:face_04": "bfd8e5060e5060e5",
+     "core:face_05": "3fd0654c8654c868",
+     "core:face_06": "3fdfe12b7e12b7e1",
+     "core:face_07": "bfd57429d7429d75",
+     "core:face_08": "bfb25fcb25fcb25b",
+     "core:face_09": "3fbb0b8fb0b8fb0d",
+     "core:face_10": "bfcf3566f3566f37",
+     "core:face_11": "3fc517ac517ac517",
+     "core:face_12": "bfc171f6171f6173",
+     "core:fat_distribution": "3fd816058160581b",
+     "core:freckle": "bfb8c6318c6318c0",
+     "core:grey": "3fc605816058160b",
+     "core:growth": "bfed1344d1344d13",
+     "core:hair_darkness": "3fb1e4791e4791e1",
+     "core:hair_density": "3fd765d9765d9767",
+     "core:head_size": "bfd7dcc3fdcc3fdd",
+     "core:hip_width": "3fd48abc48abc489",
+     "core:leg_ratio": "bfc9b4069b4069b1",
+     "core:longevity": "bff3c8f23c8f23c9",
+     "core:muscle": "3fdbdef7bdef7be0",
+     "core:pigment": "bfeb86e1b86e1b85",
+     "core:puberty": "bfd1344d1344d135",
+     "core:shoulder_width": "3fd9ce739ce739d1",
+     "core:skin_age": "bfe1344d1344d135"
+    }
+   }
+  },
+  {
+   "name": "b_45_years",
+   "what": "the same founders and seed, 45 years: block 1 [30, 60) is not wholly inside the run, so the block is still 0 and the births of the years 30 to 44 do not count",
+   "scenario": {
+    "founders": 40,
+    "years": 45,
+    "seed": "0x11b019a1",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 1415231999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "b17afdcd296175ac"
+   },
+   "story": {
+    "ever": 49,
+    "living": 26,
+    "archived": 23,
+    "log_hash": "81454706dfff6580",
+    "state_hash": "56ca16eaf1420493",
+    "log_entries": 1712,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      2,
+      94348799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      3,
+      125798399,
+      41,
+      1,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      40,
+      0,
+      0,
+      1
+     ],
+     [
+      5,
+      188697599,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      6,
+      220147199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      7,
+      251596799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      8,
+      283046399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      38,
+      1,
+      0,
+      3
+     ],
+     [
+      10,
+      345945599,
+      38,
+      0,
+      0,
+      0
+     ],
+     [
+      11,
+      377395199,
+      37,
+      0,
+      1,
+      0
+     ],
+     [
+      12,
+      408844799,
+      37,
+      0,
+      0,
+      0
+     ],
+     [
+      13,
+      440294399,
+      36,
+      0,
+      1,
+      0
+     ],
+     [
+      14,
+      471743999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      597542399,
+      35,
+      0,
+      1,
+      0
+     ],
+     [
+      19,
+      628991999,
+      34,
+      0,
+      1,
+      0
+     ],
+     [
+      20,
+      660441599,
+      34,
+      0,
+      0,
+      0
+     ],
+     [
+      21,
+      691891199,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      22,
+      723340799,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      23,
+      754790399,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      24,
+      786239999,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      27,
+      880588799,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      28,
+      912038399,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      29,
+      943487999,
+      31,
+      1,
+      1,
+      0
+     ],
+     [
+      30,
+      974937599,
+      30,
+      0,
+      1,
+      0
+     ],
+     [
+      31,
+      1006387199,
+      30,
+      1,
+      1,
+      0
+     ],
+     [
+      32,
+      1037836799,
+      30,
+      0,
+      0,
+      0
+     ],
+     [
+      33,
+      1069286399,
+      31,
+      1,
+      0,
+      0
+     ],
+     [
+      34,
+      1100735999,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      35,
+      1132185599,
+      32,
+      1,
+      0,
+      0
+     ],
+     [
+      36,
+      1163635199,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      37,
+      1195084799,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      38,
+      1226534399,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      39,
+      1257983999,
+      30,
+      0,
+      1,
+      0
+     ],
+     [
+      40,
+      1289433599,
+      29,
+      0,
+      1,
+      0
+     ],
+     [
+      41,
+      1320883199,
+      29,
+      0,
+      0,
+      0
+     ],
+     [
+      42,
+      1352332799,
+      29,
+      0,
+      0,
+      0
+     ],
+     [
+      43,
+      1383782399,
+      28,
+      0,
+      1,
+      0
+     ],
+     [
+      44,
+      1415231999,
+      26,
+      0,
+      2,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 1415231999,
+    "living": 26
+   },
+   "newborn": {
+    "block": 0,
+    "years": [
+     0,
+     30
+    ],
+    "born": 6,
+    "living": 5,
+    "died": 0,
+    "emigrated": 1,
+    "born_after_block": 3,
+    "persons": [
+     {
+      "sim": 44,
+      "lineage_key": "3907466e54276fc7",
+      "born": 215308800,
+      "parents": [
+       1,
+       16,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "c00189d89d89d89e",
+      "A_growth_bits": "c006c4ec4ec4ec4f"
+     },
+     {
+      "sim": 41,
+      "lineage_key": "7ddb2cebb3112e4b",
+      "born": 48384000,
+      "parents": [
+       2,
+       18,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff313b13b13b13c",
+      "A_growth_bits": "c00ec4ec4ec4ec4e"
+     },
+     {
+      "sim": 42,
+      "lineage_key": "810cd92b960bf881",
+      "born": 101606400,
+      "parents": [
+       2,
+       18,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "3fe9d89d89d89d89",
+      "A_growth_bits": "3fc3b13b13b13b24"
+     },
+     {
+      "sim": 45,
+      "lineage_key": "d7ae02fba27aa10f",
+      "born": 287884800,
+      "parents": [
+       3,
+       13,
+       0
+      ],
+      "status": "emigrated 314495999",
+      "A_longevity_bits": "c018c4ec4ec4ec4f",
+      "A_growth_bits": "3fc3b13b13b13b10"
+     },
+     {
+      "sim": 43,
+      "lineage_key": "e29740017280d420",
+      "born": 162086400,
+      "parents": [
+       1,
+       16,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "c00189d89d89d89e",
+      "A_growth_bits": "bfeb13b13b13b138"
+     },
+     {
+      "sim": 46,
+      "lineage_key": "fe1284ba9d82c92c",
+      "born": 921715200,
+      "parents": [
+       44,
+       8,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "3ffcec4ec4ec4ec4",
+      "A_growth_bits": "3ff2762762762764"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "3fc3b13b13b13b14",
+     "sigma_bits": "3ffc4ec4ec4ec4ed",
+     "newborn_mean": 0.8461538461538463,
+     "newborn_mean_bits": "3feb13b13b13b13c",
+     "newborn_mean_with_run_d_ref_bits": "3ff0000000000000"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3ff436d83f615624",
+     "newborn_mean": 0.3333333333333333,
+     "newborn_mean_bits": "3fd5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "bfbd89d89d89d89e",
+     "sigma_bits": "3ff2de09ab3e537d",
+     "newborn_mean": 0.6153846153846155,
+     "newborn_mean_bits": "3fe3b13b13b13b15",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "3fd6276276276276",
+     "sigma_bits": "3fe9031ea5831260",
+     "newborn_mean": 0.15384615384615397,
+     "newborn_mean_bits": "3fc3b13b13b13b18",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3ff0747f45c23514",
+     "newborn_mean": 0.5,
+     "newborn_mean_bits": "3fe0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "bfd3b13b13b13b14",
+     "sigma_bits": "3febe5578df4b86b",
+     "newborn_mean": -0.1423076923076922,
+     "newborn_mean_bits": "bfc237237237236e",
+     "newborn_mean_with_run_d_ref_bits": "bfdccccccccccccd"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "bf9b91b91b91b922",
+     "sigma_bits": "3feb671d872c2f3d",
+     "newborn_mean": 0.0019230769230771012,
+     "newborn_mean_bits": "3f5f81f81f81fb55",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999ab"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "bfe3b13b13b13b14",
+     "sigma_bits": "400050ff79e501ba",
+     "newborn_mean": -0.7179487179487184,
+     "newborn_mean_bits": "bfe6f96f96f96f9b",
+     "newborn_mean_with_run_d_ref_bits": "bff5555555555555"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3fbd89d89d89d89e",
+     "sigma_bits": "3feb1ad975add190",
+     "newborn_mean": -0.11538461538461542,
+     "newborn_mean_bits": "bfbd89d89d89d8a0",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "bfd3b13b13b13b14",
+     "sigma_bits": "3fff4e5ba2fddf21",
+     "newborn_mean": -0.5256410256410255,
+     "newborn_mean_bits": "bfe0d20d20d20d20",
+     "newborn_mean_with_run_d_ref_bits": "bfeaaaaaaaaaaaab"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3feaa027f059dce1",
+     "newborn_mean": -0.16666666666666657,
+     "newborn_mean_bits": "bfc5555555555552",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfda56a56a56a569",
+     "sigma_bits": "3fe4cbf6023d60b1",
+     "newborn_mean": 0.05320512820512823,
+     "newborn_mean_bits": "3fab3db3db3db3df",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfc2372372372372",
+     "sigma_bits": "3fe5cae884918250",
+     "newborn_mean": 0.1173076923076924,
+     "newborn_mean_bits": "3fbe07e07e07e085",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "3fa999999999999b",
+     "sigma_bits": "3feba7e9912d38f2",
+     "newborn_mean": -0.24166666666666659,
+     "newborn_mean_bits": "bfceeeeeeeeeeeec",
+     "newborn_mean_with_run_d_ref_bits": "bfc8888888888888"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bfe352b52b52b52a",
+     "sigma_bits": "3fe57871c79e85ad",
+     "newborn_mean": -0.2544871794871794,
+     "newborn_mean_bits": "bfd0498498498497",
+     "newborn_mean_with_run_d_ref_bits": "bfeb777777777777"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "bfcc0fc0fc0fc0fb",
+     "sigma_bits": "3fe57faa0d8ee260",
+     "newborn_mean": 0.36089743589743595,
+     "newborn_mean_bits": "3fd718f18f18f190",
+     "newborn_mean_with_run_d_ref_bits": "3fc2222222222221"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "3fca17a17a17a179",
+     "sigma_bits": "3fe9434b6016d756",
+     "newborn_mean": 0.4378205128205129,
+     "newborn_mean_bits": "3fdc054054054055",
+     "newborn_mean_with_run_d_ref_bits": "3fe4888888888888"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "3fc52b52b52b52b2",
+     "sigma_bits": "3fea01e58f374be2",
+     "newborn_mean": -0.3570512820512821,
+     "newborn_mean_bits": "bfd6d9ed9ed9eda0",
+     "newborn_mean_with_run_d_ref_bits": "bfc8888888888888"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "bfb0bd0bd0bd0bd1",
+     "sigma_bits": "3fe52a394ee1e01b",
+     "newborn_mean": 0.04038461538461538,
+     "newborn_mean_bits": "3fa4ad4ad4ad4ad4",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "3fd6e46e46e46e45",
+     "sigma_bits": "3fe9fee9f6c0cee8",
+     "newborn_mean": 0.11730769230769234,
+     "newborn_mean_bits": "3fbe07e07e07e080",
+     "newborn_mean_with_run_d_ref_bits": "3fde666666666664"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bfb0bd0bd0bd0bd1",
+     "sigma_bits": "3fe8d87f4273db9e",
+     "newborn_mean": -0.29294871794871785,
+     "newborn_mean_bits": "bfd2bfabfabfabf9",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "3fcf03f03f03f03c",
+     "sigma_bits": "3fe911fc78e57d24",
+     "newborn_mean": 0.06602564102564118,
+     "newborn_mean_bits": "3fb0e70e70e70e7c",
+     "newborn_mean_with_run_d_ref_bits": "3fd3bbbbbbbbbbbb"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "3fcf03f03f03f03c",
+     "sigma_bits": "3fe73181e2f7a7e0",
+     "newborn_mean": -0.2673076923076923,
+     "newborn_mean_bits": "bfd11b91b91b91b9",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "3fd89d89d89d89d9",
+     "sigma_bits": "3ff3c26ea41b4806",
+     "newborn_mean": 0.2820512820512821,
+     "newborn_mean_bits": "3fd20d20d20d20d3",
+     "newborn_mean_with_run_d_ref_bits": "3fe5555555555555"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "bfc3b13b13b13b14",
+     "sigma_bits": "3feba17599ea1308",
+     "newborn_mean": 0.15384615384615397,
+     "newborn_mean_bits": "3fc3b13b13b13b18",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fc89d89d89d89d9",
+     "sigma_bits": "3ff09d89d89d89d9",
+     "newborn_mean": 0.14102564102564105,
+     "newborn_mean_bits": "3fc20d20d20d20d3",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "3feb13b13b13b13b",
+     "sigma_bits": "40044c61b9761008",
+     "newborn_mean": -1.0128205128205126,
+     "newborn_mean_bits": "bff0348348348347",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "3fcd89d89d89d89e",
+     "sigma_bits": "3fef22e2be9697c8",
+     "newborn_mean": -0.06410256410256411,
+     "newborn_mean_bits": "bfb0690690690691",
+     "newborn_mean_with_run_d_ref_bits": "3fc5555555555555"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "3fc3b13b13b13b14",
+     "sigma_bits": "3fed05677eac06ac",
+     "newborn_mean": 0.17948717948717943,
+     "newborn_mean_bits": "3fc6f96f96f96f95",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "3fb6a56a56a56a52",
+     "sigma_bits": "3febfb8ca918a5a9",
+     "newborn_mean": -0.4467948717948717,
+     "newborn_mean_bits": "bfdc984984984983",
+     "newborn_mean_with_run_d_ref_bits": "bfd6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "3fd13b13b13b13b1",
+     "sigma_bits": "3fed4216974555c5",
+     "newborn_mean": 0.28076923076923094,
+     "newborn_mean_bits": "3fd1f81f81f81f85",
+     "newborn_mean_with_run_d_ref_bits": "3fe1999999999999"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3fd1f81f81f81f81",
+     "sigma_bits": "3fe89372aaf508e3",
+     "newborn_mean": -0.3057692307692306,
+     "newborn_mean_bits": "bfd391b91b91b919",
+     "newborn_mean_with_run_d_ref_bits": "bf999999999999a0"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "3ff313b13b13b13b",
+     "sigma_bits": "4002b2cf8da8deac",
+     "newborn_mean": -1.5256410256410262,
+     "newborn_mean_bits": "bff8690690690693",
+     "newborn_mean_with_run_d_ref_bits": "bfd5555555555555"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "3fa3b13b13b13b14",
+     "sigma_bits": "3ff3b626c513a4f0",
+     "newborn_mean": 0.4615384615384615,
+     "newborn_mean_bits": "3fdd89d89d89d89d",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "3fd13b13b13b13b1",
+     "sigma_bits": "400369f52c5d585a",
+     "newborn_mean": -0.9358974358974357,
+     "newborn_mean_bits": "bfedf2df2df2df2c",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "bfc89d89d89d89d9",
+     "sigma_bits": "3ffafff8d19945fa",
+     "newborn_mean": -0.14102564102564086,
+     "newborn_mean_bits": "bfc20d20d20d20cc",
+     "newborn_mean_with_run_d_ref_bits": "bfd5555555555555"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "3fa3b13b13b13b14",
+     "sigma_bits": "3ff226b78f61bc76",
+     "newborn_mean": 0.4615384615384615,
+     "newborn_mean_bits": "3fdd89d89d89d89d",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfb3b13b13b13b14",
+     "sigma_bits": "3ff44c61b9761009",
+     "newborn_mean": -0.5897435897435898,
+     "newborn_mean_bits": "bfe2df2df2df2df3",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3fe3b13b13b13b14"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fe89d89d89d89d9"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3fe89d89d89d89d9"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3ff6276276276276"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fdd89d89d89d89e"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3ff3b13b13b13b14"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fe2762762762762"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3ff6276276276276"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3fe9d89d89d89d8a"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3fe9d89d89d89d8a"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fd13b13b13b13b1"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fe89d89d89d89d9"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3fe9d89d89d89d8a"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3fe89d89d89d89d9"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe7627627627627"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fe9d89d89d89d8a"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff4ec4ec4ec4ec5"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ff7627627627627"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff313b13b13b13b"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3ff3b13b13b13b14"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3fe7627627627627"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3fe4ec4ec4ec4ec5"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3ff4ec4ec4ec4ec5"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3ff6c4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3fe7627627627627"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3fe6276276276276"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe6276276276276"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3fe9d89d89d89d8a"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff09d89d89d89d9"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3fe6276276276276"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3fe7627627627627"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fe13b13b13b13b1"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3fe2762762762762"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3ff44ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3ff2762762762762"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3fed89d89d89d89e"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3ff1d89d89d89d8a"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3feec4ec4ec4ec4f"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3fec4ec4ec4ec4ec"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff13b13b13b13b1"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3fe7627627627627"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3feb13b13b13b13b"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "4d45415cd3da4dc6"
+   },
+   "frozen": {
+    "data_hash": "f0540d8bc88ff534",
+    "genome_map_json_bytes": 77319,
+    "genome_map_json_xxh3": "5bf21498907c95c4",
+    "data_hash_without_mean_ref": "c9c0fb41b452511d",
+    "mean_ref": {
+     "core:androgen": "3feb13b13b13b13c",
+     "core:bald": "3fd5555555555555",
+     "core:beard": "3fe3b13b13b13b15",
+     "core:body_fat": "3fc3b13b13b13b18",
+     "core:body_hair": "3fe0000000000000",
+     "core:breast": "bfc237237237236e",
+     "core:chest_depth": "3f5f81f81f81fb55",
+     "core:cognition": "bfe6f96f96f96f9b",
+     "core:curl": "bfbd89d89d89d8a0",
+     "core:disease_liability": "bfe0d20d20d20d20",
+     "core:estrogen": "bfc5555555555552",
+     "core:face_01": "3fab3db3db3db3df",
+     "core:face_02": "3fbe07e07e07e085",
+     "core:face_03": "bfceeeeeeeeeeeec",
+     "core:face_04": "bfd0498498498497",
+     "core:face_05": "3fd718f18f18f190",
+     "core:face_06": "3fdc054054054055",
+     "core:face_07": "bfd6d9ed9ed9eda0",
+     "core:face_08": "3fa4ad4ad4ad4ad4",
+     "core:face_09": "3fbe07e07e07e080",
+     "core:face_10": "bfd2bfabfabfabf9",
+     "core:face_11": "3fb0e70e70e70e7c",
+     "core:face_12": "bfd11b91b91b91b9",
+     "core:fat_distribution": "3fd20d20d20d20d3",
+     "core:freckle": "3fc3b13b13b13b18",
+     "core:grey": "3fc20d20d20d20d3",
+     "core:growth": "bff0348348348347",
+     "core:hair_darkness": "bfb0690690690691",
+     "core:hair_density": "3fc6f96f96f96f95",
+     "core:head_size": "bfdc984984984983",
+     "core:hip_width": "3fd1f81f81f81f85",
+     "core:leg_ratio": "bfd391b91b91b919",
+     "core:longevity": "bff8690690690693",
+     "core:muscle": "3fdd89d89d89d89d",
+     "core:pigment": "bfedf2df2df2df2c",
+     "core:puberty": "bfc20d20d20d20cc",
+     "core:shoulder_width": "3fdd89d89d89d89d",
+     "core:skin_age": "bfe2df2df2df2df3"
+    }
+   }
+  },
+  {
+   "name": "c_60_years",
+   "what": "the same founders and seed, 60 years: the block is 1, [30, 60); the births of block 0 do not count",
+   "scenario": {
+    "founders": 40,
+    "years": 60,
+    "seed": "0x11b019a1",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 1886975999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "b17afdcd296175ac"
+   },
+   "story": {
+    "ever": 52,
+    "living": 16,
+    "archived": 36,
+    "log_hash": "c830fcd8a6881dd3",
+    "state_hash": "bbb5e2448e436c98",
+    "log_entries": 2051,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      2,
+      94348799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      3,
+      125798399,
+      41,
+      1,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      40,
+      0,
+      0,
+      1
+     ],
+     [
+      5,
+      188697599,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      6,
+      220147199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      7,
+      251596799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      8,
+      283046399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      38,
+      1,
+      0,
+      3
+     ],
+     [
+      10,
+      345945599,
+      38,
+      0,
+      0,
+      0
+     ],
+     [
+      11,
+      377395199,
+      37,
+      0,
+      1,
+      0
+     ],
+     [
+      12,
+      408844799,
+      37,
+      0,
+      0,
+      0
+     ],
+     [
+      13,
+      440294399,
+      36,
+      0,
+      1,
+      0
+     ],
+     [
+      14,
+      471743999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      597542399,
+      35,
+      0,
+      1,
+      0
+     ],
+     [
+      19,
+      628991999,
+      34,
+      0,
+      1,
+      0
+     ],
+     [
+      20,
+      660441599,
+      34,
+      0,
+      0,
+      0
+     ],
+     [
+      21,
+      691891199,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      22,
+      723340799,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      23,
+      754790399,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      24,
+      786239999,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      27,
+      880588799,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      28,
+      912038399,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      29,
+      943487999,
+      31,
+      1,
+      1,
+      0
+     ],
+     [
+      30,
+      974937599,
+      30,
+      0,
+      1,
+      0
+     ],
+     [
+      31,
+      1006387199,
+      30,
+      1,
+      1,
+      0
+     ],
+     [
+      32,
+      1037836799,
+      30,
+      0,
+      0,
+      0
+     ],
+     [
+      33,
+      1069286399,
+      31,
+      1,
+      0,
+      0
+     ],
+     [
+      34,
+      1100735999,
+      31,
+      0,
+      0,
+      0
+     ],
+     [
+      35,
+      1132185599,
+      32,
+      1,
+      0,
+      0
+     ],
+     [
+      36,
+      1163635199,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      37,
+      1195084799,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      38,
+      1226534399,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      39,
+      1257983999,
+      30,
+      0,
+      1,
+      0
+     ],
+     [
+      40,
+      1289433599,
+      29,
+      0,
+      1,
+      0
+     ],
+     [
+      41,
+      1320883199,
+      29,
+      0,
+      0,
+      0
+     ],
+     [
+      42,
+      1352332799,
+      29,
+      0,
+      0,
+      0
+     ],
+     [
+      43,
+      1383782399,
+      28,
+      0,
+      1,
+      0
+     ],
+     [
+      44,
+      1415231999,
+      26,
+      0,
+      2,
+      0
+     ],
+     [
+      45,
+      1446681599,
+      23,
+      0,
+      3,
+      0
+     ],
+     [
+      46,
+      1478131199,
+      22,
+      0,
+      1,
+      0
+     ],
+     [
+      47,
+      1509580799,
+      22,
+      0,
+      0,
+      0
+     ],
+     [
+      48,
+      1541030399,
+      22,
+      0,
+      0,
+      0
+     ],
+     [
+      49,
+      1572479999,
+      22,
+      0,
+      0,
+      0
+     ],
+     [
+      50,
+      1603929599,
+      20,
+      0,
+      2,
+      0
+     ],
+     [
+      51,
+      1635379199,
+      20,
+      0,
+      0,
+      0
+     ],
+     [
+      52,
+      1666828799,
+      18,
+      0,
+      2,
+      0
+     ],
+     [
+      53,
+      1698278399,
+      18,
+      0,
+      0,
+      0
+     ],
+     [
+      54,
+      1729727999,
+      19,
+      1,
+      0,
+      0
+     ],
+     [
+      55,
+      1761177599,
+      18,
+      0,
+      1,
+      0
+     ],
+     [
+      56,
+      1792627199,
+      16,
+      0,
+      2,
+      0
+     ],
+     [
+      57,
+      1824076799,
+      18,
+      2,
+      0,
+      0
+     ],
+     [
+      58,
+      1855526399,
+      17,
+      0,
+      1,
+      0
+     ],
+     [
+      59,
+      1886975999,
+      16,
+      0,
+      1,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 1886975999,
+    "living": 16
+   },
+   "newborn": {
+    "block": 1,
+    "years": [
+     30,
+     60
+    ],
+    "born": 6,
+    "living": 5,
+    "died": 1,
+    "emigrated": 0,
+    "born_after_block": 0,
+    "persons": [
+     {
+      "sim": 51,
+      "lineage_key": "7ffcd2ba19eeee3a",
+      "born": 1816819200,
+      "parents": [
+       49,
+       41,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "3fd0000000000000",
+      "A_growth_bits": "c00d800000000000"
+     },
+     {
+      "sim": 48,
+      "lineage_key": "80b65a97d56f8cfc",
+      "born": 1059609600,
+      "parents": [
+       44,
+       8,
+       2
+      ],
+      "status": "living",
+      "A_longevity_bits": "c006000000000000",
+      "A_growth_bits": "3ff5000000000000"
+     },
+     {
+      "sim": 50,
+      "lineage_key": "83039b72a8bc2f65",
+      "born": 1717632000,
+      "parents": [
+       46,
+       42,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "3fd0000000000000",
+      "A_growth_bits": "3fd4000000000000"
+     },
+     {
+      "sim": 52,
+      "lineage_key": "88fe6352a0337029",
+      "born": 1819238400,
+      "parents": [
+       46,
+       42,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "3ff4000000000000",
+      "A_growth_bits": "3ff5000000000000"
+     },
+     {
+      "sim": 47,
+      "lineage_key": "a346aacb5c255152",
+      "born": 994291200,
+      "parents": [
+       44,
+       8,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfe8000000000000",
+      "A_growth_bits": "3fd4000000000000"
+     },
+     {
+      "sim": 49,
+      "lineage_key": "a469916e7b85d210",
+      "born": 1120089600,
+      "parents": [
+       44,
+       8,
+       3
+      ],
+      "status": "died 1853925990 core:accident",
+      "A_longevity_bits": "3fd0000000000000",
+      "A_growth_bits": "400a800000000000"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "3fec000000000000",
+     "sigma_bits": "3ff9d87f87e71422",
+     "newborn_mean": 0.4583333333333333,
+     "newborn_mean_bits": "3fdd555555555555",
+     "newborn_mean_with_run_d_ref_bits": "3ff5555555555555"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "3fd8000000000000",
+     "sigma_bits": "3ff18cc821d6d3e3",
+     "newborn_mean": 0.125,
+     "newborn_mean_bits": "3fc0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "3ff0764ab8429c66",
+     "newborn_mean": 0.14583333333333334,
+     "newborn_mean_bits": "3fc2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "3fe0000000000000",
+     "sigma_bits": "3fe94c583ada5b53",
+     "newborn_mean": -0.16666666666666666,
+     "newborn_mean_bits": "bfc5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "3fd0000000000000",
+     "sigma_bits": "3fee768d399dc470",
+     "newborn_mean": 0.25,
+     "newborn_mean_bits": "3fd0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "bfe0cccccccccccd",
+     "sigma_bits": "3fef8195a8c0bb2b",
+     "newborn_mean": -0.2583333333333333,
+     "newborn_mean_bits": "bfd0888888888888",
+     "newborn_mean_with_run_d_ref_bits": "bfe9111111111111"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "bf96666666666668",
+     "sigma_bits": "3fe4b7084d5f3046",
+     "newborn_mean": 0.030208333333333354,
+     "newborn_mean_bits": "3f9eeeeeeeeeeef5",
+     "newborn_mean_with_run_d_ref_bits": "3f811111111110eb"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "bff4000000000000",
+     "sigma_bits": "3ffb6c30b83593e6",
+     "newborn_mean": 0.5833333333333334,
+     "newborn_mean_bits": "3fe2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3fd4000000000000",
+     "sigma_bits": "3fe8938fb37bc9c1",
+     "newborn_mean": 0.020833333333333332,
+     "newborn_mean_bits": "3f95555555555555",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "3fb0000000000000",
+     "sigma_bits": "3ffe2eca7195b666",
+     "newborn_mean": -0.22916666666666666,
+     "newborn_mean_bits": "bfcd555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "bfc0000000000000",
+     "sigma_bits": "3fe645640568c1c3",
+     "newborn_mean": -0.041666666666666664,
+     "newborn_mean_bits": "bfa5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfe2b33333333332",
+     "sigma_bits": "3fda0a0917476095",
+     "newborn_mean": -0.0739583333333333,
+     "newborn_mean_bits": "bfb2eeeeeeeeeeed",
+     "newborn_mean_with_run_d_ref_bits": "bfe5111111111111"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfc2cccccccccccc",
+     "sigma_bits": "3fdc79aa246461cd",
+     "newborn_mean": 0.15520833333333334,
+     "newborn_mean_bits": "3fc3ddddddddddde",
+     "newborn_mean_with_run_d_ref_bits": "3f811111111110eb"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "bf96666666666668",
+     "sigma_bits": "3fee92b1eb4191f5",
+     "newborn_mean": -0.3031249999999999,
+     "newborn_mean_bits": "bfd3666666666665",
+     "newborn_mean_with_run_d_ref_bits": "bfd4cccccccccccb"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bfe4b33333333332",
+     "sigma_bits": "3fe2f5f3a4538be2",
+     "newborn_mean": -0.17812499999999998,
+     "newborn_mean_bits": "bfc6cccccccccccc",
+     "newborn_mean_with_run_d_ref_bits": "bfea666666666665"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "bfc2cccccccccccd",
+     "sigma_bits": "3fdfde7dd0df8cb5",
+     "newborn_mean": -0.17812499999999995,
+     "newborn_mean_bits": "bfc6cccccccccccb",
+     "newborn_mean_with_run_d_ref_bits": "bfd4cccccccccccd"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "3fd2999999999998",
+     "sigma_bits": "3fe7ade7a50ed7f3",
+     "newborn_mean": 0.05104166666666668,
+     "newborn_mean_bits": "3faa222222222224",
+     "newborn_mean_with_run_d_ref_bits": "3fd5dddddddddddd"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "3fc5333333333334",
+     "sigma_bits": "3fe14b77cf5bc668",
+     "newborn_mean": 0.509375,
+     "newborn_mean_bits": "3fe04ccccccccccd",
+     "newborn_mean_with_run_d_ref_bits": "3fe5999999999998"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "bf9666666666666a",
+     "sigma_bits": "3fe1e5af5302d39f",
+     "newborn_mean": 0.030208333333333354,
+     "newborn_mean_bits": "3f9eeeeeeeeeeef5",
+     "newborn_mean_with_run_d_ref_bits": "3f81111111111100"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "3fd6999999999998",
+     "sigma_bits": "3fe827ec727a17f5",
+     "newborn_mean": -0.011458333333333298,
+     "newborn_mean_bits": "bf87777777777763",
+     "newborn_mean_with_run_d_ref_bits": "3fd5dddddddddddd"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bf9666666666666a",
+     "sigma_bits": "3fe801a732474daf",
+     "newborn_mean": 0.030208333333333393,
+     "newborn_mean_bits": "3f9eeeeeeeeeef00",
+     "newborn_mean_with_run_d_ref_bits": "3f81111111111100"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "3fde999999999999",
+     "sigma_bits": "3fe1a080f925474b",
+     "newborn_mean": 0.03020833333333334,
+     "newborn_mean_bits": "3f9eeeeeeeeeeef1",
+     "newborn_mean_with_run_d_ref_bits": "3fe0444444444444"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "3fa4cccccccccccc",
+     "sigma_bits": "3fe69b94fb6c3939",
+     "newborn_mean": -0.03229166666666674,
+     "newborn_mean_bits": "bfa0888888888893",
+     "newborn_mean_with_run_d_ref_bits": "3f81111111111100"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "3fea000000000000",
+     "sigma_bits": "3ff0f0ea3f9397ce",
+     "newborn_mean": 0.3541666666666667,
+     "newborn_mean_bits": "3fd6aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3ff2aaaaaaaaaaab"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "bfe0000000000000",
+     "sigma_bits": "3fe94c583ada5b53",
+     "newborn_mean": -0.5,
+     "newborn_mean_bits": "bfe0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff0000000000000"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fd8000000000000",
+     "sigma_bits": "3ff2a79e3a2cd2e6",
+     "newborn_mean": 0.9583333333333334,
+     "newborn_mean_bits": "3feeaaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3ff5555555555555"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "3fe6000000000000",
+     "sigma_bits": "40019986fb4e96ad",
+     "newborn_mean": 0.4791666666666667,
+     "newborn_mean_bits": "3fdeaaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3ff2aaaaaaaaaaab"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "3fd0000000000000",
+     "sigma_bits": "3fe8000000000000",
+     "newborn_mean": -0.08333333333333333,
+     "newborn_mean_bits": "bfb5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "3fc5555555555555"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "3fee65b9edeba38e",
+     "newborn_mean": 0.14583333333333334,
+     "newborn_mean_bits": "3fc2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3fd5555555555555"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "3fa4ccccccccccc6",
+     "sigma_bits": "3fe7fb40623226cb",
+     "newborn_mean": -0.03229166666666666,
+     "newborn_mean_bits": "bfa0888888888888",
+     "newborn_mean_with_run_d_ref_bits": "3f81111111111100"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "3fda666666666667",
+     "sigma_bits": "3feac5276928fbd5",
+     "newborn_mean": 0.30416666666666675,
+     "newborn_mean_bits": "3fd3777777777779",
+     "newborn_mean_with_run_d_ref_bits": "3fe6eeeeeeeeeeef"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3fda999999999998",
+     "sigma_bits": "3fe53d460f38e245",
+     "newborn_mean": 0.2593750000000001,
+     "newborn_mean_bits": "3fd099999999999b",
+     "newborn_mean_with_run_d_ref_bits": "3fe5999999999998"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "3ffc000000000000",
+     "sigma_bits": "3ffc000000000000",
+     "newborn_mean": -0.25,
+     "newborn_mean_bits": "bfd0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3ff8000000000000"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "3fe8000000000000",
+     "sigma_bits": "3ff617398f2aaa48",
+     "newborn_mean": -0.25,
+     "newborn_mean_bits": "bfd0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "3fea000000000000",
+     "sigma_bits": "4003a3f91357c751",
+     "newborn_mean": 0.3541666666666667,
+     "newborn_mean_bits": "3fd6aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3ff2aaaaaaaaaaab"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "3fb0000000000000",
+     "sigma_bits": "3ff6f4dbe9105e52",
+     "newborn_mean": -0.7291666666666666,
+     "newborn_mean_bits": "bfe7555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfe5555555555555"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "3fecc665b0328622",
+     "newborn_mean": -0.1875,
+     "newborn_mean_bits": "bfc8000000000000",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfd8000000000000",
+     "sigma_bits": "3ff1c6c16b2db870",
+     "newborn_mean": -0.625,
+     "newborn_mean_bits": "bfe4000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff0000000000000"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3ff8000000000000"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fd4000000000000"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fd8000000000000"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3ffa000000000000"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3fe6000000000000"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3fe2000000000000"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ffd000000000000"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fd0000000000000"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff8000000000000"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fe4000000000000"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3fe2000000000000"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff8000000000000"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3fe0000000000000"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ffa000000000000"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3fe6000000000000"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3ff7000000000000"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3ffb000000000000"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3fe2000000000000"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe2000000000000"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3ff8000000000000"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3fdc000000000000"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fd8000000000000"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3fdc000000000000"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3fe2000000000000"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "cd110bc5bc280b21"
+   },
+   "frozen": {
+    "data_hash": "b0d7dd7d7c3d8675",
+    "genome_map_json_bytes": 75737,
+    "genome_map_json_xxh3": "1677410e132975d4",
+    "data_hash_without_mean_ref": "9b47f193f998d2c7",
+    "mean_ref": {
+     "core:androgen": "3fdd555555555555",
+     "core:bald": "3fc0000000000000",
+     "core:beard": "3fc2aaaaaaaaaaab",
+     "core:body_fat": "bfc5555555555555",
+     "core:body_hair": "3fd0000000000000",
+     "core:breast": "bfd0888888888888",
+     "core:chest_depth": "3f9eeeeeeeeeeef5",
+     "core:cognition": "3fe2aaaaaaaaaaab",
+     "core:curl": "3f95555555555555",
+     "core:disease_liability": "bfcd555555555555",
+     "core:estrogen": "bfa5555555555555",
+     "core:face_01": "bfb2eeeeeeeeeeed",
+     "core:face_02": "3fc3ddddddddddde",
+     "core:face_03": "bfd3666666666665",
+     "core:face_04": "bfc6cccccccccccc",
+     "core:face_05": "bfc6cccccccccccb",
+     "core:face_06": "3faa222222222224",
+     "core:face_07": "3fe04ccccccccccd",
+     "core:face_08": "3f9eeeeeeeeeeef5",
+     "core:face_09": "bf87777777777763",
+     "core:face_10": "3f9eeeeeeeeeef00",
+     "core:face_11": "3f9eeeeeeeeeeef1",
+     "core:face_12": "bfa0888888888893",
+     "core:fat_distribution": "3fd6aaaaaaaaaaab",
+     "core:freckle": "bfe0000000000000",
+     "core:grey": "3feeaaaaaaaaaaab",
+     "core:growth": "3fdeaaaaaaaaaaab",
+     "core:hair_darkness": "bfb5555555555555",
+     "core:hair_density": "3fc2aaaaaaaaaaab",
+     "core:head_size": "bfa0888888888888",
+     "core:hip_width": "3fd3777777777779",
+     "core:leg_ratio": "3fd099999999999b",
+     "core:longevity": "bfd0000000000000",
+     "core:muscle": "bfd0000000000000",
+     "core:pigment": "3fd6aaaaaaaaaaab",
+     "core:puberty": "bfe7555555555555",
+     "core:shoulder_width": "bfc8000000000000",
+     "core:skin_age": "bfe4000000000000"
+    }
+   }
+  },
+  {
+   "name": "d_dead_newborn",
+   "what": "40 founders, 30 years at the seed 0x43 (found by --scan: a newborn of block 0 died before the end, and one emigrated)",
+   "scenario": {
+    "founders": 40,
+    "years": 30,
+    "seed": "0x43",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 943487999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "b17afdcd296175ac"
+   },
+   "story": {
+    "ever": 52,
+    "living": 32,
+    "archived": 20,
+    "log_hash": "cce388b6f0e89bb6",
+    "state_hash": "dc73482a7735500c",
+    "log_entries": 1394,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      1,
+      1,
+      0
+     ],
+     [
+      2,
+      94348799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      3,
+      125798399,
+      41,
+      1,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      41,
+      0,
+      0,
+      0
+     ],
+     [
+      5,
+      188697599,
+      42,
+      1,
+      0,
+      0
+     ],
+     [
+      6,
+      220147199,
+      40,
+      2,
+      0,
+      4
+     ],
+     [
+      7,
+      251596799,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      8,
+      283046399,
+      41,
+      1,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      41,
+      0,
+      0,
+      0
+     ],
+     [
+      10,
+      345945599,
+      43,
+      2,
+      0,
+      0
+     ],
+     [
+      11,
+      377395199,
+      40,
+      0,
+      0,
+      3
+     ],
+     [
+      12,
+      408844799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      13,
+      440294399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      14,
+      471743999,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      597542399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      19,
+      628991999,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      20,
+      660441599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      21,
+      691891199,
+      40,
+      1,
+      1,
+      0
+     ],
+     [
+      22,
+      723340799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      23,
+      754790399,
+      39,
+      0,
+      1,
+      0
+     ],
+     [
+      24,
+      786239999,
+      40,
+      1,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      36,
+      1,
+      0,
+      5
+     ],
+     [
+      27,
+      880588799,
+      34,
+      0,
+      2,
+      0
+     ],
+     [
+      28,
+      912038399,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      29,
+      943487999,
+      32,
+      0,
+      1,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 943487999,
+    "living": 32
+   },
+   "newborn": {
+    "block": 0,
+    "years": [
+     0,
+     30
+    ],
+    "born": 12,
+    "living": 7,
+    "died": 1,
+    "emigrated": 4,
+    "born_after_block": 0,
+    "persons": [
+     {
+      "sim": 47,
+      "lineage_key": "2401f2cb70ad6c4c",
+      "born": 275788800,
+      "parents": [
+       2,
+       8,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfe4000000000000",
+      "A_growth_bits": "bfc8000000000000"
+     },
+     {
+      "sim": 51,
+      "lineage_key": "376bc10c1bc11f1c",
+      "born": 774144000,
+      "parents": [
+       42,
+       7,
+       0
+      ],
+      "status": "emigrated 849139199",
+      "A_longevity_bits": "400b000000000000",
+      "A_growth_bits": "bfc8000000000000"
+     },
+     {
+      "sim": 43,
+      "lineage_key": "3a2110bba3f14400",
+      "born": 174182400,
+      "parents": [
+       1,
+       13,
+       2
+      ],
+      "status": "living",
+      "A_longevity_bits": "3ff6000000000000",
+      "A_growth_bits": "3fea000000000000"
+     },
+     {
+      "sim": 42,
+      "lineage_key": "79ffc65a7c52eea3",
+      "born": 118540800,
+      "parents": [
+       1,
+       13,
+       1
+      ],
+      "status": "emigrated 849139199",
+      "A_longevity_bits": "4003000000000000",
+      "A_growth_bits": "3ffd000000000000"
+     },
+     {
+      "sim": 45,
+      "lineage_key": "a4beab6d0bbc1282",
+      "born": 205632000,
+      "parents": [
+       2,
+       8,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfe4000000000000",
+      "A_growth_bits": "bfc8000000000000"
+     },
+     {
+      "sim": 46,
+      "lineage_key": "acaf98bdd1b493bf",
+      "born": 237081600,
+      "parents": [
+       1,
+       13,
+       3
+      ],
+      "status": "emigrated 849139199",
+      "A_longevity_bits": "bffa000000000000",
+      "A_growth_bits": "4006800000000000"
+     },
+     {
+      "sim": 41,
+      "lineage_key": "bbf3836a1b692850",
+      "born": 58060800,
+      "parents": [
+       1,
+       13,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "4003000000000000",
+      "A_growth_bits": "400e800000000000"
+     },
+     {
+      "sim": 52,
+      "lineage_key": "bfaecb2497f46d4e",
+      "born": 829785600,
+      "parents": [
+       42,
+       7,
+       1
+      ],
+      "status": "emigrated 849139199",
+      "A_longevity_bits": "400b000000000000",
+      "A_growth_bits": "3ffd000000000000"
+     },
+     {
+      "sim": 44,
+      "lineage_key": "d3abe99ecc0df3e1",
+      "born": 191116800,
+      "parents": [
+       4,
+       16,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "4011800000000000",
+      "A_growth_bits": "3fea000000000000"
+     },
+     {
+      "sim": 50,
+      "lineage_key": "e88eeabd66339a0d",
+      "born": 679795200,
+      "parents": [
+       41,
+       5,
+       0
+      ],
+      "status": "died 860994606 core:accident",
+      "A_longevity_bits": "4003000000000000",
+      "A_growth_bits": "bfc8000000000000"
+     },
+     {
+      "sim": 48,
+      "lineage_key": "ecc3991101886d63",
+      "born": 329011200,
+      "parents": [
+       2,
+       8,
+       2
+      ],
+      "status": "living",
+      "A_longevity_bits": "4003000000000000",
+      "A_growth_bits": "c001800000000000"
+     },
+     {
+      "sim": 49,
+      "lineage_key": "ed5da5946ff7dc62",
+      "born": 338688000,
+      "parents": [
+       3,
+       12,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "c00d000000000000",
+      "A_growth_bits": "3fea000000000000"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "3ffdc854e23f4eaf",
+     "newborn_mean": -0.2708333333333333,
+     "newborn_mean_bits": "bfd1555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfb5555555555555"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "3ff2bc2891041ea7",
+     "newborn_mean": 0.5208333333333334,
+     "newborn_mean_bits": "3fe0aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3fe6aaaaaaaaaaab"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "3fc0000000000000",
+     "sigma_bits": "3ff65c55827df1d2",
+     "newborn_mean": 0.25,
+     "newborn_mean_bits": "3fd0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fd8000000000000"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "bfd6000000000000",
+     "sigma_bits": "3fec68620107850a",
+     "newborn_mean": 0.010416666666666666,
+     "newborn_mean_bits": "3f85555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfd5555555555555"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "3fd8000000000000",
+     "sigma_bits": "3ff37e5bd40f95a1",
+     "newborn_mean": -0.25,
+     "newborn_mean_bits": "bfd0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fc0000000000000"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "bfd7333333333332",
+     "sigma_bits": "3ff12a8f18345abd",
+     "newborn_mean": 0.0791666666666667,
+     "newborn_mean_bits": "3fb4444444444447",
+     "newborn_mean_with_run_d_ref_bits": "bfd2222222222223"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "3fcb999999999999",
+     "sigma_bits": "3fe6d1aea29b7953",
+     "newborn_mean": 0.5177083333333333,
+     "newborn_mean_bits": "3fe0911111111111",
+     "newborn_mean_with_run_d_ref_bits": "3fe7777777777775"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "bfe4000000000000",
+     "sigma_bits": "4003c6128271b923",
+     "newborn_mean": -0.4583333333333333,
+     "newborn_mean_bits": "bfdd555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bff1555555555555"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3fb0000000000000",
+     "sigma_bits": "3feba3fb14672d7c",
+     "newborn_mean": -0.0625,
+     "newborn_mean_bits": "bfb0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "0000000000000000"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "bfe6000000000000",
+     "sigma_bits": "3ff7793008ab5d3f",
+     "newborn_mean": -0.14583333333333334,
+     "newborn_mean_bits": "bfc2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "bfeaaaaaaaaaaaab"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "bfd0000000000000",
+     "sigma_bits": "3ff07e0f66afed07",
+     "newborn_mean": 0.08333333333333333,
+     "newborn_mean_bits": "3fb5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfc4666666666666",
+     "sigma_bits": "3fe5a6537b0f802d",
+     "newborn_mean": 0.05937499999999999,
+     "newborn_mean_bits": "3fae666666666665",
+     "newborn_mean_with_run_d_ref_bits": "bfb9999999999999"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfc8666666666664",
+     "sigma_bits": "3feeb91e4870231c",
+     "newborn_mean": 0.1739583333333333,
+     "newborn_mean_bits": "3fc6444444444443",
+     "newborn_mean_with_run_d_ref_bits": "bf91111111111105"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "3f9cccccccccccc7",
+     "sigma_bits": "3fe56ae25766c6c8",
+     "newborn_mean": 0.12187500000000001,
+     "newborn_mean_bits": "3fbf333333333334",
+     "newborn_mean_with_run_d_ref_bits": "3fc3333333333333"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bfc8666666666666",
+     "sigma_bits": "3fed48847e149af3",
+     "newborn_mean": 0.5072916666666666,
+     "newborn_mean_bits": "3fe03bbbbbbbbbbb",
+     "newborn_mean_with_run_d_ref_bits": "3fd4444444444443"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "3f9cccccccccccd0",
+     "sigma_bits": "3fed4dc2d2e680c4",
+     "newborn_mean": 0.371875,
+     "newborn_mean_bits": "3fd7cccccccccccd",
+     "newborn_mean_with_run_d_ref_bits": "3fd9999999999999"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "bfc8666666666666",
+     "sigma_bits": "3fe632734d7b1f31",
+     "newborn_mean": -0.15937500000000004,
+     "newborn_mean_bits": "bfc4666666666668",
+     "newborn_mean_with_run_d_ref_bits": "bfd6666666666665"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "3fc399999999999c",
+     "sigma_bits": "3fe59f3a0d63bcef",
+     "newborn_mean": 0.24687500000000004,
+     "newborn_mean_bits": "3fcf99999999999b",
+     "newborn_mean_with_run_d_ref_bits": "3fd9999999999999"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "3f9cccccccccccd0",
+     "sigma_bits": "3feaf8eec45415b4",
+     "newborn_mean": 0.6218750000000001,
+     "newborn_mean_bits": "3fe3e66666666667",
+     "newborn_mean_with_run_d_ref_bits": "3fe4cccccccccccc"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "bfb8cccccccccccb",
+     "sigma_bits": "3fe6e15e058af7e6",
+     "newborn_mean": 0.16354166666666667,
+     "newborn_mean_bits": "3fc4eeeeeeeeeeef",
+     "newborn_mean_with_run_d_ref_bits": "3fb1111111111112"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bfb0cccccccccccc",
+     "sigma_bits": "3feac950030baafe",
+     "newborn_mean": 0.38229166666666675,
+     "newborn_mean_bits": "3fd8777777777779",
+     "newborn_mean_with_run_d_ref_bits": "3fd4444444444443"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "bf699999999999a0",
+     "sigma_bits": "3fe8f443b25d14ad",
+     "newborn_mean": -0.26354166666666673,
+     "newborn_mean_bits": "bfd0dddddddddddf",
+     "newborn_mean_with_run_d_ref_bits": "bfd1111111111110"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "bfa199999999999a",
+     "sigma_bits": "3fe8fe83d8db5bcd",
+     "newborn_mean": 0.0177083333333334,
+     "newborn_mean_bits": "3f92222222222235",
+     "newborn_mean_with_run_d_ref_bits": "bf91111111111110"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3ff0bbb307acafdb",
+     "newborn_mean": -0.041666666666666664,
+     "newborn_mean_bits": "bfa5555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfa5555555555555"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "3fc0000000000000",
+     "sigma_bits": "3fe8fae0c15ad38a",
+     "newborn_mean": 0.2916666666666667,
+     "newborn_mean_bits": "3fd2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3fdaaaaaaaaaaaab"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fd2000000000000",
+     "sigma_bits": "3fee2eca7195b666",
+     "newborn_mean": 0.21875,
+     "newborn_mean_bits": "3fcc000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "3fc8000000000000",
+     "sigma_bits": "4002b39c555d8780",
+     "newborn_mean": 0.8125,
+     "newborn_mean_bits": "3fea000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3ff0000000000000"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3feefbdeb14f4eda",
+     "newborn_mean": -0.5,
+     "newborn_mean_bits": "bfe0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfe0000000000000"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "3fdc000000000000",
+     "sigma_bits": "3fecc665b0328622",
+     "newborn_mean": 0.3125,
+     "newborn_mean_bits": "3fd4000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe8000000000000"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "3fae66666666666c",
+     "sigma_bits": "3fe8e1c59596fdbc",
+     "newborn_mean": -0.159375,
+     "newborn_mean_bits": "bfc4666666666666",
+     "newborn_mean_with_run_d_ref_bits": "bfb9999999999997"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "bfc6666666666666",
+     "sigma_bits": "3fee996ec3fb73d5",
+     "newborn_mean": -0.1083333333333333,
+     "newborn_mean_bits": "bfbbbbbbbbbbbbb9",
+     "newborn_mean_with_run_d_ref_bits": "bfd2222222222221"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3f9cccccccccccca",
+     "sigma_bits": "3fe42fd72a8ad65d",
+     "newborn_mean": -0.044791666666666674,
+     "newborn_mean_bits": "bfa6eeeeeeeeeef0",
+     "newborn_mean_with_run_d_ref_bits": "bf9111111111110a"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "bfd8000000000000",
+     "sigma_bits": "4002318304261d9a",
+     "newborn_mean": 1.2916666666666667,
+     "newborn_mean_bits": "3ff4aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "3fed555555555555"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "bfb0000000000000",
+     "sigma_bits": "3ff1dc4e63383328",
+     "newborn_mean": -0.5625,
+     "newborn_mean_bits": "bfe2000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfe4000000000000"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "bfd2000000000000",
+     "sigma_bits": "400046e2f8b6031a",
+     "newborn_mean": 0.78125,
+     "newborn_mean_bits": "3fe9000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0000000000000"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "3fd4000000000000",
+     "sigma_bits": "3ff8cc97f2912db6",
+     "newborn_mean": -0.3958333333333333,
+     "newborn_mean_bits": "bfd9555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfb5555555555555"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "0000000000000000",
+     "sigma_bits": "3fed64d51e0db1c6",
+     "newborn_mean": -0.2916666666666667,
+     "newborn_mean_bits": "bfd2aaaaaaaaaaab",
+     "newborn_mean_with_run_d_ref_bits": "bfd2aaaaaaaaaaab"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfa0000000000000",
+     "sigma_bits": "3fef7aeb45d38095",
+     "newborn_mean": -0.13541666666666666,
+     "newborn_mean_bits": "bfc1555555555555",
+     "newborn_mean_with_run_d_ref_bits": "bfc5555555555555"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3ff5000000000000"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3fe3000000000000"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3fe4000000000000"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3ff4800000000000"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3ff6000000000000"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe7000000000000"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3fe7000000000000"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3ff2000000000000"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "9e405e5d886206c6"
+   },
+   "frozen": {
+    "data_hash": "f7411e738dd435cf",
+    "genome_map_json_bytes": 75822,
+    "genome_map_json_xxh3": "2229138deaf48cfa",
+    "data_hash_without_mean_ref": "d84524ec5bf13b48",
+    "mean_ref": {
+     "core:androgen": "bfd1555555555555",
+     "core:bald": "3fe0aaaaaaaaaaab",
+     "core:beard": "3fd0000000000000",
+     "core:body_fat": "3f85555555555555",
+     "core:body_hair": "bfd0000000000000",
+     "core:breast": "3fb4444444444447",
+     "core:chest_depth": "3fe0911111111111",
+     "core:cognition": "bfdd555555555555",
+     "core:curl": "bfb0000000000000",
+     "core:disease_liability": "bfc2aaaaaaaaaaab",
+     "core:estrogen": "3fb5555555555555",
+     "core:face_01": "3fae666666666665",
+     "core:face_02": "3fc6444444444443",
+     "core:face_03": "3fbf333333333334",
+     "core:face_04": "3fe03bbbbbbbbbbb",
+     "core:face_05": "3fd7cccccccccccd",
+     "core:face_06": "bfc4666666666668",
+     "core:face_07": "3fcf99999999999b",
+     "core:face_08": "3fe3e66666666667",
+     "core:face_09": "3fc4eeeeeeeeeeef",
+     "core:face_10": "3fd8777777777779",
+     "core:face_11": "bfd0dddddddddddf",
+     "core:face_12": "3f92222222222235",
+     "core:fat_distribution": "bfa5555555555555",
+     "core:freckle": "3fd2aaaaaaaaaaab",
+     "core:grey": "3fcc000000000000",
+     "core:growth": "3fea000000000000",
+     "core:hair_darkness": "bfe0000000000000",
+     "core:hair_density": "3fd4000000000000",
+     "core:head_size": "bfc4666666666666",
+     "core:hip_width": "bfbbbbbbbbbbbbb9",
+     "core:leg_ratio": "bfa6eeeeeeeeeef0",
+     "core:longevity": "3ff4aaaaaaaaaaab",
+     "core:muscle": "bfe2000000000000",
+     "core:pigment": "3fe9000000000000",
+     "core:puberty": "bfd9555555555555",
+     "core:shoulder_width": "bfd2aaaaaaaaaaab",
+     "core:skin_age": "bfc1555555555555"
+    }
+   }
+  },
+  {
+   "name": "e_frozen_with_mean_ref",
+   "what": "a world on a_small's frozen map (measured d_ref, sigma_ref and mean_ref) in the form of a pre-run (prerun_reference.prerun_documents of the frozen documents), the same founders, seed and years: every G of the world (g_L in m and Delta, z_p in theta, the phenotypes of the market, the liability) subtracts mean_ref",
+   "scenario": {
+    "founders": 40,
+    "years": 30,
+    "seed": "0x11b019a1",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 943487999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "aa31ef80f29047ab"
+   },
+   "story": {
+    "ever": 48,
+    "living": 34,
+    "archived": 14,
+    "log_hash": "7192522df2ad6972",
+    "state_hash": "8acfc2a8266d9c98",
+    "log_entries": 1269,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      94348799,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      3,
+      125798399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      5,
+      188697599,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      6,
+      220147199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      7,
+      251596799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      8,
+      283046399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      38,
+      1,
+      0,
+      3
+     ],
+     [
+      10,
+      345945599,
+      38,
+      0,
+      0,
+      0
+     ],
+     [
+      11,
+      377395199,
+      38,
+      0,
+      0,
+      0
+     ],
+     [
+      12,
+      408844799,
+      37,
+      0,
+      1,
+      0
+     ],
+     [
+      13,
+      440294399,
+      36,
+      0,
+      1,
+      0
+     ],
+     [
+      14,
+      471743999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      597542399,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      19,
+      628991999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      20,
+      660441599,
+      35,
+      0,
+      1,
+      0
+     ],
+     [
+      21,
+      691891199,
+      34,
+      0,
+      1,
+      0
+     ],
+     [
+      22,
+      723340799,
+      34,
+      1,
+      1,
+      0
+     ],
+     [
+      23,
+      754790399,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      24,
+      786239999,
+      34,
+      1,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      34,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      27,
+      880588799,
+      33,
+      0,
+      0,
+      0
+     ],
+     [
+      28,
+      912038399,
+      33,
+      0,
+      0,
+      0
+     ],
+     [
+      29,
+      943487999,
+      34,
+      1,
+      0,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 943487999,
+    "living": 34
+   },
+   "newborn": {
+    "block": 0,
+    "years": [
+     0,
+     30
+    ],
+    "born": 8,
+    "living": 7,
+    "died": 0,
+    "emigrated": 1,
+    "born_after_block": 0,
+    "persons": [
+     {
+      "sim": 44,
+      "lineage_key": "3907466e54276fc7",
+      "born": 215308800,
+      "parents": [
+       1,
+       16,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff8f0f0f0f0f0f0",
+      "A_growth_bits": "c0052d2d2d2d2d2c"
+     },
+     {
+      "sim": 47,
+      "lineage_key": "609b02c4cf63ff0d",
+      "born": 759628800,
+      "parents": [
+       41,
+       43,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff8f0f0f0f0f0f0",
+      "A_growth_bits": "bffa5a5a5a5a5a5b"
+     },
+     {
+      "sim": 41,
+      "lineage_key": "6903dc9c1de89887",
+      "born": 70156800,
+      "parents": [
+       2,
+       9,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff8f0f0f0f0f0f0",
+      "A_growth_bits": "bffa5a5a5a5a5a5c"
+     },
+     {
+      "sim": 42,
+      "lineage_key": "6e75b4a4afa70dea",
+      "born": 137894400,
+      "parents": [
+       2,
+       9,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfe1e1e1e1e1e1e0",
+      "A_growth_bits": "3fd69696969696a0"
+     },
+     {
+      "sim": 46,
+      "lineage_key": "7d478bd88ad2f70b",
+      "born": 703987200,
+      "parents": [
+       41,
+       43,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff8f0f0f0f0f0f0",
+      "A_growth_bits": "c00d2d2d2d2d2d2e"
+     },
+     {
+      "sim": 45,
+      "lineage_key": "8fd3e165f026ce4e",
+      "born": 295142400,
+      "parents": [
+       3,
+       22,
+       0
+      ],
+      "status": "emigrated 314495999",
+      "A_longevity_bits": "c004787878787878",
+      "A_growth_bits": "bffa5a5a5a5a5a5a"
+     },
+     {
+      "sim": 43,
+      "lineage_key": "e29740017280d420",
+      "born": 162086400,
+      "parents": [
+       1,
+       16,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bff8f0f0f0f0f0f0",
+      "A_growth_bits": "bfe4b4b4b4b4b4b1"
+     },
+     {
+      "sim": 48,
+      "lineage_key": "fe1284ba9d82c92c",
+      "born": 921715200,
+      "parents": [
+       44,
+       8,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "4003878787878788",
+      "A_growth_bits": "3ff5a5a5a5a5a5a8"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "3fc6969696969697",
+     "sigma_bits": "3ffca3e657f796f7",
+     "newborn_mean": 0.8235294117647062,
+     "newborn_mean_bits": "3fea5a5a5a5a5a5d",
+     "newborn_mean_with_run_d_ref_bits": "3ff0000000000000"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "3fa4e356f3db14da",
+     "sigma_bits": "3ff4f09a4ed2f9c7",
+     "newborn_mean": 0.21323529411764716,
+     "newborn_mean_bits": "3fcb4b4b4b4b4b4f",
+     "newborn_mean_with_run_d_ref_bits": "3fd0421084210842"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "bfb9bee8328519c9",
+     "sigma_bits": "3ff1e6a2a340bb40",
+     "newborn_mean": 0.16911764705882365,
+     "newborn_mean_bits": "3fc5a5a5a5a5a5aa",
+     "newborn_mean_with_run_d_ref_bits": "3fb18c6318c63188"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "3fb2f1e9a79712fc",
+     "sigma_bits": "3fed19b86b8287ad",
+     "newborn_mean": 0.3897058823529411,
+     "newborn_mean_bits": "3fd8f0f0f0f0f0f0",
+     "newborn_mean_with_run_d_ref_bits": "3fddad6b5ad6b5b0"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "3fc38d5bcf6c538d",
+     "sigma_bits": "3ff049be94af5a7f",
+     "newborn_mean": 0.286764705882353,
+     "newborn_mean_bits": "3fd25a5a5a5a5a5b",
+     "newborn_mean_with_run_d_ref_bits": "3fdc210842108420"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "3fa7d9ea6e8f97d2",
+     "sigma_bits": "3ff041e3698f6b69",
+     "newborn_mean": -0.01029411764705871,
+     "newborn_mean_bits": "bf851515151514d4",
+     "newborn_mean_with_run_d_ref_bits": "3fa294a5294a528a"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "3fb521849d63951e",
+     "sigma_bits": "3feb859544b5506d",
+     "newborn_mean": -0.06580882352941161,
+     "newborn_mean_bits": "bfb0d8d8d8d8d8ce",
+     "newborn_mean_with_run_d_ref_bits": "3f9122af122af110"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "3fd5eb99045f35eb",
+     "sigma_bits": "4000aa835c06b3e2",
+     "newborn_mean": 0.33088235294117707,
+     "newborn_mean_bits": "3fd52d2d2d2d2d38",
+     "newborn_mean_with_run_d_ref_bits": "3fe58c6318c6318c"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3faca90c24eb1cad",
+     "sigma_bits": "3fef663241d1a257",
+     "newborn_mean": 0.28676470588235303,
+     "newborn_mean_bits": "3fd25a5a5a5a5a5c",
+     "newborn_mean_with_run_d_ref_bits": "3fd5ef7bdef7bdf0"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "bfd2a43093ac72a6",
+     "sigma_bits": "4000512258291df7",
+     "newborn_mean": -1.0514705882352937,
+     "newborn_mean_bits": "bff0d2d2d2d2d2d1",
+     "newborn_mean_with_run_d_ref_bits": "bff57bdef7bdef7c"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "3fa9bee8328519c8",
+     "sigma_bits": "3ff0f94c942d455d",
+     "newborn_mean": 0.3529411764705883,
+     "newborn_mean_bits": "3fd6969696969698",
+     "newborn_mean_with_run_d_ref_bits": "3fd9ce739ce739ce"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfc045f35eb99048",
+     "sigma_bits": "3feacd1285783978",
+     "newborn_mean": -0.5658088235294116,
+     "newborn_mean_bits": "bfe21b1b1b1b1b1a",
+     "newborn_mean_with_run_d_ref_bits": "bfe62c97f2c97f2e"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfb2f1e9a79712f1",
+     "sigma_bits": "3fe52f8825e491eb",
+     "newborn_mean": -0.05845588235294115,
+     "newborn_mean_bits": "bfadedededededea",
+     "newborn_mean_with_run_d_ref_bits": "bfc0f4704f4704f6"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "3f8f16d4c4401f18",
+     "sigma_bits": "3febe3b5a27ad530",
+     "newborn_mean": -0.4702205882352939,
+     "newborn_mean_bits": "bfde181818181814",
+     "newborn_mean_with_run_d_ref_bits": "bfdd1f6171f61720"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bf965868ed0e166d",
+     "sigma_bits": "3fe85681fc2e75c3",
+     "newborn_mean": -0.4775735294117646,
+     "newborn_mean_bits": "bfde90909090908f",
+     "newborn_mean_with_run_d_ref_bits": "bfdff6171f6171f6"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "bfc21849d6395217",
+     "sigma_bits": "3fe6dae733cbcbaf",
+     "newborn_mean": -0.33786764705882344,
+     "newborn_mean_bits": "bfd59f9f9f9f9f9e",
+     "newborn_mean_with_run_d_ref_bits": "bfdeabc48abc48ad"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "3fb9bee8328519be",
+     "sigma_bits": "3fe3f8c7e5abb98e",
+     "newborn_mean": 0.03713235294117667,
+     "newborn_mean_bits": "3fa3030303030320",
+     "newborn_mean_with_run_d_ref_bits": "3fc1a034da034d9e"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "bfa7cd7ae64117c9",
+     "sigma_bits": "3fe6cb019f95359a",
+     "newborn_mean": -0.3158088235294117,
+     "newborn_mean_bits": "bfd4363636363635",
+     "newborn_mean_with_run_d_ref_bits": "bfd72fe592fe5930"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "3fb466fba0ca1467",
+     "sigma_bits": "3fe8401b03636ee6",
+     "newborn_mean": -0.09522058823529393,
+     "newborn_mean_bits": "bfb8606060606053",
+     "newborn_mean_with_run_d_ref_bits": "bf8fcb25fcb25fc0"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "3f965868ed0e165a",
+     "sigma_bits": "3fe9e58fa837bba6",
+     "newborn_mean": 0.1400735294117647,
+     "newborn_mean_bits": "3fc1edededededee",
+     "newborn_mean_with_run_d_ref_bits": "3fc4b8fb0b8fb0b5"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bf9849d639521849",
+     "sigma_bits": "3fea54b6db335bc4",
+     "newborn_mean": -0.20551470588235288,
+     "newborn_mean_bits": "bfca4e4e4e4e4e4c",
+     "newborn_mean_with_run_d_ref_bits": "bfcd578915789155"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "bfc13eaa04db913e",
+     "sigma_bits": "3feac1376b148d68",
+     "newborn_mean": 0.022426470588235492,
+     "newborn_mean_bits": "3f96f6f6f6f6f730",
+     "newborn_mean_with_run_d_ref_bits": "bfbcbf964bf964bc"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "bf8d256777fc1d22",
+     "sigma_bits": "3fe813ffa6e4cf30",
+     "newborn_mean": 0.05919117647058826,
+     "newborn_mean_bits": "3fae4e4e4e4e4e52",
+     "newborn_mean_with_run_d_ref_bits": "3fa704f4704f4705"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "3fb78f4d3cb897a2",
+     "sigma_bits": "3ff3815b5f8d2f0a",
+     "newborn_mean": 0.3676470588235293,
+     "newborn_mean_bits": "3fd7878787878786",
+     "newborn_mean_with_run_d_ref_bits": "3fdd6b5ad6b5ad6f"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "bfa36e44faa81362",
+     "sigma_bits": "3feff1d090b39fb5",
+     "newborn_mean": -0.6838235294117646,
+     "newborn_mean_bits": "bfe5e1e1e1e1e1e1",
+     "newborn_mean_with_run_d_ref_bits": "bfe718c6318c6318"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fba79712f1e9a84",
+     "sigma_bits": "3fef57bd36cdd935",
+     "newborn_mean": 0.11029411764705888,
+     "newborn_mean_bits": "3fbc3c3c3c3c3c40",
+     "newborn_mean_with_run_d_ref_bits": "3fcb5ad6b5ad6b60"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "bfb849d639521856",
+     "sigma_bits": "400527d1cfb3c468",
+     "newborn_mean": -1.2720588235294115,
+     "newborn_mean_bits": "bff45a5a5a5a5a59",
+     "newborn_mean_with_run_d_ref_bits": "bff5def7bdef7bdf"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "bfc7ae64117cd7ad",
+     "sigma_bits": "3ff0a1930e987129",
+     "newborn_mean": -0.911764705882353,
+     "newborn_mean_bits": "bfed2d2d2d2d2d2e",
+     "newborn_mean_with_run_d_ref_bits": "bff18c6318c6318c"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "3fc6f3db14e356f3",
+     "sigma_bits": "3ff0f94c942d455e",
+     "newborn_mean": 0.6029411764705883,
+     "newborn_mean_bits": "3fe34b4b4b4b4b4c",
+     "newborn_mean_with_run_d_ref_bits": "3fe9084210842108"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "bfb80ba88fc9980e",
+     "sigma_bits": "3fef2b152e25006a",
+     "newborn_mean": -0.6393382352941176,
+     "newborn_mean_bits": "bfe4757575757575",
+     "newborn_mean_with_run_d_ref_bits": "bfe776ea876ea878"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "3fbbf4baec78dbe8",
+     "sigma_bits": "3ff0eb663ad2c21a",
+     "newborn_mean": 0.6367647058823529,
+     "newborn_mean_bits": "3fe4606060606060",
+     "newborn_mean_with_run_d_ref_bits": "3fe7def7bdef7bdd"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3fa3eaa04db913ef",
+     "sigma_bits": "3fea60c2ba3fe458",
+     "newborn_mean": -0.308455882352941,
+     "newborn_mean_bits": "bfd3bdbdbdbdbdbb",
+     "newborn_mean_with_run_d_ref_bits": "bfd14069b4069b42"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "bfd60aafd92375fe",
+     "sigma_bits": "4003ce26dc93d8eb",
+     "newborn_mean": -1.0588235294117645,
+     "newborn_mean_bits": "bff0f0f0f0f0f0f0",
+     "newborn_mean_with_run_d_ref_bits": "bff6739ce739ce72"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "bf77511f9330170f",
+     "sigma_bits": "3ff2b01017b894d5",
+     "newborn_mean": 0.19117647058823528,
+     "newborn_mean_bits": "3fc8787878787878",
+     "newborn_mean_with_run_d_ref_bits": "3fc7bdef7bdef7c0"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "3fa55fb246ec1569",
+     "sigma_bits": "40045af6543035dd",
+     "newborn_mean": -0.6102941176470581,
+     "newborn_mean_bits": "bfe3878787878781",
+     "newborn_mean_with_run_d_ref_bits": "bfe2318c6318c632"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "3fb80ba88fc99808",
+     "sigma_bits": "3ff9e1e1e1e1e1e2",
+     "newborn_mean": -0.27941176470588225,
+     "newborn_mean_bits": "bfd1e1e1e1e1e1e0",
+     "newborn_mean_with_run_d_ref_bits": "bfc7bdef7bdef7c0"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "3fbbee8328519bf8",
+     "sigma_bits": "3ff2d2d2d2d2d2d2",
+     "newborn_mean": 0.4191176470588236,
+     "newborn_mean_bits": "3fdad2d2d2d2d2d4",
+     "newborn_mean_with_run_d_ref_bits": "3fe0e739ce739ce8"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfc8e548612758e9",
+     "sigma_bits": "3ff215e57e37a48c",
+     "newborn_mean": -0.426470588235294,
+     "newborn_mean_bits": "bfdb4b4b4b4b4b49",
+     "newborn_mean_with_run_d_ref_bits": "bfe3def7bdef7be0"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3fe6969696969697"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3fed2d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fea5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3ff25a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff4b4b4b4b4b4b5"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3ff1e1e1e1e1e1e2"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3fea5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3ff3c3c3c3c3c3c4"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fe0000000000000"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3ff4b4b4b4b4b4b5"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3fe9696969696969"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3ff34b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fda5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff3c3c3c3c3c3c4"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff1e1e1e1e1e1e2"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3ff25a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff4b4b4b4b4b4b5"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fe9696969696969"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff25a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3ff52d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe3c3c3c3c3c3c4"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff1e1e1e1e1e1e2"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ff7878787878788"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3fed2d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3ff1e1e1e1e1e1e2"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3ff0f0f0f0f0f0f1"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3fe4b4b4b4b4b4b5"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3ff4b4b4b4b4b4b5"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3ff34b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff1e1e1e1e1e1e2"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3ff34b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3fea5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff3c3c3c3c3c3c4"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3ff3c3c3c3c3c3c4"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3fe6969696969697"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff52d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3fed2d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3fea5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3fed2d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff34b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3fee1e1e1e1e1e1e"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3fe9696969696969"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3fef0f0f0f0f0f0f"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3ff34b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3ff0787878787878"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3fed2d2d2d2d2d2d"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3ff2d2d2d2d2d2d3"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3fea5a5a5a5a5a5a"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3fec3c3c3c3c3c3c"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff1696969696969"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3fe8787878787878"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3feb4b4b4b4b4b4b"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "a07df56b5282e524"
+   },
+   "frozen": {
+    "data_hash": "df52c744eb8002e6",
+    "genome_map_json_bytes": 77271,
+    "genome_map_json_xxh3": "8f398701b89422c9",
+    "data_hash_without_mean_ref": "b589828119a2e21d",
+    "mean_ref": {
+     "core:androgen": "3fea5a5a5a5a5a5d",
+     "core:bald": "3fcb4b4b4b4b4b4f",
+     "core:beard": "3fc5a5a5a5a5a5aa",
+     "core:body_fat": "3fd8f0f0f0f0f0f0",
+     "core:body_hair": "3fd25a5a5a5a5a5b",
+     "core:breast": "bf851515151514d4",
+     "core:chest_depth": "bfb0d8d8d8d8d8ce",
+     "core:cognition": "3fd52d2d2d2d2d38",
+     "core:curl": "3fd25a5a5a5a5a5c",
+     "core:disease_liability": "bff0d2d2d2d2d2d1",
+     "core:estrogen": "3fd6969696969698",
+     "core:face_01": "bfe21b1b1b1b1b1a",
+     "core:face_02": "bfadedededededea",
+     "core:face_03": "bfde181818181814",
+     "core:face_04": "bfde90909090908f",
+     "core:face_05": "bfd59f9f9f9f9f9e",
+     "core:face_06": "3fa3030303030320",
+     "core:face_07": "bfd4363636363635",
+     "core:face_08": "bfb8606060606053",
+     "core:face_09": "3fc1edededededee",
+     "core:face_10": "bfca4e4e4e4e4e4c",
+     "core:face_11": "3f96f6f6f6f6f730",
+     "core:face_12": "3fae4e4e4e4e4e52",
+     "core:fat_distribution": "3fd7878787878786",
+     "core:freckle": "bfe5e1e1e1e1e1e1",
+     "core:grey": "3fbc3c3c3c3c3c40",
+     "core:growth": "bff45a5a5a5a5a59",
+     "core:hair_darkness": "bfed2d2d2d2d2d2e",
+     "core:hair_density": "3fe34b4b4b4b4b4c",
+     "core:head_size": "bfe4757575757575",
+     "core:hip_width": "3fe4606060606060",
+     "core:leg_ratio": "bfd3bdbdbdbdbdbb",
+     "core:longevity": "bff0f0f0f0f0f0f0",
+     "core:muscle": "3fc8787878787878",
+     "core:pigment": "bfe3878787878781",
+     "core:puberty": "bfd1e1e1e1e1e1e0",
+     "core:shoulder_width": "3fdad2d2d2d2d2d4",
+     "core:skin_age": "bfdb4b4b4b4b4b49"
+    }
+   }
+  },
+  {
+   "name": "f_next_without_mean_ref",
+   "what": "the control of e: a_small's next map (run 2 of the iteration: the same d_ref and sigma_ref, no mean_ref), the same founders, seed and years",
+   "scenario": {
+    "founders": 40,
+    "years": 30,
+    "seed": "0x11b019a1",
+    "founder_tag": "core:prerun_measure",
+    "capacity": 40,
+    "switch": "on",
+    "nutrition": "none",
+    "couples": "none",
+    "run_to": 943487999,
+    "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
+    "data_hash": "27a6d310c620f992"
+   },
+   "story": {
+    "ever": 48,
+    "living": 32,
+    "archived": 16,
+    "log_hash": "8921a48579ce1f9a",
+    "state_hash": "15544f641f9cbc58",
+    "log_entries": 1246,
+    "census": [
+     [
+      0,
+      31449599,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      1,
+      62899199,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      94348799,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      3,
+      125798399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      4,
+      157247999,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      5,
+      188697599,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      6,
+      220147199,
+      40,
+      1,
+      0,
+      1
+     ],
+     [
+      7,
+      251596799,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      8,
+      283046399,
+      40,
+      0,
+      0,
+      0
+     ],
+     [
+      9,
+      314495999,
+      38,
+      1,
+      0,
+      3
+     ],
+     [
+      10,
+      345945599,
+      37,
+      0,
+      1,
+      0
+     ],
+     [
+      11,
+      377395199,
+      36,
+      0,
+      1,
+      0
+     ],
+     [
+      12,
+      408844799,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      13,
+      440294399,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      14,
+      471743999,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      15,
+      503193599,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      16,
+      534643199,
+      36,
+      0,
+      0,
+      0
+     ],
+     [
+      17,
+      566092799,
+      35,
+      0,
+      1,
+      0
+     ],
+     [
+      18,
+      597542399,
+      34,
+      0,
+      1,
+      0
+     ],
+     [
+      19,
+      628991999,
+      33,
+      0,
+      1,
+      0
+     ],
+     [
+      20,
+      660441599,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      21,
+      691891199,
+      32,
+      0,
+      0,
+      0
+     ],
+     [
+      22,
+      723340799,
+      33,
+      1,
+      0,
+      0
+     ],
+     [
+      23,
+      754790399,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      24,
+      786239999,
+      33,
+      1,
+      0,
+      0
+     ],
+     [
+      25,
+      817689599,
+      33,
+      0,
+      0,
+      0
+     ],
+     [
+      26,
+      849139199,
+      33,
+      0,
+      0,
+      0
+     ],
+     [
+      27,
+      880588799,
+      32,
+      0,
+      1,
+      0
+     ],
+     [
+      28,
+      912038399,
+      31,
+      0,
+      1,
+      0
+     ],
+     [
+      29,
+      943487999,
+      32,
+      1,
+      0,
+      0
+     ]
+    ]
+   },
+   "measure": {
+    "clock": 943487999,
+    "living": 32
+   },
+   "newborn": {
+    "block": 0,
+    "years": [
+     0,
+     30
+    ],
+    "born": 8,
+    "living": 7,
+    "died": 0,
+    "emigrated": 1,
+    "born_after_block": 0,
+    "persons": [
+     {
+      "sim": 44,
+      "lineage_key": "3907466e54276fc7",
+      "born": 215308800,
+      "parents": [
+       1,
+       16,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffb000000000000",
+      "A_growth_bits": "c005800000000000"
+     },
+     {
+      "sim": 47,
+      "lineage_key": "609b02c4cf63ff0d",
+      "born": 759628800,
+      "parents": [
+       41,
+       43,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffb000000000000",
+      "A_growth_bits": "bffb000000000000"
+     },
+     {
+      "sim": 41,
+      "lineage_key": "6903dc9c1de89887",
+      "born": 70156800,
+      "parents": [
+       2,
+       9,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffb000000000000",
+      "A_growth_bits": "bffb000000000000"
+     },
+     {
+      "sim": 42,
+      "lineage_key": "6e75b4a4afa70dea",
+      "born": 137894400,
+      "parents": [
+       2,
+       9,
+       1
+      ],
+      "status": "living",
+      "A_longevity_bits": "bfe6000000000000",
+      "A_growth_bits": "3fd4000000000000"
+     },
+     {
+      "sim": 46,
+      "lineage_key": "7d478bd88ad2f70b",
+      "born": 703987200,
+      "parents": [
+       41,
+       43,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffb000000000000",
+      "A_growth_bits": "c00d800000000000"
+     },
+     {
+      "sim": 45,
+      "lineage_key": "8fd3e165f026ce4e",
+      "born": 295142400,
+      "parents": [
+       3,
+       22,
+       0
+      ],
+      "status": "emigrated 314495999",
+      "A_longevity_bits": "c005800000000000",
+      "A_growth_bits": "bffb000000000000"
+     },
+     {
+      "sim": 43,
+      "lineage_key": "e29740017280d420",
+      "born": 162086400,
+      "parents": [
+       1,
+       16,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "bffb000000000000",
+      "A_growth_bits": "bfe6000000000000"
+     },
+     {
+      "sim": 48,
+      "lineage_key": "fe1284ba9d82c92c",
+      "born": 921715200,
+      "parents": [
+       44,
+       8,
+       0
+      ],
+      "status": "living",
+      "A_longevity_bits": "4002800000000000",
+      "A_growth_bits": "3ff5000000000000"
+     }
+    ]
+   },
+   "traits": [
+    {
+     "trait": "core:androgen",
+     "living_mean_bits": "3fb0000000000002",
+     "sigma_bits": "3ffc8c57272267fb",
+     "newborn_mean": 0.9375,
+     "newborn_mean_bits": "3fee000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3ff0000000000000"
+    },
+    {
+     "trait": "core:bald",
+     "living_mean_bits": "bfbef7bdef7bdefc",
+     "sigma_bits": "3ff2a79e3a2cd2e6",
+     "newborn_mean": 0.375,
+     "newborn_mean_bits": "3fd8000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fd0421084210842"
+    },
+    {
+     "trait": "core:beard",
+     "living_mean_bits": "bfc339ce739ce73f",
+     "sigma_bits": "3ff20c6d7cd19414",
+     "newborn_mean": 0.21875,
+     "newborn_mean_bits": "3fcc000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fb18c6318c63188"
+    },
+    {
+     "trait": "core:body_fat",
+     "living_mean_bits": "3fb6b5ad6b5ad6c0",
+     "sigma_bits": "3fecd82b446159f3",
+     "newborn_mean": 0.375,
+     "newborn_mean_bits": "3fd8000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fddad6b5ad6b5b0"
+    },
+    {
+     "trait": "core:body_hair",
+     "living_mean_bits": "3fb8842108421084",
+     "sigma_bits": "3ff05cf20924c254",
+     "newborn_mean": 0.34375,
+     "newborn_mean_bits": "3fd6000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fdc210842108420"
+    },
+    {
+     "trait": "core:breast",
+     "living_mean_bits": "bf7e8e09e8e09eb0",
+     "sigma_bits": "3fee4f4ac1190f67",
+     "newborn_mean": 0.04375000000000004,
+     "newborn_mean_bits": "3fa666666666666c",
+     "newborn_mean_with_run_d_ref_bits": "3fa294a5294a528a"
+    },
+    {
+     "trait": "core:chest_depth",
+     "living_mean_bits": "3fb6af122af122ac",
+     "sigma_bits": "3fec417bd67d523b",
+     "newborn_mean": -0.071875,
+     "newborn_mean_bits": "bfb2666666666666",
+     "newborn_mean_with_run_d_ref_bits": "3f9122af122af110"
+    },
+    {
+     "trait": "core:cognition",
+     "living_mean_bits": "3fd318c6318c631a",
+     "sigma_bits": "4000da304d95fb06",
+     "newborn_mean": 0.375,
+     "newborn_mean_bits": "3fd8000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe58c6318c6318c"
+    },
+    {
+     "trait": "core:curl",
+     "living_mean_bits": "3fbfbdef7bdef7c0",
+     "sigma_bits": "3fee0cca12e97895",
+     "newborn_mean": 0.21875,
+     "newborn_mean_bits": "3fcc000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fd5ef7bdef7bdf0"
+    },
+    {
+     "trait": "core:disease_liability",
+     "living_mean_bits": "bfd5ef7bdef7bdf0",
+     "sigma_bits": "4000764ab8429c66",
+     "newborn_mean": -1.0,
+     "newborn_mean_bits": "bff0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff57bdef7bdef7c"
+    },
+    {
+     "trait": "core:estrogen",
+     "living_mean_bits": "3f9ce739ce739cef",
+     "sigma_bits": "3ff05ee68efad48b",
+     "newborn_mean": 0.375,
+     "newborn_mean_bits": "3fd8000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fd9ce739ce739ce"
+    },
+    {
+     "trait": "core:face_01",
+     "living_mean_bits": "bfbefe592fe59300",
+     "sigma_bits": "3feadcc808f4e146",
+     "newborn_mean": -0.5718750000000001,
+     "newborn_mean_bits": "bfe24cccccccccce",
+     "newborn_mean_with_run_d_ref_bits": "bfe62c97f2c97f2e"
+    },
+    {
+     "trait": "core:face_02",
+     "living_mean_bits": "bfb7827a3827a382",
+     "sigma_bits": "3fe4f9d71ca272ae",
+     "newborn_mean": -0.04062500000000001,
+     "newborn_mean_bits": "bfa4ccccccccccce",
+     "newborn_mean_with_run_d_ref_bits": "bfc0f4704f4704f6"
+    },
+    {
+     "trait": "core:face_03",
+     "living_mean_bits": "bf80b8fb0b8fb0bc",
+     "sigma_bits": "3fec899adb1bab55",
+     "newborn_mean": -0.446875,
+     "newborn_mean_bits": "bfdc99999999999a",
+     "newborn_mean_with_run_d_ref_bits": "bfdd1f6171f61720"
+    },
+    {
+     "trait": "core:face_04",
+     "living_mean_bits": "bfaae3ec2e3ec2ee",
+     "sigma_bits": "3fe8a4275cb66632",
+     "newborn_mean": -0.44687499999999997,
+     "newborn_mean_bits": "bfdc999999999999",
+     "newborn_mean_with_run_d_ref_bits": "bfdff6171f6171f6"
+    },
+    {
+     "trait": "core:face_05",
+     "living_mean_bits": "bfc42455e2455e22",
+     "sigma_bits": "3fe7573a88ead2f5",
+     "newborn_mean": -0.32187499999999997,
+     "newborn_mean_bits": "bfd4999999999999",
+     "newborn_mean_with_run_d_ref_bits": "bfdeabc48abc48ad"
+    },
+    {
+     "trait": "core:face_06",
+     "living_mean_bits": "3fc2d3680d3680d3",
+     "sigma_bits": "3fe395e04c9fcd10",
+     "newborn_mean": -0.009374999999999967,
+     "newborn_mean_bits": "bf83333333333320",
+     "newborn_mean_with_run_d_ref_bits": "3fc1a034da034d9e"
+    },
+    {
+     "trait": "core:face_07",
+     "living_mean_bits": "bfb2592fe592fe57",
+     "sigma_bits": "3fe65c46daf94257",
+     "newborn_mean": -0.2906249999999999,
+     "newborn_mean_bits": "bfd2999999999998",
+     "newborn_mean_with_run_d_ref_bits": "bfd72fe592fe5930"
+    },
+    {
+     "trait": "core:face_08",
+     "living_mean_bits": "3f99b4069b4069bc",
+     "sigma_bits": "3fe7d0d5103ef452",
+     "newborn_mean": -0.04062499999999997,
+     "newborn_mean_bits": "bfa4ccccccccccc8",
+     "newborn_mean_with_run_d_ref_bits": "bf8fcb25fcb25fc0"
+    },
+    {
+     "trait": "core:face_09",
+     "living_mean_bits": "3f8ec2e3ec2e3ec8",
+     "sigma_bits": "3fe9e64d18a98219",
+     "newborn_mean": 0.14687499999999998,
+     "newborn_mean_bits": "3fc2cccccccccccc",
+     "newborn_mean_with_run_d_ref_bits": "3fc4b8fb0b8fb0b5"
+    },
+    {
+     "trait": "core:face_10",
+     "living_mean_bits": "bfb048abc48abc48",
+     "sigma_bits": "3fe9d872da3d9991",
+     "newborn_mean": -0.165625,
+     "newborn_mean_bits": "bfc5333333333333",
+     "newborn_mean_with_run_d_ref_bits": "bfcd578915789155"
+    },
+    {
+     "trait": "core:face_11",
+     "living_mean_bits": "bfba592fe592fe58",
+     "sigma_bits": "3feb35c9aa4681fb",
+     "newborn_mean": -0.0093749999999998,
+     "newborn_mean_bits": "bf833333333332c0",
+     "newborn_mean_with_run_d_ref_bits": "bfbcbf964bf964bc"
+    },
+    {
+     "trait": "core:face_12",
+     "living_mean_bits": "3f97a3827a3827a8",
+     "sigma_bits": "3fe845f2d0427ff3",
+     "newborn_mean": 0.02187499999999999,
+     "newborn_mean_bits": "3f96666666666664",
+     "newborn_mean_with_run_d_ref_bits": "3fa704f4704f4705"
+    },
+    {
+     "trait": "core:fat_distribution",
+     "living_mean_bits": "bf8294a5294a5210",
+     "sigma_bits": "3ff2f79257541c38",
+     "newborn_mean": 0.46875,
+     "newborn_mean_bits": "3fde000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fdd6b5ad6b5ad6f"
+    },
+    {
+     "trait": "core:freckle",
+     "living_mean_bits": "bfb8c6318c6318c0",
+     "sigma_bits": "3ff0000000000000",
+     "newborn_mean": -0.625,
+     "newborn_mean_bits": "bfe4000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfe718c6318c6318"
+    },
+    {
+     "trait": "core:grey",
+     "living_mean_bits": "3fc35ad6b5ad6b60",
+     "sigma_bits": "3fed5364c8cb8f86",
+     "newborn_mean": 0.0625,
+     "newborn_mean_bits": "3fb0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fcb5ad6b5ad6b60"
+    },
+    {
+     "trait": "core:growth",
+     "living_mean_bits": "bfabdef7bdef7bf2",
+     "sigma_bits": "40056524ced85827",
+     "newborn_mean": -1.3125,
+     "newborn_mean_bits": "bff5000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff5def7bdef7bdf"
+    },
+    {
+     "trait": "core:hair_darkness",
+     "living_mean_bits": "bfc86318c6318c62",
+     "sigma_bits": "3ff1239e73217c70",
+     "newborn_mean": -0.90625,
+     "newborn_mean_bits": "bfed000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff18c6318c6318c"
+    },
+    {
+     "trait": "core:hair_density",
+     "living_mean_bits": "3fc8210842108420",
+     "sigma_bits": "3fef18bc5330f9e8",
+     "newborn_mean": 0.59375,
+     "newborn_mean_bits": "3fe3000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe9084210842108"
+    },
+    {
+     "trait": "core:head_size",
+     "living_mean_bits": "bfb150edd50edd55",
+     "sigma_bits": "3fefe651db0f0d5d",
+     "newborn_mean": -0.6656250000000001,
+     "newborn_mean_bits": "bfe54cccccccccce",
+     "newborn_mean_with_run_d_ref_bits": "bfe776ea876ea878"
+    },
+    {
+     "trait": "core:hip_width",
+     "living_mean_bits": "3fbbc48abc48abbb",
+     "sigma_bits": "3ff0ed496d74c114",
+     "newborn_mean": 0.6375000000000002,
+     "newborn_mean_bits": "3fe4666666666668",
+     "newborn_mean_with_run_d_ref_bits": "3fe7def7bdef7bdd"
+    },
+    {
+     "trait": "core:leg_ratio",
+     "living_mean_bits": "3fb564bf964bf966",
+     "sigma_bits": "3fea7ebe790e8dc4",
+     "newborn_mean": -0.353125,
+     "newborn_mean_bits": "bfd699999999999a",
+     "newborn_mean_with_run_d_ref_bits": "bfd14069b4069b42"
+    },
+    {
+     "trait": "core:longevity",
+     "living_mean_bits": "bfcb9ce739ce7385",
+     "sigma_bits": "4003f19466c016af",
+     "newborn_mean": -1.1875,
+     "newborn_mean_bits": "bff3000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bff6739ce739ce72"
+    },
+    {
+     "trait": "core:muscle",
+     "living_mean_bits": "bfa1084210842100",
+     "sigma_bits": "3ff3127dbd2602a7",
+     "newborn_mean": 0.21875,
+     "newborn_mean_bits": "3fcc000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fc7bdef7bdef7c0"
+    },
+    {
+     "trait": "core:pigment",
+     "living_mean_bits": "3f99ce739ce739e0",
+     "sigma_bits": "4004c250105ab518",
+     "newborn_mean": -0.59375,
+     "newborn_mean_bits": "bfe3000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfe2318c6318c632"
+    },
+    {
+     "trait": "core:puberty",
+     "living_mean_bits": "3fb8842108421080",
+     "sigma_bits": "3ffa6087e183a59f",
+     "newborn_mean": -0.28125,
+     "newborn_mean_bits": "bfd2000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfc7bdef7bdef7c0"
+    },
+    {
+     "trait": "core:shoulder_width",
+     "living_mean_bits": "3f9ce739ce739d0a",
+     "sigma_bits": "3ff28c17b9337834",
+     "newborn_mean": 0.5,
+     "newborn_mean_bits": "3fe0000000000000",
+     "newborn_mean_with_run_d_ref_bits": "3fe0e739ce739ce8"
+    },
+    {
+     "trait": "core:skin_age",
+     "living_mean_bits": "bfc37bdef7bdef80",
+     "sigma_bits": "3ff26eabc69cd751",
+     "newborn_mean": -0.46875,
+     "newborn_mean_bits": "bfde000000000000",
+     "newborn_mean_with_run_d_ref_bits": "bfe3def7bdef7be0"
+    }
+   ],
+   "loci": [
+    {
+     "locus": "core:androgen_01",
+     "mean_dose_bits": "3fe5000000000000"
+    },
+    {
+     "locus": "core:breast_02",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:cognition_04",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:curl_01",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:disease_liability_06",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:face_06_01",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:freckle_01",
+     "mean_dose_bits": "3ff4800000000000"
+    },
+    {
+     "locus": "core:growth_03",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:longevity_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_03",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:skin_age_02",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:pigment_11",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:growth_11",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:cognition_12",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:androgen_02",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:body_fat_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:cognition_05",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:curl_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:disease_liability_07",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:face_01_01",
+     "mean_dose_bits": "3fe0000000000000"
+    },
+    {
+     "locus": "core:face_09_01",
+     "mean_dose_bits": "3ff4800000000000"
+    },
+    {
+     "locus": "core:freckle_02",
+     "mean_dose_bits": "3fe7000000000000"
+    },
+    {
+     "locus": "core:growth_04",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:hair_darkness_01",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:longevity_02",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:pigment_04",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:puberty_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:pigment_12",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:growth_12",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:cognition_13",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:androgen_03",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:body_fat_02",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:chest_depth_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_06",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:disease_liability_08",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:face_04_01",
+     "mean_dose_bits": "3fd8000000000000"
+    },
+    {
+     "locus": "core:face_12_01",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:growth_05",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:hair_darkness_02",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:hip_width_01",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:longevity_03",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:pigment_05",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:puberty_02",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:pigment_13",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:growth_13",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:cognition_14",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:androgen_04",
+     "mean_dose_bits": "3ff4800000000000"
+    },
+    {
+     "locus": "core:bald_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:cognition_07",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:disease_liability_01",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:face_07_01",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:grey_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:growth_06",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:longevity_04",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:muscle_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:pigment_06",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:puberty_03",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:pigment_14",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:growth_14",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:cognition_15",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:androgen_05",
+     "mean_dose_bits": "3ff4800000000000"
+    },
+    {
+     "locus": "core:bald_02",
+     "mean_dose_bits": "3fea000000000000"
+    },
+    {
+     "locus": "core:body_hair_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:cognition_08",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:disease_liability_02",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:face_02_01",
+     "mean_dose_bits": "3fe3000000000000"
+    },
+    {
+     "locus": "core:face_10_01",
+     "mean_dose_bits": "3fe7000000000000"
+    },
+    {
+     "locus": "core:grey_02",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:growth_07",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:hair_density_01",
+     "mean_dose_bits": "3ff2000000000000"
+    },
+    {
+     "locus": "core:longevity_05",
+     "mean_dose_bits": "3ff8800000000000"
+    },
+    {
+     "locus": "core:muscle_02",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:pigment_07",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:puberty_04",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:shoulder_width_01",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:pigment_15",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:growth_15",
+     "mean_dose_bits": "3ff1000000000000"
+    },
+    {
+     "locus": "core:cognition_16",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:androgen_06",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:cognition_01",
+     "mean_dose_bits": "3fe6000000000000"
+    },
+    {
+     "locus": "core:disease_liability_03",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:face_05_01",
+     "mean_dose_bits": "3fe4000000000000"
+    },
+    {
+     "locus": "core:fat_distribution_01",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:growth_08",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:hair_density_02",
+     "mean_dose_bits": "3ff0800000000000"
+    },
+    {
+     "locus": "core:leg_ratio_01",
+     "mean_dose_bits": "3ff2800000000000"
+    },
+    {
+     "locus": "core:longevity_06",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:pigment_08",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:puberty_05",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:pigment_16",
+     "mean_dose_bits": "3ff4000000000000"
+    },
+    {
+     "locus": "core:growth_16",
+     "mean_dose_bits": "3fe7000000000000"
+    },
+    {
+     "locus": "core:cognition_09",
+     "mean_dose_bits": "3ff5800000000000"
+    },
+    {
+     "locus": "core:androgen_07",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:beard_01",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:cognition_02",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:disease_liability_04",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:estrogen_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:face_08_01",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:growth_01",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:longevity_07",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:pigment_01",
+     "mean_dose_bits": "3fef000000000000"
+    },
+    {
+     "locus": "core:puberty_06",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:pigment_09",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:growth_09",
+     "mean_dose_bits": "3fe8000000000000"
+    },
+    {
+     "locus": "core:cognition_10",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:androgen_08",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:beard_02",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:breast_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:cognition_03",
+     "mean_dose_bits": "3ff3000000000000"
+    },
+    {
+     "locus": "core:disease_liability_05",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:estrogen_02",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:face_03_01",
+     "mean_dose_bits": "3ff0000000000000"
+    },
+    {
+     "locus": "core:face_11_01",
+     "mean_dose_bits": "3fee000000000000"
+    },
+    {
+     "locus": "core:growth_02",
+     "mean_dose_bits": "3ff3800000000000"
+    },
+    {
+     "locus": "core:head_size_01",
+     "mean_dose_bits": "3feb000000000000"
+    },
+    {
+     "locus": "core:longevity_08",
+     "mean_dose_bits": "3fec000000000000"
+    },
+    {
+     "locus": "core:pigment_02",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:skin_age_01",
+     "mean_dose_bits": "3fed000000000000"
+    },
+    {
+     "locus": "core:pigment_10",
+     "mean_dose_bits": "3ff1800000000000"
+    },
+    {
+     "locus": "core:growth_10",
+     "mean_dose_bits": "3fe9000000000000"
+    },
+    {
+     "locus": "core:cognition_11",
+     "mean_dose_bits": "3feb000000000000"
+    }
+   ],
+   "next_map": {
+    "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
+    "data_hash": "c8a66d15ba375caf"
+   },
+   "frozen": {
+    "data_hash": "27ce46b8bacaaf41",
+    "genome_map_json_bytes": 75674,
+    "genome_map_json_xxh3": "aa04f5cbd808c3ff",
+    "data_hash_without_mean_ref": "37f5047db0106c79",
+    "mean_ref": {
+     "core:androgen": "3fee000000000000",
+     "core:bald": "3fd8000000000000",
+     "core:beard": "3fcc000000000000",
+     "core:body_fat": "3fd8000000000000",
+     "core:body_hair": "3fd6000000000000",
+     "core:breast": "3fa666666666666c",
+     "core:chest_depth": "bfb2666666666666",
+     "core:cognition": "3fd8000000000000",
+     "core:curl": "3fcc000000000000",
+     "core:disease_liability": "bff0000000000000",
+     "core:estrogen": "3fd8000000000000",
+     "core:face_01": "bfe24cccccccccce",
+     "core:face_02": "bfa4ccccccccccce",
+     "core:face_03": "bfdc99999999999a",
+     "core:face_04": "bfdc999999999999",
+     "core:face_05": "bfd4999999999999",
+     "core:face_06": "bf83333333333320",
+     "core:face_07": "bfd2999999999998",
+     "core:face_08": "bfa4ccccccccccc8",
+     "core:face_09": "3fc2cccccccccccc",
+     "core:face_10": "bfc5333333333333",
+     "core:face_11": "bf833333333332c0",
+     "core:face_12": "3f96666666666664",
+     "core:fat_distribution": "3fde000000000000",
+     "core:freckle": "bfe4000000000000",
+     "core:grey": "3fb0000000000000",
+     "core:growth": "bff5000000000000",
+     "core:hair_darkness": "bfed000000000000",
+     "core:hair_density": "3fe3000000000000",
+     "core:head_size": "bfe54cccccccccce",
+     "core:hip_width": "3fe4666666666668",
+     "core:leg_ratio": "bfd699999999999a",
+     "core:longevity": "bff3000000000000",
+     "core:muscle": "3fcc000000000000",
+     "core:pigment": "bfe3000000000000",
+     "core:puberty": "bfd2000000000000",
+     "core:shoulder_width": "3fe0000000000000",
+     "core:skin_age": "bfde000000000000"
+    }
+   }
+  }
+ ]
+}
