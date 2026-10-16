@@ -648,3 +648,19 @@ fn the_reference_pins_the_life_table_edges() {
         assert_eq!(table, Err(finding), "{name}");
     }
 }
+
+/// Review round 4: counts and seconds are exact up to 2^53, the domain of the estimators.
+#[test]
+fn counts_are_exact_up_to_two_to_the_53() {
+    assert_eq!(real(1 << 53), 9_007_199_254_740_992.0);
+    assert_eq!(
+        life_table(&[1 << 53], &[1]).map(|table| table.e0),
+        Ok(9_007_199_254_740_992.0 / 31_449_600.0)
+    );
+}
+
+#[test]
+#[should_panic(expected = "invariant criteria.exact")]
+fn a_count_above_two_to_the_53_stops() {
+    life_table(&[(1 << 53) + 1], &[1]).ok();
+}
