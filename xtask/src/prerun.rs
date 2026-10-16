@@ -7,7 +7,7 @@ use std::path::Path;
 
 use sim_core::data::{Data, Definitions};
 use sim_core::data_id::{DataId, str_key};
-use sim_core::genome::{LocusAlleles, Sex};
+use sim_core::genome::{Genome, LocusAlleles, Sex};
 use sim_core::input::{Founder, Input, Start};
 use sim_core::lineage::LineageKey;
 use sim_core::log::LogEntry;
@@ -661,9 +661,76 @@ pub fn print_run(label: &str, map: &Json, world: &World, out: &YearOut) -> Resul
     Ok(measurement)
 }
 
+/// The last full block of 30 birth years of a run of `years` years, `g = years div 30 − 1`
+/// (Grok GF-1); `None` below 30 years.
+fn newborn_block(years: i64) -> Option<i64> {
+    (years >= 30).then(|| years / 30 - 1)
+}
+
+/// Per trait of `data`'s map, in its order, the mean of `A` under `data` (the map this run
+/// freezes, with its measured `d_ref`) over everyone with parents born in the run's last
+/// full block of 30 birth years, living, dead or emigrated; folded from +0.0 in ascending
+/// lineage key (Grok GF-1, spec 4.1).
+pub fn newborn_means(world: &World, data: &Data, years: i64) -> Result<Vec<(DataId, f64)>> {
+    let block = newborn_block(years).ok_or("a run under 30 years has no full block of births")?;
+    let span = 30 * YEAR.as_secs();
+    let mut born: Vec<(LineageKey, Genome)> = world
+        .pedigree()
+        .persons
+        .iter()
+        .filter(|p| p.mother.is_some() && p.born.as_secs().div_euclid(span) == block)
+        .map(|p| {
+            let genome = Genome::with_alleles(p.sex, &p.alleles, data)
+                .map_err(|e| format!("the genome of {:016x}: {e:?}", p.lineage_key.get()))?;
+            Ok((p.lineage_key, genome))
+        })
+        .collect::<Result<_>>()?;
+    born.sort_by_key(|(key, _)| *key);
+    let n = i64::try_from(born.len())
+        .ok()
+        .filter(|n| *n > 0)
+        .and_then(sim_math::i64_to_f64_exact)
+        .ok_or("no birth in the last full block")?;
+    data.genome_map()
+        .traits
+        .iter()
+        .map(|t| {
+            let sum = born.iter().try_fold(0.0, |sum, (_, genome)| {
+                genome.additive_value(&t.id, data).map(|a| sum + a)
+            });
+            sum.map(|sum| (t.id.clone(), sum / n))
+                .ok_or_else(|| format!("no additive value of {}", t.id.as_str()))
+        })
+        .collect()
+}
+
+/// The map a run freezes: its next map with each trait's newborn mean as `mean_ref` right
+/// after `sigma_ref` (Grok GF-1). Only the frozen map carries it; the next map of the
+/// iteration keeps `d_ref` and `sigma_ref` alone, so a rerun reproduces its run.
+pub fn frozen_map(next: &Json, means: &[(DataId, f64)]) -> Json {
+    let mut map = next.clone();
+    if let Some(traits) = map.get_mut("traits").and_then(Json::as_array_mut) {
+        for t in traits {
+            let id = t.get("id").and_then(Json::as_str).unwrap_or("").to_owned();
+            let Some((_, mean)) = means.iter().find(|(m, _)| m.as_str() == id) else {
+                continue;
+            };
+            if let Json::Object(entries) = t {
+                entries.retain(|(key, _)| key != "mean_ref");
+                let at = (entries.iter())
+                    .position(|(key, _)| key == "sigma_ref")
+                    .map_or(entries.len(), |i| i + 1);
+                entries.insert(at, ("mean_ref".to_owned(), Json::float(*mean)));
+            }
+        }
+    }
+    map
+}
+
 /// One run of the measurement (design note, section 4) on the map in `options.map` (the
 /// template without one): the founders drawn on the template, the run, its measurement
-/// printed; the next map and the calibration go to `options.out`.
+/// printed; the next map and the calibration go to `options.out`, the map this run would
+/// freeze (with the newborn means, Grok GF-1) to `options.out/frozen`.
 pub fn measure_run(root: &Path, options: &Options, run_number: usize) -> Result {
     let (calibration, template_map) = crate::map4::template(root)?;
     let map = match &options.map {
@@ -685,11 +752,27 @@ pub fn measure_run(root: &Path, options: &Options, run_number: usize) -> Result 
     let input = start(&tag, MEASURE_SEED, founders, options.founders);
     let (world, out) = run(data, input, until)?;
     let measurement = print_run(&label, &map, &world, &out)?;
+    let next = next_map(&map, &measurement);
+    let (next_calibration, next_run_map) = prerun_files(&calibration, &next);
+    let next_data = prerun_data(root, &next_calibration, &next_run_map)?;
+    let means = newborn_means(&world, &next_data, options.years)?;
+    for (id, mean) in &means {
+        println!(
+            "run {run_number} newborn_mean {} {mean} {:016x}",
+            id.as_str(),
+            mean.to_bits()
+        );
+    }
     println!(
         "run {run_number} seconds {:?}",
         started.elapsed().as_secs_f64()
     );
-    write_files(&options.out, &calibration, &next_map(&map, &measurement))
+    write_files(&options.out, &calibration, &next)?;
+    write_files(
+        &options.out.join("frozen"),
+        &calibration,
+        &frozen_map(&next, &means),
+    )
 }
 
 /// The measurement, iterated until the five deciding traits settle (design note, section
@@ -724,14 +807,16 @@ pub fn measure(root: &Path, options: &Options) -> Result {
         if !status.success() {
             return Err(format!("run {run_number} failed: {status}"));
         }
-        let (calibration, after) = read_files(&dir)?;
+        let (_, after) = read_files(&dir)?;
         let ratios = ratios_between(&before, &after);
         for id in reported(&ratios) {
             println!("run {run_number} report {id}");
         }
         match decision(run_number, &ratios) {
             Decision::Stop => {
-                write_files(&options.out, &calibration, &after)?;
+                // The map this run freezes: its next map with the newborn means (GF-1).
+                let (calibration, frozen) = read_files(&dir.join("frozen"))?;
+                write_files(&options.out, &calibration, &frozen)?;
                 println!("frozen after run {run_number}");
                 return Ok(());
             }
