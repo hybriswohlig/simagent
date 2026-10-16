@@ -12,11 +12,14 @@ domain event of year `k`; `World.advance(t)` runs that second fully):
 - `living`: the number of living sims (`World.sims`), children and arrivals included, never
   the archive.
 - `body_evaluated`, the 21 clamp counts in `CLAMPED_KEYS` order, `curve_clamped`: if the data
-  pass `BodyData::new` (`body_reference.body_data_check` with the 35 traits of map 4: each
-  trait in the map with a phenotype row whose child and adult weights are equal bit for bit,
-  `core:mc1r` and `core:herc2` recessive on an autosome), every living sim in ascending SimId
-  is evaluated once; else every count is 0 (note section 3.2: "all zero if it fails").
-  Integers only.
+  pass `BodyData::census` (`census_body_check`, note section 6.1: the check of
+  `BodyData::new`, `body_reference.body_data_check` with the 35 traits of map 4: each trait in
+  the map with a phenotype row whose child and adult weights are equal bit for bit,
+  `core:mc1r` and `core:herc2` recessive on an autosome; except that both loci may be absent
+  from the map together, then both are read as 0 copies), every living sim in ascending SimId
+  is evaluated once; else every count is 0 (note section 3.2: "all zero if it fails"). One
+  of the two loci without the other, or a present one not recessive on an autosome, still
+  fails. Integers only.
 - `CLAMPED_KEYS`: the parameters of `contracts/body.json` whose unit is `z` or `cm`, in the
   contract's order (`height_cm`, the eight body `*_z`, `face_axis_01` to `face_axis_12`).
 
@@ -31,7 +34,8 @@ One evaluation (note sections 1 and 3.1), for the living sim `s` at `t`:
 - the 35 phenotypes `z` of `body_reference.BODY_TRAITS_MAP4` (genetics specification 4.2,
   `world_reference.phenotype_parts`) at the age 0 (the weights do not depend on the age,
   `BodyData::new` checks that), each read by its roles (`body_reference.ROLES`, map 4 names).
-- the copies of allele 1 at `core:mc1r` and `core:herc2`.
+- the copies of allele 1 at `core:mc1r` and `core:herc2`; 0 at both on data without both loci
+  (note section 6.1).
 - `g_L = genetic_value` of `longevity_trait` (`A / σ_ref`, or `(A − m_ref) / σ_ref` with a
   `mean_ref` in the map, Grok GF-1), `ĝ` held on [−6, 6]
   (`longevity_input`), `Δ = ((−σ_g) · ĝ) / b_sex` with `b_sex` the Gompertz `b` of the sex
@@ -62,10 +66,13 @@ The fixtures (NOTES.md says why each was chosen and what is unclear):
   every household), two nutrition shocks, 20 years.
 - (c) `c_prerun_small`: the small run of tools/prerun_reference.py (40 founders, seed
   0x11b019a1, tag `core:prerun_measure`, capacity 40, the pre-run data, 30 years). The
-  pre-run data drop `core:mc1r` and `core:herc2`, so `BodyData::new` rejects them and every
-  count is 0 (the note's rule). (c') `c_prerun_small_reference_alleles` evaluates the same
-  run with MC1R and HERC2 read as 0 copies (the note's section 1 assumption); clamp counts do
-  not depend on them (pigment is never clamped).
+  pre-run data drop `core:mc1r` and `core:herc2`, so `BodyData::census` evaluates every
+  living body with both read as 0 copies (note section 6.1; before it, `BodyData::new`
+  rejected these data and every count was 0). (c') `c_prerun_small_reference_alleles`, from
+  before section 6.1, evaluated the same run with MC1R and HERC2 read as 0 copies as this
+  reference's assumption; since 6.1 that is the rule, so (c') equals (c) row for row and keeps
+  only its old label `body_data` (kept byte for byte). Clamp counts do not depend on the two
+  loci (pigment is never clamped).
 
 Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--out DIR]
        (default DIR ~/.cache/simagent-notes/ref-census; writes census.json and census.txt)
@@ -76,8 +83,12 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        ADR-0015 4 and spec 10.2, and the height before the loss of age)
        ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
        of the living at the last year end of the scenario "records" of arrival_reference.py)
+       ... census_reference.py --pigment-check [--out DIR]   (pigment_check.json: the cases of
+       `census_body_check` on altered data, and one living person of (c) evaluated on the
+       pre-run data and on data with both loci present and both counts forced to 0)
 """
 
+import copy
 import json
 import math
 import struct
@@ -88,6 +99,7 @@ from pathlib import Path
 import arrival_reference
 import body_reference as br
 import data_reference
+import map4_reference
 import prerun_reference
 import world_reference as wr
 from postcard_reference import FEMALE, MALE, varint
@@ -141,25 +153,43 @@ def year_end(year: int) -> int:
 # The body data of a world
 
 
-class BodyCensusData:
-    """What the census reads from the data (`BodyData::new`, ADR-0015 section 2): the
-    calibration's body values, the 35 traits of map 4 as phenotype traits, MC1R and HERC2,
-    `σ_g`, the Gompertz `b` per sex and the trait of longevity; or the reason the data are
-    rejected (`reason`, then the census counts nothing). `reference_alleles` (fixture c'
-    only, not the note's rule): accept data without `core:mc1r` and `core:herc2` and read
-    both as 0 copies."""
+PIGMENT_LOCI = ("core:mc1r", "core:herc2")
 
-    def __init__(self, data: wr.Data, documents: tuple, reference_alleles: bool = False):
+
+def census_body_check(calibration: dict, genome_map: dict) -> tuple:
+    """`BodyData::census` (note section 6.1; ADR-0015 section 2 as amended there): the check
+    of `BodyData::new` (`body_reference.body_data_check` with the 35 traits of map 4), except
+    that `core:mc1r` and `core:herc2` may be absent from the map together; then only the
+    traits are checked (`body_reference.body_traits_check`) and the census reads 0 copies at
+    both (the reference allele, ADR-0020 section 3). One locus without the other, or a present
+    one not recessive on an autosome, fails as in `BodyData::new`. Returns (the reason or None,
+    whether both loci are absent)."""
+    in_map = {locus["id"] for locus in genome_map["loci"]}
+    if not any(locus_id in in_map for locus_id in PIGMENT_LOCI):
+        return br.body_traits_check((calibration, genome_map), br.BODY_TRAITS_MAP4), True
+    return br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4), False
+
+
+class BodyCensusData:
+    """What the census reads from the data (`BodyData::census`, `census_body_check`): the
+    calibration's body values, the 35 traits of map 4 as phenotype traits, MC1R and HERC2 (or
+    `pigment_absent`: neither in the map, both read as 0 copies), `σ_g`, the Gompertz `b` per
+    sex and the trait of longevity; or the reason the data are rejected (`reason`, then the
+    census counts nothing). `reference_alleles` (fixture c' only) changes no value: c' was
+    this reference's assumption before note section 6.1 made it the rule, and keeps its old
+    label (`body_data_label`). `strict` (`pigment_check` only) checks with `BodyData::new`
+    instead, as every reader other than the census does."""
+
+    def __init__(self, data: wr.Data, documents: tuple, reference_alleles: bool = False, strict: bool = False):
         _, calibration, genome_map = documents
         self.data = data
-        self.reason = br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4)
-        self.reference_alleles = False
-        if self.reason is not None and reference_alleles:
-            loci = {locus["id"] for locus in genome_map["loci"]}
-            assert "core:mc1r" not in loci and "core:herc2" not in loci, "only for data without both loci"
-            assert self.reason.startswith("data.body_traits: core:mc1r"), self.reason
-            self.reason = None
-            self.reference_alleles = True
+        if strict:
+            self.reason, self.pigment_absent = br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4), False
+        else:
+            self.reason, self.pigment_absent = census_body_check(calibration, genome_map)
+        self.reference_alleles = reference_alleles
+        if reference_alleles:
+            assert self.reason is None and self.pigment_absent, "only for data without both loci"
         if self.reason is not None:
             return
         stripped_calibration = data_reference.strip(calibration)
@@ -170,11 +200,23 @@ class BodyCensusData:
         loci = {locus["id"]: locus for locus in stripped_map["loci"]}
         self.mc1r = loci.get("core:mc1r")
         self.herc2 = loci.get("core:herc2")
-        assert (self.mc1r is None) == self.reference_alleles and (self.herc2 is None) == self.reference_alleles
+        assert (self.mc1r is None) == self.pigment_absent and (self.herc2 is None) == self.pigment_absent
 
     @property
     def accepted(self) -> bool:
         return self.reason is None
+
+
+def body_data_label(body: BodyCensusData) -> str:
+    """The field `body_data` of a fixture in census.json."""
+    if not body.accepted:
+        return f"rejected {body.reason}"
+    if body.reference_alleles:
+        # Fixture c', its label from before note section 6.1, kept byte for byte.
+        return "accepted with MC1R and HERC2 read as 0 copies (the twin of c, which reaches the same rows by the rule of note section 6.1)"
+    if body.pigment_absent:
+        return "accepted without core:mc1r and core:herc2 in the map, both read as 0 copies (note section 6.1)"
+    return "accepted"
 
 
 # ---------------------------------------------------------------------------------------
@@ -226,11 +268,13 @@ class Evaluator:
         for trait, terms in body.traits.items():
             part = phenotype_parts(e_seed, terms, genome, key, parents, 0, c_seed)
             z_of[trait], parts[trait] = part["z"], part
-        if body.reference_alleles:
+        if body.pigment_absent:
             mc1r = herc2 = 0
         else:
             mc1r, herc2 = sum(copies_at(genome, body.mc1r)), sum(copies_at(genome, body.herc2))
-        g, held, delta = delta_of(world.data, genome, sex)
+        # The data of the body (the world's in every fixture; other data only in
+        # `pigment_check`, the same person on data with both loci).
+        g, held, delta = delta_of(body.data, genome, sex)
         fixed = {
             "born": born,
             "key": key,
@@ -662,9 +706,14 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
     margins = Margins()
     rows, held, snapshots, effects = [], {}, [], []
     started = time.time()
+    world_seconds = census_seconds = 0.0
     for year in range(years):
+        mark = time.time()
         world.advance(year_end(year))
+        world_seconds += time.time() - mark
+        mark = time.time()
         row, curve_held = census_row(evaluator, year, margins)
+        census_seconds += time.time() - mark
         rows.append(row)
         if curve_held:
             held[str(year)] = curve_held
@@ -672,11 +721,12 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
             snapshots.append(snapshot(evaluator, year, kind_of))
             if world.pool_start is not None:
                 effects += g6_effects(evaluator, year)
-    elapsed = time.time() - started
+    # Seconds of the whole loop, of the world alone and of the census rows (not a pin).
+    elapsed = (time.time() - started, world_seconds, census_seconds)
     record = {
         "data": data_note,
         "data_hash": hexed(world.data.hash),
-        "body_data": "accepted" if body.accepted and not body.reference_alleles else ("accepted with MC1R and HERC2 read as 0 copies (not the note's rule)" if body.accepted else f"rejected {body.reason}"),
+        "body_data": body_data_label(body),
         "scenario": {"format_version": 5, "start": scenario, "until": year_end(years - 1)},
         "start_input": world.inputs[0].hex(),
         "start_input_hash": hexed(hash64(world.inputs[0])),
@@ -769,26 +819,250 @@ def pool_fixture(pool_name: str, seed: int, n_start: int, immigration: bool, yea
     return record, evaluator, elapsed
 
 
-def fixture_c() -> tuple:
+C_FOUNDERS, C_CAPACITY, C_YEARS = 40, 40, 30
+
+
+def c_inputs() -> tuple:
+    """(template, pre-run documents, pre-run data, founders) of fixture (c)."""
     template = prerun_reference.template_documents()
     prerun = prerun_reference.prerun_documents(template)
     data = prerun_reference.prerun_data(prerun)
     table = prerun_reference.weight_table(data)
-    count = prerun_reference.counts(table, 40)
+    count = prerun_reference.counts(table, C_FOUNDERS)
     loci = [locus["id"] for locus in data.measured_loci]
     founder_list = prerun_reference.founders(count, prerun_reference.MEASURE_SEED, prerun_reference.MEASURE_TAG, loci)
-    founders = [founder for founder, _ in founder_list]
+    return template, prerun, data, [founder for founder, _ in founder_list]
+
+
+def c_world(data: wr.Data, founders: list) -> wr.World:
+    return wr.World(prerun_reference.MEASURE_SEED, prerun_reference.MEASURE_TAG, True, founders, (), data, capacity=C_CAPACITY)
+
+
+def fixture_c() -> tuple:
+    _, prerun, data, founders = c_inputs()
     out = {}
     for name, reference_alleles in (("c_prerun_small", False), ("c_prerun_small_reference_alleles", True)):
-        world = wr.World(prerun_reference.MEASURE_SEED, prerun_reference.MEASURE_TAG, True, founders, (), data, capacity=40)
+        world = c_world(data, founders)
         body = BodyCensusData(data, prerun, reference_alleles=reference_alleles)
         kind_of = lambda sim, world=world: arrival_reference.env_kind(world, sim)
         record, evaluator, elapsed = run_fixture(
-            name, world, body, 30, (), kind_of, scenario_start(world, founders, ()),
+            name, world, body, C_YEARS, (), kind_of, scenario_start(world, founders, ()),
             "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
         )
         out[name] = (record, evaluator, elapsed)
+    # Since note section 6.1, (c') is (c) with another label.
+    rows_c, rows_c2 = out["c_prerun_small"][0]["rows"], out["c_prerun_small_reference_alleles"][0]["rows"]
+    assert rows_c == rows_c2 and all(row["body_evaluated"] == row["living"] for row in rows_c)
     return out
+
+
+# ---------------------------------------------------------------------------------------
+# The rule of note section 6.1 checked on its own (`--pigment-check`)
+
+# The person of the check: SimId 44 of (c), a town child of two founders (its `C` from its
+# parents' keys), at the year end of year 19 (age about 12.2 years, in its puberty window).
+PIGMENT_SIM, PIGMENT_YEAR = 44, 19
+
+
+def prerun_with_pigment(template: tuple) -> tuple:
+    """The pre-run documents with `core:mc1r` and `core:herc2` kept (the template's two
+    entries in their places): the template without the five disease loci and the Mendelian
+    diseases only."""
+    demography, calibration, genome_map = (copy.deepcopy(doc) for doc in template)
+    dropped = set(prerun_reference.dropped_loci(calibration)) - set(PIGMENT_LOCI)
+    assert len(dropped) == 5, dropped
+    genome_map["loci"] = [locus for locus in genome_map["loci"] if locus["id"] not in dropped]
+    calibration["diseases"] = [disease for disease in calibration["diseases"] if "locus" not in disease["carrier"]]
+    return demography, calibration, genome_map
+
+
+def rule_cases(prerun: tuple, with_pigment: tuple) -> list:
+    """`census_body_check` and `BodyData::new` on the pre-run documents and altered copies:
+    (name, what changed, census reason, both absent, strict reason)."""
+    template_loci = {locus["id"]: locus for locus in with_pigment[2]["loci"]}
+    cases = []
+
+    def case(name: str, change: str, base: tuple, alter, expect_census, expect_strict):
+        _, calibration, genome_map = (copy.deepcopy(doc) for doc in base)
+        alter(calibration, genome_map)
+        reason, absent = census_body_check(calibration, genome_map)
+        strict = br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4)
+        assert reason == expect_census and strict == expect_strict, (name, reason, strict)
+        cases.append({"name": name, "change": change, "census": reason or "accepted", "both_absent": absent, "body_data_new": strict or "accepted"})
+
+    def add(*ids):
+        def alter(calibration, genome_map):
+            loci = genome_map["loci"] + [copy.deepcopy(template_loci[locus_id]) for locus_id in ids]
+            genome_map["loci"] = sorted(loci, key=map4_order)
+        return alter
+
+    def set_locus(locus_id, field, value):
+        def alter(calibration, genome_map):
+            next(locus for locus in genome_map["loci"] if locus["id"] == locus_id)[field] = value
+        return alter
+
+    def age_weights(trait):
+        def alter(calibration, genome_map):
+            row = next(row for row in calibration["traits"] if row["trait"] == trait)
+            row["h2_child"]["value"] = row["h2_child"]["value"] + 0.01
+        return alter
+
+    def drop_trait_row(trait):
+        def alter(calibration, genome_map):
+            calibration["traits"] = [row for row in calibration["traits"] if row["trait"] != trait]
+        return alter
+
+    none = lambda calibration, genome_map: None
+    mc1r_reason = "data.body_traits: core:mc1r is no recessive autosomal locus"
+    herc2_reason = "data.body_traits: core:herc2 is no recessive autosomal locus"
+    age_reason = "data.body_traits: the weights of core:growth depend on the age"
+    row_reason = "data.body_traits: core:muscle has no phenotype row"
+    case("prerun", "none: the pre-run documents, both loci absent", prerun, none, None, mc1r_reason)
+    case("prerun_mc1r_only", "core:mc1r of the template added", prerun, add("core:mc1r"), herc2_reason, herc2_reason)
+    case("prerun_herc2_only", "core:herc2 of the template added", prerun, add("core:herc2"), mc1r_reason, mc1r_reason)
+    case("prerun_both", "core:mc1r and core:herc2 of the template added", prerun, add("core:mc1r", "core:herc2"), None, None)
+    case("both_mc1r_dominant", "both present, core:mc1r action dominant", with_pigment, set_locus("core:mc1r", "action", "dominant"), mc1r_reason, mc1r_reason)
+    case("both_herc2_on_x", "both present, core:herc2 on the chromosome x", with_pigment, set_locus("core:herc2", "chromosome", "x"), herc2_reason, herc2_reason)
+    case("herc2_only_dominant", "core:herc2 alone, action dominant", prerun, lambda c, m: (add("core:herc2")(c, m), set_locus("core:herc2", "action", "dominant")(c, m)), mc1r_reason, mc1r_reason)
+    case("prerun_growth_weights_age", "both absent, h2_child of core:growth + 0.01", prerun, age_weights("core:growth"), age_reason, age_reason)
+    case("prerun_muscle_no_row", "both absent, the phenotype row of core:muscle removed", prerun, drop_trait_row("core:muscle"), row_reason, row_reason)
+    return cases
+
+
+def map4_order(locus: dict) -> tuple:
+    return map4_reference.map_order(locus)
+
+
+def params_bits(evaluation: dict) -> dict:
+    return {key: bits(evaluation["params"][key][0]) for key in PARAM_KEYS}
+
+
+def evaluate_forced(world: wr.World, body: BodyCensusData, sim: int, t: int, mc1r: int, herc2: int) -> tuple:
+    """`body_at(sim, t)` on `body`'s data with both counts forced: (the counts read from the
+    genome, or None on data without the loci, and the evaluation)."""
+    evaluator = Evaluator(world, body)
+    parts = evaluator.person_parts(sim)
+    read = None if body.pigment_absent else (parts["mc1r"], parts["herc2"])
+    parts["mc1r"], parts["herc2"] = mc1r, herc2
+    return read, evaluator.evaluate(sim, t)
+
+
+def timed_c(data: wr.Data, prerun: tuple, founders: list, strict: bool) -> dict:
+    """Fixture (c) run once, the census with `BodyData::new` (strict: nobody evaluated, the
+    rule before note section 6.1) or with `BodyData::census`: seconds (not a pin)."""
+    world = c_world(data, founders)
+    body = BodyCensusData(data, prerun, strict=strict)
+    assert body.accepted != strict
+    kind_of = lambda sim: arrival_reference.env_kind(world, sim)
+    record, _, (total, world_seconds, census_seconds) = run_fixture(
+        "c", world, body, C_YEARS, (), kind_of, scenario_start(world, founders, ()), "timing only"
+    )
+    evaluations = sum(row["body_evaluated"] for row in record["rows"])
+    return {"rule": "BodyData::new" if strict else "BodyData::census", "total_s": round(total, 2), "world_s": round(world_seconds, 2), "census_rows_s": round(census_seconds, 2), "evaluations": evaluations}
+
+
+def pigment_check() -> dict:
+    """The rule's cases (`rule_cases`) and one living person of (c) (`PIGMENT_SIM` at the year
+    end of `PIGMENT_YEAR`) evaluated (1) on the pre-run data by the census (both loci absent,
+    0 copies), (2) on the pre-run documents with both loci kept and (3) on the template, both
+    accepted by `BodyData::new`, each with both counts forced to 0 (the counts its genome holds
+    there are read and reported too); (1) to (3) agree bit for bit in all 44 parameters. (4)
+    as (2) with both counts forced to 2: which keys move (only pigment, never a clamped key)."""
+    template, prerun, data, founders = c_inputs()
+    with_pigment = prerun_with_pigment(template)
+    cases = rule_cases(prerun, with_pigment)
+    world = c_world(data, founders)
+    t = year_end(PIGMENT_YEAR)
+    world.advance(t)
+    sim = PIGMENT_SIM
+    assert sim in world.sims
+    census_body = BodyCensusData(data, prerun)
+    assert census_body.accepted and census_body.pigment_absent
+    evaluator = Evaluator(world, census_body)
+    census = evaluator.evaluate(sim, t)
+    parts = census["parts"]
+    e_seed, c_seed, parents = parts["seeds"]
+    person = {
+        "fixture": "c_prerun_small",
+        "year": PIGMENT_YEAR,
+        "t": t,
+        "sim": sim,
+        "lineage_key": hexed(parts["key"]),
+        "kind": arrival_reference.env_kind(world, sim),
+        "sex": "female" if parts["sex"] == FEMALE else "male",
+        "born": parts["born"],
+        "age_secs": census["age"],
+        "seed_e": hexed(e_seed),
+        "seed_c": hexed(c_seed),
+        "c_keys": None if parents is None else [hexed(parents[0]), hexed(parents[1])],
+        "g_L": None if parts["g_L"] is None else bits(parts["g_L"]),
+        "delta": bits(parts["delta"]),
+        "bio_age": bits(census["b"]),
+        "nutrition": [[year, index] for year, index in census["nutrition"]],
+        "curve_clamped": census["curve"]["clamped"],
+        "clamped": [key for key in CLAMPED_KEYS if census["params"][key][1]],
+        "z": {trait: bits(parts["z_of"][trait]) for trait in br.BODY_TRAITS_MAP4},
+    }
+    reference = params_bits(census)
+    evaluations = [
+        {
+            "data": "the pre-run data (BodyData::census: both loci absent, read as 0 copies)",
+            "data_hash": hexed(data.hash),
+            "mc1r_read": None,
+            "herc2_read": None,
+            "mc1r": parts["mc1r"],
+            "herc2": parts["herc2"],
+            "params": reference,
+            "params_hash": hexed(hash64(params_bytes(census["params"]))),
+        }
+    ]
+    others = (
+        ("the pre-run documents with core:mc1r and core:herc2 kept (BodyData::new)", with_pigment),
+        ("the template tests/golden/map4_template with data/calibration/demography.json (BodyData::new)", template),
+    )
+    for label, documents in others:
+        other_data = wr.Data(*documents)
+        body = BodyCensusData(other_data, documents, strict=True)
+        assert body.accepted and not body.pigment_absent
+        read, evaluation = evaluate_forced(world, body, sim, t, 0, 0)
+        assert read == (0, 0), read
+        values = params_bits(evaluation)
+        assert values == reference, [key for key in PARAM_KEYS if values[key] != reference[key]]
+        assert all(bits(evaluation["parts"]["z_of"][trait]) == person["z"][trait] for trait in br.BODY_TRAITS_MAP4)
+        assert bits(evaluation["parts"]["delta"]) == person["delta"] and bits(evaluation["b"]) == person["bio_age"]
+        evaluations.append(
+            {
+                "data": label,
+                "data_hash": hexed(other_data.hash),
+                "mc1r_read": read[0],
+                "herc2_read": read[1],
+                "mc1r": 0,
+                "herc2": 0,
+                "identical_to_census": True,
+                "params_hash": hexed(hash64(params_bytes(evaluation["params"]))),
+            }
+        )
+    other_data = wr.Data(*with_pigment)
+    _, twin = evaluate_forced(world, BodyCensusData(other_data, with_pigment, strict=True), sim, t, 2, 2)
+    moved = [key for key in PARAM_KEYS if params_bits(twin)[key] != reference[key]]
+    assert moved and not set(moved) & set(CLAMPED_KEYS), moved
+    twin_entry = {
+        "data": others[0][0],
+        "mc1r": 2,
+        "herc2": 2,
+        "moved": {key: [reference[key], params_bits(twin)[key]] for key in moved},
+    }
+    timing = [timed_c(data, prerun, founders, strict=True), timed_c(data, prerun, founders, strict=False)]
+    return {
+        "written_by": "tools/census_reference.py --pigment-check (independent of crates/)",
+        "rule": "note section 6.1: on data whose map holds neither core:mc1r nor core:herc2 the census evaluates every living body with both allele counts 0; one locus alone, or a present one not recessive on an autosome, still evaluates nobody",
+        "rule_cases": cases,
+        "param_keys": PARAM_KEYS,
+        "person": person,
+        "evaluations": evaluations,
+        "negative_twin_counts_2": twin_entry,
+        "timing_fixture_c_not_a_pin": timing,
+    }
 
 
 # ---------------------------------------------------------------------------------------
@@ -1076,6 +1350,19 @@ def main(argv) -> int:
         for name, record in document["fixtures"].items():
             print(f"pure_heights {name} snapshots {[(snap['year'], len(snap['persons'])) for snap in record['snapshots']]} archived {len(record['archived']['persons'])}")
         return 0
+    if "--pigment-check" in argv:
+        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
+        out.mkdir(parents=True, exist_ok=True)
+        document = pigment_check()
+        (out / "pigment_check.json").write_text(json.dumps(document, indent=1) + "\n")
+        for case in document["rule_cases"]:
+            print(f"pigment_rule {case['name']} census {case['census']} both_absent {case['both_absent']} new {case['body_data_new']}")
+        for evaluation in document["evaluations"]:
+            print(f"pigment_person data_hash {evaluation['data_hash']} params_hash {evaluation['params_hash']} read {evaluation['mc1r_read']},{evaluation['herc2_read']}")
+        print(f"pigment_twin moved {sorted(document['negative_twin_counts_2']['moved'])}")
+        for entry in document["timing_fixture_c_not_a_pin"]:
+            print(f"pigment_timing {entry}")
+        return 0
     if "--records" in argv:
         out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
         document = records_phenotypes()
@@ -1127,8 +1414,8 @@ def main(argv) -> int:
     for case in golden["selection_cases"]:
         lines.append(f"census_selection {json.dumps(case, separators=(',', ':'))}")
     (out / "census.txt").write_text("\n".join(lines) + "\n")
-    for name, seconds in timings.items():
-        print(f"census_timing {name} {seconds:.1f} s (not a pin)", file=sys.stderr)
+    for name, (seconds, world_seconds, census_seconds) in timings.items():
+        print(f"census_timing {name} {seconds:.2f} s, world {world_seconds:.2f} s, census rows {census_seconds:.2f} s (not a pin)", file=sys.stderr)
     print(f"wrote {out}/census.json, census_details.json, census.txt, scenarios/")
     return 0
 
