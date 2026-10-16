@@ -17,21 +17,12 @@ use sim_core::time::{SimDuration, SimTime};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::World;
 
-use super::export::{CoupleRow, Header, RawGenome, Row, couple_line, header_line, person_line};
+use super::export::{
+    CoupleRow, Header, LONGEVITY, MC1R, RawGenome, Row, TRAITS, couple_line, header_line,
+    person_line,
+};
 
 type Result<T> = std::result::Result<T, String>;
-
-const YEAR: i64 = 31_449_600;
-
-/// The traits of `z` and the age each is read at: growth and pigment have equal child and
-/// adult weights (age 0), cognition is read at 60 years as P7 reads it.
-const TRAITS: [(&str, i64); 3] = [
-    ("core:growth", 0),
-    ("core:pigment", 0),
-    ("core:cognition", 60 * YEAR),
-];
-const LONGEVITY: &str = "core:longevity";
-const MC1R: &str = "core:mc1r";
 
 /// What the export reads from the log: the genome key of every town child, and per town
 /// conception the number of earlier `core:conception` entries with its second and mother.

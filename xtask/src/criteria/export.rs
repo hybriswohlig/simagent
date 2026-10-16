@@ -81,6 +81,17 @@ type Result<T> = std::result::Result<T, String>;
 const YEAR: i64 = 31_449_600;
 const MONTH: i64 = 2_419_200;
 
+/// The traits of `z` in their order and the age each is read at (section 1): growth and
+/// pigment have equal child and adult weights (age 0), cognition is read at 60 years as P7
+/// reads it. The units and the report take `z` in this order.
+pub const TRAITS: [(&str, i64); 3] = [
+    ("core:growth", 0),
+    ("core:pigment", 0),
+    ("core:cognition", 60 * YEAR),
+];
+pub const LONGEVITY: &str = "core:longevity";
+pub const MC1R: &str = "core:mc1r";
+
 fn hex_text(value: u64) -> String {
     format!("\"{value:016x}\"")
 }
@@ -185,6 +196,10 @@ fn row_rules(row: &Row) -> Result<()> {
             "a pool child without its multiple index",
         ),
         (
+            row.pool != 0 || row.mult.is_some() == row.mother.is_some(),
+            "a town child without its multiple index, or a founder with one",
+        ),
+        (
             row.genome.paternal_x.is_some() == row.female && row.genome.y.is_some() != row.female,
             "a sex chromosome that does not fit the sex",
         ),
@@ -253,8 +268,11 @@ fn header(line: &Value) -> Result<Header> {
             _ => Err("traits: not [name, age]".to_owned()),
         })
         .collect::<Result<Vec<_>>>()?;
-    if traits.len() != 3 {
-        return Err(format!("{} traits, want 3", traits.len()));
+    let fixed: Vec<(String, i64)> = (TRAITS.iter())
+        .map(|(name, age)| ((*name).to_owned(), *age))
+        .collect();
+    if traits != fixed {
+        return Err(format!("the traits {traits:?}, want {fixed:?}"));
     }
     Ok(Header {
         core_version: count(field(line, "core_version")?)?,
@@ -263,14 +281,19 @@ fn header(line: &Value) -> Result<Header> {
         pool_seed: optional(field(line, "pool_seed")?, hex)?,
         end: int(field(line, "end")?)?,
         traits,
-        longevity: field(line, "longevity")?
-            .as_str()
-            .ok_or("longevity")?
-            .to_owned(),
-        mc1r: field(line, "mc1r")?.as_str().ok_or("mc1r")?.to_owned(),
+        longevity: fixed_name(field(line, "longevity")?, LONGEVITY)?,
+        mc1r: fixed_name(field(line, "mc1r")?, MC1R)?,
         persons: count(field(line, "persons")?)?,
         couples: count(field(line, "couples")?)?,
     })
+}
+
+/// A name the export fixes.
+fn fixed_name(value: &Value, want: &str) -> Result<String> {
+    match value.as_str() {
+        Some(name) if name == want => Ok(name.to_owned()),
+        _ => Err(format!("{value}, want {want}")),
+    }
 }
 
 fn words(value: &Value) -> Result<[u64; 3]> {
