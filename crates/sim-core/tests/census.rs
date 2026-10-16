@@ -8,7 +8,8 @@
 //! - (b) "arrival" on `pool_c` with three shocks: an arrival does without the years before
 //!   its arrival (G6), to the exact boundary;
 //! - (b2) `pool_b` founded at the start, without immigration;
-//! - (c) the small pre-run run: data without body traits, so every count is 0.
+//! - (c) the small pre-run run: data without MC1R and HERC2, read as the reference allele
+//!   (design note of the census 6.1), so every living body is evaluated.
 //!
 //! Each row is compared exactly: counts are integers, and no raw value lies near a bound
 //! (the reference's nearest is 2.3e-5 away, its nearest curve input 0.19).
@@ -101,10 +102,16 @@ fn pool_data(pool: &[u8]) -> Data {
 /// The pre-run's data: the template without the seven loci the pool carries and without
 /// the diseases of a single locus.
 fn prerun_data() -> Data {
+    prerun_data_with(&[])
+}
+
+/// The pre-run's data with the pool loci of `kept` left in the map.
+fn prerun_data_with(kept: &[&str]) -> Data {
     let (mut calibration, mut genome_map) = template();
     let pool: Vec<String> = pool_loci()
         .iter()
         .map(|id| id.as_str().to_owned())
+        .filter(|id| !kept.contains(&id.as_str()))
         .collect();
     genome_map["loci"]
         .as_array_mut()
@@ -358,8 +365,8 @@ fn the_census_counts_the_bodies_as_the_reference() {
     }
 }
 
-/// The census of data without body traits is all zero; with body traits it evaluates every
-/// living sim once (design note of the census, 3.6: cadence).
+/// The census evaluates every living sim once a year (design note of the census, 3.6:
+/// cadence), the pre-run's too (6.1).
 #[test]
 fn every_living_sim_is_evaluated_once_a_year() {
     let census: Value = serde_json::from_str(CENSUS).expect("json");
@@ -367,11 +374,7 @@ fn every_living_sim_is_evaluated_once_a_year() {
         for row in census["fixtures"][name]["rows"].as_array().expect("rows") {
             let evaluated = row["body_evaluated"].as_u64().expect("evaluated");
             let living = row["living"].as_u64().expect("living");
-            if name == "c_prerun_small" {
-                assert_eq!(evaluated, 0, "{name}");
-            } else {
-                assert_eq!(evaluated, living, "{name}");
-            }
+            assert_eq!(evaluated, living, "{name}");
         }
     }
     let _ = Pool::from_bytes(POOL_B).expect("pool_b");
@@ -636,5 +639,34 @@ fn the_pure_height_is_the_references() {
         let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
         world.advance_until(&mut out, until, &mut |_| false);
         check_pure_heights(&world, name);
+    }
+}
+
+/// The pre-run leaves MC1R and HERC2 out of its map, the reference allele of ADR-0020 section
+/// 3: the census evaluates every living body there with both doses 0 (ADR-0015 section 2,
+/// design note of the census 6.1), so the clamp rate of the pool run can be counted. One
+/// pigment locus without the other is still no body.
+#[test]
+fn the_census_reads_absent_pigment_loci_as_the_reference_allele() {
+    let scenario: Value = serde_json::from_str(include_str!(
+        "../../../tests/golden/census/c_prerun_small.json"
+    ))
+    .expect("scenario");
+    let first_year_end = |data: Data| {
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.submit(Input::Start(start)).expect("accepted");
+        let mut out = YearOut::default();
+        let end = SimTime::from_secs(sim_core::time::YEAR.as_secs() - 1);
+        world.advance_until(&mut out, end, &mut |_| false);
+        out.census[0]
+    };
+    let row = first_year_end(prerun_data());
+    assert!(row.living > 0);
+    assert_eq!(row.body.evaluated, row.living);
+    for kept in ["core:herc2", "core:mc1r"] {
+        let row = first_year_end(prerun_data_with(&[kept]));
+        assert!(row.living > 0, "{kept}");
+        assert_eq!(row.body.evaluated, 0, "{kept}");
     }
 }
