@@ -293,7 +293,7 @@ fn mc1r(sample: &Mc1r) -> Value {
     let values = &sample.units.values;
     let n = values.len();
     let q = json!({
-        "q": bits(sample.q), "q_parents": sample.parents, "q_copies": sample.copies,
+        "q": maybe(sample.q), "q_parents": sample.parents, "q_copies": sample.copies,
         "affected": n,
     });
     let anchors = &sample.units.anchors;
@@ -497,7 +497,7 @@ fn village(years: i64, village: Option<&Village>) -> Value {
     let finding = if n < 2 {
         Some("fewer_than_two_units")
     } else {
-        (village.living == 0).then_some("no_living")
+        (village.living == 0).then_some("no_living_person")
     };
     let pairs: Vec<(u64, u64)> = (village.blocks.iter()).map(|(_, m, f)| (*m, *f)).collect();
     let blocks: Vec<Value> = (village.blocks.iter())
