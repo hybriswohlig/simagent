@@ -68,6 +68,8 @@ pub enum Finding {
     Mc1rFrequency { q: f64 },
     /// The village has fewer than two units in its block or nobody alive (K2).
     Village { units: usize, living: usize },
+    /// The run is too short for a measured block: `E − 18 < 30` years.
+    NoBlock,
 }
 
 /// P9 on `core:mc1r`: `q`, per family with an affected child `(y_f, E_f)` anchored at its
@@ -405,14 +407,38 @@ impl<'a> Town<'a> {
         self.firsts(10 * decade * YEAR, (10 * decade + 10) * YEAR)
     }
 
-    /// The village of `E` = `(end + 1) div YEAR` years: block `g* = (E − 18) div 30 − 1`,
-    /// its units as the town's, and `N_m`, `N_f` per block from the distinct father and
-    /// mother keys of every row born in it (the note's "all persons"; a village has no
-    /// arrivals). Fewer than two units or nobody alive (no row without `died` and `emig`)
-    /// is a finding.
+    /// The measured block of a village of `E` = `(end + 1) div YEAR` years, `g* = (E − 18)
+    /// div 30 − 1`; `None` if `E − 18 < 30` (where a truncating and a flooring division
+    /// would disagree, the reference's rule).
+    pub fn village_block(&self) -> Option<i64> {
+        let years = (self.export.header.end + 1).div_euclid(YEAR);
+        (years - 18 >= 30).then(|| (years - 18) / 30 - 1)
+    }
+
+    /// `(N_m, N_f)` of the blocks 0 to `block` with births, ascending: the distinct father
+    /// and mother keys of the town-born rows born in each (the reference's reading: an
+    /// arrival is not a birth of the village).
+    pub fn parent_blocks(&self, block: i64) -> Vec<(u64, u64)> {
+        let span = 30 * YEAR;
+        let mut parents: BTreeMap<i64, (BTreeSet<u64>, BTreeSet<u64>)> = BTreeMap::new();
+        for row in self.rows().filter(|row| row.pool != 1) {
+            if 0 <= row.born && row.born < (block + 1) * span {
+                let (fathers, mothers) = parents.entry(row.born.div_euclid(span)).or_default();
+                fathers.extend(row.father);
+                mothers.extend(row.mother);
+            }
+        }
+        (parents.values())
+            .map(|(fathers, mothers)| (tally(fathers.len()), tally(mothers.len())))
+            .collect()
+    }
+
+    /// The village: block `g*`, its units as the town's, and the blocks' parents. No
+    /// block, fewer than two units, or nobody alive at the end (no row without `died` and
+    /// `emig`) is a finding.
     pub fn village(&self) -> Result<Village, Finding> {
         let span = 30 * YEAR;
-        let block = ((self.export.header.end + 1).div_euclid(YEAR) - 18).div_euclid(30) - 1;
+        let block = self.village_block().ok_or(Finding::NoBlock)?;
         let units = self.firsts(block * span, (block + 1) * span);
         let living = (self.rows())
             .filter(|row| row.died.is_none() && row.emig.is_none())
@@ -423,21 +449,10 @@ impl<'a> Town<'a> {
                 living,
             });
         }
-        let mut parents: BTreeMap<i64, (BTreeSet<u64>, BTreeSet<u64>)> = BTreeMap::new();
-        for row in self.rows() {
-            if 0 <= row.born && row.born < (block + 1) * span {
-                let (fathers, mothers) = parents.entry(row.born.div_euclid(span)).or_default();
-                fathers.extend(row.father);
-                mothers.extend(row.mother);
-            }
-        }
-        let blocks = (parents.values())
-            .map(|(fathers, mothers)| (tally(fathers.len()), tally(mothers.len())))
-            .collect();
         Ok(Village {
             block,
             units,
-            blocks,
+            blocks: self.parent_blocks(block),
         })
     }
 
@@ -611,3 +626,7 @@ impl<'a> Town<'a> {
 #[cfg(test)]
 #[path = "units_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "units_reference_tests.rs"]
+mod reference_tests;
