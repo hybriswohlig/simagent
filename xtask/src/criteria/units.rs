@@ -409,12 +409,14 @@ impl<'a> Town<'a> {
         self.firsts(10 * decade * YEAR, (10 * decade + 10) * YEAR)
     }
 
-    /// The measured block of a village of `E` = `(end + 1) div YEAR` years, `g* = (E − 18)
-    /// div 30 − 1`; `None` if `E − 18 < 30` (where a truncating and a flooring division
+    /// The measured block of a village of `E` = `(end + 1) / YEAR` years, `g* = (E − 18)
+    /// div 30 − 1`; `None` if the run does not end at a year end (`E` not whole, the
+    /// reference's assertion) or `E − 18 < 30` (where a truncating and a flooring division
     /// would disagree, the reference's rule).
     pub fn village_block(&self) -> Option<i64> {
-        let years = (self.export.header.end + 1).div_euclid(YEAR);
-        (years - 18 >= 30).then(|| (years - 18) / 30 - 1)
+        let after = self.export.header.end + 1;
+        let years = after.div_euclid(YEAR);
+        (after.rem_euclid(YEAR) == 0 && years - 18 >= 30).then(|| (years - 18) / 30 - 1)
     }
 
     /// `(g, N_m, N_f)` of the blocks `g` = 0 to `block` with births, ascending: the
