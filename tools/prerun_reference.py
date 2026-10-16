@@ -52,15 +52,26 @@ its founders, a run and its measurement, the iteration and its stop, the frozen 
    emigrated, by their genome) the distinct mothers and fathers, `N_e = (4 · N_m · N_f) /
    (N_m + N_f)` (the integers exact, one division) and the variance of `A` of `core:growth`
    and `core:cognition` (divisor `n`, both sums from +0.0 in ascending lineage key, the
-   square one product).
+   square one product). The newborn mean (Grok GF-1, genetics specification 4.1, ADR-0020
+   section 10; `newborn_means`): the last full block of 30 birth years of the run, `g =
+   Y div 30 − 1` (the blocks `[30 g, 30 g + 30)` years from the start, the last one wholly
+   inside a run of `Y` years; for 30 years block 0, for 750 years block 24, `[720, 750)`),
+   everyone born in it (`born div (30 · YEAR) = g`; living, dead and emigrated), per trait
+   of the map (map order) `m = (Σ A_i) / n` with `A_i` the additive value under the map
+   the run freezes (`d_ref` the measured mean doses of the living at the last census;
+   coefficients as in the run's map), the sum folded from +0.0 in ascending lineage key,
+   `n` as f64, one division.
 4. The iteration (note section 4): the map of run `k + 1` is that of run `k` with every
    additive locus's `d_ref` its measured mean dose and every trait's `sigma_ref` its
-   measured `σ`; `r = |σ_out − σ_in| / σ_in` per trait with `σ_in` the run's `sigma_ref`;
-   stop after the first run with `r < 0.02` for `core:growth`, `core:cognition`,
-   `core:longevity`, `core:puberty` and `core:disease_liability` (run 1 may stop); at most
-   five runs, after run 5 with one of the five at `r ≥ 0.02` no freeze; the report lists
-   every other trait with `r ≥ 0.05`. The freeze: the template's map with the measured
-   `d_ref` and `sigma_ref` (the disease loci, MC1R and HERC2 as in the template,
+   measured `σ`, no `mean_ref` (so a rerun of a run reproduces its world, `d_ref` and
+   `sigma_ref` bit for bit and only adds the newborn mean); `r = |σ_out − σ_in| / σ_in` per
+   trait with `σ_in` the run's `sigma_ref`; stop after the first run with `r < 0.02` for
+   `core:growth`, `core:cognition`, `core:longevity`, `core:puberty` and
+   `core:disease_liability` (run 1 may stop); at most five runs, after run 5 with one of the
+   five at `r ≥ 0.02` no freeze; the report lists every other trait with `r ≥ 0.05`. The
+   freeze: the template's map with the measured `d_ref`, `sigma_ref` and, only here,
+   `mean_ref` = the newborn mean of the run that freezes, right after `sigma_ref` (Grok
+   GF-1; the disease loci, MC1R and HERC2 as in the template,
    `map_version` 4) and the template's calibration, written as the data files
    (`genetics/genome_map.json`, `calibration/genetics.json`, JSON as serde_json's pretty
    printer writes it, tools/map4_reference.py).
@@ -150,16 +161,27 @@ def prerun_documents(documents) -> tuple:
     return demography, calibration, genome_map
 
 
-def with_reference(genome_map: dict, doses: dict, sigmas: dict) -> dict:
+def with_reference(genome_map: dict, doses: dict, sigmas: dict, means=None) -> dict:
     """The map with `d_ref` of every additive locus in `doses` and `sigma_ref` of every
-    trait in `sigmas` set (the iteration, note section 4); every other value as it is."""
+    trait in `sigmas` set (the iteration, note section 4), and with `means` the `mean_ref`
+    of every trait in it (Grok GF-1: the key right after `sigma_ref`, replaced in place if
+    the map has one); every other value as it is."""
     out = copy.deepcopy(genome_map)
     for locus in out["loci"]:
         if locus["id"] in doses:
             locus["action"]["additive"]["d_ref"] = doses[locus["id"]]
-    for trait in out["traits"]:
+    for index, trait in enumerate(out["traits"]):
         if trait["id"] in sigmas:
             trait["sigma_ref"] = sigmas[trait["id"]]
+        if means is not None and trait["id"] in means:
+            entry = {}
+            for key, value in trait.items():
+                if key == "mean_ref":
+                    continue
+                entry[key] = value
+                if key == "sigma_ref":
+                    entry["mean_ref"] = means[trait["id"]]
+            out["traits"][index] = entry
     return out
 
 
@@ -206,6 +228,9 @@ def check_prerun(calibration: dict, genome_map: dict) -> list:
             return total
 
         bound = largest(trait["id"]) + sum(abs(entry["weight"]) * largest(entry["trait"]) for entry in trait["includes"])
+        mean = data_reference.mean_ref_of(trait)
+        if mean is not None:
+            bound = bound + abs(mean)  # Grok GF-1: |mean_ref| last, before the division
         assert math.isfinite(bound / trait["sigma_ref"]) and bound / trait["sigma_ref"] <= 2.0**1022, "data.trait_bounds"
     rows = [row["trait"] for row in calibration["traits"]]
     assert rows == sorted(rows) and set(rows) <= set(ids), "data.calibration_unknown"
@@ -231,16 +256,18 @@ def prerun_data(documents) -> world_reference.Data:
 
 def frozen_documents(template, measurement: dict) -> tuple:
     """The freeze (note section 4): the template's map with `d_ref` = the measured mean
-    dose of every additive locus and `sigma_ref` = the measured `σ` of every trait (the
-    disease loci, MC1R and HERC2 as in the template, `map_version` 4), and the template's
-    calibration."""
+    dose of every additive locus, `sigma_ref` = the measured `σ` and `mean_ref` = the
+    newborn mean of every trait (Grok GF-1; the disease loci, MC1R and HERC2 as in the
+    template, `map_version` 4), and the template's calibration. `measurement` is a
+    `prerun_measurement`."""
     _, calibration, genome_map = template
     doses = dict(measurement["loci"])
     sigmas = {trait: sigma for trait, _, sigma in measurement["traits"]}
-    frozen = with_reference(genome_map, doses, sigmas)
+    means = dict(measurement["newborn"]["traits"])
+    frozen = with_reference(genome_map, doses, sigmas, means)
     assert frozen["map_version"] == 4
     assert {locus["id"] for locus in frozen["loci"] if isinstance(locus["action"], dict)} == set(doses)
-    assert {trait["id"] for trait in frozen["traits"]} == set(sigmas)
+    assert {trait["id"] for trait in frozen["traits"]} == set(sigmas) == set(means)
     return copy.deepcopy(calibration), frozen
 
 
@@ -466,6 +493,60 @@ def generations(world: world_reference.World, emigrants: bool = True) -> list:
     return out
 
 
+def newborn_block(years: int) -> int:
+    """The last full block of 30 birth years of a run of `years` years (Grok GF-1): the
+    blocks are `[30 g, 30 g + 30)` years from the start (as `generations`), the last one
+    wholly inside the run (whose last second is `years · YEAR − 1`): `g = years div 30 − 1`.
+    A run shorter than 30 years has none."""
+    assert years >= BLOCK_YEARS, f"a run of {years} years has no full block of {BLOCK_YEARS} birth years"
+    return years // BLOCK_YEARS - 1
+
+
+def newborn_means(world: world_reference.World, genome_map: dict, years: int) -> dict:
+    """The newborn mean of every trait (Grok GF-1, genetics specification 4.1, ADR-0020
+    section 10): everyone born in the run's last full block of 30 birth years
+    (`newborn_block`; `born div (30 · YEAR) = g`), living, dead and emigrated, taken in
+    ascending lineage key; per trait of `genome_map` (map order; the map this run freezes,
+    whose `d_ref` are the measured mean doses) `m = (Σ A_i) / n`, `A_i` its additive value
+    under that map, the sum folded from +0.0, `n` as f64, one division. Returns {"block",
+    "years" ([30 g, 30 g + 30)), "born", "living", "died", "emigrated", "traits" [(trait,
+    mean)]}."""
+    block = newborn_block(years)
+    people = [person for person in everyone(world) if person[4] is not None and person[1] // (BLOCK_YEARS * YEAR) == block]
+    assert people, f"nobody born in the block {block}"
+    assert all(person[1] >= 0 for person in people)
+    people.sort(key=lambda person: person[2])
+    assert len({person[2] for person in people}) == len(people), "lineage keys are distinct"
+    count = float(len(people))
+    stripped = data_reference.strip(genome_map)
+    traits = []
+    for entry in stripped["traits"]:
+        terms = world_reference.TraitTerms(entry["id"], stripped)
+        total = 0.0
+        for _, _, _, genome, _ in people:
+            total = total + world_reference.additive_value(genome, terms)
+        traits.append((entry["id"], total / count))
+    status = {"living": 0, "died": 0, "emigrated": 0}
+    for sim, *_ in people:
+        if sim in world.sims:
+            status["living"] += 1
+        else:
+            status["died" if world.archive[sim][2] is not None else "emigrated"] += 1
+    return {"block": block, "years": (block * BLOCK_YEARS, (block + 1) * BLOCK_YEARS), "born": len(people), **status, "traits": traits}
+
+
+def prerun_measurement(world: world_reference.World, genome_map: dict, years: int) -> dict:
+    """The measurement of a run (ADR-0020 section 3 "Messung, genau", section 10): the
+    living at the last yearly census (`World.measure`: per trait mean and `σ` of `A` under
+    the run's map `genome_map`, per additive locus the mean dose) and the newborn means
+    (`newborn_means`) under the map this run freezes (`genome_map` with `d_ref` the measured
+    doses; `sigma_ref` and `mean_ref` do not enter `A`)."""
+    measurement = world.measure()
+    frozen_terms = with_reference(genome_map, dict(measurement["loci"]), {})
+    measurement["newborn"] = newborn_means(world, frozen_terms, years)
+    return measurement
+
+
 # ---------------------------------------------------------------------------------------
 # 4. Iteration, stop, freeze
 
@@ -493,8 +574,13 @@ def stop_rule(run_index: int, r: dict) -> tuple:
 
 
 def next_map(genome_map: dict, measurement: dict) -> dict:
-    """The map of the next run: `d_ref` the mean doses, `sigma_ref` the `σ`."""
-    return with_reference(genome_map, dict(measurement["loci"]), {trait: sigma for trait, _, sigma in measurement["traits"]})
+    """The map of the next run: `d_ref` the mean doses, `sigma_ref` the `σ`; no `mean_ref`
+    (only the frozen map carries it, `frozen_documents`), and one the run's map had is
+    dropped."""
+    out = with_reference(genome_map, dict(measurement["loci"]), {trait: sigma for trait, _, sigma in measurement["traits"]})
+    for trait in out["traits"]:
+        trait.pop("mean_ref", None)
+    return out
 
 
 # ---------------------------------------------------------------------------------------
@@ -628,7 +714,11 @@ def person_checks(world: world_reference.World) -> tuple:
                 a_exact += Fraction(coefficient) * (Fraction(world_reference.dose(genome, locus)) - Fraction(d_ref))
         g = genetic_value(genome, data.longevity)
         if float(a_exact) == world_reference.additive_value(genome, data.longevity) and Fraction(float(a_exact)) == a_exact:
-            assert g == float(a_exact / Fraction(data.longevity.sigma_ref)), sim
+            if data.longevity.mean_ref is None:
+                assert g == float(a_exact / Fraction(data.longevity.sigma_ref)), sim
+            else:
+                shifted = Fraction(float(a_exact) - data.longevity.mean_ref)
+                assert g == float(shifted / Fraction(data.longevity.sigma_ref)), sim
         m = data.multiplier(genome)
         assert m == exp_reference(-(data.sigma_g * longevity_input(g)))[1]
         end = world.closed
@@ -749,8 +839,8 @@ def print_run(label: str, template, prerun, data, table, n: int, years: int, out
     )
     attempts, differ, conceived = attempt_checks(world)
     print(f"{label}_attempt_checks attempts {attempts} conceptions {conceived} chance recomputed from z_p, theta, menarche, factors: met; chances that differ with z_p = 0: {differ}")
-    measurement = world.measure()
     genome_map = prerun[2]
+    measurement = prerun_measurement(world, genome_map, years)
     print(f"{label}_measure clock {world.closed} living {measurement['living']}")
     print(f"{label}_measure_json {world.measure_json()}")
     r = {}
@@ -771,13 +861,29 @@ def print_run(label: str, template, prerun, data, table, n: int, years: int, out
                 f" mothers {mothers} fathers {fathers} N_e {n_e!r} bits {bits(n_e)} var_A core:growth {var_growth!r} bits {bits(var_growth)}"
                 f" core:cognition {var_cognition!r} bits {bits(var_cognition)}"
             )
+    # The newborn means (Grok GF-1): under the map this run freezes (the measured doses), and
+    # for comparison under the run's own map (its `d_ref`), which the rule does not use.
+    newborn = measurement["newborn"]
+    own = newborn_means(world, genome_map, years)
+    print(
+        f"{label}_newborn block {newborn['block']} years [{newborn['years'][0]}, {newborn['years'][1]}) born {newborn['born']}"
+        f" living {newborn['living']} died {newborn['died']} emigrated {newborn['emigrated']} (A under the measured doses, ascending lineage key)"
+    )
+    for (trait, mean), (_, mean_own) in zip(newborn["traits"], own["traits"]):
+        print(
+            f"{label}_newborn_trait {trait} mean {mean!r} bits {bits(mean)}"
+            f" (with the run's d_ref: {mean_own!r} bits {bits(mean_own)})"
+        )
     decision, reported = stop_rule(1, r)
     print(f"{label}_stop_rule run 1 decision {decision} stop_traits {' '.join(f'{trait}={r[trait] < STOP_BOUND}' for trait in STOP_TRAITS)} reported {' '.join(reported) or '-'}")
     second = next_map(genome_map, measurement)
     second_data = prerun_data((prerun[0], prerun[1], second))
     print(f"{label}_next_data_hash run2 {second_data.hash:016x}")
+    assert all("mean_ref" not in trait for trait in second["traits"])
     for trait in second["traits"]:
         print(f"{label}_next_map trait {trait['id']} sigma_ref {trait['sigma_ref']!r} bits {bits(trait['sigma_ref'])}")
+    # The next map's terms give the newborn means back bit for bit (the same `d_ref`).
+    assert newborn_means(world, second, years)["traits"] == newborn["traits"]
     for locus in second["loci"]:
         d_ref = locus["action"]["additive"]["d_ref"]
         print(f"{label}_next_map locus {locus['id']} d_ref {d_ref!r} bits {bits(d_ref)}")
@@ -786,10 +892,24 @@ def print_run(label: str, template, prerun, data, table, n: int, years: int, out
     frozen_hash = data_reference.documents_hash(template[0], calibration, frozen)
     texts = {"genome_map.json": map4_reference.text(frozen), "genetics.json": map4_reference.text(calibration)}
     assert texts["genetics.json"] == (TEMPLATE / "calibration" / "genetics.json").read_text()
+    # The frozen map's terms (with the disease loci, MC1R and HERC2, none of them additive)
+    # give the newborn means of the pre-run map bit for bit.
+    assert newborn_means(world, frozen, years)["traits"] == newborn["traits"]
     print(
         f"{label}_frozen (as if run 1 stopped) data_hash {frozen_hash:016x} genome_map.json bytes {len(texts['genome_map.json'].encode())}"
         f" xxh3 {world_reference.hash64(texts['genome_map.json'].encode()):016x} genetics.json bytes {len(texts['genetics.json'].encode())}"
         f" (the template's, unchanged) checks {len(checks)} met"
+    )
+    for trait in frozen["traits"]:
+        assert list(trait)[:3] == ["id", "sigma_ref", "mean_ref"]
+        print(f"{label}_frozen_mean trait {trait['id']} mean_ref {trait['mean_ref']!r} bits {bits(trait['mean_ref'])}")
+    plain = copy.deepcopy(frozen)
+    for trait in plain["traits"]:
+        del trait["mean_ref"]
+    plain_text = map4_reference.text(plain)
+    print(
+        f"{label}_frozen_without_mean_ref data_hash {data_reference.documents_hash(template[0], calibration, plain):016x}"
+        f" genome_map.json bytes {len(plain_text.encode())} xxh3 {world_reference.hash64(plain_text.encode()):016x}"
     )
     if out is not None:
         write_frozen(Path(out), calibration, frozen)
