@@ -135,7 +135,8 @@ def mean(xs: list):
 
 
 def variance(xs: list):
-    """`V = Σ (x − m)² / (n − 1)`, the square one product `d · d`; None below 2 values."""
+    """`V = Σ (x − m)² / (exact(n) − 1.0)`, the square one product `d · d` (the count converted
+    first, then 1.0 subtracted, review round 5); None below 2 values."""
     if len(xs) < 2:
         return None
     m = mean(xs)
@@ -143,7 +144,7 @@ def variance(xs: list):
     for x in xs:
         d = x - m
         acc = acc + d * d
-    return acc / exact(len(xs) - 1)
+    return acc / (exact(len(xs)) - 1.0)
 
 
 def mean_se(xs: list):
@@ -519,7 +520,7 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
     for v in vs:
         d = v - v_bar
         acc = acc + d * d
-    s = math.sqrt(acc / exact(len(vs) - 1))
+    s = math.sqrt(acc / (exact(len(vs)) - 1.0))
     se = s / math.sqrt(n)
     if not se > 0.0:
         return finding("no_spread")
@@ -536,7 +537,7 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
     for v in twin_vs:
         d = v - twin_bar
         acc = acc + d * d
-    twin_se = math.sqrt(acc / exact(len(vs) - 1)) / math.sqrt(n)
+    twin_se = math.sqrt(acc / (exact(len(vs)) - 1.0)) / math.sqrt(n)
     twin_pass = abs(twin_bar - e_bar) <= 4.0 * twin_se
     return {
         "n": len(vs), "v_bar": v_bar, "e_bar": e_bar, "s": s, "se": se, "tol": tol, "power": pw,
@@ -628,10 +629,11 @@ def power_p3(n: int):
 
 
 def tol_log_var(n: int):
-    """`4.0 · sqrt(2.0 / (n − 1))`; None below 2."""
+    """`4.0 · sqrt(2.0 / (exact(n) − 1.0))` (the count converted first, review round 5); None
+    below 2."""
     if n < 2:
         return None
-    return 4.0 * math.sqrt(2.0 / exact(n - 1))
+    return 4.0 * math.sqrt(2.0 / (exact(n) - 1.0))
 
 
 def power_p4(n: int):
@@ -639,21 +641,21 @@ def power_p4(n: int):
     below 2."""
     if n < 2:
         return None
-    return power(0.0, tol_log_var(n), math.log(P4_WRONG), math.sqrt(2.0 / exact(n - 1)))
+    return power(0.0, tol_log_var(n), math.log(P4_WRONG), math.sqrt(2.0 / (exact(n) - 1.0)))
 
 
 def tol_fisher(n: int):
-    """`4.0 / sqrt(n − 3)`; None below 4."""
+    """`4.0 / sqrt(exact(n) − 3.0)` (the count converted first, review round 5); None below 4."""
     if n < 4:
         return None
-    return 4.0 / math.sqrt(exact(n - 3))
+    return 4.0 / math.sqrt(exact(n) - 3.0)
 
 
 def power_fisher(target: float, alt: float, n: int):
     """`power(F(target), tol_fisher(n), F(alt), 1.0 / sqrt(n − 3))`; None below 4."""
     if n < 4:
         return None
-    return power(fisher(target), tol_fisher(n), fisher(alt), 1.0 / math.sqrt(exact(n - 3)))
+    return power(fisher(target), tol_fisher(n), fisher(alt), 1.0 / math.sqrt(exact(n) - 3.0))
 
 
 def mc1r_sums(es: list) -> tuple:
@@ -2284,7 +2286,9 @@ def export_and_report(name: str, export: dict, out: Path) -> tuple:
 def check_domain() -> None:
     """Review round 4: `E = [2^53]`, `D = [1]` is a table; `E = [2^53 + 1]` stops with
     `criteria.exact` (an assertion, never a finding); so do a share, a histogram count, a
-    village count and a span above 2^53."""
+    village count and a span above 2^53. Review round 5: the count is converted before a
+    constant is subtracted, so `tol_log_var(2^53 + 1)`, `tol_fisher(2^53 + 3)` and their
+    powers stop too."""
     assert life_table([EXACT_LIMIT], [1]) is not None
     stops = [
         lambda: life_table([EXACT_LIMIT + 1], [1]),
@@ -2293,6 +2297,10 @@ def check_domain() -> None:
         lambda: km_median([0] * HIST_MONTHS, EXACT_LIMIT + 1),
         lambda: n_e(2**26, 2**26),
         lambda: exact(-(EXACT_LIMIT + 1)),
+        lambda: tol_log_var(EXACT_LIMIT + 1),
+        lambda: tol_fisher(EXACT_LIMIT + 3),
+        lambda: power_p4(EXACT_LIMIT + 1),
+        lambda: power_fisher(TARGET_P9, 0.2, EXACT_LIMIT + 3),
     ]
     for stop in stops:
         try:
