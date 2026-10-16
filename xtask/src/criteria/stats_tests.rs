@@ -688,3 +688,9 @@ fn two_values_are_enough() {
     assert_eq!(slope(&[(0.0, 1.0), (1.0, 3.0)]), Some(2.0));
     assert_eq!(mean_se(&[1, 3]), Some((2.0, 1.0)));
 }
+
+/// Nobody at all: no median (not 0 / 0 at the first empty month; a mutant).
+#[test]
+fn an_empty_sample_has_no_median() {
+    assert_eq!(partnership_median(&[0; MONTHS], 0), None);
+}
