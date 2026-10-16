@@ -913,86 +913,162 @@ def _require(condition: bool, what: str) -> None:
         raise ExportError(what)
 
 
-def _int(value, nullable=False) -> bool:
-    return (value is None and nullable) or (isinstance(value, int) and not isinstance(value, bool))
+U64_MAX = (1 << 64) - 1
+I64_MIN, I64_MAX = -(1 << 63), (1 << 63) - 1
+HEX_DIGITS = frozenset("0123456789abcdef")
 
 
-def _key(value, nullable=False):
+def _is_int(value) -> bool:
+    """A JSON integer: never a bool, never a float (also not 1.0)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _unsigned(value, name: str, nullable: bool = False, top: int = U64_MAX):
+    """An unsigned integer field, 0 to 2^64 − 1 (or `top`); message `unsigned <name>`."""
     if value is None and nullable:
         return None
-    _require(isinstance(value, str) and len(value) == 16 and all(ch in "0123456789abcdef" for ch in value), f"key {value!r}")
+    _require(_is_int(value) and 0 <= value <= top, f"unsigned {name}")
+    return value
+
+
+def _signed(value, name: str, nullable: bool = False):
+    """A signed integer field, −2^63 to 2^63 − 1; message `signed <name>`."""
+    if value is None and nullable:
+        return None
+    _require(_is_int(value) and I64_MIN <= value <= I64_MAX, f"signed {name}")
+    return value
+
+
+def _hex(value, name: str, nullable: bool = False):
+    """A hex field: a string of exactly 16 characters 0-9a-f; message `hex <name>`."""
+    if value is None and nullable:
+        return None
+    _require(isinstance(value, str) and len(value) == 16 and all(ch in HEX_DIGITS for ch in value), f"hex {name}")
     return int(value, 16)
 
 
+def _list(value, length: int, name: str) -> list:
+    """A JSON list of exactly `length` entries; message `<name>`."""
+    _require(isinstance(value, list) and len(value) == length, name)
+    return value
+
+
 def read_export(text: str) -> dict:
-    """The strict reader: every line one object with exactly the keys of the note in their
-    order, the header first, `persons` person lines strictly ascending by key, then `couples`
-    couple lines ascending by (formed, woman, man), a newline after every line; keys and bits
-    16 lowercase hex digits. The header's traits, longevity and MC1R exactly those of the
-    note; per person (the rules of the Rust reader, review of step 3b): `pool` in {0, 1, 2},
-    `mc1r` 0 to 2, not both `died` and `emig`, `arrived` non-null exactly for `pool` = 1,
-    `brought` 0 unless `pool` = 1, `mult` null for `pool` = 1 and non-null for `pool` = 2, for
-    `pool` = 0 `mult` non-null exactly when `mother` is (a town child has its index, a founder
-    none), a woman's genome with `px` and no `y`, a man's with `y` and no `px`. `check_reader`
-    holds one rejected export per rule."""
+    """The strict reader (the rules of the Rust reader, reviews of step 3b and export round 4).
+
+    Lines: a newline after every line; each line one JSON object in the compact form with
+    exactly the keys of the note in their order; the header first, then `persons` person
+    lines strictly ascending by key, then `couples` couple lines strictly ascending by
+    (formed, woman, man) (a duplicate tuple is rejected).
+
+    Types: unsigned integers (a JSON integer, never a bool or a float, 0 to 2^64 − 1):
+    `version` (must be 1), `core_version`, `persons`, `couples`, `brought`, `mult`, the
+    genome's `x`, `px`, `y`, `mt`; `pool` and `mc1r` at most 255 before their rules. Signed
+    integers (−2^63 to 2^63 − 1): `end`, `year`, `month` (must be 31449600 and 2419200), the
+    trait ages, `born`, `died`, `emig`, `arrived`, `formed`. Hex (exactly 16 characters
+    0-9a-f): `key`, `gkey`, `mother`, `father`, `data_hash`, `world_seed`, `pool_seed`, the
+    genome words, each `z`, `gl`, `woman`, `man`. `z` a list of exactly three, the genome's `m`
+    and `p` lists of exactly three; `carried` a JSON bool; `k` "p" or "c"; `sex` "f" or "m".
+
+    Rules: the header's traits, longevity and MC1R exactly those of the note; per person
+    `pool` in {0, 1, 2}, `mc1r` 0 to 2, not both `died` and `emig`, `arrived` non-null
+    exactly for `pool` = 1, `brought` 0 unless `pool` = 1, `mult` null for `pool` = 1 and
+    non-null for `pool` = 2, for `pool` = 0 `mult` non-null exactly when `mother` is, a
+    woman's genome with `px` and no `y`, a man's with `y` and no `px`. `check_reader` holds
+    one rejected export per rule."""
     _require(text.endswith("\n"), "the last line has no newline")
     lines = text[:-1].split("\n")
-    objs = [json.loads(raw) for raw in lines]
-    for raw, obj in zip(lines, objs):
+    objs = []
+    for raw in lines:
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            raise ExportError("json")
+        _require(isinstance(obj, dict), "a line is not an object")
         _require(line(obj) == raw, "a line is not in the compact form")
+        objs.append(obj)
     h = objs[0]
     _require(list(h) == HEADER_KEYS, "header keys")
-    _require(h["format"] == FORMAT and h["version"] == VERSION, "format or version")
-    _require(h["year"] == YEAR and h["month"] == MONTH, "year or month")
-    _require(h["traits"] == [list(t) for t in TRAITS], "traits")
+    _require(h["format"] == FORMAT, "format")
+    _require(_unsigned(h["version"], "version") == VERSION, "version")
+    _unsigned(h["core_version"], "core_version")
+    header = dict(h)
+    header["data_hash"] = _hex(h["data_hash"], "data_hash")
+    header["world_seed"] = _hex(h["world_seed"], "world_seed")
+    header["pool_seed"] = _hex(h["pool_seed"], "pool_seed", True)
+    _signed(h["end"], "end")
+    _require(_signed(h["year"], "year") == YEAR, "year")
+    _require(_signed(h["month"], "month") == MONTH, "month")
+    traits = _list(h["traits"], len(TRAITS), "traits")
+    for trait in traits:
+        _require(isinstance(_list(trait, 2, "traits")[0], str), "traits")
+        _signed(trait[1], "trait age")
+    _require(traits == [list(t) for t in TRAITS], "traits")
     _require(h["longevity"] == LONGEVITY, "longevity")
     _require(h["mc1r"] == MC1R, "mc1r")
-    _require(all(_int(h[k]) for k in ("core_version", "end", "persons", "couples")), "header integers")
-    header = dict(h)
-    header["data_hash"], header["world_seed"] = _key(h["data_hash"]), _key(h["world_seed"])
-    header["pool_seed"] = _key(h["pool_seed"], True)
+    _unsigned(h["persons"], "persons")
+    _unsigned(h["couples"], "couples")
     _require(len(objs) == 1 + h["persons"] + h["couples"], "line count")
     persons = []
     for obj in objs[1 : 1 + h["persons"]]:
-        _require(list(obj) == PERSON_KEYS and obj["k"] == "p", "person keys")
+        _require(list(obj) == PERSON_KEYS, "person keys")
+        _require(obj["k"] == "p", "k")
+        person = {}
+        person["key"] = _hex(obj["key"], "key")
+        person["gkey"] = _hex(obj["gkey"], "gkey")
         _require(obj["sex"] in ("f", "m"), "sex")
+        _signed(obj["born"], "born")
+        _signed(obj["died"], "died", True)
+        _signed(obj["emig"], "emig", True)
+        person["mother"] = _hex(obj["mother"], "mother", True)
+        person["father"] = _hex(obj["father"], "father", True)
+        _unsigned(obj["pool"], "pool", top=255)
+        _signed(obj["arrived"], "arrived", True)
+        _unsigned(obj["mult"], "mult", True)
+        _unsigned(obj["brought"], "brought")
+        g = obj["genome"]
+        _require(isinstance(g, dict) and list(g) == GENOME_KEYS, "genome keys")
+        for word in _list(g["m"], 3, "genome m") + _list(g["p"], 3, "genome p"):
+            _hex(word, "genome word")
+        _unsigned(g["x"], "x")
+        _unsigned(g["px"], "px", True)
+        _unsigned(g["y"], "y", True)
+        _unsigned(g["mt"], "mt")
+        zs = _list(obj["z"], 3, "z")
+        for z in zs:
+            _hex(z, "z")
+        person["z"] = [from_bits(z) for z in zs]
+        _hex(obj["gl"], "gl")
+        person["gl"] = from_bits(obj["gl"])
+        _unsigned(obj["mc1r"], "mc1r", top=255)
         _require(obj["pool"] in (0, 1, 2), "pool")
-        _require(all(_int(obj[k]) for k in ("born", "brought", "mc1r")), "person integers")
-        _require(all(_int(obj[k], True) for k in ("died", "emig", "arrived", "mult")), "person optional integers")
-        _require(0 <= obj["mc1r"] <= 2, "mc1r")
-        _require(len(obj["z"]) == 3, "z")
+        _require(obj["mc1r"] <= 2, "mc1r")
         _require(not (obj["died"] is not None and obj["emig"] is not None), "died and emigrated")
         _require((obj["arrived"] is not None) == (obj["pool"] == 1), "arrived iff pool 1")
         _require(obj["brought"] == 0 or obj["pool"] == 1, "brought of a town-born person")
         _require(obj["mult"] is None or obj["pool"] != 1, "mult of an arrival")
         _require(obj["mult"] is not None or obj["pool"] != 2, "mult of a pool child")
         _require(obj["pool"] != 0 or (obj["mult"] is None) == (obj["mother"] is None), "mult iff mother of a town person")
-        g = obj["genome"]
-        _require(list(g) == GENOME_KEYS and len(g["m"]) == 3 and len(g["p"]) == 3, "genome keys")
         if obj["sex"] == "f":
             _require(g["px"] is not None and g["y"] is None, "paternal X of a woman")
         else:
             _require(g["y"] is not None and g["px"] is None, "Y of a man")
-        for word in g["m"] + g["p"]:
-            _key(word)
-        person = dict(obj)
-        del person["k"]
-        for k in ("key", "gkey"):
-            person[k] = _key(obj[k])
-        for k in ("mother", "father"):
-            person[k] = _key(obj[k], True)
-        person["z"] = [from_bits(z) for z in obj["z"]]
-        person["gl"] = from_bits(obj["gl"])
-        persons.append(person)
+        for k in ("sex", "born", "died", "emig", "pool", "arrived", "mult", "brought", "genome", "mc1r"):
+            person[k] = obj[k]
+        persons.append({k: person[k] for k in PERSON_KEYS[1:]})
     for a, b in zip(persons, persons[1:]):
-        _require(a["key"] < b["key"], "persons ascending by key")
+        _require(a["key"] < b["key"], "persons strictly ascending by key")
     couples = []
     for obj in objs[1 + h["persons"] :]:
-        _require(list(obj) == COUPLE_KEYS and obj["k"] == "c", "couple keys")
-        _require(_int(obj["formed"]) and isinstance(obj["carried"], bool), "couple values")
-        couples.append({"woman": _key(obj["woman"]), "man": _key(obj["man"]), "formed": obj["formed"], "carried": obj["carried"]})
+        _require(list(obj) == COUPLE_KEYS, "couple keys")
+        _require(obj["k"] == "c", "k")
+        woman, man = _hex(obj["woman"], "woman"), _hex(obj["man"], "man")
+        _signed(obj["formed"], "formed")
+        _require(isinstance(obj["carried"], bool), "bool carried")
+        couples.append({"woman": woman, "man": man, "formed": obj["formed"], "carried": obj["carried"]})
     order = [(c["formed"], c["woman"], c["man"]) for c in couples]
-    _require(order == sorted(order), "couples ascending by (formed, woman, man)")
+    for a, b in zip(order, order[1:]):
+        _require(a < b, "couples strictly ascending by (formed, woman, man)")
     return {"header": header, "persons": persons, "couples": couples}
 
 
@@ -2302,10 +2378,11 @@ def export_and_report(name: str, export: dict, out: Path) -> tuple:
 
 
 def check_reader() -> None:
-    """One rejected export per rule of the reader (review of step 3b): each case changes one
-    field of the hand export (the header, an arrival 0x0101, the pool child 0x0631, the town
-    child 0x0301, the town man 0x0401) and must be rejected with that rule's message; the
-    unchanged text is read."""
+    """One rejected export per rule of the reader (review of step 3b, export review round 4):
+    each case changes one field or line of the hand export (the header, the arrivals 0x0101
+    and 0x0102, the living arrival 0x0903, the pool child 0x0631, the town child 0x0301, the
+    town man 0x0401, a couple) and must be rejected with that rule's message; the unchanged
+    text is read."""
     text = export_text(hand_export())
     read_export(text)
 
@@ -2326,8 +2403,35 @@ def check_reader() -> None:
                 return "\n".join(lines)
         raise AssertionError(hx(key))
 
+    def couple(index: int, change) -> str:
+        lines = text.split("\n")
+        at = 1 + len(HAND_ROWS) + index
+        obj = json.loads(lines[at])
+        assert obj["k"] == "c"
+        change(obj)
+        lines[at] = line(obj)
+        return "\n".join(lines)
+
+    def duplicated(kind: str) -> str:
+        lines = text.split("\n")
+        h = json.loads(lines[0])
+        h[kind] += 1
+        lines[0] = line(h)
+        at = 1 if kind == "persons" else 1 + len(HAND_ROWS) + len(HAND_COUPLES) - 1
+        lines.insert(at + 1, lines[at])
+        return "\n".join(lines)
+
+    def swapped_couples() -> str:
+        lines = text.split("\n")
+        a = 1 + len(HAND_ROWS)
+        lines[a], lines[a + 1] = lines[a + 1], lines[a]
+        return "\n".join(lines)
+
     def put(**fields):
         return lambda obj: obj.update(fields)
+
+    def z_at(i: int, value):
+        return lambda obj: obj["z"].__setitem__(i, value)
 
     def genome(**fields):
         return lambda obj: obj["genome"].update(fields)
@@ -2351,7 +2455,62 @@ def check_reader() -> None:
         ("mult iff mother of a town person", person(0x0301, put(mother=None, father=None))),
         ("paternal X of a woman", person(0x0101, genome(px=None, y=0))),
         ("Y of a man", person(0x0401, genome(px=0, y=None))),
+        # Export review round 4: unsigned integers (0 to 2^64 − 1, never a bool or a float).
+        ("unsigned version", header(put(version=True))),
+        ("version", header(put(version=2))),
+        ("unsigned core_version", header(put(core_version=-1))),
+        ("unsigned persons", header(put(persons=float(len(HAND_ROWS))))),
+        ("unsigned couples", header(put(couples=1 << 64))),
+        ("unsigned brought", person(0x0101, put(brought=-1))),
+        ("unsigned mult", person(0x0301, put(mult=0.0))),
+        ("unsigned pool", person(0x0101, put(pool=256))),
+        ("unsigned mc1r", person(0x0101, put(mc1r=True))),
+        ("unsigned x", person(0x0101, genome(x=-1))),
+        ("unsigned px", person(0x0101, genome(px=1.0))),
+        ("unsigned y", person(0x0102, genome(y=1 << 64))),
+        ("unsigned mt", person(0x0101, genome(mt=False))),
+        # Signed integers (−2^63 to 2^63 − 1, never a bool or a float).
+        ("signed end", header(put(end=1.5))),
+        ("signed year", header(put(year=float(YEAR)))),
+        ("year", header(put(year=YEAR + 1))),
+        ("signed month", header(put(month=True))),
+        ("month", header(put(month=MONTH + 1))),
+        ("signed trait age", header(put(traits=[["core:growth", False], list(TRAITS[1]), cognition]))),
+        ("signed born", person(0x0101, put(born=1 << 63))),
+        ("signed died", person(0x0101, put(died=True))),
+        ("signed emig", person(0x0903, put(emig=1.0))),
+        ("signed arrived", person(0x0101, put(arrived="0"))),
+        ("signed formed", couple(0, put(formed=-(1 << 63) - 1))),
+        # Hex: a string of exactly 16 characters 0-9a-f.
+        ("hex key", person(0x0101, put(key="000000000000101"))),
+        ("hex gkey", person(0x0101, put(gkey="00000000000001010"))),
+        ("hex mother", person(0x0301, put(mother=0x0101))),
+        ("hex father", person(0x0301, put(father="000000000000010g"))),
+        ("hex data_hash", header(put(data_hash="000000000000000A"))),
+        ("hex world_seed", header(put(world_seed="00000000000000007"))),
+        ("hex pool_seed", header(put(pool_seed=0))),
+        ("hex genome word", person(0x0101, lambda obj: obj["genome"]["m"].__setitem__(0, "0x00000000000000"))),
+        ("hex z", person(0x0101, z_at(1, "BFD3D70A3D70A3D7"))),
+        ("hex gl", person(0x0101, put(gl=0.27))),
+        ("hex woman", couple(0, put(woman="111"))),
+        ("hex man", couple(0, put(man=None))),
+        # Lists, the bool, k and sex.
+        ("z", person(0x0101, lambda obj: obj["z"].pop())),
+        ("z", person(0x0101, put(z="3fdae147ae147ae1"))),
+        ("genome keys", person(0x0101, put(genome=[]))),
+        ("genome m", person(0x0101, lambda obj: obj["genome"]["m"].pop())),
+        ("genome p", person(0x0101, lambda obj: obj["genome"]["p"].append("0000000000000000"))),
+        ("bool carried", couple(0, put(carried=1))),
+        ("bool carried", couple(0, put(carried="true"))),
+        ("k", person(0x0101, put(k="c"))),
+        ("k", couple(0, put(k="p"))),
+        ("sex", person(0x0101, put(sex="x"))),
+        # Order: persons strictly ascending by key, couples strictly by (formed, woman, man).
+        ("persons strictly ascending by key", duplicated("persons")),
+        ("couples strictly ascending by (formed, woman, man)", duplicated("couples")),
+        ("couples strictly ascending by (formed, woman, man)", swapped_couples()),
     ]
+    rules = {rule for rule, _ in cases}
     for rule, bad in cases:
         try:
             read_export(bad)
@@ -2359,6 +2518,7 @@ def check_reader() -> None:
             assert str(error) == rule, (rule, str(error))
         else:
             raise AssertionError(f"accepted: {rule}")
+    assert len(cases) == 66 and len(rules) == 57, (len(cases), len(rules))
 
 
 def check_domain() -> None:
