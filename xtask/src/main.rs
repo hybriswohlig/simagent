@@ -9,6 +9,7 @@ mod checks;
 mod codegen;
 mod contract;
 mod contract_base;
+mod criteria;
 mod kat;
 mod map4;
 mod ordered;
