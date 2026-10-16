@@ -285,3 +285,55 @@ fn only_the_export_form_and_consistent_persons_are_read() {
     // A pool child born in the town has its multiple index: read.
     assert!(read(&child("\"pool\":0", "\"pool\":2")).is_ok());
 }
+
+/// Review round 2: a town child carries its multiple index and a founder none, and the
+/// header names exactly the export's traits, ages, longevity and MC1R.
+#[test]
+fn the_multiple_index_and_the_header_names_are_fixed() {
+    let child = |from: &str, to: &str| {
+        assert!(CHILD.contains(from), "{from}");
+        lines(&[HEADER, MOTHER, &CHILD.replacen(from, to, 1), COUPLE])
+    };
+    let header = |from: &str, to: &str| {
+        assert!(HEADER.contains(from), "{from}");
+        lines(&[&HEADER.replacen(from, to, 1), MOTHER, CHILD, COUPLE])
+    };
+    let cases = [
+        (
+            "a town child without its multiple index",
+            child("\"mult\":0", "\"mult\":null"),
+        ),
+        (
+            "a founder with a multiple index",
+            child("\"mother\":\"0000000000000001\"", "\"mother\":null"),
+        ),
+        ("another trait", header("core:pigment", "core:skin")),
+        (
+            "another age",
+            header("[\"core:cognition\",1886976000]", "[\"core:cognition\",0]"),
+        ),
+        (
+            "traits in another order",
+            header(
+                "[\"core:growth\",0],[\"core:pigment\",0]",
+                "[\"core:pigment\",0],[\"core:growth\",0]",
+            ),
+        ),
+        (
+            "another longevity",
+            header(
+                "\"longevity\":\"core:longevity\"",
+                "\"longevity\":\"core:life\"",
+            ),
+        ),
+        (
+            "another MC1R",
+            header("\"mc1r\":\"core:mc1r\"", "\"mc1r\":\"core:mc1\""),
+        ),
+    ];
+    for (name, text) in cases {
+        assert!(read(&text).is_err(), "{name} was read");
+    }
+    // A founder without mother and multiple index: read.
+    assert!(read(&child("\"mother\":\"0000000000000001\",\"father\":null,\"pool\":0,\"arrived\":null,\"mult\":0", "\"mother\":null,\"father\":null,\"pool\":0,\"arrived\":null,\"mult\":null")).is_ok());
+}
