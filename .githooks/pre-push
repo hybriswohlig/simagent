@@ -4,8 +4,9 @@
 #   git config core.hooksPath .githooks
 # The gate requires a clean working tree, so commit or stash first.
 #
-# The code is public and the planning private (ADR-0000 point 10): a push whose new
-# commits touch docs/, HANDOFF.md or CLAUDE.md is refused, except to the private archive.
+# The code is public and the planning private (ADR-0000 point 10): a push is refused if the
+# tree of any new commit holds docs, HANDOFF.md or CLAUDE.md, except to the private archive.
+# Trees, not diffs, so that a merge cannot bring them in either; any error refuses.
 remote="$1"
 url="$2"
 case "$url" in
@@ -13,13 +14,22 @@ case "$url" in
   *)
     while read -r local_ref local_sha remote_ref remote_sha; do
       case "$local_sha" in *[!0]*) ;; *) continue ;; esac
-      planning=$(git log --format= --name-only "$local_sha" --not --remotes="$remote" |
-        grep -E '^(docs/|HANDOFF\.md$|CLAUDE\.md$)' | sort -u)
-      if [ -n "$planning" ]; then
-        echo "refused: $local_ref would carry planning to $url:" >&2
-        echo "$planning" | sed 's/^/  /' >&2
+      commits=$(git rev-list "$local_sha" --not --remotes="$remote") || {
+        echo "refused: cannot list the commits of $local_ref" >&2
         exit 1
-      fi
+      }
+      for commit in $commits; do
+        paths=$(git ls-tree -r --name-only "$commit") || {
+          echo "refused: cannot read the tree of $commit" >&2
+          exit 1
+        }
+        planning=$(printf '%s\n' "$paths" | grep -E '^(docs(/|$)|HANDOFF\.md$|CLAUDE\.md$)')
+        if [ -n "$planning" ]; then
+          echo "refused: $local_ref would carry planning to $url (commit $commit):" >&2
+          printf '%s\n' "$planning" | sed 's/^/  /' >&2
+          exit 1
+        fi
+      done
     done
     ;;
 esac
