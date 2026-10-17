@@ -44,10 +44,12 @@ what a pool person and a pool household carry, the ancestors, the file and its r
    living). Exposures are not carried.
 5. The fields (note section 5) and 6. the ancestors (G3): see `person_entry`,
    `household_entry` and `ancestor_entries`.
-7. The file: `b"SIMPOOL"`, `varint(1)`, then the postcard of `Pool` (tools/
-   postcard_reference.py conventions; the layout is `encode_pool`'s docstring). The pool
+7. The file: `b"SIMPOOL"`, `varint(2)`, then the postcard of `Pool` (tools/
+   postcard_reference.py conventions; the layout is `encode_pool`'s docstring; format 2 adds
+   `frozen_hash`, the data hash of the frozen documents without `pool_frequencies`, after
+   `data_hash`: design note of the pool's records, section 6). The pool
    hash is xxh3-64 (seed 0) of the whole file. The reader (`read_pool`: `decode_pool`, then
-   `violations`) rejects a wrong magic, a wrong version, trailing bytes, a household without
+   `violations`) rejects a wrong magic, a wrong version (1 included), trailing bytes, a household without
    a member of 18 or more at `frozen_at`, members out of order, ancestors out of order, a
    parent key of a person that is no record, an open partnership whose partners are not
    members (`FILE_RULES`, in this order; a body that does not decode is `decode`, no rule of
@@ -72,6 +74,9 @@ Usage: .venv/bin/python tools/pool_reference.py [--out DIR]
        (reads each pool file: accepted, or the first rule broken and every rule broken)
        .venv/bin/python tools/pool_reference.py --rejects DIR
        (every rejected file from the golden pools of tests/golden/pool, without the runs)
+       .venv/bin/python tools/pool_reference.py --real POOL FROZEN OUT
+       (the real pool of format 1 at POOL in format 2, `frozen_hash` from the frozen map
+       FROZEN without `pool_frequencies`, written to OUT; `real_pool`)
 """
 
 import copy
@@ -108,9 +113,10 @@ TEMPLATE = ROOT / "tests" / "golden" / "map4_template"
 # tag after PRERUN_ALLELE (25) in tests/golden/rng_tags.txt.
 POOL_ALLELE = 26
 POOL_SEED, POOL_TAG = prerun_reference.POOL_SEED, prerun_reference.POOL_TAG
-# The file (note section 7).
+# The file (note section 7). Format 2 (design note of the pool's records, section 6): the
+# field `frozen_hash` after `data_hash`; a file of format 1 is rejected with `version`.
 POOL_MAGIC = b"SIMPOOL"
-POOL_FORMAT_VERSION = 1
+POOL_FORMAT_VERSION = 2
 # The seven loci and their frequencies `q` of the alternative allele (note section 3, ADR-0020
 # section 4), in the order of the note's table.
 POOL_FREQUENCIES = (
@@ -395,12 +401,37 @@ def scenario_documents(documents: tuple, scenario) -> tuple:
     return demography, calibration, genome_map
 
 
+def plain_documents(frozen: tuple) -> tuple:
+    """The frozen documents without `pool_frequencies`: what a town loads (the town strips the
+    entry before its data are made), and what the frozen hash is over."""
+    demography, calibration, genome_map = frozen
+    return demography, without_pool_frequencies(calibration), genome_map
+
+
+def run_documents(label: str) -> tuple:
+    """The frozen documents a golden pool was extracted from (its run's scenario applied to
+    the frozen map of these known answers), with `pool_frequencies`."""
+    (scenario,) = [scenario for name, _, _, scenario in RUNS if name == label]
+    frozen = frozen_template_documents()
+    return frozen if scenario is None else scenario_documents(frozen, SCENARIOS[scenario])
+
+
+def town_documents(label: str) -> tuple:
+    """The documents a town that loads the golden pool `label` runs on (design note of the
+    pool's records, section 6, Q5 (i)): its frozen documents without `pool_frequencies`, so
+    that their data hash is the pool's `frozen_hash`. `pool_c` (scenario `father_dies`) runs
+    on the scenario's documents; every other golden pool on the template's (`pool_d`'s
+    scenario changes only `pool_frequencies`)."""
+    return plain_documents(run_documents(label))
+
+
 def pool_data(frozen: tuple) -> tuple:
     """(the pre-run data the pool run runs on, the data of the frozen map, the frequencies):
-    the pool's data check on the frozen calibration, then both without `pool_frequencies`."""
+    the pool's data check on the frozen calibration, then both without `pool_frequencies`.
+    The frozen data's hash is the pool's `frozen_hash`."""
     demography, calibration, genome_map = frozen
     q = check_pool_frequencies(calibration, genome_map)
-    plain = (demography, without_pool_frequencies(calibration), genome_map)
+    plain = plain_documents(frozen)
     run_data = prerun_reference.prerun_data(prerun_reference.prerun_documents(plain))
     frozen_data = world_reference.Data(*plain)
     return run_data, frozen_data, q
@@ -854,9 +885,9 @@ def encode_ancestor(a: dict) -> bytes:
 
 
 def encode_pool(pool: dict) -> bytes:
-    """The file: `b"SIMPOOL"`, `varint(1)`, then postcard of
+    """The file: `b"SIMPOOL"`, `varint(2)`, then postcard of
 
-        Pool { pool_seed: u64, frozen_at: SimTime, data_hash: u64,
+        Pool { pool_seed: u64, frozen_at: SimTime, data_hash: u64, frozen_hash: u64,
                households: Vec<PoolHousehold>, ancestors: Vec<Ancestor> }
         PoolHousehold { members: Vec<PoolPerson>, partnership: Option<PoolPartnership>,
                         pregnancies: Vec<PoolPregnancy> }
@@ -878,15 +909,30 @@ def encode_pool(pool: dict) -> bytes:
 
     with u64 and u32 as varints, SimTime zigzag, the keys plain u64 varints, Sex and the
     paternal sex chromosome as variant indexes, Genome as in the projection
-    (`postcard_reference.genome_of`), f64 eight bytes little endian, Option a tag byte."""
-    body = (
+    (`postcard_reference.genome_of`), f64 eight bytes little endian, Option a tag byte.
+    `data_hash` is the data hash of the pool run (provenance, read by no town);
+    `frozen_hash` (format 2) the data hash of the frozen documents without `pool_frequencies`,
+    which a town's data must have (`pool.frozen_hash`). Format 1 is the same without
+    `frozen_hash` (`encode_pool_v1`, only for `--real`)."""
+    return POOL_MAGIC + varint(POOL_FORMAT_VERSION) + pool_body(pool, True)
+
+
+def pool_body(pool: dict, frozen_hash: bool) -> bytes:
+    """The postcard of `Pool` after the version: with `frozen_hash` (format 2) or without
+    (format 1)."""
+    return (
         varint(pool["pool_seed"])
         + signed(pool["frozen_at"])
         + varint(pool["data_hash"])
+        + (varint(pool["frozen_hash"]) if frozen_hash else b"")
         + seq([encode_household(h) for h in pool["households"]])
         + seq([encode_ancestor(a) for a in pool["ancestors"]])
     )
-    return POOL_MAGIC + varint(POOL_FORMAT_VERSION) + body
+
+
+def encode_pool_v1(pool: dict) -> bytes:
+    """A file of format 1 (before `frozen_hash`): the old real pool's layout."""
+    return POOL_MAGIC + varint(1) + pool_body(pool, False)
 
 
 def decode_person(c: Cursor) -> dict:
@@ -990,9 +1036,11 @@ RULES = FILE_RULES + RECORD_RULES
 FEMALE_CODE, MALE_CODE = 0, 1
 
 
-def decode_pool(data: bytes) -> dict:
-    """`Pool::from_bytes` without the checks of the content: the magic, the version, the
-    postcard body (a decode error is `decode`, not a rule of the note), no trailing bytes."""
+def decode_pool(data: bytes, version_expected: int = POOL_FORMAT_VERSION) -> dict:
+    """`Pool::from_bytes` without the checks of the content: the magic, the version (2; any
+    other, 1 included, is `version`), the postcard body (a decode error is `decode`, not a rule
+    of the note), no trailing bytes. `version_expected` 1 reads a file of format 1 (no
+    `frozen_hash`; only for `--real`, never the reader)."""
     if data[: len(POOL_MAGIC)] != POOL_MAGIC:
         raise Rejected("magic")
     c = Cursor(data, len(POOL_MAGIC))
@@ -1000,16 +1048,14 @@ def decode_pool(data: bytes) -> dict:
         version = c.varint(32)
     except DecodeError as error:
         raise Rejected("decode", str(error))
-    if version != POOL_FORMAT_VERSION:
+    if version != version_expected:
         raise Rejected("version", str(version))
     try:
-        pool = {
-            "pool_seed": c.varint(),
-            "frozen_at": c.signed(),
-            "data_hash": c.varint(),
-            "households": c.vec(lambda: decode_household(c)),
-            "ancestors": c.vec(lambda: decode_ancestor(c)),
-        }
+        pool = {"pool_seed": c.varint(), "frozen_at": c.signed(), "data_hash": c.varint()}
+        if version_expected >= 2:
+            pool["frozen_hash"] = c.varint()
+        pool["households"] = c.vec(lambda: decode_household(c))
+        pool["ancestors"] = c.vec(lambda: decode_ancestor(c))
     except DecodeError as error:
         raise Rejected("decode", str(error))
     if c.left():
@@ -1161,6 +1207,7 @@ def build_pool(world, run_data, frozen_data, frozen_genome_map: dict, q: dict, g
         "pool_seed": POOL_SEED,
         "frozen_at": frozen_at,
         "data_hash": run_data.hash,
+        "frozen_hash": frozen_data.hash,
         "households": entries,
         "ancestors": [{k: v for k, v in record.items() if k != "sim"} for record in ancestors],
     }
@@ -1419,6 +1466,7 @@ def print_run(label: str, frozen: tuple, n: int, years: int, out_dir) -> tuple:
     # Section 7: the file.
     data = built["bytes"]
     print(f"{label}_file_bytes {len(data)}")
+    print(f"{label}_stamp data_hash {built['pool']['data_hash']:016x} frozen_hash {built['pool']['frozen_hash']:016x} (the frozen documents' data hash, without pool_frequencies)")
     print(f"{label}_file_hex {data.hex()}")
     print(f"{label}_pool_hash {hash64(data):016x}")
     print(f"{label}_round_trip read and written again: identical")
@@ -1436,7 +1484,9 @@ def rejected_files(data: bytes) -> list:
     Returns [(rule, how, bytes)]."""
     pool = read_pool(data)
     out = [("magic", "the first byte of the magic changed (b'XIMPOOL')", b"X" + data[1:])]
-    out.append(("version", "format version 2", POOL_MAGIC + varint(2) + data[len(POOL_MAGIC) + 1 :]))
+    # Format 1, the format before `frozen_hash` (design note of the pool's records, section 6).
+    assert data[len(POOL_MAGIC)] == POOL_FORMAT_VERSION == 2
+    out.append(("version", "format version 1", POOL_MAGIC + varint(1) + data[len(POOL_MAGIC) + 1 :]))
     out.append(("trailing_bytes", "one byte 0x00 appended", data + b"\x00"))
     at = pool["frozen_at"]
     # A household without an adult: the first household with no partnership and no
@@ -1647,7 +1697,54 @@ SCENARIOS = {
 }
 
 
+def real_pool(old_path, frozen_dir, out_path) -> int:
+    """`--real POOL FROZEN OUT`: the expected bytes of the real pool in format 2 (design note
+    of the pool's records, sections 2 (b) and 6). The old file (format 1) decoded, checked by
+    every rule of the reader and canonical; its `frozen_hash` the data hash of the frozen
+    documents in FROZEN (`calibration/genetics.json` without `pool_frequencies`,
+    `genetics/genome_map.json`, the repository's `data/calibration/demography.json`); written
+    in format 2 to OUT. Every other byte stays: the new file is the old one with the version
+    2 and `varint(frozen_hash)` inserted after `data_hash` (asserted). The pool run's data
+    hash (the pre-run data of the same documents) must be the old file's `data_hash`."""
+    old = Path(old_path).read_bytes()
+    print(f"real_old {old_path} bytes {len(old)} xxh3 {hash64(old):016x}")
+    pool = decode_pool(old, 1)
+    assert encode_pool_v1(pool) == old, "the old file is canonical"
+    assert violations(pool) == [], violations(pool)
+    households = pool["households"]
+    print(
+        f"real_old_content pool_seed {pool['pool_seed']:#x} frozen_at {pool['frozen_at']} data_hash {pool['data_hash']:016x}"
+        f" households {len(households)} members {sum(len(h['members']) for h in households)}"
+        f" unborn {sum(len(g['children']) for h in households for g in h['pregnancies'])} records {len(pool['ancestors'])}"
+    )
+    frozen = data_reference.documents(Path(frozen_dir))
+    q = check_pool_frequencies(frozen[1], frozen[2])
+    plain = plain_documents(frozen)
+    frozen_hash = world_reference.Data(*plain).hash
+    assert frozen_hash == data_reference.documents_hash(*plain)
+    run_hash = prerun_reference.prerun_data(prerun_reference.prerun_documents(plain)).hash
+    print(f"real_frozen_documents {frozen_dir} pool_frequencies {' '.join(f'{k}={v!r}' for k, v in sorted(q.items()))}")
+    print(f"real_frozen_hash {frozen_hash:016x} (the frozen documents without pool_frequencies)")
+    print(f"real_run_data_hash {run_hash:016x} (the pre-run data of the same documents) old_data_hash {pool['data_hash']:016x} equal {run_hash == pool['data_hash']}")
+    assert run_hash == pool["data_hash"], "the frozen documents are not the pool run's"
+    pool["frozen_hash"] = frozen_hash
+    new = encode_pool(pool)
+    head = varint(pool["pool_seed"]) + signed(pool["frozen_at"]) + varint(pool["data_hash"])
+    at = len(POOL_MAGIC) + 1 + len(head)
+    assert old[len(POOL_MAGIC)] == 1 and old[len(POOL_MAGIC) + 1 : at] == head
+    assert new == POOL_MAGIC + varint(2) + head + varint(frozen_hash) + old[at:], "only the version and the field change"
+    assert read_pool(new) == pool and encode_pool(read_pool(new)) == new
+    assert read_pool(new)["data_hash"] == decode_pool(old, 1)["data_hash"], "data_hash unchanged"
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_bytes(new)
+    print(f"real_new {out_path} bytes {len(new)} xxh3 {hash64(new):016x} version 2 frozen_hash {frozen_hash:016x} inserted at byte {at} as {varint(frozen_hash).hex()}")
+    return 0
+
+
 def main(argv) -> int:
+    if "--real" in argv:
+        at = argv.index("--real")
+        return real_pool(*argv[at + 1 : at + 4])
     if "--check" in argv:
         return check_files(argv[argv.index("--check") + 1 :])
     if "--rejects" in argv:

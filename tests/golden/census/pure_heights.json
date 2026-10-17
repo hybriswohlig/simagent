@@ -1079,12 +1079,6 @@
        "4063abe9b3b87c30"
       ],
       [
-       37,
-       "arrival",
-       "4066e0efead63fb8",
-       "4066d4d06375885e"
-      ],
-      [
        38,
        "arrival",
        "40663986b7472467",
@@ -1113,12 +1107,6 @@
        "arrival",
        "4067f534acdbebc2",
        "4067d6d4acdd5c7d"
-      ],
-      [
-       43,
-       "arrival",
-       "40655e0ed25c3cd4",
-       "40654252a967da9c"
       ],
       [
        44,
@@ -1221,6 +1209,12 @@
        "town_of_two_pool_persons",
        "404a6cf017a8a99a",
        "404a6cf017a8a99a"
+      ],
+      [
+       61,
+       "town_of_two_pool_persons",
+       "404a91b0d6349229",
+       "404a91b0d6349229"
       ]
      ]
     },
@@ -1263,12 +1257,6 @@
        "arrival",
        "4064b5b0c2abe668",
        "40646f5c5dd9b204"
-      ],
-      [
-       7,
-       "arrival",
-       "4064986ff20074fa",
-       "4064865aa4456a9b"
       ],
       [
        8,
@@ -1439,12 +1427,6 @@
        "406399a89e168097"
       ],
       [
-       37,
-       "arrival",
-       "4066e0efead63fb8",
-       "4066c227c68cba4e"
-      ],
-      [
        38,
        "arrival",
        "40663986b7472467",
@@ -1473,18 +1455,6 @@
        "arrival",
        "4067f534acdbebc2",
        "4067b9abb71b609f"
-      ],
-      [
-       43,
-       "arrival",
-       "40655e0ed25c3cd4",
-       "4065263e2e87266c"
-      ],
-      [
-       44,
-       "arrival",
-       "406703d73d4f250e",
-       "4066ff0a706350a7"
       ],
       [
        45,
@@ -1583,241 +1553,259 @@
        "40600a969a1cb38e"
       ],
       [
-       62,
+       61,
+       "town_of_two_pool_persons",
+       "40602b54fecda030",
+       "40602b54fecda030"
+      ],
+      [
+       63,
        "town_of_two_pool_persons",
        "4061970ca0e27a6b",
        "4061970ca0e27a6b"
       ],
       [
-       63,
+       64,
        "town_of_two_pool_persons",
        "40609a4a89f9980d",
        "40609a4a89f9980d"
       ],
       [
-       64,
+       65,
        "town_of_two_pool_persons",
        "4060c8904f194a5f",
        "4060c8904f194a5f"
       ],
       [
-       65,
+       66,
        "town_of_two_pool_persons",
        "405fadf594bba5ba",
        "405fadf594bba5ba"
       ],
       [
-       66,
+       67,
+       "town_of_two_pool_persons",
+       "40601f79dc0df3e3",
+       "40601f79dc0df3e3"
+      ],
+      [
+       68,
        "arrival",
        "4069033d9d1555d8",
        "4069033d3e78d0c4"
       ],
       [
-       67,
+       69,
        "town_of_two_pool_persons",
        "405f7136cf7107b2",
        "405f7136cf7107b2"
       ],
       [
-       68,
+       70,
+       "town_of_two_pool_persons",
+       "405f824016064666",
+       "405f824016064666"
+      ],
+      [
+       71,
        "town_of_two_pool_persons",
        "405f62a35c011b64",
        "405f62a35c011b64"
       ],
       [
-       69,
+       72,
        "town_of_two_pool_persons",
        "405fd0fd868b23c0",
        "405fd0fd868b23c0"
       ],
       [
-       70,
+       73,
+       "town_of_two_pool_persons",
+       "405d8fe12b945fcf",
+       "405d8fe12b945fcf"
+      ],
+      [
+       74,
        "town_of_two_pool_persons",
        "405c76ebffdb346a",
        "405c76ebffdb346a"
       ],
       [
-       71,
+       75,
        "arrival",
        "40671f25d105dd07",
        "4066d23fec4fa9ff"
       ],
       [
-       72,
+       76,
        "arrival",
        "4064dc389155bd99",
        "4064b0ae75b81a66"
       ],
       [
-       73,
+       77,
        "town_of_two_pool_persons",
        "405cadc2326a5e06",
        "405cadc2326a5e06"
       ],
       [
-       74,
+       78,
        "town_of_two_pool_persons",
        "405e0bb11100512d",
        "405e0bb11100512d"
       ],
       [
-       75,
-       "town_of_two_pool_persons",
-       "405d4266d1841d4f",
-       "405d4266d1841d4f"
-      ],
-      [
-       76,
+       79,
        "town_of_two_pool_persons",
        "405edbe8b379a526",
        "405edbe8b379a526"
       ],
       [
-       77,
-       "town_of_two_pool_persons",
-       "405af19863fcc00d",
-       "405af19863fcc00d"
-      ],
-      [
-       78,
+       80,
        "arrival",
        "4065275eddc94851",
        "4065042c44fffa09"
       ],
       [
-       79,
+       81,
        "town_of_two_pool_persons",
        "405cf8d47da8f590",
        "405cf8d47da8f590"
       ],
       [
-       80,
+       82,
        "town_of_two_pool_persons",
        "405d22e6d9da0048",
        "405d22e6d9da0048"
       ],
       [
-       81,
+       83,
        "town_of_two_pool_persons",
        "405c23e01baa2960",
        "405c23e01baa2960"
       ],
       [
-       82,
+       84,
        "town_of_two_pool_persons",
        "405a9cc2775eea2a",
        "405a9cc2775eea2a"
       ],
       [
-       83,
+       85,
+       "town_of_two_pool_persons",
+       "405aa7c0ffda74f2",
+       "405aa7c0ffda74f2"
+      ],
+      [
+       86,
        "town_of_two_pool_persons",
        "405c5a05be7464a8",
        "405c5a05be7464a8"
       ],
       [
-       84,
+       87,
+       "town_of_two_pool_persons",
+       "405b93bc384da6f6",
+       "405b93bc384da6f6"
+      ],
+      [
+       88,
        "arrival",
        "40683dc246c019c7",
        "4068170d726d7789"
       ],
       [
-       85,
+       89,
        "arrival",
        "4066ad2a00af60f3",
        "406680dd2d2b2f39"
       ],
       [
-       86,
+       90,
        "arrival",
        "405d6db8635a998b",
        "405d6db8635a998b"
       ],
       [
-       87,
+       91,
        "town_of_two_pool_persons",
        "405cef8013cbb5b2",
        "405cef8013cbb5b2"
       ],
       [
-       88,
+       92,
+       "town_of_two_pool_persons",
+       "405c07f1823e814f",
+       "405c07f1823e814f"
+      ],
+      [
+       93,
        "town_of_two_pool_persons",
        "405b1f4a566251b5",
        "405b1f4a566251b5"
       ],
       [
-       89,
+       94,
        "town_of_two_pool_persons",
-       "405bdc025cce78df",
-       "405bdc025cce78df"
+       "405bdc25406bf58d",
+       "405bdc25406bf58d"
       ],
       [
-       90,
+       95,
        "arrival",
        "40650aa01b79d029",
        "4064b35a759bae12"
       ],
       [
-       91,
+       96,
        "town_of_two_pool_persons",
        "405989876bf73023",
        "405989876bf73023"
       ],
       [
-       92,
-       "town_of_two_pool_persons",
-       "405a5534fe59fde4",
-       "405a5534fe59fde4"
-      ],
-      [
-       93,
+       97,
        "arrival",
        "4067259614b5aeda",
        "4066e14e91a290fd"
       ],
       [
-       94,
-       "town_of_two_pool_persons",
-       "40550d98ab09ebe9",
-       "40550d98ab09ebe9"
-      ],
-      [
-       95,
-       "arrival",
-       "4064689aeb26e2a4",
-       "4064689aeb26e2a4"
-      ],
-      [
-       96,
+       99,
        "arrival",
        "40667c2d68c0783a",
        "40667c2d68c0783a"
       ],
       [
-       97,
+       100,
        "arrival",
        "4056bfe074233195",
        "4056bfe074233195"
       ],
       [
-       98,
+       101,
+       "town_of_two_pool_persons",
+       "405317f87daee917",
+       "405317f87daee917"
+      ],
+      [
+       102,
        "town_of_two_pool_persons",
        "405667f8ac3122c1",
        "405667f8ac3122c1"
       ],
       [
-       99,
+       103,
+       "town_of_two_pool_persons",
+       "4056ac877e17002a",
+       "4056ac877e17002a"
+      ],
+      [
+       104,
        "arrival",
        "406633008c5d0c70",
        "40661f427a0b907a"
       ],
       [
-       100,
-       "arrival",
-       "40659f3c37f8fb8c",
-       "406598777688edcf"
-      ],
-      [
-       101,
+       106,
        "arrival",
        "40561758dbdc0146",
        "40561758dbdc0146"
@@ -1857,12 +1845,6 @@
        "arrival",
        "4064b5b0c2abe668",
        "40645947ad09be82"
-      ],
-      [
-       7,
-       "arrival",
-       "4064986ff20074fa",
-       "40647bf21809faa6"
       ],
       [
        8,
@@ -2057,18 +2039,6 @@
        "4067a9973c3a5a7e"
       ],
       [
-       43,
-       "arrival",
-       "40655e0ed25c3cd4",
-       "406516a494edce60"
-      ],
-      [
-       44,
-       "arrival",
-       "406703d73d4f250e",
-       "4066f994fed5e8af"
-      ],
-      [
        45,
        "arrival",
        "406510558af1c9cd",
@@ -2159,295 +2129,319 @@
        "4062d376a7b3535d"
       ],
       [
-       62,
+       61,
+       "town_of_two_pool_persons",
+       "406348c16b33a002",
+       "406348c16b33a002"
+      ],
+      [
+       63,
        "town_of_two_pool_persons",
        "4064f9639ff30a6f",
        "4064f9639ff30a6f"
       ],
       [
-       63,
+       64,
        "town_of_two_pool_persons",
        "4063dd95afa681ca",
        "4063dd95afa681ca"
       ],
       [
-       64,
+       65,
        "town_of_two_pool_persons",
        "4064072b035888a3",
        "4064072b035888a3"
       ],
       [
-       65,
+       66,
        "town_of_two_pool_persons",
        "40624f0fcbd37f66",
        "40624f0fcbd37f66"
       ],
       [
-       66,
+       67,
+       "town_of_two_pool_persons",
+       "406288351911cd2a",
+       "406288351911cd2a"
+      ],
+      [
+       68,
        "arrival",
        "4069033d9d1555d8",
        "40690253793f7ee6"
       ],
       [
-       67,
+       69,
        "town_of_two_pool_persons",
        "4062c24e2e8253bb",
        "4062c24e2e8253bb"
       ],
       [
-       68,
+       70,
+       "town_of_two_pool_persons",
+       "4062dbfd6c4d6267",
+       "4062dbfd6c4d6267"
+      ],
+      [
+       71,
        "town_of_two_pool_persons",
        "40633ce67f5236d5",
        "40633ce67f5236d5"
       ],
       [
-       69,
+       72,
        "town_of_two_pool_persons",
        "4063beda04336983",
        "4063beda04336983"
       ],
       [
-       70,
+       73,
+       "town_of_two_pool_persons",
+       "40622f69e70235f2",
+       "40622f69e70235f2"
+      ],
+      [
+       74,
        "town_of_two_pool_persons",
        "4060c27d68f11700",
        "4060c27d68f11700"
       ],
       [
-       71,
+       75,
        "arrival",
        "40671f25d105dd07",
        "4066bf79db985b2e"
       ],
       [
-       72,
+       76,
        "arrival",
        "4064dc389155bd99",
        "40649f909a787887"
       ],
       [
-       73,
+       77,
        "town_of_two_pool_persons",
        "40610f1ef6d3331d",
        "40610f1ef6d3331d"
       ],
       [
-       74,
+       78,
        "town_of_two_pool_persons",
        "4061c9341f8be298",
        "4061c9341f8be298"
       ],
       [
-       75,
-       "town_of_two_pool_persons",
-       "40615ad6846dd484",
-       "40615ad6846dd484"
-      ],
-      [
-       76,
+       79,
        "town_of_two_pool_persons",
        "40630d5a9e9eb788",
        "40630d5a9e9eb788"
       ],
       [
-       77,
-       "town_of_two_pool_persons",
-       "4060ba3e384924ec",
-       "4060ba3e384924ec"
-      ],
-      [
-       78,
+       80,
        "arrival",
        "4065275eddc94851",
        "4064f41ca294b1cc"
       ],
       [
-       79,
+       81,
        "town_of_two_pool_persons",
        "4061dc5ef30977b1",
        "4061dc5ef30977b1"
       ],
       [
-       80,
+       82,
        "town_of_two_pool_persons",
        "4061b930f5d24ec6",
        "4061b930f5d24ec6"
       ],
       [
-       81,
+       83,
        "town_of_two_pool_persons",
        "4060df9bc479e496",
        "4060df9bc479e496"
       ],
       [
-       82,
+       84,
        "town_of_two_pool_persons",
        "405fe12758ed64f8",
        "405fe12758ed64f8"
       ],
       [
-       83,
+       85,
+       "town_of_two_pool_persons",
+       "4060013bfac932aa",
+       "4060013bfac932aa"
+      ],
+      [
+       86,
        "town_of_two_pool_persons",
        "4061215e00afd68c",
        "4061215e00afd68c"
       ],
       [
-       84,
+       87,
+       "town_of_two_pool_persons",
+       "4060af84f87de606",
+       "4060af84f87de606"
+      ],
+      [
+       88,
        "arrival",
        "40683dc246c019c7",
        "40680b32f80609e8"
       ],
       [
-       85,
+       89,
        "arrival",
        "4066ad2a00af60f3",
        "40666d275d912c07"
       ],
       [
-       86,
+       90,
        "arrival",
        "4061ef45ec253d65",
        "4061ef45ec253d65"
       ],
       [
-       87,
+       91,
        "town_of_two_pool_persons",
        "4061f6c8fd4bbf34",
        "4061f6c8fd4bbf34"
       ],
       [
-       88,
+       92,
+       "town_of_two_pool_persons",
+       "40613d1985ccad6c",
+       "40613d1985ccad6c"
+      ],
+      [
+       93,
        "town_of_two_pool_persons",
        "40609c673e0b13fd",
        "40609c673e0b13fd"
       ],
       [
-       89,
+       94,
        "town_of_two_pool_persons",
-       "406157aba9fa90ed",
-       "406157aba9fa90ed"
+       "40610e050785f607",
+       "40610e050785f607"
       ],
       [
-       90,
+       95,
        "arrival",
        "40650aa01b79d029",
        "40649948a829e2af"
       ],
       [
-       91,
+       96,
        "town_of_two_pool_persons",
        "406085c6ce47e07d",
        "406085c6ce47e07d"
       ],
       [
-       92,
-       "town_of_two_pool_persons",
-       "4060fe5ef93612d3",
-       "4060fe5ef93612d3"
-      ],
-      [
-       93,
+       97,
        "arrival",
        "4067259614b5aeda",
        "4066cf8eb48c0529"
       ],
       [
-       94,
-       "town_of_two_pool_persons",
-       "405c69c4d2f513b6",
-       "405c69c4d2f513b6"
-      ],
-      [
-       95,
-       "arrival",
-       "4064689aeb26e2a4",
-       "4064689aeb26e2a4"
-      ],
-      [
-       96,
+       99,
        "arrival",
        "40667c50c66d0953",
        "40667c50c66d0953"
       ],
       [
-       97,
+       100,
        "arrival",
        "405e82c819b827e2",
        "405e82c819b827e2"
       ],
       [
-       98,
+       101,
+       "town_of_two_pool_persons",
+       "405a3bd146b3bd24",
+       "405a3bd146b3bd24"
+      ],
+      [
+       102,
        "town_of_two_pool_persons",
        "405ec2e7a23fc210",
        "405ec2e7a23fc210"
       ],
       [
-       99,
+       103,
+       "town_of_two_pool_persons",
+       "405f1cc8538b18aa",
+       "405f1cc8538b18aa"
+      ],
+      [
+       104,
        "arrival",
        "406633008c5d0c70",
        "4066169176d7f0d5"
       ],
       [
-       100,
-       "arrival",
-       "40659f3c37f8fb8c",
-       "406591219c26b41d"
-      ],
-      [
-       101,
+       106,
        "arrival",
        "405df39f3d00ae29",
        "405df39f3d00ae29"
       ],
       [
-       102,
+       107,
        "arrival",
        "4063d6823f018384",
        "4063643a1a60218f"
       ],
       [
-       103,
+       108,
+       "town_of_two_pool_persons",
+       "40581aecd88a3c28",
+       "40581aecd88a3c28"
+      ],
+      [
+       109,
        "arrival",
        "40643c073c7608a6",
        "4064057b448425ad"
       ],
       [
-       104,
-       "town_of_two_pool_persons",
-       "405749d8101defcf",
-       "405749d8101defcf"
-      ],
-      [
-       105,
+       110,
        "arrival",
        "4065e64f85b92e6c",
        "4065cc0fa1d0948f"
       ],
       [
-       106,
+       111,
        "arrival",
        "406494255ce25555",
        "40648b1ef67cf269"
       ],
       [
-       107,
+       112,
        "town_of_two_pool_persons",
        "40529a81a192dfa2",
        "40529a81a192dfa2"
       ],
       [
-       108,
+       113,
+       "town_of_two_pool_persons",
+       "4052038bbb9a1252",
+       "4052038bbb9a1252"
+      ],
+      [
+       114,
        "arrival",
        "406710ac16ec97ac",
        "406710ac16ec97ac"
       ],
       [
-       109,
+       115,
        "arrival",
        "406448031ca26a89",
        "406448031ca26a89"
       ],
       [
-       110,
+       116,
        "arrival",
        "40547d1ba297b7e5",
        "40547d1ba297b7e5"
@@ -2465,6 +2459,14 @@
       "core:senescence",
       "40652dfa7d99621a",
       "4064f74e01e02cf7"
+     ],
+     [
+      7,
+      "arrival",
+      64530363,
+      "core:disease_liability",
+      "4064986ff20074fa",
+      "4064940b6a15e8a0"
      ],
      [
       16,
@@ -2485,10 +2487,26 @@
      [
       37,
       "arrival",
-      429926350,
+      4299264,
       "core:disease_liability",
       "4066e0efead63fb8",
-      "4066b81846011a95"
+      "4066d627ab360cb5"
+     ],
+     [
+      43,
+      "arrival",
+      27776145,
+      "core:disease_liability",
+      "40655e0ed25c3cd4",
+      "4065429f99651f46"
+     ],
+     [
+      44,
+      "arrival",
+      205908720,
+      "core:disease_liability",
+      "406703d73d4f250e",
+      "4067021affd2b076"
      ],
      [
       47,
@@ -2499,12 +2517,28 @@
       "40670fbe5d40083e"
      ],
      [
-      61,
+      62,
       "arrival",
       183152461,
       "core:senescence",
       "4063b6821825d9fe",
       "4063606fb560a3b7"
+     ],
+     [
+      98,
+      "arrival",
+      275739179,
+      "core:disease_liability",
+      "40646898da4c2f9d",
+      "40646898da4c2f9d"
+     ],
+     [
+      105,
+      "arrival",
+      309163305,
+      "core:disease_liability",
+      "40659f3c37f8fb8c",
+      "406598b8016d43b6"
      ]
     ]
    }

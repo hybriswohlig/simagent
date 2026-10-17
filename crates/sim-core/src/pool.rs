@@ -29,7 +29,7 @@ use crate::time::{MONTH, SimTime, YEAR};
 use crate::world::World;
 
 /// The format of the pool file.
-pub const POOL_FORMAT: u64 = 1;
+pub const POOL_FORMAT: u64 = 2;
 
 /// The seven loci the pre-run leaves at the reference allele and the pool assigns
 /// (ADR-0020 section 4).
@@ -57,6 +57,9 @@ pub struct Pool {
     pub frozen_at: SimTime,
     /// The hash of the pool run's data.
     pub data_hash: u64,
+    /// The hash of the frozen data the pool was extracted from (positions of the seven loci,
+    /// the Mendelian diseases): a town loads the pool only with these data (Grok K7 and P1).
+    pub frozen_hash: u64,
     /// In the order of their `HouseholdId` in the pool run.
     pub households: Vec<PoolHousehold>,
     /// Ascending by lineage key.
@@ -908,6 +911,7 @@ pub fn extract(
         pool_seed,
         frozen_at: at,
         data_hash: world.data().hash(),
+        frozen_hash: frozen.hash(),
         households,
         ancestors,
     };

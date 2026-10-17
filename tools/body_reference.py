@@ -286,7 +286,24 @@ def documents_hash(fixture: tuple) -> int:
 
 def body_data_check(fixture: tuple, traits_read: list) -> str:
     """`BodyData::new` (ADR-0015 section 2 with the traits of `traits_read`): None if it
-    accepts, else the first reason (`data.body_traits`)."""
+    accepts, else the first reason (`data.body_traits`): first the traits
+    (`body_traits_check`), then `core:mc1r` and `core:herc2`."""
+    reason = body_traits_check(fixture, traits_read)
+    if reason is not None:
+        return reason
+    _, genome_map = fixture
+    loci = {locus["id"]: locus for locus in genome_map["loci"]}
+    for locus_id in ("core:mc1r", "core:herc2"):
+        locus = loci.get(locus_id)
+        if locus is None or locus["action"] != "recessive" or locus["chromosome"] != "autosome":
+            return f"data.body_traits: {locus_id} is no recessive autosomal locus"
+    return None
+
+
+def body_traits_check(fixture: tuple, traits_read: list) -> str:
+    """The traits part of `BodyData::new`: every trait of `traits_read` in the map with a
+    phenotype row whose child and adult weights are equal bit for bit. None if they are,
+    else the first reason (`data.body_traits`)."""
     calibration, genome_map = fixture
     in_map = {entry["id"] for entry in genome_map["traits"]}
     rows = {row["trait"]: row for row in calibration["traits"]}
@@ -299,11 +316,6 @@ def body_data_check(fixture: tuple, traits_read: list) -> str:
         for child, adult in (("h2_child", "h2_adult"), ("c2_child", "c2_adult")):
             if data_reference.f64_bits(float(row[child]["value"])) != data_reference.f64_bits(float(row[adult]["value"])):
                 return f"data.body_traits: the weights of {trait} depend on the age"
-    loci = {locus["id"]: locus for locus in genome_map["loci"]}
-    for locus_id in ("core:mc1r", "core:herc2"):
-        locus = loci.get(locus_id)
-        if locus is None or locus["action"] != "recessive" or locus["chromosome"] != "autosome":
-            return f"data.body_traits: {locus_id} is no recessive autosomal locus"
     return None
 
 

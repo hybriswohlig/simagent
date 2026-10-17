@@ -838,11 +838,14 @@ pub fn measure(root: &Path, options: &Options) -> Result {
 }
 
 /// The pool run on the frozen map (design note of the pre-run, section 3; design note of
-/// the pool file): to `years · YEAR` inclusive; its pool goes to `options.out/pool.bin`.
+/// the pool file): to `years · YEAR` inclusive; its pool goes to `options.out/pool.bin`, the
+/// clamp rate of its last censuses to `options.out/reference_census.json` (ADR-0020 section
+/// 7), written also when the bound fails; then the command is red.
 pub fn pool(root: &Path, options: &Options) -> Result {
     let dir = options.map.as_ref().ok_or("pool needs --map <dir>")?;
     let (calibration, map) = read_files(dir)?;
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
+    let mut census = Vec::new();
     let (pool, report, _) = crate::pool_file::pool_of(
         &demography,
         &calibration,
@@ -851,14 +854,29 @@ pub fn pool(root: &Path, options: &Options) -> Result {
         options.years,
         &mut |world, out, groups| {
             print_groups("pool", groups);
+            census.clone_from(&out.census);
             print_run("pool", &map, world, out).map(|_| ())
         },
     )?;
     crate::pool_file::print_report(&pool, &report);
+    let last_year = options.years - 1;
+    let rows = crate::clamp::select(&census, last_year);
+    crate::clamp::print(&rows);
+    let verdict = crate::clamp::check(&rows, last_year);
     std::fs::create_dir_all(&options.out)
         .map_err(|error| format!("cannot create {}: {error}", options.out.display()))?;
     std::fs::write(options.out.join("pool.bin"), pool.to_bytes())
-        .map_err(|error| format!("cannot write the pool: {error}"))
+        .map_err(|error| format!("cannot write the pool: {error}"))?;
+    let record = crate::clamp::record(pool.hash(), pool.data_hash, &rows);
+    std::fs::write(options.out.join("reference_census.json"), record)
+        .map_err(|error| format!("cannot write the clamp record: {error}"))?;
+    match verdict.reason {
+        None => Ok(()),
+        Some(reason) => Err(format!(
+            "the clamp rate of the reference population is red: {reason} ({} evaluations); both files are written",
+            verdict.n
+        )),
+    }
 }
 
 /// The value of the option `name` in `args`: none without the option; an error if the

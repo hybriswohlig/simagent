@@ -127,7 +127,8 @@ fn a_bad_entry_is_rejected_by_its_rule() {
 }
 
 /// A pool run of the reference: its founders and years, the changes of its scenario, the
-/// hashes of its data and its pool.
+/// hashes of its data and its pool. The hash of its frozen data is the pool's stamp
+/// `frozen_hash` (design note of the pool's records, section 6).
 struct Run {
     name: &'static str,
     founders: u64,
@@ -161,7 +162,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::Natural,
         run_data_hash: 0xb17a_fdcd_2961_75ac,
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
-        pool_hash: 0x6488_c5c7_c9a7_40ef,
+        pool_hash: 0x9f75_0816_2a92_48c2,
         file: include_bytes!("../../tests/golden/pool/pool_a.bin"),
         counts: (26, 43, 52),
         carriers: [0, 0, 0, 0, 0, 1, 38],
@@ -173,7 +174,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::Natural,
         run_data_hash: 0xb17a_fdcd_2961_75ac,
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
-        pool_hash: 0x28af_470e_4c30_38f4,
+        pool_hash: 0x8fbc_3d92_5963_36b6,
         file: include_bytes!("../../tests/golden/pool/pool_b.bin"),
         counts: (29, 34, 33),
         carriers: [2, 0, 0, 0, 0, 6, 30],
@@ -185,7 +186,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::FatherDies,
         run_data_hash: 0xeb9f_b406_aa14_2f6a,
         frozen_data_hash: 0xe2f2_44a7_e4cd_db5f,
-        pool_hash: 0xe4a7_3ea3_34e7_4b6c,
+        pool_hash: 0xec01_a0ff_0726_0ad1,
         file: include_bytes!("../../tests/golden/pool/pool_c.bin"),
         counts: (43, 82, 77),
         carriers: [7, 0, 0, 0, 0, 28, 76],
@@ -197,7 +198,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::FrequentAlleles,
         run_data_hash: 0xb17a_fdcd_2961_75ac,
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
-        pool_hash: 0x979f_8665_a74a_4b1e,
+        pool_hash: 0xfd94_6c4f_2d00_c4cb,
         file: include_bytes!("../../tests/golden/pool/pool_d.bin"),
         counts: (26, 43, 52),
         carriers: [34, 26, 26, 33, 7, 38, 34],
@@ -209,7 +210,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::Natural,
         run_data_hash: 0xb17a_fdcd_2961_75ac,
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
-        pool_hash: 0x4556_05ea_f7c2_5849,
+        pool_hash: 0x8ffd_f50f_324b_f994,
         file: include_bytes!("../../tests/golden/pool/pool_e.bin"),
         counts: (20, 37, 51),
         carriers: [4, 0, 0, 0, 0, 3, 35],
@@ -223,7 +224,7 @@ const RUNS: [Run; 6] = [
         scenario: Scenario::Natural,
         run_data_hash: 0xb17a_fdcd_2961_75ac,
         frozen_data_hash: 0x5ae3_d70c_71cf_063a,
-        pool_hash: 0xd744_ccd9_cad9_5370,
+        pool_hash: 0x44ee_c9ee_32f4_feb0,
         file: include_bytes!("../../tests/golden/pool/pool_f.bin"),
         counts: (17, 31, 70),
         carriers: [0, 0, 0, 0, 0, 7, 29],
@@ -328,6 +329,7 @@ fn the_pool_files_are_the_references() {
         )
         .expect("a pool");
         assert_eq!(pool.data_hash, run.run_data_hash, "{}", run.name);
+        assert_eq!(pool.frozen_hash, run.frozen_data_hash, "{}", run.name);
         let expected_keys = genome_keys(run.name);
         assert!(!expected_keys.is_empty(), "{}", run.name);
         for (child, genome) in expected_keys {
@@ -366,6 +368,35 @@ fn the_pool_files_are_the_references() {
         expected.sort();
         assert_eq!(carriers, expected, "{}", run.name);
     }
+}
+
+/// Each golden pool file carries the hash of the frozen data of its run, the stamp the
+/// data check of a town compares (design note of the pool's records, section 6).
+#[test]
+fn each_golden_pool_carries_the_hash_of_its_frozen_data() {
+    for run in &RUNS {
+        let pool = Pool::from_bytes(run.file).expect("a pool");
+        assert_eq!(pool.frozen_hash, run.frozen_data_hash, "{}", run.name);
+        assert_eq!(pool.data_hash, run.run_data_hash, "{}", run.name);
+    }
+}
+
+/// The documents of `father_dies` built here (the template with the scenario's four values,
+/// `pool_frequencies` removed) are, as data, the three files of `tests/golden/father_dies`
+/// that every town on `pool_c` runs on: the same data hash, `pool_c`'s `frozen_hash`.
+#[test]
+fn the_documents_of_father_dies_are_the_golden_files() {
+    let run = &RUNS[2];
+    assert_eq!(run.name, "pool_c");
+    let (calibration, map, demography) = run.documents();
+    let (rest, _) = take_frequencies(&calibration, &map).expect("accepted");
+    let built = data_of(&demography, &rest, &map).expect("data");
+    let (golden_calibration, golden_map) =
+        crate::prerun::read_files(&root().join("tests/golden/father_dies")).expect("the files");
+    let golden_demography = read("tests/golden/father_dies/calibration/demography.json");
+    let golden = data_of(&golden_demography, &golden_calibration, &golden_map).expect("data");
+    assert_eq!(built.hash(), golden.hash());
+    assert_eq!(golden.hash(), run.frozen_data_hash);
 }
 
 /// A locus named twice in the entry is not "exactly the seven loci" (mutants).
@@ -486,8 +517,21 @@ fn the_pool_command_writes_the_file_of_the_reference() {
         years: run.years,
         map: Some(dir.join("map")),
     };
-    crate::prerun::pool(&root(), &options).expect("a pool");
+    // A run this small cannot fill the sample of the clamp rate: the command writes both
+    // files and is red (design note of the census, section 6).
+    let error = crate::prerun::pool(&root(), &options).expect_err("red");
+    assert!(error.contains("fewer_than_100000"), "{error}");
     let written = std::fs::read(dir.join("out/pool.bin")).expect("the file");
+    let census = std::fs::read_to_string(dir.join("out/reference_census.json"));
     std::fs::remove_dir_all(&dir).expect("removed");
     assert!(written == run.file, "the file differs");
+    // The record of the clamp rate beside it, bound to this pool and its run's data, its rows
+    // the run's year ends from the last one back (design note of the census, section 6).
+    let record = crate::clamp::tests::read_record(&census.expect("the record")).expect("a record");
+    let pool = Pool::from_bytes(&written).expect("the pool");
+    assert_eq!(record.pool_hash, pool.hash());
+    assert_eq!(record.data_hash, pool.data_hash);
+    assert_eq!(record.core_version, sim_core::version::CORE_VERSION);
+    let first = record.rows.first().expect("rows");
+    assert_eq!(first.year, run.years - 1);
 }

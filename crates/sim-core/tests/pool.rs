@@ -127,6 +127,47 @@ fn each_rejected_pool_file_breaks_its_rule() {
     }
 }
 
+/// The stamps of each pool run (`<run>_stamp` of the reference): the hash of its run's data
+/// and the hash of the frozen data it was extracted from (design note of the pool's
+/// records, section 6), `pool_c`'s from its scenario `father_dies`, every other the
+/// template's.
+const STAMPS: [(&str, u64, u64); 6] = [
+    ("pool_a", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+    ("pool_b", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+    ("pool_c", 0xeb9f_b406_aa14_2f6a, 0xe2f2_44a7_e4cd_db5f),
+    ("pool_d", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+    ("pool_e", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+    ("pool_f", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+];
+
+/// Format 2 carries `frozen_hash` right after `data_hash`; the reader reads both stamps.
+#[test]
+fn each_pool_file_carries_its_stamps() {
+    for ((name, bytes), (stamped, data_hash, frozen_hash)) in FILES.iter().zip(STAMPS) {
+        assert_eq!(*name, stamped);
+        let pool = Pool::from_bytes(bytes).expect("a pool");
+        assert_eq!(pool.data_hash, data_hash, "{name}");
+        assert_eq!(pool.frozen_hash, frozen_hash, "{name}");
+    }
+}
+
+/// A file of format 1 (`reject/version.bin`: `pool_b` with the version 1 in place of 2) is
+/// rejected with `pool.version` before its body is read (design note of the pool's
+/// records, section 6).
+#[test]
+fn a_pool_file_of_format_1_is_rejected() {
+    let magic = sim_core::pool::MAGIC.len();
+    let (_, pool_b) = FILES[1];
+    let (version, _) = REJECTED[1];
+    assert_eq!(pool_b[magic], 2);
+    assert_eq!(version[magic], 1);
+    assert_eq!(version[..magic], pool_b[..magic]);
+    assert_eq!(version[magic + 1..], pool_b[magic + 1..]);
+    let error = Pool::from_bytes(version).expect_err("format 1");
+    assert_eq!(error, PoolError::Version);
+    assert_eq!(error.to_string(), "pool.version");
+}
+
 /// A file cut short does not decode.
 #[test]
 fn a_pool_file_cut_short_does_not_decode() {

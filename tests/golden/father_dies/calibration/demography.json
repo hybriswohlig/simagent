@@ -1,0 +1,268 @@
+{
+  "format_version": 2,
+  "values": {
+    "core:fertility_adult_rate": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3b]",
+      "as_of": "2026-10-09",
+      "note": "The chance of a conception attempt when the factors of woman and man from 5.6 are both 1; the scenario's adult rate, not the biological maximum."
+    },
+    "core:fertility_pause": {
+      "value": 12.0,
+      "unit": "month",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3a]",
+      "as_of": "2026-10-09",
+      "note": "Months after a birth before her attempts begin again (t >= birth + pause * MONTH)."
+    },
+    "core:fertility_wish_tilt": {
+      "value": 0.311,
+      "unit": "logit",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "docs/genetik-spezifikation.md 11.3, alpha, log weight per wished child (P_n ~ p_n e^(alpha n)), fitted to 2.20 live births per woman reaching 50; approximate standard error 0.0031"
+    },
+    "core:learning_plateau": {
+      "value": 0.25,
+      "unit": "per_standard_deviation",
+      "source": "docs/genetik-spezifikation.md 11.5 [K11.5a]",
+      "as_of": "2026-10-09",
+      "note": "kappa of the learning function: one standard deviation of talent raises the plateau by e^kappa (play value)."
+    },
+    "core:learning_speed": {
+      "value": 0.2,
+      "unit": "per_standard_deviation",
+      "source": "docs/genetik-spezifikation.md 11.5 [K11.5b]",
+      "as_of": "2026-10-09",
+      "note": "nu of the learning function: one standard deviation of talent shortens the time constant by e^(-nu) (play value)."
+    },
+    "core:learning_time": {
+      "value": 1000.0,
+      "unit": "hour",
+      "source": "docs/genetik-spezifikation.md 11.5 [K11.5c]",
+      "as_of": "2026-10-09",
+      "note": "tau_0, the time constant of learning in hours at talent 0 (play value)."
+    },
+    "core:market_age": {
+      "value": 16.0,
+      "unit": "year",
+      "source": "docs/genetik-spezifikation.md 11.2 [K11.2a]",
+      "as_of": "2026-10-09",
+      "note": "Single persons take part in the partner market from their 16th birthday (Dario: partnerships from 16, never below)."
+    },
+    "core:market_candidates": {
+      "value": 12.0,
+      "unit": "count",
+      "source": "docs/genetik-spezifikation.md 11.2 [K11.2f]",
+      "as_of": "2026-10-09",
+      "note": "At most k single men of market age per searching woman, by rank, relatives with phi >= 1/8 skipped."
+    },
+    "core:market_search_center_female": {
+      "value": 25.23,
+      "unit": "year",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "11.2 with Grok R8, m of the search rate s_f(a) of women; approximate standard error 0.025"
+    },
+    "core:market_search_factor_minor": {
+      "value": 0.0918,
+      "unit": "fraction",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "Grok R6b and R8, rho, factor on s_f(a) from the 16th until before the 18th birthday; approximate standard error 0.0015"
+    },
+    "core:market_search_height_female": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "11.2 with Grok R8, c of the search rate s_f(a) of women, per market round; approximate standard error 2e-05"
+    },
+    "core:market_search_width": {
+      "value": 7.0,
+      "unit": "year",
+      "source": "docs/genetik-spezifikation.md 11.2 [K11.2b]",
+      "as_of": "2026-10-09",
+      "note": "The width of the search rate s_f(a) = min(1, c e^(-1/2 ((a - m) / 7)^2)), set, not fitted."
+    },
+    "core:pairing_age_gap_preferred": {
+      "value": 4.69,
+      "unit": "year",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "11.2 with Grok R8, mu_a of the age term (man older), with w_a 0.02, fitted to a mean age gap of 3.0; approximate standard error 0.016"
+    },
+    "core:pairing_cousin_odds": {
+      "value": 10.0,
+      "unit": "ratio",
+      "source": "docs/genetik-spezifikation.md 11.2 [W11.2a]",
+      "as_of": "2026-10-09",
+      "note": "The kinship term 16 ln(10) phi: a stranger is chosen ten times as often as an otherwise equal first cousin (phi = 1/16)."
+    },
+    "core:pairing_kinship_limit": {
+      "value": 0.125,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.2",
+      "as_of": "2026-10-09",
+      "note": "Candidates with kinship phi >= 1/8 are skipped (2.7)."
+    },
+    "core:pairing_weight_age": {
+      "value": 0.02,
+      "unit": "logit",
+      "source": "docs/genetik-spezifikation.md 11.2 [K11.2h]",
+      "as_of": "2026-10-09",
+      "note": "w_a, utility per squared year of the age gap minus mu_a (a normal kernel with spread 5 years)."
+    },
+    "core:pairing_weight_cognition": {
+      "value": 0.377,
+      "unit": "logit",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference; approximate standard error 0.0019"
+    },
+    "core:pairing_weight_height": {
+      "value": 0.164,
+      "unit": "logit",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "docs/genetik-spezifikation.md 11.2, w_H, utility per squared phenotype difference; approximate standard error 0.0013"
+    },
+    "core:pregnancy_length": {
+      "value": 10.0,
+      "unit": "month",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3c]",
+      "as_of": "2026-10-09",
+      "note": "Months from conception to birth, 280 days (real about 266, rounded up)."
+    },
+    "core:separation_rate": {
+      "value": 0.00867,
+      "unit": "per_year",
+      "source": "tools/life_reference.py: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 37 runs of 12 towns, checked on 48 new towns",
+      "as_of": "2026-10-10",
+      "note": "ADR-0018 section 3, lambda_sep, fitted so that a third of all partnerships end by separation; approximate standard error 1.8e-05"
+    },
+    "core:twins_fraternal": {
+      "value": 0.01,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3g]",
+      "as_of": "2026-10-09",
+      "note": "Fraternal twins per conception: 0.004 <= u < 0.014."
+    },
+    "core:twins_identical": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3f]",
+      "as_of": "2026-10-09",
+      "note": "Identical twins per conception: u < 0.004."
+    }
+  },
+  "fertility_wish_shape": [
+    {
+      "value": 0.1,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3d]",
+      "as_of": "2026-10-09",
+      "note": "p_0, weight of the wish for no child."
+    },
+    {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3d]",
+      "as_of": "2026-10-09",
+      "note": "p_1, weight of the wish for one child."
+    },
+    {
+      "value": 0.4,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3d]",
+      "as_of": "2026-10-09",
+      "note": "p_2, weight of the wish for two children."
+    },
+    {
+      "value": 0.25,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3d]",
+      "as_of": "2026-10-09",
+      "note": "p_3, weight of the wish for three children."
+    },
+    {
+      "value": 0.1,
+      "unit": "fraction",
+      "source": "docs/genetik-spezifikation.md 11.3 [K11.3d]",
+      "as_of": "2026-10-09",
+      "note": "p_4, weight of the wish for four children; the shape has mean 2.10 [W11.3a]."
+    }
+  ],
+  "leave_home_ages": [
+    {
+      "value": 0.02,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_0, weight of leaving home at 16 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.03,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_1, weight of leaving home at 17 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.3,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_2, weight of leaving home at 18 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_3, weight of leaving home at 19 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_4, weight of leaving home at 20 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.1,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_5, weight of leaving home at 21 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.08,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_6, weight of leaving home at 22 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.05,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_7, weight of leaving home at 23 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.04,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_8, weight of leaving home at 24 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25."
+    },
+    {
+      "value": 0.03,
+      "unit": "fraction",
+      "source": "Dario 2026-10-11, AskUserQuestion: early, like The Sims",
+      "as_of": "2026-10-11",
+      "note": "w_9, weight of leaving home at 25 (ADR-0018 section 4); each person draws its age of leaving once (LEAVE_HOME) from the ten weights of the ages 16 to 25. The table has mean about 19.8 years."
+    }
+  ]
+}
