@@ -287,3 +287,95 @@ pub fn autosomal_map(n: u64, direction: &str, rate: f64) -> Data {
     let genome_map = json!({"format_version": 2, "map_version": 1, "traits": [], "loci": loci});
     Data::new(definitions(calibration, genome_map).expect("definitions")).expect("checked")
 }
+
+/// The frequencies of the alternative allele at the seven pool loci the golden pool `pool`
+/// was made with, as `Data::with_pool` takes them (slice S2a of the map-4 switch; the
+/// reference's `arrival_reference.pool_frequencies`): the values of
+/// `tests/golden/pool/pool_frequencies.json` for `pool_a`, `pool_b`, `pool_c` (and every
+/// pool changed from it), `pool_e` and `pool_f`; for `pool_d` those of its pool run
+/// `frequent_alleles` (`tools/pool_reference.py`).
+#[allow(dead_code, reason = "not every test crate loads a pool")]
+pub fn pool_frequencies(
+    pool: &str,
+) -> std::collections::BTreeMap<sim_core::data_id::DataId, sim_core::finite::FiniteF64> {
+    let values: Vec<(String, f64)> = match pool {
+        "pool_a" | "pool_b" | "pool_c" | "pool_e" | "pool_f" => {
+            let file: Value = serde_json::from_str(include_str!(
+                "../../../../tests/golden/pool/pool_frequencies.json"
+            ))
+            .expect("json");
+            file["pool_frequencies"]
+                .as_object()
+                .expect("the entries")
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry["value"].as_f64().expect("a value")))
+                .collect()
+        }
+        "pool_d" => [
+            ("core:disease_ar", 0.4),
+            ("core:disease_ad_late", 0.3),
+            ("core:disease_ad_partial", 0.35),
+            ("core:disease_xr", 0.45),
+            ("core:disease_mt", 0.25),
+            ("core:mc1r", 0.6),
+            ("core:herc2", 0.55),
+        ]
+        .map(|(id, q)| (id.to_owned(), q))
+        .to_vec(),
+        _ => panic!("no golden pool {pool}"),
+    };
+    values
+        .into_iter()
+        .map(|(id, q)| {
+            (
+                sim_core::data_id::DataId::new(&id).expect("id"),
+                sim_core::finite::FiniteF64::try_new(q).expect("finite"),
+            )
+        })
+        .collect()
+}
+
+/// Alleles that name every locus of the data's map, in map order (Grok F1: a founder of
+/// `Start` draws every locus it does not name; the convention of the reference's
+/// `world_reference.fixed_alleles`): the copies of `named` where it names the locus, the
+/// reference allele on every copy elsewhere (`[0, 0]`, one `[0]` on a man's X and Y and on
+/// the mt; a woman names no Y locus). Such a founder draws nothing, so it has the genome its
+/// named alleles alone gave before F1.
+#[allow(
+    dead_code,
+    reason = "not every test crate builds founders on data that draw"
+)]
+pub fn fixed(
+    data: &Data,
+    sex: sim_core::genome::Sex,
+    named: &[sim_core::genome::LocusAlleles],
+) -> Vec<sim_core::genome::LocusAlleles> {
+    use sim_core::data::Chromosome;
+    use sim_core::genome::Sex;
+    let loci = &data.genome_map().loci;
+    for alleles in named {
+        assert!(
+            loci.iter().any(|locus| locus.id == alleles.locus),
+            "{} is no locus of the map",
+            alleles.locus.as_str()
+        );
+    }
+    loci.iter()
+        .filter_map(|locus| {
+            let copies = match (locus.chromosome, sex) {
+                (Chromosome::Autosome, _) | (Chromosome::X, Sex::Female) => 2,
+                (Chromosome::Y, Sex::Female) => 0,
+                (Chromosome::X | Chromosome::Y | Chromosome::Mt, _) => 1,
+            };
+            let given = named.iter().find(|alleles| alleles.locus == locus.id);
+            if copies == 0 {
+                assert!(given.is_none(), "a woman has no Y locus");
+                return None;
+            }
+            Some(sim_core::genome::LocusAlleles {
+                locus: locus.id.clone(),
+                copies: given.map_or_else(|| vec![0; copies], |alleles| alleles.copies.clone()),
+            })
+        })
+        .collect()
+}

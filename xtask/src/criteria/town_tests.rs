@@ -2,13 +2,18 @@
 //! criteria kit, section 7, fixture 3): run, export and report in Rust give the reference's
 //! verdicts, check by check; and what makes a report red.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
+use sim_core::finite::FiniteF64;
 use sim_core::time::SimTime;
 
 use super::*;
 
+const POOL_B: &[u8] = include_bytes!("../../../tests/golden/pool/pool_b.bin");
 const POOL_C: &[u8] = include_bytes!("../../../tests/golden/pool/pool_c.bin");
 const POOL_D: &[u8] = include_bytes!("../../../tests/golden/pool/pool_d.bin");
+const FREQUENCIES: &str = include_str!("../../../tests/golden/pool/pool_frequencies.json");
 const T1_REPORT: &str = include_str!("../../../tests/golden/criteria/t1_pool_d.report.json");
 const T2_REPORT: &str = include_str!("../../../tests/golden/criteria/t2_pool_c.report.json");
 
@@ -44,9 +49,84 @@ fn decisions(report: &Value) -> Vec<Value> {
     all
 }
 
+/// The frequencies this golden pool was made with, as `Data::with_pool` takes them (slice
+/// S2a of the map-4 switch): those of its pool run `frequent_alleles` for `pool_d`
+/// (`tools/pool_reference.py`), the file's (`tests/golden/pool/pool_frequencies.json`) for
+/// every other pool.
+fn frequencies(pool: &[u8]) -> BTreeMap<DataId, FiniteF64> {
+    let file: Value = serde_json::from_str(FREQUENCIES).expect("json");
+    let mut values: BTreeMap<String, f64> = file["pool_frequencies"]
+        .as_object()
+        .expect("the entries")
+        .iter()
+        .map(|(id, entry)| (id.clone(), entry["value"].as_f64().expect("a value")))
+        .collect();
+    if pool == POOL_D {
+        values = [
+            ("core:disease_ar", 0.4),
+            ("core:disease_ad_late", 0.3),
+            ("core:disease_ad_partial", 0.35),
+            ("core:disease_xr", 0.45),
+            ("core:disease_mt", 0.25),
+            ("core:mc1r", 0.6),
+            ("core:herc2", 0.55),
+        ]
+        .into_iter()
+        .map(|(id, q)| (id.to_owned(), q))
+        .collect();
+    }
+    values
+        .into_iter()
+        .map(|(id, q)| {
+            let q = FiniteF64::try_new(q).expect("finite");
+            (DataId::new(&id).expect("id"), q)
+        })
+        .collect()
+}
+
+/// The template of map 4 as a frozen map in the directory `dir`: its calibration with a
+/// `pool_frequencies` entry of the frequencies `pool` was made with (the file's texts), as
+/// the pre-run leaves it.
+fn frozen_template(dir: &Path, pool: &[u8]) {
+    let file: Value = serde_json::from_str(FREQUENCIES).expect("json");
+    let mut entry = file["pool_frequencies"].clone();
+    for (id, q) in frequencies(pool) {
+        entry[id.as_str()]["value"] = json!(q.get());
+    }
+    let mut calibration: Value = serde_json::from_str(include_str!(
+        "../../../tests/golden/map4_template/calibration/genetics.json"
+    ))
+    .expect("json");
+    calibration["pool_frequencies"] = entry;
+    for (path, text) in [
+        (
+            "calibration/genetics.json",
+            serde_json::to_string_pretty(&calibration).expect("json"),
+        ),
+        (
+            "genetics/genome_map.json",
+            include_str!("../../../tests/golden/map4_template/genetics/genome_map.json").to_owned(),
+        ),
+    ] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("a parent")).expect("a directory");
+        std::fs::write(&file, text).expect("written");
+    }
+}
+
+/// The town's data of `pool` on the template frozen with its frequencies.
+fn frozen_town_data(label: &str, pool: &[u8]) -> Result<Data> {
+    let dir = std::env::temp_dir().join(format!("simagent-{label}-{}", std::process::id()));
+    frozen_template(&dir, pool);
+    let data = town_data(&root(), &dir, pool);
+    std::fs::remove_dir_all(&dir).expect("removed");
+    data
+}
+
 /// A pool on the documents it was extracted from, whose data hash is its `frozen_hash`:
 /// `pool_c` on those of `father_dies` (with their own life course data), every other pool on
-/// the template with the repository's (design note of the pool's records, section 6).
+/// the template with the repository's (design note of the pool's records, section 6); with
+/// the frequencies it was made with.
 fn small_town_data(pool: &[u8]) -> sim_core::data::Data {
     let (demography, documents) = if pool == POOL_C {
         (
@@ -64,7 +144,7 @@ fn small_town_data(pool: &[u8]) -> sim_core::data::Data {
         crate::prerun::read_files(&root().join(documents)).expect("the documents");
     let definitions =
         crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions");
-    sim_core::data::Data::with_pool(definitions, pool).expect("checked")
+    sim_core::data::Data::with_pool(definitions, pool, frequencies(pool)).expect("checked")
 }
 
 /// The whole pipeline in Rust (data, run, export, report) decides every check of T1 and T2
@@ -154,40 +234,28 @@ fn the_command_names_its_three_paths() {
     }
 }
 
-/// A frozen map's calibration still holds `pool_frequencies` (the pre-run's file); the
-/// town's data drop them, as the pool was extracted without them: the same data as the
-/// calibration without the entry (review).
+/// A frozen map's calibration holds `pool_frequencies` (the pre-run's file); the town's
+/// data take the pool's frequencies from it, and they enter the data hash with the pool
+/// (slice S2a of the map-4 switch): the template frozen with the frequencies of a pool's run
+/// gives the reference's data hash (`pool_d` with those of `frequent_alleles`, `pool_b`
+/// with the file's). A calibration without the entry is an error: the pool does not load
+/// without its frequencies.
 #[test]
-fn the_towns_data_drop_the_pool_frequencies() {
+fn the_towns_data_take_the_pool_frequencies() {
     let template = root().join("tests/golden/map4_template");
-    let plain = town_data(&root(), &template, POOL_D).expect("the town's data");
-    let dir = std::env::temp_dir().join(format!("simagent-town-{}", std::process::id()));
-    let frequencies: Value = serde_json::from_str(include_str!(
-        "../../../tests/golden/pool/pool_frequencies.json"
-    ))
-    .expect("json");
-    let mut calibration: Value = serde_json::from_str(include_str!(
-        "../../../tests/golden/map4_template/calibration/genetics.json"
-    ))
-    .expect("json");
-    calibration["pool_frequencies"] = frequencies["pool_frequencies"].clone();
-    for (path, text) in [
-        (
-            "calibration/genetics.json",
-            serde_json::to_string_pretty(&calibration).expect("json"),
-        ),
-        (
-            "genetics/genome_map.json",
-            include_str!("../../../tests/golden/map4_template/genetics/genome_map.json").to_owned(),
-        ),
+    let error = town_data(&root(), &template, POOL_D).expect_err("no frequencies");
+    assert!(error.starts_with("pool.frequencies_loci"), "{error}");
+    for (label, pool, data_hash) in [
+        ("town-d", POOL_D, 0xeccf_f256_9ac1_2bb4),
+        ("town-b", POOL_B, 0x6bc8_a5d6_8de3_6a5e),
     ] {
-        let file = dir.join(path);
-        std::fs::create_dir_all(file.parent().expect("a parent")).expect("a directory");
-        std::fs::write(&file, text).expect("written");
+        let data = frozen_town_data(label, pool).expect("the town's data");
+        assert_eq!(data.hash(), data_hash, "{label}");
+        assert_eq!(
+            data.pool().expect("a pool").frequencies(),
+            &frequencies(pool)
+        );
     }
-    let stripped = town_data(&root(), &dir, POOL_D);
-    std::fs::remove_dir_all(&dir).expect("removed");
-    assert_eq!(stripped.expect("the town's data").hash(), plain.hash());
 }
 
 /// Grok GH-1: the open town is the criteria town without capacity, and it alone decides
@@ -230,8 +298,7 @@ fn t1() -> Plan {
 /// town beside the stale files of an earlier run (review).
 #[test]
 fn the_towns_write_nothing_unless_every_town_ran() {
-    let data = town_data(&root(), &root().join("tests/golden/map4_template"), POOL_D)
-        .expect("the town's data");
+    let data = frozen_town_data("towns-red-map", POOL_D).expect("the town's data");
     let dir = std::env::temp_dir().join(format!("simagent-towns-red-{}", std::process::id()));
     let failing = Plan {
         tag: "no namespace",
@@ -252,8 +319,7 @@ fn the_towns_write_nothing_unless_every_town_ran() {
 /// and the reds are those of the checks each town decides.
 #[test]
 fn the_towns_write_each_town_and_split_the_reds() {
-    let data = town_data(&root(), &root().join("tests/golden/map4_template"), POOL_D)
-        .expect("the town's data");
+    let data = frozen_town_data("towns-map", POOL_D).expect("the town's data");
     let dir = std::env::temp_dir().join(format!("simagent-towns-{}", std::process::id()));
     let runs: [Run; 2] = [
         (t1(), dir.clone(), decided_closed),

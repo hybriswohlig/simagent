@@ -13,11 +13,12 @@ use std::process::Command;
 
 use serde::Deserialize;
 use sim_cli::files::{self, Manifest, Scenario};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::canonical::YearHash;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 use sim_core::input::{ForkOverride, Input, PoolStart, Start};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
@@ -112,6 +113,27 @@ fn fork_run() -> Run {
 const ARRIVAL_GOLDEN: &str = include_str!("../../../tests/golden/arrival.json");
 const ARRIVAL_END: i64 = 14 * 31_449_600 - 1;
 
+/// The frequencies `pool_c` was made with (`tests/golden/pool/pool_frequencies.json`, its
+/// wrapped form, each `value`), as `Data::with_pool` takes them.
+fn pool_frequencies() -> BTreeMap<DataId, FiniteF64> {
+    let file: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/golden/pool/pool_frequencies.json"
+    ))
+    .expect("json");
+    file["pool_frequencies"]
+        .as_object()
+        .expect("the entries")
+        .iter()
+        .map(|(id, entry)| {
+            let q = entry["value"].as_f64().expect("a value");
+            (
+                DataId::new(id).expect("id"),
+                FiniteF64::try_new(q).expect("finite"),
+            )
+        })
+        .collect()
+}
+
 fn arrival_data() -> Data {
     let definitions = sim_cli::data::definitions_from(
         include_str!("../../../tests/golden/father_dies/calibration/demography.json"),
@@ -122,6 +144,7 @@ fn arrival_data() -> Data {
     Data::with_pool(
         definitions,
         include_bytes!("../../../tests/golden/pool/pool_c.bin"),
+        pool_frequencies(),
     )
     .expect("checked")
 }

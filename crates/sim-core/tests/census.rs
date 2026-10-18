@@ -74,7 +74,7 @@ fn fixtures() -> [(&'static str, &'static str, Data); 4] {
         (
             "b2_pool_b_start",
             include_str!("../../../tests/golden/census/b2_pool_b_start.json"),
-            pool_data(POOL_B),
+            pool_data("pool_b", POOL_B),
         ),
         (
             "c_prerun_small",
@@ -96,19 +96,21 @@ fn template_data() -> Data {
     Data::new(common::definitions(calibration, genome_map).expect("definitions")).expect("data")
 }
 
-/// The template with the pool of these bytes (`pool_b`, `pool_d`).
-fn pool_data(pool: &[u8]) -> Data {
+/// The template with the golden pool `name` of these bytes (`pool_b`, `pool_d`) and the
+/// frequencies it was made with.
+fn pool_data(name: &str, pool: &[u8]) -> Data {
     let (calibration, genome_map) = template();
     Data::with_pool(
         common::definitions(calibration, genome_map).expect("definitions"),
         pool,
+        common::pool_frequencies(name),
     )
     .expect("data")
 }
 
 /// `pool_c` on the documents it was extracted from: those of the pool run `father_dies`
 /// without `pool_frequencies` (`tests/golden/father_dies`), whose data hash is the pool's
-/// `frozen_hash`.
+/// `frozen_hash`; with the frequencies of the file, which `pool_c` was made with.
 fn pool_c_data() -> Data {
     let (calibration, genome_map) = common::files_from(
         include_str!("../../../tests/golden/father_dies/calibration/genetics.json"),
@@ -120,6 +122,7 @@ fn pool_c_data() -> Data {
     Data::with_pool(
         common::definitions_with(demography, calibration, genome_map).expect("definitions"),
         POOL_C,
+        common::pool_frequencies("pool_c"),
     )
     .expect("data")
 }
@@ -554,7 +557,7 @@ fn the_phenotype_view_is_the_references() {
 #[test]
 fn the_phenotype_view_of_a_child_of_one_pool_person() {
     let golden: Value = serde_json::from_str(RECORDS_PHENOTYPES).expect("json");
-    let data = pool_data(POOL_D);
+    let data = pool_data("pool_d", POOL_D);
     assert_eq!(data.hash(), hex_u64(&golden["data_hash"]));
     let scenario = serde_json::json!({"start": {
         "world_seed": "0000000000000006", "founder_tag": "test:arrival",
