@@ -5,7 +5,8 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use super::{DomainState, Sim, Slot, death, disease, household, partnership, years_between};
-use crate::data::Data;
+use crate::data::{Action, Chromosome, Data, PoolData};
+use crate::data_id::{DataId, str_key};
 use crate::genome::{AlleleError, Genome};
 use crate::ids::HouseholdId;
 use crate::input::{Founder, InputRejected, PoolStart, RejectCode, Start};
@@ -13,6 +14,7 @@ use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::params::NutritionYear;
 use crate::pool::take_households;
+use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::time::{MONTH, SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
@@ -135,6 +137,60 @@ fn founder_count(founders: usize) -> Option<u32> {
     u32::try_from(founders).ok()
 }
 
+/// The genome of a founder (Grok F1, P2 and P3): every locus it names as named, both copies;
+/// every other locus drawn, one draw per copy, allele 1 iff `u < q`, with `q = d_ref / 2` at
+/// an additive locus and the pool's frequency at the seven pool loci; every other locus, and
+/// the pool loci on data without a pool, keeps the reference allele. `FOUNDER_ALLELE` with
+/// the world seed, subject the founder's lineage key, occasion `str_key` of the locus, detail
+/// the copy as a gamete: 0 and 1 on an autosome and a woman's X, 0 on a man's X, 1 on the Y,
+/// 0 on the mt.
+fn founder_genome(data: &Data, world_seed: u64, key: LineageKey, founder: &Founder) -> Genome {
+    let mut genome = Genome::with_alleles(founder.sex, &founder.alleles, data)
+        .unwrap_or_else(|_| panic!("invariant start.founder_alleles"));
+    let named: BTreeSet<&DataId> = founder
+        .alleles
+        .iter()
+        .map(|alleles| &alleles.locus)
+        .collect();
+    let frequencies = data.pool().map(PoolData::frequencies);
+    let draws = Draws::new(WorldSeed::new(world_seed));
+    for locus in &data.genome_map().loci {
+        if named.contains(&locus.id) {
+            continue;
+        }
+        let q = match &locus.action {
+            Action::Additive(weights) => Some(weights.d_ref.get() / 2.0),
+            _ => frequencies
+                .and_then(|frequencies| frequencies.get(&locus.id))
+                .map(|q| q.get()),
+        };
+        let Some(q) = q else {
+            continue;
+        };
+        let copies = genome.copies(locus).len();
+        let details: &[u64] = match (locus.chromosome, copies) {
+            (_, 0) => continue,
+            (Chromosome::Y, _) => &[1],
+            (_, 2) => &[0, 1],
+            _ => &[0],
+        };
+        let drawn: Vec<u8> = details
+            .iter()
+            .map(|&detail| {
+                let u = draws.unit(DrawKey {
+                    tag: tags::FOUNDER_ALLELE,
+                    subject: SubjectKey::from(key),
+                    occasion: str_key(&locus.id),
+                    detail,
+                });
+                u8::from(u < q)
+            })
+            .collect();
+        genome.set_copies(locus, &drawn);
+    }
+    genome
+}
+
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
 /// 7). Then one creation entry per founder, in list order; the position in the list
 /// is the founder's index in its lineage key (ADR-0001 section 4). Per founder the first
@@ -195,9 +251,8 @@ pub(crate) fn apply_start(
     let mut ids = Vec::with_capacity(start.founders.len());
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
-        let genome = Genome::with_alleles(founder.sex, &founder.alleles, data)
-            .unwrap_or_else(|_| panic!("invariant start.founder_alleles"));
         let lineage_key = LineageKey::founder(&start.founder_tag, index);
+        let genome = founder_genome(data, start.world_seed, lineage_key, founder);
         domain.lineage.insert(lineage_key);
         let (id, added) = ctx.create_sim(
             LogPayload::FounderAdded { born, lineage_key },

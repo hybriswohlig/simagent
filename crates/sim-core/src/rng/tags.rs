@@ -128,6 +128,12 @@ pub const POOL_ALLELE: PurposeTag = PurposeTag::from_pinned_list(26);
 /// year for immigration, candidate the smallest lineage key of a member of 18 or more.
 pub const POOL_RANK: PurposeTag = PurposeTag::from_pinned_list(27);
 
+/// An allele of a founder of `Start` at a locus it does not name (Grok F1): alternative if
+/// `unit < q`, `q = d_ref / 2` at an additive locus, the pool's frequency at the seven pool
+/// loci. subject: the founder's lineage key; occasion: `str_key` of the locus; detail: the
+/// copy as a gamete (0 maternal, 1 paternal; Y 1, mt 0); the world seed.
+pub const FOUNDER_ALLELE: PurposeTag = PurposeTag::from_pinned_list(28);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -157,6 +163,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (PRERUN_ALLELE, "PRERUN_ALLELE"),
     (POOL_ALLELE, "POOL_ALLELE"),
     (POOL_RANK, "POOL_RANK"),
+    (FOUNDER_ALLELE, "FOUNDER_ALLELE"),
 ];
 
 /// Values of deleted tags; they are never used again.

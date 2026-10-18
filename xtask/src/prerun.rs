@@ -260,7 +260,8 @@ fn additive_loci(data: &Data) -> Vec<DataId> {
 
 /// The founder at place `index` of a run with these groups: women first, ages ascending,
 /// `j` within a group; born `a · YEAR + ((2 j + 1) · YEAR) div (2 c)` before the start;
-/// alleles at the additive loci by `PRERUN_ALLELE`. `None` beyond the last founder.
+/// alleles at every additive locus by `PRERUN_ALLELE`, each one named. `None` beyond the
+/// last founder.
 pub fn founder(
     data: &Data,
     groups: &[Group],
@@ -282,7 +283,7 @@ pub fn founder(
     let born = i64::from(group.age) * year + ((2 * j + 1) * year).div_euclid(2 * c);
     let alleles = additive_loci(data)
         .into_iter()
-        .filter_map(|locus| {
+        .map(|locus| {
             let copy = |detail: u64| {
                 let u = draws.unit(DrawKey {
                     tag: tags::PRERUN_ALLELE,
@@ -292,11 +293,10 @@ pub fn founder(
                 });
                 u8::from(u < 0.5)
             };
-            let copies = [copy(0), copy(1)];
-            (copies != [0, 0]).then(|| LocusAlleles {
-                locus,
-                copies: copies.to_vec(),
-            })
+            // Every additive locus is named, `[0, 0]` too: a founder of `Start` draws the
+            // loci it does not name (Grok F1), and the pre-run's draws are its own.
+            let copies = vec![copy(0), copy(1)];
+            LocusAlleles { locus, copies }
         })
         .collect();
     Some(Founder {
