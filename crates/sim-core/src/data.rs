@@ -559,6 +559,9 @@ pub struct PoolData {
     records: BTreeMap<LineageKey, usize>,
     /// Each unborn child: its household, its pregnancy there and its place in it.
     unborn: BTreeMap<LineageKey, (usize, usize, usize)>,
+    /// The frequencies of the alternative allele at the seven pool loci that travel with
+    /// the pool (design note of the map-4 switch, section 2).
+    frequencies: BTreeMap<DataId, FiniteF64>,
 }
 
 impl PoolData {
@@ -569,6 +572,11 @@ impl PoolData {
     /// `Pool::hash` of the file.
     pub const fn hash(&self) -> u64 {
         self.hash
+    }
+
+    /// The frequency of the alternative allele at each of the seven pool loci.
+    pub const fn frequencies(&self) -> &BTreeMap<DataId, FiniteF64> {
+        &self.frequencies
     }
 
     /// A record of the ancestors by its lineage key.
@@ -633,6 +641,10 @@ pub enum DataError {
     /// The pool was extracted from other data: its `frozen_hash` is not the hash of these
     /// data before the pool is appended (Grok K7 and P1, ADR-0020 section 10).
     PoolFrozenHash,
+    /// The pool's frequencies do not name exactly the seven pool loci.
+    PoolFrequenciesLoci,
+    /// A frequency of the pool is not strictly between 0 and 1.
+    PoolFrequencyRange,
 }
 
 impl fmt::Display for DataError {
@@ -668,6 +680,8 @@ impl fmt::Display for DataError {
             DataError::PoolSex => "pool.sex",
             DataError::PoolLocus => "pool.locus",
             DataError::PoolFrozenHash => "pool.frozen_hash",
+            DataError::PoolFrequenciesLoci => "pool.frequencies_loci",
+            DataError::PoolFrequencyRange => "pool.frequency_range",
         })
     }
 }
@@ -1615,14 +1629,20 @@ impl Data {
         })
     }
 
-    /// The definitions with a pool (design note of the arrival, section 2): the bytes of a
-    /// pool file, read with all its checks, then these checks in this order: every carer is
-    /// a member of its household, every genome fits its sex, the seven loci of the pool are
-    /// in the map, and the pool's `frozen_hash` is the hash of these definitions (the pool was
-    /// extracted from these data, Grok K7 and P1). The data hash then also covers the pool:
-    /// xxh3 of the definitions' bytes followed by the postcard bytes of
-    /// `(pool_seed, pool_hash)`.
-    pub fn with_pool(definitions: Definitions, pool_bytes: &[u8]) -> Result<Data, DataError> {
+    /// The definitions with a pool and its frequencies (design note of the arrival, section
+    /// 2; of the map-4 switch, sections 2 and 12): the bytes of a pool file, read with all its
+    /// checks, then these checks in this order: every carer is a member of its household,
+    /// every genome fits its sex, the seven loci of the pool are in the map, the pool's
+    /// `frozen_hash` is the hash of these definitions (the pool was extracted from these
+    /// data, Grok K7 and P1), the frequencies name exactly the seven loci, each `0 < q < 1`.
+    /// The data hash then also covers the pool: xxh3 of the definitions' bytes followed by
+    /// the postcard bytes of `(pool_seed, pool_hash, frequencies)`, the frequencies as
+    /// `(locus id, q)` ascending by id.
+    pub fn with_pool(
+        definitions: Definitions,
+        pool_bytes: &[u8],
+        frequencies: BTreeMap<DataId, FiniteF64>,
+    ) -> Result<Data, DataError> {
         let mut data = Data::new(definitions)?;
         let pool = Pool::from_bytes(pool_bytes).map_err(DataError::Pool)?;
         for household in &pool.households {
@@ -1647,9 +1667,8 @@ impl Data {
         if !fits {
             return Err(DataError::PoolSex);
         }
-        let loci_known = crate::pool::pool_loci()
-            .iter()
-            .all(|id| data.loci.contains_key(id));
+        let loci = crate::pool::pool_loci();
+        let loci_known = loci.iter().all(|id| data.loci.contains_key(id));
         if !loci_known {
             return Err(DataError::PoolLocus);
         }
@@ -1657,6 +1676,20 @@ impl Data {
         // appended below.
         if pool.frozen_hash != data.hash {
             return Err(DataError::PoolFrozenHash);
+        }
+        let wanted: alloc::collections::BTreeSet<&DataId> = loci.iter().collect();
+        if frequencies
+            .keys()
+            .collect::<alloc::collections::BTreeSet<_>>()
+            != wanted
+        {
+            return Err(DataError::PoolFrequenciesLoci);
+        }
+        if frequencies
+            .values()
+            .any(|q| !(q.get() > 0.0 && q.get() < 1.0))
+        {
+            return Err(DataError::PoolFrequencyRange);
         }
         let mut unborn = BTreeMap::new();
         for (h, household) in pool.households.iter().enumerate() {
@@ -1673,14 +1706,19 @@ impl Data {
             .map(|(place, record)| (record.lineage_key, place))
             .collect();
         let hash = pool.hash();
+        let listed: Vec<(&str, f64)> = frequencies
+            .iter()
+            .map(|(id, q)| (id.as_str(), q.get()))
+            .collect();
         let mut bytes = encode(&data.definitions);
-        bytes.extend(encode(&(pool.pool_seed, hash)));
+        bytes.extend(encode(&(pool.pool_seed, hash, listed)));
         data.hash = stable_hash64(&bytes);
         data.pool = Some(Arc::new(PoolData {
             pool,
             hash,
             records,
             unborn,
+            frequencies,
         }));
         Ok(data)
     }
