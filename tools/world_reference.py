@@ -342,6 +342,17 @@ What the model knows:
   changes). `World.kinship_query` returns the value with `S` and the pairs the recursion
   visited; with `depth=None` it counts every known ancestor (the rule before H2, only to
   show what the depth changes).
+- The founders' draw (Grok F1, P2 (a), P3 (a); design note of the switch to map 4, sections
+  2 and 12, slice S2b; core 39): a founder of `Start` keeps every locus it names (both
+  copies, as named; naming is per locus, `[0, 0]` included); every other locus is drawn,
+  one draw per founder, locus and copy, loci independent: `u = unit` of (the world seed,
+  FOUNDER_ALLELE = 28, the founder's lineage key, `str_key` of the locus, the copy as a
+  gamete: autosome 0 and 1, X 0 and 1 for a woman and 0 for a man, Y 1 for a man, mt 0),
+  the allele 1 iff `u < q`; `q = d_ref / 2` at an additive locus, the data's frequency at
+  the seven loci of the pool on data with frequencies, and no draw (the reference allele)
+  at every other locus and at the seven loci on data without frequencies
+  (`founder_alleles_drawn`). On map 3 (no additive locus, no frequencies) nothing is drawn.
+  `fixed_alleles` names every locus of a map (the reference where the caller names none).
 - Pool persons in the town (step 11; design note of the arrival, version 2; ADR-0020
   sections 4 and 5; tools/arrival_reference.py holds the scenarios and NOTES of it):
   - The data may hold a pool (`Data(..., pool=bytes)`): the bytes of a pool file read with
@@ -350,9 +361,14 @@ What the model knows:
     chromosome of the genome against the sex), `pool.locus` (one of the seven loci missing
     from the map), `pool.frozen_hash` (the pool's `frozen_hash` is not the data hash of
     these documents before the pool is appended; design note of the pool's records, section
-    6), in this order (`PoolDataRejected`). Without a pool the data hash stays;
-    with one it is xxh3 of the postcard of the definitions followed by `varint(pool_seed)
-    + varint(pool_hash)` (`pool_hash` = xxh3 of the file's bytes).
+    6), then the frequencies the data carry with the pool (`Data(..., pool=bytes,
+    frequencies={locus: q})`, slice S2a of the switch to map 4): `pool.frequencies_loci`
+    (exactly the seven loci), `pool.frequency_range` (`0 < q < 1`), in this order
+    (`PoolDataRejected`). Without a pool the data hash stays and there are no frequencies;
+    with one it is xxh3 of the postcard of the definitions followed by the postcard of
+    `(pool_seed, pool_hash, frequencies)` (`pool_hash` = xxh3 of the file's bytes, the
+    frequencies a sequence of (locus ID, q as f64) ascending by ID;
+    `data_reference.pool_suffix`); `frozen_hash` stays the hash of the definitions alone.
   - `Start` holds `pool: Option<PoolStart>` after `capacity` (`PoolStart { pool_hash: u64,
     n_start: u64, immigration: bool, households: Vec<PoolHousehold> }`, each household
     exactly as the file holds it, `pool_reference.encode_household`). Rejected after the
@@ -523,6 +539,14 @@ FOSTER_RANK = 23
 # detail the copy (0 maternal, 1 paternal), `u = unit`, the allele 1 if `u < 0.5`
 # (tools/prerun_reference.py draws them).
 PRERUN_ALLELE = 25
+# The draw of a founder's unnamed allele (Grok F1; design note of the switch to map 4,
+# sections 2 and 12, slice S2b): a founder of `Start` keeps every locus it names; every other
+# locus is drawn, one draw per founder, locus and copy: seed the world seed, subject the
+# founder's lineage key, occasion `str_key` of the locus, detail the copy as a gamete (0
+# maternal, 1 paternal), `u = unit`, the allele 1 iff `u < q` (`founder_alleles_drawn`). A
+# tag of its own, since the pre-run draws at 0.5 and F1 at `d_ref / 2` (ADR-0001: one tag per
+# place that draws).
+FOUNDER_ALLELE = 28
 
 # The projection of the households (design note of the households, section 2): the
 # counter of HouseholdId after that of PartnershipId, the households after the
@@ -537,8 +561,11 @@ PRERUN_ALLELE = 25
 # Pool persons in the town (design note of the arrival, sections 9 and 10): `pool` of Sim and
 # ArchivedSim, `Pregnancy.father` an option with `pool_father` after it, the used households
 # of the pool (projection 18); the core version and the save format rise with it (37, 2).
+# The frequencies of the pool in the data hash (S2a) and the founders' draw (F1, S2b) change
+# results without a new field: core 39, the projection stays 18 (design note of the switch
+# to map 4, section 12: one bump for both slices).
 PROJECTION_VERSION = 18
-CORE_VERSION = 38
+CORE_VERSION = 39
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -966,8 +993,9 @@ def whole_number(entry, unit: str) -> int:
 
 class PoolDataRejected(Exception):
     """The data check of a pool (design note of the arrival, section 2; design note of the
-    pool's records, section 6) rejects it: `code` is `pool.carer_not_member`, `pool.sex`,
-    `pool.locus` or `pool.frozen_hash`."""
+    pool's records, section 6; design note of the switch to map 4, section 12) rejects it:
+    `code` is `pool.carer_not_member`, `pool.sex`, `pool.locus`, `pool.frozen_hash`,
+    `pool.frequencies_loci` or `pool.frequency_range`."""
 
     def __init__(self, code: str, detail: str = ""):
         super().__init__(f"{code} {detail}".strip())
@@ -984,15 +1012,7 @@ class Invariant(Exception):
 
 
 # The seven loci of the pool (design note of the pool file, section 3), in its table's order.
-POOL_LOCI = (
-    "core:disease_ar",
-    "core:disease_ad_late",
-    "core:disease_ad_partial",
-    "core:disease_xr",
-    "core:disease_mt",
-    "core:mc1r",
-    "core:herc2",
-)
+POOL_LOCI = data_reference.POOL_LOCI
 
 
 def genome_from_raw(raw: tuple) -> dict:
@@ -1031,13 +1051,16 @@ class DataPool:
     a woman, Y for a man, differs from its sex), `pool.locus` (one of the seven loci missing
     from the map), `pool.frozen_hash` (the file's `frozen_hash` differs from `data_hash`, the
     hash of the data's documents before the pool's bytes are appended; the file's `data_hash`
-    is not read). Holds the seed, `E_p`, the hash (xxh3 of the bytes), the households, each
+    is not read), then the frequencies the data carry with the pool (S2a,
+    `data_reference.frequencies_rejection`): `pool.frequencies_loci` (not exactly the seven
+    loci), `pool.frequency_range` (a `q` not in (0, 1)). Holds the seed, `E_p`, the hash (xxh3
+    of the bytes), the frequencies {locus: q}, the households, each
     household's encoding (`pool_reference.encode_household`, what `Start` carries), its
     candidate (the smallest lineage key of a member of 18 or more at `E_p`, which the reader
     guarantees) and its number of members, and indices of the members, the unborn children
     and the records by lineage key."""
 
-    def __init__(self, data: bytes, loci: dict, data_hash: int):
+    def __init__(self, data: bytes, loci: dict, data_hash: int, frequencies: dict):
         import pool_reference
 
         self.bytes = data
@@ -1062,6 +1085,10 @@ class DataPool:
         if self.file["frozen_hash"] != data_hash:
             raise PoolDataRejected("pool.frozen_hash", f"pool {self.file['frozen_hash']:016x} data {data_hash:016x}")
         self.frozen_hash = self.file["frozen_hash"]
+        code = data_reference.frequencies_rejection(frequencies)
+        if code is not None:
+            raise PoolDataRejected(code, " ".join(f"{locus}={q!r}" for locus, q in sorted(frequencies.items())))
+        self.frequencies = {locus: float(frequencies[locus]) for locus in sorted(frequencies)}
         self.encoded = [pool_reference.encode_household(household) for household in self.households]
         self.candidates = []
         self.sizes = []
@@ -1095,22 +1122,27 @@ class Data:
     rates of twins `(p_id, p_fr)`), and what the meiosis reference reads:
     the map lengths, the sex ratio at birth, the map in its form and the mutation rates; the
     market's values with the weights of the similarity terms and the traits of cognition
-    and height (`PhenotypeTrait` or None)."""
+    and height (`PhenotypeTrait` or None). With a pool (`pool`, the file's bytes) the data
+    carry the pool's frequencies (`frequencies`, {locus: q}; S2a, design note of the switch
+    to map 4, section 12): `Data::with_pool(definitions, pool_bytes, frequencies)`. They travel
+    with the pool: data without a pool carry none (`pool_frequencies` None)."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None):
-        self.hash = data_reference.documents_hash(demography, calibration, genome_map)
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None):
+        definitions = data_reference.definitions_bytes(demography, calibration, genome_map)
+        self.hash = xxhash.xxh3_64_intdigest(definitions, seed=0)
+        assert self.hash == data_reference.documents_hash(demography, calibration, genome_map)
         self.loci = {locus["id"]: locus for locus in genome_map["loci"]}
-        # The pool of the data (design note of the arrival, section 2), or None.
+        # The pool of the data (design note of the arrival, section 2) with its frequencies,
+        # or None. The data hash with a pool: the definitions' postcard followed by the
+        # postcard of `(pool_seed, pool_hash, frequencies)` (`data_reference.pool_suffix`).
         self.pool = None
+        self.pool_frequencies = None
         if pool is not None:
-            self.pool = DataPool(pool, self.loci, self.hash)
-            definitions = (
-                data_reference.demography_bytes(data_reference.strip(demography))
-                + data_reference.calibration_bytes(data_reference.strip(calibration))
-                + data_reference.genome_map_bytes(data_reference.strip(genome_map))
-            )
-            assert xxhash.xxh3_64_intdigest(definitions, seed=0) == self.hash
-            self.hash = xxhash.xxh3_64_intdigest(definitions + varint(self.pool.seed) + varint(self.pool.hash), seed=0)
+            self.pool = DataPool(pool, self.loci, self.hash, {} if frequencies is None else dict(frequencies))
+            self.pool_frequencies = self.pool.frequencies
+            self.hash = data_reference.data_hash_with_pool(definitions, self.pool.seed, self.pool.hash, self.pool.frequencies)
+        else:
+            assert frequencies is None, "the frequencies travel with the pool"
         # What the measurement reads (design note of the measurement, section 1): every trait
         # of the map in map order as its terms, and the loci of the mean doses, those whose
         # action is `additive`, in map order (decision 1 of the notes of the measurement: a
@@ -1448,6 +1480,107 @@ def founder_genome(sex: bytes, genes, loci=None) -> dict:
     else:
         person["paternal_sex"] = {"y": y}
     return person
+
+
+def named_alleles(genes) -> list:
+    """The loci a founder names, as `Start` lists them (`postcard_reference.founder_alleles`):
+    the pair at `core:disease_ar` (from `genotype`; (0, 0) names nothing) or the list of
+    (locus, copies) as given, a pair `[0, 0]` included."""
+    if isinstance(genes, tuple):
+        return [] if genes == (0, 0) else [("core:disease_ar", list(genes))]
+    return [(locus, list(copies)) for locus, copies in genes]
+
+
+def founder_gametes(locus: dict, sex: bytes) -> list:
+    """The copies a founder of `sex` has at `locus`, as gamete numbers in the order of its
+    `copies` (design note of the switch to map 4, section 2): autosome 0 and 1; X 0 and 1 for a
+    woman, 0 for a man; Y 1 for a man, none for a woman; mt 0."""
+    chromosome = locus["chromosome"]
+    if chromosome == "autosome":
+        return [0, 1]
+    if chromosome == "x":
+        return [0, 1] if sex == FEMALE else [0]
+    if chromosome == "y":
+        return [1] if sex == MALE else []
+    assert chromosome == "mt", chromosome
+    return [0]
+
+
+def fixed_alleles(loci: dict, sex: bytes, named=()) -> list:
+    """Alleles that name every locus of the map (`loci` by ID, in map order) a founder of
+    `sex` carries: the copies of `named` (a list of (locus, copies)) where it names the locus,
+    the reference allele on every copy elsewhere (`[0, 0]`, one `[0]` on a man's X, his Y and
+    the mt; a woman names no Y locus). Under F1 such a founder draws nothing, so it has the
+    genome its named alleles alone gave before F1 (the convention of the pins for the test
+    fixtures with additive loci, design note of the switch to map 4, section 2, I-d)."""
+    named = dict(named_alleles(list(named)))
+    assert set(named) <= set(loci), sorted(set(named) - set(loci))
+    out = []
+    for locus_id, locus in loci.items():
+        gametes = founder_gametes(locus, sex)
+        if not gametes:
+            assert locus_id not in named, f"{locus_id}: no copy for this sex"
+            continue
+        copies = list(named.get(locus_id, [0] * len(gametes)))
+        assert len(copies) == len(gametes), (locus_id, copies)
+        out.append((locus_id, copies))
+    return out
+
+
+def founder_allele_q(data, locus: dict):
+    """`q` of a founder's draw at an unnamed locus (Grok F1, P2 (a)): `d_ref / 2` at an
+    additive locus (the map's `d_ref`, divided once in f64, exact); at one of the seven loci of
+    the pool the data's frequency if the data carry frequencies (data with a pool); None (the
+    reference allele, no draw) at every other locus: a recessive or dominant locus, a
+    threshold locus, and the seven loci on data without frequencies."""
+    action = locus["action"]
+    if isinstance(action, dict) and "additive" in action:
+        return float(action["additive"]["d_ref"]) / 2.0
+    frequencies = data.pool_frequencies
+    if frequencies is not None and locus["id"] in frequencies:
+        return frequencies[locus["id"]]
+    return None
+
+
+def founder_allele_unit(seed: int, key: int, locus_id: str, gamete: int) -> float:
+    """`u = unit` of the draw (the world seed, FOUNDER_ALLELE, the founder's lineage key,
+    `str_key` of the locus, the gamete), as PRERUN_ALLELE is drawn
+    (`prerun_reference.alleles_of`)."""
+    return unit(words(chacha_key(seed, FOUNDER_ALLELE, key, str_key(locus_id), gamete))[0])
+
+
+def founder_alleles_drawn(data, seed: int, key: int, sex: bytes, genes) -> tuple:
+    """A founder's alleles under F1: (the named loci as `Start` lists them, the drawn loci as
+    (locus, copies) in map order, the draws as (locus, gamete, q, u, allele) in map order then
+    gamete order). Every locus the founder names keeps its copies (both copies as named,
+    Grok P3 (a): naming is per locus); every other locus whose `q` is not None
+    (`founder_allele_q`) is drawn, one draw per copy, loci independent: the allele 1 iff `u <
+    q`."""
+    named = named_alleles(genes)
+    names = {locus for locus, _ in named}
+    drawn, draws = [], []
+    for locus_id, locus in data.loci.items():
+        if locus_id in names:
+            continue
+        q = founder_allele_q(data, locus)
+        gametes = founder_gametes(locus, sex)
+        if q is None or not gametes:
+            continue
+        copies = []
+        for gamete in gametes:
+            u = founder_allele_unit(seed, key, locus_id, gamete)
+            allele = 1 if u < q else 0
+            copies.append(allele)
+            draws.append((locus_id, gamete, q, u, allele))
+        drawn.append((locus_id, copies))
+    return named, drawn, draws
+
+
+def drawn_founder_genome(data, seed: int, key: int, sex: bytes, genes) -> dict:
+    """The genome of a founder of `Start` under F1 (`founder_alleles_drawn`): its named loci
+    and its drawn loci, every other slot the reference allele (`founder_genome`)."""
+    named, drawn, _ = founder_alleles_drawn(data, seed, key, sex, genes)
+    return founder_genome(sex, named + drawn, data.loci)
 
 
 def copy_genome(person: dict) -> dict:
@@ -2142,6 +2275,9 @@ class World:
             pool_start_bytes(pool),
         )
         self.inputs = [signed(-1) + varint(1) + start]
+        # The draws of the founders' unnamed alleles (F1), per sim: (locus, gamete, q, u,
+        # allele); for the stories, not state (the genome holds the alleles).
+        self.founder_draws = {}
         self._start(founders)
         for woman, man in couples:
             self._partner(woman + 1, man + 1, [variant(2, varint(1))], 0, at_start=True)
@@ -3535,7 +3671,11 @@ class World:
             key = founder_key(self.tag, index)
             subject = variant(0, varint(sim))
             added = self._entry(now, [subject], [by_input], variant(1, signed(born), lineage_key(key)))
-            person = founder_genome(sex, genes, self.data.loci)
+            # Its genome under F1 (S2b): the loci it names, every other locus drawn with
+            # FOUNDER_ALLELE where it has a `q` (`founder_alleles_drawn`).
+            named, drawn, draws = founder_alleles_drawn(self.data, self.seed, key, sex, genes)
+            person = founder_genome(sex, named + drawn, self.data.loci)
+            self.founder_draws[sim] = draws
             # A founder's origin is the start (B19); its age at the creation `now − born`.
             afflictions = self.afflictions_of(key, sex, person, now, None, now - born)
             # Household, moved out, carer and social parents are set after the founders and
@@ -5060,6 +5200,153 @@ EMPTY_PROJECTION = (
 EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 
 
+# ---------------------------------------------------------------------------------------
+# Known answers of the founders' draw (F1, FOUNDER_ALLELE = 28; slice S2b of the switch to
+# map 4): `--founder-alleles`.
+
+# The scenario, fixed before any run: the template of map 4 (tests/golden/map4_template with
+# the repository's life course data) with the pool pool_b (made on the template, so its
+# `frozen_hash` is the template's hash) and the frequencies it was made with
+# (tests/golden/pool/pool_frequencies.json); world seed 0x28, founder tag
+# `test:founder_allele`, the switch on, no couples, no capacity, `pool` None (founders on
+# data with a pool are allowed; a `PoolStart` with founders is not). Founder 0 a woman of
+# 30, founder 1 a man of 32, both naming nothing; founder 2 a woman of 30 who names
+# `core:herc2` [0, 0], where her draws give allele 1 (asserted).
+F1_SEED = 0x28
+F1_TAG = "test:founder_allele"
+F1_LOCI = ("core:growth_01", "core:cognition_01", "core:disease_ar", "core:herc2", "core:mc1r", "core:disease_xr", "core:disease_mt")
+F1_NAMED = "core:herc2"
+
+
+def f1_data() -> Data:
+    golden = ROOT / "tests" / "golden"
+    frequencies = data_reference.frequencies_file(golden / "pool" / "pool_frequencies.json")
+    return Data(*data_reference.documents(golden / "map4_template"), pool=(golden / "pool" / "pool_b.bin").read_bytes(), frequencies=frequencies)
+
+
+def f1_founders() -> list:
+    return [(-30 * YEAR, FEMALE, []), (-32 * YEAR, MALE, []), (-30 * YEAR, FEMALE, [(F1_NAMED, [0, 0])])]
+
+
+def founder_allele_rows() -> list:
+    """The known answers of FOUNDER_ALLELE: per founder and chosen locus the draws (gamete,
+    `q` and `u` with their bits, the allele), the founder's genome after `Start` (postcard,
+    `genome_of`) and the number of its alleles 1, the `Start` input record (length, xxh3), the
+    projection after `Start` (state hash), and the checks: founder 2's `[0, 0]` at
+    `core:herc2` stays where her draws give 1; a man draws one X copy (gamete 0), everyone one
+    mt copy (gamete 0); map 4 has no Y locus; the same founders on data without frequencies
+    (the template alone) draw only the additive loci; on map 3 (data/) nothing is drawn. Then
+    the share of allele 1 over 10 000 founders at an additive locus of the template (`q` =
+    0.5) against 4 standard errors (genetics specification 8.1)."""
+    data = f1_data()
+    rows = [
+        f"founder_allele scenario data tests/golden/map4_template + pool_b + tests/golden/pool/pool_frequencies.json data_hash {data.hash:016x}"
+        f" frozen_hash {data.pool.frozen_hash:016x} pool_hash {data.pool.hash:016x} seed {F1_SEED:#x} tag {F1_TAG} tag_value {FOUNDER_ALLELE}",
+        "founder_allele frequencies " + " ".join(f"{locus}={q!r}" for locus, q in data.pool_frequencies.items()),
+    ]
+    assert not any(locus["chromosome"] == "y" for locus in data.loci.values()), "map 4 has no Y locus"
+    founders = f1_founders()
+    world = World(F1_SEED, F1_TAG, True, founders, (), data)
+    for index, (born, sex, genes) in enumerate(founders):
+        sim = index + 1
+        key = founder_key(F1_TAG, index)
+        assert world.sims[sim][1] == key
+        draws = world.founder_draws[sim]
+        drawn_loci = sorted({locus for locus, *_ in draws})
+        rows.append(
+            f"founder_allele founder {index} sex {'female' if sex == FEMALE else 'male'} born {born} key {key:016x} names {named_alleles(genes)}"
+            f" draws {len(draws)} drawn_loci {len(drawn_loci)}"
+        )
+        for locus_id in F1_LOCI:
+            locus = data.loci[locus_id]
+            mine = [d for d in draws if d[0] == locus_id]
+            copies = copies_at(world.sims[sim][3], locus)
+            if not mine:
+                rows.append(f"founder_allele founder {index} locus {locus_id} chromosome {locus['chromosome']} not drawn copies {copies}")
+                continue
+            assert [d[1] for d in mine] == founder_gametes(locus, sex)
+            assert [d[4] for d in mine] == copies
+            for _, gamete, q, u, allele in mine:
+                assert u == founder_allele_unit(F1_SEED, key, locus_id, gamete)
+                rows.append(
+                    f"founder_allele founder {index} locus {locus_id} chromosome {locus['chromosome']} str_key {str_key(locus_id):016x}"
+                    f" gamete {gamete} q {q!r} q_bits {struct_bits(q)} u {u!r} u_bits {struct_bits(u)} allele {allele}"
+                )
+        genome = genome_of(world.sims[sim][3])
+        ones = sum(sum(copies_at(world.sims[sim][3], locus)) for locus in data.loci.values())
+        rows.append(f"founder_allele founder {index} genome_bytes {len(genome)} ones {ones} genome {genome.hex()}")
+    # Founder 2 names core:herc2 [0, 0]; her draws there (the same address as without the
+    # name) would give 1.
+    key2 = founder_key(F1_TAG, 2)
+    would = [1 if founder_allele_unit(F1_SEED, key2, F1_NAMED, g) < data.pool_frequencies[F1_NAMED] else 0 for g in (0, 1)]
+    assert 1 in would and copies_at(world.sims[3][3], data.loci[F1_NAMED]) == [0, 0]
+    unnamed = World(F1_SEED, F1_TAG, True, founders[:2] + [(founders[2][0], FEMALE, [])], (), data)
+    assert copies_at(unnamed.sims[3][3], data.loci[F1_NAMED]) == would
+    assert all(copies_at(unnamed.sims[3][3], locus) == copies_at(world.sims[3][3], locus) for locus_id, locus in data.loci.items() if locus_id != F1_NAMED)
+    rows.append(
+        f"founder_allele named_zero founder 2 locus {F1_NAMED} named [0, 0] keeps [0, 0]; unnamed it draws {would}"
+        f" (u {[repr(founder_allele_unit(F1_SEED, key2, F1_NAMED, g)) for g in (0, 1)]}); every other locus equal"
+    )
+    record = world.inputs[0]
+    rows.append(f"founder_allele start_input bytes {len(record)} xxh3 {hash64(record):016x} hex {record.hex()}")
+    rows.append(f"founder_allele after_start state_hash {world.state_hash():016x} log_hash {world.log_hash():016x} save_bytes {len(world.save())} save_xxh3 {hash64(world.save()):016x}")
+    # The same founders on the template without a pool: no frequencies, so the seven loci keep
+    # the reference allele and only the 121 additive loci are drawn (P2 (a)).
+    plain = Data(*data_reference.documents(ROOT / "tests" / "golden" / "map4_template"))
+    no_q = World(F1_SEED, F1_TAG, True, founders, (), plain)
+    for sim in (1, 2, 3):
+        assert {locus for locus, *_ in no_q.founder_draws[sim]} == {locus["id"] for locus in plain.measured_loci}
+        for locus_id in POOL_LOCI:
+            assert copies_at(no_q.sims[sim][3], plain.loci[locus_id]) == [0] * len(founder_gametes(plain.loci[locus_id], no_q.sims[sim][2]))
+        for locus in plain.measured_loci:
+            assert copies_at(no_q.sims[sim][3], locus) == copies_at(world.sims[sim][3], locus), "the additive draws do not depend on the frequencies"
+    rows.append(
+        f"founder_allele without_frequencies data tests/golden/map4_template data_hash {plain.hash:016x}: founders 0 to 2 draw the {len(plain.measured_loci)} additive loci only,"
+        f" the seven loci of the pool keep the reference allele, the additive alleles are those above"
+    )
+    rows.append(f"founder_allele without_frequencies genomes " + " ".join(genome_of(no_q.sims[sim][3]).hex() for sim in (1, 2, 3)))
+    # `q = d_ref / 2` away from 0.5 and a threshold locus: the fixture with traits
+    # (tests/golden/data_traits: `test:g1` additive `d_ref` 1.25, `test:f1` 1.0, `test:p1` 0.0,
+    # `test:g2` a threshold locus with `d_ref` 0.5, the disease locus recessive), founders 0 and
+    # 1 of the scenario naming nothing: the three additive loci are drawn at 0.625, 0.5 and 0.0
+    # (never 1: `u < 0` never holds), the threshold and the recessive locus keep the reference
+    # allele (no draw, though the threshold locus has a `d_ref`).
+    traits = Data(*data_reference.documents(ROOT / "tests" / "golden" / "data_traits"))
+    on_traits = World(F1_SEED, F1_TAG, True, founders[:2], (), traits)
+    for sim in (1, 2):
+        draws = on_traits.founder_draws[sim]
+        assert {locus for locus, *_ in draws} == {locus["id"] for locus in traits.measured_loci}
+        for locus_id, gamete, q, u, allele in draws:
+            assert q == float(traits.loci[locus_id]["action"]["additive"]["d_ref"]) / 2.0
+            rows.append(
+                f"founder_allele data_traits founder {sim - 1} locus {locus_id} gamete {gamete} q {q!r} q_bits {struct_bits(q)}"
+                f" u {u!r} u_bits {struct_bits(u)} allele {allele}"
+            )
+        rows.append(
+            f"founder_allele data_traits founder {sim - 1} not drawn "
+            + " ".join(f"{locus_id}={copies_at(on_traits.sims[sim][3], locus)}" for locus_id, locus in traits.loci.items() if locus_id not in {d[0] for d in draws})
+            + f" genome {genome_of(on_traits.sims[sim][3]).hex()}"
+        )
+    map3 = World(F1_SEED, F1_TAG, True, founders[:2], (), REPOSITORY)
+    assert all(map3.founder_draws[sim] == [] for sim in (1, 2))
+    rows.append(f"founder_allele map3 data data/ data_hash {REPOSITORY.hash:016x}: nothing drawn (no additive locus, no frequencies)")
+    # The share at q = 0.5 over 10 000 founders (gamete 0 at core:growth_01, women).
+    locus_id, n = "core:growth_01", 10_000
+    q = founder_allele_q(data, data.loci[locus_id])
+    ones = sum(1 for index in range(n) if founder_allele_unit(F1_SEED, founder_key(F1_TAG, index), locus_id, 0) < q)
+    se = math.sqrt(q * (1.0 - q) / n)
+    share = ones / n
+    assert abs(share - q) <= 4.0 * se, (share, q, se)
+    rows.append(f"founder_allele share locus {locus_id} gamete 0 founders 0 to {n - 1} of {F1_TAG} seed {F1_SEED:#x} q {q!r} ones {ones} share {share!r} se {se!r} within 4 se")
+    return rows
+
+
+if __name__ == "__main__" and "--founder-alleles" in __import__("sys").argv:
+    for row in founder_allele_rows():
+        print(row)
+    raise SystemExit(0)
+
+
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
     print(f"data_hash_repository {REPOSITORY.hash:016x}")
@@ -5213,6 +5500,7 @@ if __name__ == "__main__":
         ("cause", "4", "random"),
         ("tag", str(EMIGRATION), "EMIGRATION"),
         ("tag", str(PRERUN_ALLELE), "PRERUN_ALLELE"),
+        ("tag", str(FOUNDER_ALLELE), "FOUNDER_ALLELE"),
         ("class", "emigration", str(EMIGRATION_CLASS)),
         ("kind", "emigration", str(EMIGRATION_KIND)),
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),

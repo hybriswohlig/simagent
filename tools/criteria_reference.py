@@ -2279,7 +2279,9 @@ def town_world(name: str):
     # The documents its pool was extracted from (design note of the pool's records, section 6):
     # the documents of father_dies for pool_c, the template for pool_d.
     documents = ar.pool_documents(pool_name)
-    world = ar.make_world(ar.town_data(ar.golden_pool(pool_name), documents), seed, n_start, immigration, switch)
+    # With the frequencies the pool was made with (slice S2a): those of `frequent_alleles`
+    # for pool_d, the file's for pool_c.
+    world = ar.make_world(ar.town_data(ar.golden_pool(pool_name), documents, ar.pool_frequencies(pool_name)), seed, n_start, immigration, switch)
     for year in range((end + 1) // YEAR):
         world.advance(min((year + 1) * YEAR - 1, end))
     assert world.closed == end

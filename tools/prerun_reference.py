@@ -40,8 +40,13 @@ its founders, a run and its measurement, the iteration and its stop, the frozen 
    index)`, `index` its place in `Start`. Its alleles: at every additive locus of the
    pre-run map (map order), copies 0 (maternal) and 1 (paternal), `u = unit` of the draw
    (the run's world seed, `PRERUN_ALLELE` = 25, the founder's lineage key, `str_key` of the
-   locus, the copy); the allele 1 iff `u < 0.5`; the founder lists the loci where a copy is
-   1, in map order, each with both copies `[m, p]`.
+   locus, the copy); the allele 1 iff `u < 0.5`; the founder names every additive locus of the
+   pre-run map, in map order, each with both copies `[m, p]`, `[0, 0]` included (Grok F1;
+   design note of the switch to map 4, section 2, I-c, slice S2b: under F1 a founder draws
+   every locus it does not name, an additive one at `d_ref / 2`; naming every additive locus
+   draws nothing, and the pre-run data have no other locus that draws, since they carry no
+   frequencies and no locus of the pool, so the run stays as it was, only `Start` lists the
+   loci at `[0, 0]` too).
 3. A run (note section 3): `World(seed, founder_tag, switch on, the founders, no couples,
    the pre-run data, capacity N)` (tools/world_reference.py, which knows the traits of
    longevity and of the puberty timing since this slice), run to `Y · YEAR − 1` (the last
@@ -403,13 +408,11 @@ def founder_order(count: dict) -> list:
 def alleles_of(seed: int, key: int, loci: list) -> list:
     """The founder's alleles (note section 2): per additive locus of the pre-run map in map
     order, `[m, p]` with copy `d` 1 iff `unit(PRERUN_ALLELE, key, str_key(locus), d) <
-    0.5`; only the loci where a copy is 1."""
-    listed = []
-    for locus in loci:
-        copies = [1 if unit(words(chacha_key(seed, PRERUN_ALLELE, key, str_key(locus), copy_))[0]) < 0.5 else 0 for copy_ in (0, 1)]
-        if any(copies):
-            listed.append((locus, copies))
-    return listed
+    0.5`; every additive locus, `[0, 0]` included (F1: an unnamed one would be drawn)."""
+    return [
+        (locus, [1 if unit(words(chacha_key(seed, PRERUN_ALLELE, key, str_key(locus), copy_))[0]) < 0.5 else 0 for copy_ in (0, 1)])
+        for locus in loci
+    ]
 
 
 def genotype_text(alleles: list, loci: list) -> str:

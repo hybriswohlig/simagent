@@ -105,13 +105,38 @@ def pool_documents(name: str) -> tuple:
     return pool_reference.town_documents(name)
 
 
-def town_data(pool: bytes, documents=None) -> wr.Data:
-    return wr.Data(*(template_documents() if documents is None else documents), pool=pool)
+# The frequencies of the pool's loci the data carry with a pool (slice S2a of the switch to
+# map 4, design note of the switch, section 12): those a pool was made with. The file of the
+# tests (the note's values, design note of the pool file, section 3).
+FILE_FREQUENCIES = data_reference.frequencies_file(POOLS / "pool_frequencies.json")
+
+
+def pool_frequencies(name: str) -> dict:
+    """{locus: q} of the golden pool `name`: the `pool_frequencies` of the documents its run
+    was made on (`pool_reference.run_documents`). That is the file of the tests
+    (tests/golden/pool/pool_frequencies.json, asserted) for every pool but `pool_d`, whose
+    run's scenario `frequent_alleles` changes only them."""
+    demography, calibration, genome_map = pool_reference.run_documents(name)
+    q = pool_reference.check_pool_frequencies(calibration, genome_map)
+    assert (q == FILE_FREQUENCIES) == (name != "pool_d"), name
+    return q
+
+
+def town_data(pool: bytes, documents=None, frequencies=None) -> wr.Data:
+    """The data of a town with the pool `pool` (bytes) on `documents` (the template of map 4
+    by default) and the frequencies `frequencies` (the file of the tests by default: every pool
+    made from pool_c and the golden pools but pool_d)."""
+    return wr.Data(
+        *(template_documents() if documents is None else documents),
+        pool=pool,
+        frequencies=FILE_FREQUENCIES if frequencies is None else frequencies,
+    )
 
 
 def golden_town_data(name: str) -> wr.Data:
-    """The data of a town that loads the golden pool `name`, on its documents."""
-    return town_data(golden_pool(name), pool_documents(name))
+    """The data of a town that loads the golden pool `name`, on its documents, with its
+    frequencies."""
+    return town_data(golden_pool(name), pool_documents(name), pool_frequencies(name))
 
 
 def with_carried_at_frozen(pool: bytes, member_key: int, field: str) -> bytes:
@@ -815,12 +840,14 @@ def modified_pool(changes) -> bytes:
 
 def data_rejection_rows() -> list:
     """Each pool the data check rejects (note section 2, in its order; `pool.frozen_hash` after
-    `pool.locus`, design note of the pool's records, section 6), from pool_c on its own
-    documents (`father_dies`, so that a row of an earlier check breaks only that check; a map
-    without a locus has another data hash as well, so the locus rows also break
-    `pool.frozen_hash`, which is checked after), the rows of K7, and the reader's rejected
-    files of tests/golden/pool/reject, which the data cannot hold either. Each row's code is
-    asserted."""
+    `pool.locus`, design note of the pool's records, section 6; then the frequencies,
+    `pool.frequencies_loci` and `pool.frequency_range`, slice S2a of the switch to map 4), from
+    pool_c on its own documents (`father_dies`, so that a row of an earlier check breaks only
+    that check; a map without a locus has another data hash as well, so the locus rows also
+    break `pool.frozen_hash`, which is checked after) with the file's frequencies unless the row
+    says otherwise, the rows of K7, and the reader's rejected files of tests/golden/pool/reject,
+    which the data cannot hold either. Each row's code is asserted. A frequency row names its
+    frequencies in `how` (the file's with the change); its pool is pool_c."""
     file = pool_reference.read_pool(golden_pool(ARRIVAL_POOL))
     # A dependent child of household 21 and a member of household 20.
     (child,) = [m for m in file["households"][21]["members"] if m["carer"] is not None]
@@ -863,18 +890,53 @@ def data_rejection_rows() -> list:
         ("order_locus_before_frozen_hash", golden_pool(ARRIVAL_POOL), without_locus(template, "core:mc1r"), "pool.locus", "pool_c on the template without core:mc1r: both"),
         ("order_sex_before_frozen_hash", modified_pool(sex), template, "pool.sex", "pool_c with household 0's member's sex flipped on the template: both"),
     ]
+    # pool_d is made with the frequencies of `frequent_alleles` (its row fails at frozen_hash
+    # before they are read); every other row of the pool checks has the file's.
+    cases = [case + (pool_frequencies(KIN_POOL) if case[0] == "frozen_hash_pool_d_on_father_dies" else FILE_FREQUENCIES,) for case in cases]
+
+    def with_q(**changes) -> dict:
+        out = dict(FILE_FREQUENCIES)
+        for locus, q in changes.items():
+            locus = "core:" + locus
+            if q is None:
+                del out[locus]
+            else:
+                out[locus] = q
+        return out
+
+    pool_c = golden_pool(ARRIVAL_POOL)
+    extra = dict(FILE_FREQUENCIES, **{"core:growth_01": 0.5})
+    cases += [
+        ("frequencies_none", pool_c, own, "pool.frequencies_loci", "pool_c with no frequencies (an empty map)", {}),
+        ("frequencies_herc2_missing", pool_c, own, "pool.frequencies_loci", "the file's frequencies without core:herc2", with_q(herc2=None)),
+        ("frequencies_disease_mt_missing", pool_c, own, "pool.frequencies_loci", "the file's frequencies without core:disease_mt", with_q(disease_mt=None)),
+        ("frequencies_one_more", pool_c, own, "pool.frequencies_loci", "the file's frequencies and core:growth_01 0.5 (a locus of the map, not of the pool)", extra),
+        ("frequencies_unknown_locus", pool_c, own, "pool.frequencies_loci", "the file's frequencies and test:unknown 0.5 (no locus of the map)", dict(FILE_FREQUENCIES, **{"test:unknown": 0.5})),
+        ("frequency_zero", pool_c, own, "pool.frequency_range", "core:mc1r 0.0", with_q(mc1r=0.0)),
+        ("frequency_one", pool_c, own, "pool.frequency_range", "core:mc1r 1.0", with_q(mc1r=1.0)),
+        ("frequency_negative", pool_c, own, "pool.frequency_range", "core:disease_ar -0.1", with_q(disease_ar=-0.1)),
+        ("frequency_above_one", pool_c, own, "pool.frequency_range", "core:herc2 1.5", with_q(herc2=1.5)),
+        ("frequency_smallest_above_zero_accepted_twin", pool_c, own, None, "core:disease_ad_late 5e-324 (the smallest f64 above 0) and core:herc2 0.9999999999999999 (the largest below 1): accepted", with_q(disease_ad_late=5e-324, herc2=0.9999999999999999)),
+        ("order_frozen_hash_before_frequencies_loci", pool_c, template, "pool.frozen_hash", "pool_c on the template with no frequencies: both", {}),
+        ("order_frozen_hash_before_frequency_range", pool_c, template, "pool.frozen_hash", "pool_c on the template with core:mc1r 0.0: both", with_q(mc1r=0.0)),
+        ("order_locus_before_frequencies_loci", pool_c, without_locus(own, "core:herc2"), "pool.locus", "the map without core:herc2 and the frequencies without it: both", with_q(herc2=None)),
+        ("order_frequencies_loci_before_frequency_range", pool_c, own, "pool.frequencies_loci", "core:herc2 missing and core:mc1r 0.0: both", with_q(herc2=None, mc1r=0.0)),
+    ]
     rows = []
-    for name, pool, documents, code, how in cases:
+    for name, pool, documents, code, how, frequencies in cases:
         try:
-            wr.Data(*documents, pool=pool)
+            data = wr.Data(*documents, pool=pool, frequencies=frequencies)
         except wr.PoolDataRejected as error:
             assert error.code == code, (name, error.code, code)
             rows.append(f"data_reject {name} code {error.code} how {how} pool_bytes {len(pool)} pool_hash {hexed(hash64(pool))} pool {pool.hex()}")
             continue
+        if code is None:
+            rows.append(f"data_accept {name} how {how} data_hash {hexed(data.hash)} suffix {data_reference.pool_suffix(data.pool.seed, data.pool.hash, data.pool.frequencies).hex()}")
+            continue
         raise AssertionError(f"the data check accepts {name}")
     for path in sorted((POOLS / "reject").glob("*.bin")):
         try:
-            wr.Data(*template, pool=path.read_bytes())
+            wr.Data(*template, pool=path.read_bytes(), frequencies=FILE_FREQUENCIES)
         except pool_reference.Rejected as error:
             rows.append(f"data_reject_reader {path.name} rule {error.rule}")
             continue
@@ -1163,8 +1225,13 @@ def leave_home_at_start_rows() -> list:
 
 # A world started with founders and no pool (the template of map 4 without a pool): a couple
 # and two old founders; at 16934400 the woman is pregnant and both old founders have died.
+# Under F1 (slice S2b) a founder draws every locus it does not name; these founders name every
+# locus of the template at the reference allele (`wr.fixed_alleles`, map order), so they keep
+# the genomes they had and the world its story (design note of the switch to map 4, section 2,
+# I-d); only `Start` and the saves change.
 FOUNDERS_SEED = 0xFF
-FOUNDERS = [(-25 * YEAR, FEMALE, []), (-27 * YEAR, wr.MALE, []), (-88 * YEAR, FEMALE, []), (-90 * YEAR, wr.MALE, [])]
+TEMPLATE_LOCI = {locus["id"]: locus for locus in data_reference.documents(TEMPLATE)[2]["loci"]}
+FOUNDERS = [(born, sex, wr.fixed_alleles(TEMPLATE_LOCI, sex)) for born, sex in ((-25 * YEAR, FEMALE), (-27 * YEAR, wr.MALE), (-88 * YEAR, FEMALE), (-90 * YEAR, wr.MALE))]
 FOUNDERS_COUPLES = [(0, 1)]
 FOUNDERS_CLOCK = 16934400
 
@@ -2048,7 +2115,7 @@ def pool_field_rows() -> list:
     rows.append(f"pool_field_base arrival_save_after_pool_child_without_father clock {child_world.closed} pin {pin(c_base)} (the row arrival_save_after_pool_child_without_father)")
     rows.append(
         f"pool_field_base founders_world clock {founders.closed} pin {pin(f_base)} data template of map 4 without a pool data_hash {hexed(plain.hash)}"
-        f" seed {hexed(FOUNDERS_SEED)} tag {TAG} switch on founders {[(born, 'female' if sex == FEMALE else 'male', genes) for born, sex, genes in FOUNDERS]}"
+        f" seed {hexed(FOUNDERS_SEED)} tag {TAG} switch on founders {[(born, 'female' if sex == FEMALE else 'male', f'every locus of the template [0, 0]: {len(genes)}') for born, sex, genes in FOUNDERS]}"
         f" couples {FOUNDERS_COUPLES} pool None start_input {f_start.hex()} save {f_base.hex()}"
     )
 
@@ -2322,7 +2389,7 @@ def code_rows() -> list:
     ]
     for code in wr.NEW_CODE_LINES_OF_THE_ARRIVAL:
         rows.append(f"line_for_log_codes reject {code} {wr.REJECT_NAMES[code]}")
-    rows.append("arrival_invariants pool.empty pool.carried_before_arrival; data checks pool.carer_not_member pool.sex pool.locus pool.frozen_hash")
+    rows.append("arrival_invariants pool.empty pool.carried_before_arrival; data checks pool.carer_not_member pool.sex pool.locus pool.frozen_hash pool.frequencies_loci pool.frequency_range")
     template = template_documents()
     plain = wr.Data(*template)
     rows.append(f"data_hash template_without_pool {hexed(plain.hash)}")
@@ -2331,22 +2398,29 @@ def code_rows() -> list:
     rows.append(f"data_hash father_dies_without_pool {hexed(wr.Data(*father_dies).hash)} (the documents of pool_c's scenario without pool_frequencies)")
     # Each golden pool on its own documents (design note of the pool's records, section 6):
     # the data hash before the pool is the pool's frozen_hash, then the pool appended.
+    # With the frequencies the pool was made with (S2a): the data hash is the definitions'
+    # postcard followed by the postcard of (pool_seed, pool_hash, frequencies), `appended`.
     for name, _, _, scenario in pool_reference.RUNS:
         pool = golden_pool(name)
         documents = pool_documents(name)
         label = "template" if documents == template else scenario
-        data = town_data(pool, documents)
+        data = town_data(pool, documents, pool_frequencies(name))
         assert data.pool.frozen_hash == wr.Data(*documents).hash
+        appended = data_reference.pool_suffix(data.pool.seed, data.pool.hash, data.pool.frequencies)
+        definitions = data_reference.definitions_bytes(*documents)
+        assert data.hash == hash64(definitions + appended)
         rows.append(
             f"data_hash {label}_with_{name} {hexed(data.hash)} frozen_hash {hexed(data.pool.frozen_hash)} pool_seed {hexed(data.pool.seed)} pool_hash {hexed(data.pool.hash)}"
-            f" appended {(varint(data.pool.seed) + varint(data.pool.hash)).hex()} households {len(data.pool.households)} members {sum(data.pool.sizes)}"
+            f" appended {appended.hex()} households {len(data.pool.households)} members {sum(data.pool.sizes)}"
+            f" frequencies {'file' if data.pool.frequencies == FILE_FREQUENCIES else 'frequent_alleles'}"
         )
     # K7 (design note of the pool's records, section 3, tests/arrival.rs): pool_c on the plain
     # template is rejected, on the documents of father_dies accepted; pool_d (its scenario
-    # changes only pool_frequencies, outside the hash) on the template accepted.
+    # changes only pool_frequencies, outside the definitions and so outside `frozen_hash`;
+    # since S2a inside the data hash with the pool) on the template accepted.
     for name, documents, label in (("pool_c", template, "template"), ("pool_c", father_dies, "father_dies"), ("pool_d", template, "template")):
         try:
-            data = town_data(golden_pool(name), documents)
+            data = town_data(golden_pool(name), documents, pool_frequencies(name))
         except wr.PoolDataRejected as error:
             assert (name, label, error.code) == ("pool_c", "template", "pool.frozen_hash"), (name, label, error.code)
             rows.append(f"k7 {name} on {label} rejected code {error.code} frozen_hash {hexed(pool_reference.read_pool(golden_pool(name))['frozen_hash'])} documents_hash {hexed(wr.Data(*documents).hash)}")

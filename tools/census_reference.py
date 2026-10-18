@@ -661,8 +661,10 @@ def held_founders(data: wr.Data, documents: tuple, seed: int, founders: list) ->
     body = BodyCensusData(data, documents)
     out = []
     for index, (born, sex, genes) in enumerate(founders):
-        genome = wr.founder_genome(sex, genes, data.loci)
         key = founder_key(A_TAG, index)
+        # The founder's genome under F1 (slice S2b): (a) names every locus, so nothing is drawn.
+        genome = wr.drawn_founder_genome(data, seed, key, sex, genes)
+        assert genome == wr.founder_genome(sex, genes, data.loci)
         z_h = wr.phenotype(seed, body.traits["core:growth"], genome, key, None, 0)
         z_p = wr.phenotype(seed, body.traits["core:puberty"], genome, key, None, 0)
         if abs(z_h) > 6.0 or abs(z_p) > 6.0:
@@ -813,7 +815,8 @@ DOCUMENTS_NOTE = {
 
 def pool_fixture(pool_name: str, seed: int, n_start: int, immigration: bool, years: int, nutrition, snapshot_years) -> tuple:
     documents = arrival_reference.pool_documents(pool_name)
-    data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents)
+    # With the frequencies the pool was made with (slice S2a of the switch to map 4).
+    data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents, arrival_reference.pool_frequencies(pool_name))
     world = wr.World(seed, arrival_reference.TAG, True, [], (), data, pool=wr.pool_start(data, seed, n_start, immigration), nutrition=nutrition)
     body = BodyCensusData(data, documents)
     assert body.accepted, body.reason
@@ -1180,7 +1183,8 @@ def a_world() -> tuple:
 
 def pool_world(pool_name: str, seed: int, n_start: int, immigration: bool, nutrition) -> tuple:
     documents = arrival_reference.pool_documents(pool_name)
-    data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents)
+    # With the frequencies the pool was made with (slice S2a of the switch to map 4).
+    data = arrival_reference.town_data(arrival_reference.golden_pool(pool_name), documents, arrival_reference.pool_frequencies(pool_name))
     world = wr.World(seed, arrival_reference.TAG, True, [], (), data, pool=wr.pool_start(data, seed, n_start, immigration), nutrition=nutrition)
     return world, documents
 

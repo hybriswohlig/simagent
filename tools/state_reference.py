@@ -2281,7 +2281,12 @@ def similar_founders() -> list:
     return founders
 
 
-SIMILAR_FOUNDERS = similar_founders()
+# Under F1 (Grok; slice S2b of the switch to map 4, core 39) a founder draws every locus it
+# does not name, an additive one at `d_ref / 2`; so every founder here names every locus of
+# the fixture (`world_reference.fixed_alleles`: map order, the scenario's copies where it
+# names the locus, the reference allele elsewhere). Nothing is drawn, the genomes and the
+# story stay; `Start` and the saves change.
+SIMILAR_FOUNDERS = [(born, sex, world_reference.fixed_alleles(PAIRING_FIXTURE.loci, sex, genes)) for born, sex, genes in similar_founders()]
 SIMILAR_KEYS = [founder_key(SIMILAR_TAG, index) for index in range(len(SIMILAR_FOUNDERS))]
 # The generator gives frequencies near 0.5 (960 bits per sex).
 _ones = sum(sum(copies) for _, _, genes in SIMILAR_FOUNDERS for _, copies in genes)
@@ -3965,7 +3970,14 @@ def liability_alleles(doses: list) -> list:
     return [(f"test:liability_{n}", [1, 1] if dose == 2 else [1, 0]) for n, dose in enumerate(doses, start=1) if dose]
 
 
+# Under F1 (Grok; slice S2b of the switch to map 4, core 39) a founder draws every locus it
+# does not name, an additive one at `d_ref / 2`; so every founder here names every locus of
+# the fixture (`world_reference.fixed_alleles`: map order, the scenario's copies where it
+# names the locus, the reference allele elsewhere). Nothing is drawn, the genomes and the
+# story stay; `Start` and the saves change.
 THRESHOLD_FOUNDERS = [
+    (born, sex, world_reference.fixed_alleles(THRESHOLD_DATA.loci, sex, genes))
+    for born, sex, genes in [
     (-24 * YEAR, FEMALE, liability_alleles([2] * 8)),
     (-26 * YEAR, MALE, liability_alleles([2] * 8)),
     (-24 * YEAR, FEMALE, liability_alleles([1] * 8)),
@@ -3974,6 +3986,7 @@ THRESHOLD_FOUNDERS = [
     (-40 * YEAR, MALE, liability_alleles([2] * 8)),
     (-45 * YEAR, FEMALE, [("core:disease_ad_late", [1, 0])] + liability_alleles([2] * 8)),
     (-30 * YEAR, MALE, []),
+    ]
 ]
 THRESHOLD_COUPLES = [(0, 1), (2, 3), (4, 7)]
 
@@ -4694,7 +4707,14 @@ def measure_alleles(doses: dict) -> list:
     return [(locus, list(doses[locus])) for locus in MEASURE_LOCI if locus in doses and any(doses[locus])]
 
 
+# Under F1 (Grok; slice S2b of the switch to map 4, core 39) a founder draws every locus it
+# does not name, an additive one at `d_ref / 2`; so every founder here names every locus of
+# the fixture (`world_reference.fixed_alleles`: map order, the scenario's copies where it
+# names the locus, the reference allele elsewhere). Nothing is drawn, the genomes and the
+# story stay; `Start` and the saves change.
 MEASURE_FOUNDERS = [
+    (born, sex, world_reference.fixed_alleles(MEASURE_DATA.loci, sex, genes))
+    for born, sex, genes in [
     (-22 * YEAR, FEMALE, measure_alleles({"test:g1": (1, 1), "test:f1": (1, 0), "test:p1": (1, 1)})),
     (-25 * YEAR, MALE, measure_alleles({"test:g1": (0, 1), "test:f1": (1, 1), "test:g2": (1, 0)})),
     (-24 * YEAR, FEMALE, measure_alleles({"test:f1": (0, 1), "test:g2": (1, 1), "test:p1": (1, 0)})),
@@ -4705,6 +4725,7 @@ MEASURE_FOUNDERS = [
     (-23 * YEAR, MALE, measure_alleles({"test:g1": (1, 1), "test:f1": (0, 1), "test:g2": (0, 1), "test:p1": (1, 1)})),
     (-75 * YEAR, FEMALE, measure_alleles({"test:g1": (1, 0), "test:f1": (1, 0), "test:g2": (1, 0), "test:p1": (1, 0)})),
     (-78 * YEAR, MALE, []),
+    ]
 ]
 MEASURE_COUPLES = [(0, 1), (2, 3), (4, 5), (8, 9)]
 MEASURE_KEYS = [founder_key(MEASURE_TAG, index) for index in range(len(MEASURE_FOUNDERS))]
