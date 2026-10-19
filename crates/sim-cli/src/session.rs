@@ -245,6 +245,27 @@ impl Session {
                 year_hashes.len()
             )));
         }
+        // Each row whole: as many integers as the header has columns, and the line end
+        // after the last; a row cut off in its last cell keeps the count of lines.
+        let columns = census_header().split(',').count();
+        let whole = |row: &str| {
+            let cells: Vec<&str> = row.split(',').collect();
+            cells.len() == columns && cells.iter().all(|cell| cell.parse::<i64>().is_ok())
+        };
+        if !census.ends_with('\n') || !census.lines().skip(1).all(whole) {
+            return Err(inconsistent("census.csv has a row cut off".to_owned()));
+        }
+        let scenario: Option<Scenario> =
+            files::parse_strict(files::read_text(&dir.join(files::SCENARIO))?.trim_end());
+        let fits = scenario.is_some_and(|scenario| {
+            scenario.format_version == files::FORMAT_VERSION
+                && scenario.start.world_seed == manifest.world_seed
+        });
+        if !fits {
+            return Err(inconsistent(
+                "scenario.resolved.json is not the scenario of this run".to_owned(),
+            ));
+        }
         Ok(Session {
             world,
             out: YearOut {
@@ -276,8 +297,10 @@ impl Session {
 
     /// Applies inputs at the stop of a resumed run and opens the input log again. All of
     /// them are applied before anything is written: a rejected one ends the run with its
-    /// code, and the files stay as they were.
+    /// code, and the files stay as they were. A log already open gets the new records
+    /// appended.
     pub fn submit_at_stop(&mut self, inputs: Vec<Input>) -> Result<(), CliError> {
+        let recorded = self.world.input_log().len();
         let dir = self.dir.clone();
         for input in inputs {
             let pending = input.clone();
@@ -290,7 +313,15 @@ impl Session {
             )?
             .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
         }
-        self.reopen()?;
+        if self.stopped {
+            self.reopen()?;
+        } else {
+            let new: String = self.world.input_log()[recorded..]
+                .iter()
+                .map(record_line)
+                .collect();
+            files::append(&self.path(files::INPUT_LOG), &new)?;
+        }
         self.drain()
     }
 
@@ -326,6 +357,7 @@ impl Session {
 
     /// Applies one input of a replay and compares its stamp with the recorded one.
     pub fn replay_input(&mut self, record: InputRecord) -> Result<(), CliError> {
+        self.reopen()?;
         let (t, seq) = (record.t, record.seq.get());
         let dir = self.dir.clone();
         let pending = record.input.clone();
@@ -350,6 +382,7 @@ impl Session {
         input: Input,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<(), CliError> {
+        self.reopen()?;
         let dir = self.dir.clone();
         let pending = input.clone();
         crate::repro::guarded(
@@ -371,6 +404,7 @@ impl Session {
     /// does a fork up to its fork point.
     pub fn advance(&mut self, limit: SimTime) -> Result<(), CliError> {
         check_limit(self.world.closed_through(), limit)?;
+        self.reopen()?;
         while self.world.closed_through() < limit {
             let year_by_year = self.years_compared < self.years_to_compare();
             let step = if year_by_year {
@@ -461,12 +495,10 @@ impl Session {
     }
 
     /// A stop the run can go on from (the server's, after each request): the end line, the
-    /// manifest and the save, as at an orderly end, without ending the session. The next
-    /// input or advance opens the input log again (`reopen`).
+    /// manifest, the save and the scenario, as at an orderly end, without ending the
+    /// session. The next input or advance opens the input log again (`reopen`).
     pub fn checkpoint(&mut self, scenario: &Scenario) -> Result<(), CliError> {
-        self.write_stop(scenario)?;
-        self.stopped = true;
-        Ok(())
+        self.write_stop(scenario)
     }
 
     /// Opens the input log again after a `checkpoint`; nothing to do otherwise.
@@ -478,15 +510,19 @@ impl Session {
         Ok(())
     }
 
-    /// The end line, the manifest and the save. Manifest and save each go to a fresh file
-    /// renamed over the old one (`files::replace`): each is whole, old or new; between
-    /// the files a crash leaves an inconsistency the next open reports (ADR-0021
-    /// section 2), never a silently wrong run.
-    fn write_stop(&self, scenario: &Scenario) -> Result<(), CliError> {
-        let end = LogEnd {
-            end: self.world.closed_through(),
-        };
-        files::append(&self.path(files::INPUT_LOG), &(files::json(&end) + "\n"))?;
+    /// The end line (once: a log already stopped has it), the manifest, the save and the
+    /// scenario. Manifest, save and scenario each go to a fresh file renamed over the old
+    /// one (`files::replace`): each is whole, old or new; between the files a crash leaves
+    /// an inconsistency the next open reports (ADR-0021 section 2), never a silently wrong
+    /// run.
+    fn write_stop(&mut self, scenario: &Scenario) -> Result<(), CliError> {
+        if !self.stopped {
+            let end = LogEnd {
+                end: self.world.closed_through(),
+            };
+            files::append(&self.path(files::INPUT_LOG), &(files::json(&end) + "\n"))?;
+            self.stopped = true;
+        }
         let manifest = Manifest {
             format_version: files::FORMAT_VERSION,
             core_version: CORE_VERSION,
@@ -504,11 +540,15 @@ impl Session {
             .world
             .save(&self.out.year_hashes)
             .map_err(|error| CliError::new("save_failed", files::code(&error)))?;
-        files::replace(&self.path(files::SAVE), &save)
+        files::replace(&self.path(files::SAVE), &save)?;
+        files::replace(
+            &self.path(files::SCENARIO),
+            (files::json(scenario) + "\n").as_bytes(),
+        )
     }
 
     /// The orderly end: the end line, the manifest, the save, the scenario.
-    pub fn finish(self, scenario: &Scenario) -> Result<(), CliError> {
+    pub fn finish(mut self, scenario: &Scenario) -> Result<(), CliError> {
         if let Compare::Replay(expected) = &self.compare {
             let (got, want) = (self.out.year_hashes.len(), expected.year_hashes.len());
             if got != want {
@@ -546,9 +586,7 @@ impl Session {
                 return Err(CliError::new("fork_parent_inconsistent", detail));
             }
         }
-        self.write_stop(scenario)?;
-        let resolved = files::json(scenario) + "\n";
-        files::write(&self.path(files::SCENARIO), resolved.as_bytes())
+        self.write_stop(scenario)
     }
 }
 
@@ -565,19 +603,29 @@ fn input_log_matches(dir: &Path, world: &World) -> Result<(), CliError> {
     };
     let text = files::read_text(&dir.join(files::INPUT_LOG))?;
     let lines: Vec<&str> = text.lines().collect();
-    let (Some(_header), Some(end)) = (lines.first(), lines.last().filter(|_| lines.len() > 1))
+    let (Some(first), Some(last)) = (lines.first(), lines.last().filter(|_| lines.len() > 1))
     else {
         return Err(inconsistent("is not the input log"));
     };
-    let records = &lines[1..lines.len() - 1];
-    let saved: Vec<String> = (world.input_log().iter()).map(files::json).collect();
-    if records != saved.as_slice() {
+    // The header of this format, core and data; its build commit is only informative.
+    let header: Option<LogHeader> = files::parse_strict(first);
+    let fits = header.is_some_and(|header| {
+        header.format_version == files::FORMAT_VERSION
+            && header.core_version == CORE_VERSION
+            && header.data_hash == world.data().hash()
+    });
+    if !fits {
+        return Err(inconsistent("has not the header"));
+    }
+    let records: Option<Vec<InputRecord>> = lines[1..lines.len() - 1]
+        .iter()
+        .map(|line| files::parse_strict(line))
+        .collect();
+    if records.as_deref() != Some(world.input_log()) {
         return Err(inconsistent("does not hold exactly the inputs"));
     }
-    let stop = LogEnd {
-        end: world.closed_through(),
-    };
-    if *end != files::json(&stop) {
+    let end: Option<LogEnd> = files::parse_strict(last);
+    if end.is_none_or(|end| end.end != world.closed_through()) {
         return Err(inconsistent("does not end at the last second"));
     }
     Ok(())

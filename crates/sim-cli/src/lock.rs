@@ -15,16 +15,28 @@ pub struct RunLock {
     _file: File,
 }
 
-/// `<run>.lock` beside the directory `dir`.
+/// `<run>.lock` beside the directory `dir`, by the directory's real path: a link to a run
+/// takes the run's own lock. A run that does not exist yet is named by its parent's real
+/// path and its own name.
 pub fn lock_path(dir: &Path) -> Result<PathBuf, CliError> {
     let absolute = std::path::absolute(dir).map_err(|e| CliError::io(dir, &e))?;
-    let name = absolute
+    let real = match std::fs::canonicalize(&absolute) {
+        Ok(real) => real,
+        Err(_) => {
+            let name = absolute.file_name().unwrap_or_default();
+            match absolute.parent().map(std::fs::canonicalize) {
+                Some(Ok(parent)) => parent.join(name),
+                _ => absolute.clone(),
+            }
+        }
+    };
+    let name = real
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| {
             CliError::new("usage", format!("{} names no run directory", dir.display()))
         })?;
-    Ok(absolute.with_file_name(format!("{name}.lock")))
+    Ok(real.with_file_name(format!("{name}.lock")))
 }
 
 impl RunLock {
