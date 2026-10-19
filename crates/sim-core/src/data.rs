@@ -1706,10 +1706,7 @@ impl Data {
             .map(|(place, record)| (record.lineage_key, place))
             .collect();
         let hash = pool.hash();
-        let listed: Vec<(&str, f64)> = frequencies
-            .iter()
-            .map(|(id, q)| (id.as_str(), q.get()))
-            .collect();
+        let listed: Vec<(&DataId, f64)> = frequencies.iter().map(|(id, q)| (id, q.get())).collect();
         let mut bytes = encode(&data.definitions);
         bytes.extend(encode(&(pool.pool_seed, hash, listed)));
         data.hash = stable_hash64(&bytes);
