@@ -52,8 +52,9 @@ fn parse(name: &str, text: &str) -> Result<Value> {
     serde_json::from_str(text).map_err(|e| format!("web/{name}: {e}"))
 }
 
-/// Every problem of the files, in the order of the lockfile's keys; an error only if a file
-/// is no JSON or the allowlist has another format.
+/// Every problem of the files: the Node pin, the lockfile version, the root, then the
+/// packages in the order of the lockfile's keys; an error only if a file is no JSON or the
+/// allowlist has another format.
 pub fn check(files: &Files) -> Result<Vec<Problem>> {
     let package = parse("package.json", files.package)?;
     let lockfile = parse("package-lock.json", files.lockfile)?;
@@ -68,6 +69,8 @@ pub fn check(files: &Files) -> Result<Vec<Problem>> {
     let entries = lockfile["packages"]
         .as_object()
         .ok_or("web/package-lock.json: no packages")?;
+    let root = entries.get("").unwrap_or(&Value::Null);
+    problems.extend(root_problems(&package, root, &allowlist));
     for (key, entry) in entries.iter().filter(|(key, _)| !key.is_empty()) {
         problems.extend(entry_problems(key, entry, &allowlist));
     }
@@ -128,6 +131,69 @@ fn node_pin(nvmrc: &str, package: &Value, lockfile: &Value) -> Vec<Problem> {
         .collect()
 }
 
+/// The kinds of dependency a manifest declares.
+const DEPENDENCIES: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+];
+/// The scripts npm runs when it installs the root package.
+const INSTALL_SCRIPTS: [&str; 7] = [
+    "preinstall",
+    "install",
+    "postinstall",
+    "prepublish",
+    "preprepare",
+    "prepare",
+    "postprepare",
+];
+
+/// The root: what `package.json` declares is on the allowlist and is what the lockfile's
+/// root entry declares (`npm ci` installs the lockfile), and neither installs with a script.
+fn root_problems(
+    package: &Value,
+    root: &Value,
+    allowlist: &BTreeMap<String, String>,
+) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for kind in DEPENDENCIES {
+        let declared = package[kind].as_object().into_iter().flatten();
+        for (name, _) in declared.filter(|(name, _)| !allowlist.contains_key(*name)) {
+            problems.push(problem(
+                "unlisted_package",
+                format!("web/package.json {kind}: {name}"),
+            ));
+        }
+        if package[kind] != root[kind] {
+            problems.push(problem(
+                "manifest_mismatch",
+                format!(
+                    "{kind}: package.json {}, lockfile {}",
+                    package[kind], root[kind]
+                ),
+            ));
+        }
+    }
+    let scripts = package["scripts"].as_object().into_iter().flatten();
+    for (name, _) in scripts.filter(|(name, _)| INSTALL_SCRIPTS.contains(&name.as_str())) {
+        problems.push(problem(
+            "install_script",
+            format!("web/package.json scripts.{name}"),
+        ));
+    }
+    if root["hasInstallScript"] == true {
+        problems.push(problem("install_script", "the lockfile's root".to_owned()));
+    }
+    problems
+}
+
+/// The tarball of a package in the registry, as npm resolves it.
+fn tarball(name: &str, version: &str) -> String {
+    let base = name.rsplit('/').next().unwrap_or(name);
+    format!("{REGISTRY}{name}/-/{base}-{version}.tgz")
+}
+
 fn entry_problems(key: &str, entry: &Value, allowlist: &BTreeMap<String, String>) -> Vec<Problem> {
     // An alias keeps the real name in `name`; otherwise the last segment of the path is it.
     let last = key.rsplit("node_modules/").next().unwrap_or(key);
@@ -153,12 +219,18 @@ fn entry_problems(key: &str, entry: &Value, allowlist: &BTreeMap<String, String>
     if entry["hasInstallScript"] == true {
         problems.push(problem("install_script", at.clone()));
     }
+    // The tarball is the package's own, so the name is what installs: a link or a bundled
+    // package has none in the registry.
     let resolved = entry["resolved"].as_str().unwrap_or("");
     let integrity = entry["integrity"].as_str().unwrap_or("");
-    if !resolved.starts_with(REGISTRY) || !integrity.starts_with("sha512-") {
+    let local = entry["link"] == true || entry["inBundle"] == true;
+    if local || resolved != tarball(name, version) || !integrity.starts_with("sha512-") {
         problems.push(problem(
             "not_from_the_registry",
-            format!("{at}: resolved {resolved:?}, integrity {integrity:?}"),
+            format!(
+                "{at}: resolved {resolved:?}, integrity {integrity:?}, link {}, inBundle {}",
+                entry["link"], entry["inBundle"]
+            ),
         ));
     }
     problems
@@ -201,17 +273,21 @@ fn atom(tokens: &mut Tokens) -> Option<bool> {
             tokens.next_if_eq(&")").map(|_| inner)
         }
         ")" | "AND" | "OR" | "WITH" => None,
-        identifier => Some(LICENSES.contains(&identifier)),
+        // An SPDX identifier: letters, digits, `.` and `-`.
+        identifier => (identifier.bytes())
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+            .then(|| LICENSES.contains(&identifier)),
     }
 }
 
 /// The files by which npm, or another package manager, would install packages.
-const MANIFESTS: [&str; 6] = [
+const MANIFESTS: [&str; 7] = [
     "package.json",
     "package-lock.json",
     "npm-shrinkwrap.json",
     "yarn.lock",
     "pnpm-lock.yaml",
+    "bun.lock",
     "bun.lockb",
 ];
 /// The only manifests the repository may hold.
@@ -229,8 +305,12 @@ pub fn stray_manifests(paths: &[String]) -> Vec<Problem> {
         .collect()
 }
 
-/// The files below `root`, relative and with `/`, without `.git`, `target`, the private
-/// `docs` and every `node_modules`; symbolic links are not followed.
+/// The directories the walk leaves out: git's, cargo's, the private docs and the packages
+/// npm installed for `web/`.
+const NOT_WALKED: [&str; 4] = [".git", "target", "docs", "web/node_modules"];
+
+/// The files below `root`, relative to it, without [`NOT_WALKED`]; symbolic links are not
+/// followed.
 fn files_below(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for entry in entries {
@@ -238,13 +318,10 @@ fn files_below(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result {
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         let path = entry.path();
         let relative = crate::relative(root, &path);
-        let skipped = [".git", "target", "docs", "node_modules"]
-            .iter()
-            .any(|name| entry.file_name() == *name);
-        if kind.is_dir() && !skipped {
-            files_below(root, &path, found)?;
-        } else if !kind.is_dir() {
+        if !kind.is_dir() {
             found.push(relative);
+        } else if !NOT_WALKED.contains(&relative.as_str()) {
+            files_below(root, &path, found)?;
         }
     }
     Ok(())
