@@ -53,6 +53,9 @@ pub struct Session {
     compare: Compare,
     /// The block `fork` of the manifest, if this run is a fork: also after a resume.
     fork: Option<ForkInfo>,
+    /// The input log ends with its end line (after `checkpoint`): it must be opened again
+    /// before the run goes on.
+    stopped: bool,
 }
 
 /// The hash of the log in `events.ndjson` of a run directory (ADR-0004 section 8).
@@ -185,6 +188,7 @@ impl Session {
             years_compared: 0,
             compare,
             fork,
+            stopped: false,
         };
         let mut log = files::json(&header(session.world.data().hash())) + "\n";
         for record in session.world.input_log() {
@@ -227,6 +231,7 @@ impl Session {
                 "events.ndjson does not match the log hash of the manifest".to_owned(),
             ));
         }
+        input_log_matches(dir, &world)?;
         let census = files::read_text(&dir.join(files::CENSUS))?;
         if census.lines().next() != Some(census_header().as_str()) {
             return Err(inconsistent(
@@ -254,6 +259,8 @@ impl Session {
             years_compared: 0,
             compare: Compare::Nothing,
             fork: manifest.fork,
+            // An orderly end left the input log with its end line.
+            stopped: true,
         })
     }
 
@@ -283,7 +290,7 @@ impl Session {
             )?
             .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
         }
-        self.reopen_input_log()?;
+        self.reopen()?;
         self.drain()
     }
 
@@ -453,6 +460,53 @@ impl Session {
         Ok(())
     }
 
+    /// A stop the run can go on from (the server's, after each request): the end line, the
+    /// manifest and the save, as at an orderly end, without ending the session. The next
+    /// input or advance opens the input log again (`reopen`).
+    pub fn checkpoint(&mut self, scenario: &Scenario) -> Result<(), CliError> {
+        self.write_stop(scenario)?;
+        self.stopped = true;
+        Ok(())
+    }
+
+    /// Opens the input log again after a `checkpoint`; nothing to do otherwise.
+    pub fn reopen(&mut self) -> Result<(), CliError> {
+        if self.stopped {
+            self.reopen_input_log()?;
+            self.stopped = false;
+        }
+        Ok(())
+    }
+
+    /// The end line, the manifest and the save. Manifest and save each go to a fresh file
+    /// renamed over the old one (`files::replace`): each is whole, old or new; between
+    /// the files a crash leaves an inconsistency the next open reports (ADR-0021
+    /// section 2), never a silently wrong run.
+    fn write_stop(&self, scenario: &Scenario) -> Result<(), CliError> {
+        let end = LogEnd {
+            end: self.world.closed_through(),
+        };
+        files::append(&self.path(files::INPUT_LOG), &(files::json(&end) + "\n"))?;
+        let manifest = Manifest {
+            format_version: files::FORMAT_VERSION,
+            core_version: CORE_VERSION,
+            data_hash: self.world.data().hash(),
+            build_commit: BUILD_COMMIT.to_owned(),
+            world_seed: scenario.start.world_seed,
+            closed_through: self.world.closed_through(),
+            year_hashes: self.out.year_hashes.clone(),
+            log_hash: self.hasher.digest(),
+            fork: self.fork.clone(),
+        };
+        let manifest = files::json(&manifest) + "\n";
+        files::replace(&self.path(files::MANIFEST), manifest.as_bytes())?;
+        let save = self
+            .world
+            .save(&self.out.year_hashes)
+            .map_err(|error| CliError::new("save_failed", files::code(&error)))?;
+        files::replace(&self.path(files::SAVE), &save)
+    }
+
     /// The orderly end: the end line, the manifest, the save, the scenario.
     pub fn finish(self, scenario: &Scenario) -> Result<(), CliError> {
         if let Compare::Replay(expected) = &self.compare {
@@ -492,31 +546,41 @@ impl Session {
                 return Err(CliError::new("fork_parent_inconsistent", detail));
             }
         }
-        let end = LogEnd {
-            end: self.world.closed_through(),
-        };
-        files::append(&self.path(files::INPUT_LOG), &(files::json(&end) + "\n"))?;
-        let manifest = Manifest {
-            format_version: files::FORMAT_VERSION,
-            core_version: CORE_VERSION,
-            data_hash: self.world.data().hash(),
-            build_commit: BUILD_COMMIT.to_owned(),
-            world_seed: scenario.start.world_seed,
-            closed_through: self.world.closed_through(),
-            year_hashes: self.out.year_hashes.clone(),
-            log_hash: self.hasher.digest(),
-            fork: self.fork.clone(),
-        };
-        let manifest = files::json(&manifest) + "\n";
-        files::write(&self.path(files::MANIFEST), manifest.as_bytes())?;
-        let save = self
-            .world
-            .save(&self.out.year_hashes)
-            .map_err(|error| CliError::new("save_failed", files::code(&error)))?;
-        files::write(&self.path(files::SAVE), &save)?;
+        self.write_stop(scenario)?;
         let resolved = files::json(scenario) + "\n";
         files::write(&self.path(files::SCENARIO), resolved.as_bytes())
     }
+}
+
+/// `input.ndjson` of a stopped run is the save's input log (ADR-0021 section 2): after the
+/// header exactly its records, each as this version writes it, then the end line at the
+/// save's last closed second. An input written but not saved, or a save without its input,
+/// is `run_dir_inconsistent`, never a silently shorter run.
+fn input_log_matches(dir: &Path, world: &World) -> Result<(), CliError> {
+    let inconsistent = |detail: &str| {
+        CliError::new(
+            "run_dir_inconsistent",
+            format!("input.ndjson {detail} of the save"),
+        )
+    };
+    let text = files::read_text(&dir.join(files::INPUT_LOG))?;
+    let lines: Vec<&str> = text.lines().collect();
+    let (Some(_header), Some(end)) = (lines.first(), lines.last().filter(|_| lines.len() > 1))
+    else {
+        return Err(inconsistent("is not the input log"));
+    };
+    let records = &lines[1..lines.len() - 1];
+    let saved: Vec<String> = (world.input_log().iter()).map(files::json).collect();
+    if records != saved.as_slice() {
+        return Err(inconsistent("does not hold exactly the inputs"));
+    }
+    let stop = LogEnd {
+        end: world.closed_through(),
+    };
+    if *end != files::json(&stop) {
+        return Err(inconsistent("does not end at the last second"));
+    }
+    Ok(())
 }
 
 /// The header of `census.csv` (ADR-0004 section 8): the three columns of every run, then

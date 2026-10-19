@@ -5,6 +5,7 @@
 pub mod data;
 pub mod error;
 pub mod files;
+pub mod lock;
 pub mod repro;
 pub mod session;
 pub mod view;
@@ -187,6 +188,7 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
 /// Writes `pedigree.json` into the run directory, from its save. The pedigree is the
 /// core's view of the state; the CLI only writes it.
 fn export_run(dir: &Path) -> Result<(), CliError> {
+    let _lock = lock::RunLock::acquire(dir)?;
     files::replace(&dir.join(files::PEDIGREE), pedigree_text(dir)?.as_bytes())
 }
 
@@ -344,6 +346,7 @@ pub fn resolve(
 }
 
 fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), CliError> {
+    let _lock = lock::RunLock::acquire(out)?;
     let scenario = read_scenario(file)?;
     if before_the_start(scenario.until) {
         let detail = format!("until {} lies before the start", scenario.until.as_secs());
@@ -365,6 +368,7 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
 /// Continues a run from its save. The inputs of `inputs` (a JSON list in the command
 /// schema, ADR-0004 section 4) act at the stop, before the clock moves on.
 fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(), CliError> {
+    let _lock = lock::RunLock::acquire(dir)?;
     let scenario: Scenario = files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 5"))?;
@@ -466,6 +470,7 @@ fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
 /// ADR-0004 section 4: a new world, per record `advance_until(t)` and `submit`, at the
 /// end `advance_until(end)`.
 fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliError> {
+    let _lock = lock::RunLock::acquire(out)?;
     let invalid = |detail: String| CliError::new("input_log_invalid", detail);
     let (records, end) = read_input_log(log, &REPLAYED_LOG)?;
     let compare = match manifest {
@@ -511,6 +516,9 @@ fn fork_run(
     override_file: Option<&Path>,
     out: &Path,
 ) -> Result<(), CliError> {
+    // The fork reads its parent and writes its own directory: both may not be in use.
+    let _parent = lock::RunLock::acquire(parent)?;
+    let _lock = lock::RunLock::acquire(out)?;
     // The override block: a list of world parameters with their new values. An empty
     // list is no override and gives no input.
     let changes: Vec<ParamChange> = match override_file {
