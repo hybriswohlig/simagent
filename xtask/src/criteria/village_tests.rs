@@ -389,6 +389,27 @@ fn the_decision_and_the_twin_are_the_references() {
     }
 }
 
+/// The power decides at 0.9 exactly (D1): below it an end extends unless it is the last,
+/// at 0.9 the comparison decides.
+#[test]
+fn the_power_extends_only_below_ninety_percent() {
+    let at = |power: f64, pass: bool| Village {
+        mean_v: 0.6,
+        mean_e: 0.7,
+        s: 0.2,
+        se: 0.04,
+        pass,
+        power,
+    };
+    let below = f64::from_bits(POWER.to_bits() - 1);
+    assert_eq!(decide(&at(POWER, true), 1200), Decision::Pass);
+    assert_eq!(decide(&at(POWER, false), 1200), Decision::Red);
+    assert_eq!(decide(&at(below, true), 1200), Decision::Extend);
+    assert_eq!(decide(&at(below, true), 2100), Decision::Red);
+    assert!(!underpowered(&at(POWER, false)));
+    assert!(underpowered(&at(below, true)));
+}
+
 /// The villages of one set, as measured: every block counts.
 fn counted(v: &[u64; 20], e: &[u64; 20]) -> Vec<Measured> {
     (v.iter().zip(e))
@@ -517,6 +538,8 @@ fn a_block_counts_by_its_units() {
 
 #[test]
 fn the_command_names_its_directory() {
+    // A root without data: a command that took the wrong arguments fails at once on it.
+    let nowhere = root().join("target/no-such-root");
     for args in [
         &[][..],
         &["--out"][..],
@@ -524,6 +547,9 @@ fn the_command_names_its_directory() {
         &["--out", "x", "y"][..],
     ] {
         let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-        assert_eq!(command(&root(), &args), Err(USAGE.to_owned()));
+        assert_eq!(command(&nowhere, &args), Err(USAGE.to_owned()));
     }
+    let args = ["--out".to_owned(), "x".to_owned()];
+    let error = command(&nowhere, &args).expect_err("no data");
+    assert!(error.contains("demography.json"), "{error}");
 }
