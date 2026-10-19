@@ -2,7 +2,6 @@
 //! exceptions. The bytes are uncompressed and fully deterministic.
 
 use crate::data::Data;
-use alloc::borrow::Cow;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -387,9 +386,9 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
 /// section 9), after `pool_view` has checked them against the data's pool.
 #[derive(Default)]
 struct PoolView<'a> {
-    /// Each arrival: its record (the pool's, or for a village the person as it arrived,
-    /// alone and without carried plans) and the shift `Δ` of its household.
-    arrivals: BTreeMap<SimId, (Cow<'a, PoolPerson>, i64)>,
+    /// Each arrival: a copy of its record (the pool's, or for a village the person as it
+    /// arrived, alone and without carried plans) and the shift `Δ` of its household.
+    arrivals: BTreeMap<SimId, (PoolPerson, i64)>,
     /// The children of pool pregnancies born in the town.
     children: BTreeSet<SimId>,
     /// The partnerships the arrivals brought: the woman's record and the shift.
@@ -499,15 +498,12 @@ fn pool_view<'a>(
     // Each pool key's place in the order of arrival: its household's place among the used.
     let mut place_of: BTreeMap<LineageKey, usize> = BTreeMap::new();
     let mut arrivals_seen = 0_usize;
+    // The drawn households with their place in the pool, then a village's persons.
     let arrived_households = drawn
         .iter()
-        .map(|(index, second)| (Cow::Borrowed(&pool.households[*index]), *second))
-        .chain(
-            village
-                .into_iter()
-                .map(|household| (Cow::Owned(household), 0)),
-        );
-    for (place, (household, second)) in arrived_households.enumerate() {
+        .map(|(index, second)| (Some(*index), &pool.households[*index], *second))
+        .chain(village.iter().map(|household| (None, household, 0)));
+    for (place, (index, household, second)) in arrived_households.enumerate() {
         let on_time = |at: SimTime| at.as_secs() == second;
         let mut arrived: Option<SimTime> = None;
         for (member_place, member) in household.members.iter().enumerate() {
@@ -532,20 +528,17 @@ fn pool_view<'a>(
             if !fits {
                 return None;
             }
-            let record = match &household {
-                Cow::Borrowed(household) => Cow::Borrowed(&household.members[member_place]),
-                Cow::Owned(_) => Cow::Owned(member.clone()),
-            };
-            view.arrivals.insert(id, (record, delta));
+            view.arrivals.insert(id, (member.clone(), delta));
             view.places.insert(id, (place, member_place));
             place_of.insert(member.lineage_key, place);
             arrivals_seen += 1;
         }
         let delta = arrived?.as_secs().checked_sub(pool.frozen_at.as_secs())?;
         // A village's persons bring no partnership and no pregnancy.
-        let Cow::Borrowed(household) = household else {
+        let Some(index) = index else {
             continue;
         };
+        let household = &pool.households[index];
         if let Some(pair) = household.partnership {
             let (woman, man) = (*keys.get(&pair.woman)?, *keys.get(&pair.man)?);
             let formed = pair.formed.as_secs().checked_add(delta)?;
