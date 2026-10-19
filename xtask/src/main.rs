@@ -528,15 +528,6 @@ fn contract_base(root: &Path) -> Result<contract_base::Base> {
 /// `contracts/body.hashes.json`. A contract with findings changes nothing, and neither
 /// does a contract that would get another hash under a version of the merge base.
 fn codegen(root: &Path, base: &contract_base::Base) -> Result {
-    let export_ts = export_types::generate(&export_types::descriptor());
-    let export_path = root.join(export_types::GENERATED_EXPORT_TS);
-    if let Some(dir) = export_path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
-    }
-    std::fs::write(&export_path, export_ts)
-        .map_err(|error| format!("cannot write {}: {error}", export_path.display()))?;
-    println!("wrote {}", relative(root, &export_path));
     let body = read(&root.join(BODY_FILE))?;
     let types = generated_types(root, &body)?;
     let version = contract::version(&body).ok_or("body.json has no contract_version")?;
@@ -558,10 +549,14 @@ fn codegen(root: &Path, base: &contract_base::Base) -> Result {
     let types_path = root.join(codegen::GENERATED_FILE);
     let ts = codegen_ts::generate(&body).map_err(listed)?;
     let ts_path = root.join(codegen_ts::GENERATED_TS);
+    // Written only after every check above: a refused run changes nothing.
+    let export_ts = export_types::generate(&export_types::descriptor());
+    let export_path = root.join(export_types::GENERATED_EXPORT_TS);
     for (path, text) in [
         (&hashes_path, &hashes),
         (&types_path, &types),
         (&ts_path, &ts),
+        (&export_path, &export_ts),
     ] {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
@@ -1276,6 +1271,8 @@ mod tests {
         rewrite(&repo, BODY_FILE, describe);
         let changed = read(&repo.join(BODY_FILE)).expect("contract");
         assert_ne!(changed, committed[0]);
+        let export = repo.join(export_types::GENERATED_EXPORT_TS);
+        std::fs::remove_file(&export).expect("written by the first codegen");
         let refused = codegen(&repo, &base).expect_err("a hash of the base");
         assert!(
             refused.contains("of the merge base was changed or removed")
@@ -1285,6 +1282,7 @@ mod tests {
             "{refused}"
         );
         assert_eq!(snapshot(&repo)[1..], committed[1..]);
+        assert!(!export.exists(), "a refused codegen wrote the export types");
         // Written by hand, the hash and the types pass checks 2 and 4, not check 3.
         let hash = sim_core::hash::stable_hash64(changed.as_bytes());
         let version = contract::version(&changed).expect("a version");
