@@ -8,6 +8,7 @@ mod canary;
 mod checks;
 mod clamp;
 mod codegen;
+mod codegen_ts;
 mod contract;
 mod contract_base;
 mod criteria;
@@ -475,7 +476,13 @@ fn codegen(root: &Path, base: &contract_base::Base) -> Result {
         ));
     }
     let types_path = root.join(codegen::GENERATED_FILE);
-    for (path, text) in [(&hashes_path, &hashes), (&types_path, &types)] {
+    let ts = codegen_ts::generate(&body).map_err(listed)?;
+    let ts_path = root.join(codegen_ts::GENERATED_TS);
+    for (path, text) in [
+        (&hashes_path, &hashes),
+        (&types_path, &types),
+        (&ts_path, &ts),
+    ] {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
                 .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
@@ -515,6 +522,9 @@ fn check_contract(root: &Path, base: &contract_base::Base) -> Result {
         let fresh = generated_types(root, &body)?;
         let checked_in = read(&root.join(codegen::GENERATED_FILE))?;
         found.extend(codegen::stale_finding(&fresh, &checked_in));
+        let fresh_ts = codegen_ts::generate(&body).map_err(listed)?;
+        let checked_in_ts = read(&root.join(codegen_ts::GENERATED_TS))?;
+        found.extend(codegen_ts::stale_finding(&fresh_ts, &checked_in_ts));
     }
     if found.is_empty() {
         Ok(())
@@ -993,6 +1003,7 @@ mod tests {
             CONTRACT_MODULE_FILE,
             CONTRACT_MAPPING_FILE,
             "Cargo.toml",
+            codegen_ts::GENERATED_TS,
         ] {
             let mut text = read(&root.join(path)).expect(path);
             if path == file {
@@ -1167,6 +1178,7 @@ mod tests {
             BODY_HASHES_FILE,
             codegen::GENERATED_FILE,
             "Cargo.toml",
+            codegen_ts::GENERATED_TS,
         ];
         let repo = contract_repo("change", &files);
         let base = contract_base(&repo).expect("a base");
@@ -1339,7 +1351,7 @@ mod tests {
     fn the_contract_step_runs_every_check() {
         let with_newline = |text: &str| format!("{text}\n");
         type Change<'a> = &'a dyn Fn(&str) -> String;
-        let cases: [(&str, &str, Change, &str); 7] = [
+        let cases: [(&str, &str, Change, &str); 8] = [
             (
                 "schema",
                 BODY_FILE,
@@ -1369,6 +1381,12 @@ mod tests {
                 codegen::GENERATED_FILE,
                 &with_newline,
                 "generated.rs is stale: run cargo xtask codegen and commit the result",
+            ),
+            (
+                "stale-ts",
+                codegen_ts::GENERATED_TS,
+                &with_newline,
+                "web/src/generated/body.ts is stale: run cargo xtask codegen and commit the result",
             ),
             (
                 "edition",
