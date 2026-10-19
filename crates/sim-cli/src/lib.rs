@@ -187,11 +187,16 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
 /// Writes `pedigree.json` into the run directory, from its save. The pedigree is the
 /// core's view of the state; the CLI only writes it.
 fn export_run(dir: &Path) -> Result<(), CliError> {
+    files::replace(&dir.join(files::PEDIGREE), pedigree_text(dir)?.as_bytes())
+}
+
+/// The pedigree of the run in `dir` as `simagent export` writes it and `simagent view`
+/// sends it: the core's view of the state in its save, one line of JSON.
+pub fn pedigree_text(dir: &Path) -> Result<String, CliError> {
     let bytes = files::read(&dir.join(files::SAVE))?;
     let (world, _) = World::load(&bytes, data::core_data()?)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
-    let pedigree = files::json(&world.pedigree()) + "\n";
-    files::replace(&dir.join(files::PEDIGREE), pedigree.as_bytes())
+    Ok(files::json(&world.pedigree()) + "\n")
 }
 
 /// Prints φ of the persons `a` and `b` of the run in `dir`, from its save, as one JSON
