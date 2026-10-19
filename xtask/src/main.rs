@@ -361,7 +361,7 @@ fn server_answers(
     std::fs::write(web.join("index.html"), "<!doctype html>\n")
         .map_err(|e| format!("{}: {e}", web.display()))?;
     let binary = root.join("target").join("release").join("simagent");
-    let mut server = Command::new(&binary)
+    let child = Command::new(&binary)
         .arg("view")
         .arg(out)
         .args(["--port", "0", "--web"])
@@ -369,10 +369,21 @@ fn server_answers(
         .stdout(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
-    let mut line = String::new();
-    if let Some(stdout) = server.stdout.take() {
-        let _ = BufReader::new(stdout).read_line(&mut line);
+    // Ended on every way out of this function, an error or a panic included.
+    let mut server = Running(child);
+    // Its address within the time limit, read beside this thread: a server that never
+    // prints one must not hold the gate.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if let Some(stdout) = server.0.stdout.take() {
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = BufReader::new(stdout).read_line(&mut line);
+            let _ = sender.send(line);
+        });
     }
+    let line = receiver
+        .recv_timeout(SERVER_TIME)
+        .map_err(|_| format!("the server printed no address within {SERVER_TIME:?}"))?;
     let port = line
         .trim()
         .strip_prefix("http://127.0.0.1:")
@@ -380,6 +391,10 @@ fn server_answers(
         .and_then(|port| port.parse::<u16>().ok());
     let get = |port: u16, path: &str| -> Result<serde_json::Value> {
         let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+            .map_err(|e| format!("the server: {e}"))?;
+        stream
+            .set_read_timeout(Some(SERVER_TIME))
+            .and_then(|()| stream.set_write_timeout(Some(SERVER_TIME)))
             .map_err(|e| format!("the server: {e}"))?;
         let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
         stream
@@ -424,9 +439,21 @@ fn server_answers(
             })
             .collect(),
     };
-    let _ = server.kill();
-    let _ = server.wait();
+    drop(server);
     answers
+}
+
+/// The longest the gate waits for the server to start or to answer.
+const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A child process that is ended when the value goes.
+struct Running(std::process::Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// ADR-0021 section 4: `web/src/generated/export.ts` is the descriptor's, and the
@@ -477,8 +504,15 @@ fn check_export_types(root: &Path) -> Result {
         }
     }
     let pedigree = json(&town.join("pedigree.json"))?;
+    let contract: serde_json::Value = serde_json::from_str(&read(&root.join(BODY_FILE))?)
+        .map_err(|e| format!("{BODY_FILE}: {e}"))?;
+    let keys: Vec<String> = (contract["parameters"].as_array().into_iter().flatten())
+        .filter_map(|parameter| parameter["key"].as_str().map(str::to_owned))
+        .collect();
+    let mut with_body = types.clone();
+    with_body.push(export_types::body_type(&keys));
     for (name, answer) in server_answers(root, &out, &pedigree)? {
-        for difference in export_types::conforms(&types, name, &answer, &mut seen) {
+        for difference in export_types::conforms(&with_body, name, &answer, &mut seen) {
             found.push(format!("the server's {name}: {difference}"));
         }
     }
