@@ -1,5 +1,5 @@
-//! The scans of the web build on the repository's `web/` and on broken copies (canaries:
-//! each rule fires with the message the gate prints).
+//! The web build: its page, its Node check and its scans, on the repository's `web/` and on
+//! broken trees (canaries: each rule fires with the message the gate prints).
 
 use super::*;
 
@@ -8,10 +8,6 @@ fn root() -> PathBuf {
         .parent()
         .expect("the workspace")
         .to_path_buf()
-}
-
-fn page() -> String {
-    crate::read(&root().join("web/static/index.html")).expect("the page")
 }
 
 #[test]
@@ -29,109 +25,81 @@ fn the_running_node_has_the_pinned_major() {
     }
 }
 
+/// The page maps exactly the vendored modules, each to its file in `web/dist`, and loads
+/// only `./main.js`.
+#[test]
+fn the_page_maps_exactly_the_vendored_modules() {
+    let page = page();
+    let (_, after) = page
+        .split_once("<script type=\"importmap\">")
+        .expect("a map");
+    let (map, rest) = after.split_once("</script>").expect("its end");
+    let map: serde_json::Value = serde_json::from_str(map).expect("JSON");
+    assert_eq!(
+        map,
+        serde_json::json!({"imports": {
+            "preact": "./vendor/preact.mjs",
+            "preact/hooks": "./vendor/hooks.mjs",
+            "preact/jsx-runtime": "./vendor/jsx-runtime.mjs"
+        }})
+    );
+    assert_eq!(page.matches("importmap").count(), 1);
+    assert_eq!(page.matches("src=").count(), 1);
+    assert!(rest.contains("<script type=\"module\" src=\"./main.js\"></script>"));
+    assert!(!page.contains("href=") && !page.contains("://"));
+}
+
 #[test]
 fn the_repository_web_scans_clean() {
     assert_eq!(scan(&root()), Ok(Vec::new()));
 }
 
 #[test]
-fn the_import_map_names_exactly_the_vendored_modules() {
-    let page = page();
-    assert_eq!(import_map_findings(&page), Vec::<String>::new());
-    let expected = "web/static/index.html: the import map is not exactly {\"imports\":{\"preact\":\"./vendor/preact.mjs\",\"preact/hooks\":\"./vendor/hooks.mjs\",\"preact/jsx-runtime\":\"./vendor/jsx-runtime.mjs\"}}";
-    let broken = [
-        page.replace("./vendor/preact.mjs", "https://esm.sh/preact"),
-        page.replace("./vendor/hooks.mjs", "./vendor/other.mjs"),
-        page.replace(
-            "\"preact/hooks\": \"./vendor/hooks.mjs\",",
-            "\"preact/hooks\": \"./vendor/hooks.mjs\",\n\"left-pad\": \"./vendor/left-pad.mjs\",",
-        ),
-        page.replace("\"preact/hooks\": \"./vendor/hooks.mjs\",", ""),
-        page.replace("\"imports\": {", "\"scopes\": {}, \"imports\": {"),
-        page.replace(
-            "<script type=\"module\"",
-            "<script type=\"importmap\">{}</script><script type=\"module\"",
-        ),
-        page.replace("<script type=\"importmap\">", "<script>"),
-        page.replace("\"imports\": {", "\"imports\": {,"),
-    ];
-    for page in broken {
-        let found = import_map_findings(&page);
-        assert_eq!(found.first().map(String::as_str), Some(expected), "{page}");
-    }
-}
-
-#[test]
-fn the_page_refers_only_to_its_own_files() {
-    let page = page();
-    let broken = [
-        (
-            page.replace("src=\"./main.js\"", "src=\"https://example.org/main.js\""),
-            "src=\"https://example.org/main.js\"",
-        ),
-        (
-            page.replace("src=\"./main.js\"", "src=\"//example.org/main.js\""),
-            "src=\"//example.org/main.js\"",
-        ),
-        (
-            page.replace("src=\"./main.js\"", "src=\"./../main.js\""),
-            "src=\"./../main.js\"",
-        ),
-        (
-            page.replace("<title>", "<link rel=\"icon\" href=\"/icon.png\"><title>"),
-            "href=\"/icon.png\"",
-        ),
-    ];
-    for (page, attribute) in broken {
-        assert_eq!(
-            import_map_findings(&page),
-            [format!(
-                "web/static/index.html: {attribute} is not a file of web/dist"
-            )],
-            "{attribute}"
-        );
-    }
-}
-
-#[test]
 fn web_names_no_host_and_computes_only_in_render() {
-    let clean = "export const a = 1;\n";
-    assert_eq!(source_findings("web/src/a.ts", clean), Vec::<String>::new());
+    let math = |path: &str| {
+        format!("{path}: uses Math outside web/src/render/ (web/ computes nothing, ADR-0021)")
+    };
+    for clean in [
+        "export const a = 1;\n",
+        "const myMath = 1; const MathML = 2; const $Math_ = 3;",
+    ] {
+        assert_eq!(source_findings("web/src/a.ts", clean), Vec::<String>::new());
+    }
     assert_eq!(
         source_findings("web/src/render/a.ts", "const r = Math.sqrt(2);"),
         Vec::<String>::new()
     );
-    assert_eq!(
-        source_findings("web/src/a.ts", "const r = Math.round(2.5);"),
-        ["web/src/a.ts: uses Math. outside web/src/render/ (web/ computes nothing, ADR-0021)"]
-    );
+    for computing in [
+        "const r = Math.round(2.5);",
+        "const { round } = Math;",
+        "const M = Math\n",
+        "globalThis[\"Math\"]",
+        "Math",
+    ] {
+        assert_eq!(
+            source_findings("web/src/a.ts", computing),
+            [math("web/src/a.ts")],
+            "{computing}"
+        );
+    }
     assert_eq!(
         source_findings("web/src/rendering.ts", "Math.max(1, 2)"),
-        [
-            "web/src/rendering.ts: uses Math. outside web/src/render/ (web/ computes nothing, ADR-0021)"
-        ]
-    );
-    assert_eq!(
-        source_findings("web/static/x.css", "Math.max"),
-        Vec::<String>::new()
+        [math("web/src/rendering.ts")]
     );
     assert_eq!(
         source_findings("web/src/api.ts", "fetch(\"https://example.org/x\")"),
         ["web/src/api.ts: names another host (web/ talks only to its own server)"]
     );
-    assert_eq!(
-        source_findings("web/static/index.html", "ws://localhost:1"),
-        ["web/static/index.html: names another host (web/ talks only to its own server)"]
-    );
 }
 
-/// A tree of `web/` below a fresh directory: the repository's page and one source file.
-fn tree(name: &str, page: &str, source: &str) -> PathBuf {
+/// A tree of `web/` below a fresh directory, with one source file, one test and old output.
+fn tree(name: &str, source: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("simagent-web-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     for (path, text) in [
-        ("web/static/index.html", page),
         ("web/src/deep/a.ts", source),
+        ("web/test/a.test.mjs", ""),
+        ("web/dist/stale.js", ""),
     ] {
         let path = root.join(path);
         std::fs::create_dir_all(path.parent().expect("a parent")).expect("a directory");
@@ -140,28 +108,42 @@ fn tree(name: &str, page: &str, source: &str) -> PathBuf {
     root
 }
 
-/// The scan walks `web/src` and `web/static` below the root, and the build stops on its
-/// findings before it runs Node.
+/// The scan walks `web/src` below the root; the build removes old output first and stops on
+/// the findings before it runs Node.
 #[test]
 fn the_scan_walks_the_tree_and_stops_the_build() {
-    let page = page().replace("src=\"./main.js\"", "src=\"/main.js\"");
-    let root = tree("scan", &page, "export const r = Math.PI;\n");
-    let findings = [
-        "web/static/index.html: src=\"/main.js\" is not a file of web/dist",
-        "web/src/deep/a.ts: uses Math. outside web/src/render/ (web/ computes nothing, ADR-0021)",
-    ];
-    assert_eq!(scan(&root), Ok(findings.map(str::to_owned).to_vec()));
-    assert_eq!(build(&root), Err(format!("\n  {}", findings.join("\n  "))));
+    let root = tree("scan", "export const r = Math.PI;\n");
+    let finding =
+        "web/src/deep/a.ts: uses Math outside web/src/render/ (web/ computes nothing, ADR-0021)";
+    assert_eq!(scan(&root), Ok(vec![finding.to_owned()]));
+    assert_eq!(build(&root), Err(format!("\n  {finding}")));
+    assert!(!root.join("web/dist").exists());
     std::fs::remove_dir_all(&root).expect("removed");
 }
 
+/// A symbolic link in `web/src` or `web/test` stops the scan: what it points at is no file
+/// of `web/`.
+#[cfg(unix)]
 #[test]
-fn copy_makes_the_directory_and_run_reports_failure() {
-    let root = tree("copy", "", "");
-    let to = root.join("web/dist/vendor/a.ts");
-    assert_eq!(copy(&root.join("web/src/deep/a.ts"), &to), Ok(()));
-    assert_eq!(std::fs::read_to_string(&to).ok().as_deref(), Some(""));
-    assert!(copy(&root.join("web/src/missing.ts"), &to).is_err());
+fn a_symbolic_link_stops_the_scan() {
+    for link in ["web/src/deep/link.ts", "web/test/link.test.mjs"] {
+        let root = tree("link", "");
+        std::os::unix::fs::symlink("/etc/hosts", root.join(link)).expect("a link");
+        assert_eq!(scan(&root), Err(format!("{link}: a symbolic link in web/")));
+        std::fs::remove_dir_all(&root).expect("removed");
+    }
+}
+
+#[test]
+fn add_refuses_what_tsc_wrote_and_run_reports_failure() {
+    let root = tree("add", "");
+    let to = root.join("web/dist/vendor/a.mjs");
+    assert_eq!(add(&to, b"x"), Ok(()));
+    assert_eq!(std::fs::read(&to).ok().as_deref(), Some(&b"x"[..]));
+    assert_eq!(
+        add(&to, b"y"),
+        Err(format!("{}: tsc wrote it already", to.display()))
+    );
     assert_eq!(run(&root, "true", &[]), Ok(()));
     assert_eq!(
         run(&root, "false", &["x"]),
