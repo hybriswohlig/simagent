@@ -102,7 +102,8 @@ pub fn repository_data(root: &Path) -> Result<Data> {
 }
 
 /// One village at one end: its block as the report writes it (with the export's hash), and
-/// `(V, E)` if the block counts (no finding).
+/// `(V, E)` if the block counts (no finding, or nobody living at the end: ADR-0020
+/// section 11).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Measured {
     pub block: Value,
@@ -199,7 +200,7 @@ pub struct Judged {
 }
 
 /// The villages that count at an end (Grok D1): in list order the first `VILLAGE_SEEDS`
-/// whose block counts (no finding).
+/// whose block counts (no finding, or nobody living at the end: ADR-0020 section 11).
 pub fn counted(measured: &[Measured]) -> Vec<usize> {
     (measured.iter().enumerate())
         .filter(|(_, m)| m.counted.is_some())
