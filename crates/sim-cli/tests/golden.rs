@@ -13,7 +13,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 use sim_cli::files::{self, Manifest, Scenario};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sim_core::canonical::YearHash;
 use sim_core::data::Data;
@@ -22,7 +22,6 @@ use sim_core::finite::FiniteF64;
 use sim_core::input::{ForkOverride, Input, PoolStart, Start};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
-use sim_core::pool::take_households;
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
 use sim_core::version::CORE_VERSION;
 
