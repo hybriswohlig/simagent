@@ -32,9 +32,21 @@ Prints `label value` rows:
   DIR/village_<seed>_<YEARS>y.save with the start input), and the year hashes of the
   variant `pool_used` = the file households of the chosen persons (not the reference's
   choice; NOTES.md of the village).
+- `--moved-out`: the forged saves of the load check of the moved out
+  (`world_reference.check_moved_out_households`, ADR-0006 section 5: the living members of a
+  household with `moved_out` are at most one, or the woman and the man of one open
+  partnership; the village start puts each person alone, G4, which the loader did not check),
+  in the form of the load rejections of tools/arrival_reference.py (`moved_out_reject ...`
+  rows: hunks of a genuine save, both pins, the checks, the code): (a) the village of the
+  first seed at the end of year 9, (b) the save `load_base` of tools/arrival_reference.py
+  ("arrival" at the end of year 2). In each a sim that is moved out, alone in its household
+  and in no open partnership moves into the household of another such sim; its emptied
+  household ends at the clock, so that only the new check rejects the save (asserted: every
+  other load check passes, `check_households` without the new part too). With `--out DIR`
+  the genuine and the forged saves go to DIR.
 
 Usage: .venv/bin/python tools/village_reference.py [--select] [--rejections] [--run [YEARS]]
-       [--seed HEX] [--out DIR]
+       [--moved-out] [--seed HEX] [--out DIR]
        (no option: --select and --rejections)
 """
 
@@ -332,17 +344,120 @@ def run_rows(data: wr.Data, seed: int, years: int, out) -> list:
     return rows
 
 
+# ---------------------------------------------------------------------------------------
+# The load check of the moved out: forged saves (module doc, `--moved-out`)
+
+MOVED_OUT_YEAR = 9
+MOVED_OUT_CODE = "LoadError::Inconsistent"
+
+
+def alone_moved_out(world: wr.World) -> list:
+    """The living sims that are moved out, in no open partnership, alone in their household and
+    nobody's carer, by SimId."""
+    carers = {value[11] for value in world.sims.values() if value[11] is not None}
+    return [
+        sim
+        for sim in sorted(world.sims)
+        if world.sims[sim][10] and world.open_partnership(sim) is None and world.members(world.sims[sim][9]) == [sim] and sim not in carers
+    ]
+
+
+def moved_out_verdicts(world: wr.World) -> dict:
+    """Every load check of the reference (tools/arrival_reference.py `ALL_CHECKS`), with
+    `check_households` without its new part, then the new check alone: check name, None or
+    the error."""
+    world.kinships = {}
+    out = {}
+    checks = [(f"{check.__name__}_without_the_moved_out" if check is wr.check_households else check.__name__, check) for check in ar.ALL_CHECKS]
+    checks.append(("check_moved_out_households", wr.check_moved_out_households))
+    for name, check in checks:
+        try:
+            if check is wr.check_households:
+                check(world, pairs=False)
+            else:
+                check(world)
+            out[name] = None
+        except AssertionError as error:
+            out[name] = str(error)
+    return out
+
+
+def rust_hash(value: int) -> str:
+    text = hexed(value)
+    return "0x" + "_".join(text[i : i + 4] for i in range(0, 16, 4))
+
+
+def moved_out_reject_rows(name: str, label: str, base: wr.World, first: int, second: int, out) -> list:
+    """`second` moves into the household of `first` in a copy of `base`; its emptied household
+    ends at the clock. The rows: the two sims, the pins, every check's verdict, the hunks of
+    the save (as `pool_field_reject` of tools/arrival_reference.py and as the Rust tuple of
+    `Hunks` in tests/arrival.rs) and the code."""
+    genuine = base.save()
+    assert all(error is None for error in moved_out_verdicts(base).values()), "the genuine save loads"
+    world = copy.deepcopy(base, {id(base.data): base.data})
+    target, emptied = world.sims[first][9], world.sims[second][9]
+    assert target != emptied and world.members(target) == [first] and world.members(emptied) == [second]
+    world.sims[second][9] = target
+    world.households[emptied][1] = world.closed
+    forged = world.save()
+    verdicts = moved_out_verdicts(world)
+    assert [check for check, error in verdicts.items() if error is not None] == ["check_moved_out_households"], verdicts
+    assert ar.rejecting_checks(world, ar.ALL_CHECKS) == ["check_households"]
+    hunks = ar.save_hunks(genuine, forged)
+    rows = [f"moved_out_base {name} {label} clock {base.closed} living {len(base.sims)} alone_and_moved_out {alone_moved_out(base)}"]
+    for role, sim in (("stays", first), ("moves", second)):
+        value = base.sims[sim]
+        rows.append(
+            f"moved_out_sim {name} {role} sim {sim} {'woman' if value[2] == FEMALE else 'man'} key {hexed(value[1])} born {value[0]}"
+            f" age_years {(base.closed - value[0]) / YEAR:.4f} household {value[9]} formed {base.households[value[9]][0]} partnerships {value[8]}"
+        )
+    rows.append(
+        f"moved_out_reject {name} base {label} base_pin {len(genuine)} {hexed(hash64(genuine))} hunks {len(hunks)} "
+        + " ".join(f"{offset}:{removed.hex()}:{put.hex()}" for offset, removed, put in hunks)
+        + f" changed_pin {len(forged)} {hexed(hash64(forged))} checks {ar.rejecting_checks(world, ar.ALL_CHECKS)} code {MOVED_OUT_CODE}"
+        f" failed {[check for check, error in verdicts.items() if error is not None]} by {verdicts['check_moved_out_households']}"
+        f" how sim {second} moves into household {target} of sim {first}, household {emptied} ends at the clock {world.closed}"
+    )
+    tuple_ = ", ".join(f'({offset}, {len(removed)}, "{put.hex()}")' for offset, removed, put in hunks)
+    rows.append(f'moved_out_rust ("{name}", "{label}", ({len(genuine)}, {rust_hash(hash64(genuine))}), &[{tuple_}], ({len(forged)}, {rust_hash(hash64(forged))})),')
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{label}.save").write_bytes(genuine)
+        (out / f"{name}.save").write_bytes(forged)
+    return rows
+
+
+def moved_out_rows(data: wr.Data, seed: int, out) -> list:
+    """(a) The village of `seed` at the end of year 9: the first woman alone moved out keeps her
+    household, the first such man moves in. (b) `load_base` of tools/arrival_reference.py: the
+    first two adults alone moved out, the second moves in with the first."""
+    village = village_world(data, seed)
+    village.advance((MOVED_OUT_YEAR + 1) * YEAR - 1)
+    check_all(village)
+    singles = alone_moved_out(village)
+    woman = next(sim for sim in singles if village.sims[sim][2] == FEMALE)
+    man = next(sim for sim in singles if village.sims[sim][2] == wr.MALE)
+    rows = moved_out_reject_rows("village_moved_in", f"village_{hexed(seed)}_end_of_year_{MOVED_OUT_YEAR}", village, woman, man, out)
+    base = ar.arrival_world()
+    base.advance(3 * YEAR - 1)
+    ar.check_all(base)
+    adults = [sim for sim in alone_moved_out(base) if base.closed - base.sims[sim][0] >= 18 * YEAR]
+    rows += moved_out_reject_rows("load_base_moved_in", "load_base", base, adults[0], adults[1], out)
+    return rows
+
+
 def main(argv) -> int:
     out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else None
     seed = int(argv[argv.index("--seed") + 1], 16) if "--seed" in argv else SEEDS[0]
     run = "--run" in argv
+    moved_out = "--moved-out" in argv
     years = RUN_YEARS
     if run:
         at = argv.index("--run")
         if at + 1 < len(argv) and argv[at + 1].isdigit():
             years = int(argv[at + 1])
-    select = "--select" in argv or not (run or "--rejections" in argv)
-    rejections = "--rejections" in argv or not (run or "--select" in argv)
+    select = "--select" in argv or not (run or moved_out or "--rejections" in argv)
+    rejections = "--rejections" in argv or not (run or moved_out or "--select" in argv)
     data = wr.REPOSITORY
     for row in code_rows():
         print(row, flush=True)
@@ -355,6 +470,9 @@ def main(argv) -> int:
             print(row, flush=True)
     if run:
         for row in run_rows(data, seed, years, out):
+            print(row, flush=True)
+    if moved_out:
+        for row in moved_out_rows(data, seed, out):
             print(row, flush=True)
     return 0
 

@@ -4866,7 +4866,7 @@ def check_emigration(world: World) -> None:
             assert emigrants[woman][11] == emigrants[man][11], number_
 
 
-def check_households(world: World) -> None:
+def check_households(world: World, pairs: bool = True) -> None:
     """The load checks of the households (design note of the households, section 7; part 2,
     section 6; ADR-0018 section 7; ADR-0006 section 5) on the state of `world`, as the loader
     would see its save with its input log (the couples of `Start`); a broken one is
@@ -4897,7 +4897,10 @@ def check_households(world: World) -> None:
       later in that second);
     - every social parent of a living or archived person (part 2, section 6) is a SimId
       below the counter of a living or archived person, not the person herself, not one of
-      her biological parents, and listed once."""
+      her biological parents, and listed once;
+    - the living members of a household with `moved_out` are at most one, or exactly the
+      woman and the man of one open partnership (`check_moved_out_households`; `pairs`
+      False leaves it out, for the forged saves that only it rejects)."""
     t = max(world.closed, 0)
     households = world.households
     if not world.households_on:
@@ -4983,6 +4986,35 @@ def check_households(world: World) -> None:
             # Biological by SimId, for a pool person by its PoolOrigin keys (NOTES.md).
             assert person != sim and not world.is_biological_parent(sim, person), (sim, person)
         assert len(set(socials)) == len(socials), (sim, socials)
+    if pairs:
+        check_moved_out_households(world)
+
+
+def moved_out_violations(world: World) -> list:
+    """The households that break the rule of the moved out (`check_moved_out_households`), as
+    (household, its living members with `moved_out`, by SimId), by household."""
+    moved = {}
+    for sim, value in sorted(world.sims.items()):
+        if value[10]:
+            moved.setdefault(value[9], []).append(sim)
+    pairs = {frozenset(value[:2]) for value in world.partnerships.values() if value[3] is None}
+    return [(household, sims) for household, sims in sorted(moved.items()) if len(sims) > 1 and frozenset(sims) not in pairs]
+
+
+def check_moved_out_households(world: World) -> None:
+    """The load check of the moved out in one household (ADR-0006 section 5; the gap the
+    village start showed, ADR-0020 section 8, G4, which puts each person alone): the living
+    members of a household with `moved_out` true are at most one, or exactly the woman and
+    the man of one open partnership (`ended` None; one brought by an arrival counts). A
+    broken one is `Inconsistent` in the core, an assertion here; `check_households` ends
+    with it. Every rule that moves a person out keeps it: a partnership founds the couple's
+    household, `leave_home` and a separation found one of their own, an arrival comes as the
+    pool's household holds it, the orphan rule only moves dependent persons. Without
+    households (the switch of this reference) there is nothing to check."""
+    if not world.households_on:
+        return
+    broken = moved_out_violations(world)
+    assert not broken, broken
 
 
 def check_pool(world: World) -> None:
