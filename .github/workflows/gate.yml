@@ -41,5 +41,10 @@ jobs:
           fi
           rustup toolchain install
           rustc --version
+      # Node for the web build of the gate, its major from web/.nvmrc (ADR-0021 section 4).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
       - name: Gate
         run: cargo xtask ci
