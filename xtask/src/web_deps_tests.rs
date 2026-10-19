@@ -17,10 +17,12 @@ fn package() -> Value {
     })
 }
 
-fn entry(version: &str, license: &str) -> Value {
+/// A package from the registry, its tarball where npm resolves it.
+fn entry(name: &str, version: &str, license: &str) -> Value {
+    let base = name.rsplit('/').next().expect("a name");
     json!({
         "version": version,
-        "resolved": format!("https://registry.npmjs.org/x/-/x-{version}.tgz"),
+        "resolved": format!("https://registry.npmjs.org/{name}/-/{base}-{version}.tgz"),
         "integrity": "sha512-AAAA",
         "dev": true,
         "license": license
@@ -38,8 +40,8 @@ fn lockfile() -> Value {
                 "engines": {"node": "24.x"},
                 "devDependencies": {"typescript": "6.0.3"}
             },
-            "node_modules/typescript": entry("6.0.3", "Apache-2.0"),
-            "node_modules/typescript/node_modules/tiny": entry("1.0.0", "(MIT OR GPL-3.0-only)")
+            "node_modules/typescript": entry("typescript", "6.0.3", "Apache-2.0"),
+            "node_modules/typescript/node_modules/tiny": entry("tiny", "1.0.0", "(MIT OR GPL-3.0-only)")
         }
     })
 }
@@ -94,16 +96,92 @@ fn the_clean_fixture_passes() {
 #[test]
 fn a_package_off_the_list_is_red() {
     let found = codes(|_, _, lockfile, _| {
-        add(lockfile, "node_modules/left-pad", entry("1.3.0", "MIT"));
+        add(
+            lockfile,
+            "node_modules/left-pad",
+            entry("left-pad", "1.3.0", "MIT"),
+        );
     });
     assert_eq!(found, ["unlisted_package"]);
     // An alias is checked under the name it installs.
     let found = codes(|_, _, lockfile, _| {
-        let mut alias = entry("1.3.0", "MIT");
+        let mut alias = entry("left-pad", "1.3.0", "MIT");
         alias["name"] = json!("left-pad");
         add(lockfile, "node_modules/typescript-alias", alias);
     });
     assert_eq!(found, ["unlisted_package"]);
+    // Nested, scoped, or an optional package for one platform: the same.
+    let found = codes(|_, _, lockfile, _| {
+        let evil = entry("evil", "1.0.0", "MIT");
+        add(lockfile, "node_modules/typescript/node_modules/evil", evil);
+        let mut native = entry("@scope/native-linux-x64", "1.0.0", "MIT");
+        native["optional"] = json!(true);
+        native["os"] = json!(["linux"]);
+        native["cpu"] = json!(["x64"]);
+        add(lockfile, "node_modules/@scope/native-linux-x64", native);
+    });
+    assert_eq!(found, ["unlisted_package", "unlisted_package"]);
+}
+
+/// The tarball decides what installs: a listed name over another package's tarball, a
+/// link or a bundled package is red.
+#[test]
+fn a_listed_name_over_another_tarball_is_red() {
+    let other = "https://registry.npmjs.org/evil/-/evil-6.0.3.tgz";
+    let found = codes(|_, _, lockfile, _| {
+        lockfile["packages"]["node_modules/typescript"]["resolved"] = json!(other);
+    });
+    assert_eq!(found, ["not_from_the_registry"]);
+    let found = codes(|_, _, lockfile, _| {
+        let mut alias = entry("evil", "6.0.3", "Apache-2.0");
+        alias["name"] = json!("typescript");
+        add(lockfile, "node_modules/evil", alias);
+    });
+    assert_eq!(found, ["not_from_the_registry"]);
+    let found = codes(|_, _, lockfile, _| {
+        lockfile["packages"]["node_modules/typescript"]["version"] = json!("6.0.4");
+    });
+    assert_eq!(found, ["not_from_the_registry"]);
+    for flag in ["link", "inBundle"] {
+        let found = codes(|_, _, lockfile, _| {
+            lockfile["packages"]["node_modules/typescript"][flag] = json!(true);
+        });
+        assert_eq!(found, ["not_from_the_registry"], "{flag}");
+    }
+}
+
+/// What the manifest declares is listed and is what the lockfile's root declares; the
+/// root installs without a script.
+#[test]
+fn the_root_declares_only_listed_packages_without_scripts() {
+    let found = codes(|_, package, lockfile, _| {
+        package["dependencies"] = json!({"left-pad": "1.3.0"});
+        lockfile["packages"][""]["dependencies"] = json!({"left-pad": "1.3.0"});
+    });
+    assert_eq!(found, ["unlisted_package"]);
+    let found = codes(|_, package, _, _| {
+        package["devDependencies"]["tiny"] = json!("1.0.0");
+    });
+    assert_eq!(found, ["manifest_mismatch"]);
+    let found = codes(|_, _, lockfile, _| {
+        lockfile["packages"][""]["peerDependencies"] = json!({"tiny": "1.0.0"});
+    });
+    assert_eq!(found, ["manifest_mismatch"]);
+    let found = codes(|_, package, _, _| {
+        package["scripts"] = json!({"build": "tsc", "postinstall": "node x.js"});
+    });
+    assert_eq!(found, ["install_script"]);
+    let found = codes(|_, _, lockfile, _| {
+        lockfile["packages"][""]["hasInstallScript"] = json!(true);
+    });
+    assert_eq!(found, ["install_script"]);
+    let found = codes(|_, _, lockfile, _| {
+        lockfile["packages"]
+            .as_object_mut()
+            .expect("packages")
+            .remove("");
+    });
+    assert_eq!(found, ["node_pin", "manifest_mismatch"]);
 }
 
 #[test]
@@ -112,7 +190,7 @@ fn a_licence_off_the_list_is_red() {
         add(
             lockfile,
             "node_modules/copyleft",
-            entry("2.0.0", "GPL-3.0-only"),
+            entry("copyleft", "2.0.0", "GPL-3.0-only"),
         );
         list(allowlist, "copyleft", "GPL-3.0-only");
     });
@@ -121,13 +199,13 @@ fn a_licence_off_the_list_is_red() {
         add(
             lockfile,
             "node_modules/both",
-            entry("2.0.0", "MIT AND GPL-3.0-only"),
+            entry("both", "2.0.0", "MIT AND GPL-3.0-only"),
         );
         list(allowlist, "both", "MIT AND GPL-3.0-only");
     });
     assert_eq!(found, ["license_not_allowed"]);
     let found = codes(|_, _, lockfile, allowlist| {
-        let mut bare = entry("2.0.0", "MIT");
+        let mut bare = entry("bare", "2.0.0", "MIT");
         bare.as_object_mut().expect("an entry").remove("license");
         add(lockfile, "node_modules/bare", bare);
         list(allowlist, "bare", "MIT");
@@ -191,7 +269,7 @@ fn another_lockfile_version_is_red() {
 #[test]
 fn every_problem_is_named() {
     let found = codes(|_, _, lockfile, _| {
-        let mut bad = entry("0.1.0", "GPL-2.0");
+        let mut bad = entry("bad", "0.1.0", "GPL-2.0");
         bad["hasInstallScript"] = json!(true);
         bad["resolved"] = json!("git+ssh://example.org/bad.git");
         add(lockfile, "node_modules/bad", bad);
@@ -240,6 +318,8 @@ fn spdx_expressions_pass_as_the_adr_says() {
         "MIT OR AND",
         "MIT OR OR",
         "MIT OR WITH",
+        "MIT OR GPL/2",
+        "MIT OR \"x\"",
     ] {
         assert!(!license_allowed(fails), "{fails}");
     }
@@ -334,7 +414,7 @@ fn another_manifest_is_red() {
 }
 
 /// The command reads `web/` below its root and walks the rest of the tree for another
-/// manifest, skipping `.git`, `target`, `docs` and every `node_modules`.
+/// manifest, leaving out `.git`, `target` and `docs` at the root and `web/node_modules`.
 #[test]
 fn the_command_walks_the_tree() {
     let root = std::env::temp_dir().join(format!("simagent-web-deps-{}", std::process::id()));
@@ -354,18 +434,33 @@ fn the_command_walks_the_tree() {
         "target/debug/package.json",
         "docs/package.json",
         "web/node_modules/typescript/package.json",
-        "tools/node_modules/package.json",
     ] {
         write(skipped, "{}");
     }
     assert_eq!(command(&root), Ok(()));
-    write("tools/deep/yarn.lock", "");
-    write("web/npm-shrinkwrap.json", "{}");
-    let found = command(&root).expect_err("two strays");
-    assert_eq!(
-        found,
-        "\n  another_manifest: tools/deep/yarn.lock\n  another_manifest: web/npm-shrinkwrap.json"
-    );
+    // Only those four are left out: the same names deeper in the tree are walked.
+    for stray in [
+        "web/npm-shrinkwrap.json",
+        "tools/deep/yarn.lock",
+        "tools/node_modules/package.json",
+        "tools/target/bun.lock",
+        "web/docs/package.json",
+    ] {
+        write(stray, "{}");
+    }
+    let found = command(&root).expect_err("strays");
+    let strays = [
+        "tools/deep/yarn.lock",
+        "tools/node_modules/package.json",
+        "tools/target/bun.lock",
+        "web/docs/package.json",
+        "web/npm-shrinkwrap.json",
+    ];
+    let lines: Vec<String> = strays
+        .iter()
+        .map(|s| format!("another_manifest: {s}"))
+        .collect();
+    assert_eq!(found, format!("\n  {}", lines.join("\n  ")));
     std::fs::remove_dir_all(&root).expect("removed");
 }
 
