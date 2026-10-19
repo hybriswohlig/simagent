@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { PersonPage } from "./person.js";
 import { format, parse, type Route } from "./router.js";
 import { Sheet } from "./sheet.js";
 import { TEXT } from "./text.js";
@@ -15,9 +16,8 @@ function Page({ route }: { route: Route }) {
     case "run":
       return <h1>{`${TEXT.run} ${route.run}`}</h1>;
     case "person":
-      return <h1>{`${TEXT.person} ${route.sim}`}</h1>;
     case "tree":
-      return <h1>{`${TEXT.tree} ${route.sim}`}</h1>;
+      return <PersonPage run={route.run} sim={route.sim} />;
     case "not_found":
       return (
         <p>
