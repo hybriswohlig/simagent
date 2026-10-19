@@ -7,6 +7,7 @@ pub mod error;
 pub mod files;
 pub mod repro;
 pub mod session;
+pub mod view;
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -97,6 +98,11 @@ fn command() -> Command {
     let measure = Command::new("measure")
         .about("Prints the genic spread of each trait and the mean dose of each additive locus over the living of a run (ADR-0020 section 3)")
         .arg(Arg::new("run").value_name("RUN_DIR").required(true));
+    let view = Command::new("view")
+        .about("Serves the runs of a directory and web/dist to the browser, on 127.0.0.1 only (ADR-0021)")
+        .arg(Arg::new("runs").value_name("RUNS_DIR").required(true))
+        .arg(Arg::new("port").long("port").value_name("PORT"))
+        .arg(Arg::new("web").long("web").value_name("WEB_DIST_DIR"));
     Command::new("simagent")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
@@ -105,6 +111,7 @@ fn command() -> Command {
         .subcommand(export)
         .subcommand(kinship)
         .subcommand(measure)
+        .subcommand(view)
         .subcommand(
             Command::new("repro")
                 .about("Replays a repro package; succeeds once the failure is gone (ADR-0016)")
@@ -142,6 +149,17 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
         Some(("kinship", kinship)) => {
             let text = |name: &str| kinship.get_one::<String>(name).map_or("", String::as_str);
             return kinship_of(Path::new(text("run")), text("a"), text("b"));
+        }
+        Some(("view", view)) => {
+            let text = |name: &str| view.get_one::<String>(name).map(String::as_str);
+            let port = match text("port") {
+                Some(port) => port
+                    .parse::<u16>()
+                    .map_err(|_| CliError::new("usage", format!("--port {port} is not a port")))?,
+                None => view::PORT,
+            };
+            let runs = Path::new(text("runs").unwrap_or_default());
+            return view::view(runs, Path::new(text("web").unwrap_or("web/dist")), port);
         }
         Some(("measure", measure)) => {
             let dir = measure.get_one::<String>("run").map_or("", String::as_str);
