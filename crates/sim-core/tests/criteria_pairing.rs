@@ -74,7 +74,9 @@ fn trait_loci() -> Vec<DataId> {
 }
 
 /// The women, then the men: born a whole number of seconds between 16 and 30 years before
-/// the start, each allele at the trait loci the top bit of the next number.
+/// the start, each allele at the trait loci the top bit of the next number. Every trait
+/// locus is named, `[0, 0]` too: a founder draws the additive loci it does not name (Grok
+/// F1), and the phenotypes below are those of the genomes named here.
 fn founders() -> Vec<Founder> {
     let loci = trait_loci();
     let mut state = SEED_FOUNDERS;
@@ -86,13 +88,13 @@ fn founders() -> Vec<Founder> {
             let offset = i64::try_from(splitmix(&mut state) % span).expect("small");
             let alleles = loci
                 .iter()
-                .filter_map(|locus| {
+                .map(|locus| {
                     let copies = [splitmix(&mut state) >> 63, splitmix(&mut state) >> 63]
                         .map(|bit| u8::try_from(bit).expect("a bit"));
-                    (copies != [0, 0]).then(|| LocusAlleles {
+                    LocusAlleles {
                         locus: locus.clone(),
                         copies: copies.to_vec(),
-                    })
+                    }
                 })
                 .collect();
             Founder {

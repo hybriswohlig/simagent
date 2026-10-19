@@ -5,10 +5,11 @@
 //! second). Each town on the documents its pool was extracted from. Integers, keys and
 //! words exact; `z` and `gl` within `1e-12 · max(1, |x|)`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 use sim_core::input::{Input, Start};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
@@ -29,11 +30,48 @@ fn root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
+/// The frequencies this pool was made with, as `Data::with_pool` takes them (slice S2a of
+/// the map-4 switch): the file's (`tests/golden/pool/pool_frequencies.json`) for `pool_c`,
+/// those of its pool run `frequent_alleles` for `pool_d` (`tools/pool_reference.py`).
+fn frequencies(pool: &[u8]) -> BTreeMap<DataId, FiniteF64> {
+    let values: Vec<(String, f64)> = if pool == POOL_D {
+        [
+            ("core:disease_ar", 0.4),
+            ("core:disease_ad_late", 0.3),
+            ("core:disease_ad_partial", 0.35),
+            ("core:disease_xr", 0.45),
+            ("core:disease_mt", 0.25),
+            ("core:mc1r", 0.6),
+            ("core:herc2", 0.55),
+        ]
+        .map(|(id, q)| (id.to_owned(), q))
+        .to_vec()
+    } else {
+        let file: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/golden/pool/pool_frequencies.json"
+        ))
+        .expect("json");
+        file["pool_frequencies"]
+            .as_object()
+            .expect("the entries")
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry["value"].as_f64().expect("a value")))
+            .collect()
+    };
+    values
+        .into_iter()
+        .map(|(id, q)| {
+            let q = FiniteF64::try_new(q).expect("finite");
+            (DataId::new(&id).expect("id"), q)
+        })
+        .collect()
+}
+
 /// This pool on the documents it was extracted from, whose data hash is its `frozen_hash`
 /// (design note of the pool's records, section 6), as the arrival tests and
 /// `tools/arrival_reference.py` build it: `pool_c` on those of the pool run `father_dies`
 /// without `pool_frequencies` (`tests/golden/father_dies`), `pool_d` on the template of
-/// map 4 with the repository's life course data.
+/// map 4 with the repository's life course data; with the frequencies it was made with.
 fn town_data(pool: &[u8]) -> Data {
     let root = root();
     let (demography, documents) = if pool == POOL_C {
@@ -52,7 +90,7 @@ fn town_data(pool: &[u8]) -> Data {
         crate::prerun::read_files(&root.join(documents)).expect("the documents");
     let definitions =
         crate::prerun::definitions_of(&demography, &calibration, &map).expect("definitions");
-    Data::with_pool(definitions, pool).expect("checked")
+    Data::with_pool(definitions, pool, frequencies(pool)).expect("checked")
 }
 
 /// A pool town of the reference's (tag `test:arrival`, no capacity) run to `end`.

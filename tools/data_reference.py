@@ -79,7 +79,15 @@ endian; an enum variant with data is its index followed by the data; ADR-0008):
   Mark: small, large, disease
   MutationDirection: both, to_alt, to_ref
 
+With a pool (slice S2a of the switch to map 4, design note of the switch, sections 2 and 12)
+the data also carry the frequencies of the pool's seven loci (`frequencies_of`, the rules
+`frequencies_rejection`), and the data hash is xxh3-64 of the definitions' postcard followed
+by the postcard of `(pool_seed, pool_hash, frequencies)` (`pool_suffix`,
+`data_hash_with_pool`); `frozen_hash` stays the hash of the definitions alone.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
+       python3 tools/data_reference.py [DATA_DIR] --pool POOL --frequencies FILE
+       (the definitions' hash and the data hash with the pool and its frequencies)
 """
 
 import json
@@ -594,10 +602,10 @@ def documents(data_dir: Path):
     return demography, calibration, genome_map
 
 
-def documents_hash(demography, calibration, genome_map) -> int:
-    """The data hash of the life course data, a calibration and a genome map given as
-    parsed JSON (test data built in memory, or the files): the text fields checked, then
-    stripped, as the core sees them. A named trait of liability is checked
+def definitions_bytes(demography, calibration, genome_map) -> bytes:
+    """The postcard of the definitions (the life course data, a calibration and a genome map
+    given as parsed JSON, test data built in memory or the files): the text fields checked,
+    then stripped, as the core sees them. A named trait of liability is checked
     (`check_liability`); its threshold `T` is kept with the data, not hashed on its own (the
     hash covers `K`). The bounds of the traits are checked (`check_trait_bounds`)."""
     check_demography_format(demography)
@@ -607,17 +615,121 @@ def documents_hash(demography, calibration, genome_map) -> int:
     check_liability(calibration, genome_map)
     check_trait_bounds(calibration, genome_map)
     demography, calibration, genome_map = strip(demography), strip(calibration), strip(genome_map)
-    return xxhash.xxh3_64_intdigest(
-        demography_bytes(demography) + calibration_bytes(calibration) + genome_map_bytes(genome_map),
-        seed=0,
-    )
+    return demography_bytes(demography) + calibration_bytes(calibration) + genome_map_bytes(genome_map)
+
+
+def documents_hash(demography, calibration, genome_map) -> int:
+    """The data hash of the definitions without a pool (`definitions_bytes`), xxh3-64 with
+    seed 0. With a pool it is also the pool's `frozen_hash` (design note of the pool's
+    records, section 6)."""
+    return xxhash.xxh3_64_intdigest(definitions_bytes(demography, calibration, genome_map), seed=0)
 
 
 def data_hash(data_dir: Path) -> int:
     return documents_hash(*documents(data_dir))
 
 
+# ---------------------------------------------------------------------------------------
+# The frequencies of the pool (slice S2a of the switch to map 4, design note of the switch,
+# sections 2 and 12): data with a pool carry the frequency `q` of the alternative allele at
+# each of the seven loci of the pool (design note of the pool file, section 3), and the data
+# hash covers them.
+
+# The seven loci of the pool, in the order of the pool file's table (design note of the pool
+# file, section 3).
+POOL_LOCI = (
+    "core:disease_ar",
+    "core:disease_ad_late",
+    "core:disease_ad_partial",
+    "core:disease_xr",
+    "core:disease_mt",
+    "core:mc1r",
+    "core:herc2",
+)
+FREQUENCY_FIELDS = ("value", "unit", "source", "as_of", "note")
+
+
+def frequencies_of(document) -> dict:
+    """{locus: q} of a frequencies file in the wrapped form `{"pool_frequencies": {locus:
+    {value, unit, source, as_of, note}}}` (tests/golden/pool/pool_frequencies.json, from S5
+    data/pool/pool_frequencies.json), parsed JSON. The checks of the file reader (xtask
+    `take_frequencies`, which keeps them): the one field `pool_frequencies` holding an
+    object, each entry exactly the five fields, the unit `fraction`, the texts filled (each
+    failure an AssertionError naming its rule: `pool.frequencies_loci`, `pool.frequency_unit`,
+    `pool.frequency_text`); the texts are removed. The rules of the data
+    (`frequencies_rejection`) are not checked here: `Data::with_pool` checks them."""
+    assert isinstance(document, dict) and list(document) == ["pool_frequencies"], "pool.frequencies_loci: no object pool_frequencies"
+    entry = document["pool_frequencies"]
+    assert isinstance(entry, dict), "pool.frequencies_loci: no object pool_frequencies"
+    out = {}
+    for locus, value in entry.items():
+        assert isinstance(value, dict) and set(value) == set(FREQUENCY_FIELDS), f"pool.frequencies_loci {locus} fields {sorted(value) if isinstance(value, dict) else value}"
+        assert value["unit"] == "fraction", f"pool.frequency_unit {locus}"
+        for name in CALIBRATED_TEXT:
+            assert isinstance(value[name], str) and value[name].strip(), f"pool.frequency_text {locus} {name}"
+        q = value["value"]
+        assert isinstance(q, (int, float)) and not isinstance(q, bool), f"pool.frequency_range {locus} {q!r}"
+        out[locus] = float(q)
+    return out
+
+
+def frequencies_file(path: Path) -> dict:
+    """`frequencies_of` the file at `path`."""
+    return frequencies_of(json.loads(Path(path).read_text()))
+
+
+def frequencies_rejection(frequencies: dict):
+    """The first rule of the data the frequencies break, or None. `Data::with_pool` checks them
+    after its pool checks (`pool.carer_not_member`, `pool.sex`, `pool.locus`,
+    `pool.frozen_hash`), in this order: `pool.frequencies_loci` (the loci are not exactly the
+    seven of the pool: one missing, one more, or none at all), then `pool.frequency_range`
+    (a `q` not in the open interval (0, 1): 0, 1, below 0, above 1; a NaN or an infinity is
+    no `FiniteF64` and fails the same rule here)."""
+    if set(frequencies) != set(POOL_LOCI):
+        return "pool.frequencies_loci"
+    for locus in sorted(frequencies):
+        q = float(frequencies[locus])
+        if not (math.isfinite(q) and 0.0 < q < 1.0):
+            return "pool.frequency_range"
+    return None
+
+
+def pool_suffix(pool_seed: int, pool_hash: int, frequencies: dict) -> bytes:
+    """The postcard of `(pool_seed, pool_hash, frequencies)` that the data hash appends to the
+    definitions with a pool (design note of the switch, section 12): `pool_seed` and
+    `pool_hash` as varints, the frequencies as a sequence of `(locus ID as a string, q as an
+    f64)` ascending by ID (a `BTreeMap<DataId, FiniteF64>` writes the same bytes: the length,
+    then the pairs in key order)."""
+    out = varint(pool_seed) + varint(pool_hash) + varint(len(frequencies))
+    for locus in sorted(frequencies):
+        out += string(locus) + f64(float(frequencies[locus]))
+    return out
+
+
+def data_hash_with_pool(definitions: bytes, pool_seed: int, pool_hash: int, frequencies: dict) -> int:
+    """The data hash with a pool: xxh3-64 (seed 0) of the definitions' postcard followed by
+    `pool_suffix`. `frozen_hash` stays the hash of the definitions alone."""
+    return xxhash.xxh3_64_intdigest(definitions + pool_suffix(pool_seed, pool_hash, frequencies), seed=0)
+
+
 def main(argv):
+    if "--pool" in argv:
+        # The data with a pool (S2a): the definitions of DATA_DIR, the pool file and its
+        # frequencies file, every rule of `Data::with_pool` (tools/world_reference.py).
+        import world_reference
+
+        at = argv.index("--pool")
+        pool_path, frequencies_path = Path(argv[at + 1]), Path(argv[argv.index("--frequencies") + 1])
+        rest = [arg for i, arg in enumerate(argv[1:], 1) if i not in (at, at + 1, argv.index("--frequencies"), argv.index("--frequencies") + 1)]
+        data_dir = Path(rest[0]) if rest else REPOSITORY_DATA
+        frequencies = frequencies_file(frequencies_path)
+        data = world_reference.Data(*documents(data_dir), pool=pool_path.read_bytes(), frequencies=frequencies)
+        print(f"definitions_hash {data_hash(data_dir):016x}")
+        print(
+            f"data_hash_with_pool {data.hash:016x} pool_seed {data.pool.seed:016x} pool_hash {data.pool.hash:016x}"
+            f" frozen_hash {data.pool.frozen_hash:016x} suffix {pool_suffix(data.pool.seed, data.pool.hash, frequencies).hex()}"
+        )
+        return
     data_dir = Path(argv[1]) if len(argv) > 1 else REPOSITORY_DATA
     print(f"data_hash {data_hash(data_dir):016x}")
     # The threshold of each threshold disease that names its trait of liability (none in the

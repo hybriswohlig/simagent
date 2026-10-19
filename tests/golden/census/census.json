@@ -1,7 +1,7 @@
 {
  "format_version": 1,
  "written_by": "tools/census_reference.py (independent of crates/)",
- "core_version_modelled": 38,
+ "core_version_modelled": 39,
  "projection_version_modelled": 18,
  "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
  "clamped_keys": [
@@ -1902,7 +1902,7 @@
   },
   "b_pool_c_immigration": {
    "data": "the documents of father_dies (tools/pool_reference.py: tests/golden/map4_template with data/calibration/demography.json and the scenario's values) and the pool tests/golden/pool/pool_c.bin",
-   "data_hash": "2f5ffab01421f28a",
+   "data_hash": "c7fbd1668c8e94f6",
    "body_data": "accepted",
    "start_input_hash": "db33f0998d01ce48",
    "year_hashes": [
@@ -3864,7 +3864,7 @@
   },
   "b2_pool_b_start": {
    "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_b.bin",
-   "data_hash": "e294ebcbe2babe0d",
+   "data_hash": "6bc8a5d68de36a5e",
    "body_data": "accepted",
    "start_input_hash": "34402b18cd4ef988",
    "year_hashes": [
@@ -4952,7 +4952,7 @@
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
    "data_hash": "b17afdcd296175ac",
    "body_data": "accepted without core:mc1r and core:herc2 in the map, both read as 0 copies (note section 6.1)",
-   "start_input_hash": "90cc678794e0610c",
+   "start_input_hash": "a9f9746730a92dd1",
    "year_hashes": [
     "28e70d241496e285",
     "1a405456571c3ae7",
@@ -5916,7 +5916,7 @@
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
    "data_hash": "b17afdcd296175ac",
    "body_data": "accepted with MC1R and HERC2 read as 0 copies (the twin of c, which reaches the same rows by the rule of note section 6.1)",
-   "start_input_hash": "90cc678794e0610c",
+   "start_input_hash": "a9f9746730a92dd1",
    "year_hashes": [
     "28e70d241496e285",
     "1a405456571c3ae7",

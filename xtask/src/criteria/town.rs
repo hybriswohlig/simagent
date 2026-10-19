@@ -26,7 +26,6 @@ use sim_core::world::World;
 
 use super::report::report;
 use super::write::{Observer, write};
-use crate::ordered::Json;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -39,18 +38,16 @@ const YEARS: i64 = 200;
 const YEAR: i64 = 31_449_600;
 
 /// The data of a town: the repository's life course data, the calibration and map of
-/// `map_dir` (a `pool_frequencies` entry removed: the frequencies travel with the pool, and
-/// the pool was extracted on the data without them), and the pool's bytes.
+/// `map_dir`, the pool's bytes, and the pool's frequencies, taken from the calibration's
+/// `pool_frequencies` entry (they travel with the pool and enter the data hash; the pool was
+/// extracted on the definitions without them).
 pub fn town_data(root: &Path, map_dir: &Path, pool: &[u8]) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
     let (calibration, map) = crate::prerun::read_files(map_dir)?;
-    let calibration: Json = if calibration.get("pool_frequencies").is_some() {
-        crate::pool_file::take_frequencies(&calibration, &map)?.0
-    } else {
-        calibration
-    };
+    let (calibration, frequencies) = crate::pool_file::take_frequencies(&calibration, &map)?;
     let definitions = crate::prerun::definitions_of(&demography, &calibration, &map)?;
-    Data::with_pool(definitions, pool).map_err(|e| format!("the town's data: {e}"))
+    let frequencies = crate::pool_file::finite(frequencies)?;
+    Data::with_pool(definitions, pool, frequencies).map_err(|e| format!("the town's data: {e}"))
 }
 
 /// How a town starts and how long it runs.

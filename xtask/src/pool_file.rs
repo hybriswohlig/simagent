@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 use sim_core::pool::{GenomeKeys, Pool, PoolReport, extract};
 use sim_core::time::{SimTime, YEAR};
 use sim_core::world::{World, YearOut};
@@ -115,6 +116,18 @@ pub fn take_frequencies(calibration: &Json, map: &Json) -> Result<(Json, BTreeMa
         .cloned()
         .collect();
     Ok((Json::Object(rest), frequencies))
+}
+
+/// The frequencies as the core takes them.
+pub fn finite(frequencies: BTreeMap<DataId, f64>) -> Result<BTreeMap<DataId, FiniteF64>> {
+    frequencies
+        .into_iter()
+        .map(|(id, q)| {
+            FiniteF64::try_new(q)
+                .map(|q| (id, q))
+                .map_err(|_| "pool.frequency_range".to_owned())
+        })
+        .collect()
 }
 
 /// The pool run on these documents (the frozen map, its calibration with

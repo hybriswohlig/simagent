@@ -363,7 +363,7 @@ const SMALL_YEAR_HASHES: [u64; 30] = [
     0x0816_3d4f_bad3_09ff,
 ];
 const SMALL_STATE_HASH: u64 = 0x9dec_d28b_3c6c_f950;
-const SMALL_SAVE_BYTES: usize = 79721;
+const SMALL_SAVE_BYTES: usize = 105176;
 const SMALL_CENSUS: [u64; 30] = [
     40, 40, 40, 41, 40, 40, 40, 40, 40, 38, 38, 37, 37, 36, 36, 36, 36, 36, 35, 34, 34, 33, 32, 32,
     32, 32, 31, 31, 31, 31,
