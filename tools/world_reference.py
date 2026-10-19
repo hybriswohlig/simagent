@@ -5294,7 +5294,7 @@ def founder_allele_rows() -> list:
     projection after `Start` (state hash), and the checks: founder 2's `[0, 0]` at
     `core:herc2` stays where her draws give 1; a man draws one X copy (gamete 0), everyone one
     mt copy (gamete 0); map 4 has no Y locus; the same founders on data without frequencies
-    (the template alone) draw only the additive loci; on map 3 (data/) nothing is drawn. Then
+    (the template alone) draw only the additive loci; on the map 3 fixture nothing is drawn. Then
     the share of allele 1 over 10 000 founders at an additive locus of the template (`q` =
     0.5) against 4 standard errors (genetics specification 8.1)."""
     data = f1_data()
