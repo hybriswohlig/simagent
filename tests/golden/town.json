@@ -1,0 +1,127 @@
+{
+  "core_version": 40,
+  "data_hash": "b1f5c0054302363d",
+  "year_hashes": [
+    {
+      "year": 0,
+      "hash": "c1bfddb998e0aa87"
+    },
+    {
+      "year": 1,
+      "hash": "eb488dc0207760d0"
+    },
+    {
+      "year": 2,
+      "hash": "b356562077103711"
+    },
+    {
+      "year": 3,
+      "hash": "f5acb3d3e57dd882"
+    },
+    {
+      "year": 4,
+      "hash": "9047b016aab3bb74"
+    },
+    {
+      "year": 5,
+      "hash": "7a3b8a2708fb45b7"
+    },
+    {
+      "year": 6,
+      "hash": "f258217ebb1968bd"
+    },
+    {
+      "year": 7,
+      "hash": "c5ea13072ee9c6a6"
+    },
+    {
+      "year": 8,
+      "hash": "f08294f634ef9792"
+    },
+    {
+      "year": 9,
+      "hash": "a381ae2120f158ad"
+    },
+    {
+      "year": 10,
+      "hash": "d8d97cd90cb9c0dd"
+    },
+    {
+      "year": 11,
+      "hash": "915e42e35d718733"
+    },
+    {
+      "year": 12,
+      "hash": "cc02ee34890ef0cb"
+    },
+    {
+      "year": 13,
+      "hash": "4caafe8c9ac57cce"
+    },
+    {
+      "year": 14,
+      "hash": "796e43bd147990df"
+    },
+    {
+      "year": 15,
+      "hash": "7671d24ffb229d16"
+    },
+    {
+      "year": 16,
+      "hash": "0bff88e7d433e858"
+    },
+    {
+      "year": 17,
+      "hash": "a0ce54d133e99e5a"
+    },
+    {
+      "year": 18,
+      "hash": "f00418e7a57e6e68"
+    },
+    {
+      "year": 19,
+      "hash": "937e42079c530ffb"
+    },
+    {
+      "year": 20,
+      "hash": "9b3514fdebfcc360"
+    },
+    {
+      "year": 21,
+      "hash": "0e10879456b8e85a"
+    },
+    {
+      "year": 22,
+      "hash": "51762d290d791d4b"
+    },
+    {
+      "year": 23,
+      "hash": "956f2ce2708e3eb9"
+    },
+    {
+      "year": 24,
+      "hash": "f44f607570c03547"
+    },
+    {
+      "year": 25,
+      "hash": "d3f8deaef37fa609"
+    },
+    {
+      "year": 26,
+      "hash": "0f49fc0ff7ee4afa"
+    },
+    {
+      "year": 27,
+      "hash": "68dbea8f02d450f6"
+    },
+    {
+      "year": 28,
+      "hash": "eadb0f02f23d5c61"
+    },
+    {
+      "year": 29,
+      "hash": "0dd75a776b2afd38"
+    }
+  ],
+  "log_hash": "4858d99a3a45ca8b"
+}
