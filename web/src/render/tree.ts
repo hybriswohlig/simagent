@@ -1,7 +1,8 @@
 /**
  * The layout of an hourglass (SVG geometry, which only `web/src/render/` may compute): one
  * row per generation, the great-grandparents at the top, the grandchildren at the bottom,
- * each row centred; a line from each parent to each of its children in the drawing.
+ * each row centred, without empty generations above and below; a line from each parent to
+ * each of its children in the drawing.
  */
 
 import type { Person } from "../generated/export.js";
@@ -21,8 +22,12 @@ const STEP_X = 90;
 const STEP_Y = 80;
 
 export function layout(glass: Hourglass): Layout {
-  const rows: (readonly Person[])[] = [...glass.up].reverse();
-  rows.push([glass.center], ...glass.down);
+  const all: (readonly Person[])[] = [...glass.up].reverse();
+  all.push([glass.center], ...glass.down);
+  // Empty generations at the top and the bottom take no room.
+  const first = all.findIndex((row) => row.length > 0);
+  const last = all.length - 1 - [...all].reverse().findIndex((row) => row.length > 0);
+  const rows = all.slice(first, last + 1);
   const widest = Math.max(...rows.map((row) => row.length));
   const width = Math.max(1, widest) * STEP_X;
   const nodes: Placed[] = [];
