@@ -210,9 +210,7 @@ impl Session {
             .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
         // A run that was interrupted while it wrote has lines in its files that the
         // save does not know. The manifest of the last orderly end tells them apart.
-        let manifest: Manifest =
-            files::parse_strict(files::read_text(&dir.join(files::MANIFEST))?.trim_end())
-                .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
+        let manifest = files::read_manifest(&files::read_text(&dir.join(files::MANIFEST))?)?;
         let describes_the_save = manifest.closed_through == world.closed_through()
             && manifest.year_hashes == year_hashes
             && manifest.core_version == CORE_VERSION

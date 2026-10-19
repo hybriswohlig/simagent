@@ -139,6 +139,19 @@ pub fn code<T: Serialize>(value: &T) -> String {
     }
 }
 
+/// A manifest of this program's format version; anything else is `manifest_invalid`.
+pub fn read_manifest(text: &str) -> Result<Manifest, CliError> {
+    let manifest: Manifest = parse_strict(text.trim_end())
+        .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))?;
+    if manifest.format_version != FORMAT_VERSION {
+        return Err(CliError::new(
+            "manifest_invalid",
+            "not a manifest of format version 5",
+        ));
+    }
+    Ok(manifest)
+}
+
 /// Reads `text` as `T` and accepts it only if `T` writes the same JSON value back.
 /// serde also reads a struct from a list of values without field names; that form
 /// and anything else `T` would not write is rejected here (ADR-0004 section 4).

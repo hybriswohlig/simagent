@@ -13,6 +13,7 @@ use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
 use serde::Serialize;
+use sim_core::data::Data;
 use sim_core::ids::SimId;
 use sim_core::input::{ForkOverride, Input, InputRecord, PoolStart, Start};
 use sim_core::measure::{LocusDose, TraitSpread};
@@ -257,12 +258,22 @@ fn read_scenario(file: &Path) -> Result<Scenario, CliError> {
     let file: files::ScenarioFile = files::parse_strict(&text)
         .filter(|scenario: &files::ScenarioFile| scenario.format_version == files::FORMAT_VERSION)
         .ok_or_else(|| invalid("not a scenario of format version 5"))?;
+    resolve(file, data::core_data)
+}
+
+/// A scenario file resolved on the data `data` gives, which it asks for only when the file
+/// names a pool: the pool drawn by `PoolStart::drawn`, every other field as written.
+pub fn resolve(
+    file: files::ScenarioFile,
+    data: impl FnOnce() -> Result<Data, CliError>,
+) -> Result<Scenario, CliError> {
+    let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
     let start = file.start;
     let pool = match start.pool {
         None => None,
         Some(choice) => Some(
             PoolStart::drawn(
-                &data::core_data()?,
+                &data()?,
                 start.world_seed,
                 choice.n_start,
                 choice.immigration,
@@ -402,8 +413,7 @@ fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogE
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
-    files::parse_strict(files::read_text(path)?.trim_end())
-        .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))
+    files::read_manifest(&files::read_text(path)?)
 }
 
 /// ADR-0004 section 4: a new world, per record `advance_until(t)` and `submit`, at the
