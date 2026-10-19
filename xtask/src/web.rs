@@ -7,7 +7,10 @@
 //! with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read only
 //! `web/package.json`, `web/dist` and `web/test` (nothing secret), write nothing, start no
 //! process or worker and build no code from strings. A canary test proves that on every
-//! run. Node 24 cannot close the network; with nothing secret to read, it carries nothing.
+//! run. Node 24 cannot close the network; with nothing secret to read, it carries nothing
+//! of ours. The gate runs the repository's own code anyway (`cargo test`, build scripts)
+//! with the network, the environment and every file; the sandbox keeps the web tests below
+//! that level, it does not make the gate safe for code nobody reviewed.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -134,17 +137,22 @@ fn files(root: &Path, dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// The scans over `root/web/src`; `web`, `web/src` and `web/test` are no symbolic link and
-/// hold none.
-pub fn scan(root: &Path) -> Result<Vec<String>> {
-    let web = root.join("web");
+/// `web`, `web/src` and `web/test` are directories of the repository, no symbolic links.
+fn unlinked(root: &Path) -> Result {
     for dir in ["web", "web/src", "web/test"] {
-        let path = root.join(dir);
-        let kind = path.symlink_metadata().map_err(|e| format!("{dir}: {e}"))?;
+        let kind = (root.join(dir).symlink_metadata()).map_err(|e| format!("{dir}: {e}"))?;
         if kind.is_symlink() {
             return Err(format!("{dir}: a symbolic link in web/"));
         }
     }
+    Ok(())
+}
+
+/// The scans over `root/web/src`; `web`, `web/src` and `web/test` are no symbolic link and
+/// hold none.
+pub fn scan(root: &Path) -> Result<Vec<String>> {
+    let web = root.join("web");
+    unlinked(root)?;
     let mut findings = Vec::new();
     for file in files(root, &web.join("src"))? {
         let text = crate::read(&file)?;
@@ -199,7 +207,7 @@ test(\"no process\", () => assert.throws(() => execSync(\"true\"), denied));
 test(\"no worker\", () => assert.throws(() => new Worker(new URL(import.meta.url)), denied));
 test(\"no code from strings\", () => assert.throws(() => new Function(\"return 1\"), EvalError));
 test(\"no environment\", () => {{
-  const kept = Object.keys(process.env).filter((k) => k !== \"PATH\" && !k.startsWith(\"__CF_\"));
+  const kept = Object.keys(process.env).filter((k) => k !== \"PATH\" && k !== \"__CF_USER_TEXT_ENCODING\");
   assert.deepEqual(kept, []);
 }});
 test(\"the output is readable\", () => {{ readFileSync({page:?}); }});
@@ -237,7 +245,9 @@ fn add(to: &Path, contents: &[u8]) -> Result {
 pub fn build(root: &Path) -> Result {
     let web = root.join("web");
     let dist = web.join("dist");
-    // First, so that a failed build leaves no old output behind.
+    // Before anything is removed: below a linked `web`, `dist` would be another's.
+    unlinked(root)?;
+    // Then the old output, so that a failed build leaves none behind.
     if dist.symlink_metadata().is_ok() {
         std::fs::remove_dir_all(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
     }
