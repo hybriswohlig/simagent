@@ -3174,3 +3174,34 @@ const IMMIGRANT_CHILD_YEAR_HASHES: [u64; 2] = [0xb2d2_7171_a721_2f3c, 0x2c4f_7c6
 const IMMIGRANT_CHILD_LOG_HASH: u64 = 0x989a_b950_12f1_4d5f;
 const IMMIGRANT_CHILD_STATE_HASH: u64 = 0xa96c_b756_d1cb_dcdb;
 const IMMIGRANT_CHILD_SAVE: (usize, u64) = (20477, 0xa09b_d83f_7d4b_e463);
+
+/// The loader's household check: the living who moved out share a household only as the
+/// two partners of an open partnership. The reference (`tools/village_reference.py
+/// --moved-out`) moves sim 4, alone and moved out, into household 1 of another lone sim and
+/// ends its own household at the clock.
+const LOAD_REJECTED_MOVED_IN: [Hunks; 1] = [(
+    "load_base_moved_in",
+    "load_base",
+    (21142, 0x1765_537a_a5cb_9436),
+    &[(4744, 1, "01"), (12403, 1, "01fe97fd59")],
+    (21146, 0x3a7a_9ad9_a340_1c6d),
+)];
+
+#[test]
+fn two_who_moved_out_share_a_household_only_as_a_pair() {
+    for (name, label, base_pin, hunks, expected) in LOAD_REJECTED_MOVED_IN {
+        let (base, data) = base_save(label);
+        assert_eq!(sized(&base), base_pin, "{name}");
+        assert!(World::load(&base, data()).is_ok(), "{name}: the base loads");
+        let mut bytes = base.clone();
+        for (offset, removed, put) in hunks.iter().rev() {
+            bytes.splice(*offset..offset + removed, hex(put));
+        }
+        assert_eq!(sized(&bytes), expected, "{name}");
+        assert_eq!(
+            World::load(&bytes, data()).err(),
+            Some(LoadError::Inconsistent),
+            "{name}"
+        );
+    }
+}

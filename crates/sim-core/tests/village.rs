@@ -28,7 +28,7 @@ use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::pool::PoolPerson;
 use sim_core::time::SimTime;
-use sim_core::world::{World, YearOut};
+use sim_core::world::{LoadError, World, YearOut};
 
 const Y: i64 = 31_449_600;
 const TAG: &str = "core:criteria_village";
@@ -623,6 +623,16 @@ const RUN_EMIGRATED: [u64; 30] = [
 ];
 /// The year whose save the resumed run starts from.
 const RUN_RESUME_YEAR: i64 = 9;
+/// A change of a save: its offset, the bytes removed there, the bytes put in.
+type Hunk = (usize, usize, &'static str);
+
+/// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
+/// save.
+const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
+    (28618, 0xd518_e67c_2262_09e8),
+    &[(8882, 1, "06"), (14637, 1, "01fecff6ab02")],
+    (28623, 0xcf09_020f_83f1_1181),
+);
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year
 /// end, the births, deaths (both `core:senescence`) and emigrants of each year, the log, the
@@ -686,6 +696,20 @@ fn the_village_of_seed_2_over_30_years() {
     assert_eq!(emigrated, RUN_EMIGRATED, "emigrants");
 
     let (bytes, entries) = resume.expect("the save of year 9");
+    // The loader's household check: sim 42, alone and moved out, moved into household 6 of
+    // sim 6, its own household ended at the clock (the reference's `--moved-out`).
+    let (base_pin, hunks, forged_pin) = VILLAGE_MOVED_IN;
+    assert_eq!(sized(&bytes), base_pin, "the save of year 9");
+    let mut forged = bytes.clone();
+    for (offset, removed, put) in hunks.iter().rev() {
+        forged.splice(*offset..offset + removed, hex(put));
+    }
+    assert_eq!(sized(&forged), forged_pin, "the forged save");
+    assert_eq!(
+        World::load(&forged, data.clone()).err(),
+        Some(LoadError::Inconsistent),
+        "two villagers who moved out in one household"
+    );
     let (mut resumed, years) = World::load(&bytes, data).expect("loads");
     let mut out = YearOut {
         census: Vec::new(),
