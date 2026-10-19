@@ -151,8 +151,6 @@ fn arrival_data() -> Data {
 
 fn arrival_run() -> Run {
     let data = arrival_data();
-    let held = data.pool().expect("a pool");
-    let (taken, _) = take_households(held.pool(), 0xff, 0, &BTreeSet::new(), 50);
     let start = Start {
         world_seed: 0xff,
         founder_tag: DataId::new("test:arrival").expect("id"),
@@ -163,15 +161,7 @@ fn arrival_run() -> Run {
         founders: Vec::new(),
         couples: Vec::new(),
         capacity: None,
-        pool: Some(PoolStart {
-            pool_hash: held.hash(),
-            n_start: 50,
-            immigration: true,
-            households: taken
-                .iter()
-                .map(|&index| held.pool().households[index].clone())
-                .collect(),
-        }),
+        pool: PoolStart::drawn(&data, 0xff, 50, true),
     };
     let mut world = World::new(data);
     world.submit(Input::Start(start)).expect("accepted");

@@ -1,5 +1,5 @@
 {
-  "format_version": 4,
+  "format_version": 5,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:fork_no_density",
@@ -235,7 +235,8 @@
         "man": 31
       }
     ],
-    "capacity": null
+    "capacity": null,
+    "pool": null
   },
   "until": 1886975999
 }

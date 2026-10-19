@@ -280,19 +280,17 @@ fn micro_pool() -> Vec<u8> {
 }
 
 /// The part of `Start` that founds the town from the data's pool: the households of the
-/// draw for occasion 0 until they bring `n_start` persons.
+/// draw for occasion 0 until they bring `n_start` persons, as `PoolStart::drawn` resolves a
+/// scenario (the start hashes below are the reference's).
 fn pool_start(data: &Data, seed: u64, n_start: u64, immigration: bool) -> PoolStart {
-    let pool = data.pool().expect("a pool");
-    let (taken, _) = take_households(pool.pool(), seed, 0, &BTreeSet::new(), n_start);
-    PoolStart {
-        pool_hash: pool.hash(),
-        n_start,
-        immigration,
-        households: taken
-            .iter()
-            .map(|&index| pool.pool().households[index].clone())
-            .collect(),
-    }
+    PoolStart::drawn(data, seed, n_start, immigration).expect("a pool")
+}
+
+/// Data without a pool draw no pool start (design note of the map-4 switch, section 13).
+#[test]
+fn data_without_a_pool_draw_no_pool_start() {
+    let plain = Data::new(definitions(template())).expect("checked");
+    assert_eq!(PoolStart::drawn(&plain, 0xff, 50, true), None);
 }
 
 fn start(seed: u64, founders: Vec<Founder>, couples: Vec<Couple>, pool: PoolStart) -> Start {

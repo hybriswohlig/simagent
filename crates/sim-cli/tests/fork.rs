@@ -14,7 +14,7 @@ const Y: i64 = 31_449_600;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 4,
+  "format_version": 5,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -25,7 +25,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
     "couples": [],
-    "capacity": null
+    "capacity": null,
+    "pool": null
   },
   "until": 314495999
 }"#;
