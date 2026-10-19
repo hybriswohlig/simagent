@@ -487,6 +487,34 @@ fn the_first_twenty_that_count_are_taken_in_list_order() {
     );
 }
 
+/// The twin only compares (Grok D3): a shifted value of exactly 0 is compared, not a
+/// finding. `V` = 0.5, 2.5 and 18 times 1.5 (mean 1.5) shift to 0, 2 and 18 times 1; against
+/// `Ē` 0.6, `|1 − 0.6|` = 0.4 lies beyond `4 se'` = `4 · sqrt(2 / 19) / sqrt(20)` ≈ 0.290.
+#[test]
+fn the_twin_compares_a_shifted_zero() {
+    let mut v = vec![1.5; 20];
+    (v[0], v[1]) = (0.5, 2.5);
+    let e = vec![0.6; 20];
+    let check = village(&v, &e).expect("a check");
+    assert_eq!(check.mean_v, 1.5);
+    let twin = twin(&v, &e, check.mean_v).expect("the twin compares");
+    assert_eq!(twin.mean_v, 1.0);
+    assert!((twin.se - sim_math::sqrt(2.0 / 19.0) / sim_math::sqrt(20.0)).abs() < 1e-15);
+    assert!(!twin.pass);
+    let mut zero = v.clone();
+    zero[0] = 0.0;
+    assert_eq!(village(&zero, &e), Err(VillageFinding::NoVariance));
+}
+
+/// Grok D1b: a block of two units or more counts even when nobody lives at the end.
+#[test]
+fn a_block_counts_by_its_units() {
+    assert!(counts(None));
+    assert!(counts(Some("no_living_person")));
+    assert!(!counts(Some("fewer_than_two_units")));
+    assert!(!counts(Some("no_block")));
+}
+
 #[test]
 fn the_command_names_its_directory() {
     for args in [
