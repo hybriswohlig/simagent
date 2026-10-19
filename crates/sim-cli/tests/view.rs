@@ -849,3 +849,58 @@ fn an_unreadable_runs_directory_is_a_failure() {
     fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).expect("opened");
     assert_eq!(found, vec![(500, "runs_unreadable".to_owned()); 3]);
 }
+
+/// The person route sends the core's presentation state of the save as it is, with format,
+/// version and the contract version; a living and a dead person; unknown sims are 404.
+#[test]
+fn a_person_is_the_cores_presentation_state() {
+    let (runs, web) = long_fixture("person");
+    let server = start(&runs, &web);
+    let pedigree: Value =
+        serde_json::from_slice(&fs::read(runs.join("long/pedigree.json")).expect("read"))
+            .expect("JSON");
+    let persons = pedigree["persons"].as_array().expect("persons");
+    let living = persons
+        .iter()
+        .find(|p| p["died"].is_null() && p["emigrated"].is_null())
+        .expect("a living person");
+    let dead = persons
+        .iter()
+        .find(|p| !p["died"].is_null())
+        .expect("a dead person");
+    let save = fs::read(runs.join("long/state.save")).expect("the save");
+    let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
+        .expect("loads");
+    for person in [living, dead] {
+        let sim = person["sim"].as_u64().expect("a sim");
+        let (status, head, body) = get(server.port, &format!("/api/runs/long/persons/{sim}"));
+        assert_eq!(status, 200, "{sim}");
+        assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+        let view = world
+            .person_view(sim_core::ids::SimId::try_from(sim).expect("an id"))
+            .expect("a view");
+        let mut expected = serde_json::to_value(&view).expect("JSON");
+        let fields = expected.as_object_mut().expect("an object");
+        fields.insert("format".into(), "simagent.view.person".into());
+        fields.insert("version".into(), 1.into());
+        fields.insert(
+            "contract_version".into(),
+            sim_core::body_contract::CONTRACT_VERSION.into(),
+        );
+        assert_eq!(json_of(&body), expected, "{sim}");
+    }
+    let dead_sim = dead["sim"].as_u64().expect("a sim");
+    let answer = json_of(&get(server.port, &format!("/api/runs/long/persons/{dead_sim}")).2);
+    assert_eq!(answer["ended"], "death");
+    assert_eq!(answer["shown"]["at"]["t"], dead["died"]);
+    for sim in ["0", "01", "+1", "x", "99999", "18446744073709551616"] {
+        let (status, _, body) = get(server.port, &format!("/api/runs/long/persons/{sim}"));
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "unknown_sim".to_owned()),
+            "{sim}"
+        );
+    }
+    let (status, _, body) = get(server.port, "/api/runs/fork.b/persons/1");
+    assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
+}
