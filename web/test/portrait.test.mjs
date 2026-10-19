@@ -40,7 +40,8 @@ test("the defaults show head, hair, eyes and brows, no beard, freckles or wrinkl
   assert.equal(parts(shapes, "iris").length, 2);
   assert.equal(parts(shapes, "sclera").length, 2);
   assert.equal(parts(shapes, "brow").length, 2);
-  for (const part of ["beard", "freckle", "wrinkle"]) {
+  assert.equal(parts(shapes, "rim").length, 2);
+  for (const part of ["beard", "moustache", "freckle", "wrinkle"]) {
     assert.equal(parts(shapes, part).length, 0, part);
   }
 });
@@ -61,14 +62,24 @@ test("sizes follow their values", () => {
 });
 
 test("hair thins and goes with balding, beard and freckles come with their values", () => {
-  assert.equal(parts(bust(params({ balding_stage: 7 })), "hair").length, 0);
-  assert.equal(parts(bust(params({ hair_density: 0 })), "hair").length, 0);
+  // Stage 7 is bald except for the rim; without density there is no hair at all.
+  const bald = bust(params({ balding_stage: 7 }));
+  assert.equal(parts(bald, "hair").length, 0);
+  assert.equal(parts(bald, "rim").length, 2);
+  const none = bust(params({ hair_density: 0 }));
+  assert.equal(parts(none, "hair").length + parts(none, "rim").length, 0);
   const cap = (stage) => one(bust(params({ balding_stage: stage })), "hair").ry;
   assert.ok(cap(0) > cap(3) && cap(3) > cap(6));
   assert.equal(one(bust(params({ hair_density: 0.4 })), "hair").opacity, 0.4);
-  const beard = one(bust(params({ beard_density: 0.5, beard_coverage: 0.8 })), "beard");
-  assert.equal(beard.opacity, 0.4);
-  assert.equal(parts(bust(params({ beard_density: 1, beard_coverage: 0 })), "beard").length, 0);
+  // The beard is as dense as its density; coverage 0 is upper lip and chin, more coverage
+  // reaches wider over the jaw.
+  const beard = (set) => bust(params(set));
+  assert.equal(one(beard({ beard_density: 0.5, beard_coverage: 0.8 }), "beard").opacity, 0.5);
+  const lipAndChin = beard({ beard_density: 1, beard_coverage: 0 });
+  one(lipAndChin, "moustache");
+  const left = (shapes) => Number(one(shapes, "beard").d.split(" ")[1]);
+  assert.ok(left(beard({ beard_density: 1, beard_coverage: 1 })) < left(lipAndChin));
+  assert.equal(parts(beard({ beard_density: 0, beard_coverage: 1 }), "beard").length, 0);
   assert.equal(parts(bust(params({ freckle_density: 1 })), "freckle").length, 24);
   assert.equal(parts(bust(params({ freckle_density: 0.5 })), "freckle").length, 12);
   assert.equal(parts(bust(params({ face_wrinkles: 0.6 })), "wrinkle").length, 2);
@@ -77,4 +88,9 @@ test("hair thins and goes with balding, beard and freckles come with their value
 test("a value outside its range is held to it, a missing one takes the default", () => {
   assert.deepEqual(bust(params({ head_size_z: 9 })), bust(params({ head_size_z: 4 })));
   assert.deepEqual(bust(params({ skin_eumelanin: Number.NaN })), bust(params()));
+  // A reader of an older contract gets no value for a newer key (ADR-0005 section 6).
+  const missing = params({ head_size_z: 2, hair_curl: 0.7 });
+  delete missing.skin_eumelanin;
+  delete missing.beard_density;
+  assert.deepEqual(bust(missing), bust(params({ head_size_z: 2, hair_curl: 0.7 })));
 });
