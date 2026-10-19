@@ -215,6 +215,7 @@ fn start_of(scenario: &Value, data: &Data) -> Start {
                 pool_hash: held.hash(),
                 n_start,
                 immigration: pool["immigration"].as_bool().expect("immigration"),
+                village: false,
                 households: taken
                     .iter()
                     .map(|&index| held.pool().households[index].clone())

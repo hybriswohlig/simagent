@@ -982,6 +982,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::StartPoolMissing,
         RejectCode::StartPoolNStart,
         RejectCode::StartPoolHouseholds,
+        RejectCode::StartPoolVillageNStart,
+        RejectCode::StartPoolVillageImmigration,
+        RejectCode::StartPoolVillageCandidates,
     ];
     for code in &codes {
         match code {
@@ -1012,7 +1015,10 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::StartPoolAndFounders
             | RejectCode::StartPoolMissing
             | RejectCode::StartPoolNStart
-            | RejectCode::StartPoolHouseholds => {}
+            | RejectCode::StartPoolHouseholds
+            | RejectCode::StartPoolVillageNStart
+            | RejectCode::StartPoolVillageImmigration
+            | RejectCode::StartPoolVillageCandidates => {}
         }
     }
     codes
