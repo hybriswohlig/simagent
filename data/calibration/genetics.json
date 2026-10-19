@@ -23,14 +23,14 @@
       "note": "m = exp(-sigma_g * g_L); no effect without a trait of longevity"
     },
     "core:senescence_a_female": {
-      "value": 3.25e-06,
+      "value": 3.25e-6,
       "unit": "per_year",
       "source": "docs/genetik-spezifikation.md 7.2 (W7.2b), fitted to the life tables of Destatis 2023/2025 (life expectancy 83.43, at 65 21.10)",
       "as_of": "2026-10-11",
       "note": "Gompertz a of women, per year"
     },
     "core:senescence_a_male": {
-      "value": 8.73e-06,
+      "value": 8.73e-6,
       "unit": "per_year",
       "source": "docs/genetik-spezifikation.md 7.2 (W7.2d), fitted to the life tables of Destatis 2023/2025 (life expectancy 78.82, at 65 17.97)",
       "as_of": "2026-10-11",
@@ -72,7 +72,7 @@
       "note": "docs/genetik-spezifikation.md 2.2 (K2.2c); the X of a man does not recombine in the model"
     },
     "core:mutation_rate": {
-      "value": 5e-5,
+      "value": 0.00005,
       "unit": "per_transmission",
       "source": "game value; real loss-of-function rates per gene about 1e-6 to 1e-4 (Kong A et al. 2012, Nature 488:471; Jobling MA 2012, Investig Genet 3:5)",
       "as_of": "2026-10-07",
@@ -821,8 +821,1174 @@
       "note": "docs/genetik-spezifikation.md 2.3, 7.5 and 11.3 (W11.3d): sons per daughter; the father passes his Y with r / (1 + r) = 1.05 / 2.05 = 21/41 (ADR-0017 section 4)"
     }
   },
-  "traits": [],
-  "sex_differences": [],
+  "traits": [
+    {
+      "trait": "core:androgen",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:bald",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:beard",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:body_fat",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:body_hair",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:breast",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:chest_depth",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:cognition",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.25,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.75,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:curl",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:disease_liability",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:estrogen",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_01",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_02",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_03",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_04",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_05",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_06",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_07",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_08",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_09",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_10",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_11",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:face_12",
+      "h2_child": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.7,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:fat_distribution",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:freckle",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:grey",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:growth",
+      "h2_child": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hair_darkness",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hair_density",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:head_size",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:hip_width",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:leg_ratio",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:muscle",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:pigment",
+      "h2_child": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.8,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:puberty",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.1,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:shoulder_width",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:skin_age",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the child, template of map 4"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the child, template of map 4"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "h2 of the adult, template of map 4"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
+        "as_of": "2026-10-12",
+        "note": "c2 of the adult, template of map 4"
+      }
+    }
+  ],
+  "sex_differences": [
+    {
+      "trait": "core:cognition",
+      "shift": {
+        "value": 0.0,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2 (K6.2b), Deary et al. (2003)",
+        "as_of": "2026-10-12",
+        "note": "no shift of men against women, template of map 4"
+      },
+      "variance_ratio": {
+        "value": 1.12,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2 (K6.2c), Deary et al. (2003)",
+        "as_of": "2026-10-12",
+        "note": "variance of men over women, template of map 4"
+      }
+    }
+  ],
   "diseases": [
     {
       "code": "core:disease_ar",
@@ -1129,7 +2295,7 @@
       "code": "core:disease_liability",
       "carrier": {
         "threshold": {
-          "liability": null,
+          "liability": "core:disease_liability",
           "heritability": {
             "value": 0.6,
             "unit": "fraction",
@@ -1191,10 +2357,10 @@
       }
     }
   ],
-  "longevity_trait": null,
-  "puberty_trait": null,
-  "cognition_trait": null,
-  "height_trait": null,
+  "longevity_trait": "core:longevity",
+  "puberty_trait": "core:puberty",
+  "cognition_trait": "core:cognition",
+  "height_trait": "core:growth",
   "fertility": {
     "puberty": {
       "menarche_mean": {
