@@ -27,7 +27,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`
 /// (ADR-0007).
-const DATA_HASH: u64 = 0xadab_5027_57b4_045c;
+const DATA_HASH: u64 = 0xb1f5_c005_4302_363d;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -239,8 +239,8 @@ fn golden_fork_matches() {
     assert_ne!(golden_fork.log_hash, parent.log_hash);
     // The entry of the override. It plans the death of sim 1 of `core:disease_ar` (cystic
     // fibrosis on the repository's data, ADR-0017 section 3) for second 1 506 119 448, at
-    // about 78; she dies of senescence in year 27 first, as in the run
-    // (tools/golden_reference.py).
+    // about 78; she dies of senescence in year 26 first (second 836 172 484, at 56.6), as
+    // in the run (tools/golden_reference.py).
     assert_eq!(fork.log.len(), whole_run().log.len() + 1);
 }
 
@@ -348,6 +348,74 @@ fn golden_run_matches_in_two_processes() {
             "{file} differs between two runs"
         );
     }
+}
+
+/// The town from the pool of the repository's data (`tests/scenarios/town.json`, format 5
+/// with `pool` `{n_start 100, immigration true}`) through the binary: the CLI resolves the
+/// pool by `PoolStart::drawn` on the built-in data, and the run gives the golden
+/// `tests/golden/town.json` of `tools/golden_reference.py` (core version, data hash, the 30
+/// year hashes, the log hash). The end-to-end test of the pool resolution.
+#[test]
+fn golden_town_matches_through_the_binary() {
+    let golden: Golden = serde_json::from_str(
+        &fs::read_to_string(repo_file("tests/golden/town.json")).expect("the golden of the town"),
+    )
+    .expect("the golden parses");
+    assert_eq!(golden.core_version, CORE_VERSION);
+    assert_eq!(golden.data_hash, DATA_HASH);
+    assert_eq!(golden.year_hashes.len(), 30);
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("golden_town");
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("removes the old directory");
+    }
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run", "--scenario"])
+        .arg(repo_file("tests/scenarios/town.json"))
+        .arg("--out")
+        .arg(&dir)
+        .status()
+        .expect("runs simagent");
+    assert!(status.success());
+    let text = fs::read_to_string(dir.join(files::MANIFEST)).expect("reads");
+    let manifest: Manifest = files::parse_strict(text.trim_end()).expect("a manifest");
+    assert_eq!(manifest.core_version, golden.core_version);
+    assert_eq!(manifest.data_hash, golden.data_hash);
+    assert_eq!(manifest.year_hashes, golden.year_hashes);
+    assert_eq!(manifest.log_hash, golden.log_hash);
+    // The resolved scenario holds the households `PoolStart::drawn` gives on the built-in
+    // data for the town's seed, size and immigration.
+    let resolved: Scenario = files::parse_strict(
+        fs::read_to_string(dir.join(files::SCENARIO))
+            .expect("reads")
+            .trim_end(),
+    )
+    .expect("a resolved scenario");
+    let data = sim_cli::data::core_data().expect("data");
+    let drawn = PoolStart::drawn(&data, 1, 100, true).expect("the data hold a pool");
+    assert!(!drawn.households.is_empty());
+    assert_eq!(resolved.start.pool, Some(drawn));
+    assert_eq!(resolved.start.world_seed, 1);
+    assert!(resolved.start.founders.is_empty());
+}
+
+/// The CLI's message for a scenario with a pool on data without one: here the map 3
+/// fixture, which holds no pool (the built-in data hold one since the switch to map 4).
+#[test]
+fn a_pool_scenario_on_data_without_a_pool_is_invalid() {
+    let text = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[],"couples":[],"capacity":null,"pool":{"n_start":10,"immigration":false}},"until":31449599}"#;
+    let file: sim_cli::files::ScenarioFile = serde_json::from_str(text).expect("a scenario");
+    let without_pool = || {
+        sim_cli::data::data_from(
+            include_str!("../../../data/calibration/demography.json"),
+            include_str!("../../../tests/golden/map3/calibration/genetics.json"),
+            include_str!("../../../tests/golden/map3/genetics/genome_map.json"),
+        )
+    };
+    let error = sim_cli::resolve(file, without_pool).expect_err("no pool to draw from");
+    assert_eq!(
+        error.to_string(),
+        "error: scenario_invalid: the data hold no pool"
+    );
 }
 
 /// Every event payload by name. The names and codes must be the `kind` lines of

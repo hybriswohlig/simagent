@@ -194,10 +194,9 @@ mod tests {
 
     #[test]
     fn the_base_game_loads() {
-        // The data hash of the built-in data, from tools/data_reference.py. Today it
-        // equals the hash of the core tests' map 3 fixture; after the switch to map 4
-        // it is the repository's own (design note of the switch, slice S5).
-        assert_eq!(core_data().expect("data").hash(), 0xadab_5027_57b4_045c);
+        // The data hash of the built-in data, map 4 with the pool and its frequencies,
+        // from tools/data_reference.py (line `data_hash`).
+        assert_eq!(core_data().expect("data").hash(), 0xb1f5_c005_4302_363d);
     }
 
     #[test]

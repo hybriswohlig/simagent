@@ -280,3 +280,76 @@ fn the_record_rejects_what_it_never_writes() {
         assert!(read_record(&wrong).is_err(), "{wrong}");
     }
 }
+
+fn repository_file(path: &str) -> Vec<u8> {
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the workspace")
+        .join(path);
+    std::fs::read(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()))
+}
+
+/// The record of the repository's pool, `data/pool/reference_census.json`, read and bound to
+/// `data/pool/pool.bin`: its `pool_hash` is the pool's hash and its `data_hash` the pool's
+/// run data hash. Its `core_version` is that of the pool run (38), not the current one.
+fn repository_record() -> Record {
+    let text =
+        String::from_utf8(repository_file("data/pool/reference_census.json")).expect("UTF-8");
+    let record = read_record(&text).expect("a record");
+    let pool =
+        sim_core::pool::Pool::from_bytes(&repository_file("data/pool/pool.bin")).expect("the pool");
+    assert_eq!(record.pool_hash, pool.hash());
+    assert_eq!(record.data_hash, pool.data_hash);
+    record
+}
+
+/// The clamp rate of the reference population (ADR-0020 section 7) as a gate: the record of
+/// the repository's pool is green, with the evaluations and the clamp counts of the
+/// independent reference (`census_reference.check_record`, last year 749): years 749 to 740,
+/// `n` 399 982, `body_fat_z` 17, `chest_depth_z` 10, `face_axis_02` 10, `face_axis_08` 10,
+/// every other key 0, no held curve.
+#[test]
+fn the_repository_pool_meets_the_clamp_rate() {
+    let record = repository_record();
+    assert_eq!(record.pool_hash, 0xac11_f329_cd5d_a77a);
+    assert_eq!(record.data_hash, 0xe96b_e897_ae69_84a0);
+    assert_eq!(
+        years_of(&record.rows),
+        (740..=749).rev().collect::<Vec<i64>>()
+    );
+    let verdict = check(&record.rows, 749);
+    assert_eq!(verdict.reason, None);
+    assert_eq!(verdict.n, 399_982);
+    let expected = |key: &str| match key {
+        "body_fat_z" => 17,
+        "chest_depth_z" | "face_axis_02" | "face_axis_08" => 10,
+        _ => 0,
+    };
+    for (place, key) in CLAMPED_KEYS.iter().enumerate() {
+        let count: u64 = record.rows.iter().map(|row| row.clamped[place]).sum();
+        assert_eq!(count, expected(key.as_str()), "{}", key.as_str());
+    }
+    let held: u64 = record.rows.iter().map(|row| row.curve_clamped).sum();
+    assert_eq!(held, 0);
+}
+
+/// The negative twin of the gate: the same rows with the count of `body_fat_z` raised to 400,
+/// just above `n / 1000` = 399.982, are red; at 399 they are still green.
+#[test]
+fn the_clamp_gate_turns_red_just_above_the_bound() {
+    let record = repository_record();
+    let place = CLAMPED_KEYS
+        .iter()
+        .position(|key| key.as_str() == "body_fat_z")
+        .expect("a clamped key");
+    let raised_to = |total: u64| {
+        let mut rows = record.rows.clone();
+        let others: u64 = rows[1..].iter().map(|row| row.clamped[place]).sum();
+        rows[0].clamped[place] = total - others;
+        check(&rows, 749)
+    };
+    assert_eq!(raised_to(399).reason, None);
+    let red = raised_to(400);
+    assert_eq!(red.n, 399_982);
+    assert_eq!(red.reason.as_deref(), Some("rate body_fat_z"));
+}
