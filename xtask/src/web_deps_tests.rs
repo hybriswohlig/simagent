@@ -143,10 +143,64 @@ fn a_listed_name_over_another_tarball_is_red() {
     });
     assert_eq!(found, ["not_from_the_registry"]);
     for flag in ["link", "inBundle"] {
+        for value in [json!(true), json!("true"), json!(1), json!({})] {
+            let found = codes(|_, _, lockfile, _| {
+                lockfile["packages"]["node_modules/typescript"][flag] = value;
+            });
+            assert_eq!(found, ["not_from_the_registry"], "{flag}");
+        }
         let found = codes(|_, _, lockfile, _| {
-            lockfile["packages"]["node_modules/typescript"][flag] = json!(true);
+            lockfile["packages"]["node_modules/typescript"][flag] = json!(false);
         });
-        assert_eq!(found, ["not_from_the_registry"], "{flag}");
+        assert_eq!(found, Vec::<&str>::new(), "{flag}");
+    }
+    // A version or name with a path in it, the tarball built to match: the registry would
+    // serve another package.
+    for (name, version) in [
+        ("typescript", "x/../../../evil/-/evil-1.0.0"),
+        ("typescript", "6.0.3/../../../evil/-/evil-1.0.0"),
+        ("typescript", "6.0.3%2f..%2fevil"),
+        ("typescript", ""),
+        ("typescript/../evil", "6.0.3"),
+        ("@scope/../evil", "6.0.3"),
+        ("@scope", "6.0.3"),
+        ("..", "6.0.3"),
+        (".typescript", "6.0.3"),
+    ] {
+        let found = codes(|_, _, lockfile, allowlist| {
+            let base = name.rsplit('/').next().expect("a base");
+            let mut forged = entry("typescript", "6.0.3", "Apache-2.0");
+            forged["name"] = json!(name);
+            forged["version"] = json!(version);
+            forged["resolved"] = json!(format!(
+                "https://registry.npmjs.org/{name}/-/{base}-{version}.tgz"
+            ));
+            add(lockfile, "node_modules/forged", forged);
+            if name != "typescript" {
+                list(allowlist, name, "Apache-2.0");
+            }
+        });
+        assert_eq!(found, ["not_from_the_registry"], "{name}@{version}");
+    }
+}
+
+#[test]
+fn published_names_and_versions_pass() {
+    for name in [
+        "typescript",
+        "@types/node",
+        "left-pad",
+        "lodash.get",
+        "JSONStream",
+        "a~b",
+    ] {
+        assert!(publishable_name(name), "{name}");
+    }
+    for version in ["6.0.3", "1.0.0-beta.1", "2.0.0+build.7", "0.0.1"] {
+        assert!(publishable_version(version), "{version}");
+    }
+    for version in ["v1.0.0", "1.0.0/x", "", "1.0.0 "] {
+        assert!(!publishable_version(version), "{version:?}");
     }
 }
 
@@ -171,10 +225,12 @@ fn the_root_declares_only_listed_packages_without_scripts() {
         package["scripts"] = json!({"build": "tsc", "postinstall": "node x.js"});
     });
     assert_eq!(found, ["install_script"]);
-    let found = codes(|_, _, lockfile, _| {
-        lockfile["packages"][""]["hasInstallScript"] = json!(true);
-    });
-    assert_eq!(found, ["install_script"]);
+    for value in [json!(true), json!("yes")] {
+        let found = codes(|_, _, lockfile, _| {
+            lockfile["packages"][""]["hasInstallScript"] = value;
+        });
+        assert_eq!(found, ["install_script"]);
+    }
     let found = codes(|_, _, lockfile, _| {
         lockfile["packages"]
             .as_object_mut()
@@ -223,10 +279,12 @@ fn a_licence_other_than_the_listed_one_is_red() {
 
 #[test]
 fn an_install_script_is_red() {
-    let found = codes(|_, _, lockfile, _| {
-        lockfile["packages"]["node_modules/typescript"]["hasInstallScript"] = json!(true);
-    });
-    assert_eq!(found, ["install_script"]);
+    for value in [json!(true), json!(1)] {
+        let found = codes(|_, _, lockfile, _| {
+            lockfile["packages"]["node_modules/typescript"]["hasInstallScript"] = value;
+        });
+        assert_eq!(found, ["install_script"]);
+    }
 }
 
 #[test]
