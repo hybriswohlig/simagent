@@ -2,23 +2,66 @@
 //! binary so that a run does not depend on the working directory. Their text is checked
 //! here and removed; the rest goes into the core types, which reject unknown fields.
 
+use std::collections::BTreeMap;
+
 use serde_json::Value;
-use sim_core::data::{Data, Definitions};
+use sim_core::data::{Calibrated, Data, Definitions, Unit};
+use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 
 use crate::error::CliError;
 
 const DEMOGRAPHY: &str = include_str!("../../../data/calibration/demography.json");
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
+const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
+const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 /// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
 /// ADR-0008 section 1).
 const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];
 const LOCUS_TEXT: [&str; 1] = ["description"];
 
-/// The checked definitions of the base game.
+/// The checked definitions of the base game, with the pool of the pre-run and its
+/// frequencies (ADR-0020 sections 4 and 5).
 pub fn core_data() -> Result<Data, CliError> {
-    data_from(DEMOGRAPHY, CALIBRATION, GENOME_MAP)
+    let definitions = definitions_from(DEMOGRAPHY, CALIBRATION, GENOME_MAP)?;
+    Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
+        .map_err(|error| rejected(&error.to_string()))
+}
+
+/// The frequencies of the pool's loci (`pool/pool_frequencies.json`): per locus a value of
+/// the unit `fraction` with its text fields, checked and removed like a calibration value;
+/// the core checks which loci and the range.
+pub fn frequencies_from(text: &str) -> Result<BTreeMap<DataId, FiniteF64>, CliError> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct File {
+        pool_frequencies: BTreeMap<DataId, Calibrated>,
+    }
+    let file: File = read(
+        text,
+        "pool/pool_frequencies.json",
+        |file| {
+            Some(
+                file.get_mut("pool_frequencies")?
+                    .as_object_mut()?
+                    .values_mut()
+                    .collect(),
+            )
+        },
+        &CALIBRATION_TEXT,
+    )?;
+    file.pool_frequencies
+        .into_iter()
+        .map(|(locus, entry)| match entry.unit {
+            Unit::Fraction => Ok((locus, entry.value)),
+            _ => Err(rejected(&format!(
+                "pool/pool_frequencies.json: {} is not a fraction",
+                locus.as_str()
+            ))),
+        })
+        .collect()
 }
 
 /// The checked definitions from the text of the three files.
