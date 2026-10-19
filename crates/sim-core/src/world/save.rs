@@ -1074,7 +1074,9 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 /// formed a partnership, or its second of leaving home has come (for the dead: before its
 /// death). A dependent person (under 18, not moved out) has a carer in its household who
 /// is not dependent, or no carer in a household where nobody is moved out or has a carer
-/// (the last stage of the orphan rule); nobody else has a carer.
+/// (the last stage of the orphan rule); nobody else has a carer. The living who moved out
+/// share a household only as the two partners of an open partnership (a village's persons
+/// arrive alone, ADR-0020 section 8; nothing else joins two who left home).
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let clock = loaded.closed_through;
     let t = clock.max(SimTime::START);
@@ -1192,7 +1194,27 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         .all(|(id, parents, pool, social)| {
             social_parents_fit(loaded, *id, (parents, pool), social)
         });
-    ids_complete && households_fit && archived_known && living_fit && archived_fit && social_fit
+    let pairs_fit = members.values().all(|set| {
+        let moved: Vec<SimId> = (set.iter().copied())
+            .filter(|id| loaded.sims.get(id).is_some_and(|sim| sim.moved_out))
+            .collect();
+        match moved.as_slice() {
+            [] | [_] => true,
+            [one, other] => (open.get(one))
+                .and_then(|id| loaded.partnerships.get(id))
+                .is_some_and(|p| {
+                    [p.woman, p.man] == [*one, *other] || [p.man, p.woman] == [*one, *other]
+                }),
+            _ => false,
+        }
+    });
+    ids_complete
+        && households_fit
+        && archived_known
+        && living_fit
+        && archived_fit
+        && social_fit
+        && pairs_fit
 }
 
 /// The social parents of `id` (ADR-0018 section 4): each a person of the world, living or
