@@ -1,6 +1,7 @@
 /** The pages of the viewer, a closed list (ADR-0021 section 3). */
 export type Route =
   | { page: "runs" }
+  | { page: "portraits" }
   | { page: "run"; run: string }
   | { page: "person"; run: string; sim: string }
   | { page: "tree"; run: string; sim: string }
@@ -16,6 +17,9 @@ export function parse(hash: string): Route {
   const path = hash.startsWith("#") ? hash.slice(1) : hash;
   if (path === "" || path === "/") {
     return { page: "runs" };
+  }
+  if (path === "/portraits") {
+    return { page: "portraits" };
   }
   const parts = path.split("/");
   const [empty, runs, run, persons, sim, tree] = parts;
@@ -38,6 +42,8 @@ export function format(route: Route): string {
   switch (route.page) {
     case "runs":
       return "#/";
+    case "portraits":
+      return "#/portraits";
     case "run":
       return `#/runs/${route.run}`;
     case "person":

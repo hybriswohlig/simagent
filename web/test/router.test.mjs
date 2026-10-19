@@ -7,6 +7,7 @@ import { format, parse } from "../dist/router.js";
 test("each known hash is its route, and back", () => {
   const known = [
     ["#/", { page: "runs" }],
+    ["#/portraits", { page: "portraits" }],
     ["#/runs/town-1", { page: "run", run: "town-1" }],
     ["#/runs/town_1.fork/persons/17", { page: "person", run: "town_1.fork", sim: "17" }],
     ["#/runs/a/persons/1/tree", { page: "tree", run: "a", sim: "1" }],
@@ -36,6 +37,8 @@ test("anything else is not found and keeps its hash", () => {
     "#/runs/a/people/1",
     "#runs/a",
     "#//runs/a",
+    "#/portraits/",
+    "#portraits",
   ];
   for (const hash of unknown) {
     assert.deepEqual(parse(hash), { page: "not_found", hash }, hash);

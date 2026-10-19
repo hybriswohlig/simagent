@@ -12,6 +12,7 @@ mod codegen_ts;
 mod contract;
 mod contract_base;
 mod criteria;
+mod export_types;
 mod kat;
 mod map4;
 mod ordered;
@@ -103,6 +104,12 @@ fn main() -> ExitCode {
             );
         }
         Some("web") => return report("web", workspace_root().and_then(|root| web::build(&root))),
+        Some("export-types") => {
+            return report(
+                "export-types",
+                workspace_root().and_then(|root| check_export_types(&root)),
+            );
+        }
         Some("web-deps") => {
             return report(
                 "web-deps",
@@ -121,7 +128,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -331,7 +338,71 @@ fn gate(require_clean_tree: bool) -> Result {
     })?;
     step("gate run (release binary): goldens and log budget", || {
         check_gate_run(&root)
+    })?;
+    step("export types (release binary)", || {
+        check_export_types(&root)
     })
+}
+
+/// The scenario whose output must show every optional field, nullable value, listed text
+/// and variant of the export descriptor: a town of the pool with a capacity over 60 years.
+const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
+
+/// ADR-0021 section 4: `web/src/generated/export.ts` is the descriptor's, and the
+/// descriptor fits real output: the pedigree and the manifest of the coverage scenario and
+/// the manifest of a fork of it, keys both ways and kinds recursive, every case shown.
+fn check_export_types(root: &Path) -> Result {
+    let types = export_types::descriptor();
+    let checked_in = read(&root.join(export_types::GENERATED_EXPORT_TS))?;
+    if let Some(stale) = export_types::stale_finding(&export_types::generate(&types), &checked_in) {
+        return Err(stale);
+    }
+    let out = root.join("target").join("xtask-export-types");
+    if out.exists() {
+        std::fs::remove_dir_all(&out)
+            .map_err(|error| format!("cannot remove {}: {error}", out.display()))?;
+    }
+    let (town, fork) = (out.join("town"), out.join("fork"));
+    let simagent = |args: &[&str]| {
+        let mut all = vec![
+            "run",
+            "--quiet",
+            "--locked",
+            "--release",
+            "--package",
+            "sim-cli",
+            "--",
+        ];
+        all.extend(args);
+        cargo(root, &all)
+    };
+    let (town_arg, fork_arg) = (town.display().to_string(), fork.display().to_string());
+    simagent(&["run", "--scenario", EXPORT_SCENARIO, "--out", &town_arg])?;
+    simagent(&["export", &town_arg])?;
+    simagent(&["fork", &town_arg, "--from-year", "10", "--out", &fork_arg])?;
+    let json = |path: &Path| -> Result<serde_json::Value> {
+        serde_json::from_str(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let mut seen = export_types::Seen::new();
+    let mut found = Vec::new();
+    for (name, path) in [
+        ("Pedigree", town.join("pedigree.json")),
+        ("Manifest", town.join("manifest.json")),
+        ("Manifest", fork.join("manifest.json")),
+    ] {
+        let at = relative(root, &path);
+        for difference in export_types::conforms(&types, name, &json(&path)?, &mut seen) {
+            found.push(format!("{at}: {difference}"));
+        }
+    }
+    for mark in export_types::missing(&export_types::wanted(&types), &seen) {
+        found.push(format!("{EXPORT_SCENARIO} never shows {mark}"));
+    }
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(listed(found))
+    }
 }
 
 /// The scenario of the gate run (ADR-0004 section 8, ADR-0001 section 7): the dummy of
@@ -478,10 +549,14 @@ fn codegen(root: &Path, base: &contract_base::Base) -> Result {
     let types_path = root.join(codegen::GENERATED_FILE);
     let ts = codegen_ts::generate(&body).map_err(listed)?;
     let ts_path = root.join(codegen_ts::GENERATED_TS);
+    // Written only after every check above: a refused run changes nothing.
+    let export_ts = export_types::generate(&export_types::descriptor());
+    let export_path = root.join(export_types::GENERATED_EXPORT_TS);
     for (path, text) in [
         (&hashes_path, &hashes),
         (&types_path, &types),
         (&ts_path, &ts),
+        (&export_path, &export_ts),
     ] {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
@@ -1196,6 +1271,8 @@ mod tests {
         rewrite(&repo, BODY_FILE, describe);
         let changed = read(&repo.join(BODY_FILE)).expect("contract");
         assert_ne!(changed, committed[0]);
+        let export = repo.join(export_types::GENERATED_EXPORT_TS);
+        std::fs::remove_file(&export).expect("written by the first codegen");
         let refused = codegen(&repo, &base).expect_err("a hash of the base");
         assert!(
             refused.contains("of the merge base was changed or removed")
@@ -1205,6 +1282,7 @@ mod tests {
             "{refused}"
         );
         assert_eq!(snapshot(&repo)[1..], committed[1..]);
+        assert!(!export.exists(), "a refused codegen wrote the export types");
         // Written by hand, the hash and the types pass checks 2 and 4, not check 3.
         let hash = sim_core::hash::stable_hash64(changed.as_bytes());
         let version = contract::version(&changed).expect("a version");
