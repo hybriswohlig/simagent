@@ -1248,6 +1248,17 @@ mod tests {
             "{}",
             written[2]
         );
+        // The TypeScript types carry the version: the old file is stale after the step, and
+        // without the file the check cannot pass either.
+        assert_ne!(written[5], committed[5]);
+        rewrite(&repo, codegen_ts::GENERATED_TS, |_| committed[5].clone());
+        assert_eq!(
+            check_contract(&repo, &base),
+            Err("\n  web/src/generated/body.ts is stale: run cargo xtask codegen and commit the result".to_string())
+        );
+        std::fs::remove_file(repo.join(codegen_ts::GENERATED_TS)).expect("removed");
+        let refused = check_contract(&repo, &base).expect_err("no file");
+        assert!(refused.starts_with("cannot read "), "{refused}");
     }
 
     /// The versions one step after `version` (ADR-0005 section 6): PATCH + 1, then the

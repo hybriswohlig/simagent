@@ -48,19 +48,44 @@ fn the_types_name_every_parameter_with_its_numbers() {
         assert!(lines.contains(&entry.as_str()), "{entry}");
     }
     assert_eq!(lines[start + 1 + parameters.len()], "] as const;");
-    for (material, table) in body["melanin_to_srgb"].as_object().expect("tables") {
-        assert!(
-            lines.contains(&format!("  \"{material}\": {{").as_str()),
-            "{material}"
-        );
-        for row in table["srgb"].as_array().expect("rows") {
-            assert!(
-                lines.contains(&format!("      {row},").as_str()),
-                "{material}"
-            );
-        }
-    }
     assert!(!ts.contains("Math") && !ts.contains("://"));
+}
+
+/// Each material's table is the contract's: its own axes with their points (skin and hair
+/// two, the iris one), then its colours row by row, nothing invented.
+#[test]
+fn each_melanin_table_is_the_contracts() {
+    let (text, body) = contract();
+    let ts = generate(&text).expect("a valid contract");
+    let tables = body["melanin_to_srgb"].as_object().expect("tables");
+    let axes = |material: &str| -> Vec<&str> {
+        let table = tables[material].as_object().expect("a table");
+        table
+            .keys()
+            .map(String::as_str)
+            .filter(|k| *k != "srgb")
+            .collect()
+    };
+    assert_eq!(axes("skin"), ["eumelanin", "pheomelanin"]);
+    assert_eq!(axes("hair"), ["eumelanin", "pheomelanin"]);
+    assert_eq!(axes("iris"), ["melanin"]);
+    for (material, table) in tables {
+        let mut block = vec![format!("  \"{material}\": {{")];
+        for axis in axes(material) {
+            block.push(format!("    \"{axis}\": {},", table[axis]));
+        }
+        block.push("    srgb: [".to_owned());
+        for row in table["srgb"].as_array().expect("rows") {
+            block.push(format!("      {row},"));
+        }
+        block.extend(["    ],".to_owned(), "  },".to_owned()]);
+        assert!(
+            ts.contains(&block.join("\n")),
+            "{material}:\n{}",
+            block.join("\n")
+        );
+    }
+    assert!(!ts.contains("null"));
 }
 
 #[test]
