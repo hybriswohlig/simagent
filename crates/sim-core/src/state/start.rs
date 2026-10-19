@@ -144,9 +144,15 @@ fn founder_count(founders: usize) -> Option<u32> {
 /// the world seed, subject the founder's lineage key, occasion `str_key` of the locus, detail
 /// the copy as a gamete: 0 and 1 on an autosome and a woman's X, 0 on a man's X, 1 on the Y,
 /// 0 on the mt.
-fn founder_genome(data: &Data, world_seed: u64, key: LineageKey, founder: &Founder) -> Genome {
-    let mut genome = Genome::with_alleles(founder.sex, &founder.alleles, data)
-        .unwrap_or_else(|_| panic!("invariant start.founder_alleles"));
+/// The loader rebuilds each founder with it (`founders_are_the_first_sims`); its error is
+/// that of `Genome::with_alleles`.
+pub(crate) fn founder_genome(
+    data: &Data,
+    world_seed: u64,
+    key: LineageKey,
+    founder: &Founder,
+) -> Result<Genome, AlleleError> {
+    let mut genome = Genome::with_alleles(founder.sex, &founder.alleles, data)?;
     let named: BTreeSet<&DataId> = founder
         .alleles
         .iter()
@@ -188,7 +194,7 @@ fn founder_genome(data: &Data, world_seed: u64, key: LineageKey, founder: &Found
             .collect();
         genome.set_copies(locus, &drawn);
     }
-    genome
+    Ok(genome)
 }
 
 /// Writes `core:started` first: it is the `by` of the system series (ADR-0004 section
@@ -252,7 +258,8 @@ pub(crate) fn apply_start(
     for (index, founder) in (0_u64..).zip(&start.founders) {
         let born = founder.born;
         let lineage_key = LineageKey::founder(&start.founder_tag, index);
-        let genome = founder_genome(data, start.world_seed, lineage_key, founder);
+        let genome = founder_genome(data, start.world_seed, lineage_key, founder)
+            .unwrap_or_else(|_| panic!("invariant start.founder_alleles"));
         domain.lineage.insert(lineage_key);
         let (id, added) = ctx.create_sim(
             LogPayload::FounderAdded { born, lineage_key },
