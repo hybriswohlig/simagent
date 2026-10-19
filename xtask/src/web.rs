@@ -3,9 +3,11 @@
 //! running Node has the major of `web/.nvmrc`, installs the locked packages without scripts
 //! (`npm ci`), compiles `web/src` with the pinned `tsc` into `web/dist`, writes the page
 //! with its import map there and copies the vendored Preact modules beside it, and runs
-//! `web/test` with `node --test` on it. `tsc` and the tests run under Node's permission
-//! model: they read only `web/`, `tsc` writes only `web/dist`, the tests write nothing and
-//! start no process.
+//! each file of `web/test` on it. `tsc` and the tests run under Node's permission model
+//! with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read only
+//! `web/package.json`, `web/dist` and `web/test` (nothing secret), write nothing, start no
+//! process or worker and build no code from strings. A canary test proves that on every
+//! run. Node 24 cannot close the network; with nothing secret to read, it carries nothing.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,27 +62,48 @@ pub fn node_major(printed: &str, nvmrc: &str) -> Result {
     }
 }
 
-/// Whether `text` holds the word `Math` (not inside a longer identifier such as `myMath`).
-fn names_math(text: &str) -> bool {
+/// The ways a page reaches the network; only [`API`] may use them (its `getJson`).
+const NETWORK: [&str; 6] = [
+    "fetch",
+    "XMLHttpRequest",
+    "WebSocket",
+    "EventSource",
+    "sendBeacon",
+    "importScripts",
+];
+const API: &str = "web/src/api.ts";
+
+/// Whether `text` holds `word` as a word (not inside a longer identifier such as `myMath`).
+fn names(text: &str, word: &str) -> bool {
     let identifier =
         |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$');
-    text.match_indices("Math").any(|(i, word)| {
+    text.match_indices(word).any(|(i, word)| {
         let before = text[..i].chars().next_back();
         let after = text[i + word.len()..].chars().next();
         !identifier(before) && !identifier(after)
     })
 }
 
-/// A file of `web/src` names no other host and uses `Math` only under [`RENDER`]. A
-/// tripwire for review, not a proof that nothing computes (ADR-0021 section 4).
+/// A file of `web/src` names no other host (`://`, or a string that starts with `//`),
+/// imports nothing at run time, reaches the network only in [`API`] and uses `Math` only
+/// under [`RENDER`]. A tripwire for review, not a proof (ADR-0021 section 4).
 pub fn source_findings(path: &str, text: &str) -> Vec<String> {
     let mut findings = Vec::new();
-    if text.contains("://") {
+    let quoted_host = ["\"//", "'//", "`//"].iter().any(|q| text.contains(q));
+    if text.contains("://") || quoted_host {
         findings.push(format!(
             "{path}: names another host (web/ talks only to its own server)"
         ));
     }
-    if !path.starts_with(RENDER) && names_math(text) {
+    if text.contains("import(") {
+        findings.push(format!(
+            "{path}: imports at run time (web/ loads only its own modules)"
+        ));
+    }
+    if path != API && NETWORK.iter().any(|word| names(text, word)) {
+        findings.push(format!("{path}: reaches the network outside {API}"));
+    }
+    if !path.starts_with(RENDER) && names(text, "Math") {
         findings.push(format!(
             "{path}: uses Math outside {RENDER} (web/ computes nothing, ADR-0021)"
         ));
@@ -111,9 +134,17 @@ fn files(root: &Path, dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// The scans over `root/web/src`, and `root/web/test` holds no symbolic link.
+/// The scans over `root/web/src`; `web`, `web/src` and `web/test` are no symbolic link and
+/// hold none.
 pub fn scan(root: &Path) -> Result<Vec<String>> {
     let web = root.join("web");
+    for dir in ["web", "web/src", "web/test"] {
+        let path = root.join(dir);
+        let kind = path.symlink_metadata().map_err(|e| format!("{dir}: {e}"))?;
+        if kind.is_symlink() {
+            return Err(format!("{dir}: a symbolic link in web/"));
+        }
+    }
     let mut findings = Vec::new();
     for file in files(root, &web.join("src"))? {
         let text = crate::read(&file)?;
@@ -121,6 +152,62 @@ pub fn scan(root: &Path) -> Result<Vec<String>> {
     }
     files(root, &web.join("test"))?;
     Ok(findings)
+}
+
+/// The flags of Node's permission model for a run that reads `reads` and nothing else.
+pub fn sandbox(reads: &[&Path]) -> Vec<String> {
+    let mut args = vec!["--permission".to_owned()];
+    args.extend(
+        reads
+            .iter()
+            .map(|path| format!("--allow-fs-read={}", path.display())),
+    );
+    args.push("--disallow-code-generation-from-strings".to_owned());
+    args
+}
+
+/// Runs Node in `dir` with `args` and an environment of `PATH` alone.
+fn node(dir: &Path, args: &[String]) -> Result {
+    let status = Command::new("node")
+        .args(args)
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .status()
+        .map_err(|e| format!("cannot run node: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`node {}` failed", args.join(" ")))
+    }
+}
+
+/// The canary of the sandbox of the tests: each thing the tests may not do is denied.
+pub fn canary(web: &Path) -> String {
+    let dist = web.join("dist");
+    let outside = web.join("node_modules/typescript/package.json");
+    format!(
+        "import {{ test }} from \"node:test\";
+import assert from \"node:assert/strict\";
+import {{ readFileSync, writeFileSync }} from \"node:fs\";
+import {{ execSync }} from \"node:child_process\";
+import {{ Worker }} from \"node:worker_threads\";
+const denied = {{ code: \"ERR_ACCESS_DENIED\" }};
+test(\"no write\", () => assert.throws(() => writeFileSync({write:?}, \"x\"), denied));
+test(\"no read outside\", () => assert.throws(() => readFileSync({outside:?}), denied));
+test(\"no process\", () => assert.throws(() => execSync(\"true\"), denied));
+test(\"no worker\", () => assert.throws(() => new Worker(new URL(import.meta.url)), denied));
+test(\"no code from strings\", () => assert.throws(() => new Function(\"return 1\"), EvalError));
+test(\"no environment\", () => {{
+  const kept = Object.keys(process.env).filter((k) => k !== \"PATH\" && !k.startsWith(\"__CF_\"));
+  assert.deepEqual(kept, []);
+}});
+test(\"the output is readable\", () => {{ readFileSync({page:?}); }});
+",
+        write = dist.join("canary").display().to_string(),
+        outside = outside.display().to_string(),
+        page = dist.join("index.html").display().to_string(),
+    )
 }
 
 fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
@@ -179,30 +266,37 @@ pub fn build(root: &Path) -> Result {
     )?;
     // Node's permission model takes a directory only if it exists when Node starts.
     std::fs::create_dir(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
-    let read = format!("--allow-fs-read={}", web.display());
-    let write = format!("--allow-fs-write={}", dist.display());
-    let tsc = "node_modules/typescript/bin/tsc";
-    run(
-        &web,
-        "node",
-        &["--permission", &read, &write, tsc, "-p", "tsconfig.json"],
-    )?;
+    let mut tsc = sandbox(&[&web]);
+    tsc.push(format!("--allow-fs-write={}", dist.display()));
+    tsc.extend(["node_modules/typescript/bin/tsc", "-p", "tsconfig.json"].map(str::to_owned));
+    node(&web, &tsc)?;
     add(&dist.join("index.html"), page().as_bytes())?;
     for (_, to, from) in VENDOR {
         let from = web.join("node_modules").join(from);
         let module = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
         add(&dist.join(to), &module)?;
     }
-    let tests: Vec<String> = (files(root, &web.join("test"))?.iter())
-        .map(|file| crate::relative(&web, file))
-        .filter(|file| file.ends_with(".test.mjs"))
+    // Each file on its own: `node --test` honours only the first `--allow-fs-read` when it
+    // looks for its files (Node 24.19), and a test file runs its tests when run directly.
+    let (package, test_dir) = (web.join("package.json"), web.join("test"));
+    let tests: Vec<PathBuf> = (files(root, &test_dir)?.into_iter())
+        .filter(|file| file.to_string_lossy().ends_with(".test.mjs"))
         .collect();
     if tests.is_empty() {
         return Err("web/test holds no *.test.mjs".to_owned());
     }
-    let mut args = vec!["--permission", &read, "--test-isolation=none", "--test"];
-    args.extend(tests.iter().map(String::as_str));
-    run(&web, "node", &args)
+    for test in tests {
+        let mut args = sandbox(&[&package, &dist, &test_dir]);
+        args.push(test.display().to_string());
+        node(&web, &args)?;
+    }
+    let canaries = root.join("target/xtask-canaries/web");
+    std::fs::create_dir_all(&canaries).map_err(|e| format!("{}: {e}", canaries.display()))?;
+    let file = canaries.join("sandbox.test.mjs");
+    std::fs::write(&file, canary(&web)).map_err(|e| format!("{}: {e}", file.display()))?;
+    let mut args = sandbox(&[&package, &dist, &test_dir, &canaries]);
+    args.push(file.display().to_string());
+    node(&web, &args).map_err(|e| format!("the sandbox of the web tests leaks: {e}"))
 }
 
 #[cfg(test)]
