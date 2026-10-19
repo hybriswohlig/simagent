@@ -15,52 +15,13 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
 use sim_core::body_contract::CLAMPED_KEYS;
-use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::finite::FiniteF64;
 use sim_core::input::{Input, PoolStart, Start};
 use sim_core::params::WorldParams;
 use sim_core::pool::Pool;
 use sim_core::time::SimTime;
 use sim_core::world::World;
-
-const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
-const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
-const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
-const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
-
-/// The frequencies of `data/pool/pool_frequencies.json`, each entry's `value`, as
-/// `Data::with_pool` takes them (sim-cli reads the file the same way, its text removed).
-fn frequencies() -> BTreeMap<DataId, FiniteF64> {
-    let file: Value = serde_json::from_str(FREQUENCIES).expect("json");
-    file["pool_frequencies"]
-        .as_object()
-        .expect("the entries")
-        .iter()
-        .map(|(id, entry)| {
-            assert_eq!(entry["unit"], "fraction", "{id}");
-            let q = entry["value"].as_f64().expect("a value");
-            (
-                DataId::new(id).expect("id"),
-                FiniteF64::try_new(q).expect("finite"),
-            )
-        })
-        .collect()
-}
-
-/// The repository's data as the CLI builds them: the life course data, the calibration and
-/// the map of `data/` without their text, with the pool and its frequencies.
-fn repository_data() -> Data {
-    let (calibration, genome_map) = common::files_from(CALIBRATION, GENOME_MAP);
-    Data::with_pool(
-        common::definitions(calibration, genome_map).expect("definitions"),
-        POOL,
-        frequencies(),
-    )
-    .expect("data")
-}
 
 /// The clamp counts the reference gives per key of `CLAMPED_KEYS`.
 fn expected(key: &str) -> u64 {
@@ -73,11 +34,11 @@ fn expected(key: &str) -> u64 {
 
 #[test]
 fn every_member_of_the_pool_meets_the_clamp_rate_at_its_arrival() {
-    let data = repository_data();
+    let data = common::repository_data();
     // The CLI's data hash of the repository (tools/data_reference.py, `data_hash`): these
     // are the data `simagent` runs on.
     assert_eq!(data.hash(), 0xb1f5_c005_4302_363d);
-    let pool = Pool::from_bytes(POOL).expect("the pool");
+    let pool = Pool::from_bytes(common::REPOSITORY_POOL).expect("the pool");
     let members: usize = pool.households.iter().map(|h| h.members.len()).sum();
     assert_eq!(pool.households.len(), 20_859);
     assert_eq!(members, 40_009);
