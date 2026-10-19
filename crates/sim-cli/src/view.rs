@@ -268,7 +268,7 @@ const ACCEPT_FAILURES: u32 = 10;
 fn after_accept(failures: u32, accepted: bool) -> Option<u32> {
     if accepted {
         Some(0)
-    } else if failures < ACCEPT_FAILURES {
+    } else if failures + 1 < ACCEPT_FAILURES {
         Some(failures + 1)
     } else {
         None
@@ -283,8 +283,9 @@ mod tests {
     fn ten_failures_to_accept_in_a_row_end_the_server() {
         assert_eq!(after_accept(7, true), Some(0));
         assert_eq!(after_accept(0, false), Some(1));
-        assert_eq!(after_accept(9, false), Some(10));
-        assert_eq!(after_accept(10, false), None);
-        assert_eq!(after_accept(10, true), Some(0));
+        assert_eq!(after_accept(8, false), Some(9));
+        // The tenth failure in a row.
+        assert_eq!(after_accept(9, false), None);
+        assert_eq!(after_accept(9, true), Some(0));
     }
 }

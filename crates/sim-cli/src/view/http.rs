@@ -13,7 +13,7 @@ pub const HEAD_LIMIT: usize = 8 * 1024;
 pub const BODY_LIMIT: usize = 1024 * 1024;
 /// The whole request, from the first byte awaited to the last.
 pub const READ_TIME: Duration = Duration::from_secs(5);
-/// Each write of the answer, so a client that stops reading cannot hold the one thread.
+/// The whole answer, so a client that stops reading holds the one thread no longer.
 pub const WRITE_TIME: Duration = Duration::from_secs(5);
 
 /// A request as the server reads it.
@@ -113,7 +113,9 @@ pub fn parse_head(head: &[u8]) -> Result<Request, Response> {
     let mut headers = Vec::new();
     for line in lines {
         let (name, value) = line.split_once(':').ok_or_else(bad)?;
-        let name_fits = !name.is_empty() && name.bytes().all(|b| b.is_ascii_graphic());
+        // A token of RFC 9110: letters, digits and `!#$%&'*+-.^_`|~`.
+        let tchar = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b);
+        let name_fits = !name.is_empty() && name.bytes().all(tchar);
         if !name_fits {
             return Err(bad());
         }
@@ -200,7 +202,6 @@ fn read_some(
 
 /// Writes the answer with the headers every answer carries.
 pub fn write_response(stream: &mut TcpStream, response: &Response) -> std::io::Result<()> {
-    stream.set_write_timeout(Some(WRITE_TIME))?;
     let mut head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n",
         response.status,
@@ -212,7 +213,20 @@ pub fn write_response(stream: &mut TcpStream, response: &Response) -> std::io::R
         head.push_str(&format!("Allow: {allow}\r\n"));
     }
     head.push_str("\r\n");
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(&response.body)?;
+    let deadline = Instant::now() + WRITE_TIME;
+    for mut part in [head.as_bytes(), &response.body] {
+        while !part.is_empty() {
+            let left = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or(std::io::ErrorKind::TimedOut)?;
+            stream.set_write_timeout(Some(left))?;
+            let written = stream.write(part)?;
+            if written == 0 {
+                return Err(std::io::ErrorKind::WriteZero.into());
+            }
+            part = &part[written..];
+        }
+    }
     stream.flush()
 }
