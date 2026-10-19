@@ -2,7 +2,8 @@
  * The melanin rule of the body contract (ADR-0005 section 5): a reader linearises the sRGB
  * table colours (IEC 61966-2-1), interpolates bilinearly over eumelanin and pheomelanin
  * (skin, hair) or linearly over melanin (iris), and converts back. A value outside [0, 1] is
- * clamped; a channel is rounded half up to 8 bits.
+ * clamped, `NaN` is refused (the core never sends one); a channel is rounded half up to 8
+ * bits.
  */
 
 /** A table over two axes: `srgb[i][j]` belongs to `eumelanin[i]` and `pheomelanin[j]`. */
@@ -21,6 +22,9 @@ export type Ramp = {
 type Linear = readonly [number, number, number];
 
 function clamp(value: number): number {
+  if (Number.isNaN(value)) {
+    throw new RangeError("a melanin value is NaN");
+  }
   return Math.min(1, Math.max(0, value));
 }
 
