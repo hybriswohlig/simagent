@@ -6,9 +6,13 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::Value;
+use sim_cli::error::CliError;
 use sim_cli::files::{self, Scenario};
 use sim_cli::lock::{RunLock, lock_path};
 use sim_cli::session::Session;
+use sim_core::ids::SimId;
+use sim_core::input::{ArrangePartnership, Input};
 use sim_core::time::SimTime;
 
 /// Three founders, ten years (as in `cli.rs`).
@@ -159,6 +163,16 @@ fn a_lock_follows_the_run_not_its_name() {
         "run_locked"
     );
     drop(held);
+    // A run not made yet is named by its parent's real path: below a link to the parent
+    // it takes the lock it takes below the parent.
+    let parent = base.join("parent");
+    fs::create_dir(&parent).expect("made");
+    let linked = base.join("linked");
+    std::os::unix::fs::symlink(&parent, &linked).expect("a link");
+    assert_eq!(
+        lock_path(&linked.join("new")).expect("a path"),
+        lock_path(&parent.join("new")).expect("a path")
+    );
     // Every command that writes a new directory takes its lock first.
     let target = base.join("target");
     let lock = RunLock::acquire(&target).expect("free");
@@ -233,12 +247,7 @@ fn every_order_of_stops_leaves_a_run_to_go_on_from() {
         session.checkpoint(&scenario).expect("and another");
         session.reopen().expect("reopens");
         session.reopen().expect("twice is nothing");
-        let pair =
-            sim_core::input::Input::ArrangePartnership(sim_core::input::ArrangePartnership {
-                woman: sim_core::ids::SimId::try_from(1).expect("an id"),
-                man: sim_core::ids::SimId::try_from(2).expect("an id"),
-            });
-        session.submit_at_stop(vec![pair]).expect("accepted");
+        let mut session = session.submit_at_stop(vec![pair(1, 2)]).expect("accepted");
         session.checkpoint(&scenario).expect("stops");
         session
             .advance(SimTime::from_secs(5 * Y - 1))
@@ -254,13 +263,13 @@ fn every_order_of_stops_leaves_a_run_to_go_on_from() {
     let fresh = base.join("fresh");
     {
         let _lock = RunLock::acquire(&fresh).expect("free");
-        let first = sim_core::input::Input::Start(scenario.start.clone());
+        let first = Input::Start(scenario.start.clone());
         let mut session = Session::start(
             &fresh,
             SimTime::from_secs(-1),
             first,
             sim_cli::session::Compare::Nothing,
-            |code| sim_cli::error::CliError::new("scenario_rejected", code),
+            |code| CliError::new("scenario_rejected", code),
         )
         .expect("starts");
         session.checkpoint(&scenario).expect("stops");
@@ -305,15 +314,91 @@ fn checkpoints_give_the_run_the_command_line_gives() {
     resume_to(&by_session, 8 * Y - 1).expect("resumes");
 }
 
-/// A damage to a run directory: its name, the damage, the code the next open reports.
-type Case<'a> = (&'a str, &'a dyn Fn(&Path), &'a str);
+/// The bytes of every file of a run directory.
+fn contents(dir: &Path) -> Vec<Vec<u8>> {
+    FILES
+        .iter()
+        .map(|file| fs::read(dir.join(file)).expect("read"))
+        .collect()
+}
+
+fn pair(woman: u64, man: u64) -> Input {
+    Input::ArrangePartnership(ArrangePartnership {
+        woman: SimId::try_from(woman).expect("an id"),
+        man: SimId::try_from(man).expect("an id"),
+    })
+}
+
+/// A rejected input writes nothing (ADR-0021 section 2): not after the open, not after a
+/// stop; a list of inputs with a rejected one leaves no session to go on with.
+#[test]
+fn a_rejected_input_writes_nothing() {
+    let base = scratch("rejected");
+    let dir = three_years(&base, "run");
+    let scenario: Scenario = files::parse_strict(
+        fs::read_to_string(dir.join(files::SCENARIO))
+            .expect("read")
+            .trim_end(),
+    )
+    .expect("a scenario");
+    let stopped = contents(&dir);
+    let rejected = |code: String| CliError::new("input_rejected", code);
+    {
+        let _lock = RunLock::acquire(&dir).expect("free");
+        let mut session = Session::resume(&dir).expect("resumes");
+        let error = session.submit(pair(2, 1), rejected).expect_err("rejected");
+        assert_eq!(
+            (error.code, error.detail.as_str()),
+            ("input_rejected", "partners_of_wrong_sex")
+        );
+        assert!(contents(&dir) == stopped, "rejected after the open");
+        // A stop with nothing new writes the same bytes again.
+        session.checkpoint(&scenario).expect("stops");
+        assert!(contents(&dir) == stopped, "a stop with nothing new");
+        session.submit(pair(2, 1), rejected).expect_err("rejected");
+        assert!(contents(&dir) == stopped, "rejected after a stop");
+        let error = session
+            .submit_at_stop(vec![pair(1, 2), pair(2, 1)])
+            .err()
+            .expect("rejected");
+        assert_eq!(error.detail, "partners_of_wrong_sex");
+        assert!(contents(&dir) == stopped, "a list with a rejected input");
+    }
+    resume_to(&dir, 5 * Y - 1).expect("goes on");
+}
+
+/// A damage to a run directory: its name, the damage, the code of the command line, the
+/// code of `Session::resume` (the server's open).
+type Case<'a> = (&'a str, &'a dyn Fn(&Path), &'a str, &'a str);
+
+fn cut(dir: &Path, file: &str, keep: impl FnOnce(usize) -> usize) {
+    let bytes = fs::read(dir.join(file)).expect("read");
+    fs::write(dir.join(file), &bytes[..keep(bytes.len())]).expect("written");
+}
+
+/// The input log with one field of its header changed.
+fn header_field(dir: &Path, field: &str, change: impl FnOnce(&Value) -> Value) {
+    let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
+    let (header, rest) = text.split_once('\n').expect("a header");
+    let mut header: Value = serde_json::from_str(header).expect("JSON");
+    let changed = change(&header[field]);
+    assert_ne!(header[field], changed, "{field}");
+    header[field] = changed;
+    fs::write(dir.join(files::INPUT_LOG), format!("{header}\n{rest}")).expect("written");
+}
+
+fn remove(dir: &Path, file: &str) {
+    fs::remove_file(dir.join(file)).expect("removed");
+}
 
 /// A crash between two of the files: each case, as the next open reports it.
 #[test]
 fn an_interrupted_write_is_reported_on_the_next_open() {
     let base = scratch("crash");
-    let cases: [Case; 11] = [
+    let cases: [Case; 23] = [
         (
+            // The ten-year scenario has its one input in its start record: an extra
+            // record repeats it, which no save holds twice.
             "input written, save old",
             &|dir| {
                 let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
@@ -325,6 +410,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
                 fs::write(dir.join(files::INPUT_LOG), lines.join("\n") + "\n").expect("written");
             },
             "run_dir_inconsistent",
+            "run_dir_inconsistent",
         ),
         (
             "input log without its end",
@@ -335,37 +421,50 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
                 fs::write(dir.join(files::INPUT_LOG), lines.join("\n") + "\n").expect("written");
             },
             "run_dir_inconsistent",
-        ),
-        (
-            "manifest cut off",
-            &|dir| {
-                let text = fs::read(dir.join(files::MANIFEST)).expect("read");
-                fs::write(dir.join(files::MANIFEST), &text[..text.len() / 2]).expect("written");
-            },
-            "manifest_invalid",
-        ),
-        (
-            "save cut off",
-            &|dir| {
-                let bytes = fs::read(dir.join(files::SAVE)).expect("read");
-                fs::write(dir.join(files::SAVE), &bytes[..bytes.len() / 2]).expect("written");
-            },
-            "save_rejected",
-        ),
-        (
-            "events written, manifest old",
-            &|dir| {
-                let text = fs::read_to_string(dir.join(files::EVENTS)).expect("read");
-                let last = text.lines().last().expect("an entry").to_owned();
-                files::append(&dir.join(files::EVENTS), &format!("{last}\n")).expect("appended");
-            },
             "run_dir_inconsistent",
         ),
         (
-            "save missing",
+            "input log with its header only",
             &|dir| {
-                fs::remove_file(dir.join(files::SAVE)).expect("removed");
+                let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
+                let header = text.lines().next().expect("a header");
+                fs::write(dir.join(files::INPUT_LOG), format!("{header}\n")).expect("written");
             },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "input log of another core",
+            &|dir| {
+                header_field(dir, "core_version", |v| {
+                    (v.as_u64().expect("a number") + 1).into()
+                })
+            },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "input log of other data",
+            &|dir| header_field(dir, "data_hash", |_| "0000000000000000".into()),
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "input log missing",
+            &|dir| remove(dir, files::INPUT_LOG),
+            "io",
+            "io",
+        ),
+        (
+            "manifest cut off",
+            &|dir| cut(dir, files::MANIFEST, |n| n / 2),
+            "manifest_invalid",
+            "manifest_invalid",
+        ),
+        (
+            "manifest missing",
+            &|dir| remove(dir, files::MANIFEST),
+            "io",
             "io",
         ),
         (
@@ -376,52 +475,134 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
                 fs::write(dir.join(files::MANIFEST), later).expect("written");
             },
             "run_dir_inconsistent",
+            "run_dir_inconsistent",
         ),
         (
-            // The command line reads the scenario first; `Session::resume` reports the same
-            // file as run_dir_inconsistent (below).
-            "scenario cut off",
+            "save cut off",
+            &|dir| cut(dir, files::SAVE, |n| n / 2),
+            "save_rejected",
+            "save_rejected",
+        ),
+        ("save missing", &|dir| remove(dir, files::SAVE), "io", "io"),
+        (
+            "events written, manifest old",
             &|dir| {
-                let text = fs::read(dir.join(files::SCENARIO)).expect("read");
-                fs::write(dir.join(files::SCENARIO), &text[..text.len() / 2]).expect("written");
+                let text = fs::read_to_string(dir.join(files::EVENTS)).expect("read");
+                let last = text.lines().last().expect("an entry").to_owned();
+                files::append(&dir.join(files::EVENTS), &format!("{last}\n")).expect("appended");
             },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "events without their last entry",
+            &|dir| {
+                let text = fs::read_to_string(dir.join(files::EVENTS)).expect("read");
+                let mut lines: Vec<&str> = text.lines().collect();
+                lines.pop();
+                fs::write(dir.join(files::EVENTS), lines.join("\n") + "\n").expect("written");
+            },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "events cut off in a line",
+            &|dir| cut(dir, files::EVENTS, |n| n - 3),
+            "events_invalid",
+            "events_invalid",
+        ),
+        (
+            // The last entry whole but its line end missing: the next entry would join it.
+            "events cut off before the last line end",
+            &|dir| cut(dir, files::EVENTS, |n| n - 1),
+            "events_invalid",
+            "events_invalid",
+        ),
+        (
+            "events missing",
+            &|dir| remove(dir, files::EVENTS),
+            "io",
+            "io",
+        ),
+        (
+            // The command line reads the scenario first.
+            "scenario cut off",
+            &|dir| cut(dir, files::SCENARIO, |n| n / 2),
             "scenario_invalid",
+            "run_dir_inconsistent",
+        ),
+        (
+            "scenario of another world",
+            &|dir| {
+                let text = fs::read_to_string(dir.join(files::SCENARIO)).expect("read");
+                let other = text.replacen(
+                    "\"world_seed\":\"0000000000000001\"",
+                    "\"world_seed\":\"0000000000000002\"",
+                    1,
+                );
+                assert_ne!(other, text, "the seed is replaced");
+                fs::write(dir.join(files::SCENARIO), other).expect("written");
+            },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
         ),
         (
             "scenario missing",
-            &|dir| {
-                fs::remove_file(dir.join(files::SCENARIO)).expect("removed");
-            },
+            &|dir| remove(dir, files::SCENARIO),
+            "io",
             "io",
         ),
         (
             "census row cut off",
+            &|dir| cut(dir, files::CENSUS, |n| n - 2),
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "census row without its last cell",
             &|dir| {
                 let text = fs::read_to_string(dir.join(files::CENSUS)).expect("read");
-                fs::write(dir.join(files::CENSUS), &text[..text.len() - 2]).expect("written");
+                let shorter: Vec<&str> = (text.lines())
+                    .map(|line| line.rsplit_once(',').map_or(line, |(kept, _)| kept))
+                    .collect();
+                let rows = shorter[1..].join("\n");
+                let text = format!("{}\n{rows}\n", text.lines().next().expect("a header"));
+                fs::write(dir.join(files::CENSUS), text).expect("written");
             },
+            "run_dir_inconsistent",
+            "run_dir_inconsistent",
+        ),
+        (
+            "census cell no number",
+            &|dir| {
+                let text = fs::read_to_string(dir.join(files::CENSUS)).expect("read");
+                let (kept, _) = text.trim_end().rsplit_once(',').expect("a cell");
+                fs::write(dir.join(files::CENSUS), format!("{kept},x\n")).expect("written");
+            },
+            "run_dir_inconsistent",
             "run_dir_inconsistent",
         ),
         (
             "census missing",
-            &|dir| {
-                fs::remove_file(dir.join(files::CENSUS)).expect("removed");
-            },
+            &|dir| remove(dir, files::CENSUS),
+            "io",
             "io",
         ),
     ];
-    for (i, (case, damage, expected)) in cases.into_iter().enumerate() {
+    for (i, (case, damage, by_cli, by_session)) in cases.into_iter().enumerate() {
         let dir = three_years(&base, &format!("case{i}"));
-        // The ten-year scenario has its one input in its start record: an extra record
-        // repeats it, which no save holds twice.
         damage(&dir);
+        let damaged = (FILES.iter())
+            .map(|file| fs::read(dir.join(file)).ok())
+            .collect::<Vec<_>>();
+        let refused = Session::resume(&dir).err().expect(case);
+        assert_eq!(refused.code, by_session, "{case}: {}", refused.detail);
         let error = resume_to(&dir, 6 * Y - 1).expect_err(case);
-        assert_eq!(code(&error), expected, "{case}: {error}");
+        assert_eq!(code(&error), by_cli, "{case}: {error}");
+        // A refused open leaves the damage as it found it.
+        let after = (FILES.iter())
+            .map(|file| fs::read(dir.join(file)).ok())
+            .collect::<Vec<_>>();
+        assert!(after == damaged, "{case}: the open wrote");
     }
-    // The session itself, as the server opens a run, checks the scenario too.
-    let dir = three_years(&base, "scenario");
-    let text = fs::read(dir.join(files::SCENARIO)).expect("read");
-    fs::write(dir.join(files::SCENARIO), &text[..text.len() / 2]).expect("written");
-    let refused = Session::resume(&dir).err().expect("refused");
-    assert_eq!(refused.code, "run_dir_inconsistent");
 }
