@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
+import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { Portrait } from "./portrait.js";
@@ -139,7 +140,9 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     <section>
       <h1>{`${TEXT.person} ${person.sim}`}</h1>
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
-      {view.state === "ready" ? (
+      {view.state === "ready" && !readable(view.value.contract_version) ? (
+        <p>{TEXT.failed_contract}</p>
+      ) : view.state === "ready" ? (
         <div>
           <Portrait params={view.value.shown.body} label={`${TEXT.person} ${person.sim}`} />
           <Life view={view.value} />

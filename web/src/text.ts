@@ -11,6 +11,7 @@ export const TEXT = {
   loading: "Wird geladen …",
   failed_version: "Der Server sendet Daten in einer Form, die diese Ansicht nicht kennt.",
   failed_network: "Die Daten konnten nicht geladen werden.",
+  failed_contract: "Die Körperwerte gehören zu einer Vertragsversion, die diese Ansicht nicht lesen kann.",
   unknown_person: "Diese Person gibt es in diesem Lauf nicht.",
   unknown: "unbekannt",
   female: "weiblich",
