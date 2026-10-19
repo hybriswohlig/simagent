@@ -12,3 +12,6 @@ tests/golden/** text eol=lf
 *.save binary
 data/** text eol=lf
 contracts/** text eol=lf
+# Pool files are binary too (data/pool/, tests/golden/pool/): the next pool may hold a
+# 0d 0a pair.
+*.bin binary
