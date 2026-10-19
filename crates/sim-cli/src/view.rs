@@ -193,13 +193,10 @@ impl Server {
 
     /// The answer of `read` on the directory of `run`, if it is one of the list exactly.
     fn read(&self, run: &str, read: impl FnOnce(&Path) -> Response) -> Response {
-        let known = self
-            .run_names()
-            .is_some_and(|names| names.iter().any(|n| n == run));
-        if known {
-            read(&self.runs.join(run))
-        } else {
-            Response::error(404, "unknown_run")
+        match self.run_names() {
+            None => Response::error(500, "runs_unreadable"),
+            Some(names) if names.iter().any(|n| n == run) => read(&self.runs.join(run)),
+            Some(_) => Response::error(404, "unknown_run"),
         }
     }
 
@@ -214,11 +211,12 @@ impl Server {
     /// `GET /api/runs/{run}`: the manifest of the command line as it lies in the directory.
     /// The name must be one of the list exactly (a file system may ignore case).
     fn manifest(&self, run: &str) -> Response {
-        let known = self
-            .run_names()
-            .is_some_and(|names| names.iter().any(|n| n == run));
-        if !known {
-            return Response::error(404, "unknown_run");
+        match self.run_names() {
+            None => return Response::error(500, "runs_unreadable"),
+            Some(names) if !names.iter().any(|n| n == run) => {
+                return Response::error(404, "unknown_run");
+            }
+            Some(_) => {}
         }
         match self.read_manifest(run) {
             Ok(bytes) => Response::new(200, JSON, bytes),
@@ -240,19 +238,32 @@ impl Server {
 pub const EVENTS_PER_PAGE: usize = 500;
 
 /// `GET /api/runs/{run}/census`: the rows of `census.csv` as JSON, each cell an integer.
+/// The complete lines of `text`: the command line appends whole lines, so a last line
+/// without its line end is one it is still writing, and is left out.
+fn complete_lines(text: &str) -> impl Iterator<Item = &str> {
+    let written = text.rfind('\n').map_or("", |end| &text[..end]);
+    written.split('\n').filter(|line| !line.is_empty())
+}
+
+/// A cell of the census: a signed or an unsigned integer.
+fn cell(text: &str) -> Option<Value> {
+    (text.parse::<i64>().map(Value::from).ok())
+        .or_else(|| text.parse::<u64>().map(Value::from).ok())
+}
+
 fn census(dir: &Path) -> Response {
     let invalid = || Response::error(500, "census_invalid");
     let Ok(text) = std::fs::read_to_string(dir.join(files::CENSUS)) else {
         return invalid();
     };
-    let mut lines = text.lines();
+    let mut lines = complete_lines(&text);
     let Some(head) = lines.next() else {
         return invalid();
     };
     let columns: Vec<&str> = head.split(',').collect();
     let mut rows = Vec::new();
     for line in lines {
-        let cells: Option<Vec<i64>> = line.split(',').map(|cell| cell.parse().ok()).collect();
+        let cells: Option<Vec<Value>> = line.split(',').map(cell).collect();
         match cells {
             Some(cells) if cells.len() == columns.len() => rows.push(cells),
             _ => return invalid(),
@@ -311,21 +322,47 @@ fn passes(entry: &Value, query: &EventQuery) -> Option<bool> {
     )
 }
 
+/// The id of an entry from the start of its line, `{"id":<n>,`, as the command line writes
+/// it; `None` if the line does not start so.
+fn leading_id(line: &str) -> Option<u64> {
+    let rest = line.strip_prefix("{\"id\":")?;
+    let digits = rest.find(|c: char| !c.is_ascii_digit())?;
+    rest[..digits]
+        .parse()
+        .ok()
+        .filter(|_| rest[digits..].starts_with(','))
+}
+
 /// `GET /api/runs/{run}/events`: the entries of `events.ndjson` that pass the filters, in
 /// the order of the file, at most [`EVENTS_PER_PAGE`]; `next` is the id of the last one if
-/// more follow (the next page asks `after` it).
+/// more follow (the next page asks `after` it). The log is read as a stream and only up to
+/// the first entry beyond the page; an entry at or before `after` is passed by its id
+/// without being parsed. Only complete lines count (see [`complete_lines`]).
 fn events(dir: &Path, query: &str) -> Response {
+    use std::io::BufRead;
     let Some(query) = event_query(query) else {
         return Response::error(400, "bad_query");
     };
     let invalid = || Response::error(500, "events_invalid");
-    let Ok(text) = std::fs::read_to_string(dir.join(files::EVENTS)) else {
+    let Ok(file) = std::fs::File::open(dir.join(files::EVENTS)) else {
         return invalid();
     };
+    let mut reader = std::io::BufReader::new(file);
     let mut page = Vec::new();
     let mut more = false;
-    for line in text.lines() {
-        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Err(_) => return invalid(),
+            Ok(_) if !line.ends_with('\n') => break,
+            Ok(_) => {}
+        }
+        let before = (query.after.zip(leading_id(&line))).is_some_and(|(after, id)| id <= after);
+        if before {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else {
             return invalid();
         };
         match passes(&entry, &query) {
