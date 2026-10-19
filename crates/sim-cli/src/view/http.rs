@@ -1,5 +1,7 @@
 //! The HTTP of `simagent view` (ADR-0021 section 1): a small part of HTTP/1.1, one request
-//! per connection (`Connection: close`), with the limits of the ADR.
+//! per connection (`Connection: close`), with the limits of the ADR. What it does not know
+//! it refuses: another version, `Transfer-Encoding`, a control character in the head, bytes
+//! after the body.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -11,6 +13,8 @@ pub const HEAD_LIMIT: usize = 8 * 1024;
 pub const BODY_LIMIT: usize = 1024 * 1024;
 /// The whole request, from the first byte awaited to the last.
 pub const READ_TIME: Duration = Duration::from_secs(5);
+/// Each write of the answer, so a client that stops reading cannot hold the one thread.
+pub const WRITE_TIME: Duration = Duration::from_secs(5);
 
 /// A request as the server reads it.
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +89,11 @@ fn reason(status: u16) -> &'static str {
 pub fn parse_head(head: &[u8]) -> Result<Request, Response> {
     let bad = || Response::error(400, "bad_request");
     let text = std::str::from_utf8(head).map_err(|_| bad())?;
+    // CR and LF only as the line ends, no other control character (tab inside values).
+    let control = |c: char| c.is_control() && c != '\t';
+    if text.split("\r\n").any(|line| line.chars().any(control)) {
+        return Err(bad());
+    }
     let mut lines = text.split("\r\n");
     let line = lines.next().ok_or_else(bad)?;
     let mut parts = line.split(' ');
@@ -94,7 +103,7 @@ pub fn parse_head(head: &[u8]) -> Result<Request, Response> {
         return Err(bad());
     };
     let token = !method.is_empty() && method.bytes().all(|b| b.is_ascii_uppercase());
-    if !token || !target.starts_with('/') || !matches!(version, "HTTP/1.1" | "HTTP/1.0") {
+    if !token || !target.starts_with('/') || version != "HTTP/1.1" {
         return Err(bad());
     }
     let (path, query) = match target.split_once('?') {
@@ -128,7 +137,8 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, Response> {
         if let Some(at) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
             break at;
         }
-        if buffer.len() > HEAD_LIMIT {
+        // A head of at most HEAD_LIMIT bytes has its blank line within HEAD_LIMIT + 4.
+        if buffer.len() >= HEAD_LIMIT + 4 {
             return Err(Response::error(431, "head_too_large"));
         }
         let read = read_some(stream, &mut chunk, deadline)?;
@@ -138,7 +148,11 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, Response> {
         return Err(Response::error(431, "head_too_large"));
     }
     let mut request = parse_head(&buffer[..end])?;
-    if request.header("transfer-encoding").is_some() {
+    if request
+        .headers
+        .iter()
+        .any(|(name, _)| name == "transfer-encoding")
+    {
         return Err(Response::error(400, "bad_request"));
     }
     let length = match request.header("content-length") {
@@ -185,7 +199,8 @@ fn read_some(
 }
 
 /// Writes the answer with the headers every answer carries.
-pub fn write_response(stream: &mut impl Write, response: &Response) -> std::io::Result<()> {
+pub fn write_response(stream: &mut TcpStream, response: &Response) -> std::io::Result<()> {
+    stream.set_write_timeout(Some(WRITE_TIME))?;
     let mut head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n",
         response.status,

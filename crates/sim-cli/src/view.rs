@@ -35,15 +35,13 @@ fn content_type(path: &str) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("json") => JSON,
-        Some("css") => "text/css; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
         _ => "application/octet-stream",
     }
 }
 
 /// The regular files below `dir`, by their path relative to `web`; symbolic links and what
-/// they point at are left out.
+/// they point at are left out, and so is a path with a segment that is no plain name (a
+/// browser would send it percent-encoded, which the server refuses).
 fn web_files(
     web: &Path,
     dir: &Path,
@@ -62,7 +60,7 @@ fn web_files(
                 .components()
                 .map(|c| c.as_os_str().to_str())
                 .collect();
-            if let Some(segments) = segments {
+            if let Some(segments) = segments.filter(|s| s.iter().all(|s| run_name(s))) {
                 let name = segments.join("/");
                 let bytes = files::read(&path)?;
                 found.insert(name.clone(), (content_type(&name), bytes));
@@ -133,29 +131,44 @@ impl Server {
         }
     }
 
-    /// The directory of a run, if `name` is one: a directory (no link) with a manifest.
-    fn run_dir(&self, name: &str) -> Option<PathBuf> {
-        let dir = self.runs.join(name);
-        let kind = dir.symlink_metadata().ok()?;
-        (run_name(name) && kind.is_dir() && dir.join(files::MANIFEST).is_file()).then_some(dir)
-    }
-
-    /// `GET /api/runs`: the runs in name order, each with its manifest.
-    fn runs(&self) -> Response {
-        let Ok(entries) = std::fs::read_dir(&self.runs) else {
-            return Response::error(500, "runs_unreadable");
-        };
+    /// The names of the runs in name order: directories (no link) of the runs directory,
+    /// under a plain name, with a regular file `manifest.json` (no link).
+    fn run_names(&self) -> Option<Vec<String>> {
+        let entries = std::fs::read_dir(&self.runs).ok()?;
         let mut names: Vec<String> = entries
             .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-            .filter(|name| self.run_dir(name).is_some())
+            .filter(|name| {
+                let dir = self.runs.join(name);
+                let is = |path: &Path, dir: bool| {
+                    (path.symlink_metadata())
+                        .is_ok_and(|m| if dir { m.is_dir() } else { m.is_file() })
+                };
+                run_name(name) && is(&dir, true) && is(&dir.join(files::MANIFEST), false)
+            })
             .collect();
         names.sort();
+        Some(names)
+    }
+
+    /// The manifest of a run as the command line wrote it, if it reads as one.
+    fn read_manifest(&self, run: &str) -> Result<Vec<u8>, &'static str> {
+        let bytes = std::fs::read(self.runs.join(run).join(files::MANIFEST))
+            .map_err(|_| "manifest_invalid")?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| "manifest_invalid")?;
+        files::read_manifest(text).map_err(|e| e.code)?;
+        Ok(bytes)
+    }
+
+    /// `GET /api/runs`: the runs in name order, each with its manifest or why it has none.
+    fn runs(&self) -> Response {
+        let Some(names) = self.run_names() else {
+            return Response::error(500, "runs_unreadable");
+        };
         let runs: Vec<Value> = (names.iter())
             .map(|name| {
-                let path = self.runs.join(name).join(files::MANIFEST);
-                let manifest = std::fs::read(&path)
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+                let manifest = self.read_manifest(name).ok();
+                let manifest =
+                    manifest.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
                 match manifest {
                     Some(manifest) => json!({"run": name, "manifest": manifest}),
                     None => json!({"run": name, "error": "manifest_invalid"}),
@@ -167,13 +180,17 @@ impl Server {
     }
 
     /// `GET /api/runs/{run}`: the manifest of the command line as it lies in the directory.
+    /// The name must be one of the list exactly (a file system may ignore case).
     fn manifest(&self, run: &str) -> Response {
-        let Some(dir) = self.run_dir(run) else {
+        let known = self
+            .run_names()
+            .is_some_and(|names| names.iter().any(|n| n == run));
+        if !known {
             return Response::error(404, "unknown_run");
-        };
-        match std::fs::read(dir.join(files::MANIFEST)) {
+        }
+        match self.read_manifest(run) {
             Ok(bytes) => Response::new(200, JSON, bytes),
-            Err(_) => Response::error(404, "unknown_run"),
+            Err(code) => Response::error(500, code),
         }
     }
 
@@ -228,8 +245,46 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
     writeln!(out, "http://127.0.0.1:{port}/")
         .and_then(|()| out.flush())
         .map_err(|e| CliError::new("io", e.to_string()))?;
-    for stream in listener.incoming().flatten() {
-        server.serve(stream);
+    let mut failures = 0;
+    for stream in listener.incoming() {
+        let Some(next) = after_accept(failures, stream.is_ok()) else {
+            let error = stream.err().map(|e| e.to_string()).unwrap_or_default();
+            return Err(CliError::new("accept_failed", error));
+        };
+        match stream {
+            Ok(stream) => server.serve(stream),
+            Err(error) => eprintln!("view: cannot accept a connection: {error}"),
+        }
+        failures = next;
     }
     Ok(())
+}
+
+/// Failures to accept a connection in a row after which the server stops.
+const ACCEPT_FAILURES: u32 = 10;
+
+/// The failures in a row after one more attempt to accept, or `None` when the server
+/// stops: a failure may pass (the client went away), many in a row end the server.
+fn after_accept(failures: u32, accepted: bool) -> Option<u32> {
+    if accepted {
+        Some(0)
+    } else if failures < ACCEPT_FAILURES {
+        Some(failures + 1)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ten_failures_to_accept_in_a_row_end_the_server() {
+        assert_eq!(after_accept(7, true), Some(0));
+        assert_eq!(after_accept(0, false), Some(1));
+        assert_eq!(after_accept(9, false), Some(10));
+        assert_eq!(after_accept(10, false), None);
+        assert_eq!(after_accept(10, true), Some(0));
+    }
 }
