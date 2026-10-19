@@ -336,7 +336,12 @@ fn the_shortage_cohort_loses_exactly_what_the_rule_says() {
     // Whoever was conceived before T_Y is the same person, born and dying at the same second.
     let (in_base, in_fork) = (persons(&base), persons(&fork));
     assert_eq!(in_base.len(), PERSONS);
-    let conceived_before = |born: SimTime| born.as_secs() - 10 * MONTH < YEAR;
+    // A birth falls `pregnancy_months` months after its conception (the core's rule); the
+    // reference's value of the data is 10.
+    let months = data.demography().fertility.pregnancy_months;
+    assert_eq!(months, 10);
+    let pregnancy = i64::from(months) * MONTH;
+    let conceived_before = |born: SimTime| born.as_secs() - pregnancy < YEAR;
     let identical: Vec<_> = in_base
         .iter()
         .filter(|(_, (_, born, _))| conceived_before(*born))
@@ -372,10 +377,39 @@ fn the_shortage_cohort_loses_exactly_what_the_rule_says() {
             .collect();
         assert_eq!(cohort(which), units, "cohort {which}");
     }
-    let town_born = UNITS.iter().filter(|unit| unit.0 == 0 && unit.3).count();
-    assert_eq!(town_born, 9);
+    // K4 counts the town-born: whoever was not born in the pool (an arrival's birth at the
+    // arrival second is the pool's history). Cohort 0: 9 children of the pool's pregnancies
+    // born in the town, 3 arrivals; each as the reference says.
+    let pedigree = base.pedigree();
+    let born_in_town = |key: u64| {
+        pedigree
+            .persons
+            .iter()
+            .find(|person| person.lineage_key.get() == key)
+            .is_some_and(|person| {
+                person
+                    .pool
+                    .as_ref()
+                    .is_none_or(|pool| pool.born_pool.is_none())
+            })
+    };
+    for (which, key, _, town_born, ..) in UNITS {
+        assert_eq!(born_in_town(key), town_born, "{which} {key:016x}");
+    }
+    let cohort_0: Vec<_> = UNITS.iter().filter(|unit| unit.0 == 0).collect();
+    assert_eq!(
+        cohort_0.iter().filter(|unit| born_in_town(unit.1)).count(),
+        9
+    );
+    assert_eq!(
+        cohort_0.iter().filter(|unit| !born_in_town(unit.1)).count(),
+        3
+    );
     for (which, key, born, _, base_bits, fork_bits, expected_bits) in UNITS {
         let (ours, theirs) = (height_at_18(&base, key), height_at_18(&fork, key));
+        // Against the reference's heights, relative 1e-12: `sim-math` keeps `exp` and its
+        // relatives within 1 ulp of the correctly rounded value the reference uses (ADR-0003),
+        // so bits may differ by a few ulp; the criterion itself is the 1e-9 cm below.
         let close = |ours: f64, reference: f64| {
             let scale = if reference.abs() > 1.0 {
                 reference.abs()
@@ -398,20 +432,28 @@ fn the_shortage_cohort_loses_exactly_what_the_rule_says() {
     }
 }
 
-/// The negative twin: the shortage two years later costs cohort 0 only 0.75 cm (the window of
-/// ages 2 to 5), so the 1.50 cm of the rule is missed by 0.75 cm for each of its units.
+/// The negative twin: the shortage two years later (year 3, forked at `T_3 − 1 s`) costs each
+/// unit what 5.4 gives for that year: cohort 0 0.75 cm (the window 0.5 of ages 2 to 5), cohort 1
+/// `0.75 · b` cm (`b` the birth in years: the part of year 3 before age 2 at weight 1, the rest at
+/// 0.5); so the rule of P6 is missed for every unit.
 #[test]
 fn a_shortage_two_years_later_misses_the_rule() {
     let base = run(None);
     let mut twin = run(Some(3));
     assert_eq!(twin.state_hash(), TWIN_LATE_STATE);
     assert_eq!(log_hash(&twin.take_log()), TWIN_LATE_LOG);
+    let years = |secs: i64| f64::from(i32::try_from(secs).expect("within a few years"));
     for (which, key, born, ..) in UNITS {
         let loss = height_at_18(&base, key) - height_at_18(&twin, key);
-        let miss = (loss - rule(which, born)).abs();
-        assert!(miss > TOLERANCE, "{key:016x}");
-        if which == 0 {
-            assert!((miss - 0.75).abs() <= TOLERANCE, "{key:016x}: {miss}");
-        }
+        let expected = if which == 0 {
+            0.75
+        } else {
+            0.75 * (years(born) / years(YEAR))
+        };
+        assert!(
+            (loss - expected).abs() <= TOLERANCE,
+            "{key:016x}: {loss} against {expected}"
+        );
+        assert!((loss - rule(which, born)).abs() > TOLERANCE, "{key:016x}");
     }
 }
