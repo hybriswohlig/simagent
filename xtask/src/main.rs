@@ -19,6 +19,7 @@ mod prerun;
 mod release_run;
 mod results;
 mod scan;
+mod web_deps;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -99,6 +100,12 @@ fn main() -> ExitCode {
                 workspace_root().and_then(|root| check_contract(&root, &contract_base(&root)?)),
             );
         }
+        Some("web-deps") => {
+            return report(
+                "web-deps",
+                workspace_root().and_then(|root| web_deps::command(&root)),
+            );
+        }
         Some("kat-verify-reference") => {
             return report("kat-verify-reference", kat_verify_reference());
         }
@@ -111,7 +118,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -276,6 +283,7 @@ fn gate(require_clean_tree: bool) -> Result {
         check_contract(&root, &contract_base(&root)?)
     })?;
     step("scans", || check_scans(&root))?;
+    step("web dependencies", || web_deps::command(&root))?;
     step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
         cargo(
