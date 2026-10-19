@@ -155,6 +155,29 @@ fn the_sandbox_reads_only_what_it_names() {
     );
 }
 
+/// The tests run through `node --test`, in one process, in the directory of the first
+/// read.
+#[test]
+fn the_tests_run_through_node_test() {
+    let (test, dist) = (Path::new("/w/test"), Path::new("/w/dist"));
+    assert_eq!(
+        test_run(
+            &[test, dist],
+            &["a.test.mjs".to_owned(), "b.test.mjs".to_owned()]
+        ),
+        [
+            "--permission",
+            "--allow-fs-read=/w/test",
+            "--allow-fs-read=/w/dist",
+            "--disallow-code-generation-from-strings",
+            "--test-isolation=none",
+            "--test",
+            "a.test.mjs",
+            "b.test.mjs"
+        ]
+    );
+}
+
 #[test]
 fn the_canary_names_the_files_it_may_not_touch() {
     let canary = canary(Path::new("/w/web"));
