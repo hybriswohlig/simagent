@@ -22,8 +22,8 @@ use sim_core::time::{SimDuration, SimTime};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{FORMAT_VERSION, LoadError, SaveError, World, YearOut};
 
-/// The data hash of the definitions of the repository, from `tools/data_reference.py`
-/// (ADR-0007).
+/// The data hash of the definitions of the map 3 fixture (`tests/golden/map3`) with the
+/// repository's life course data, from `tools/data_reference.py` (ADR-0007).
 const DATA_HASH: u64 = 0xadab_5027_57b4_045c;
 const Y: i64 = 31_449_600;
 const MONTH: i64 = 2_419_200;
