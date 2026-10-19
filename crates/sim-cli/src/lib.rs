@@ -13,8 +13,9 @@ use std::path::Path;
 
 use clap::{Arg, ArgAction, ArgGroup, Command};
 use serde::Serialize;
+use sim_core::data::Data;
 use sim_core::ids::SimId;
-use sim_core::input::{ForkOverride, Input, InputRecord};
+use sim_core::input::{ForkOverride, Input, InputRecord, PoolStart, Start};
 use sim_core::measure::{LocusDose, TraitSpread};
 use sim_core::params::ParamChange;
 use sim_core::time::{SimDuration, SimTime, calendar, year_start};
@@ -236,11 +237,67 @@ fn before_the_start(until: SimTime) -> bool {
     until.as_secs() < SimTime::START.as_secs() - 1
 }
 
-fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), CliError> {
+/// A scenario file read and resolved: its pool drawn from the data's (`PoolStart::drawn`),
+/// the founders and couples as they stand. Format 4 is no longer read: under format 5 the
+/// same founders mean something else.
+fn read_scenario(file: &Path) -> Result<Scenario, CliError> {
     let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
-    let scenario: Scenario = files::parse_strict(&files::read_text(file)?)
-        .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| invalid("not a scenario of format version 1"))?;
+    let text = files::read_text(file)?;
+    let version = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("format_version")
+                .and_then(serde_json::Value::as_u64)
+        });
+    if version == Some(4) {
+        return Err(invalid(
+            "a scenario of format version 4 is no longer read (format 5 draws the alleles founders do not name)",
+        ));
+    }
+    let file: files::ScenarioFile = files::parse_strict(&text)
+        .filter(|scenario: &files::ScenarioFile| scenario.format_version == files::FORMAT_VERSION)
+        .ok_or_else(|| invalid("not a scenario of format version 5"))?;
+    resolve(file, data::core_data)
+}
+
+/// A scenario file resolved on the data `data` gives, which it asks for only when the file
+/// names a pool: the pool drawn by `PoolStart::drawn`, every other field as written.
+pub fn resolve(
+    file: files::ScenarioFile,
+    data: impl FnOnce() -> Result<Data, CliError>,
+) -> Result<Scenario, CliError> {
+    let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
+    let start = file.start;
+    let pool = match start.pool {
+        None => None,
+        Some(choice) => Some(
+            PoolStart::drawn(
+                &data()?,
+                start.world_seed,
+                choice.n_start,
+                choice.immigration,
+            )
+            .ok_or_else(|| invalid("the data hold no pool"))?,
+        ),
+    };
+    Ok(Scenario {
+        format_version: files::FORMAT_VERSION,
+        start: Start {
+            world_seed: start.world_seed,
+            founder_tag: start.founder_tag,
+            world_params: start.world_params,
+            founders: start.founders,
+            couples: start.couples,
+            capacity: start.capacity,
+            pool,
+        },
+        until: file.until,
+    })
+}
+
+fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), CliError> {
+    let scenario = read_scenario(file)?;
     if before_the_start(scenario.until) {
         let detail = format!("until {} lies before the start", scenario.until.as_secs());
         return Err(CliError::new("scenario_invalid", detail));
@@ -263,7 +320,7 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
 fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(), CliError> {
     let scenario: Scenario = files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
+        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 5"))?;
     let inputs: Vec<Input> = match inputs {
         Some(file) => files::parse_strict(&files::read_text(file)?).ok_or_else(|| {
             CliError::new(
@@ -356,8 +413,7 @@ fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogE
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
-    files::parse_strict(files::read_text(path)?.trim_end())
-        .ok_or_else(|| CliError::new("manifest_invalid", "not a manifest"))
+    files::read_manifest(&files::read_text(path)?)
 }
 
 /// ADR-0004 section 4: a new world, per record `advance_until(t)` and `submit`, at the
@@ -429,7 +485,7 @@ fn fork_run(
     let manifest = read_manifest(&parent.join(files::MANIFEST))?;
     let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 1"))?;
+        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 5"))?;
     let invalid = |detail: &str| CliError::new("input_log_invalid", detail);
     let first = records
         .first()

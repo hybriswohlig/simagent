@@ -162,7 +162,7 @@ const MIN_DURATION_POSTCARD: &str = "ffffe3e3cda60e";
 const MAX_ID_POSTCARD: &str = "ffffffffffffff0f";
 const MAX_U64_POSTCARD: &str = "ffffffffffffffffff01";
 
-const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null}}"#;
+const INPUT_JSON: &str = r#"{"start":{"world_seed":"00000000000000ff","founder_tag":"test:fork_no_density","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-946080000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}"#;
 
 fn sample_stamp() -> InputStamp {
     InputStamp {
@@ -450,6 +450,10 @@ fn partnership_forms_are_pinned() {
     assert!(from_json::<LogPayload>(r#"{"core:partnered":{"partnership":0}}"#).is_err());
     // A start without couples is no start: the list is required, even when empty.
     let without = INPUT_JSON.replace(r#","couples":[]"#, "");
+    assert_ne!(without, INPUT_JSON);
+    assert!(from_json::<Input>(&without).is_err());
+    // `pool` is required like `capacity` (scenario format 5): `null` for a town of founders.
+    let without = INPUT_JSON.replace(r#","pool":null"#, "");
     assert_ne!(without, INPUT_JSON);
     assert!(from_json::<Input>(&without).is_err());
 }

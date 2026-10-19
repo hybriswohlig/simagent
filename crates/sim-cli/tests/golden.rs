@@ -13,7 +13,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 use sim_cli::files::{self, Manifest, Scenario};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sim_core::canonical::YearHash;
 use sim_core::data::Data;
@@ -22,7 +22,6 @@ use sim_core::finite::FiniteF64;
 use sim_core::input::{ForkOverride, Input, PoolStart, Start};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
-use sim_core::pool::take_households;
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
 use sim_core::version::CORE_VERSION;
 
@@ -149,11 +148,9 @@ fn arrival_data() -> Data {
     .expect("checked")
 }
 
-fn arrival_run() -> Run {
-    let data = arrival_data();
-    let held = data.pool().expect("a pool");
-    let (taken, _) = take_households(held.pool(), 0xff, 0, &BTreeSet::new(), 50);
-    let start = Start {
+/// The `Start` of the arrival: a town of 50 from `pool_c` with immigration, its pool drawn.
+fn arrival_start(data: &Data) -> Start {
+    Start {
         world_seed: 0xff,
         founder_tag: DataId::new("test:arrival").expect("id"),
         world_params: WorldParams {
@@ -163,16 +160,13 @@ fn arrival_run() -> Run {
         founders: Vec::new(),
         couples: Vec::new(),
         capacity: None,
-        pool: Some(PoolStart {
-            pool_hash: held.hash(),
-            n_start: 50,
-            immigration: true,
-            households: taken
-                .iter()
-                .map(|&index| held.pool().households[index].clone())
-                .collect(),
-        }),
-    };
+        pool: PoolStart::drawn(data, 0xff, 50, true),
+    }
+}
+
+fn arrival_run() -> Run {
+    let data = arrival_data();
+    let start = arrival_start(&data);
     let mut world = World::new(data);
     world.submit(Input::Start(start)).expect("accepted");
     run_to(
@@ -181,6 +175,27 @@ fn arrival_run() -> Run {
         Vec::new(),
         SimTime::from_secs(ARRIVAL_END),
     )
+}
+
+/// The CLI resolves a scenario file's pool on the data it is given: the households of
+/// `PoolStart::drawn`, every other field as written (design note of the map-4 switch,
+/// section 13). The `Start` it gives is the arrival's, which the golden pins.
+#[test]
+fn the_cli_resolves_a_pool_scenario_to_the_arrivals_start() {
+    let text = format!(
+        r#"{{"format_version":5,"start":{{"world_seed":"00000000000000ff","founder_tag":"test:arrival","world_params":{{"hereditary_diseases":true,"nutrition":[]}},"founders":[],"couples":[],"capacity":null,"pool":{{"n_start":50,"immigration":true}}}},"until":{ARRIVAL_END}}}"#
+    );
+    let file: sim_cli::files::ScenarioFile = serde_json::from_str(&text).expect("a scenario");
+    let resolved = sim_cli::resolve(file, || Ok(arrival_data())).expect("resolved");
+    assert_eq!(resolved.format_version, 5);
+    assert_eq!(resolved.until, SimTime::from_secs(ARRIVAL_END));
+    assert_eq!(resolved.start, arrival_start(&arrival_data()));
+    assert!(
+        resolved
+            .start
+            .pool
+            .is_some_and(|pool| !pool.households.is_empty())
+    );
 }
 
 #[test]

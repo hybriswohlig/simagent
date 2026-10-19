@@ -12,7 +12,6 @@
 //! GH-1: emigration tilts the lifespans of those who die in the town), every other check in
 //! the criteria town.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -20,7 +19,6 @@ use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::input::{Input, PoolStart, Start};
 use sim_core::params::WorldParams;
-use sim_core::pool::take_households;
 use sim_core::time::SimTime;
 use sim_core::world::World;
 
@@ -97,8 +95,8 @@ pub fn decided_closed(check: &str) -> bool {
 /// `n_start` persons, run to its end with the hereditary diseases on, its log fed to the
 /// export's observer.
 pub fn run_town(data: Data, plan: &Plan) -> Result<(World, Observer)> {
-    let held = data.pool().ok_or("the data hold no pool")?;
-    let (taken, _) = take_households(held.pool(), plan.seed, 0, &BTreeSet::new(), plan.n_start);
+    let pool = PoolStart::drawn(&data, plan.seed, plan.n_start, plan.immigration)
+        .ok_or("the data hold no pool")?;
     let start = Start {
         world_seed: plan.seed,
         founder_tag: DataId::new(plan.tag).map_err(|e| format!("{}: {e:?}", plan.tag))?,
@@ -109,15 +107,7 @@ pub fn run_town(data: Data, plan: &Plan) -> Result<(World, Observer)> {
         founders: Vec::new(),
         couples: Vec::new(),
         capacity: plan.capacity,
-        pool: Some(PoolStart {
-            pool_hash: held.hash(),
-            n_start: plan.n_start,
-            immigration: plan.immigration,
-            households: taken
-                .iter()
-                .map(|&index| held.pool().households[index].clone())
-                .collect(),
-        }),
+        pool: Some(pool),
     };
     let mut observer = Observer::default();
     let (world, _) =

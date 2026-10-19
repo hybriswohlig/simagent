@@ -14,7 +14,7 @@ const Y: i64 = 31_449_600;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 4,
+  "format_version": 5,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -25,7 +25,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
     "couples": [],
-    "capacity": null
+    "capacity": null,
+    "pool": null
   },
   "until": 314495999
 }"#;
@@ -372,7 +373,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     fs::write(&scenario_path, "{}\n").expect("writes");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: scenario_invalid: not a scenario of format version 1".to_owned())
+        Err("error: scenario_invalid: not a scenario of format version 5".to_owned())
     );
     fs::copy(
         dir.join("restored").join("scenario.resolved.json"),

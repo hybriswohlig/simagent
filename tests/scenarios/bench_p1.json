@@ -1,5 +1,5 @@
 {
-  "format_version": 4,
+  "format_version": 5,
   "start": {
     "world_seed": "00000000000000b1",
     "founder_tag": "test:bench",
@@ -38,7 +38,8 @@
       { "woman": 16, "man": 17 },
       { "woman": 18, "man": 19 }
     ],
-    "capacity": null
+    "capacity": null,
+    "pool": null
   },
   "until": 6289919999
 }

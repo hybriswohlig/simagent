@@ -197,7 +197,7 @@ pub fn diverged(
 pub fn check(file: &Path) -> Result<(), CliError> {
     let package: Package = files::parse_strict(files::read_text(file)?.trim_end())
         .filter(|package: &Package| package.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| CliError::new("repro_invalid", "not a repro package of format 1"))?;
+        .ok_or_else(|| CliError::new("repro_invalid", "not a repro package of format 5"))?;
     if package.core_version != CORE_VERSION {
         let detail = format!(
             "the repro package is of core version {}, this is {CORE_VERSION}",

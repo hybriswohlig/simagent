@@ -19,11 +19,11 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-const TINY_SCENARIO: &str = r#"{"format_version":4,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null},"until":31449599}"#;
+const TINY_SCENARIO: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":31449599}"#;
 
 /// Three founders, ten years.
 const TEN_YEARS: &str = r#"{
-  "format_version": 4,
+  "format_version": 5,
   "start": {
     "world_seed": "0000000000000001",
     "founder_tag": "test:cli",
@@ -34,7 +34,8 @@ const TEN_YEARS: &str = r#"{
       {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
     ],
     "couples": [],
-    "capacity": null
+    "capacity": null,
+    "pool": null
   },
   "until": 314495999
 }"#;
@@ -134,9 +135,9 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":4,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
             "\n",
-            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null}}}"#,
+            r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
             r#"{"end":31449599}"#,
             "\n",
@@ -160,7 +161,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":4,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"3536518f68019647"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"3536518f68019647"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -220,7 +221,7 @@ fn replay_from_input_log_matches_scenario_run() {
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {
-    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-943488000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]},{"born":-794880000,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,0]}]},{"born":-1,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,1]}]}],"couples":[],"capacity":null}}"#;
+    let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-943488000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]},{"born":-794880000,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,0]}]},{"born":-1,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,1]}]}],"couples":[],"capacity":null,"pool":null}}"#;
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
     let commands = vec![
@@ -405,7 +406,7 @@ fn command_schema_matches_direct_call() {
     let dir = scratch("command_schema");
     let start_json: Value = serde_json::from_str(start_line).expect("json");
     let scenario = serde_json::json!({
-        "format_version": 4,
+        "format_version": 5,
         "start": start_json["start"],
         "until": end.as_secs(),
     });
@@ -507,7 +508,7 @@ fn measure_prints_the_measurement() {
         outcome.stdout,
         "{\"format_version\":1,\"clock\":943487999,\"living\":6,\"traits\":[],\"loci\":[]}\n"
     );
-    let alone = r#"{"format_version":4,"start":{"world_seed":"0000000000000002","founder_tag":"test:alone","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-3144960000,"sex":"female","alleles":[]}],"couples":[],"capacity":null},"until":1886975999}"#;
+    let alone = r#"{"format_version":5,"start":{"world_seed":"0000000000000002","founder_tag":"test:alone","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-3144960000,"sex":"female","alleles":[]}],"couples":[],"capacity":null,"pool":null},"until":1886975999}"#;
     let gone = run_scenario(&dir, alone, "alone");
     assert!(
         error_of(&["measure", arg(&gone)]).starts_with("error: no_living: "),
@@ -657,6 +658,25 @@ fn replay_reports_first_divergent_year() {
             .expect("hex")
             .to_owned()
     };
+    // A manifest of another format version is not this program's.
+    let foreign = dir.join("foreign.json");
+    fs::write(
+        &foreign,
+        text(&manifest_path).replacen(r#""format_version":5"#, r#""format_version":6"#, 1),
+    )
+    .expect("writes");
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--replay",
+            arg(&original.join("input.ndjson")),
+            "--manifest",
+            arg(&foreign),
+            "--out",
+            arg(&dir.join("foreign_out")),
+        ]),
+        "error: manifest_invalid: not a manifest of format version 5"
+    );
     // Years 3 and 7 differ from what the run produces; the replay names year 3.
     replace_in(&manifest_path, &year(3), "0123456789abcdef");
     replace_in(&manifest_path, &year(7), "fedcba9876543210");
@@ -866,15 +886,27 @@ fn resume_refuses_a_directory_that_does_not_match_its_save() {
     );
     restore();
 
-    // A scenario file of another format version.
+    // A manifest of another format version.
     replace_in(
-        &out.join("scenario.resolved.json"),
-        r#""format_version":4"#,
+        &out.join("manifest.json"),
         r#""format_version":5"#,
+        r#""format_version":6"#,
     );
     assert_eq!(
         resume(),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: manifest_invalid: not a manifest of format version 5"
+    );
+    restore();
+
+    // A scenario file of another format version.
+    replace_in(
+        &out.join("scenario.resolved.json"),
+        r#""format_version":5"#,
+        r#""format_version":6"#,
+    );
+    assert_eq!(
+        resume(),
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     restore();
 
@@ -1035,7 +1067,7 @@ fn replay_rejects_a_changed_input_log() {
         "error: input_log_invalid: line 1 is not the header of an input log"
     );
     assert_eq!(
-        replay(&pristine.replacen(r#""format_version":4"#, r#""format_version":5"#, 1)),
+        replay(&pristine.replacen(r#""format_version":5"#, r#""format_version":6"#, 1)),
         "error: input_log_invalid: line 1 is not the header of an input log"
     );
     assert_eq!(
@@ -1060,15 +1092,37 @@ fn bad_scenarios_and_directories_are_rejected() {
     };
     assert_eq!(
         run(&TINY_SCENARIO.replacen(r#""until""#, r#""extra":1,"until""#, 1)),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: scenario_invalid: not a scenario of format version 5"
+    );
+    // Format 4 is no longer read: under format 5 founders draw the alleles they do not name.
+    assert_eq!(
+        run(&TINY_SCENARIO.replacen(r#""format_version":5"#, r#""format_version":4"#, 1)),
+        "error: scenario_invalid: a scenario of format version 4 is no longer read (format 5 draws the alleles founders do not name)"
+    );
+    // `pool` and `capacity` are required (`null` for none).
+    for missing in [r#","pool":null"#, r#""capacity":null,"#] {
+        assert_eq!(
+            run(&TINY_SCENARIO.replacen(missing, "", 1)),
+            "error: scenario_invalid: not a scenario of format version 5",
+            "{missing}"
+        );
+    }
+    // A town from the pool needs data with a pool; the built-in data hold none yet.
+    assert_eq!(
+        run(&TINY_SCENARIO.replacen(
+            r#""pool":null"#,
+            r#""pool":{"n_start":10,"immigration":false}"#,
+            1
+        )),
+        "error: scenario_invalid: the data hold no pool"
     );
     assert_eq!(
-        run(&TINY_SCENARIO.replacen(r#""format_version":4"#, r#""format_version":5"#, 1)),
-        "error: scenario_invalid: not a scenario of format version 1"
+        run(&TINY_SCENARIO.replacen(r#""format_version":5"#, r#""format_version":6"#, 1)),
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen(r#"{"born":-1,"sex":"female","#, r#"{"born":-1,"#, 1)),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen(
@@ -1076,11 +1130,11 @@ fn bad_scenarios_and_directories_are_rejected() {
             r#"["core:disease_ar",[0,1]]"#,
             1
         )),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen(r#""copies":[0,1]"#, r#""copies":[0,256]"#, 1)),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     // Alleles the genome map does not allow are a rejected start (genetics
     // specification 2.1): a value other than 0 and 1, a locus it does not have.
@@ -1098,7 +1152,7 @@ fn bad_scenarios_and_directories_are_rejected() {
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen("00000000000000ff", "ff", 1)),
-        "error: scenario_invalid: not a scenario of format version 1"
+        "error: scenario_invalid: not a scenario of format version 5"
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen(r#"{"born":-1,"#, r#"{"born":0,"#, 1)),
@@ -1193,7 +1247,7 @@ fn a_diverged_replay_writes_a_repro_package() {
     ]);
     let package_path = out.join("repro.json");
     let package: Value = serde_json::from_str(&text(&package_path)).expect("json");
-    assert_eq!(package["format_version"], 4);
+    assert_eq!(package["format_version"], 5);
     assert_eq!(package["kind"], "replay_diverged");
     assert_eq!(package["core_version"], manifest["core_version"]);
     assert_eq!(package["data_hash"], manifest["data_hash"]);
@@ -1240,11 +1294,21 @@ fn a_diverged_replay_writes_a_repro_package() {
     bare.as_object_mut().expect("object").remove("expected");
     fs::write(&stopped, bare.to_string()).expect("writes");
     assert!(error_of(&["repro", arg(&stopped)]).starts_with("error: repro_invalid:"));
+    // A package of another format version.
+    fs::write(
+        &stopped,
+        text(&package_path).replacen("\"format_version\":5", "\"format_version\":6", 1),
+    )
+    .expect("writes");
+    assert_eq!(
+        error_of(&["repro", arg(&stopped)]),
+        "error: repro_invalid: not a repro package of format 5"
+    );
     // An unknown field is no package.
     replace_in(
         &package_path,
-        "\"format_version\":4",
-        "\"format_version\":4,\"x\":0",
+        "\"format_version\":5",
+        "\"format_version\":5,\"x\":0",
     );
     assert!(error_of(&["repro", arg(&package_path)]).starts_with("error: repro_invalid:"));
 }
