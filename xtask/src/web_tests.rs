@@ -212,12 +212,21 @@ fn a_symbolic_link_stops_the_scan() {
         assert_eq!(scan(&root), Err(format!("{link}: a symbolic link in web/")));
         std::fs::remove_dir_all(&root).expect("removed");
     }
-    for dir in ["web/src", "web/test"] {
+    for dir in ["web", "web/src", "web/test"] {
         let root = tree("root-link", "");
         let moved = root.join("elsewhere");
         std::fs::rename(root.join(dir), &moved).expect("moved");
         std::os::unix::fs::symlink(&moved, root.join(dir)).expect("a link");
         assert_eq!(scan(&root), Err(format!("{dir}: a symbolic link in web/")));
+        // The build stops before it removes anything: below a linked `web`, `dist` is
+        // another directory's.
+        assert_eq!(build(&root), Err(format!("{dir}: a symbolic link in web/")));
+        let stale = if dir == "web" {
+            "elsewhere/dist/stale.js"
+        } else {
+            "web/dist/stale.js"
+        };
+        assert!(root.join(stale).exists(), "{dir}");
         std::fs::remove_dir_all(&root).expect("removed");
     }
 }
@@ -246,7 +255,7 @@ fn add_refuses_what_tsc_wrote_and_run_reports_failure() {
 fn node_runs_with_an_empty_environment() {
     let root = tree("node", "");
     let script = |code: &str| ["-e".to_owned(), code.to_owned()];
-    let alone = "const kept = Object.keys(process.env).filter((k) => k !== 'PATH' && !k.startsWith('__CF_')); process.exit(kept.length === 0 ? 0 : 1)";
+    let alone = "const kept = Object.keys(process.env).filter((k) => k !== 'PATH' && k !== '__CF_USER_TEXT_ENCODING'); process.exit(kept.length === 0 ? 0 : 1)";
     assert_eq!(node(&root, &script(alone)), Ok(()));
     assert_eq!(
         node(&root, &script("process.exit(3)")),
