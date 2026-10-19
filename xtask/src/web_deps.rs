@@ -182,10 +182,39 @@ fn root_problems(
             format!("web/package.json scripts.{name}"),
         ));
     }
-    if root["hasInstallScript"] == true {
+    if set(root, "hasInstallScript") {
         problems.push(problem("install_script", "the lockfile's root".to_owned()));
     }
     problems
+}
+
+/// A flag of the lockfile counts as set unless it is absent or `false`: a malformed value
+/// fails closed.
+fn set(entry: &Value, flag: &str) -> bool {
+    !matches!(entry.get(flag), None | Some(Value::Bool(false)))
+}
+
+/// A name npm publishes: an optional `@scope/`, then one segment of letters, digits, `-`,
+/// `.`, `_` and `~` that does not start with `.` or `_`; so no `/`, `%` or `..` reaches the
+/// tarball's path.
+fn publishable_name(name: &str) -> bool {
+    let segment = |part: &str| {
+        let first = part.bytes().next();
+        first.is_some_and(|b| b != b'.' && b != b'_')
+            && (part.bytes()).all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
+    };
+    match name.strip_prefix('@').map(|scoped| scoped.split_once('/')) {
+        Some(Some((scope, base))) => segment(scope) && segment(base),
+        Some(None) => false,
+        None => segment(name),
+    }
+}
+
+/// A version npm publishes, as far as the path goes: letters, digits, `.`, `-` and `+`,
+/// starting with a digit.
+fn publishable_version(version: &str) -> bool {
+    (version.bytes().next()).is_some_and(|b| b.is_ascii_digit())
+        && (version.bytes()).all(|b| b.is_ascii_alphanumeric() || b".-+".contains(&b))
 }
 
 /// The tarball of a package in the registry, as npm resolves it.
@@ -216,15 +245,17 @@ fn entry_problems(key: &str, entry: &Value, allowlist: &BTreeMap<String, String>
             format!("{at}: {}", entry["license"]),
         ));
     }
-    if entry["hasInstallScript"] == true {
+    if set(entry, "hasInstallScript") {
         problems.push(problem("install_script", at.clone()));
     }
     // The tarball is the package's own, so the name is what installs: a link or a bundled
-    // package has none in the registry.
+    // package has none in the registry, and a name or version with a path in it could
+    // point the tarball elsewhere.
     let resolved = entry["resolved"].as_str().unwrap_or("");
     let integrity = entry["integrity"].as_str().unwrap_or("");
-    let local = entry["link"] == true || entry["inBundle"] == true;
-    if local || resolved != tarball(name, version) || !integrity.starts_with("sha512-") {
+    let local = set(entry, "link") || set(entry, "inBundle");
+    let named = publishable_name(name) && publishable_version(version);
+    if local || !named || resolved != tarball(name, version) || !integrity.starts_with("sha512-") {
         problems.push(problem(
             "not_from_the_registry",
             format!(
