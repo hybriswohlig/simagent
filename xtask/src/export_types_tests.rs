@@ -162,3 +162,30 @@ fn every_listed_text_is_wanted_and_an_optional_field_may_be_absent() {
     );
     assert!(!seen.contains("Manifest.fork"));
 }
+
+/// A list of a named type must hold an element somewhere, or its fields go unchecked; a
+/// list of plain values need not.
+#[test]
+fn a_list_of_a_named_type_must_once_hold_an_element() {
+    let types = descriptor();
+    let wanted = wanted(&types);
+    for mark in [
+        "Person.diseases[]",
+        "Person.alleles[]",
+        "Manifest.year_hashes[]",
+        "Pedigree.persons[]",
+    ] {
+        assert!(wanted.contains(mark), "{mark}");
+    }
+    assert!(!wanted.contains("Person.social_parents[]"));
+    let mut bare = person();
+    bare["diseases"] = json!([]);
+    bare["alleles"] = json!([]);
+    let (found, seen) = check(&pedigree(vec![bare]));
+    assert_eq!(found, Vec::<String>::new());
+    let left = missing(&wanted, &seen);
+    assert!(left.contains(&"Person.diseases[]".to_owned()));
+    assert!(left.contains(&"Person.alleles[]".to_owned()));
+    let (_, seen) = check(&pedigree(vec![person()]));
+    assert!(seen.contains("Person.diseases[]") && seen.contains("Person.alleles[]"));
+}
