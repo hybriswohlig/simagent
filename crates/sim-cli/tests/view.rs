@@ -331,6 +331,8 @@ fn each_request_is_checked_before_it_is_answered() {
         format!("POST / HTTP/1.1\r\n{host}Content-Length: 1\r\n\r\nab"),
         format!("GET / HTTP/1.1\r\n{host}: x\r\n\r\n"),
         format!("GET / HTTP/1.1\r\n{host}X A: x\r\n\r\n"),
+        format!("GET / HTTP/1.1\r\n{host}X@A: x\r\n\r\n"),
+        format!("GET / HTTP/1.1\r\n{host}X(A): x\r\n\r\n"),
     ];
     let cases =
         (cases.into_iter()).chain(malformed.into_iter().map(|raw| (raw, 400, "bad_request")));
@@ -403,6 +405,27 @@ fn a_slow_request_times_out() {
         "{waited:?}"
     );
     assert_eq!(get(server.port, "/").0, 200);
+}
+
+/// A client that stops reading a large answer holds the one thread for one write time at
+/// most; then the next request is served.
+#[test]
+fn a_client_that_stops_reading_lets_go() {
+    let (runs, web) = fixture("stalled");
+    write(&web.join("big.bin"), &vec![b'x'; 64 * 1024 * 1024]);
+    let server = start(&runs, &web);
+    let port = server.port;
+    let mut stalled = TcpStream::connect(("127.0.0.1", port)).expect("connects");
+    let request = format!("GET /big.bin HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+    stalled.write_all(request.as_bytes()).expect("sends");
+    let began = Instant::now();
+    assert_eq!(get(port, "/").0, 200);
+    let waited = began.elapsed();
+    assert!(
+        waited >= Duration::from_secs(4) && waited < Duration::from_secs(12),
+        "{waited:?}"
+    );
+    drop(stalled);
 }
 
 /// The server listens on 127.0.0.1 only: not on the IPv6 loopback, and not on the
