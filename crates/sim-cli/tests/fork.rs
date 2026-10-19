@@ -373,7 +373,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     fs::write(&scenario_path, "{}\n").expect("writes");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: scenario_invalid: not a scenario of format version 1".to_owned())
+        Err("error: scenario_invalid: not a scenario of format version 5".to_owned())
     );
     fs::copy(
         dir.join("restored").join("scenario.resolved.json"),
