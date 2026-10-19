@@ -26,10 +26,8 @@ pub enum Input {
 }
 
 /// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
-/// arrive as fields with their first reader. Serialized by hand: JSON leaves out a `pool`
-/// that is `None`, so that the files of a town without a pool keep their form (format 4);
-/// postcard always writes every field.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+/// arrive as fields with their first reader.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
     #[serde(with = "crate::hex_u64")]
@@ -49,36 +47,9 @@ pub struct Start {
     #[serde(deserialize_with = "Option::deserialize")]
     pub capacity: Option<u64>,
     /// A town founded from the pool of the data (ADR-0020 section 5); `None` for the
-    /// founders above. Absent in JSON of scenario format 4.
-    #[serde(default)]
+    /// founders above. Required in JSON like `capacity` (`null` for none; scenario format 5).
+    #[serde(deserialize_with = "Option::deserialize")]
     pub pool: Option<PoolStart>,
-}
-
-impl Serialize for Start {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        /// `world_seed` as `crate::hex_u64` writes it.
-        struct Seed(u64);
-        impl Serialize for Seed {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                crate::hex_u64::serialize(&self.0, serializer)
-            }
-        }
-        let with_pool = self.pool.is_some() || !serializer.is_human_readable();
-        let mut fields = serializer.serialize_struct("Start", if with_pool { 7 } else { 6 })?;
-        fields.serialize_field("world_seed", &Seed(self.world_seed))?;
-        fields.serialize_field("founder_tag", &self.founder_tag)?;
-        fields.serialize_field("world_params", &self.world_params)?;
-        fields.serialize_field("founders", &self.founders)?;
-        fields.serialize_field("couples", &self.couples)?;
-        fields.serialize_field("capacity", &self.capacity)?;
-        if with_pool {
-            fields.serialize_field("pool", &self.pool)?;
-        } else {
-            fields.skip_field("pool")?;
-        }
-        fields.end()
-    }
 }
 
 /// The founding of a town from the pool of the data (ADR-0020 section 5; design note of
@@ -95,6 +66,37 @@ pub struct PoolStart {
     pub immigration: bool,
     /// The households of the draw for occasion 0, in its order, exactly as in the pool.
     pub households: Vec<crate::pool::PoolHousehold>,
+}
+
+impl PoolStart {
+    /// The pool start of a town of `n_start` founded from the data's pool (ADR-0020 section
+    /// 5): the pool's hash and the households of the draw for occasion 0 until their members
+    /// reach `n_start`, exactly what `Start` checks; `None` for data without a pool. The CLI
+    /// resolves a scenario's pool with it.
+    pub fn drawn(
+        data: &crate::data::Data,
+        world_seed: u64,
+        n_start: u64,
+        immigration: bool,
+    ) -> Option<PoolStart> {
+        let held = data.pool()?;
+        let (taken, _) = crate::pool::take_households(
+            held.pool(),
+            world_seed,
+            0,
+            &alloc::collections::BTreeSet::new(),
+            n_start,
+        );
+        Some(PoolStart {
+            pool_hash: held.hash(),
+            n_start,
+            immigration,
+            households: taken
+                .iter()
+                .map(|&index| held.pool().households[index].clone())
+                .collect(),
+        })
+    }
 }
 
 /// A couple of founders, by their places in the list of founders.
