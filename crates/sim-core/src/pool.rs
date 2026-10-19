@@ -448,6 +448,60 @@ pub fn ranked_households(pool: &Pool, world_seed: u64, occasion: u64) -> Vec<usi
         .collect()
 }
 
+/// The persons of a village (ADR-0020 section 8, G4; Grok V1 and V2): per sex the `per_sex`
+/// members aged from their 18th birthday to before their 41st at `frozen_at`, in the order of
+/// the draw on occasion 1 (`POOL_RANK`, subject `WORLD`, candidate the lineage key), women
+/// first; each alone in a household of their own, without partnership, pregnancy, carer or
+/// carried plans, moved out. `None` when a sex has fewer candidates.
+pub fn village_households(
+    pool: &Pool,
+    world_seed: u64,
+    per_sex: u64,
+) -> Option<Vec<PoolHousehold>> {
+    let draws = Draws::new(WorldSeed::new(world_seed));
+    let wanted = usize::try_from(per_sex).ok()?;
+    let in_age = |born: SimTime| {
+        pool.frozen_at
+            .as_secs()
+            .checked_sub(born.as_secs())
+            .is_some_and(|age| age >= 18 * YEAR.as_secs() && age < 41 * YEAR.as_secs())
+    };
+    let mut households = Vec::new();
+    for sex in [Sex::Female, Sex::Male] {
+        let candidates: BTreeMap<LineageKey, &PoolPerson> = pool
+            .households
+            .iter()
+            .flat_map(|household| household.members.iter())
+            .filter(|member| member.sex == sex && in_age(member.born))
+            .map(|member| (member.lineage_key, member))
+            .collect();
+        let ranked = draws.ranked(
+            tags::POOL_RANK,
+            SubjectKey::WORLD,
+            1,
+            candidates.keys().copied(),
+        );
+        if ranked.len() < wanted {
+            return None;
+        }
+        for key in ranked.into_iter().take(wanted) {
+            let mut person = candidates[&key].clone();
+            person.carer = None;
+            person.conception_at = None;
+            person.birth_at = None;
+            person.separation_at = None;
+            person.leave_home_at = None;
+            person.moved_out = true;
+            households.push(PoolHousehold {
+                members: vec![person],
+                partnership: None,
+                pregnancies: Vec::new(),
+            });
+        }
+    }
+    Some(households)
+}
+
 /// The households not in `used`, in the order of the draw on `occasion`, until their
 /// members reach or exceed `persons`; the second value says whether they do (with too few
 /// households left, all of them and `false`).

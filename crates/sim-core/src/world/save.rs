@@ -2,6 +2,7 @@
 //! exceptions. The bytes are uncompressed and fully deterministic.
 
 use crate::data::Data;
+use alloc::borrow::Cow;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -386,8 +387,9 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
 /// section 9), after `pool_view` has checked them against the data's pool.
 #[derive(Default)]
 struct PoolView<'a> {
-    /// Each arrival: its record in the pool and the shift `Δ` of its household.
-    arrivals: BTreeMap<SimId, (&'a PoolPerson, i64)>,
+    /// Each arrival: its record (the pool's, or for a village the person as it arrived,
+    /// alone and without carried plans) and the shift `Δ` of its household.
+    arrivals: BTreeMap<SimId, (Cow<'a, PoolPerson>, i64)>,
     /// The children of pool pregnancies born in the town.
     children: BTreeSet<SimId>,
     /// The partnerships the arrivals brought: the woman's record and the shift.
@@ -442,18 +444,31 @@ fn pool_view<'a>(
     };
     let held = data.pool()?;
     let pool = held.pool();
+    // A village (ADR-0020 section 8, G4): its persons, each alone, arrived in second 0; no
+    // household of the pool is used and nobody immigrates.
+    let village = if start.village {
+        if start.immigration || start.n_start % 2 != 0 {
+            return None;
+        }
+        crate::pool::village_households(pool, seed, start.n_start / 2)?
+    } else {
+        Vec::new()
+    };
     let persons = start.n_start.saturating_add(50) / 100;
     view.immigration = (start.immigration && persons > 0).then_some(persons);
     // The used households are exactly the draws, in their order (review): those of
     // `Start`, arriving in second 0 while the clock may still stand before it, then those
     // of each immigration whose second the clock has passed. Each arrives in the second of
     // its draw; a draw the pool could not fill stopped the run, so no save holds it.
-    let mut drawn: Vec<(usize, i64)> =
+    let mut drawn: Vec<(usize, i64)> = if start.village {
+        Vec::new()
+    } else {
         crate::pool::take_households(pool, seed, 0, &BTreeSet::new(), start.n_start)
             .0
             .into_iter()
             .map(|index| (index, 0))
-            .collect();
+            .collect()
+    };
     if let Some(persons) = view.immigration {
         let mut taken: BTreeSet<usize> = drawn.iter().map(|(index, _)| *index).collect();
         let mut year = 0_u64;
@@ -484,9 +499,16 @@ fn pool_view<'a>(
     // Each pool key's place in the order of arrival: its household's place among the used.
     let mut place_of: BTreeMap<LineageKey, usize> = BTreeMap::new();
     let mut arrivals_seen = 0_usize;
-    for (place, (index, second)) in drawn.iter().enumerate() {
-        let household = &pool.households[*index];
-        let on_time = |at: SimTime| at.as_secs() == *second;
+    let arrived_households = drawn
+        .iter()
+        .map(|(index, second)| (Cow::Borrowed(&pool.households[*index]), *second))
+        .chain(
+            village
+                .into_iter()
+                .map(|household| (Cow::Owned(household), 0)),
+        );
+    for (place, (household, second)) in arrived_households.enumerate() {
+        let on_time = |at: SimTime| at.as_secs() == second;
         let mut arrived: Option<SimTime> = None;
         for (member_place, member) in household.members.iter().enumerate() {
             let id = *keys.get(&member.lineage_key)?;
@@ -510,12 +532,20 @@ fn pool_view<'a>(
             if !fits {
                 return None;
             }
-            view.arrivals.insert(id, (member, delta));
+            let record = match &household {
+                Cow::Borrowed(household) => Cow::Borrowed(&household.members[member_place]),
+                Cow::Owned(_) => Cow::Owned(member.clone()),
+            };
+            view.arrivals.insert(id, (record, delta));
             view.places.insert(id, (place, member_place));
             place_of.insert(member.lineage_key, place);
             arrivals_seen += 1;
         }
         let delta = arrived?.as_secs().checked_sub(pool.frozen_at.as_secs())?;
+        // A village's persons bring no partnership and no pregnancy.
+        let Cow::Borrowed(household) = household else {
+            continue;
+        };
         if let Some(pair) = household.partnership {
             let (woman, man) = (*keys.get(&pair.woman)?, *keys.get(&pair.man)?);
             let formed = pair.formed.as_secs().checked_add(delta)?;

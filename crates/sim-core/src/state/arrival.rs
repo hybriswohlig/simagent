@@ -61,6 +61,29 @@ pub(crate) fn arrive(
     }
 }
 
+/// The persons of a village arrive now, at the start, each in the household of their own
+/// that `pool::village_households` built (ADR-0020 section 8, G4; Grok V2): no household of
+/// the pool is used.
+pub(crate) fn arrive_alone(
+    domain: &mut DomainState,
+    data: &Data,
+    households: &[PoolHousehold],
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let pool = data
+        .pool()
+        .unwrap_or_else(|| panic!("invariant pool.missing"))
+        .pool();
+    let delta = ctx
+        .now()
+        .as_secs()
+        .checked_sub(pool.frozen_at.as_secs())
+        .unwrap_or_else(|| panic!("invariant time.out_of_range"));
+    for household in households {
+        arrive_household(domain, data, household, delta, 0, ctx);
+    }
+}
+
 /// One household of the pool arrives (design note, section 5, steps 1 to 5).
 fn arrive_household(
     domain: &mut DomainState,
