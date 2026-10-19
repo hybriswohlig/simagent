@@ -1,0 +1,19 @@
+{
+  "format_version": 5,
+  "start": {
+    "world_seed": "0000000000000001",
+    "founder_tag": "test:town",
+    "world_params": {
+      "hereditary_diseases": true,
+      "nutrition": []
+    },
+    "founders": [],
+    "couples": [],
+    "capacity": 110,
+    "pool": {
+      "n_start": 100,
+      "immigration": true
+    }
+  },
+  "until": 1886975999
+}
