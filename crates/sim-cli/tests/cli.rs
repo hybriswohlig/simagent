@@ -658,6 +658,25 @@ fn replay_reports_first_divergent_year() {
             .expect("hex")
             .to_owned()
     };
+    // A manifest of another format version is not this program's.
+    let foreign = dir.join("foreign.json");
+    fs::write(
+        &foreign,
+        text(&manifest_path).replacen(r#""format_version":5"#, r#""format_version":6"#, 1),
+    )
+    .expect("writes");
+    assert_eq!(
+        error_of(&[
+            "run",
+            "--replay",
+            arg(&original.join("input.ndjson")),
+            "--manifest",
+            arg(&foreign),
+            "--out",
+            arg(&dir.join("foreign_out")),
+        ]),
+        "error: manifest_invalid: not a manifest of format version 5"
+    );
     // Years 3 and 7 differ from what the run produces; the replay names year 3.
     replace_in(&manifest_path, &year(3), "0123456789abcdef");
     replace_in(&manifest_path, &year(7), "fedcba9876543210");
@@ -864,6 +883,18 @@ fn resume_refuses_a_directory_that_does_not_match_its_save() {
     assert_eq!(
         resume(),
         "error: run_dir_inconsistent: manifest.json does not describe the save"
+    );
+    restore();
+
+    // A manifest of another format version.
+    replace_in(
+        &out.join("manifest.json"),
+        r#""format_version":5"#,
+        r#""format_version":6"#,
+    );
+    assert_eq!(
+        resume(),
+        "error: manifest_invalid: not a manifest of format version 5"
     );
     restore();
 
@@ -1263,6 +1294,16 @@ fn a_diverged_replay_writes_a_repro_package() {
     bare.as_object_mut().expect("object").remove("expected");
     fs::write(&stopped, bare.to_string()).expect("writes");
     assert!(error_of(&["repro", arg(&stopped)]).starts_with("error: repro_invalid:"));
+    // A package of another format version.
+    fs::write(
+        &stopped,
+        text(&package_path).replacen("\"format_version\":5", "\"format_version\":6", 1),
+    )
+    .expect("writes");
+    assert_eq!(
+        error_of(&["repro", arg(&stopped)]),
+        "error: repro_invalid: not a repro package of format 5"
+    );
     // An unknown field is no package.
     replace_in(
         &package_path,
