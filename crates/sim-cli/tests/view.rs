@@ -563,6 +563,7 @@ fn long_fixture(name: &str) -> (PathBuf, PathBuf) {
         assert!(status.success(), "{args:?}");
     }
     write(&runs.join("fork.b/census.csv"), b"year,living\n0,x\n");
+    write(&runs.join("broken/census.csv"), b"year,living\n0,1,2\n");
     // A census and a log the command line is still writing: the last line has no end yet.
     let partial = runs.join("town-1");
     write(
@@ -629,6 +630,7 @@ fn the_pedigree_is_what_export_writes_and_the_census_is_the_file() {
 
     for (path, code) in [
         ("/api/runs/fork.b/census", "census_invalid"),
+        ("/api/runs/broken/census", "census_invalid"),
         ("/api/runs/fork.b/events", "events_invalid"),
         ("/api/runs/fork.b/pedigree", "save_rejected"),
     ] {
@@ -832,6 +834,11 @@ fn an_unreadable_runs_directory_is_a_failure() {
     let (runs, web) = fixture("unreadable");
     let server = start(&runs, &web);
     fs::set_permissions(&runs, fs::Permissions::from_mode(0o000)).expect("closed");
+    if fs::read_dir(&runs).is_ok() {
+        // As root the mode does not hold: nothing to test.
+        fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).expect("opened");
+        return;
+    }
     let found: Vec<(u16, String)> = ["/api/runs", "/api/runs/town-1", "/api/runs/town-1/census"]
         .iter()
         .map(|path| {
