@@ -394,6 +394,162 @@ fn the_census_counts_the_bodies_as_the_reference() {
     }
 }
 
+/// The presentation state (ADR-0021 section 3) on the fixtures with snapshots: at each
+/// snapshot every living person's view shows the reference's body at that second; a person
+/// who left shows the body of the second it left, and its body at any second is the same
+/// before and after it left (the archive gives the mapping the same inputs); the bodies at
+/// the reached ages are those of their seconds. Taking the views changes nothing: a twin
+/// that never takes them ends with the same year hashes and log (the null-effect twin).
+#[test]
+fn the_presentation_shows_the_references_bodies() {
+    let bodies_golden: Value = serde_json::from_str(BODIES).expect("json");
+    let twins = fixtures().into_iter().zip(fixtures());
+    // Over all fixtures: people who were seen living and left.
+    let mut left = 0;
+    for ((name, scenario, data), (_, _, twin_data)) in twins {
+        let snapshots = bodies_golden["fixtures"][name]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if snapshots.is_empty() {
+            continue;
+        }
+        let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+        let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        let mut twin = World::new(twin_data);
+        world.submit(Input::Start(start.clone())).expect("accepted");
+        twin.submit(Input::Start(start)).expect("accepted");
+        let (mut out, mut twin_out) = (YearOut::default(), YearOut::default());
+        let (mut log, mut twin_log) = (world.take_log(), twin.take_log());
+        // The body of each person at `until`, while it lives.
+        let mut before: Vec<(SimId, Vec<f64>)> = Vec::new();
+        let values = |world: &World, sim: SimId, t: SimTime| -> Vec<f64> {
+            let body = world.state().body_at(sim, t).expect("a body");
+            BodyParamKey::ALL
+                .iter()
+                .map(|key| body.params.get(*key))
+                .collect()
+        };
+        for shot in snapshots {
+            let t = SimTime::from_secs(shot["t"].as_i64().expect("t"));
+            world.advance_until(&mut out, t, &mut |_| false);
+            twin.advance_until(&mut twin_out, t, &mut |_| false);
+            log.extend(world.take_log());
+            twin_log.extend(twin.take_log());
+            assert_eq!(world.closed_through(), t, "{name}");
+            for person in shot["persons"].as_array().expect("persons") {
+                let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("an id");
+                let view = world.person_view(sim).expect("a view");
+                assert_eq!(
+                    (view.shown.at.t, view.ended),
+                    (t, None),
+                    "{name}: sim {sim:?}"
+                );
+                // Before its birth a person has no body.
+                let unborn = view
+                    .born
+                    .t
+                    .checked_sub(SimDuration::from_secs(1))
+                    .expect("a second");
+                assert!(
+                    world.state().body_at(sim, unborn).is_none(),
+                    "{name}: sim {sim:?}"
+                );
+                for (key, bits) in BodyParamKey::ALL
+                    .iter()
+                    .zip(person[1].as_array().expect("values"))
+                {
+                    let reference = f64::from_bits(hex_u64(bits));
+                    let ours = view.shown.body.get(*key);
+                    assert!(
+                        close(ours, reference),
+                        "{name}: sim {sim:?} {}: {ours} against {reference}",
+                        key.as_str()
+                    );
+                }
+                assert_eq!(reached(&view), ages(&view), "{name}: sim {sim:?}");
+                for shown in &view.at_ages {
+                    let body = world
+                        .state()
+                        .body_at(sim, shown.at.t)
+                        .expect("a body")
+                        .params;
+                    assert_eq!(
+                        shown.body, body,
+                        "{name}: sim {sim:?} at {}",
+                        shown.at.age_years
+                    );
+                    assert_eq!(
+                        shown.at.t.checked_since(view.born.t).map(|a| a.as_secs()),
+                        Some(shown.at.age_years * 31_449_600)
+                    );
+                }
+                before.push((sim, values(&world, sim, until)));
+            }
+        }
+        world.advance_until(&mut out, until, &mut |_| false);
+        twin.advance_until(&mut twin_out, until, &mut |_| false);
+        log.extend(world.take_log());
+        twin_log.extend(twin.take_log());
+        for person in world.pedigree().persons {
+            let Some(end) = person.died.or(person.emigrated) else {
+                continue;
+            };
+            let view = world.person_view(person.sim).expect("a view");
+            assert_eq!(view.shown.at.t, end, "{name}: sim {:?}", person.sim);
+            assert!(view.ended.is_some(), "{name}: sim {:?}", person.sim);
+            assert_eq!(reached(&view), ages(&view), "{name}: sim {:?}", person.sim);
+            if let Some((_, kept)) = before.iter().rev().find(|(sim, _)| *sim == person.sim) {
+                assert_eq!(
+                    &values(&world, person.sim, until),
+                    kept,
+                    "{name}: sim {:?}",
+                    person.sim
+                );
+                left += 1;
+            }
+        }
+        let census = |out: &YearOut| {
+            (out.census.iter())
+                .map(|row| {
+                    (
+                        row.year,
+                        row.living,
+                        row.lived_secs,
+                        row.body.evaluated,
+                        row.body.clamped.to_vec(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(census(&out), census(&twin_out), "{name}: census");
+        let hashes = |out: &YearOut| out.year_hashes.iter().map(|y| y.hash).collect::<Vec<u64>>();
+        assert_eq!(hashes(&out), hashes(&twin_out), "{name}: year hashes");
+        assert_eq!(log_hash(&log), log_hash(&twin_log), "{name}: log");
+    }
+    assert!(left > 0, "nobody who was seen living left");
+}
+
+/// The ages of a view's bodies at reached ages.
+fn ages(view: &sim_core::presentation::PersonView) -> Vec<i64> {
+    view.at_ages
+        .iter()
+        .map(|shown| shown.at.age_years)
+        .collect()
+}
+
+/// The ages of `SHOWN_AGES` the person of `view` reached by its shown second: a birthday
+/// counts from its own second on (one year is 31 449 600 seconds).
+fn reached(view: &sim_core::presentation::PersonView) -> Vec<i64> {
+    let lived = view.shown.at.t.as_secs() - view.born.t.as_secs();
+    (sim_core::presentation::SHOWN_AGES.iter())
+        .copied()
+        .filter(|age| age * 31_449_600 <= lived)
+        .collect()
+}
+
 /// The census evaluates every living sim once a year (design note of the census, 3.6:
 /// cadence), the pre-run's too (6.1).
 #[test]

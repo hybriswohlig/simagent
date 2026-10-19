@@ -63,8 +63,9 @@ fn bio_age(data: &Data, sex: Sex, genome: &crate::genome::Genome, age: SimDurati
     ageing::bio_age(age.as_years(), delta, genetics.bio_age_weight)
 }
 
-/// The mapping's inputs of a living sim at `t`, with the nutrition years `nutrition` (see
-/// `nutrition_of`); `None` for an unknown sim or a `t` before its birth.
+/// The mapping's inputs of a sim at `t`, living or archived (the archive keeps its birth,
+/// sex, genome and key), with the nutrition years `nutrition` (see `nutrition_of`); `None`
+/// for an unknown sim or a `t` before its birth.
 pub(crate) fn inputs_of<'a>(
     domain: &DomainState,
     data: &Data,
@@ -73,9 +74,15 @@ pub(crate) fn inputs_of<'a>(
     t: SimTime,
     nutrition: &'a [NutritionYear],
 ) -> Option<BodyInputs<'a>> {
-    let person = domain.sims.get(&sim)?;
-    let age = t.checked_since(person.born)?;
-    let bio_age = bio_age(data, person.sex, &person.genome, age);
+    let (born, sex, genome, key) = match domain.sims.get(&sim) {
+        Some(person) => (person.born, person.sex, &person.genome, person.lineage_key),
+        None => {
+            let gone = domain.archive.get(&sim)?;
+            (gone.born, gone.sex, &gone.genome, gone.lineage_key)
+        }
+    };
+    let age = t.checked_since(born).filter(|age| age.as_secs() >= 0)?;
+    let bio_age = bio_age(data, sex, genome, age);
     let seeds = domain.seeds(data, sim);
     let individual = Draws::new(WorldSeed::new(seeds.individual));
     let shared = Draws::new(WorldSeed::new(seeds.shared));
@@ -85,10 +92,10 @@ pub(crate) fn inputs_of<'a>(
             individual: &individual,
             shared: &shared,
         },
-        &person.genome,
-        person.lineage_key,
+        genome,
+        key,
         domain.parent_keys(sim),
-        person.born,
+        born,
         age,
         nutrition,
         bio_age,
@@ -96,9 +103,9 @@ pub(crate) fn inputs_of<'a>(
 }
 
 impl WorldState {
-    /// The body of a living sim at `t` (ADR-0005 section 1): `None` without body data in
-    /// the data, for an unknown sim or before its birth. One entry for the census, the tests
-    /// and the export of step 12.
+    /// The body of a sim at `t`, living or archived (ADR-0005 section 1): `None` without
+    /// body data in the data, for an unknown sim or before its birth. One entry for the
+    /// census, the tests and the presentation state of step 12.
     pub fn body_at(&self, sim: SimId, t: SimTime) -> Option<BodyEvaluation> {
         let data = self.data();
         let body = BodyData::new(data).ok()?;

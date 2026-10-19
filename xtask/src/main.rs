@@ -348,6 +348,114 @@ fn gate(require_clean_tree: bool) -> Result {
 /// and variant of the export descriptor: a town of the pool with a capacity over 60 years.
 const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 
+/// The answers of `simagent view` (the release binary) over the runs in `out`: the person
+/// answer of a living, a dead and an emigrated person of the town.
+fn server_answers(
+    root: &Path,
+    out: &Path,
+    pedigree: &serde_json::Value,
+) -> Result<Vec<(&'static str, serde_json::Value)>> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let web = out.join("web");
+    std::fs::create_dir_all(&web).map_err(|e| format!("{}: {e}", web.display()))?;
+    std::fs::write(web.join("index.html"), "<!doctype html>\n")
+        .map_err(|e| format!("{}: {e}", web.display()))?;
+    let binary = root.join("target").join("release").join("simagent");
+    let child = Command::new(&binary)
+        .arg("view")
+        .arg(out)
+        .args(["--port", "0", "--web"])
+        .arg(&web)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
+    // Ended on every way out of this function, an error or a panic included.
+    let mut server = Running(child);
+    // Its address within the time limit, read beside this thread: a server that never
+    // prints one must not hold the gate.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if let Some(stdout) = server.0.stdout.take() {
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = BufReader::new(stdout).read_line(&mut line);
+            let _ = sender.send(line);
+        });
+    }
+    let line = receiver
+        .recv_timeout(SERVER_TIME)
+        .map_err(|_| format!("the server printed no address within {SERVER_TIME:?}"))?;
+    let port = line
+        .trim()
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix('/'))
+        .and_then(|port| port.parse::<u16>().ok());
+    let get = |port: u16, path: &str| -> Result<serde_json::Value> {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+            .map_err(|e| format!("the server: {e}"))?;
+        stream
+            .set_read_timeout(Some(SERVER_TIME))
+            .and_then(|()| stream.set_write_timeout(Some(SERVER_TIME)))
+            .map_err(|e| format!("the server: {e}"))?;
+        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|e| format!("the server: {e}"))?;
+        let mut answer = Vec::new();
+        stream
+            .read_to_end(&mut answer)
+            .map_err(|e| format!("the server: {e}"))?;
+        let end = (answer.windows(4).position(|w| w == b"\r\n\r\n"))
+            .ok_or(format!("{path}: no answer"))?;
+        if !answer.starts_with(b"HTTP/1.1 200 ") {
+            return Err(format!(
+                "{path}: {}",
+                String::from_utf8_lossy(&answer[..end])
+            ));
+        }
+        serde_json::from_slice(&answer[end + 4..]).map_err(|e| format!("{path}: {e}"))
+    };
+    let persons = pedigree["persons"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let first = |pick: &dyn Fn(&serde_json::Value) -> bool| persons.iter().find(|p| pick(p));
+    let chosen = [
+        first(&|p| p["died"].is_null() && p["emigrated"].is_null()),
+        first(&|p| !p["died"].is_null()),
+        first(&|p| !p["emigrated"].is_null()),
+    ];
+    let answers = match port {
+        None => Err(format!("the server printed no address: {line:?}")),
+        Some(port) => chosen
+            .iter()
+            .map(|person| {
+                let sim = person
+                    .and_then(|p| p["sim"].as_u64())
+                    .ok_or("the town lacks a person")?;
+                Ok((
+                    "PersonAnswer",
+                    get(port, &format!("/api/runs/town/persons/{sim}"))?,
+                ))
+            })
+            .collect(),
+    };
+    drop(server);
+    answers
+}
+
+/// The longest the gate waits for the server to start or to answer.
+const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A child process that is ended when the value goes.
+struct Running(std::process::Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 /// ADR-0021 section 4: `web/src/generated/export.ts` is the descriptor's, and the
 /// descriptor fits real output: the pedigree and the manifest of the coverage scenario and
 /// the manifest of a fork of it, keys both ways and kinds recursive, every case shown.
@@ -393,6 +501,19 @@ fn check_export_types(root: &Path) -> Result {
         let at = relative(root, &path);
         for difference in export_types::conforms(&types, name, &json(&path)?, &mut seen) {
             found.push(format!("{at}: {difference}"));
+        }
+    }
+    let pedigree = json(&town.join("pedigree.json"))?;
+    let contract: serde_json::Value = serde_json::from_str(&read(&root.join(BODY_FILE))?)
+        .map_err(|e| format!("{BODY_FILE}: {e}"))?;
+    let keys: Vec<String> = (contract["parameters"].as_array().into_iter().flatten())
+        .filter_map(|parameter| parameter["key"].as_str().map(str::to_owned))
+        .collect();
+    let mut with_body = types.clone();
+    with_body.push(export_types::body_type(&keys));
+    for (name, answer) in server_answers(root, &out, &pedigree)? {
+        for difference in export_types::conforms(&with_body, name, &answer, &mut seen) {
+            found.push(format!("the server's {name}: {difference}"));
         }
     }
     for mark in export_types::missing(&export_types::wanted(&types), &seen) {

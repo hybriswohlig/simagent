@@ -189,3 +189,46 @@ fn a_list_of_a_named_type_must_once_hold_an_element() {
     let (_, seen) = check(&pedigree(vec![person()]));
     assert!(seen.contains("Person.diseases[]") && seen.contains("Person.alleles[]"));
 }
+
+/// The body of a person answer has exactly the contract's keys, each a number.
+#[test]
+fn a_body_has_exactly_the_contracts_keys() {
+    let mut types = descriptor();
+    types.push(body_type(&[
+        "height_cm".to_owned(),
+        "iris_melanin".to_owned(),
+    ]));
+    let shown =
+        |body: Value| json!({"at": {"t": 0, "age_years": 0, "calendar_year": 0}, "body": body});
+    let answer = |body: Value| {
+        json!({
+            "format": "simagent.view.person", "version": 1, "contract_version": "0.1.0",
+            "sim": 1, "born": {"t": 0, "age_years": 0, "calendar_year": 0}, "ended": null,
+            "shown": shown(body), "at_ages": []
+        })
+    };
+    let mut seen = Seen::new();
+    let good = answer(json!({"height_cm": 170.0, "iris_melanin": 0.5}));
+    assert_eq!(
+        conforms(&types, "PersonAnswer", &good, &mut seen),
+        Vec::<String>::new()
+    );
+    let wrong = answer(json!({"height_cm": 170.0, "wrong": 1}));
+    assert_eq!(
+        conforms(&types, "PersonAnswer", &wrong, &mut seen),
+        [
+            "$.shown.body.wrong: not a field of BodyParams",
+            "$.shown.body.iris_melanin: missing from BodyParams",
+        ]
+    );
+    let text = answer(json!({"height_cm": "170", "iris_melanin": 0.5}));
+    assert_eq!(
+        conforms(&types, "PersonAnswer", &text, &mut seen),
+        ["$.shown.body.height_cm: \"170\" is not Number"]
+    );
+    // Without the contract's keys the check names the missing type.
+    assert_eq!(
+        conforms(&descriptor(), "Shown", &shown(json!({})), &mut seen),
+        ["$.body: no type BodyParams in the descriptor"]
+    );
+}

@@ -193,10 +193,34 @@ fn export_run(dir: &Path) -> Result<(), CliError> {
 /// The pedigree of the run in `dir` as `simagent export` writes it and `simagent view`
 /// sends it: the core's view of the state in its save, one line of JSON.
 pub fn pedigree_text(dir: &Path) -> Result<String, CliError> {
+    Ok(files::json(&load_world(dir)?.pedigree()) + "\n")
+}
+
+/// The world of the run in `dir`, from its save.
+pub fn load_world(dir: &Path) -> Result<World, CliError> {
     let bytes = files::read(&dir.join(files::SAVE))?;
     let (world, _) = World::load(&bytes, data::core_data()?)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
-    Ok(files::json(&world.pedigree()) + "\n")
+    Ok(world)
+}
+
+/// The presentation state of a person of the run in `dir` as `simagent view` sends it
+/// (ADR-0021 section 3), with the contract version of its body values; `None` for a sim
+/// the run does not know.
+pub fn person_answer(dir: &Path, sim: SimId) -> Result<Option<serde_json::Value>, CliError> {
+    let Some(view) = load_world(dir)?.person_view(sim) else {
+        return Ok(None);
+    };
+    let mut answer = serde_json::json!({
+        "format": "simagent.view.person",
+        "version": 1,
+        "contract_version": sim_core::body_contract::CONTRACT_VERSION,
+    });
+    let fields = serde_json::to_value(&view).map_err(|e| CliError::new("io", e.to_string()))?;
+    if let (Some(answer), Some(fields)) = (answer.as_object_mut(), fields.as_object()) {
+        answer.extend(fields.clone());
+    }
+    Ok(Some(answer))
 }
 
 /// Prints φ of the persons `a` and `b` of the run in `dir`, from its save, as one JSON

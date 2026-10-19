@@ -132,3 +132,15 @@ test("the layout puts each parent above its children and draws each link once", 
     assert.ok(node.x > 0 && node.x < width && node.y > 0 && node.y < height);
   }
 });
+
+test("empty generations above and below take no room", () => {
+  const parentsOnly = layout(hourglass(PEDIGREE, 9));
+  const top = layout(hourglass(PEDIGREE, 1));
+  // 1 has no forebears: the rows begin with 1 itself.
+  assert.equal(Math.min(...top.nodes.map((n) => n.y)), top.nodes.find((n) => n.center).y);
+  // 14 is alone: one row.
+  const alone = layout(hourglass(PEDIGREE, 14));
+  assert.equal(alone.nodes.length, 1);
+  assert.equal(alone.height, 80);
+  assert.ok(parentsOnly.height > alone.height);
+});

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
+import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import type { Pedigree, Person } from "./generated/export.js";
+import type { Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
@@ -26,6 +28,49 @@ function usePedigree(run: string): Loaded<Pedigree> {
     };
   }, [run]);
   return current(loaded, run);
+}
+
+/** The presentation state of a person from the server; only an answer for this person
+ * counts. */
+function usePersonView(run: string, sim: string): Loaded<PersonAnswer> {
+  const key = `${run}/${sim}`;
+  const [loaded, setLoaded] = useState<Loaded<PersonAnswer>>({ state: "loading", key });
+  useEffect(() => {
+    let live = true;
+    setLoaded({ state: "loading", key });
+    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 1 })
+      .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
+      .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  return current(loaded, key);
+}
+
+/** Where a life stands: born in a year, and now or at its end an age in a year, as the
+ * core gives them. */
+function Life({ view }: { view: PersonAnswer }) {
+  const end = view.ended === "death" ? TEXT.died_in : view.ended === "emigration" ? TEXT.emigrated_in : TEXT.now_in;
+  return (
+    <p>
+      {`${TEXT.born_in} ${view.born.calendar_year} · ${end} ${view.shown.at.calendar_year}, ${view.shown.at.age_years} ${TEXT.years}`}
+    </p>
+  );
+}
+
+/** The portraits at the ages a person reached. */
+function Ages({ shown }: { shown: readonly Shown[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+      {shown.map((at) => (
+        <figure key={at.at.age_years}>
+          <Portrait params={at.body} label={`${TEXT.at_age} ${at.at.age_years}`} />
+          <figcaption>{`${TEXT.at_age} ${at.at.age_years} (${at.at.calendar_year})`}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
 }
 
 /** The link to a person's page. */
@@ -77,6 +122,7 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
 /** A person of a run: who they are related to, and the tree around them. */
 export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const loaded = usePedigree(run);
+  const view = usePersonView(run, sim);
   if (loaded.state === "loading") {
     return <p>{TEXT.loading}</p>;
   }
@@ -94,6 +140,19 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     <section>
       <h1>{`${TEXT.person} ${person.sim}`}</h1>
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
+      {view.state === "ready" && !readable(view.value.contract_version) ? (
+        <p>{TEXT.failed_contract}</p>
+      ) : view.state === "ready" ? (
+        <div>
+          <Portrait params={view.value.shown.body} label={`${TEXT.person} ${person.sim}`} />
+          <Life view={view.value} />
+          <Ages shown={view.value.at_ages} />
+        </div>
+      ) : view.state === "failed" ? (
+        <p>{TEXT[view.text]}</p>
+      ) : (
+        <p>{TEXT.loading}</p>
+      )}
       <p>
         {TEXT.mother} <Name run={run} person={parent(person.mother)} /> · {TEXT.father}{" "}
         <Name run={run} person={parent(person.father)} />

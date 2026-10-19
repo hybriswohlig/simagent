@@ -409,13 +409,22 @@ pub fn core_identifier_findings(core_sources: &[(String, String)]) -> Vec<String
 
 /// The directory whose files may name the body values of a moment (ADR-0005 section 1,
 /// ADR-0015 section 5); the census and the presentation join with their paths.
-pub const BODY_DIR: &str = "crates/sim-core/src/body_contract/";
+pub const BODY_DIRS: [&str; 2] = [
+    "crates/sim-core/src/body_contract/",
+    // The presentation state reads the body for the viewer and is no state (ADR-0021
+    // section 3).
+    "crates/sim-core/src/presentation/",
+];
 
-/// The names that only `BODY_DIR` may use: the body values are no state, so `state/`,
+fn in_body_dirs(path: &str) -> bool {
+    BODY_DIRS.iter().any(|dir| path.starts_with(dir))
+}
+
+/// The names that only `BODY_DIRS` may use: the body values are no state, so `state/`,
 /// `canonical.rs` and every rule outside the contract module stay without them.
 pub const BODY_NAMES: [&str; 3] = ["BodyParams", "BodyEvaluation", "body_params"];
 
-/// The new names that a file of `BODY_DIR` gives one of `names`: `... name as New` in a
+/// The new names that a file of `BODY_DIRS` gives one of `names`: `... name as New` in a
 /// `use` and `type New = ... name ...`, in code only.
 fn aliases_of(source: &str, names: &[String]) -> Vec<String> {
     let code = mask_non_code(source);
@@ -454,14 +463,14 @@ fn aliases_of(source: &str, names: &[String]) -> Vec<String> {
 }
 
 /// Every file of `sim-core/src` (path relative to the workspace root, source) outside
-/// `BODY_DIR` that names one of `BODY_NAMES`, or a new name a file of `BODY_DIR` gives one
+/// `BODY_DIRS` that names one of `BODY_NAMES`, or a new name a file of `BODY_DIRS` gives one
 /// of them by `as` or a type alias.
 pub fn body_findings(core_sources: &[(String, String)]) -> Vec<String> {
     let mut names: Vec<String> = BODY_NAMES.iter().map(|name| name.to_string()).collect();
     loop {
         let before = names.len();
         for (path, source) in core_sources {
-            if path.starts_with(BODY_DIR) {
+            if in_body_dirs(path) {
                 for alias in aliases_of(source, &names) {
                     if !names.contains(&alias) {
                         names.push(alias);
@@ -475,13 +484,14 @@ pub fn body_findings(core_sources: &[(String, String)]) -> Vec<String> {
     }
     let mut findings = Vec::new();
     for (path, source) in core_sources {
-        if path.starts_with(BODY_DIR) {
+        if in_body_dirs(path) {
             continue;
         }
         for name in &names {
             if mentions_identifier(source, name) {
                 findings.push(format!(
-                    "{path}: names {name} (the body values are no state; only {BODY_DIR} names them, ADR-0005, ADR-0015)"
+                    "{path}: names {name} (the body values are no state; only {} name them, ADR-0005, ADR-0015, ADR-0021)",
+                    BODY_DIRS.join(" and ")
                 ));
             }
         }
@@ -1243,8 +1253,24 @@ struct Often { fn_count: u8 }
                 "crates/sim-core/src/body_contract/mod.rs",
                 "pub use generated::BodyParams;",
             ),
+            (
+                "crates/sim-core/src/presentation/mod.rs",
+                "pub struct Shown { pub body: BodyParams }",
+            ),
         ]);
         assert_eq!(body_findings(&mapped), Vec::<String>::new());
+        // A file beside the directory is no file of it.
+        let beside = core(&[(
+            "crates/sim-core/src/presentation_cache.rs",
+            "pub struct Kept { pub body: BodyParams }",
+        )]);
+        assert_eq!(
+            body_findings(&beside),
+            vec![
+                "crates/sim-core/src/presentation_cache.rs: names BodyParams (the body values are no state; only crates/sim-core/src/body_contract/ and crates/sim-core/src/presentation/ name them, ADR-0005, ADR-0015, ADR-0021)"
+                    .to_string()
+            ]
+        );
     }
 
     /// ADR-0005 canary: the body values in the state, in the projection or in a rule are
@@ -1271,7 +1297,7 @@ struct Often { fn_count: u8 }
             assert_eq!(
                 body_findings(&core(&[(path, source)])),
                 vec![format!(
-                    "{path}: names {name} (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                    "{path}: names {name} (the body values are no state; only crates/sim-core/src/body_contract/ and crates/sim-core/src/presentation/ name them, ADR-0005, ADR-0015, ADR-0021)"
                 )]
             );
         }
@@ -1282,7 +1308,7 @@ struct Often { fn_count: u8 }
                 "fn f() { let _ = crate::body_contract::body_params; }",
             )])),
             vec![
-                "crates/sim-core/src/world/mod.rs: names body_params (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                "crates/sim-core/src/world/mod.rs: names body_params (the body values are no state; only crates/sim-core/src/body_contract/ and crates/sim-core/src/presentation/ name them, ADR-0005, ADR-0015, ADR-0021)"
                     .to_string()
             ]
         );
@@ -1306,7 +1332,7 @@ struct Often { fn_count: u8 }
             assert_eq!(
                 body_findings(&aliased),
                 vec![format!(
-                    "crates/sim-core/src/state/mod.rs: names {used} (the body values are no state; only crates/sim-core/src/body_contract/ names them, ADR-0005, ADR-0015)"
+                    "crates/sim-core/src/state/mod.rs: names {used} (the body values are no state; only crates/sim-core/src/body_contract/ and crates/sim-core/src/presentation/ name them, ADR-0005, ADR-0015, ADR-0021)"
                 )],
                 "{alias_source}"
             );
