@@ -277,6 +277,11 @@ fn a_village_without_variance_or_spread_is_red() {
         village(&one_flat, &[0.98; 20]),
         Err(VillageFinding::NoVariance)
     );
+    // The comparison alone (the twin's) keeps the guard on the counts, not the one on 0.
+    for (v, e) in [(&wide[..19], &[0.98; 19][..]), (&wide[..], &[0.98; 19][..])] {
+        assert_eq!(village_comparison(v, e), Err(VillageFinding::BelowMinimum));
+    }
+    assert!(village_comparison(&one_flat, &[0.98; 20]).is_ok());
     // Twenty halves sum exactly, so every deviation is 0 (twenty times 0.98 would leave
     // about 2e-16 of rounding as spread).
     assert_eq!(
