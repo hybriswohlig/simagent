@@ -33,7 +33,7 @@ export function parse(hash: string): Route {
   return { page: "not_found", hash };
 }
 
-/** The hash of a route; `parse(format(route))` is the route again. */
+/** The hash of a route; for every route that `parse` returns, `parse(format(route))` is it. */
 export function format(route: Route): string {
   switch (route.page) {
     case "runs":
