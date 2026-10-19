@@ -56,6 +56,8 @@ pub struct Plan {
     pub n_start: u64,
     pub capacity: Option<u64>,
     pub immigration: bool,
+    /// A village (G4): persons of each sex, each alone, instead of the draw's households.
+    pub village: bool,
     /// The last second of the run, inclusive.
     pub end: SimTime,
 }
@@ -68,6 +70,7 @@ pub fn criteria_town() -> Plan {
         n_start: N_START,
         capacity: Some(CAPACITY),
         immigration: true,
+        village: false,
         end: SimTime::from_secs(YEARS * YEAR - 1),
     }
 }
@@ -92,11 +95,16 @@ pub fn decided_closed(check: &str) -> bool {
 }
 
 /// A pool town founded from the households of the draw for occasion 0 until they bring
-/// `n_start` persons, run to its end with the hereditary diseases on, its log fed to the
-/// export's observer.
+/// `n_start` persons (a village: `n_start / 2` persons of each sex, each alone), run to its
+/// end with the hereditary diseases on, its log fed to the export's observer.
 pub fn run_town(data: Data, plan: &Plan) -> Result<(World, Observer)> {
-    let pool = PoolStart::drawn(&data, plan.seed, plan.n_start, plan.immigration)
-        .ok_or("the data hold no pool")?;
+    let pool = if plan.village {
+        PoolStart::village(&data, plan.seed, plan.n_start)
+            .ok_or("no village: the data hold no pool, n_start is odd or too large")?
+    } else {
+        PoolStart::drawn(&data, plan.seed, plan.n_start, plan.immigration)
+            .ok_or("the data hold no pool")?
+    };
     let start = Start {
         world_seed: plan.seed,
         founder_tag: DataId::new(plan.tag).map_err(|e| format!("{}: {e:?}", plan.tag))?,

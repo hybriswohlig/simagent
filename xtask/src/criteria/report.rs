@@ -30,7 +30,7 @@ const FRAGILE: f64 = 1e-9;
 const EARLY: [f64; 2] = [0.001, 0.005];
 const GAP: [f64; 2] = [2.5, 4.0];
 /// `h²` of `core:growth` in the village's expectation (K4.2a).
-const VILLAGE_H2: f64 = 0.8;
+pub(crate) const VILLAGE_H2: f64 = 0.8;
 /// The fields of a correlation check through `ln` or `Φ`.
 const FISHER_INEXACT: [&str; 4] = ["value", "target", "power", "twin.value"];
 
@@ -110,7 +110,7 @@ fn within(value: Option<f64>, [lo, hi]: [f64; 2]) -> Verdict {
     }
 }
 
-fn bits(x: f64) -> Value {
+pub(crate) fn bits(x: f64) -> Value {
     json!(format!("{:016x}", x.to_bits()))
 }
 
@@ -501,7 +501,7 @@ fn longevity(town: &Town, female: bool) -> Value {
 /// The village block of this export (G4, G5, K2): its units' variance and expectation for
 /// the village check over the seeds. Red without a block, with fewer than two units or
 /// with nobody alive at the end.
-fn village(years: i64, village: Option<&Village>) -> Value {
+pub(crate) fn village(years: i64, village: Option<&Village>) -> Value {
     let Some(village) = village else {
         return json!({
             "check": "village_block", "end_years": years, "g_star": null, "n": 0,
