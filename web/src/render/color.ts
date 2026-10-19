@@ -83,3 +83,8 @@ export function rampColor(ramp: Ramp, melanin: number): string {
   const at = (a: number) => linear(ramp.srgb[a] ?? "#000000");
   return hex(mix(at(i), at(i + 1), t));
 }
+
+/** `a` mixed with `b` in linear light: `share` 0 is `a`, 1 is `b` (clamped). */
+export function mixColor(a: string, b: string, share: number): string {
+  return hex(mix(linear(a), linear(b), clamp(share)));
+}

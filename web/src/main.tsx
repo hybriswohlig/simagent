@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { format, parse, type Route } from "./router.js";
+import { Sheet } from "./sheet.js";
 import { TEXT } from "./text.js";
 
 /** One page per route; the pages fill in with the server (ADR-0021). */
@@ -9,6 +10,8 @@ function Page({ route }: { route: Route }) {
   switch (route.page) {
     case "runs":
       return <h1>{TEXT.runs}</h1>;
+    case "portraits":
+      return <Sheet />;
     case "run":
       return <h1>{`${TEXT.run} ${route.run}`}</h1>;
     case "person":

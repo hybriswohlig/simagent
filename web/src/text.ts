@@ -7,4 +7,13 @@ export const TEXT = {
   tree: "Stammbaum",
   not_found: "Diese Seite gibt es nicht.",
   back: "Zu den Läufen",
+  portraits: "Passbilder",
+  portrait_default: "Vorgabewerte",
+  portrait_child: "Kind, sechs Jahre",
+  portrait_elder: "Alt, ergraut",
+  portrait_red: "Rotes Haar, Sommersprossen",
+  portrait_dark: "Dunkle Haut und Augen",
+  portrait_beard: "Bart",
+  portrait_bald: "Kahl",
+  portrait_curls: "Locken",
 } as const;
