@@ -10,15 +10,20 @@ tests come from it.
 What the model knows:
 
 - A world runs on its data (ADR-0007): the life course data, the calibration and the
-  genome map as documents, by default those under data/ (`REPOSITORY`). Test data
-  (`death_test_data`) differ from them only in the rates of senescence and accident, the
+  genome map as documents, by default those under data/ with the pool data/pool/pool.bin
+  and its frequencies data/pool/pool_frequencies.json (`REPOSITORY`, the CLI's data since
+  slice S5 of the switch to map 4: map 4 and the pool, design note of the switch, section
+  14). The map 3 fixture tests/golden/map3 with the repository's life course data
+  (`MAP3`, design note of the switch, section 4) is the data of the core tests whose
+  subject is a rule, not the repository's map. Test data
+  (`death_test_data`, on `MAP3`) differ from them only in the rates of senescence and accident, the
   list `diseases` and, for a scenario that gave a fertility in `Start` before, the
   fertility in the form `window` (design note of the fertility in the world, section 8:
   the rate, the window, the months of pregnancy, no pause, the wish always 40, no
   twins; no separation, design note of the separation, section 7; and the market off,
   `c` = 0, design note of the market, section 7), and for the acceptance scenario the
   market off and no separation (ADR-0017 section 5); `life_test_data` changes values of
-  the life course data only (the scenario "market"; "similar" on the fixture
+  the life course data only (the scenario "market" on `MAP3`; "similar" on the fixture
   tests/golden/data_pairing); the save names the hash of the data a world runs on. The
   map lengths, the sex ratio, the map in the form of the meiosis reference and the
   mutation rates come from the documents too.
@@ -564,8 +569,11 @@ FOUNDER_ALLELE = 28
 # The frequencies of the pool in the data hash (S2a) and the founders' draw (F1, S2b) change
 # results without a new field: core 39, the projection stays 18 (design note of the switch
 # to map 4, section 12: one bump for both slices).
+# The repository's data become map 4 with the pool (S5, design note of the switch, section
+# 14): every golden of the repository's data moves, core 40 (ADR-0003 6.4, also for data
+# alone).
 PROJECTION_VERSION = 18
-CORE_VERSION = 39
+CORE_VERSION = 40
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1300,7 +1308,21 @@ class Data:
 
 
 def repository_data() -> Data:
-    return Data(*data_reference.documents(ROOT / "data"))
+    """The repository's data as the CLI builds them (slice S5): the documents under data/, the
+    pool data/pool/pool.bin and its frequencies data/pool/pool_frequencies.json
+    (`Data::with_pool`)."""
+    files = data_reference.pool_files(ROOT / "data")
+    assert files is not None, "the repository's data hold the pool (data/pool/)"
+    pool, frequencies = files
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies)
+
+
+# The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
+# and its calibration as data/ held them before S5, byte for byte; with the repository's life
+# course data its data hash is that of data/ before the switch. The data of every core test
+# whose subject is a rule (tests/common `files()`), and of `death_test_data` and
+# `life_test_data`.
+MAP3_DIR = ROOT / "tests" / "golden" / "map3"
 
 
 def test_value(value: float, unit: str) -> dict:
@@ -1356,6 +1378,7 @@ def death_test_data(
     fertility=None,
     life_values=None,
     wish_shape=None,
+    data_dir: Path = MAP3_DIR,
 ) -> Data:
     """Test data for the deaths (design note of the death from the data, section 4): the
     repository's life course data, calibration and map with the Makeham term `accident`
@@ -1366,8 +1389,10 @@ def death_test_data(
     off (its death lies some 20 000 years ahead). A scenario that had a fertility in
     `Start` gives it as `fertility` (`window_fertility`); otherwise the fertility is the
     repository's. `life_values` (a dict of code to value) sets values of the life course
-    data after that, `wish_shape` (a list of weights) the wish shape."""
-    demography, calibration, genome_map = data_reference.documents(ROOT / "data")
+    data after that, `wish_shape` (a list of weights) the wish shape. The base is the map 3
+    fixture (`MAP3_DIR`, the data of the core tests) unless `data_dir` names another
+    directory."""
+    demography, calibration, genome_map = data_reference.documents(data_dir)
     values = calibration["values"]
     for sex in ("female", "male"):
         values[f"core:accident_{sex}"]["value"] = accident
@@ -1384,8 +1409,8 @@ def death_test_data(
     return Data(demography, calibration, genome_map)
 
 
-def life_test_data(life_values: dict, data_dir: Path = ROOT / "data") -> Data:
-    """The repository's data (or those of the fixture `data_dir`, which take the
+def life_test_data(life_values: dict, data_dir: Path = MAP3_DIR) -> Data:
+    """The map 3 fixture's data (or those of the fixture `data_dir`; both take the
     repository's life course data) with values of the life course data changed
     (`life_values`, a dict of code to value) and nothing else: the rates of death, the
     diseases and the fertility stay those of the directory (the scenario "market", design
@@ -1425,9 +1450,10 @@ def dummy_disease(onset_years: float) -> dict:
     }
 
 
-REPOSITORY = repository_data()
-# The "fork data" of the acceptance scenario `fork_no_density` (ADR-0017 section 5): the
-# old model, accident 0.02 per year, senescence practically off (`a` = 1e-12, `b` = 0.1),
+MAP3 = Data(*data_reference.documents(MAP3_DIR))
+assert MAP3.hash == 0xADAB_5027_57B4_045C, f"{MAP3.hash:016x}"
+# The "fork data" of the acceptance scenario `fork_no_density` (ADR-0017 section 5, a core
+# test on the map 3 fixture): the old model, accident 0.02 per year, senescence practically off (`a` = 1e-12, `b` = 0.1),
 # the dummy disease from 18; the fertility `window` from 18 until 45 with 0.05 per month,
 # ten months of pregnancy, no pause, the wish always 40, no twins (design note of the
 # fertility in the world, section 8); the market off (`c` = 0) and no separation.
@@ -1436,9 +1462,37 @@ FORK_LIFE_VALUES = {"core:market_search_height_female": 0.0, "core:separation_ra
 FORK_DATA = death_test_data(
     0.02, 1e-12, 0.1, [dummy_disease(18.0)], fertility=FORK_FERTILITY, life_values=FORK_LIFE_VALUES
 )
-# The data hash of the definitions under data/ (ADR-0007), from their own reference.
-DATA_HASH = REPOSITORY.hash
-assert DATA_HASH == data_reference.data_hash(ROOT / "data")
+# The repository's data (`REPOSITORY`) and their data hash (`DATA_HASH`, ADR-0007) are read on
+# first use: with the pool, `DataPool` runs the pool's reader (tools/pool_reference.py), which
+# imports tools that import this module, so they cannot be built while it loads. A tool that
+# never asks for them never reads the 8 MB pool.
+_REPOSITORY = []
+
+
+def repository() -> Data:
+    """The repository's data as the CLI builds them (`repository_data`), read once; their data
+    hash is checked against their own reference (`data_reference.repository_hash`: the
+    definitions, then the pool's seed and hash and the frequencies), and the definitions alone
+    must hash to the pool's `frozen_hash`."""
+    if not _REPOSITORY:
+        data = repository_data()
+        assert data.hash == data_reference.repository_hash(ROOT / "data")
+        assert data.pool.frozen_hash == data_reference.data_hash(ROOT / "data")
+        _REPOSITORY.append(data)
+    return _REPOSITORY[0]
+
+
+def __getattr__(name: str):
+    """`REPOSITORY`, `DATA_HASH` (the repository's data hash with the pool and its
+    frequencies) and `EMPTY_SAVE` (the save of a world that never started on them), read on
+    first use (`repository`)."""
+    if name == "REPOSITORY":
+        return repository()
+    if name == "DATA_HASH":
+        return repository().hash
+    if name == "EMPTY_SAVE":
+        return empty_save(repository().hash)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------------------
@@ -1451,7 +1505,7 @@ def founder_genome(sex: bytes, genes, loci=None) -> dict:
     The copies are maternal then paternal; their number follows the chromosome and the
     sex: two on an autosome, two on a woman's X and one on a man's, one on a man's Y,
     one mt. Every slot not named holds the reference allele."""
-    loci = REPOSITORY.loci if loci is None else loci
+    loci = repository().loci if loci is None else loci
     if isinstance(genes, tuple):
         genes = [("core:disease_ar", list(genes))]
     maternal = [[0] * 24 for _ in range(8)]
@@ -1905,7 +1959,7 @@ def check_fertility_spec(form: FertilityForm, curves: dict, shape: list) -> None
 
 # The wish shape p_0 to p_4 of the genetics specification 11.3 [K11.3d].
 WISH_SHAPE_SPEC = [0.10, 0.15, 0.40, 0.25, 0.10]
-check_fertility_spec(REPOSITORY.fertility, REPOSITORY.puberty_curve, WISH_SHAPE_SPEC)
+check_fertility_spec(MAP3.fertility, MAP3.puberty_curve, WISH_SHAPE_SPEC)
 
 
 # ---------------------------------------------------------------------------------------
@@ -2010,9 +2064,9 @@ def noise_of(seed: int, her_key: int, n: int, his_key: int) -> float:
 
 # Spec 11.2 by hand: a cousin's penalty is ln(10) = 2.303 [W11.2a], so with the same rest a
 # stranger is chosen ten times as often; at φ = 1/32 the odds are √10 = 3.162 [W11.2b].
-assert abs(kinship_weight(REPOSITORY) / 16.0 - math.log(10.0)) <= 1e-15
-assert abs(utility(3.0, 0.0625, 0.0, REPOSITORY) - utility(3.0, 0.0, 0.0, REPOSITORY) + math.log(10.0)) <= 1e-14
-assert abs(math.exp(kinship_weight(REPOSITORY) / 32.0) - 3.1622776601683795) <= 1e-14
+assert abs(kinship_weight(MAP3) / 16.0 - math.log(10.0)) <= 1e-15
+assert abs(utility(3.0, 0.0625, 0.0, MAP3) - utility(3.0, 0.0, 0.0, MAP3) + math.log(10.0)) <= 1e-14
+assert abs(math.exp(kinship_weight(MAP3) / 32.0) - 3.1622776601683795) <= 1e-14
 assert search_chance(18 * YEAR, life_test_data({"core:market_search_height_female": 0.0})) == 0.0
 
 
@@ -2154,7 +2208,7 @@ class World:
         self.nutrition = [(int(year), float(index)) for year, index in nutrition]
         assert all(a[0] < b[0] for a, b in zip(self.nutrition, self.nutrition[1:])), "nutrition_order"
         assert all(0.0 <= index <= 1.0 and -1_000_000 <= year <= 999_999 for year, index in self.nutrition), "nutrition_out_of_range"
-        self.data = REPOSITORY if data is None else data
+        self.data = repository() if data is None else data
         # `market` False is a switch of this reference only, not of the core: no round is
         # planned (the null twin of the market, design note of the market, section 7).
         self.market = market
@@ -5197,7 +5251,12 @@ EMPTY_PROJECTION = (
     + seq([])  # archive
     + seq([])  # pool_used
 )
-EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
+
+
+def empty_save(data_hash: int) -> bytes:
+    """The save of a world that never started, on data with the hash `data_hash`."""
+    return header(data_hash) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
+
 
 
 # ---------------------------------------------------------------------------------------
@@ -5327,9 +5386,9 @@ def founder_allele_rows() -> list:
             + " ".join(f"{locus_id}={copies_at(on_traits.sims[sim][3], locus)}" for locus_id, locus in traits.loci.items() if locus_id not in {d[0] for d in draws})
             + f" genome {genome_of(on_traits.sims[sim][3]).hex()}"
         )
-    map3 = World(F1_SEED, F1_TAG, True, founders[:2], (), REPOSITORY)
+    map3 = World(F1_SEED, F1_TAG, True, founders[:2], (), MAP3)
     assert all(map3.founder_draws[sim] == [] for sim in (1, 2))
-    rows.append(f"founder_allele map3 data data/ data_hash {REPOSITORY.hash:016x}: nothing drawn (no additive locus, no frequencies)")
+    rows.append(f"founder_allele map3 data tests/golden/map3 data_hash {MAP3.hash:016x}: nothing drawn (no additive locus, no frequencies)")
     # The share at q = 0.5 over 10 000 founders (gamete 0 at core:growth_01, women).
     locus_id, n = "core:growth_01", 10_000
     q = founder_allele_q(data, data.loci[locus_id])
@@ -5349,17 +5408,24 @@ if __name__ == "__main__" and "--founder-alleles" in __import__("sys").argv:
 
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
-    print(f"data_hash_repository {REPOSITORY.hash:016x}")
+    # The repository's data (S5: map 4 with the pool and its frequencies, the CLI's data) and
+    # the map 3 fixture (the core tests); the pure values below are those of the map 3 fixture
+    # (the unit tests of the core read it).
+    print(
+        f"data_hash_repository {repository().hash:016x} definitions {repository().pool.frozen_hash:016x} pool_seed {repository().pool.seed:016x}"
+        f" pool_hash {repository().pool.hash:016x} traits {len(repository().traits)} measured_loci {len(repository().measured_loci)} loci {len(repository().loci)}"
+    )
+    print(f"data_hash_map3 {MAP3.hash:016x}")
     print(f"data_hash_fork {FORK_DATA.hash:016x}")
-    print("diseases " + " ".join(f"{d.code}={d.key:016x}" for d in REPOSITORY.diseases))
+    print("diseases " + " ".join(f"{d.code}={d.key:016x}" for d in MAP3.diseases))
     print(f"causes {SENESCENCE}={str_key(SENESCENCE):016x} {ACCIDENT}={str_key(ACCIDENT):016x}")
-    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+    for name, data in (("map3", MAP3), ("fork", FORK_DATA)):
         rates = " ".join(
             f"{sex_name} a {data.senescence[sex][0]!r} b {data.senescence[sex][1]!r} accident {data.accident[sex]!r}"
             for sex, sex_name in ((FEMALE, "female"), (MALE, "male"))
         )
         print(f"death_rates_{name} {rates} sigma_g {data.sigma_g!r} longevity_trait {data.longevity_trait}")
-    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+    for name, data in (("map3", MAP3), ("fork", FORK_DATA)):
         form = data.fertility
         window = f" from {form.start!r} until {form.until!r}" if form.kind == "window" else ""
         print(
@@ -5368,7 +5434,7 @@ if __name__ == "__main__":
             f" wish_tilt {data.wish_tilt!r} wish_shape {data.wish_shape!r} twins {data.twins!r}"
         )
     print(f"life_values_fork {FORK_LIFE_VALUES}")
-    print(f"separation_rate repository {REPOSITORY.separation_rate!r} fork {FORK_DATA.separation_rate!r}")
+    print(f"separation_rate map3 {MAP3.separation_rate!r} fork {FORK_DATA.separation_rate!r}")
     print(
         f"tags FERTILITY_MENARCHE {FERTILITY_MENARCHE} FERTILITY_WISH {FERTILITY_WISH} MULTIPLE_BIRTH {MULTIPLE_BIRTH}"
         f" SEPARATION_BUDGET {SEPARATION_BUDGET}"
@@ -5383,7 +5449,7 @@ if __name__ == "__main__":
         f" payload {MARKET_ROUND_PAYLOAD.hex()} period {MONTH}"
     )
     print(f"reject partner_too_young {PARTNER_TOO_YOUNG} partners_too_closely_related {PARTNERS_TOO_CLOSELY_RELATED}")
-    for name, data in (("repository", REPOSITORY), ("fork", FORK_DATA)):
+    for name, data in (("map3", MAP3), ("fork", FORK_DATA)):
         print(
             f"market_{name} age {data.market_age} c {data.market_height!r} m {data.market_center!r}"
             f" w {data.market_width!r} rho {data.market_minor!r} k {data.market_candidates}"
@@ -5403,9 +5469,9 @@ if __name__ == "__main__":
         ("40", 40 * YEAR),
         ("60", 60 * YEAR),
     ]:
-        print(f"market_search_chance age {label} t {t} a {as_years(t)!r} p {search_chance(t, REPOSITORY)!r}")
+        print(f"market_search_chance age {label} t {t} a {as_years(t)!r} p {search_chance(t, MAP3)!r}")
     for gap, phi, noise in [(4.69, 0.0, 0.0), (0.0, 0.0, 1.5), (3.0, 0.0625, 0.0), (10.0, 0.03125, -2.0)]:
-        print(f"market_utility gap {gap!r} phi {phi!r} noise {noise!r} U {utility(gap, phi, noise, REPOSITORY)!r}")
+        print(f"market_utility gap {gap!r} phi {phi!r} noise {noise!r} U {utility(gap, phi, noise, MAP3)!r}")
     clan_keys = [founder_key("test:clan", index) for index in range(6)]
     order = ranked(0xFF, MARKET_ORDER, WORLD_KEY, 7, clan_keys)
     print(
@@ -5427,18 +5493,18 @@ if __name__ == "__main__":
     # the life course data, the named traits (none in the repository's data), and pure values
     # of the utility with both terms, with one and without (a term left out, not added as 0).
     print(
-        f"similarity_repository w_K {REPOSITORY.pairing_weight_cognition!r} w_H {REPOSITORY.pairing_weight_height!r}"
-        f" cognition_trait {REPOSITORY.cognition_trait} height_trait {REPOSITORY.height_trait}"
+        f"similarity_map3 w_K {MAP3.pairing_weight_cognition!r} w_H {MAP3.pairing_weight_height!r}"
+        f" cognition_trait {MAP3.cognition_trait} height_trait {MAP3.height_trait}"
     )
-    w_k, w_h = REPOSITORY.pairing_weight_cognition, REPOSITORY.pairing_weight_height
+    w_k, w_h = MAP3.pairing_weight_cognition, MAP3.pairing_weight_height
     for gap, phi, noise, d_k, d_h in [(4.69, 0.0, 0.0, 1.0, 1.0), (0.0, 0.0, 1.5, -0.5, 2.0), (3.0, 0.0625, 0.0, 0.3, -0.7), (10.0, 0.03125, -2.0, 1.25, 0.0)]:
-        both = utility(gap, phi, noise, REPOSITORY, [(w_k, d_k), (w_h, d_h)])
-        cognition = utility(gap, phi, noise, REPOSITORY, [(w_k, d_k)])
-        height = utility(gap, phi, noise, REPOSITORY, [(w_h, d_h)])
+        both = utility(gap, phi, noise, MAP3, [(w_k, d_k), (w_h, d_h)])
+        cognition = utility(gap, phi, noise, MAP3, [(w_k, d_k)])
+        height = utility(gap, phi, noise, MAP3, [(w_h, d_h)])
         print(
             f"similarity_utility gap {gap!r} phi {phi!r} noise {noise!r} dK {d_k!r} dH {d_h!r}"
-            f" penalties {penalties(gap, phi, REPOSITORY, [(w_k, d_k), (w_h, d_h)])!r}"
-            f" U both {both!r} cognition_only {cognition!r} height_only {height!r} neither {utility(gap, phi, noise, REPOSITORY)!r}"
+            f" penalties {penalties(gap, phi, MAP3, [(w_k, d_k), (w_h, d_h)])!r}"
+            f" U both {both!r} cognition_only {cognition!r} height_only {height!r} neither {utility(gap, phi, noise, MAP3)!r}"
         )
     # The households (design note of the households): the tag, the event kind, the payloads,
     # the rule, the table of the repository with its thresholds, and pure values of the age
@@ -5449,15 +5515,15 @@ if __name__ == "__main__":
         f" subject sim {SIM_SUBJECT} queue payload {variant(LEAVE_HOME_VARIANT, varint(1)).hex()} (sim 1)"
         f" log payloads core:household_formed {HOUSEHOLD_FORMED_VARIANT} core:moved {MOVED_VARIANT} rule {HOUSEHOLD_RULE}"
     )
-    print(f"leave_home_weights_repository {REPOSITORY.leave_home_weights!r} fork {FORK_DATA.leave_home_weights!r}")
-    print(f"leave_home_thresholds_repository {leave_home_thresholds(REPOSITORY.leave_home_weights)!r}")
+    print(f"leave_home_weights_map3 {MAP3.leave_home_weights!r} fork {FORK_DATA.leave_home_weights!r}")
+    print(f"leave_home_thresholds_map3 {leave_home_thresholds(MAP3.leave_home_weights)!r}")
     for u in [0.0, 0.019999999999999997, 0.02, 0.0499, 0.05, 0.3499, 0.35, 0.5, 0.7000000000000001, 0.9699, 0.9700000000000001, 0.9999999999999999]:
-        print(f"leave_home_age u {u!r} age {leave_home_age(u, REPOSITORY.leave_home_weights)}")
+        print(f"leave_home_age u {u!r} age {leave_home_age(u, MAP3.leave_home_weights)}")
     homes_keys = [founder_key("test:homes", index) for index in range(4)]
     print(
         "leave_home_draws seed 0xff test:homes founders 0-3: "
         + " ".join(
-            f"{key:016x} u {leave_home_unit(0xFF, key)!r} age {leave_home_age(leave_home_unit(0xFF, key), REPOSITORY.leave_home_weights)}"
+            f"{key:016x} u {leave_home_unit(0xFF, key)!r} age {leave_home_age(leave_home_unit(0xFF, key), MAP3.leave_home_weights)}"
             for key in homes_keys
         )
     )
@@ -5472,7 +5538,8 @@ if __name__ == "__main__":
         (chosen,) = k_smallest(0xFF, FOSTER_RANK, subject, month, homes_women, 1)
         print(f"foster_rank seed 0xff subject {subject:016x} (test:homes founder 4) month {month} candidates founders 0 1 5 ranks {ranks} chosen {chosen:016x} (founder {[founder_key('test:homes', i) for i in range(7)].index(chosen)})")
     print(f"empty_projection {EMPTY_PROJECTION.hex()}")
-    print(f"empty_save {EMPTY_SAVE.hex()}")
+    print(f"empty_save {empty_save(MAP3.hash).hex()}")
+    print(f"empty_save_repository {empty_save(repository().hash).hex()}")
     # The constants of this model against the code lists of tests/golden.
     golden = ROOT / "tests" / "golden"
     lines = {tuple(line.split()) for path in ("rng_tags.txt", "event_codes.txt", "log_codes.txt") for line in (golden / path).read_text().splitlines()}

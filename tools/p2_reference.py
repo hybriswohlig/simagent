@@ -13,8 +13,10 @@ Fixed inputs, chosen before any run:
   (x_maternal, x_paternal), both 0; mt 0.
 - Father "Aa": the same autosomes; x_maternal 0, paternal_sex {"y": 0 x 8}, mt 0.
 - Negative twin: father "AA", every allele 0; same mother, seed and keys.
-- The repository data: map lengths, sex ratio, mutation rates (data/calibration/
-  genetics.json) and the genome map (data/genetics/genome_map.json). The data map writes
+- The data of the core test (crates/sim-core/tests/criteria_disease.rs, `common::data()`),
+  the map 3 fixture: map lengths, sex ratio, mutation rates (tests/golden/map3/calibration/
+  genetics.json) and the genome map (tests/golden/map3/genetics/genome_map.json), as data/
+  held them before the switch to map 4 (design note of the switch, section 4). The data map writes
   X and mt loci with segment 0 and the direction as "mutation"; meiosis_reference wants
   X at segment 8 and the key "direction" (the same conversion as world_reference.py).
 
@@ -43,6 +45,7 @@ import mpmath
 import meiosis_reference as mr
 
 ROOT = Path(__file__).resolve().parent.parent
+MAP3 = ROOT / "tests" / "golden" / "map3"
 SEED = 0x5EED_0000_0000_0002
 N = 2000
 LOCUS = "core:disease_ar"
@@ -53,8 +56,8 @@ Z_TOL = 4
 
 def repository():
     """Map lengths, sex ratio, rates and the genome map in meiosis_reference form."""
-    calibration = json.loads((ROOT / "data" / "calibration" / "genetics.json").read_text())
-    data_map = json.loads((ROOT / "data" / "genetics" / "genome_map.json").read_text())
+    calibration = json.loads((MAP3 / "calibration" / "genetics.json").read_text())
+    data_map = json.loads((MAP3 / "genetics" / "genome_map.json").read_text())
     values = calibration["values"]
     rates = {
         "standard": values["core:mutation_rate"]["value"],

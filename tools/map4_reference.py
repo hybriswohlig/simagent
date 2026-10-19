@@ -59,7 +59,10 @@ from rng_reference import str_key
 from world_reference import json_number
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = ROOT / "data"
+# The base of the fixture: map 3 and its calibration, the map 3 fixture tests/golden/map3 (data/
+# held them before the switch to map 4, byte for byte; design note of the switch, section 4).
+# The life course data stay the repository's (data/calibration/demography.json).
+REPOSITORY = ROOT / "tests" / "golden" / "map3"
 TEMPLATE = ROOT / "tests" / "golden" / "map4_template"
 
 MAP_VERSION = 4

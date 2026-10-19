@@ -9,8 +9,11 @@ seed 0 from the C reference implementation (PyPI xxhash, pinned in requirements.
 `Start` has no causes of death any more: every sim dies of `core:senescence`,
 `core:accident` or a lethal hereditary disease, with the rates of the data (genetics
 specification 7.1, 7.2; ADR-0017 section 2; design note of the death from the data). A
-scenario without causes of its own ("tiny", "pair") runs on the repository data (six
-hereditary diseases, the rates of 7.2). A scenario that had causes runs on test data
+scenario without causes of its own ("tiny", "pair") runs on the map 3 fixture
+(tests/golden/map3 with the repository's life course data, `world_reference.MAP3`: six
+hereditary diseases, the rates of 7.2; design note of the switch to map 4, section 4: the
+core tests whose subject is a rule stay on map 3 when the repository's data become map 4
+with the pool). A scenario that had causes runs on test data
 (`world_reference.death_test_data`, design note section 4): the accident rate of both
 sexes is the rate of its first cause (`test:base`), the Gompertz `a` of both sexes the
 rate of its second (`test:old_age` and the like) with `b` = 0.001, or `a` = 1e-15 and
@@ -294,7 +297,7 @@ def sim_state(born: int, key: int, sex: bytes, genes: tuple, afflicted=(), house
 # smallest `n` with `u < (w_0 + … + w_n) / W`.
 LEAVE_HOME_TAG = 22
 LEAVE_HOME_TABLE = [0.02, 0.03, 0.30, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]
-assert world_reference.REPOSITORY.leave_home_weights == LEAVE_HOME_TABLE
+assert world_reference.MAP3.leave_home_weights == LEAVE_HOME_TABLE
 
 
 def hand_leave_age(seed: int, key: int) -> int:
@@ -469,7 +472,8 @@ PAIR_AFTER_START = (
 )
 
 # Save file of ADR-0006: header, projection, exceptions.
-DATA_HASH = world_reference.DATA_HASH
+# The data of the core tests: the map 3 fixture (design note of the switch to map 4, section 4).
+DATA_HASH = world_reference.MAP3.hash
 
 
 def header(data_hash: int) -> bytes:
@@ -618,7 +622,7 @@ TINY_FOUNDERS = [(-1, FEMALE, TINY_GENES)]
 
 
 def tiny_world() -> world_reference.World:
-    return world_reference.World(0xFF, "test:tiny", False, TINY_FOUNDERS)
+    return world_reference.World(0xFF, "test:tiny", False, TINY_FOUNDERS, data=world_reference.MAP3)
 
 
 def check_the_model_on_tiny() -> None:
@@ -640,9 +644,10 @@ def check_the_model_on_tiny() -> None:
         "test:pair",
         False,
         [(-2, FEMALE, genotype(WILD, DUMMY)), (-1, MALE, genotype(DUMMY, DUMMY))],
+        data=world_reference.MAP3,
     )
     assert pair.projection() == PAIR_AFTER_START
-    assert world_reference.EMPTY_SAVE == EMPTY_SAVE
+    assert world_reference.empty_save(DATA_HASH) == EMPTY_SAVE
 
 
 check_the_model_on_tiny()
@@ -938,7 +943,7 @@ SEPARATION_BUDGET_TAG = 18  # tests/golden/rng_tags.txt, design note of the sepa
 # the reasons a partnership ends (EndedBy, design note of the separation, section 2).
 SEPARATION_RATE = 0.00867
 DEATH_ENDED, SEPARATION_ENDED = 0, 1
-assert world_reference.REPOSITORY.separation_rate == SEPARATION_RATE
+assert world_reference.MAP3.separation_rate == SEPARATION_RATE
 assert (world_reference.ENDED_BY_DEATH, world_reference.ENDED_BY_SEPARATION) == (DEATH_ENDED, SEPARATION_ENDED)
 
 
@@ -3814,7 +3819,7 @@ LOCI_FOUNDERS = [
     (-30 * YEAR, FEMALE, [("core:disease_ar", [1, 1]), ("core:disease_ad_late", [1, 0]), ("core:disease_ad_partial", [0, 1]), ("core:disease_xr", [1, 1]), ("core:disease_mt", [1])]),
     (-30 * YEAR, MALE, [("core:disease_ar", [0, 1]), ("core:disease_xr", [1]), ("core:disease_mt", [1])]),
 ]
-LOCI = world_reference.World(0xFF, LOCI_TAG, True, LOCI_FOUNDERS)
+LOCI = world_reference.World(0xFF, LOCI_TAG, True, LOCI_FOUNDERS, data=world_reference.MAP3)
 check_all(LOCI)
 LOCI_SAVE_AFTER_START = LOCI.save()
 LOCI_JSON = LOCI.pedigree_json()
@@ -4644,7 +4649,7 @@ def emigration_rows(name: str, world: world_reference.World) -> list:
 
 
 TEST_DATA = [
-    ("repository", world_reference.REPOSITORY),
+    ("repository", world_reference.MAP3),
     ("mortal", MORTAL_DATA),
     ("tie", TIE_DATA),
     ("sick", SICK_DATA),

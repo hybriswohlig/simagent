@@ -80,7 +80,11 @@ from world_reference import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = ROOT / "data"
+# The base of the fixture: map 3 and its calibration, the map 3 fixture tests/golden/map3 (data/
+# held them before the switch to map 4, byte for byte; design note of the switch, section 4).
+# The life course data stay the repository's (data/calibration/demography.json).
+REPOSITORY = ROOT / "tests" / "golden" / "map3"
+LIFE_COURSE = ROOT / "data" / "calibration" / "demography.json"
 FIXTURE = ROOT / "tests" / "golden" / "data_body"
 CONTRACT = ROOT / "contracts" / "body.json"
 
@@ -280,7 +284,7 @@ def text(doc: dict) -> str:
 
 
 def documents_hash(fixture: tuple) -> int:
-    demography = json.loads((REPOSITORY / "calibration" / "demography.json").read_text())
+    demography = json.loads(LIFE_COURSE.read_text())
     return data_reference.documents_hash(demography, fixture[0], fixture[1])
 
 

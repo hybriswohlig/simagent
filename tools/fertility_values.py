@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """The values of the fertility curves for the check against the Rust core (design note of
 the fertility curves, section 3), from the pure functions of tools/world_reference.py on
-the repository data: the curve `(θ, σ_θ)` of each sex and the form `puberty` from
-data/calibration/genetics.json, the wish shape and its tilt from
-data/calibration/demography.json. Every number is printed as the `repr` of the f64.
+the data of the core tests, the map 3 fixture (design note of the switch to map 4, section
+4): the curve `(θ, σ_θ)` of each sex and the form `puberty` from
+tests/golden/map3/calibration/genetics.json, the wish shape and its tilt from
+data/calibration/demography.json (the repository's life course data, which the fixture
+takes). Every number is printed as the `repr` of the f64.
 
 Before it prints, it checks the values the genetics specification states by hand (W5.6a,
 W5.6b, W5.6c, W11.3a; `world_reference.check_fertility_spec`) and that the data hold the
@@ -21,8 +23,8 @@ import data_reference
 import world_reference
 from postcard_reference import FEMALE, MALE
 from world_reference import (
-    REPOSITORY,
-    ROOT,
+    MAP3,
+    MAP3_DIR,
     FertilityForm,
     chance,
     check_fertility_spec,
@@ -36,8 +38,8 @@ from world_reference import (
     wish_weights,
 )
 
-FORM = REPOSITORY.fertility
-DEMOGRAPHY, _, _ = data_reference.documents(ROOT / "data")
+FORM = MAP3.fertility
+DEMOGRAPHY, _, _ = data_reference.documents(MAP3_DIR)
 SHAPE = [entry["value"] for entry in DEMOGRAPHY["fertility_wish_shape"]]
 TILT = DEMOGRAPHY["values"]["core:fertility_wish_tilt"]["value"]
 ADULT_RATE = DEMOGRAPHY["values"]["core:fertility_adult_rate"]["value"]
@@ -47,9 +49,9 @@ assert FORM.kind == "puberty"
 assert [getattr(FORM, name) for name in data_reference.FERTILITY_FIELDS[0]] == [
     0.2, 0.6, -1.0, 3.0, 3.0, 30.0, 50.0, 0.7, 2.0, 45.0, 0.4, 70.0
 ]
-assert REPOSITORY.puberty_curve == {FEMALE: (12.3, 0.89), MALE: (14.02, 0.81)}
+assert MAP3.puberty_curve == {FEMALE: (12.3, 0.89), MALE: (14.02, 0.81)}
 assert SHAPE == world_reference.WISH_SHAPE_SPEC and TILT == 0.311 and ADULT_RATE == 0.2
-check_fertility_spec(FORM, REPOSITORY.puberty_curve, SHAPE)
+check_fertility_spec(FORM, MAP3.puberty_curve, SHAPE)
 
 WINDOW = FertilityForm(
     {
@@ -79,9 +81,9 @@ def exp_margin(x: float) -> float:
 
 
 def window_data_hash() -> int:
-    """The data hash of the repository data with the form `window` from 18 until 45
+    """The data hash of the map 3 fixture's data with the form `window` from 18 until 45
     (years) instead of `puberty`: the encoding of variant 1."""
-    demography, calibration, genome_map = data_reference.documents(ROOT / "data")
+    demography, calibration, genome_map = data_reference.documents(MAP3_DIR)
     calibration = copy.deepcopy(calibration)
     text = {"source": "test data (ADR-0017 section 5)", "as_of": "2026-10-11", "note": "test value"}
     calibration["fertility"] = {
@@ -96,10 +98,10 @@ def window_data_hash() -> int:
 def main() -> None:
     print("spec checks W5.6a W5.6b W5.6c W11.3a: ok")
     for sex, name in ((FEMALE, "female"), (MALE, "male")):
-        theta, sd = REPOSITORY.puberty_curve[sex]
+        theta, sd = MAP3.puberty_curve[sex]
         print(f"curve_{name} theta {theta!r} sigma_theta {sd!r}")
         for z_p in Z_P:
-            print(f"theta_i_{name} z_p {z_p!r} -> {theta_i(REPOSITORY.puberty_curve[sex], z_p)!r}")
+            print(f"theta_i_{name} z_p {z_p!r} -> {theta_i(MAP3.puberty_curve[sex], z_p)!r}")
     for delta in DELTAS:
         print(f"menarche theta_i 12.0 delta {delta!r} -> {menarche(12.0, delta, FORM)!r}")
     for age in FEMALE_AGES:
@@ -121,7 +123,7 @@ def main() -> None:
         print(f"  expected wish {wish_mean(SHAPE, alpha)!r}")
         for u in UNITS:
             print(f"  wish u {u!r} -> {wish(u, SHAPE, alpha)}")
-    print(f"extra: data_hash of the repository data with fertility window 18..45 0x{window_data_hash():016x}")
+    print(f"extra: data_hash of the map 3 fixture's data with fertility window 18..45 0x{window_data_hash():016x}")
 
 
 if __name__ == "__main__":

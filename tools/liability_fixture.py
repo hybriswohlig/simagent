@@ -7,7 +7,8 @@ the note and the repository's data, independent of the Rust code:
 repository's, `data/calibration/demography.json`, which a directory without its own takes,
 tools/data_reference.py).
 
-- The genome map is that of `data/genetics/genome_map.json` (format 2, its `map_version`,
+- The genome map is that of `tests/golden/map3/genetics/genome_map.json` (map 3 as data/ held
+  it before the switch to map 4; format 2, its `map_version`,
   its five disease loci where they are) plus one trait, `core:disease_liability`: its data
   ID is the code of the threshold disease (ADR-0008 section 1: the liability carries the
   disease's data ID, the occasion of its environment draw), a factor of its own
@@ -19,7 +20,7 @@ tools/data_reference.py).
   (no other locus of the map is there; the disease loci of segments 0, 2 and 4 are on
   slot 0). The loci stand in map order (ADR-0007 `data.locus_order`). `G` ranges from −4
   (no allele 1) to 4 (every copy allele 1) in steps of 1/2.
-- The calibration is that of `data/calibration/genetics.json` (format 7) with one row of
+- The calibration is that of `tests/golden/map3/calibration/genetics.json` (format 7) with one row of
   phenotype weights in `traits` (ADR-0009): `core:disease_liability` with h² 0.6 and c² 0
   for the child and the adult (genetics specification 3.6, K3.6a: the liability has no
   shared environment, its weights do not depend on the age), and the threshold carrier of
@@ -49,7 +50,11 @@ import data_reference
 from rng_reference import str_key
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = ROOT / "data"
+# The base of the fixture: map 3 and its calibration, the map 3 fixture tests/golden/map3 (data/
+# held them before the switch to map 4, byte for byte; design note of the switch, section 4).
+# The life course data stay the repository's (data/calibration/demography.json).
+REPOSITORY = ROOT / "tests" / "golden" / "map3"
+LIFE_COURSE = ROOT / "data" / "calibration" / "demography.json"
 FIXTURE = ROOT / "tests" / "golden" / "data_liability"
 
 LIABILITY = "core:disease_liability"
@@ -256,7 +261,7 @@ assert NEXT_AFTER_06 == 0.6000000000000001
 def rejection_rows(map_doc: dict, calibration_doc: dict) -> list:
     """Each rejection case: the reference's message (`data.disease: ...`). The fixture
     itself is accepted."""
-    demography = json.loads((REPOSITORY / "calibration" / "demography.json").read_text())
+    demography = json.loads(LIFE_COURSE.read_text())
     data_reference.documents_hash(demography, calibration_doc, map_doc)
     rows = []
     for name, change in REJECTIONS:
