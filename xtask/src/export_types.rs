@@ -232,11 +232,14 @@ pub fn generate(types: &[Named]) -> String {
     out
 }
 
-/// What the output showed: optional fields present, nullable values not null, texts of a
-/// closed list, each as `Type.key` or `Type.key=text`.
+/// What the output showed: optional fields present, nullable values not null, lists not
+/// empty, texts of a closed list, as `Type.key`, `Type.key[]` and `Type.key=text`.
 pub type Seen = BTreeSet<String>;
 
-/// The marks a complete coverage needs.
+/// The marks a complete coverage needs. A list of a named type must hold an element once,
+/// or the fields of that type would never be checked; a list of plain values need not (its
+/// values are checked whenever it holds one, and the social parents, for one, never occur
+/// in the coverage scenario).
 pub fn wanted(types: &[Named]) -> Seen {
     let mut marks = Seen::new();
     for named in types {
@@ -244,6 +247,11 @@ pub fn wanted(types: &[Named]) -> Seen {
             let mark = format!("{}.{}", named.name, field.key);
             if field.optional || matches!(field.kind, Kind::Nullable(_)) {
                 marks.insert(mark.clone());
+            }
+            if let Kind::List(inner) = &field.kind
+                && let Kind::Ref(_) = **inner
+            {
+                marks.insert(format!("{mark}[]"));
             }
             let literal = match &field.kind {
                 Kind::Literal(values) => Some(values),
@@ -328,6 +336,9 @@ fn check_kind(
             text.is_some_and(|t| values.contains(&t))
         }
         Kind::List(inner) => {
+            if value.as_array().is_some_and(|items| !items.is_empty()) {
+                seen.insert(format!("{mark}[]"));
+            }
             for (i, item) in value.as_array().into_iter().flatten().enumerate() {
                 check_kind(
                     types,
