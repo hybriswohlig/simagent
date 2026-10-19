@@ -26,8 +26,8 @@ pub enum Kind {
     /// A named type of the descriptor.
     Ref(&'static str),
     Nullable(Box<Kind>),
-    /// The body values of the contract: an object of numbers, `BodyParams` of
-    /// `web/src/generated/body.ts` (its keys are the contract's by the generated types).
+    /// The body values of the contract, `BodyParams` of `web/src/generated/body.ts`: checked
+    /// as the named type `BodyParams` that [`body_type`] makes of the contract's keys.
     Body,
 }
 
@@ -219,6 +219,23 @@ pub fn descriptor() -> Vec<Named> {
     ]
 }
 
+/// The name of the body's type in the check.
+const BODY: &str = "BodyParams";
+
+/// The type of the body values for the check: one number per key of the contract, in the
+/// contract's order (the keys of `contracts/body.json`; the TypeScript type is `body.ts`'s).
+pub fn body_type(keys: &[String]) -> Named {
+    let fields = keys
+        .iter()
+        .map(|key| field(Box::leak(key.clone().into_boxed_str()), Kind::Number))
+        .collect();
+    Named {
+        name: BODY,
+        doc: "The body values of the contract.",
+        fields,
+    }
+}
+
 /// A kind as TypeScript.
 fn typescript(kind: &Kind) -> String {
     match kind {
@@ -390,9 +407,10 @@ fn check_kind(
             check_named(types, name, value, path, seen, found);
             true
         }
-        Kind::Body => value
-            .as_object()
-            .is_some_and(|body| !body.is_empty() && body.values().all(Value::is_number)),
+        Kind::Body => {
+            check_named(types, BODY, value, path, seen, found);
+            true
+        }
         Kind::Nullable(inner) => {
             if !value.is_null() {
                 seen.insert(mark.to_owned());
