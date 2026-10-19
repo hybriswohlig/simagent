@@ -117,8 +117,20 @@ impl Server {
         }
         let segments: Vec<&str> = request.path.split('/').skip(1).collect();
         match segments.as_slice() {
+            // A query belongs to the events alone.
+            ["api", "runs", _, "events"] => {}
+            ["api", ..] if request.query.is_some() => return Response::error(400, "bad_query"),
+            _ => {}
+        }
+        match segments.as_slice() {
             ["api", "runs"] => self.runs(),
             ["api", "runs", run] => self.manifest(run),
+            ["api", "runs", run, "pedigree"] => self.read(run, |dir| self.pedigree(dir)),
+            ["api", "runs", run, "census"] => self.read(run, census),
+            ["api", "runs", run, "events"] => {
+                let query = request.query.as_deref().unwrap_or("");
+                self.read(run, |dir| events(dir, query))
+            }
             ["api", ..] => Response::error(404, "not_found"),
             _ => self.file(&request.path[1..], request),
         }
@@ -179,6 +191,26 @@ impl Server {
         Response::new(200, JSON, format!("{body}\n").into_bytes())
     }
 
+    /// The answer of `read` on the directory of `run`, if it is one of the list exactly.
+    fn read(&self, run: &str, read: impl FnOnce(&Path) -> Response) -> Response {
+        let known = self
+            .run_names()
+            .is_some_and(|names| names.iter().any(|n| n == run));
+        if known {
+            read(&self.runs.join(run))
+        } else {
+            Response::error(404, "unknown_run")
+        }
+    }
+
+    /// `GET /api/runs/{run}/pedigree`: byte for byte what `simagent export` writes.
+    fn pedigree(&self, dir: &Path) -> Response {
+        match crate::pedigree_text(dir) {
+            Ok(text) => Response::new(200, JSON, text.into_bytes()),
+            Err(error) => Response::error(500, error.code),
+        }
+    }
+
     /// `GET /api/runs/{run}`: the manifest of the command line as it lies in the directory.
     /// The name must be one of the list exactly (a file system may ignore case).
     fn manifest(&self, run: &str) -> Response {
@@ -202,6 +234,117 @@ impl Server {
         let _ = http::write_response(&mut stream, &response);
         let _ = stream.shutdown(Shutdown::Both);
     }
+}
+
+/// Events per page (ADR-0021 section 2).
+pub const EVENTS_PER_PAGE: usize = 500;
+
+/// `GET /api/runs/{run}/census`: the rows of `census.csv` as JSON, each cell an integer.
+fn census(dir: &Path) -> Response {
+    let invalid = || Response::error(500, "census_invalid");
+    let Ok(text) = std::fs::read_to_string(dir.join(files::CENSUS)) else {
+        return invalid();
+    };
+    let mut lines = text.lines();
+    let Some(head) = lines.next() else {
+        return invalid();
+    };
+    let columns: Vec<&str> = head.split(',').collect();
+    let mut rows = Vec::new();
+    for line in lines {
+        let cells: Option<Vec<i64>> = line.split(',').map(|cell| cell.parse().ok()).collect();
+        match cells {
+            Some(cells) if cells.len() == columns.len() => rows.push(cells),
+            _ => return invalid(),
+        }
+    }
+    let body =
+        json!({"format": "simagent.view.census", "version": 1, "columns": columns, "rows": rows});
+    Response::new(200, JSON, format!("{body}\n").into_bytes())
+}
+
+/// The filters of `GET /api/runs/{run}/events`: after an id, a window of seconds, a sim.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct EventQuery {
+    pub after: Option<u64>,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    pub subject: Option<u64>,
+}
+
+/// The query of the events route: `after`, `from`, `to` and `subject`, each at most once,
+/// each a decimal integer; anything else is `None`.
+pub fn event_query(query: &str) -> Option<EventQuery> {
+    let mut found = EventQuery::default();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=')?;
+        let digits = !value.is_empty()
+            && (value.strip_prefix('-').unwrap_or(value).bytes()).all(|b| b.is_ascii_digit());
+        if !digits {
+            return None;
+        }
+        let fresh = match key {
+            "after" => found.after.replace(value.parse().ok()?).is_none(),
+            "from" => found.from.replace(value.parse().ok()?).is_none(),
+            "to" => found.to.replace(value.parse().ok()?).is_none(),
+            "subject" => found.subject.replace(value.parse().ok()?).is_none(),
+            _ => false,
+        };
+        if !fresh {
+            return None;
+        }
+    }
+    Some(found)
+}
+
+/// Whether an entry of the domain log passes the filters.
+fn passes(entry: &Value, query: &EventQuery) -> Option<bool> {
+    let id = entry["id"].as_u64()?;
+    let t = entry["t"].as_i64()?;
+    let subjects = entry["subjects"].as_array()?;
+    let about = |sim: u64| subjects.iter().any(|s| s["sim"].as_u64() == Some(sim));
+    Some(
+        query.after.is_none_or(|after| id > after)
+            && query.from.is_none_or(|from| t >= from)
+            && query.to.is_none_or(|to| t <= to)
+            && query.subject.is_none_or(about),
+    )
+}
+
+/// `GET /api/runs/{run}/events`: the entries of `events.ndjson` that pass the filters, in
+/// the order of the file, at most [`EVENTS_PER_PAGE`]; `next` is the id of the last one if
+/// more follow (the next page asks `after` it).
+fn events(dir: &Path, query: &str) -> Response {
+    let Some(query) = event_query(query) else {
+        return Response::error(400, "bad_query");
+    };
+    let invalid = || Response::error(500, "events_invalid");
+    let Ok(text) = std::fs::read_to_string(dir.join(files::EVENTS)) else {
+        return invalid();
+    };
+    let mut page = Vec::new();
+    let mut more = false;
+    for line in text.lines() {
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            return invalid();
+        };
+        match passes(&entry, &query) {
+            None => return invalid(),
+            Some(false) => {}
+            Some(true) if page.len() == EVENTS_PER_PAGE => {
+                more = true;
+                break;
+            }
+            Some(true) => page.push(entry),
+        }
+    }
+    let next = (page.last())
+        .filter(|_| more)
+        .map(|last| last["id"].clone())
+        .unwrap_or(Value::Null);
+    let body =
+        json!({"format": "simagent.view.events", "version": 1, "events": page, "next": next});
+    Response::new(200, JSON, format!("{body}\n").into_bytes())
 }
 
 /// `simagent view <runs> [--port N] [--web DIR]`: prints its address, then serves until the
