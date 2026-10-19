@@ -26,7 +26,8 @@ use sim_core::time::SimTime;
 use super::export::read;
 use super::report::{VILLAGE_H2, bits, village as block_of};
 use super::stats::{
-    VILLAGE_SEEDS, Village, VillageFinding, variance, village, village_expectation,
+    VILLAGE_SEEDS, Village, VillageFinding, variance, village, village_comparison,
+    village_expectation,
 };
 use super::town::{Plan, run_town};
 use super::units::{Town, YEAR};
@@ -108,6 +109,13 @@ pub struct Measured {
     pub counted: Option<(f64, f64)>,
 }
 
+/// Whether a block with the report's `finding` counts (Grok D1, D1b): every block with at
+/// least two units, also one whose village has nobody alive at the end (the report still
+/// says so); not a missing block nor one with fewer than two units.
+pub fn counts(finding: Option<&str>) -> bool {
+    matches!(finding, None | Some("no_living_person"))
+}
+
 /// Measures a village from the text of its export.
 pub fn measure(text: &str) -> Result<Measured> {
     let export = read(text)?;
@@ -116,7 +124,7 @@ pub fn measure(text: &str) -> Result<Measured> {
     let found = town.village();
     let mut block = block_of(years, found.as_ref());
     block["export"] = json!(format!("{:016x}", stable_hash64(text.as_bytes())));
-    let counted = match (&found, block["finding"].is_null()) {
+    let counted = match (&found, counts(block["finding"].as_str())) {
         (Some(found), true) => {
             let v = variance(&found.units.values).ok_or("invariant village.variance")?;
             let pairs: Vec<(u64, u64)> = (found.blocks.iter()).map(|(_, m, f)| (*m, *f)).collect();
@@ -157,7 +165,7 @@ pub fn decide(check: &Village, years: i64) -> Decision {
 /// green when its comparison passes, whatever its own power.
 pub fn twin(v: &[f64], e: &[f64], mean_v: f64) -> std::result::Result<Village, VillageFinding> {
     let shifted: Vec<f64> = v.iter().map(|v| v - mean_v + 1.0).collect();
-    village(&shifted, e)
+    village_comparison(&shifted, e)
 }
 
 fn finding_name(finding: VillageFinding) -> &'static str {
