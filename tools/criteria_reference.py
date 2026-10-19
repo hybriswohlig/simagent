@@ -494,11 +494,31 @@ VILLAGE_STEP = 300
 VILLAGE_POWER = 0.9
 
 
+def village_twin(vs: list, v_bar: float, e_bar: float) -> dict:
+    """The twin of K2 (Grok D3): `t_i = (V_i − V̄) + 1.0` (shifted to mean 1, the spread kept),
+    then the same estimators on the `t_i`: `t̄` the fold divided by `n`, `s_t = sqrt(Σ (t_i −
+    t̄)² / (n − 1))` recomputed from the `t_i` (equal to `s` up to the rounding of the shift),
+    `se_t = s_t / sqrt(n)`; green iff `|t̄ − Ē| ≤ 4.0 · se_t` (the comparison only, no power,
+    no decision)."""
+    n = exact(len(vs))
+    ts = [(v - v_bar) + 1.0 for v in vs]
+    t_bar = fold(ts) / n
+    acc = 0.0
+    for t in ts:
+        d = t - t_bar
+        acc = acc + d * d
+    s_t = math.sqrt(acc / (exact(len(vs)) - 1.0))
+    se_t = s_t / math.sqrt(n)
+    return {"v_bar": t_bar, "s": s_t, "se": se_t, "tol": 4.0 * se_t, "pass": abs(t_bar - e_bar) <= 4.0 * se_t}
+
+
 def village_aggregate(vs: list, es: list, end_years: int) -> dict:
     """K2 (note section 3): `V̄`, `Ē` folds over the seed list divided by 20; `s = sqrt(Σ (V_i
     − V̄)² / 19)`, `se = s / sqrt(20)`, `tol = 4.0 · se`, pass iff `|V̄ − Ē| ≤ tol`; the power
     against 1 `power(Ē, tol, 1.0, se)`; below 0.9 the runs extend by 300 years (`extend`),
-    at 2100 red. The decision reads `s` and `Ē` only. Twin: `V_i / V̄` must be red.
+    at 2100 red. The decision reads `s` and `Ē` only. Twin (Grok D3, design note of the village
+    section 7.2): the measured variances shifted to mean 1, `(V_i − V̄) + 1.0`, against the same
+    `Ē` (`village_twin`); it must be red, and it is green iff its comparison passes.
 
     Review round 1 (note section 10): red with a finding before the numbers count, in this
     order: fewer than 20 seeds (`below_minimum`), any `V_i` exactly 0.0 (`no_variance`, K2),
@@ -531,18 +551,32 @@ def village_aggregate(vs: list, es: list, end_years: int) -> dict:
         decision = "extend" if end_years < VILLAGE_LAST_END else "red"
     else:
         decision = "pass" if passed else "red"
-    twin_vs = [v / v_bar for v in vs]
-    twin_bar = fold(twin_vs) / n
-    acc = 0.0
-    for v in twin_vs:
-        d = v - twin_bar
-        acc = acc + d * d
-    twin_se = math.sqrt(acc / (exact(len(vs)) - 1.0)) / math.sqrt(n)
-    twin_pass = abs(twin_bar - e_bar) <= 4.0 * twin_se
+    twin = village_twin(vs, v_bar, e_bar)
+    twin_bar, twin_se, twin_pass = twin["v_bar"], twin["se"], twin["pass"]
     return {
         "n": len(vs), "v_bar": v_bar, "e_bar": e_bar, "s": s, "se": se, "tol": tol, "power": pw,
         "pass": passed, "decision": decision, "twin_v_bar": twin_bar, "twin_se": twin_se, "twin_pass": twin_pass,
     }
+
+
+VILLAGE_RUN = 30
+
+
+def village_measurable(obj: dict) -> bool:
+    """A village counts toward K2 iff its block has at least two units (`village_obj`: a
+    `g*` and `n ≥ 2`, so `V` is defined); Grok D1."""
+    return obj["g_star"] is not None and obj["n"] >= 2
+
+
+def village_counted(objs: list) -> dict:
+    """Grok D1 (design note of the village, section 7.2): of the villages of the seed list,
+    in list order, the first 20 that are measurable count; the others are reported, not
+    counted. Fewer than 20: red with the finding `fewer_than_20_villages` (before the
+    aggregate, whose `below_minimum` it replaces)."""
+    measurable = [i for i, obj in enumerate(objs) if village_measurable(obj)]
+    counted = measurable[:VILLAGE_SEEDS]
+    finding = None if len(counted) == VILLAGE_SEEDS else "fewer_than_20_villages"
+    return {"counted": counted, "measurable": len(measurable), "finding": finding}
 
 
 # ---------------------------------------------------------------------------------------

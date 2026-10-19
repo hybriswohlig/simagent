@@ -31,7 +31,18 @@ Prints `label value` rows:
   the load checks at every year end, the save (bytes, xxh3; with `--out DIR` written to
   DIR/village_<seed>_<YEARS>y.save with the start input), and the year hashes of the
   variant `pool_used` = the file households of the chosen persons (not the reference's
-  choice; NOTES.md of the village).
+  choice; NOTES.md of the village);
+- `--export E1,E2,...` (the runner of `criteria village`, design note sections 7 and 7.2):
+  the village of `--seed` with capacity 160 (Grok D1; `--capacity N` for another) run to the
+  last second of each end, its export in the criteria kit's format
+  (`criteria_reference.export_world` on the documents under data/, the switch on; with `--out
+  DIR` written to DIR/village_<seed>_c<capacity>_<E>y.ndjson), the export masked as the Rust
+  kit compares it (`masked`), read back with `read_export`, and the village block of the
+  report (`village_obj`: `g*`, `n`, the units' hash, `V`, `E`, the blocks, the living);
+- `--aggregate` (with `--out DIR`: DIR/aggregate.json): `village_aggregate` (K2, the twin of
+  Grok D3 shifted to mean 1) on four synthetic sets of 20 villages (`AGGREGATE_SETS`), the
+  decisions at 1200 and 2100, the twin beside the former rescaled one, and the selection of
+  the counted villages of D1 on 30 villages (`selection_example`);
 - `--moved-out`: the forged saves of the load check of the moved out
   (`world_reference.check_moved_out_households`, ADR-0006 section 5: the living members of a
   household with `moved_out` are at most one, or the woman and the man of one open
@@ -48,10 +59,14 @@ Prints `label value` rows:
 Usage: .venv/bin/python tools/village_reference.py [--select] [--rejections] [--run [YEARS]]
        [--moved-out] [--seed HEX] [--out DIR]
        (no option: --select and --rejections)
+       ... village_reference.py --export 48,60 [--seed HEX] [--capacity N] [--out DIR]
+       ... village_reference.py --aggregate [--out DIR]
 """
 
 import copy
 import json
+import math
+import re
 import sys
 import time
 from pathlib import Path
@@ -77,10 +92,11 @@ def village_pool(data: wr.Data, seed: int, n_start: int = N_START) -> dict:
     return wr.pool_start(data, seed, n_start, False, village=True)
 
 
-def village_world(data: wr.Data, seed: int, pool=None) -> wr.World:
-    """The world of the village `Start` (module doc), after `Start`."""
+def village_world(data: wr.Data, seed: int, pool=None, capacity: int = CAPACITY) -> wr.World:
+    """The world of the village `Start` (module doc), after `Start`; `capacity` 160 for the
+    runner of `criteria village` (Grok D1)."""
     pool = village_pool(data, seed) if pool is None else pool
-    return wr.World(seed, TAG, True, [], (), data, capacity=CAPACITY, pool=pool, nutrition=())
+    return wr.World(seed, TAG, True, [], (), data, capacity=capacity, pool=pool, nutrition=())
 
 
 def start_text(seed: int) -> str:
@@ -446,9 +462,265 @@ def moved_out_rows(data: wr.Data, seed: int, out) -> list:
     return rows
 
 
+# The runner of `criteria village` (design note of the village, sections 7 and 7.2, Grok D1
+# to D4): one village's export in the criteria kit's format and its block read back; the
+# aggregate, its twin and the selection of the counted villages on given inputs
+
+RUNNER_CAPACITY = 160  # Grok D1: capacity 160, 80 founders, G4 otherwise
+
+
+def masked(text: str) -> str:
+    """The export with the values a reader recomputes through `ln` or `Φ` masked, as the Rust
+    kit compares it: in every line the content between `"z":[` and `]` and between `"gl":"`
+    and `"` replaced by `_`."""
+    out = re.sub(r'"z":\[[^\]]*\]', '"z":[_]', text)
+    return re.sub(r'"gl":"[^"]*"', '"gl":"_"', out)
+
+
+def export_rows(data: wr.Data, seed: int, ends: list, out, capacity: int = RUNNER_CAPACITY) -> list:
+    """The village of `seed` with `capacity` (the runner's 160 by default) run to the last
+    second of each year count in `ends` (ascending, one world advanced on), at each its export
+    as `criteria_reference.py export` writes one (`export_world` on the repository's documents
+    under data/, `export_text`), its masked form (`masked`), read back with `read_export`, and
+    the village block of the report (`village_obj`). With `out` the exports are written to
+    `out/village_<seed>_c<capacity>_<E>y.ndjson`."""
+    import criteria_reference as cr
+    import data_reference
+
+    documents = data_reference.documents(wr.ROOT / "data")
+    cr.assert_village_h2(documents)
+    world = village_world(data, seed, capacity=capacity)
+    label = f"village_{hexed(seed)}_c{capacity}_export"
+    rows = [
+        f"{label}_config ends {ends} capacity {capacity} n_start {N_START} documents data/ (demography, calibration/genetics.json, genetics/genome_map.json)"
+        f" with the pool data/pool/pool.bin and data/pool/pool_frequencies.json data_hash {hexed(data.hash)} switch on"
+        f" start_input bytes {len(world.inputs[0])} xxh3 {hexed(hash64(world.inputs[0]))}"
+    ]
+    year = 0
+    for end_years in ends:
+        started = time.time()
+        while year < end_years:
+            world.advance((year + 1) * YEAR - 1)
+            year += 1
+        run_s = time.time() - started
+        end = end_years * YEAR - 1
+        started = time.time()
+        text = cr.export_text(cr.export_world(world, end, documents))
+        raw = text.encode("ascii")
+        mask = masked(text).encode("ascii")
+        back = cr.read_export(text)
+        assert cr.export_text(back) == text, "the reader and the writer round-trip"
+        assert not any(c["carried"] for c in back["couples"]), "the village carries no partnership"
+        rows_ = cr.Rows(back)
+        obj = cr.village_obj(rows_)
+        units = cr.village_block(rows_)["units"]
+        export_s = time.time() - started
+        if out is not None:
+            out.mkdir(parents=True, exist_ok=True)
+            (out / f"village_{hexed(seed)}_c{capacity}_{end_years}y.ndjson").write_bytes(raw)
+        h = back["header"]
+        rows.append(
+            f"{label}_{end_years}y end {end} bytes {len(raw)} xxh3 {hexed(hash64(raw))} masked_bytes {len(mask)} masked_xxh3 {hexed(hash64(mask))}"
+            f" persons {h['persons']} couples {h['couples']} core {h['core_version']} data_hash {hexed(h['data_hash'])}"
+            f" world_seed {hexed(h['world_seed'])} pool_seed {hexed(h['pool_seed'])}"
+        )
+        rows.append(
+            f"{label}_{end_years}y_block end_years {obj['end_years']} g_star {obj['g_star']} n {obj['n']} units {obj['units']}"
+            f" V {obj['variance']} ({cr.from_bits(obj['variance']) if obj['variance'] else None!r}) E {obj['expectation']}"
+            f" ({cr.from_bits(obj['expectation']) if obj['expectation'] else None!r}) h2 {cr.VILLAGE_H2!r} blocks {obj['blocks']}"
+            f" living {obj['living']} finding {obj['finding']} measurable {cr.village_measurable(obj)}"
+        )
+        rows.append(f"{label}_{end_years}y_unit_keys {' '.join(hexed(p['key']) for p in units)}")
+        rows.append(f"{label}_{end_years}y_unit_z_h {' '.join(cr.bits(p['z'][cr.Z_H]) for p in units)}")
+        rows.append(f"{label}_{end_years}y_log_hash {hexed(world.log_hash())} entries {len(world.log)} year_hash_last {hexed(world.year_hashes[-1])}")
+        rows.append(f"{label}_{end_years}y_seconds run {run_s:.1f} export_and_read {export_s:.1f}")
+    rows.append(f"{label}_year_hashes {' '.join(hexed(h) for h in world.year_hashes)}")
+    return rows
+
+
+# Four synthetic sets of 20 villages for the aggregate and the extension rule
+# (`criteria_reference.village_aggregate`, K2): name -> (V̄ target, s target, Ē target).
+# Each `V_i` is the sample variance of 24 to 30 synthetic `z_h`, as a village's would be.
+AGGREGATE_SETS = {
+    "green_power_high": (0.79, 0.15, 0.80),
+    "green_power_low": (0.86, 0.18, 0.85),
+    "red_power_high": (0.95, 0.14, 0.70),
+    "red_power_low": (0.60, 0.20, 0.90),
+}
+AGGREGATE_SEED = 0x5EED_0004_0000_00A0
+
+
+def standard(values: list) -> list:
+    """`values` shifted to fold mean 0 and scaled to sample variance 1 (the kit's estimators)."""
+    import criteria_reference as cr
+
+    m = cr.mean(values)
+    sd = math.sqrt(cr.variance(values))
+    return [(x - m) / sd for x in values]
+
+
+def irwin_hall(rng, n: int) -> list:
+    """`n` values, each the sum of 12 uniforms `u / 2^64` from SplitMix64 minus 6 (exact
+    arithmetic and folds only, so the values do not depend on the platform's libm)."""
+    out = []
+    for _ in range(n):
+        acc = 0.0
+        for _ in range(12):
+            acc = acc + rng.next() / 18446744073709551616.0
+        out.append(acc - 6.0)
+    return out
+
+
+def aggregate_sets() -> dict:
+    import criteria_reference as cr
+
+    sets = {}
+    for index, (name, (v_bar, s, e_bar)) in enumerate(AGGREGATE_SETS.items()):
+        rng = cr.SplitMix64(AGGREGATE_SEED + index)
+        w = standard(irwin_hall(rng, cr.VILLAGE_SEEDS))
+        u = standard(irwin_hall(rng, cr.VILLAGE_SEEDS))
+        villages = []
+        for i in range(cr.VILLAGE_SEEDS):
+            target = v_bar + s * w[i]
+            assert target > 0.0
+            zs = [z * math.sqrt(target) for z in standard(irwin_hall(rng, 24 + i % 7))]
+            e = round(e_bar + 0.003 * u[i], 4)
+            villages.append({"v": cr.variance(zs), "e": e})
+        sets[name] = villages
+    return sets
+
+
+def rescaled_twin(vs: list, e_bar: float) -> dict:
+    """The kit's former twin (before Grok D3), for comparison only: `V_i / V̄`, its fold mean,
+    its sample spread recomputed, green iff `|t̄ − Ē| ≤ 4 se_t`."""
+    import criteria_reference as cr
+
+    n = cr.exact(len(vs))
+    v_bar = cr.fold(vs) / n
+    ts = [v / v_bar for v in vs]
+    t_bar = cr.fold(ts) / n
+    s_t = math.sqrt(cr.variance(ts))
+    se_t = s_t / math.sqrt(n)
+    return {"v_bar": t_bar, "s": s_t, "se": se_t, "tol": 4.0 * se_t, "pass": abs(t_bar - e_bar) <= 4.0 * se_t}
+
+
+def b(value):
+    import criteria_reference as cr
+
+    return cr.bits(value) if isinstance(value, float) else value
+
+
+def aggregate_rows(out) -> list:
+    """The aggregate (K2 with Grok D3) on the sets above: `V̄`, `Ē`, `s`, `se`, pass, power,
+    the decision at 1200 and at 2100, the twin (`criteria_reference.village_twin`, shifted to
+    mean 1) beside the former rescaled one; then the selection of D1 (`selection_rows`)."""
+    import criteria_reference as cr
+
+    rows, fixture = [], {}
+    sets = aggregate_sets()
+    for name, villages in sets.items():
+        vs = [v["v"] for v in villages]
+        es = [v["e"] for v in villages]
+        at_1200 = cr.village_aggregate(vs, es, 1200)
+        at_2100 = cr.village_aggregate(vs, es, 2100)
+        a = at_1200
+        twin = cr.village_twin(vs, a["v_bar"], a["e_bar"])
+        assert (twin["v_bar"], twin["se"], twin["pass"]) == (a["twin_v_bar"], a["twin_se"], a["twin_pass"])
+        old = rescaled_twin(vs, a["e_bar"])
+        rows.append(
+            f"aggregate {name} V_bar {b(a['v_bar'])} ({a['v_bar']:.6f}) E_bar {b(a['e_bar'])} ({a['e_bar']:.6f}) s {b(a['s'])} ({a['s']:.6f})"
+            f" se {b(a['se'])} ({a['se']:.6f}) tol {b(a['tol'])} diff {abs(a['v_bar'] - a['e_bar']):.6f} pass {a['pass']} power {b(a['power'])} ({a['power']:.6f})"
+            f" decision_1200 {a['decision']} decision_2100 {at_2100['decision']}"
+        )
+        for label, t in (("shifted", twin), ("rescaled_old", old)):
+            rows.append(
+                f"aggregate {name} twin_{label} V_bar {b(t['v_bar'])} ({t['v_bar']:.17g}) s {b(t['s'])} ({t['s']:.6f}) se {b(t['se'])} ({t['se']:.6f})"
+                f" tol {b(t['tol'])} diff {abs(t['v_bar'] - a['e_bar']):.6f} pass {t['pass']}"
+            )
+        rows.append(f"aggregate {name} twin_shifted s_bits_equal_s {b(twin['s']) == b(a['s'])} se_bits_equal_se {b(twin['se']) == b(a['se'])}")
+        fixture[name] = {
+            "villages": [{"v": cr.bits(v["v"]), "e": cr.bits(v["e"]), "e_decimal": v["e"]} for v in villages],
+            "aggregate_1200": {k: b(x) for k, x in at_1200.items()},
+            "decision_2100": at_2100["decision"],
+            "twin_shifted": {k: b(x) for k, x in twin.items()},
+            "twin_rescaled_old": {k: b(x) for k, x in old.items()},
+        }
+    selection, sel_rows = selection_example(sets["green_power_high"])
+    rows += sel_rows
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "aggregate.json").write_text(json.dumps({"seed": hexed(AGGREGATE_SEED), "sets": fixture, "selection": selection}, indent=1) + "\n")
+    return rows
+
+
+# The selection example of D1: 30 villages in list order; findings at 2, 5 and 11 (case
+# `twenty`), and at 2, 5, 11 and 22 to 29 (case `nineteen`, 19 measurable).
+SELECTION_FINDINGS = {"twenty": {2: "no_block", 5: "fewer_than_two_units", 11: "fewer_than_two_units"}}
+SELECTION_FINDINGS["nineteen"] = {**SELECTION_FINDINGS["twenty"], **{i: "fewer_than_two_units" for i in range(22, 30)}}
+# A measurable village that is not counted carries values that would move the aggregate.
+UNCOUNTED_V, UNCOUNTED_E = 3.0, 0.5
+
+
+def selection_example(villages: list) -> tuple:
+    """The 30 village objects of each case (the fields `village_measurable` reads, `V`, `E`),
+    the counted indices (`criteria_reference.village_counted`) and the aggregate over the
+    counted ones: the `j`-th counted village takes the `j`-th (V, E) of `villages` (the set
+    green_power_high), every other measurable village `UNCOUNTED_V`, `UNCOUNTED_E`."""
+    import criteria_reference as cr
+
+    out, rows = {}, []
+    for case, findings in SELECTION_FINDINGS.items():
+        objs = []
+        for i in range(cr.VILLAGE_RUN):
+            if i in findings:
+                g_star, n = (None, 0) if findings[i] == "no_block" else (0, 1)
+                objs.append({"index": i, "g_star": g_star, "n": n, "finding": findings[i], "v": None, "e": None})
+            else:
+                objs.append({"index": i, "g_star": 0, "n": 14, "finding": None, "v": None, "e": None})
+        sel = cr.village_counted(objs)
+        for j, i in enumerate(sel["counted"]):
+            objs[i]["v"], objs[i]["e"] = villages[j]["v"], villages[j]["e"]
+        for obj in objs:
+            if cr.village_measurable(obj) and obj["index"] not in sel["counted"]:
+                obj["v"], obj["e"] = UNCOUNTED_V, UNCOUNTED_E
+        result = None
+        if sel["finding"] is None:
+            vs = [objs[i]["v"] for i in sel["counted"]]
+            es = [objs[i]["e"] for i in sel["counted"]]
+            result = cr.village_aggregate(vs, es, 1200)
+        reported = [obj["index"] for obj in objs if cr.village_measurable(obj) and obj["index"] not in sel["counted"]]
+        rows.append(
+            f"selection {case} findings {sorted(findings)} measurable {sel['measurable']} counted {sel['counted']} reported_not_counted {reported}"
+            f" finding {sel['finding']}"
+        )
+        if result is not None:
+            rows.append(
+                f"selection {case} aggregate V_bar {b(result['v_bar'])} E_bar {b(result['e_bar'])} s {b(result['s'])} se {b(result['se'])} tol {b(result['tol'])}"
+                f" pass {result['pass']} power {b(result['power'])} decision {result['decision']} twin_v_bar {b(result['twin_v_bar'])}"
+                f" twin_se {b(result['twin_se'])} twin_pass {result['twin_pass']}"
+            )
+        out[case] = {
+            "villages": [{k: b(x) for k, x in obj.items()} for obj in objs],
+            "counted": sel["counted"], "measurable": sel["measurable"], "finding": sel["finding"],
+            "aggregate_1200": None if result is None else {k: b(x) for k, x in result.items()},
+        }
+    return out, rows
+
+
 def main(argv) -> int:
     out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else None
     seed = int(argv[argv.index("--seed") + 1], 16) if "--seed" in argv else SEEDS[0]
+    if "--export" in argv:
+        ends = [int(x) for x in argv[argv.index("--export") + 1].split(",")]
+        assert ends == sorted(ends) and ends[0] > 0
+        capacity = int(argv[argv.index("--capacity") + 1]) if "--capacity" in argv else RUNNER_CAPACITY
+        for row in export_rows(wr.REPOSITORY, seed, ends, out, capacity):
+            print(row, flush=True)
+        return 0
+    if "--aggregate" in argv:
+        for row in aggregate_rows(out):
+            print(row, flush=True)
+        return 0
     run = "--run" in argv
     moved_out = "--moved-out" in argv
     years = RUN_YEARS
