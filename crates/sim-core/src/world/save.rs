@@ -386,8 +386,9 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
 /// section 9), after `pool_view` has checked them against the data's pool.
 #[derive(Default)]
 struct PoolView<'a> {
-    /// Each arrival: its record in the pool and the shift `Δ` of its household.
-    arrivals: BTreeMap<SimId, (&'a PoolPerson, i64)>,
+    /// Each arrival: a copy of its record (the pool's, or for a village the person as it
+    /// arrived, alone and without carried plans) and the shift `Δ` of its household.
+    arrivals: BTreeMap<SimId, (PoolPerson, i64)>,
     /// The children of pool pregnancies born in the town.
     children: BTreeSet<SimId>,
     /// The partnerships the arrivals brought: the woman's record and the shift.
@@ -442,18 +443,29 @@ fn pool_view<'a>(
     };
     let held = data.pool()?;
     let pool = held.pool();
+    // A village (ADR-0020 section 8, G4): its persons, each alone, arrived in second 0; no
+    // household of the pool is used and nobody immigrates. `check_start` in the input log's
+    // check has rejected an odd `n_start` and immigration already.
+    let village = if start.village {
+        crate::pool::village_households(pool, seed, start.n_start / 2)?
+    } else {
+        Vec::new()
+    };
     let persons = start.n_start.saturating_add(50) / 100;
     view.immigration = (start.immigration && persons > 0).then_some(persons);
     // The used households are exactly the draws, in their order (review): those of
     // `Start`, arriving in second 0 while the clock may still stand before it, then those
     // of each immigration whose second the clock has passed. Each arrives in the second of
     // its draw; a draw the pool could not fill stopped the run, so no save holds it.
-    let mut drawn: Vec<(usize, i64)> =
+    let mut drawn: Vec<(usize, i64)> = if start.village {
+        Vec::new()
+    } else {
         crate::pool::take_households(pool, seed, 0, &BTreeSet::new(), start.n_start)
             .0
             .into_iter()
             .map(|index| (index, 0))
-            .collect();
+            .collect()
+    };
     if let Some(persons) = view.immigration {
         let mut taken: BTreeSet<usize> = drawn.iter().map(|(index, _)| *index).collect();
         let mut year = 0_u64;
@@ -484,9 +496,13 @@ fn pool_view<'a>(
     // Each pool key's place in the order of arrival: its household's place among the used.
     let mut place_of: BTreeMap<LineageKey, usize> = BTreeMap::new();
     let mut arrivals_seen = 0_usize;
-    for (place, (index, second)) in drawn.iter().enumerate() {
-        let household = &pool.households[*index];
-        let on_time = |at: SimTime| at.as_secs() == *second;
+    // The drawn households with their place in the pool, then a village's persons.
+    let arrived_households = drawn
+        .iter()
+        .map(|(index, second)| (Some(*index), &pool.households[*index], *second))
+        .chain(village.iter().map(|household| (None, household, 0)));
+    for (place, (index, household, second)) in arrived_households.enumerate() {
+        let on_time = |at: SimTime| at.as_secs() == second;
         let mut arrived: Option<SimTime> = None;
         for (member_place, member) in household.members.iter().enumerate() {
             let id = *keys.get(&member.lineage_key)?;
@@ -510,12 +526,17 @@ fn pool_view<'a>(
             if !fits {
                 return None;
             }
-            view.arrivals.insert(id, (member, delta));
+            view.arrivals.insert(id, (member.clone(), delta));
             view.places.insert(id, (place, member_place));
             place_of.insert(member.lineage_key, place);
             arrivals_seen += 1;
         }
         let delta = arrived?.as_secs().checked_sub(pool.frozen_at.as_secs())?;
+        // A village's persons bring no partnership and no pregnancy.
+        let Some(index) = index else {
+            continue;
+        };
+        let household = &pool.households[index];
         if let Some(pair) = household.partnership {
             let (woman, man) = (*keys.get(&pair.woman)?, *keys.get(&pair.man)?);
             let formed = pair.formed.as_secs().checked_add(delta)?;
@@ -1044,7 +1065,9 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 /// formed a partnership, or its second of leaving home has come (for the dead: before its
 /// death). A dependent person (under 18, not moved out) has a carer in its household who
 /// is not dependent, or no carer in a household where nobody is moved out or has a carer
-/// (the last stage of the orphan rule); nobody else has a carer.
+/// (the last stage of the orphan rule); nobody else has a carer. The living who moved out
+/// share a household only as the two partners of an open partnership (a village's persons
+/// arrive alone, ADR-0020 section 8; nothing else joins two who left home).
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let clock = loaded.closed_through;
     let t = clock.max(SimTime::START);
@@ -1162,7 +1185,27 @@ fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
         .all(|(id, parents, pool, social)| {
             social_parents_fit(loaded, *id, (parents, pool), social)
         });
-    ids_complete && households_fit && archived_known && living_fit && archived_fit && social_fit
+    let pairs_fit = members.values().all(|set| {
+        let moved: Vec<SimId> = (set.iter().copied())
+            .filter(|id| loaded.sims.get(id).is_some_and(|sim| sim.moved_out))
+            .collect();
+        match moved.as_slice() {
+            [] | [_] => true,
+            [one, other] => (open.get(one))
+                .and_then(|id| loaded.partnerships.get(id))
+                .is_some_and(|p| {
+                    [p.woman, p.man] == [*one, *other] || [p.man, p.woman] == [*one, *other]
+                }),
+            _ => false,
+        }
+    });
+    ids_complete
+        && households_fit
+        && archived_known
+        && living_fit
+        && archived_fit
+        && social_fit
+        && pairs_fit
 }
 
 /// The social parents of `id` (ADR-0018 section 4): each a person of the world, living or

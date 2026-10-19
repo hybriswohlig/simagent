@@ -1,7 +1,7 @@
 {
  "format_version": 1,
  "written_by": "tools/census_reference.py (independent of crates/)",
- "core_version_modelled": 40,
+ "core_version_modelled": 41,
  "projection_version_modelled": 18,
  "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
  "clamped_keys": [
@@ -1904,7 +1904,7 @@
    "data": "the documents of father_dies (tools/pool_reference.py: tests/golden/map4_template with data/calibration/demography.json and the scenario's values) and the pool tests/golden/pool/pool_c.bin",
    "data_hash": "c7fbd1668c8e94f6",
    "body_data": "accepted",
-   "start_input_hash": "db33f0998d01ce48",
+   "start_input_hash": "1254a9c9a3a9c937",
    "year_hashes": [
     "793d81b8642b6545",
     "b2fbcdf2f85d9c58",
@@ -3866,7 +3866,7 @@
    "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_b.bin",
    "data_hash": "6bc8a5d68de36a5e",
    "body_data": "accepted",
-   "start_input_hash": "34402b18cd4ef988",
+   "start_input_hash": "c9a52103af787940",
    "year_hashes": [
     "a25123c00bca7ef1",
     "2832b886c5197c83",

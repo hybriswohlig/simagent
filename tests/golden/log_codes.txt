@@ -54,6 +54,9 @@ reject 24 start_pool_and_founders
 reject 25 start_pool_missing
 reject 26 start_pool_n_start
 reject 27 start_pool_households
+reject 28 start_pool_village_n_start
+reject 29 start_pool_village_immigration
+reject 30 start_pool_village_candidates
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

@@ -428,6 +428,29 @@ What the model knows:
     Option<LineageKey>, conception, children, conceived }`, `pool_used: Vec<u32>` (indices
     into the pool's households, arrival order) the last field of the projection; projection
     18, core 37, save format 2, pedigree format 4 (`pool` per person, last).
+- The village start mode (step 11, P4 village; ADR-0020 section 8 "Das Dorf, genau (G4)";
+  design note of the village, sections 5 and 6, Grok V1 (a) and V2 (a); tools/
+  village_reference.py prints its values): `PoolStart` holds `village: bool` after
+  `immigration` (postcard a bool byte; the scenario file `"pool": {"n_start": 80,
+  "immigration": false, "village": true}`); with `village` false nothing changes. With
+  `village` true the draw is of persons (`village_draw`): the candidates of a sex are the
+  pool's members (not its unborn children) with `18 · YEAR <= E_p − born < 41 · YEAR`; per
+  sex the `n_start / 2` smallest `(rank, lineage key)` with `rank = rank(world seed, POOL_RANK
+  = 27, SubjectKey::WORLD, occasion 1, the lineage key)` (ADR-0001 section 5). The households
+  of `PoolStart` are one per chosen person (`village_households`), the women in rank order,
+  then the men in rank order (the note leaves the order open; decision of this reference):
+  members `[person]`, no partnership, no pregnancies, the person as the file holds it with
+  `conception_at`, `birth_at`, `separation_at`, `leave_home_at` and `carer` None and
+  `moved_out` true (`village_person`; genome, birth, keys, counts and afflictions unchanged). Rejected after
+  `start_pool_n_start`, the first that applies: `n_start` odd (`start_pool_village_n_start`,
+  28), immigration on (`start_pool_village_immigration`, 29), a sex with fewer candidates
+  than `n_start / 2` (`start_pool_village_candidates`, 30); then `households` not those
+  (`start_pool_households`). The arrival is `_arrive` of these households at second 0 (step
+  5 has no carried plan to plan); `pool_used` stays empty (no household of the file arrives;
+  decision of the coordinator, 2026-10-19); `pool_member` of a chosen person is its record
+  as it arrived. `village` is not a field of the CLI's scenario file (only xtask builds a
+  village `Start`); a resolved scenario's pool has `village` false. Core 41 (the new byte changes every save of a pool start; year
+  and log hashes of a town stay).
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -578,8 +601,10 @@ FOUNDER_ALLELE = 28
 # The repository's data become map 4 with the pool (S5, design note of the switch, section
 # 14): every golden of the repository's data moves, core 40 (ADR-0003 6.4, also for data
 # alone).
+# The village start mode (design note of the village, section 6): `PoolStart.village` changes
+# every save of a pool start (the save holds `Start`), core 41; the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 40
+CORE_VERSION = 41
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -595,12 +620,20 @@ IMMIGRATION_KIND = 10
 IMMIGRATION_VARIANT = 9
 ARRIVED_VARIANT = 13
 START_POOL_AND_FOUNDERS, START_POOL_MISSING, START_POOL_N_START, START_POOL_HOUSEHOLDS = 24, 25, 26, 27
+# The village start mode (design note of the village, section 6): its reject codes of `Start`
+# (after start_pool_households, 27, in the order they are checked), the occasion of the draw
+# of the persons, the age window at the freeze in whole years, `[18, 41)`.
+START_POOL_VILLAGE_N_START, START_POOL_VILLAGE_IMMIGRATION, START_POOL_VILLAGE_CANDIDATES = 28, 29, 30
+VILLAGE_OCCASION = 1
+VILLAGE_AGES = (18, 41)
 # The largest micro step (ADR-0002).
 MAX_MICRO_STEP = 64
 # The lines the code lists of tests/golden (protected) need for the arrival; they are not
 # there yet, so the check of the code lists below leaves these reject codes out
 # (tools/arrival_reference.py prints every new line).
 NEW_CODE_LINES_OF_THE_ARRIVAL = (START_POOL_AND_FOUNDERS, START_POOL_MISSING, START_POOL_N_START, START_POOL_HOUSEHOLDS)
+# The same for the village's reject codes (tools/village_reference.py prints their lines).
+NEW_CODE_LINES_OF_THE_VILLAGE = (START_POOL_VILLAGE_N_START, START_POOL_VILLAGE_IMMIGRATION, START_POOL_VILLAGE_CANDIDATES)
 # The margin a draw keeps from what it is compared with (the chance of an attempt, a
 # threshold of the wish), so that a last bit of libm in the core cannot flip it.
 DRAW_MARGIN = 1e-12
@@ -647,6 +680,9 @@ REJECT_NAMES = {
     START_POOL_MISSING: "start_pool_missing",
     START_POOL_N_START: "start_pool_n_start",
     START_POOL_HOUSEHOLDS: "start_pool_households",
+    START_POOL_VILLAGE_N_START: "start_pool_village_n_start",
+    START_POOL_VILLAGE_IMMIGRATION: "start_pool_village_immigration",
+    START_POOL_VILLAGE_CANDIDATES: "start_pool_village_candidates",
     CAPACITY_ZERO: "capacity_zero",
     UNKNOWN_SIM: "unknown_sim",
     SIM_NOT_ALIVE: "sim_not_alive",
@@ -2230,6 +2266,11 @@ class World:
         rejection = start_rejection(founders, couples, self.data, capacity, pool, seed)
         assert rejection is None, f"Start is rejected: {REJECT_NAMES[rejection]}"
         self.pool_start = pool
+        # The village start mode (design note of the village, section 6): the persons arrive
+        # one per household as `PoolStart` holds them; `village_records` holds each chosen
+        # person's record as it arrived (`pool_member`), by lineage key (not state).
+        self.village = pool is not None and pool.get("village", False)
+        self.village_records = {}
         # The state of the pool persons (design note of the arrival, sections 6 and 9): per sim,
         # living or archived, its PoolOrigin (a dict with `genome_key`, `born_pool`, `arrived`,
         # `arrival_year`, `mother`, `father`, `social_parents`), none for a town person; per
@@ -2347,8 +2388,14 @@ class World:
             # The founders from the pool (design note of the arrival, sections 3 and 5): the
             # drawn households of the input, in rank order, at second 0 of year 0, caused by
             # the input; in the input's context every time is micro step 0.
-            draw = pool_draw(self.data.pool, seed, 0, pool["n_start"], [])
-            self._arrive(draw, 0, 0, [variant(2, varint(1))], "start")
+            # The village (design note of the village, section 6): the single households of the
+            # input, women then men in rank order, the same way; no household of the file is
+            # used.
+            if self.village:
+                self._arrive([], 0, 0, [variant(2, varint(1))], "start", households=pool["households"])
+            else:
+                draw = pool_draw(self.data.pool, seed, 0, pool["n_start"], [])
+                self._arrive(draw, 0, 0, [variant(2, varint(1))], "start")
 
     # ------------------------------------------------------------------ afflictions
 
@@ -2477,7 +2524,10 @@ class World:
         return parents is not None and person in parents[:2]
 
     def pool_member(self, sim: int) -> dict:
-        """The pool's record of an arrival (its member entry in the file)."""
+        """The pool's record of an arrival (its member entry in the file); in the village its
+        record as it arrived (`village_person`: no carried plan, moved out)."""
+        if self.village:
+            return self.village_records[self.key_of(sim)]
         return self.data.pool.members[self.key_of(sim)][1]
 
     def carried_leave_home(self, sim: int):
@@ -2491,6 +2541,9 @@ class World:
         """An arrival's partnerships of the pool that did not come along: the pool's count less
         one if her household brought her open partnership."""
         member = self.pool_member(sim)
+        if self.village:
+            # No partnership comes along to the village: the pool's count is the one before.
+            return member["partnerships"]
         index = self.data.pool.members[self.key_of(sim)][0]
         partnership = self.data.pool.households[index]["partnership"]
         brought = partnership is not None and partnership[0] == member["lineage_key"]
@@ -2513,18 +2566,28 @@ class World:
         record["draw"] = draw
         self._arrive(draw, now, year, [plan], "immigration")
 
-    def _arrive(self, draw: list, arrival: int, year: int, causes: list, why: str) -> None:
+    def _arrive(self, draw: list, arrival: int, year: int, causes: list, why: str, households=None) -> None:
         """The arrival of the drawn households at `arrival` (`A`) of year `year`, step by step
         (design note of the arrival, section 5), per household in rank order; `causes` the
-        input of `Start` or the plan of the event. Returns nothing; each household's record
-        goes to `arrivals`."""
+        input of `Start` or the plan of the event. With `households` (the village, design note
+        of the village, section 6) those households instead, in their order, none of the file
+        used (`draw` empty). Returns nothing; each household's record goes to `arrivals`."""
         pool = self.data.pool
         delta = arrival - pool.frozen_at
         rule = variant(3, string(HOUSEHOLD_RULE))
-        for index in draw:
-            assert index not in self.used
-            self.used.append(index)
-            household = pool.households[index]
+        if households is None:
+            arriving = [(index, pool.households[index]) for index in draw]
+        else:
+            assert not draw and self.village
+            arriving = [(None, household) for household in households]
+            for household in households:
+                for member in household["members"]:
+                    assert member["lineage_key"] not in self.village_records
+                    self.village_records[member["lineage_key"]] = member
+        for index, household in arriving:
+            if index is not None:
+                assert index not in self.used
+                self.used.append(index)
             members = household["members"]
             record = {"t": arrival, "year": year, "why": why, "index": index, "delta": delta, "sims": [], "entries": {}}
             before = self.next_event_id
@@ -3096,7 +3159,8 @@ class World:
         arrivals of the same household of the pool), else None: its due is not recomputed,
         it is the woman's `separation_at + Δ` of the pool."""
         woman, man, formed, _ = self.partnerships[number_]
-        if not (self.is_arrival(woman) and self.is_arrival(man)):
+        if not (self.is_arrival(woman) and self.is_arrival(man)) or self.village:
+            # The village brings no partnership (design note of the village, section 6).
             return None
         pool = self.data.pool
         index, member = pool.members[self.key_of(woman)]
@@ -4472,19 +4536,81 @@ def pool_draw(pool: DataPool, seed: int, occasion: int, number: int, used: list)
     return taken
 
 
-def pool_start(data: Data, seed: int, n_start: int, immigration: bool) -> dict:
-    """The `pool` of `Start` the CLI fills in from the scenario's `{n_start, immigration}`
-    and the data (design note of the arrival, section 3): the pool's hash and the drawn
-    households with occasion 0, each as the file holds it."""
+def village_candidates(pool: DataPool, sex: int) -> list:
+    """The candidates of the village of one sex (0 a woman, 1 a man; design note of the
+    village, section 6): the lineage keys of the pool's members (not its unborn children) of
+    that sex whose age at the freeze is from their 18th birthday to before their 41st,
+    `18 · YEAR <= E_p − born < 41 · YEAR`, in file order."""
+    low, high = VILLAGE_AGES
+    return [
+        key for key, (_, member) in pool.members.items() if member["sex"] == sex and low * YEAR <= pool.frozen_at - member["born"] < high * YEAR
+    ]
+
+
+def village_draw(pool: DataPool, seed: int, n_start: int):
+    """The persons of the village (design note of the village, section 6): `(women, men)`, per
+    sex the `n_start / 2` candidates with the smallest `(rank, lineage key)`, `rank = rank(seed,
+    POOL_RANK, SubjectKey::WORLD, VILLAGE_OCCASION, lineage key)` (ADR-0001 section 5: a tie
+    of ranks the smaller key first), each list in that order; None if a sex has fewer
+    candidates (`start_pool_village_candidates`). `n_start` even."""
+    assert n_start % 2 == 0
+    half = n_start // 2
+    chosen = []
+    for sex in (0, 1):
+        ordered = sorted(village_candidates(pool, sex), key=lambda key: (rank(seed, POOL_RANK, WORLD_KEY, VILLAGE_OCCASION, key), key))
+        if len(ordered) < half:
+            return None
+        chosen.append(ordered[:half])
+    return chosen[0], chosen[1]
+
+
+def village_person(member: dict) -> dict:
+    """A chosen person as it arrives in the village (design note of the village, section 6;
+    Grok V1 (a), V2 (a)): the pool's record with its carried plans struck (`conception_at`,
+    `birth_at`, `separation_at`, `leave_home_at` None) and `moved_out` true; everything else
+    as the file holds it (genome, birth, keys, the counts `conceptions`, `births` and
+    `partnerships`, the social parents' keys, the afflictions). The carer is struck as well
+    (`carer` None; decision of the coordinator, 2026-10-19: a single household holds no carer;
+    the repository's pool has no member of 18 or more with one, the 18th birthday ends it)."""
+    person = copy.deepcopy(member)
+    for name in ("conception_at", "birth_at", "separation_at", "leave_home_at", "carer"):
+        person[name] = None
+    person["moved_out"] = True
+    return person
+
+
+def village_households(pool: DataPool, seed: int, n_start: int):
+    """The households of `PoolStart` in the village mode (design note of the village, section
+    6): one per chosen person, members `[village_person]`, no partnership, no pregnancies; the
+    women in rank order, then the men in rank order (the order is the reference's decision,
+    the note leaves it open). None if a sex has too few candidates."""
+    drawn = village_draw(pool, seed, n_start)
+    if drawn is None:
+        return None
+    women, men = drawn
+    return [{"members": [village_person(pool.members[key][1])], "partnership": None, "pregnancies": []} for key in women + men]
+
+
+def pool_start(data: Data, seed: int, n_start: int, immigration: bool, village: bool = False) -> dict:
+    """The `pool` of `Start` the CLI fills in from the scenario's `{n_start, immigration,
+    village}` and the data (design note of the arrival, section 3): the pool's hash and the
+    drawn households with occasion 0, each as the file holds it; with `village` the single
+    households of the chosen persons (`village_households`, design note of the village)."""
     assert data.pool is not None
-    draw = pool_draw(data.pool, seed, 0, n_start, [])
-    return {"pool_hash": data.pool.hash, "n_start": n_start, "immigration": immigration, "households": [data.pool.households[i] for i in draw]}
+    if village:
+        households = village_households(data.pool, seed, n_start)
+        assert households is not None, "start_pool_village_candidates"
+    else:
+        households = [data.pool.households[i] for i in pool_draw(data.pool, seed, 0, n_start, [])]
+    return {"pool_hash": data.pool.hash, "n_start": n_start, "immigration": immigration, "village": village, "households": households}
 
 
 def pool_start_bytes(pool) -> bytes:
     """`pool: Option<PoolStart>`, the last field of `Start` (after `capacity`): `PoolStart {
-    pool_hash: u64, n_start: u64, immigration: bool, households: Vec<PoolHousehold> }`, each
-    household as the file writes it (`pool_reference.encode_household`)."""
+    pool_hash: u64, n_start: u64, immigration: bool, village: bool, households:
+    Vec<PoolHousehold> }`, each household as the file writes it
+    (`pool_reference.encode_household`); `village` (design note of the village, section 6)
+    a bool byte after `immigration`, false where the dict names none."""
     if pool is None:
         return NONE
     import pool_reference
@@ -4494,6 +4620,7 @@ def pool_start_bytes(pool) -> bytes:
         varint(pool["pool_hash"])
         + varint(pool["n_start"])
         + flag(pool["immigration"])
+        + flag(pool.get("village", False))
         + seq([pool_reference.encode_household(household) for household in pool["households"]])
     )
 
@@ -4507,8 +4634,11 @@ def start_rejection(founders: list, couples, data: Data, capacity=None, pool=Non
     the emigration, section 1). Then the pool, the last field of `Start` (design note of the
     arrival, section 3), the first that applies: `founders` or `couples` not empty
     (`start_pool_and_founders`); no pool in the data or `pool_hash` not its hash
-    (`start_pool_missing`); `n_start` 0 (`start_pool_n_start`); `households` not the draw of
-    `pool_start` with the world seed `seed` (`start_pool_households`)."""
+    (`start_pool_missing`); `n_start` 0 (`start_pool_n_start`); with `village` (design note of
+    the village, section 6): `n_start` odd (`start_pool_village_n_start`), immigration on
+    (`start_pool_village_immigration`), a sex with fewer candidates than `n_start / 2`
+    (`start_pool_village_candidates`); `households` not the draw of `pool_start` with the
+    world seed `seed` (`start_pool_households`)."""
     paired = set()
     for woman, man in couples:
         if not (0 <= woman < len(founders) and 0 <= man < len(founders)):
@@ -4534,8 +4664,18 @@ def start_rejection(founders: list, couples, data: Data, capacity=None, pool=Non
             return START_POOL_N_START
         import pool_reference
 
-        draw = pool_draw(data.pool, seed, 0, pool["n_start"], [])
-        if [pool_reference.encode_household(household) for household in pool["households"]] != [data.pool.encoded[i] for i in draw]:
+        if pool.get("village", False):
+            if pool["n_start"] % 2 != 0:
+                return START_POOL_VILLAGE_N_START
+            if pool["immigration"]:
+                return START_POOL_VILLAGE_IMMIGRATION
+            drawn = village_households(data.pool, seed, pool["n_start"])
+            if drawn is None:
+                return START_POOL_VILLAGE_CANDIDATES
+            want = [pool_reference.encode_household(household) for household in drawn]
+        else:
+            want = [data.pool.encoded[i] for i in pool_draw(data.pool, seed, 0, pool["n_start"], [])]
+        if [pool_reference.encode_household(household) for household in pool["households"]] != want:
             return START_POOL_HOUSEHOLDS
     return None
 
@@ -4726,7 +4866,7 @@ def check_emigration(world: World) -> None:
             assert emigrants[woman][11] == emigrants[man][11], number_
 
 
-def check_households(world: World) -> None:
+def check_households(world: World, pairs: bool = True) -> None:
     """The load checks of the households (design note of the households, section 7; part 2,
     section 6; ADR-0018 section 7; ADR-0006 section 5) on the state of `world`, as the loader
     would see its save with its input log (the couples of `Start`); a broken one is
@@ -4757,7 +4897,10 @@ def check_households(world: World) -> None:
       later in that second);
     - every social parent of a living or archived person (part 2, section 6) is a SimId
       below the counter of a living or archived person, not the person herself, not one of
-      her biological parents, and listed once."""
+      her biological parents, and listed once;
+    - the living members of a household with `moved_out` are at most one, or exactly the
+      woman and the man of one open partnership (`check_moved_out_households`; `pairs`
+      False leaves it out, for the forged saves that only it rejects)."""
     t = max(world.closed, 0)
     households = world.households
     if not world.households_on:
@@ -4843,6 +4986,35 @@ def check_households(world: World) -> None:
             # Biological by SimId, for a pool person by its PoolOrigin keys (NOTES.md).
             assert person != sim and not world.is_biological_parent(sim, person), (sim, person)
         assert len(set(socials)) == len(socials), (sim, socials)
+    if pairs:
+        check_moved_out_households(world)
+
+
+def moved_out_violations(world: World) -> list:
+    """The households that break the rule of the moved out (`check_moved_out_households`), as
+    (household, its living members with `moved_out`, by SimId), by household."""
+    moved = {}
+    for sim, value in sorted(world.sims.items()):
+        if value[10]:
+            moved.setdefault(value[9], []).append(sim)
+    pairs = {frozenset(value[:2]) for value in world.partnerships.values() if value[3] is None}
+    return [(household, sims) for household, sims in sorted(moved.items()) if len(sims) > 1 and frozenset(sims) not in pairs]
+
+
+def check_moved_out_households(world: World) -> None:
+    """The load check of the moved out in one household (ADR-0006 section 5; the gap the
+    village start showed, ADR-0020 section 8, G4, which puts each person alone): the living
+    members of a household with `moved_out` true are at most one, or exactly the woman and
+    the man of one open partnership (`ended` None; one brought by an arrival counts). A
+    broken one is `Inconsistent` in the core, an assertion here; `check_households` ends
+    with it. Every rule that moves a person out keeps it: a partnership founds the couple's
+    household, `leave_home` and a separation found one of their own, an arrival comes as the
+    pool's household holds it, the orphan rule only moves dependent persons. Without
+    households (the switch of this reference) there is nothing to check."""
+    if not world.households_on:
+        return
+    broken = moved_out_violations(world)
+    assert not broken, broken
 
 
 def check_pool(world: World) -> None:
@@ -4875,6 +5047,10 @@ def check_pool(world: World) -> None:
     - with `immigration` and `q > 0` exactly one event `Immigration { persons: q }` (class 100,
       kind 10, subject the world, period YEAR, planned by `core:started` at 0) at the first
       year start after the clock; else none.
+    In the village (design note of the village, section 6) instead of the first point: no
+    household of the file is used, the arrivals are exactly the persons of `village_draw`
+    (the world seed, `n_start`), all at second 0, no pool child and no pool pregnancy; every
+    arrival's record is `village_person` of its member entry (no carried plan, moved out).
     Without a pool there is no pool person, no used household, no pool pregnancy."""
     import pool_reference
 
@@ -4886,7 +5062,15 @@ def check_pool(world: World) -> None:
         assert all(value[0] is not None for value in world.pregnancies.values()), sorted(world.pregnancies)
         return
     q = immigration_persons(world.pool_start["n_start"])
-    draws = [(0, pool_draw(pool, world.seed, 0, world.pool_start["n_start"], []))]
+    if world.village:
+        assert not world.pool_start["immigration"] and world.used == [] and not world.pool_fathers, "village"
+        women, men = village_draw(pool, world.seed, world.pool_start["n_start"])
+        arrivals = [world.key_of(sim) for sim in sorted(world.origins) if world.is_arrival(sim)]
+        assert arrivals == women + men, "the arrivals are the persons of the village, in rank order"
+        assert all(world.is_arrival(sim) and world.origins[sim]["arrived"] == 0 for sim in world.origins), "no pool child in the village"
+        for key in arrivals:
+            assert world.village_records[key] == village_person(pool.members[key][1]), key
+    draws = [(0, pool_draw(pool, world.seed, 0, world.pool_start["n_start"], []))] if not world.village else []
     if world.pool_start["immigration"] and q > 0:
         for year in range(0, world.closed // YEAR + 1):
             taken = [index for _, draw in draws for index in draw]
@@ -4895,12 +5079,13 @@ def check_pool(world: World) -> None:
             draws.append((year * YEAR, pool_draw(pool, world.seed, year, q, taken)))
     assert world.used == [index for _, draw in draws for index in draw], world.used
     second_of = {index: second for second, draw in draws for index in draw}
-    members = sorted(m["lineage_key"] for index in world.used for m in pool.households[index]["members"])
-    arrivals = sorted(world.key_of(sim) for sim in world.origins if world.is_arrival(sim))
-    assert members == arrivals, "the members of the used households are the arrivals"
-    for sim in world.origins:
-        if world.is_arrival(sim):
-            assert world.origins[sim]["arrived"] == second_of[pool.members[world.key_of(sim)][0]], sim
+    if not world.village:
+        members = sorted(m["lineage_key"] for index in world.used for m in pool.households[index]["members"])
+        arrivals = sorted(world.key_of(sim) for sim in world.origins if world.is_arrival(sim))
+        assert members == arrivals, "the members of the used households are the arrivals"
+        for sim in world.origins:
+            if world.is_arrival(sim):
+                assert world.origins[sim]["arrived"] == second_of[pool.members[world.key_of(sim)][0]], sim
     for sim, origin in world.origins.items():
         key, sex, person = world.key_of(sim), world.sex_of(sim), (world.sims[sim][3] if sim in world.sims else world.archive[sim][5])
         born = world.born_of(sim)
@@ -5599,7 +5784,7 @@ if __name__ == "__main__":
         ("class", "emigration", str(EMIGRATION_CLASS)),
         ("kind", "emigration", str(EMIGRATION_KIND)),
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),
-    } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL}
+    } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL + NEW_CODE_LINES_OF_THE_VILLAGE}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")

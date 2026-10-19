@@ -64,6 +64,9 @@ pub struct PoolStart {
     pub n_start: u64,
     /// Whether households come every year (`(n_start + 50) div 100` persons).
     pub immigration: bool,
+    /// A village of P4 (ADR-0020 section 8, G4): `n_start / 2` persons of each sex, each alone,
+    /// instead of whole households; immigration off.
+    pub village: bool,
     /// The households of the draw for occasion 0, in its order, exactly as in the pool.
     pub households: Vec<crate::pool::PoolHousehold>,
 }
@@ -91,10 +94,30 @@ impl PoolStart {
             pool_hash: held.hash(),
             n_start,
             immigration,
+            village: false,
             households: taken
                 .iter()
                 .map(|&index| held.pool().households[index].clone())
                 .collect(),
+        })
+    }
+}
+
+impl PoolStart {
+    /// The pool start of a village of `n_start` (ADR-0020 section 8, G4): the data's pool hash
+    /// and the persons of `pool::village_households`, `n_start / 2` of each sex, immigration
+    /// off; `None` for data without a pool, an odd `n_start` or too few candidates.
+    pub fn village(data: &crate::data::Data, world_seed: u64, n_start: u64) -> Option<PoolStart> {
+        if !n_start.is_multiple_of(2) {
+            return None;
+        }
+        let held = data.pool()?;
+        Some(PoolStart {
+            pool_hash: held.hash(),
+            n_start,
+            immigration: false,
+            village: true,
+            households: crate::pool::village_households(held.pool(), world_seed, n_start / 2)?,
         })
     }
 }
@@ -242,6 +265,12 @@ pub enum RejectCode {
     StartPoolNStart,
     /// A `Start` whose households are not the draw of the pool.
     StartPoolHouseholds,
+    /// A village with an odd `n_start` (G4: as many women as men).
+    StartPoolVillageNStart,
+    /// A village with immigration (ADR-0020 section 8: none).
+    StartPoolVillageImmigration,
+    /// A village whose pool holds too few women or men of 18 to before 41.
+    StartPoolVillageCandidates,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

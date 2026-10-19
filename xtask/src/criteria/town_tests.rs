@@ -163,6 +163,7 @@ fn the_small_towns_are_decided_as_the_reference_decides() {
             n_start,
             capacity: None,
             immigration,
+            village: false,
             end: SimTime::from_secs(years * YEAR - 1),
         };
         let (world, observer) = run_town(data, &plan).expect("a run");
@@ -187,6 +188,7 @@ fn the_criteria_town_is_the_adrs() {
             n_start: 10_000,
             capacity: Some(10_000),
             immigration: true,
+            village: false,
             end: SimTime::from_secs(200 * 31_449_600 - 1),
         }
     );
@@ -290,6 +292,7 @@ fn t1() -> Plan {
         n_start: 30,
         capacity: None,
         immigration: false,
+        village: false,
         end: SimTime::from_secs(60 * YEAR - 1),
     }
 }

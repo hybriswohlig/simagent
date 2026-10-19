@@ -88,6 +88,22 @@ fn pool_rejection(data: &Data, start: &Start, pool: &PoolStart) -> Option<Reject
     if pool.n_start == 0 {
         return Some(RejectCode::StartPoolNStart);
     }
+    // A village (ADR-0020 section 8, G4): as many women as men, no immigration, its persons
+    // the draw of `village_households`.
+    if pool.village {
+        if !pool.n_start.is_multiple_of(2) {
+            return Some(RejectCode::StartPoolVillageNStart);
+        }
+        if pool.immigration {
+            return Some(RejectCode::StartPoolVillageImmigration);
+        }
+        let Some(drawn) =
+            crate::pool::village_households(held.pool(), start.world_seed, pool.n_start / 2)
+        else {
+            return Some(RejectCode::StartPoolVillageCandidates);
+        };
+        return (drawn != pool.households).then_some(RejectCode::StartPoolHouseholds);
+    }
     let drawn = founders_of(held.pool(), start.world_seed, pool.n_start);
     let same = drawn.len() == pool.households.len()
         && drawn
@@ -324,8 +340,13 @@ pub(crate) fn apply_start(
             .pool()
             .unwrap_or_else(|| panic!("invariant pool.missing"))
             .pool();
-        let drawn = founders_of(held, start.world_seed, pool.n_start);
-        super::arrival::arrive(domain, data, &drawn, 0, ctx);
+        if pool.village {
+            // The village's persons, each alone, use no household of the pool.
+            super::arrival::arrive_alone(domain, data, &pool.households, ctx);
+        } else {
+            let drawn = founders_of(held, start.world_seed, pool.n_start);
+            super::arrival::arrive(domain, data, &drawn, 0, ctx);
+        }
     }
 }
 

@@ -381,13 +381,22 @@ pub enum VillageFinding {
 }
 
 /// The village check over the seeds' variances `v` and expectations `e`, both in seed
-/// order.
+/// order: a village without variance is a finding (K2), else `village_comparison`.
 pub fn village(v: &[f64], e: &[f64]) -> Result<Village, VillageFinding> {
     if v.len() < VILLAGE_SEEDS || e.len() != v.len() {
         return Err(VillageFinding::BelowMinimum);
     }
     if v.contains(&0.0) {
         return Err(VillageFinding::NoVariance);
+    }
+    village_comparison(v, e)
+}
+
+/// The numbers of the village check and its comparison, without the guard on a value 0:
+/// what the twin reads (Grok D3), whose shifted values may be 0.
+pub fn village_comparison(v: &[f64], e: &[f64]) -> Result<Village, VillageFinding> {
+    if v.len() < VILLAGE_SEEDS || e.len() != v.len() {
+        return Err(VillageFinding::BelowMinimum);
     }
     let (Some(mean_v), Some(mean_e), Some(var)) = (mean(v), mean(e), variance(v)) else {
         return Err(VillageFinding::BelowMinimum);

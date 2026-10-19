@@ -434,8 +434,8 @@
    "power": "3facd9770c630a5f",
    "pass": false,
    "decision": "extend",
-   "twin_v_bar": "3ff0000000000000",
-   "twin_se": "3f934dc002500d0f",
+   "twin_v_bar": "3feffffffffffffe",
+   "twin_se": "3f90c8da061b5d47",
    "twin_pass": true
   },
   "decision_at_2100": "red"
@@ -496,7 +496,7 @@
    "pass": true,
    "decision": "pass",
    "twin_v_bar": "3feffffffffffffe",
-   "twin_se": "3f91d3a518a933d7",
+   "twin_se": "3f8ab8e759f5714a",
    "twin_pass": false
   }
  },
