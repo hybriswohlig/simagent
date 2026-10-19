@@ -348,6 +348,87 @@ fn gate(require_clean_tree: bool) -> Result {
 /// and variant of the export descriptor: a town of the pool with a capacity over 60 years.
 const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 
+/// The answers of `simagent view` (the release binary) over the runs in `out`: the person
+/// answer of a living, a dead and an emigrated person of the town.
+fn server_answers(
+    root: &Path,
+    out: &Path,
+    pedigree: &serde_json::Value,
+) -> Result<Vec<(&'static str, serde_json::Value)>> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let web = out.join("web");
+    std::fs::create_dir_all(&web).map_err(|e| format!("{}: {e}", web.display()))?;
+    std::fs::write(web.join("index.html"), "<!doctype html>\n")
+        .map_err(|e| format!("{}: {e}", web.display()))?;
+    let binary = root.join("target").join("release").join("simagent");
+    let mut server = Command::new(&binary)
+        .arg("view")
+        .arg(out)
+        .args(["--port", "0", "--web"])
+        .arg(&web)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
+    let mut line = String::new();
+    if let Some(stdout) = server.stdout.take() {
+        let _ = BufReader::new(stdout).read_line(&mut line);
+    }
+    let port = line
+        .trim()
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix('/'))
+        .and_then(|port| port.parse::<u16>().ok());
+    let get = |port: u16, path: &str| -> Result<serde_json::Value> {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+            .map_err(|e| format!("the server: {e}"))?;
+        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|e| format!("the server: {e}"))?;
+        let mut answer = Vec::new();
+        stream
+            .read_to_end(&mut answer)
+            .map_err(|e| format!("the server: {e}"))?;
+        let end = (answer.windows(4).position(|w| w == b"\r\n\r\n"))
+            .ok_or(format!("{path}: no answer"))?;
+        if !answer.starts_with(b"HTTP/1.1 200 ") {
+            return Err(format!(
+                "{path}: {}",
+                String::from_utf8_lossy(&answer[..end])
+            ));
+        }
+        serde_json::from_slice(&answer[end + 4..]).map_err(|e| format!("{path}: {e}"))
+    };
+    let persons = pedigree["persons"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let first = |pick: &dyn Fn(&serde_json::Value) -> bool| persons.iter().find(|p| pick(p));
+    let chosen = [
+        first(&|p| p["died"].is_null() && p["emigrated"].is_null()),
+        first(&|p| !p["died"].is_null()),
+        first(&|p| !p["emigrated"].is_null()),
+    ];
+    let answers = match port {
+        None => Err(format!("the server printed no address: {line:?}")),
+        Some(port) => chosen
+            .iter()
+            .map(|person| {
+                let sim = person
+                    .and_then(|p| p["sim"].as_u64())
+                    .ok_or("the town lacks a person")?;
+                Ok((
+                    "PersonAnswer",
+                    get(port, &format!("/api/runs/town/persons/{sim}"))?,
+                ))
+            })
+            .collect(),
+    };
+    let _ = server.kill();
+    let _ = server.wait();
+    answers
+}
+
 /// ADR-0021 section 4: `web/src/generated/export.ts` is the descriptor's, and the
 /// descriptor fits real output: the pedigree and the manifest of the coverage scenario and
 /// the manifest of a fork of it, keys both ways and kinds recursive, every case shown.
@@ -393,6 +474,12 @@ fn check_export_types(root: &Path) -> Result {
         let at = relative(root, &path);
         for difference in export_types::conforms(&types, name, &json(&path)?, &mut seen) {
             found.push(format!("{at}: {difference}"));
+        }
+    }
+    let pedigree = json(&town.join("pedigree.json"))?;
+    for (name, answer) in server_answers(root, &out, &pedigree)? {
+        for difference in export_types::conforms(&types, name, &answer, &mut seen) {
+            found.push(format!("the server's {name}: {difference}"));
         }
     }
     for mark in export_types::missing(&export_types::wanted(&types), &seen) {
