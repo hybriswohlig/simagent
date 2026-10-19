@@ -563,6 +563,16 @@ fn long_fixture(name: &str) -> (PathBuf, PathBuf) {
         assert!(status.success(), "{args:?}");
     }
     write(&runs.join("fork.b/census.csv"), b"year,living\n0,x\n");
+    // A census and a log the command line is still writing: the last line has no end yet.
+    let partial = runs.join("town-1");
+    write(
+        &partial.join("census.csv"),
+        b"year,living,lived\n0,3,18446744073709551615\n1,4",
+    );
+    let entry =
+        |id: u64| format!("{{\"id\":{id},\"t\":0,\"subjects\":[],\"causes\":[],\"payload\":{{}}}}");
+    let log = format!("{}\n{}\n{}", entry(1), entry(2), &entry(3)[..10]);
+    write(&partial.join("events.ndjson"), log.as_bytes());
     write(&runs.join("fork.b/events.ndjson"), b"{\n");
     write(&runs.join("fork.b/state.save"), b"no save");
     (runs, web)
@@ -602,6 +612,20 @@ fn the_pedigree_is_what_export_writes_and_the_census_is_the_file() {
         json_of(&body),
         serde_json::json!({"format": "simagent.view.census", "version": 1, "columns": columns, "rows": rows})
     );
+
+    let (status, _, body) = get(server.port, "/api/runs/town-1/census");
+    assert_eq!(status, 200);
+    assert_eq!(
+        json_of(&body),
+        serde_json::json!({"format": "simagent.view.census", "version": 1, "columns": ["year", "living", "lived"], "rows": [[0, 3, 18_446_744_073_709_551_615_u64]]})
+    );
+    let (status, _, body) = get(server.port, "/api/runs/town-1/events");
+    assert_eq!(status, 200);
+    let page = json_of(&body);
+    let ids: Vec<&Value> = (page["events"].as_array().expect("events").iter())
+        .map(|e| &e["id"])
+        .collect();
+    assert_eq!(ids, [&Value::from(1), &Value::from(2)]);
 
     for (path, code) in [
         ("/api/runs/fork.b/census", "census_invalid"),
@@ -700,6 +724,64 @@ fn the_events_come_in_pages_and_filtered() {
     );
     assert_eq!(page("?from=-5&to=-1")["events"], serde_json::json!([]));
 
+    // The bound of a page: 499, 500 and 501 entries after a cursor.
+    let ids: Vec<u64> = file
+        .iter()
+        .map(|e| e["id"].as_u64().expect("an id"))
+        .collect();
+    for (cursor, count, next) in [
+        (50, 499, Value::Null),
+        (49, 500, Value::Null),
+        (48, 500, file[548]["id"].clone()),
+    ] {
+        let found = page(&format!("?after={}", ids[cursor]));
+        let events = found["events"].as_array().expect("events");
+        assert_eq!(
+            (events.len(), &found["next"]),
+            (count, &next),
+            "after {}",
+            ids[cursor]
+        );
+        assert_eq!(events[0], file[cursor + 1]);
+    }
+    let beyond = page(&format!("?after={}", ids[549] + 1000));
+    assert_eq!(
+        (&beyond["events"], &beyond["next"]),
+        (&serde_json::json!([]), &Value::Null)
+    );
+    // A filtered window over more than a page: its pages are its entries.
+    let late = file[520]["t"].as_i64().expect("a time");
+    let window: Vec<&Value> = (file.iter())
+        .filter(|e| e["t"].as_i64() <= Some(late))
+        .collect();
+    assert!(window.len() > 500);
+    let first = page(&format!("?to={late}"));
+    assert_eq!(first["next"], window[499]["id"]);
+    let second = page(&format!("?to={late}&after={}", first["next"]));
+    let mut pages: Vec<Value> = first["events"].as_array().expect("events").clone();
+    pages.extend(second["events"].as_array().expect("events").iter().cloned());
+    assert_eq!(pages.iter().collect::<Vec<_>>(), window);
+    assert_eq!(second["next"], Value::Null);
+    // Equal bounds keep the entries of that second; reversed bounds keep none.
+    let t = file[100]["t"].as_i64().expect("a time");
+    let at: Vec<&Value> = file.iter().filter(|e| e["t"].as_i64() == Some(t)).collect();
+    let found = page(&format!("?from={t}&to={t}"));
+    assert_eq!(
+        found["events"]
+            .as_array()
+            .expect("events")
+            .iter()
+            .collect::<Vec<_>>(),
+        at
+    );
+    assert_eq!(
+        page(&format!("?from={t}&to={}", t - 1))["events"],
+        serde_json::json!([])
+    );
+    // Empty pairs are nothing.
+    let found = page(&format!("?&after={}&", ids[547]));
+    assert_eq!(found["events"], serde_json::json!([file[548], file[549]]));
+
     for query in [
         "?after=x",
         "?after=1&after=2",
@@ -709,6 +791,17 @@ fn the_events_come_in_pages_and_filtered() {
         "?after=1.5",
         "?subject=-1",
         "?after=1;from=2",
+        "?from=1&from=2",
+        "?to=1&to=2",
+        "?subject=1&subject=2",
+        "?after=18446744073709551616",
+        "?from=-9223372036854775809",
+        "?to=9223372036854775808",
+        "?after=+1",
+        "?after=-1",
+        "?after=-",
+        "?after=%31",
+        "?After=1",
     ] {
         let (status, _, body) = get(server.port, &format!("/api/runs/long/events{query}"));
         assert_eq!(
@@ -729,4 +822,23 @@ fn the_events_come_in_pages_and_filtered() {
             "{path}"
         );
     }
+}
+
+/// A runs directory the server cannot read is its own failure, not an unknown run.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_runs_directory_is_a_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let (runs, web) = fixture("unreadable");
+    let server = start(&runs, &web);
+    fs::set_permissions(&runs, fs::Permissions::from_mode(0o000)).expect("closed");
+    let found: Vec<(u16, String)> = ["/api/runs", "/api/runs/town-1", "/api/runs/town-1/census"]
+        .iter()
+        .map(|path| {
+            let (status, _, body) = get(server.port, path);
+            (status, code_of(&body))
+        })
+        .collect();
+    fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).expect("opened");
+    assert_eq!(found, vec![(500, "runs_unreadable".to_owned()); 3]);
 }
