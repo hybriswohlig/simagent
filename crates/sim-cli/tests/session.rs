@@ -140,6 +140,134 @@ fn a_locked_run_is_not_opened() {
     resume_to(&dir, 6 * Y - 1).expect("free");
 }
 
+/// A link to a run takes the run's own lock; a new run, a replay and a fork into a locked
+/// directory are refused; a lock ends with its process.
+#[cfg(unix)]
+#[test]
+fn a_lock_follows_the_run_not_its_name() {
+    let base = scratch("lock-identity");
+    let dir = three_years(&base, "run");
+    let alias = base.join("alias");
+    std::os::unix::fs::symlink(&dir, &alias).expect("a link");
+    assert_eq!(
+        lock_path(&alias).expect("a path"),
+        lock_path(&dir).expect("a path")
+    );
+    let held = RunLock::acquire(&dir).expect("free");
+    assert_eq!(
+        RunLock::acquire(&alias).expect_err("the same run").code,
+        "run_locked"
+    );
+    drop(held);
+    // Every command that writes a new directory takes its lock first.
+    let target = base.join("target");
+    let lock = RunLock::acquire(&target).expect("free");
+    let scenario = base.join("ten.json");
+    let until = (2 * Y - 1).to_string();
+    let run = simagent(&[
+        "run".as_ref(),
+        "--scenario".as_ref(),
+        scenario.as_os_str(),
+        "--out".as_ref(),
+        target.as_os_str(),
+        "--until".as_ref(),
+        until.as_ref(),
+    ]);
+    assert_eq!(code(&run.expect_err("locked")), "run_locked");
+    let replay = simagent(&[
+        "run".as_ref(),
+        "--replay".as_ref(),
+        dir.join(files::INPUT_LOG).as_os_str(),
+        "--out".as_ref(),
+        target.as_os_str(),
+    ]);
+    assert_eq!(code(&replay.expect_err("locked")), "run_locked");
+    let fork = simagent(&[
+        "fork".as_ref(),
+        dir.as_os_str(),
+        "--from-year".as_ref(),
+        "1".as_ref(),
+        "--out".as_ref(),
+        target.as_os_str(),
+    ]);
+    assert_eq!(code(&fork.expect_err("locked")), "run_locked");
+    drop(lock);
+    // A process that holds the lock and dies lets it go (flock, as `File::try_lock`).
+    let lock_file = lock_path(&dir).expect("a path");
+    let mut holder = Command::new("perl")
+        .args(["-e", "use Fcntl qw(:flock); open(my $f, '>>', $ARGV[0]) or die; flock($f, LOCK_EX) or die; $| = 1; print qq(held\n); sleep 60"])
+        .arg(&lock_file)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("perl runs");
+    let mut line = String::new();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(holder.stdout.take().expect("its output")),
+        &mut line,
+    )
+    .expect("reads");
+    assert_eq!(line, "held\n");
+    assert_eq!(RunLock::acquire(&dir).expect_err("held").code, "run_locked");
+    holder.kill().expect("killed");
+    holder.wait().expect("ended");
+    RunLock::acquire(&dir).expect("free after the holder died");
+}
+
+/// Stops of the session in every order the server may take: a fresh run's first stop,
+/// two stops in a row, a stop before the end, inputs after a reopen; each leaves a run the
+/// command line goes on from.
+#[test]
+fn every_order_of_stops_leaves_a_run_to_go_on_from() {
+    let base = scratch("stops");
+    let dir = three_years(&base, "run");
+    let scenario: Scenario = files::parse_strict(
+        fs::read_to_string(dir.join(files::SCENARIO))
+            .expect("read")
+            .trim_end(),
+    )
+    .expect("a scenario");
+    {
+        let _lock = RunLock::acquire(&dir).expect("free");
+        let mut session = Session::resume(&dir).expect("resumes");
+        session.checkpoint(&scenario).expect("a stop at once");
+        session.checkpoint(&scenario).expect("and another");
+        session.reopen().expect("reopens");
+        session.reopen().expect("twice is nothing");
+        let pair =
+            sim_core::input::Input::ArrangePartnership(sim_core::input::ArrangePartnership {
+                woman: sim_core::ids::SimId::try_from(1).expect("an id"),
+                man: sim_core::ids::SimId::try_from(2).expect("an id"),
+            });
+        session.submit_at_stop(vec![pair]).expect("accepted");
+        session.checkpoint(&scenario).expect("stops");
+        session
+            .advance(SimTime::from_secs(5 * Y - 1))
+            .expect("advances");
+        session.checkpoint(&scenario).expect("stops");
+        session.finish(&scenario).expect("ends after a stop");
+    }
+    let log = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
+    assert_eq!(log.matches("\"end\"").count(), 1, "{log}");
+    assert_eq!(log.lines().count(), 4, "{log}");
+    resume_to(&dir, 6 * Y - 1).expect("goes on");
+    // A fresh run stopped at once is a run too.
+    let fresh = base.join("fresh");
+    {
+        let _lock = RunLock::acquire(&fresh).expect("free");
+        let first = sim_core::input::Input::Start(scenario.start.clone());
+        let mut session = Session::start(
+            &fresh,
+            SimTime::from_secs(-1),
+            first,
+            sim_cli::session::Compare::Nothing,
+            |code| sim_cli::error::CliError::new("scenario_rejected", code),
+        )
+        .expect("starts");
+        session.checkpoint(&scenario).expect("stops");
+    }
+    resume_to(&fresh, 2 * Y - 1).expect("goes on");
+}
+
 /// Stops from the session (the server's way) give the directory `run --resume --until`
 /// gives: the same bytes in every file.
 #[test]
@@ -184,7 +312,7 @@ type Case<'a> = (&'a str, &'a dyn Fn(&Path), &'a str);
 #[test]
 fn an_interrupted_write_is_reported_on_the_next_open() {
     let base = scratch("crash");
-    let cases: [Case; 6] = [
+    let cases: [Case; 11] = [
         (
             "input written, save old",
             &|dir| {
@@ -240,6 +368,47 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
             },
             "io",
         ),
+        (
+            "manifest new, save old",
+            &|dir| {
+                let text = fs::read_to_string(dir.join(files::MANIFEST)).expect("read");
+                let later = text.replacen("\"closed_through\":", "\"closed_through\":1", 1);
+                fs::write(dir.join(files::MANIFEST), later).expect("written");
+            },
+            "run_dir_inconsistent",
+        ),
+        (
+            // The command line reads the scenario first; `Session::resume` reports the same
+            // file as run_dir_inconsistent (below).
+            "scenario cut off",
+            &|dir| {
+                let text = fs::read(dir.join(files::SCENARIO)).expect("read");
+                fs::write(dir.join(files::SCENARIO), &text[..text.len() / 2]).expect("written");
+            },
+            "scenario_invalid",
+        ),
+        (
+            "scenario missing",
+            &|dir| {
+                fs::remove_file(dir.join(files::SCENARIO)).expect("removed");
+            },
+            "io",
+        ),
+        (
+            "census row cut off",
+            &|dir| {
+                let text = fs::read_to_string(dir.join(files::CENSUS)).expect("read");
+                fs::write(dir.join(files::CENSUS), &text[..text.len() - 2]).expect("written");
+            },
+            "run_dir_inconsistent",
+        ),
+        (
+            "census missing",
+            &|dir| {
+                fs::remove_file(dir.join(files::CENSUS)).expect("removed");
+            },
+            "io",
+        ),
     ];
     for (i, (case, damage, expected)) in cases.into_iter().enumerate() {
         let dir = three_years(&base, &format!("case{i}"));
@@ -249,4 +418,10 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         let error = resume_to(&dir, 6 * Y - 1).expect_err(case);
         assert_eq!(code(&error), expected, "{case}: {error}");
     }
+    // The session itself, as the server opens a run, checks the scenario too.
+    let dir = three_years(&base, "scenario");
+    let text = fs::read(dir.join(files::SCENARIO)).expect("read");
+    fs::write(dir.join(files::SCENARIO), &text[..text.len() / 2]).expect("written");
+    let refused = Session::resume(&dir).err().expect("refused");
+    assert_eq!(refused.code, "run_dir_inconsistent");
 }
