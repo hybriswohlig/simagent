@@ -13,7 +13,10 @@
 //! tag `test:founder_allele`, the switch on, no couples; founder 0 a woman of 30, founder 1
 //! a man of 32, both naming nothing, founder 2 a woman of 30 naming `core:herc2` `[0, 0]`.
 //! The same founders on the template without a pool, on `tests/golden/data_traits` and on
-//! map 3.
+//! map 3. Two more cases of the reference (its notes on the extra cases): the boundary
+//! `u < q` on `data_traits` with `d_ref` of `test:g1` at `2u` and one ulp above, and a Y
+//! copy, `core:herc2` moved to Y with `pool_b` frozen on that map. Their data are built here
+//! from the fixtures by the reference's edits and pinned by the reference's data hashes.
 
 mod common;
 
@@ -513,4 +516,165 @@ fn the_share_of_alleles_is_q() {
     assert_eq!(ones, SHARE_ONES);
     let share = f64::from(u32::try_from(ones).expect("small")) / 10_000.0;
     assert!((share - 0.5).abs() <= 4.0 * 0.005);
+}
+
+/// The boundary of `u < q` (`extra/NOTES.md` section 1): `data_traits` with `d_ref` of
+/// `test:g1` set to `2u` of founder 0's gamete 0, so `q = u` exactly, and to one ulp above:
+/// (`d_ref` bits, data hash, copies at `test:g1`, genome).
+const BOUNDARY: [(u64, u64, [u8; 2], &str); 2] = [
+    (
+        0x3ff5_2625_2abe_a831,
+        0xcfe6_3f1f_c396_321e,
+        [0, 1],
+        "0000008080808880808008000000000000",
+    ),
+    (
+        0x3ff5_2625_2abe_a832,
+        0x425e_f7dd_e6e6_4b5f,
+        [1, 1],
+        "8080800800008080808880808008000000000000",
+    ),
+];
+/// `u` of founder 0 at `test:g1`, gamete 0 (`str_key` `b0bb66411a85e80a`).
+const BOUNDARY_U: u64 = 0x3fe5_2625_2abe_a831;
+
+/// A Y locus (`extra/NOTES.md` section 2): the template with `core:herc2` moved to Y,
+/// segment 0, slot 0, before the mt; the hash of its definitions, `pool_b` with its
+/// `frozen_hash` set to it (length, xxh3), the data hash with that pool and the file's
+/// frequencies.
+const Y_DEFINITIONS_HASH: u64 = 0xf52e_7556_29ce_4bcf;
+const Y_POOL: (usize, u64) = (4257, 0x6adb_7d67_0559_4ad3);
+const Y_DATA_HASH: u64 = 0x894c_c097_7a02_a07c;
+/// A man's Y draws: the bits of `u` at detail 1 (the rule) and at detail 0, and his Y copy.
+type YDraws = (u64, u64, u8);
+/// The founders of the Y case (all naming nothing): their sex, their key, and a man's Y
+/// draws.
+const Y_FOUNDERS: [(Sex, u64, Option<YDraws>); 5] = [
+    (Sex::Female, 0x922e_affa_24f5_8fdb, None),
+    (
+        Sex::Male,
+        0x51c7_1a22_46b2_2623,
+        Some((0x3fdb_78fa_727a_5140, 0x3fb7_929c_388f_7f10, 1)),
+    ),
+    (Sex::Female, 0xa904_e092_9077_7fa8, None),
+    (Sex::Female, 0x17df_1305_a9ee_47c8, None),
+    (
+        Sex::Male,
+        0x740c_242e_ca89_e03a,
+        Some((0x3fca_5099_b11f_a028, 0x3fef_ab99_5afc_23b3, 1)),
+    ),
+];
+
+/// A draw gives 1 only if `u` lies strictly below `q`: at `q = u` founder 0 keeps 0 at
+/// `test:g1`, gamete 0; one ulp higher she has 1. The variant data are the reference's
+/// (their data hashes).
+#[test]
+fn a_draw_gives_one_only_below_q() {
+    assert_eq!(unit(0, "test:g1", 0).to_bits(), BOUNDARY_U);
+    assert_eq!(str_key(&id("test:g1")), 0xb0bb_6641_1a85_e80a);
+    for (d_ref, data_hash, at_g1, genome) in BOUNDARY {
+        let (calibration, mut genome_map) = common::files_from(
+            include_str!("../../../tests/golden/data_traits/calibration/genetics.json"),
+            include_str!("../../../tests/golden/data_traits/genetics/genome_map.json"),
+        );
+        let loci = genome_map["loci"].as_array_mut().expect("loci");
+        let g1 = loci
+            .iter_mut()
+            .find(|locus| locus["id"] == "test:g1")
+            .expect("test:g1");
+        g1["action"]["additive"]["d_ref"] = serde_json::json!(f64::from_bits(d_ref));
+        let definitions = common::definitions(calibration, genome_map).expect("definitions");
+        let data = Data::new(definitions).expect("checked");
+        assert_eq!(data.hash(), data_hash);
+        let world = started(data.clone(), founders(true)[..1].to_vec());
+        let genomes = genomes(&world);
+        assert_eq!(copies(&data, &genomes[0], "test:g1"), at_g1);
+        assert_eq!(copies(&data, &genomes[0], "test:f1"), [0, 1]);
+        for locus in ["core:disease_ar", "test:g2", "test:p1"] {
+            assert_eq!(copies(&data, &genomes[0], locus), [0, 0], "{locus}");
+        }
+        assert_eq!(
+            postcard::to_allocvec(&genomes[0]).expect("encodes"),
+            hex(genome)
+        );
+    }
+}
+
+/// A pool locus on Y (an additive locus there is no valid data): a woman has no copy and
+/// draws nothing; a man draws his Y copy at detail 1. For man 4 detail 0 would give 0.
+#[test]
+fn a_man_draws_his_y_copy_at_detail_1() {
+    let (calibration, mut genome_map) = common::files_from(
+        include_str!("../../../tests/golden/map4_template/calibration/genetics.json"),
+        include_str!("../../../tests/golden/map4_template/genetics/genome_map.json"),
+    );
+    let loci = genome_map["loci"].as_array_mut().expect("loci");
+    let at = loci
+        .iter()
+        .position(|locus| locus["id"] == "core:herc2")
+        .expect("core:herc2");
+    let mut herc2 = loci.remove(at);
+    herc2["chromosome"] = serde_json::json!("y");
+    herc2["segment"] = serde_json::json!(0);
+    herc2["slot"] = serde_json::json!(0);
+    let mt = loci
+        .iter()
+        .position(|locus| locus["chromosome"] == "mt")
+        .expect("an mt locus");
+    loci.insert(mt, herc2);
+    let definitions = || common::definitions(calibration.clone(), genome_map.clone());
+    let plain = Data::new(definitions().expect("definitions")).expect("checked");
+    assert_eq!(plain.hash(), Y_DEFINITIONS_HASH);
+    let mut pool = sim_core::pool::Pool::from_bytes(POOL_B).expect("pool_b");
+    pool.frozen_hash = Y_DEFINITIONS_HASH;
+    let pool = pool.to_bytes();
+    assert_eq!((pool.len(), stable_hash64(&pool)), Y_POOL);
+    let data = Data::with_pool(
+        definitions().expect("definitions"),
+        &pool,
+        common::pool_frequencies("pool_b"),
+    )
+    .expect("checked");
+    assert_eq!(data.hash(), Y_DATA_HASH);
+    let q = data.pool().expect("a pool").frequencies()[&id("core:herc2")].get();
+    let founders = Y_FOUNDERS
+        .iter()
+        .map(|&(sex, _, _)| Founder {
+            born: SimTime::from_secs(if sex == Sex::Female { -30 * Y } else { -32 * Y }),
+            sex,
+            alleles: Vec::new(),
+        })
+        .collect();
+    let world = started(data.clone(), founders);
+    let genomes = genomes(&world);
+    for (index, (genome, (sex, key, man))) in genomes.iter().zip(Y_FOUNDERS).enumerate() {
+        let n = u64::try_from(index).expect("small");
+        assert_eq!(LineageKey::founder(&id(TAG), n).get(), key);
+        assert_eq!(genome.sex(), sex);
+        let at_y = copies(&data, genome, "core:herc2");
+        match man {
+            None => assert!(at_y.is_empty(), "founder {index}"),
+            Some((u1, u0, allele)) => {
+                assert_eq!(
+                    unit(index, "core:herc2", 1).to_bits(),
+                    u1,
+                    "founder {index}"
+                );
+                assert_eq!(
+                    unit(index, "core:herc2", 0).to_bits(),
+                    u0,
+                    "founder {index}"
+                );
+                assert_eq!(at_y, [allele], "founder {index}");
+                assert_eq!(u8::from(f64::from_bits(u1) < q), allele);
+            }
+        }
+    }
+    let (_, _, man_4) = Y_FOUNDERS[4];
+    let (_, u0, _) = man_4.expect("a man");
+    assert_eq!(
+        u8::from(f64::from_bits(u0) < q),
+        0,
+        "detail 0 gives the other allele"
+    );
 }
