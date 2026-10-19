@@ -143,11 +143,16 @@ pub enum Decision {
     Extend,
 }
 
+/// Below the power of D1 a check extends or, at the last end, is red.
+pub fn underpowered(check: &Village) -> bool {
+    check.power < POWER
+}
+
 /// The kit's decision at an end of `years` (K2, the reference's `village_aggregate`): below
 /// the power the runs extend unless this is the last end, where the check is red
 /// (underpowered); otherwise the comparison decides.
 pub fn decide(check: &Village, years: i64) -> Decision {
-    if check.power < POWER {
+    if underpowered(check) {
         if years < ENDS[ENDS.len() - 1] {
             Decision::Extend
         } else {
@@ -249,7 +254,7 @@ pub fn judge(years: i64, measured: &[Measured]) -> Judged {
         };
     }
     if decision == Decision::Red {
-        let why = if check.power < POWER {
+        let why = if underpowered(&check) {
             "underpowered"
         } else {
             "outside"

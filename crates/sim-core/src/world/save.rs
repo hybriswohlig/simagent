@@ -444,11 +444,9 @@ fn pool_view<'a>(
     let held = data.pool()?;
     let pool = held.pool();
     // A village (ADR-0020 section 8, G4): its persons, each alone, arrived in second 0; no
-    // household of the pool is used and nobody immigrates.
+    // household of the pool is used and nobody immigrates. `check_start` in the input log's
+    // check has rejected an odd `n_start` and immigration already.
     let village = if start.village {
-        if start.immigration || start.n_start % 2 != 0 {
-            return None;
-        }
         crate::pool::village_households(pool, seed, start.n_start / 2)?
     } else {
         Vec::new()
