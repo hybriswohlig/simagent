@@ -381,12 +381,12 @@ fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(
         })?,
         None => Vec::new(),
     };
-    let mut session = Session::resume(dir)?;
+    let session = Session::resume(dir)?;
     let limit = until.unwrap_or(scenario.until);
     session::check_limit(session.closed_through(), limit)?;
     // Nothing has been written up to here: a refused resume, or a rejected input, leaves
     // the run as it was.
-    session.submit_at_stop(inputs)?;
+    let mut session = session.submit_at_stop(inputs)?;
     session.advance(limit)?;
     session.finish(&scenario)
 }

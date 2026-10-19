@@ -78,6 +78,14 @@ fn read_events_into(
     before: Option<SimTime>,
 ) -> Result<(), CliError> {
     let events = files::read_text(&dir.join(files::EVENTS))?;
+    // Every entry ends with its line end; one without was cut off while it was written,
+    // and the next entry would join it.
+    if !events.is_empty() && !events.ends_with('\n') {
+        return Err(CliError::new(
+            "events_invalid",
+            "the last line has no line end",
+        ));
+    }
     for (line, number) in events.lines().zip(1..) {
         let entry: LogEntry = files::parse_strict(line).ok_or_else(|| {
             CliError::new(
@@ -295,11 +303,10 @@ impl Session {
         files::write(&self.path(files::INPUT_LOG), log.as_bytes())
     }
 
-    /// Applies inputs at the stop of a resumed run and opens the input log again. All of
-    /// them are applied before anything is written: a rejected one ends the run with its
-    /// code, and the files stay as they were. A log already open gets the new records
-    /// appended.
-    pub fn submit_at_stop(&mut self, inputs: Vec<Input>) -> Result<(), CliError> {
+    /// Applies inputs at the stop of a resumed run and records them. All of them are
+    /// applied before anything is written: a rejected one ends the session with its code
+    /// (those before it are applied, not recorded), and the files stay as they were.
+    pub fn submit_at_stop(mut self, inputs: Vec<Input>) -> Result<Session, CliError> {
         let recorded = self.world.input_log().len();
         let dir = self.dir.clone();
         for input in inputs {
@@ -313,16 +320,23 @@ impl Session {
             )?
             .map_err(|error| CliError::new("input_rejected", files::code(&error.code)))?;
         }
+        self.record_since(recorded)?;
+        self.drain()?;
+        Ok(self)
+    }
+
+    /// Writes the inputs applied after the first `recorded`: a stopped log is opened again
+    /// with them, an open one gets them appended. Called after an input was accepted, so a
+    /// rejected one leaves the log as it was, end line and all.
+    fn record_since(&mut self, recorded: usize) -> Result<(), CliError> {
         if self.stopped {
-            self.reopen()?;
-        } else {
-            let new: String = self.world.input_log()[recorded..]
-                .iter()
-                .map(record_line)
-                .collect();
-            files::append(&self.path(files::INPUT_LOG), &new)?;
+            return self.reopen();
         }
-        self.drain()
+        let new: String = self.world.input_log()[recorded..]
+            .iter()
+            .map(record_line)
+            .collect();
+        files::append(&self.path(files::INPUT_LOG), &new)
     }
 
     /// Compares the stamp of the input applied last with the recorded one.
@@ -357,7 +371,7 @@ impl Session {
 
     /// Applies one input of a replay and compares its stamp with the recorded one.
     pub fn replay_input(&mut self, record: InputRecord) -> Result<(), CliError> {
-        self.reopen()?;
+        let recorded = self.world.input_log().len();
         let (t, seq) = (record.t, record.seq.get());
         let dir = self.dir.clone();
         let pending = record.input.clone();
@@ -369,9 +383,7 @@ impl Session {
             |world, _| world.submit(record.input),
         )?
         .map_err(|rejected| replay_rejected(t, seq, &files::code(&rejected.code)))?;
-        if let Some(applied) = self.world.input_log().last() {
-            files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
-        }
+        self.record_since(recorded)?;
         self.drain()?;
         self.check_stamp(t, seq)
     }
@@ -382,7 +394,7 @@ impl Session {
         input: Input,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<(), CliError> {
-        self.reopen()?;
+        let recorded = self.world.input_log().len();
         let dir = self.dir.clone();
         let pending = input.clone();
         crate::repro::guarded(
@@ -393,9 +405,7 @@ impl Session {
             |world, _| world.submit(input),
         )?
         .map_err(|error| rejected(files::code(&error.code)))?;
-        if let Some(applied) = self.world.input_log().last() {
-            files::append(&self.path(files::INPUT_LOG), &record_line(applied))?;
-        }
+        self.record_since(recorded)?;
         self.drain()
     }
 
