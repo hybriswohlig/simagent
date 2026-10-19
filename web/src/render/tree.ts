@@ -32,11 +32,14 @@ export function layout(glass: Hourglass): Layout {
       nodes.push({ person, x, y: STEP_Y / 2 + r * STEP_Y, center: person.sim === glass.center.sim });
     });
   });
-  const drawn = new Set(nodes.map((node) => node.person.sim));
+  const at = new Map(nodes.map((node) => [node.person.sim, node]));
   const edges: Edge[] = [];
   for (const node of nodes) {
     for (const parent of [node.person.mother, node.person.father]) {
-      if (parent !== null && drawn.has(parent)) {
+      const from = parent === null ? undefined : at.get(parent);
+      // Only links that go up: a parent cut off by the limit of the rows is not drawn
+      // beside or below its child.
+      if (parent !== null && from !== undefined && from.y < node.y) {
         edges.push({ from: parent, to: node.person.sim });
       }
     }

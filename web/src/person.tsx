@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
+import { current, failure, type Loaded } from "./loaded.js";
 import type { Pedigree, Person } from "./generated/export.js";
 import { layout } from "./render/tree.js";
 import { format } from "./router.js";
@@ -10,25 +11,21 @@ import { hourglass, type Hourglass } from "./tree.js";
 /** The format of `pedigree.json` this viewer reads (`simagent export`). */
 const PEDIGREE_FORMAT = 4;
 
-type Loaded =
-  | { readonly state: "loading" }
-  | { readonly state: "failed"; readonly message: string }
-  | { readonly state: "ready"; readonly pedigree: Pedigree };
-
-/** The pedigree of a run from the server, checked for its format. */
-function usePedigree(run: string): Loaded {
-  const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
+/** The pedigree of a run from the server, checked for its format; only an answer for this
+ * run counts. */
+function usePedigree(run: string): Loaded<Pedigree> {
+  const [loaded, setLoaded] = useState<Loaded<Pedigree>>({ state: "loading", key: run });
   useEffect(() => {
-    let current = true;
-    setLoaded({ state: "loading" });
+    let live = true;
+    setLoaded({ state: "loading", key: run });
     getJson(`/api/runs/${run}/pedigree`, { format_version: PEDIGREE_FORMAT })
-      .then((json) => current && setLoaded({ state: "ready", pedigree: json as unknown as Pedigree }))
-      .catch((error: unknown) => current && setLoaded({ state: "failed", message: String(error) }));
+      .then((json) => live && setLoaded({ state: "ready", key: run, value: json as unknown as Pedigree }))
+      .catch((error: unknown) => live && setLoaded({ state: "failed", key: run, text: failure(error) }));
     return () => {
-      current = false;
+      live = false;
     };
   }, [run]);
-  return loaded;
+  return current(loaded, run);
 }
 
 /** The link to a person's page. */
@@ -45,7 +42,7 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   const { nodes, edges, width, height } = layout(glass);
   const at = new Map(nodes.map((node) => [node.person.sim, node]));
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={TEXT.tree}>
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={TEXT.tree}>
       {edges.map((edge) => {
         const from = at.get(edge.from);
         const to = at.get(edge.to);
@@ -54,7 +51,12 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
         ) : null;
       })}
       {nodes.map((node) => (
-        <a key={node.person.sim} href={personHref(run, node.person.sim)} data-sim={node.person.sim}>
+        <a
+          key={node.person.sim}
+          href={personHref(run, node.person.sim)}
+          data-sim={node.person.sim}
+          aria-label={`${TEXT.person} ${node.person.sim}`}
+        >
           <circle
             cx={node.x}
             cy={node.y}
@@ -79,14 +81,14 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     return <p>{TEXT.loading}</p>;
   }
   if (loaded.state === "failed") {
-    return <p>{`${TEXT.failed} ${loaded.message}`}</p>;
+    return <p>{TEXT[loaded.text]}</p>;
   }
-  const glass = hourglass(loaded.pedigree, Number(sim));
+  const glass = hourglass(loaded.value, Number(sim));
   if (glass === null) {
     return <p>{TEXT.unknown_person}</p>;
   }
   const person = glass.center;
-  const bySim = new Map(loaded.pedigree.persons.map((p) => [p.sim, p]));
+  const bySim = new Map(loaded.value.persons.map((p) => [p.sim, p]));
   const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
   return (
     <section>
