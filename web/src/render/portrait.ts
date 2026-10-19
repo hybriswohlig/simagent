@@ -19,12 +19,14 @@ export type Part =
   | "neck"
   | "head"
   | "hair"
+  | "rim"
   | "sclera"
   | "iris"
   | "brow"
   | "freckle"
   | "wrinkle"
   | "beard"
+  | "moustache"
   | "mouth";
 
 /** The grey that hair turns to with `hair_grey_fraction` 1. */
@@ -88,11 +90,19 @@ export function bust(params: BodyParams): Shape[] {
   }
   shapes.push({ kind: "ellipse", part: "head", cx, cy, rx, ry, fill: skin, opacity: 1 });
 
-  // The hair: a cap over the top of the head that ends above the brows, thinner with the
-  // density, smaller and higher with each stage of balding, fuller with curls; none at the
-  // last stage.
+  // The hair: a rim at the sides, which stays at every stage of balding ("7 is bald except
+  // for the rim of hair"), and a cap over the top that ends above the brows, thinner with
+  // the density, smaller and higher with each stage, fuller with curls, gone at stage 7.
   const stage = v("balding_stage");
   const density = v("hair_density");
+  if (density > 0) {
+    for (const side of [-1, 1]) {
+      shapes.push({
+        kind: "ellipse", part: "rim", cx: cx + side * rx * 0.9, cy: cy - ry * 0.3, rx: rx * 0.16,
+        ry: ry * 0.32, fill: hair, opacity: density,
+      });
+    }
+  }
   if (density > 0 && stage < 7) {
     const cover = 1 - stage / 7;
     const full = 1.04 + 0.14 * v("hair_curl");
@@ -138,11 +148,18 @@ export function bust(params: BodyParams): Shape[] {
     }
   }
 
-  // The beard: over chin and jaw, as dense as density times coverage.
-  const beard = v("beard_density") * v("beard_coverage");
+  // The beard, as dense as its density: upper lip and chin at coverage 0, reaching over
+  // the jaw to the cheeks as the coverage grows ("1 includes cheeks and neck").
+  const beard = v("beard_density");
   if (beard > 0) {
-    const jaw = `M ${cx - rx * 0.85} ${cy + ry * 0.2} Q ${cx} ${chin + ry * 0.35} ${cx + rx * 0.85} ${cy + ry * 0.2} Q ${cx} ${chin - ry * 0.05} ${cx - rx * 0.85} ${cy + ry * 0.2} Z`;
+    const coverage = v("beard_coverage");
+    const wide = rx * (0.3 + 0.55 * coverage);
+    const top = cy + ry * (0.62 - 0.42 * coverage);
+    const jaw = `M ${cx - wide} ${top} Q ${cx} ${chin + ry * 0.3} ${cx + wide} ${top} Q ${cx} ${chin - ry * 0.1} ${cx - wide} ${top} Z`;
     shapes.push({ kind: "path", part: "beard", d: jaw, fill: hair, opacity: beard });
+    shapes.push({
+      kind: "ellipse", part: "moustache", cx, cy: mouthY - 2, rx: rx * 0.3, ry: 1.2, fill: hair, opacity: beard,
+    });
   }
   return shapes;
 }
