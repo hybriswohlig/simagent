@@ -2,7 +2,7 @@
 //! section 4): `cargo xtask codegen` writes them from `contracts/body.json` beside the Rust
 //! types, and the contract check of the gate compares the checked-in file with a fresh
 //! generation. The file holds data only: the keys, each parameter's group, unit, range and
-//! default, and the sRGB grids of the melanin rule, which `web/` reads and never computes.
+//! default, and the sRGB tables of the melanin rule, which `web/` reads and never computes.
 
 use std::fmt::Write;
 
@@ -76,9 +76,13 @@ pub fn generate(body_json: &str) -> Result<String, Vec<String>> {
     line("};");
     line("");
     line("/**");
-    line(" * The sRGB grids of the melanin rule (ADR-0005 section 5): per material the points of");
-    line(" * eumelanin and pheomelanin and the colour at each pair, rows by eumelanin. Readers");
-    line(" * linearise and interpolate bilinearly between the points.");
+    line(
+        " * The sRGB tables of the melanin rule (ADR-0005 section 5), as the contract states them:",
+    );
+    line(
+        " * skin and hair over the points of eumelanin and pheomelanin, rows by eumelanin; the iris",
+    );
+    line(" * over the points of melanin. Readers linearise and interpolate between the points.");
     line(" */");
     line("export const MELANIN_TO_SRGB = {");
     let tables = body["melanin_to_srgb"].as_object();
@@ -87,8 +91,11 @@ pub fn generate(body_json: &str) -> Result<String, Vec<String>> {
             "  {}: {{",
             literal(&Value::from(material.as_str()))
         ));
-        for field in ["eumelanin", "pheomelanin"] {
-            line(&format!("    {field}: {},", literal(&table[field])));
+        // The axes, each a list of support points, in the order of their names.
+        let axes = (table.as_object().into_iter().flatten()).filter(|(name, _)| *name != "srgb");
+        for (axis, points) in axes {
+            let name = literal(&Value::from(axis.as_str()));
+            line(&format!("    {name}: {},", literal(points)));
         }
         line("    srgb: [");
         let rows = table["srgb"].as_array().unwrap_or(&empty);

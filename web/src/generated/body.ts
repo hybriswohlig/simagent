@@ -113,14 +113,14 @@ export const BODY_PARAMS: { readonly [K in BodyParamKey]: BodyParam } = {
 };
 
 /**
- * The sRGB grids of the melanin rule (ADR-0005 section 5): per material the points of
- * eumelanin and pheomelanin and the colour at each pair, rows by eumelanin. Readers
- * linearise and interpolate bilinearly between the points.
+ * The sRGB tables of the melanin rule (ADR-0005 section 5), as the contract states them:
+ * skin and hair over the points of eumelanin and pheomelanin, rows by eumelanin; the iris
+ * over the points of melanin. Readers linearise and interpolate between the points.
  */
 export const MELANIN_TO_SRGB = {
   "hair": {
-    eumelanin: [0,0.25,0.5,0.75,1],
-    pheomelanin: [0,0.25,0.5,0.75,1],
+    "eumelanin": [0,0.25,0.5,0.75,1],
+    "pheomelanin": [0,0.25,0.5,0.75,1],
     srgb: [
       ["#e9dfc6","#e6cfb1","#e3bd97","#dfa977","#dc9043"],
       ["#8c8171","#8a7764","#886c55","#866041","#845123"],
@@ -130,8 +130,7 @@ export const MELANIN_TO_SRGB = {
     ],
   },
   "iris": {
-    eumelanin: null,
-    pheomelanin: null,
+    "melanin": [0,0.25,0.5,0.75,1],
     srgb: [
       "#8fb3d9",
       "#7c9f8c",
@@ -141,8 +140,8 @@ export const MELANIN_TO_SRGB = {
     ],
   },
   "skin": {
-    eumelanin: [0,0.25,0.5,0.75,1],
-    pheomelanin: [0,0.25,0.5,0.75,1],
+    "eumelanin": [0,0.25,0.5,0.75,1],
+    "pheomelanin": [0,0.25,0.5,0.75,1],
     srgb: [
       ["#f7e6dc","#f6e2d3","#f5decb","#f5d9c1","#f4d5b7"],
       ["#b09588","#af9282","#af8f7c","#ae8c76","#ad8970"],
