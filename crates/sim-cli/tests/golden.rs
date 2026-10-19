@@ -25,8 +25,8 @@ use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
 use sim_core::version::CORE_VERSION;
 
-/// The data hash of the definitions of the repository, from `tools/data_reference.py`
-/// (ADR-0007).
+/// The data hash of the repository's data, the definitions with the pool and its
+/// frequencies, from `tools/data_reference.py` (ADR-0007).
 const DATA_HASH: u64 = 0xb1f5_c005_4302_363d;
 use sim_core::world::{EventPayload, World, YearOut};
 

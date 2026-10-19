@@ -242,6 +242,58 @@ mod tests {
         assert_eq!(core_data().expect("data").hash(), 0xb1f5_c005_4302_363d);
     }
 
+    /// The pool's frequencies are read like calibration values: the unit `fraction`, the three
+    /// text fields filled, no other field; what is wrong names the file (review).
+    #[test]
+    fn the_frequencies_file_is_checked() {
+        let detail = |text: &str| match frequencies_from(text) {
+            Ok(_) => "ok".to_owned(),
+            Err(error) => error.detail,
+        };
+        assert_eq!(detail(FREQUENCIES), "ok");
+        let unit = FREQUENCIES.replacen(r#""unit": "fraction""#, r#""unit": "ratio""#, 1);
+        assert_ne!(unit, FREQUENCIES);
+        assert!(
+            detail(&unit).ends_with("is not a fraction"),
+            "{}",
+            detail(&unit)
+        );
+        let edited = |edit: &dyn Fn(&mut serde_json::Map<String, Value>)| {
+            let mut file: Value = serde_json::from_str(FREQUENCIES).expect("json");
+            edit(
+                file["pool_frequencies"]["core:mc1r"]
+                    .as_object_mut()
+                    .expect("an entry"),
+            );
+            detail(&file.to_string())
+        };
+        for field in ["source", "as_of", "note"] {
+            assert_eq!(
+                edited(&|entry| {
+                    entry.remove(field);
+                }),
+                format!("pool/pool_frequencies.json: {field} missing or blank"),
+                "{field}"
+            );
+            assert_eq!(
+                edited(&|entry| {
+                    entry.insert(field.to_owned(), Value::from(" "));
+                }),
+                format!("pool/pool_frequencies.json: {field} missing or blank"),
+                "{field} blank"
+            );
+        }
+        let unknown = edited(&|entry| {
+            entry.insert("extra".to_owned(), Value::from(1));
+        });
+        assert!(
+            unknown.starts_with("pool/pool_frequencies.json: unknown field `extra`"),
+            "{unknown}"
+        );
+        let unwrapped = FREQUENCIES.replacen("pool_frequencies", "frequencies", 1);
+        assert_eq!(detail(&unwrapped), "pool/pool_frequencies.json: no entries");
+    }
+
     #[test]
     fn text_does_not_change_the_hash() {
         let noted = MAP3_CALIBRATION.replacen("rounded to 0.01 M", "rounded to a hundredth", 1);
