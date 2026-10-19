@@ -469,6 +469,7 @@ fn the_presentation_shows_the_references_bodies() {
                         key.as_str()
                     );
                 }
+                assert_eq!(reached(&view), ages(&view), "{name}: sim {sim:?}");
                 for shown in &view.at_ages {
                     let body = world
                         .state()
@@ -499,6 +500,7 @@ fn the_presentation_shows_the_references_bodies() {
             let view = world.person_view(person.sim).expect("a view");
             assert_eq!(view.shown.at.t, end, "{name}: sim {:?}", person.sim);
             assert!(view.ended.is_some(), "{name}: sim {:?}", person.sim);
+            assert_eq!(reached(&view), ages(&view), "{name}: sim {:?}", person.sim);
             if let Some((_, kept)) = before.iter().rev().find(|(sim, _)| *sim == person.sim) {
                 assert_eq!(
                     &values(&world, person.sim, until),
@@ -509,11 +511,43 @@ fn the_presentation_shows_the_references_bodies() {
                 left += 1;
             }
         }
+        let census = |out: &YearOut| {
+            (out.census.iter())
+                .map(|row| {
+                    (
+                        row.year,
+                        row.living,
+                        row.lived_secs,
+                        row.body.evaluated,
+                        row.body.clamped.to_vec(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(census(&out), census(&twin_out), "{name}: census");
         let hashes = |out: &YearOut| out.year_hashes.iter().map(|y| y.hash).collect::<Vec<u64>>();
         assert_eq!(hashes(&out), hashes(&twin_out), "{name}: year hashes");
         assert_eq!(log_hash(&log), log_hash(&twin_log), "{name}: log");
     }
     assert!(left > 0, "nobody who was seen living left");
+}
+
+/// The ages of a view's bodies at reached ages.
+fn ages(view: &sim_core::presentation::PersonView) -> Vec<i64> {
+    view.at_ages
+        .iter()
+        .map(|shown| shown.at.age_years)
+        .collect()
+}
+
+/// The ages of `SHOWN_AGES` the person of `view` reached by its shown second: a birthday
+/// counts from its own second on (one year is 31 449 600 seconds).
+fn reached(view: &sim_core::presentation::PersonView) -> Vec<i64> {
+    let lived = view.shown.at.t.as_secs() - view.born.t.as_secs();
+    (sim_core::presentation::SHOWN_AGES.iter())
+        .copied()
+        .filter(|age| age * 31_449_600 <= lived)
+        .collect()
 }
 
 /// The census evaluates every living sim once a year (design note of the census, 3.6:
