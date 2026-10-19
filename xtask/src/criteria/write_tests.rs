@@ -107,6 +107,7 @@ fn run_town(
         n_start,
         capacity: None,
         immigration,
+        village: false,
         end: SimTime::from_secs(end),
     };
     crate::criteria::town::run_town(town_data(pool), &plan).expect("a run")

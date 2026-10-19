@@ -485,9 +485,8 @@ fn the_reference_pins_the_village_and_the_permutations() {
         exact("tol", 4.0 * check.se, &want["tol"]);
         close("power", check.power, &want["power"]);
         assert_eq!(Some(check.pass), want["pass"].as_bool(), "{name}");
-        // The twin: every V_i divided by V̄ (mean 1, no drift).
-        let ratios: Vec<f64> = v.iter().map(|v_i| v_i / check.mean_v).collect();
-        let twin = village(&ratios, &e).expect("a check");
+        // The twin (Grok D3): every V_i shifted to mean 1, the same spread (no drift).
+        let twin = crate::criteria::village::twin(&v, &e, check.mean_v).expect("a check");
         exact("twin v_bar", twin.mean_v, &want["twin_v_bar"]);
         exact("twin se", twin.se, &want["twin_se"]);
         assert_eq!(Some(twin.pass), want["twin_pass"].as_bool(), "{name} twin");
