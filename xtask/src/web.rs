@@ -1,34 +1,47 @@
-//! The web build of the gate (ADR-0021 section 4): scans first (the import map names
-//! exactly the vendored Preact modules, nothing in `web/` reaches another host, and only
-//! `web/src/render/` computes with `Math.`); then the running Node has the major of
-//! `web/.nvmrc`, `npm ci` installs the locked packages without scripts, the pinned `tsc`
-//! compiles `web/src` into a fresh `web/dist` beside `web/static` and the vendored modules,
-//! and `node --test` runs `web/test` on it.
+//! The web build of the gate (ADR-0021 section 4). It removes `web/dist`, scans `web/src`
+//! (no symbolic link, no other host, `Math` only under `web/src/render/`), checks that the
+//! running Node has the major of `web/.nvmrc`, installs the locked packages without scripts
+//! (`npm ci`), compiles `web/src` with the pinned `tsc` into `web/dist`, writes the page
+//! with its import map there and copies the vendored Preact modules beside it, and runs
+//! `web/test` with `node --test` on it. `tsc` and the tests run under Node's permission
+//! model: they read only `web/`, `tsc` writes only `web/dist`, the tests write nothing and
+//! start no process.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Result;
 
-/// The import map of `web/static/index.html`: the specifier, the module in `web/dist`, and
-/// the file below `web/node_modules` it is copied from.
+/// The import map of the page: the specifier, the module in `web/dist`, and the file below
+/// `web/node_modules` it is copied from.
 pub const VENDOR: [(&str, &str, &str); 3] = [
-    ("preact", "./vendor/preact.mjs", "preact/dist/preact.mjs"),
+    ("preact", "vendor/preact.mjs", "preact/dist/preact.mjs"),
     (
         "preact/hooks",
-        "./vendor/hooks.mjs",
+        "vendor/hooks.mjs",
         "preact/hooks/dist/hooks.mjs",
     ),
     (
         "preact/jsx-runtime",
-        "./vendor/jsx-runtime.mjs",
+        "vendor/jsx-runtime.mjs",
         "preact/jsx-runtime/dist/jsxRuntime.mjs",
     ),
 ];
 /// The one directory of `web/src` whose code may compute (SVG geometry, the sRGB rule
 /// ADR-0005 section 5 gives to readers).
 const RENDER: &str = "web/src/render/";
-const IMPORT_MAP: &str = "<script type=\"importmap\">";
+
+/// The page, `web/dist/index.html`. It is written here and not kept in `web/`, so its
+/// import map is exactly [`VENDOR`] and it loads nothing but `./main.js`.
+pub fn page() -> String {
+    let imports: serde_json::Map<String, serde_json::Value> = (VENDOR.iter())
+        .map(|(name, path, _)| ((*name).to_owned(), serde_json::json!(format!("./{path}"))))
+        .collect();
+    let map = serde_json::json!({ "imports": imports });
+    format!(
+        "<!doctype html>\n<html lang=\"de\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>SimAgent</title>\n    <script type=\"importmap\">{map}</script>\n    <script type=\"module\" src=\"./main.js\"></script>\n  </head>\n  <body>\n    <main id=\"app\"></main>\n  </body>\n</html>\n"
+    )
+}
 
 /// Whether `node --version` printed the major of `.nvmrc`.
 pub fn node_major(printed: &str, nvmrc: &str) -> Result {
@@ -47,39 +60,19 @@ pub fn node_major(printed: &str, nvmrc: &str) -> Result {
     }
 }
 
-/// The page holds one import map, exactly [`VENDOR`], and refers only to its own files
-/// (`./`, no `..`).
-pub fn import_map_findings(html: &str) -> Vec<String> {
-    let mut findings = Vec::new();
-    let maps = html.matches("type=\"importmap\"").count();
-    let map = (html.split_once(IMPORT_MAP))
-        .and_then(|(_, after)| after.split_once("</script>"))
-        .map(|(map, _)| map);
-    let expected: serde_json::Map<String, serde_json::Value> = (VENDOR.iter())
-        .map(|(name, path, _)| ((*name).to_owned(), serde_json::json!(path)))
-        .collect();
-    let expected = serde_json::json!({ "imports": expected });
-    match map.map(serde_json::from_str::<serde_json::Value>) {
-        Some(Ok(found)) if maps == 1 && found == expected => {}
-        _ => findings.push(format!(
-            "web/static/index.html: the import map is not exactly {expected}"
-        )),
-    }
-    for attribute in ["src=\"", "href=\""] {
-        for (_, rest) in html.match_indices(attribute).map(|(i, _)| html.split_at(i)) {
-            let value = rest[attribute.len()..].split('"').next().unwrap_or("");
-            if !value.starts_with("./") || value.contains("..") {
-                findings.push(format!(
-                    "web/static/index.html: {attribute}{value}\" is not a file of web/dist"
-                ));
-            }
-        }
-    }
-    findings
+/// Whether `text` holds the word `Math` (not inside a longer identifier such as `myMath`).
+fn names_math(text: &str) -> bool {
+    let identifier =
+        |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$');
+    text.match_indices("Math").any(|(i, word)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + word.len()..].chars().next();
+        !identifier(before) && !identifier(after)
+    })
 }
 
-/// A file of `web/src` or `web/static` names no other host, and computes (`Math.`) only
-/// under [`RENDER`].
+/// A file of `web/src` names no other host and uses `Math` only under [`RENDER`]. A
+/// tripwire for review, not a proof that nothing computes (ADR-0021 section 4).
 pub fn source_findings(path: &str, text: &str) -> Vec<String> {
     let mut findings = Vec::new();
     if text.contains("://") {
@@ -87,22 +80,29 @@ pub fn source_findings(path: &str, text: &str) -> Vec<String> {
             "{path}: names another host (web/ talks only to its own server)"
         ));
     }
-    if path.starts_with("web/src/") && !path.starts_with(RENDER) && text.contains("Math.") {
+    if !path.starts_with(RENDER) && names_math(text) {
         findings.push(format!(
-            "{path}: uses Math. outside {RENDER} (web/ computes nothing, ADR-0021)"
+            "{path}: uses Math outside {RENDER} (web/ computes nothing, ADR-0021)"
         ));
     }
     findings
 }
 
-/// Every file below `dir`, sorted.
-fn files(dir: &Path) -> Result<Vec<PathBuf>> {
+/// Every file below `dir`, sorted; a symbolic link is an error.
+fn files(root: &Path, dir: &Path) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for entry in entries {
-        let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-        if path.is_dir() {
-            found.extend(files(&path)?);
+        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if kind.is_symlink() {
+            return Err(format!(
+                "{}: a symbolic link in web/",
+                crate::relative(root, &path)
+            ));
+        } else if kind.is_dir() {
+            found.extend(files(root, &path)?);
         } else {
             found.push(path);
         }
@@ -111,16 +111,15 @@ fn files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// The scans over the sources of `root/web`.
+/// The scans over `root/web/src`, and `root/web/test` holds no symbolic link.
 pub fn scan(root: &Path) -> Result<Vec<String>> {
     let web = root.join("web");
-    let mut findings = import_map_findings(&crate::read(&web.join("static/index.html"))?);
-    for dir in ["src", "static"] {
-        for file in files(&web.join(dir))? {
-            let text = crate::read(&file)?;
-            findings.extend(source_findings(&crate::relative(root, &file), &text));
-        }
+    let mut findings = Vec::new();
+    for file in files(root, &web.join("src"))? {
+        let text = crate::read(&file)?;
+        findings.extend(source_findings(&crate::relative(root, &file), &text));
     }
+    files(root, &web.join("test"))?;
     Ok(findings)
 }
 
@@ -137,20 +136,28 @@ fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
     }
 }
 
-fn copy(from: &Path, to: &Path) -> Result {
+/// Writes a file of `web/dist` that `tsc` must not have written.
+fn add(to: &Path, contents: &[u8]) -> Result {
+    if to.exists() {
+        return Err(format!("{}: tsc wrote it already", to.display()));
+    }
     let parent = to.parent().ok_or("a file without a directory")?;
     std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    std::fs::copy(from, to).map_err(|e| format!("{} to {}: {e}", from.display(), to.display()))?;
-    Ok(())
+    std::fs::write(to, contents).map_err(|e| format!("{}: {e}", to.display()))
 }
 
 /// `cargo xtask web` and the gate step "web".
 pub fn build(root: &Path) -> Result {
+    let web = root.join("web");
+    let dist = web.join("dist");
+    // First, so that a failed build leaves no old output behind.
+    if dist.symlink_metadata().is_ok() {
+        std::fs::remove_dir_all(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
+    }
     let findings = scan(root)?;
     if !findings.is_empty() {
         return Err(format!("\n  {}", findings.join("\n  ")));
     }
-    let web = root.join("web");
     let printed = Command::new("node")
         .arg("--version")
         .output()
@@ -170,34 +177,30 @@ pub fn build(root: &Path) -> Result {
             "--prefer-offline",
         ],
     )?;
-    let dist = web.join("dist");
-    if dist.exists() {
-        std::fs::remove_dir_all(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
-    }
+    // Node's permission model takes a directory only if it exists when Node starts.
+    std::fs::create_dir(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
+    let read = format!("--allow-fs-read={}", web.display());
+    let write = format!("--allow-fs-write={}", dist.display());
+    let tsc = "node_modules/typescript/bin/tsc";
     run(
         &web,
         "node",
-        &["node_modules/typescript/bin/tsc", "-p", "tsconfig.json"],
+        &["--permission", &read, &write, tsc, "-p", "tsconfig.json"],
     )?;
-    let statics = web.join("static");
-    for file in files(&statics)? {
-        let relative = file.strip_prefix(&statics).map_err(|e| e.to_string())?;
-        copy(&file, &dist.join(relative))?;
-    }
+    add(&dist.join("index.html"), page().as_bytes())?;
     for (_, to, from) in VENDOR {
-        let to = to
-            .strip_prefix("./")
-            .ok_or("a vendored module outside web/dist")?;
-        copy(&web.join("node_modules").join(from), &dist.join(to))?;
+        let from = web.join("node_modules").join(from);
+        let module = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        add(&dist.join(to), &module)?;
     }
-    let tests: Vec<String> = (files(&web.join("test"))?.iter())
+    let tests: Vec<String> = (files(root, &web.join("test"))?.iter())
         .map(|file| crate::relative(&web, file))
         .filter(|file| file.ends_with(".test.mjs"))
         .collect();
     if tests.is_empty() {
         return Err("web/test holds no *.test.mjs".to_owned());
     }
-    let mut args = vec!["--test"];
+    let mut args = vec!["--permission", &read, "--test-isolation=none", "--test"];
     args.extend(tests.iter().map(String::as_str));
     run(&web, "node", &args)
 }
