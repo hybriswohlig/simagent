@@ -24,7 +24,15 @@ lerps); each case's `margin` is the distance of its nearest scaled channel to a 
 rounding boundary, so a case with a small margin could round differently in another
 language.
 
-Usage: python3 tools/melanin_reference.py [vectors.json]
+The boundaries file holds `bytes` (every byte 0 to 255 linearised by step 2, and the byte
+step 5 gives back for that value), `beside` (inputs 1e-9 below and above each support
+point, on each axis of skin and hair with the other axis at 0.4, and on the iris; the rule
+clamps those outside [0, 1]) and `ties` (double inputs whose scaled channel is exactly
+k + 0.5 under the rule in double, found by bisection along the `beside` lines; per table
+the first with an even k whose 60-digit value lies below k + 0.5, so the rule's
+floor(v + 0.5) gives k + 1 where half-even rounding and exact arithmetic give k).
+
+Usage: python3 tools/melanin_reference.py [vectors.json [boundaries.json]]
 (without a path the vectors go to stdout; the summary always goes to stderr)
 """
 
@@ -90,8 +98,23 @@ def cell(points: list, x: float, last: bool = False):
     raise ValueError(f"{x} outside the support points")
 
 
+_LINEAR = {}
+
+
+def lin_table(table: dict) -> list:
+    """The table's colours linearised (step 2), computed once per table."""
+    key = id(table)
+    if key not in _LINEAR:
+        rows = table["srgb"]
+        if isinstance(rows[0], list):
+            _LINEAR[key] = [[[to_linear(b) for b in decode(h)] for h in row] for row in rows]
+        else:
+            _LINEAR[key] = [[to_linear(b) for b in decode(h)] for h in rows]
+    return _LINEAR[key]
+
+
 def grid_linear(table: dict, e: float, p: float, last: bool = False) -> list:
-    lin = [[[to_linear(b) for b in decode(h)] for h in row] for row in table["srgb"]]
+    lin = lin_table(table)
     i, t = cell(table["eumelanin"], clamp01(e), last)
     j, u = cell(table["pheomelanin"], clamp01(p), last)
     return [
@@ -104,7 +127,7 @@ def grid_linear(table: dict, e: float, p: float, last: bool = False) -> list:
 
 
 def ramp_linear(table: dict, m: float, last: bool = False) -> list:
-    lin = [[to_linear(b) for b in decode(h)] for h in table["srgb"]]
+    lin = lin_table(table)
     i, t = cell(table["melanin"], clamp01(m), last)
     return [(1 - t) * lin[i][k] + t * lin[i + 1][k] for k in range(3)]
 
@@ -128,7 +151,7 @@ def lerp(a: float, b: float, t: float) -> float:
 
 
 def grid_linear_alt(table: dict, e: float, p: float, order: str) -> list:
-    lin = [[[to_linear(b) for b in decode(h)] for h in row] for row in table["srgb"]]
+    lin = lin_table(table)
     i, t = cell(table["eumelanin"], clamp01(e))
     j, u = cell(table["pheomelanin"], clamp01(p))
     out = []
@@ -145,7 +168,7 @@ def grid_linear_alt(table: dict, e: float, p: float, order: str) -> list:
 
 
 def ramp_linear_alt(table: dict, m: float) -> list:
-    lin = [[to_linear(b) for b in decode(h)] for h in table["srgb"]]
+    lin = lin_table(table)
     i, t = cell(table["melanin"], clamp01(m))
     return [lerp(lin[i][k], lin[i + 1][k], t) for k in range(3)]
 
@@ -197,6 +220,130 @@ def mp_scaled(table: dict, inp: list) -> list:
     return [mp_from_linear(l) * 255 for l in ls]
 
 
+# ------------------------------------------------------------------------ boundaries
+
+BESIDE_DELTA = 1e-9
+OTHER_AXIS = 0.4
+TIE_SCAN = 64
+
+
+def byte_rows() -> list:
+    """Every byte linearised (step 2) and converted back (step 5)."""
+    rows = []
+    for b in range(256):
+        lin = to_linear(b)
+        rows.append({"byte": b, "linear": lin, "back": math.floor(from_linear(lin) * 255 + 0.5)})
+    return rows
+
+
+def axis_inputs(name: str, x: float) -> list:
+    """The input with `x` on one axis; for skin and hair as (e, p) pairs on both axes."""
+    if name == "iris":
+        return [[x]]
+    return [[x, OTHER_AXIS], [OTHER_AXIS, x]]
+
+
+def beside_cases(tables: dict) -> list:
+    """Inputs 1e-9 below and above every support point (the rule clamps those outside
+    [0, 1]); `input` holds the unclamped value."""
+    cases = []
+    for name in ("skin", "hair", "iris"):
+        for axis in (0, 1) if name != "iris" else (0,):
+            for s in SUPPORTS:
+                for x in (s - BESIDE_DELTA, s + BESIDE_DELTA):
+                    cases.append(evaluate(tables, name, axis_inputs(name, x)[axis]))
+    return cases
+
+
+def scaled_at(tables: dict, name: str, inp: list) -> list:
+    table = tables[name]
+    linear = grid_linear(table, *inp) if len(inp) == 2 else ramp_linear(table, inp[0])
+    return [from_linear(l) * 255 for l in linear]
+
+
+def find_ties(tables: dict) -> tuple:
+    """Search the lines of `beside` (each axis of skin and hair with the other at 0.4, the
+    iris ramp) for double inputs whose scaled channel is exactly k + 0.5. Within a cell a
+    channel is monotone in exact arithmetic, so every k + 0.5 between the cell's end
+    values is crossed once: bisect over doubles to the crossing, then test TIE_SCAN
+    neighbouring doubles on each side. Returns (crossings examined, crossings with at
+    least one tie, ties found as (table, input, channel, k))."""
+    crossings = 0
+    with_tie = 0
+    ties = []
+    for name in ("skin", "hair", "iris"):
+        for axis in (0, 1) if name != "iris" else (0,):
+            def at(x, name=name, axis=axis):
+                return scaled_at(tables, name, axis_inputs(name, x)[axis])
+            for c in range(len(SUPPORTS) - 1):
+                a, b = SUPPORTS[c], SUPPORTS[c + 1]
+                sa, sb = at(a), at(b)
+                for ch in range(3):
+                    lo, hi = min(sa[ch], sb[ch]), max(sa[ch], sb[ch])
+                    for k in range(math.floor(lo - 0.5), math.floor(hi - 0.5) + 1):
+                        target = k + 0.5
+                        if not lo < target < hi:
+                            continue
+                        crossings += 1
+                        x0, x1 = a, b
+                        below = sa[ch] < target
+                        while True:
+                            mid = (x0 + x1) / 2
+                            if mid <= x0 or mid >= x1:
+                                break
+                            if (at(mid)[ch] < target) == below:
+                                x0 = mid
+                            else:
+                                x1 = mid
+                        found = set()
+                        for start, direction in ((x0, a), (x1, b)):
+                            x = start
+                            for _ in range(TIE_SCAN + 1):
+                                if at(x)[ch] == target:
+                                    found.add(x)
+                                if x == direction:
+                                    break
+                                x = math.nextafter(x, direction)
+                        with_tie += bool(found)
+                        for x in sorted(found):
+                            ties.append((name, axis_inputs(name, x)[axis], ch, k))
+    return crossings, with_tie, ties
+
+
+def tie_report(tables: dict, name: str, inp: list, ch: int) -> dict:
+    """How robust one tie is: the 60-digit value, the other orderings, and whether the
+    platform pow was correctly rounded on its path."""
+    table = tables[name]
+    mp = mp_scaled(table, inp)[ch]
+    if len(inp) == 2:
+        alts = [grid_linear_alt(table, *inp, order=o) for o in ("e_first", "p_first")]
+        linear = grid_linear(table, *inp)
+    else:
+        alts = [ramp_linear_alt(table, inp[0])]
+        linear = ramp_linear(table, inp[0])
+    alt_scaled = [from_linear(a[ch]) * 255 for a in alts]
+    l = linear[ch]
+    pow_cr = float(mpmath.mpf(l) ** mpmath.mpf(1 / 2.4))
+    return {
+        "exact_scaled": mpmath.nstr(mp, 25),
+        "exact_byte": int(mpmath.floor(mp + mpmath.mpf("0.5"))),
+        "alt_scaled": alt_scaled,
+        "pow_correctly_rounded": l ** (1 / 2.4) == pow_cr,
+    }
+
+
+def pow_check() -> int:
+    """Bytes whose platform pow in step 2 differs from the correctly rounded double."""
+    bad = 0
+    for b in range(256):
+        c = b / 255
+        if c > 0.04045:
+            base = (c + 0.055) / 1.055
+            if base ** 2.4 != float(mpmath.mpf(base) ** mpmath.mpf(2.4)):
+                bad += 1
+    return bad
+
+
 # ---------------------------------------------------------------------------- driver
 
 def evaluate(tables: dict, name: str, inp: list) -> dict:
@@ -222,10 +369,44 @@ def check_tables(tables: dict) -> None:
         decode(h)
 
 
+def cross_check(tables: dict, cases: list, findings: list) -> float:
+    """The 60-digit rule and two other float orderings must give the same hex; returns
+    the largest |scaled(double) - scaled(60 digits)|."""
+    max_mp_diff = 0.0
+    for case in cases:
+        table = tables[case["table"]]
+        mp = mp_scaled(table, case["input"])
+        mp_hex = "#" + "".join(f"{int(mpmath.floor(s + mpmath.mpf('0.5'))):02x}" for s in mp)
+        if mp_hex != case["hex"]:
+            findings.append(f"mpmath {case['table']} {case['input']}: {mp_hex} != {case['hex']}")
+        max_mp_diff = max(max_mp_diff, max(float(abs(mpmath.mpf(f) - s))
+                                           for f, s in zip(case["scaled"], mp)))
+        if len(case["input"]) == 2:
+            alts = [grid_linear_alt(table, *case["input"], order=o) for o in ("e_first", "p_first")]
+        else:
+            alts = [ramp_linear_alt(table, case["input"][0])]
+        for alt in alts:
+            if finish(alt)["hex"] != case["hex"]:
+                findings.append(f"ordering {case['table']} {case['input']}: differs")
+    return max_mp_diff
+
+
+def low_margins(cases: list, err) -> None:
+    low = sorted((c for c in cases if c["margin"] < 0.01), key=lambda c: c["margin"])
+    smallest = min(cases, key=lambda c: c["margin"])
+    print(f"  smallest margin: {smallest['margin']!r} at {smallest['table']} "
+          f"{smallest['input']} -> {smallest['hex']}", file=err)
+    print(f"  cases with margin < 0.01: {len(low)}", file=err)
+    for c in low:
+        print(f"    {c['table']} {c['input']} -> {c['hex']} margin {c['margin']!r} "
+              f"scaled {c['scaled']}", file=err)
+
+
 def main() -> int:
     start = time.perf_counter()
     tables = json.loads(CONTRACT.read_text())["melanin_to_srgb"]
     check_tables(tables)
+    findings = []
 
     # Every byte survives the round trip linearise, delinearise (the support points rest
     # on this), with its margin.
@@ -236,7 +417,6 @@ def main() -> int:
         byte_margin = min(byte_margin, abs((s - math.floor(s)) - 0.5))
 
     cases = []
-    findings = []
 
     # Support points: they must give back the table colour exactly.
     for name in ("skin", "hair"):
@@ -276,44 +456,76 @@ def main() -> int:
             findings.append(f"clamp {name} {inp}: {case['hex']} != {ref['hex']}")
         cases.append(case)
 
-    # Cross checks: 60-digit rule and two other float orderings.
-    max_mp_diff = 0.0
-    for case in cases:
-        table = tables[case["table"]]
-        mp = mp_scaled(table, case["input"])
-        mp_hex = "#" + "".join(f"{int(mpmath.floor(s + mpmath.mpf('0.5'))):02x}" for s in mp)
-        if mp_hex != case["hex"]:
-            findings.append(f"mpmath {case['table']} {case['input']}: {mp_hex} != {case['hex']}")
-        max_mp_diff = max(max_mp_diff, max(float(abs(mpmath.mpf(f) - s))
-                                           for f, s in zip(case["scaled"], mp)))
-        if len(case["input"]) == 2:
-            alts = [grid_linear_alt(table, *case["input"], order=o) for o in ("e_first", "p_first")]
-        else:
-            alts = [ramp_linear_alt(table, case["input"][0])]
-        for alt in alts:
-            if finish(alt)["hex"] != case["hex"]:
-                findings.append(f"ordering {case['table']} {case['input']}: differs")
+    max_mp_diff = cross_check(tables, cases, findings)
+    vectors_time = time.perf_counter() - start
 
+    # Boundaries: bytes, inputs beside the support points, exact ties.
+    bytes_rows = byte_rows()
+    for row in bytes_rows:
+        if row["back"] != row["byte"]:
+            findings.append(f"byte {row['byte']} comes back as {row['back']}")
+    pow_bad = pow_check()
+
+    beside = beside_cases(tables)
+    beside_mp_diff = cross_check(tables, beside, findings)
+    max_jump = 0.0
+    for case in beside:
+        # Against the same line exactly at the support point: no jump at the cell change.
+        inp = [clamp01(x) for x in case["input"]]
+        nearest = [min(SUPPORTS, key=lambda s: abs(s - x)) for x in inp]
+        at_point = [n if abs(n - x) <= 2 * BESIDE_DELTA else x for n, x in zip(nearest, inp)]
+        ref = evaluate(tables, case["table"], at_point)
+        if ref["hex"] != case["hex"]:
+            findings.append(f"beside {case['table']} {case['input']}: {case['hex']} != {ref['hex']}")
+        max_jump = max(max_jump, max(abs(a - b) for a, b in zip(case["scaled"], ref["scaled"])))
+
+    crossings, crossings_with_tie, ties = find_ties(tables)
+    # Per table the first tie (in search order) with an even k whose 60-digit value lies
+    # below k + 0.5: the rule gives k + 1, half-even rounding and exact arithmetic give k.
+    tie_cases, tie_reports = [], []
+    for name in ("skin", "hair", "iris"):
+        for tname, inp, ch, k in ties:
+            if tname != name or k % 2:
+                continue
+            report = tie_report(tables, name, inp, ch)
+            if report["exact_byte"] == k:
+                case = evaluate(tables, name, inp)
+                assert case["scaled"][ch] == k + 0.5 and case["margin"] == 0.0
+                tie_cases.append(case)
+                tie_reports.append((case, ch, k, report))
+                break
     elapsed = time.perf_counter() - start
-    low = sorted((c for c in cases if c["margin"] < 0.01), key=lambda c: c["margin"])
-    smallest = min(cases, key=lambda c: c["margin"])
 
     text = json.dumps(cases, indent=1)
     if len(sys.argv) > 1:
         Path(sys.argv[1]).write_text(text + "\n")
     else:
         print(text)
+    if len(sys.argv) > 2:
+        boundaries = {"bytes": bytes_rows, "beside": beside, "ties": tie_cases}
+        Path(sys.argv[2]).write_text(json.dumps(boundaries, indent=1) + "\n")
 
     err = sys.stderr
-    print(f"cases: {len(cases)} ({support_count} support points)", file=err)
-    print(f"byte round trip: all 256 bytes ok, smallest margin {byte_margin!r}", file=err)
-    print(f"smallest margin: {smallest['margin']!r} at {smallest['table']} "
-          f"{smallest['input']} -> {smallest['hex']}", file=err)
-    print(f"cases with margin < 0.01: {len(low)}", file=err)
-    for c in low:
-        print(f"  {c['table']} {c['input']} -> {c['hex']} margin {c['margin']!r} "
-              f"scaled {c['scaled']}", file=err)
-    print(f"max |scaled(double) - scaled(60 digits)|: {max_mp_diff!r}", file=err)
+    print(f"vectors: {len(cases)} cases ({support_count} support points)", file=err)
+    print(f"  byte round trip: all 256 bytes ok, smallest margin {byte_margin!r}", file=err)
+    low_margins(cases, err)
+    print(f"  max |scaled(double) - scaled(60 digits)|: {max_mp_diff!r}", file=err)
+    print(f"  time: {vectors_time:.3f} s", file=err)
+    print("boundaries:", file=err)
+    print(f"  bytes: 256, every byte comes back: "
+          f"{all(r['back'] == r['byte'] for r in bytes_rows)}; "
+          f"platform pow not correctly rounded in step 2 for {pow_bad} bytes", file=err)
+    print(f"  beside: {len(beside)} cases, largest scaled jump against the support point "
+          f"{max_jump!r}", file=err)
+    low_margins(beside, err)
+    print(f"  max |scaled(double) - scaled(60 digits)|: {beside_mp_diff!r}", file=err)
+    print(f"  ties: {crossings} crossings of k + 0.5 searched, {crossings_with_tie} with at "
+          f"least one exact tie within {TIE_SCAN} doubles, {len(ties)} tie inputs", file=err)
+    for case, ch, k, report in tie_reports:
+        print(f"    {case['table']} {case['input']!r} channel {'rgb'[ch]}: scaled "
+              f"{case['scaled'][ch]!r} -> {case['hex']}; 60 digits {report['exact_scaled']} "
+              f"(byte {report['exact_byte']}); other orderings {report['alt_scaled']!r}; "
+              f"pow correctly rounded {report['pow_correctly_rounded']}", file=err)
     print(f"findings: {len(findings)}", file=err)
     for f in findings:
         print(f"  {f}", file=err)
