@@ -4,8 +4,8 @@ section 1, which replaces `core:height` of ADR-0015 section 2), written from the
 the repository's data, independent of the Rust code: the golden template
 `tests/golden/map4_template/{calibration/genetics.json, genetics/genome_map.json}`, the
 pre-run's starting point (ADR-0020 section 3: `d_ref` = 1 at every additive locus, `sigma_ref`
-= the start value `σ_start`). The repository's data stay map 3; the life course data of the
-template are the repository's (`data/calibration/demography.json`, which a directory without
+= the start value `σ_start`). The template's base is the map 3 fixture
+(`tests/golden/map3`); the life course data of the template are the repository's (`data/calibration/demography.json`, which a directory without
 its own takes, tools/data_reference.py).
 
 The map (format 2, `map_version` 4):
@@ -59,7 +59,10 @@ from rng_reference import str_key
 from world_reference import json_number
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = ROOT / "data"
+# The base of the fixture: map 3 and its calibration, the map 3 fixture tests/golden/map3 (data/
+# held them before the switch to map 4, byte for byte; design note of the switch, section 4).
+# The life course data stay the repository's (data/calibration/demography.json).
+REPOSITORY = ROOT / "tests" / "golden" / "map3"
 TEMPLATE = ROOT / "tests" / "golden" / "map4_template"
 
 MAP_VERSION = 4

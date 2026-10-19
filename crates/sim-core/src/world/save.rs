@@ -1458,7 +1458,8 @@ impl Rules<'_> {
 }
 
 /// The founders are the sims 1 to N, living or archived, with their birth times, sex
-/// and genome from `Start`, the lineage key of their place in its list and no parents.
+/// and genome from `Start` (drawn as `Start` draws them), the lineage key of their place in
+/// its list and no parents.
 fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data) -> bool {
     (1_u64..)
         .zip((0_u64..).zip(&start.founders))
@@ -1470,7 +1471,10 @@ fn founders_are_the_first_sims(loaded: &LoadedState, start: &Start, data: &Data)
                 return false;
             };
             let lineage_key = LineageKey::founder(&start.founder_tag, index);
-            let Ok(genome) = Genome::with_alleles(founder.sex, &founder.alleles, data) else {
+            // As `Start` builds it: named loci as named, every other one drawn (Grok F1).
+            let Ok(genome) =
+                crate::state::start::founder_genome(data, start.world_seed, lineage_key, founder)
+            else {
                 return false;
             };
             (

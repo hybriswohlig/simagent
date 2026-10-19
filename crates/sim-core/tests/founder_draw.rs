@@ -127,7 +127,7 @@ const START_INPUT: (usize, u64) = (65, 0x5af2_b992_de9a_4803);
 const START_INPUT_HEX: &str = "0101002813746573743a666f756e6465725f616c6c656c65010003ffefe383070000ffffe1bf070100ffefe3830700010a636f72653a6865726332020000000000";
 const STATE_HASH_AFTER_START: u64 = 0x821a_1320_c251_ebe8;
 const LOG_HASH_AFTER_START: u64 = 0x5faf_e3d3_0194_5d35;
-const SAVE_AFTER_START: (usize, u64) = (552, 0x2280_69bc_ecfc_1196);
+const SAVE_AFTER_START: (usize, u64) = (552, 0x74bc_30e2_4254_a649);
 /// The genomes of the same founders on the template without a pool: the additive loci
 /// drawn as above, the seven pool loci at the reference allele.
 const GENOMES_WITHOUT_POOL: [&str; 3] = [
@@ -423,6 +423,10 @@ fn a_founder_draws_every_locus_it_does_not_name() {
     assert_eq!(log_hash(&world.take_log()), LOG_HASH_AFTER_START);
     let save = world.save(&[]).expect("saves");
     assert_eq!((save.len(), stable_hash64(&save)), SAVE_AFTER_START);
+    // The save of founders that drew loads again, to the same state: the loader rebuilds a
+    // founder as `Start` builds it, drawn loci included.
+    let (loaded, _) = World::load(&save, pool_data()).expect("loads");
+    assert_eq!(loaded.state_hash(), STATE_HASH_AFTER_START);
 }
 
 /// Founder 2 names `core:herc2` `[0, 0]` and keeps it, though her draws there give `[1, 1]`:

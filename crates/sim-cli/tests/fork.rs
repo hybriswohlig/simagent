@@ -345,21 +345,21 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":39"#, r#""core_version":40"#);
+    replace_in(&log, r#""core_version":40"#, r#""core_version":41"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 40, this is 39"
+            "error: fork_foreign_core_version: the parent run is of core version 41, this is 40"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":40"#, r#""core_version":39"#);
-    replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":41"#, r#""core_version":40"#);
+    replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is adab502757b4045c".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is b1f5c0054302363d".to_owned())
     );
-    replace_in(&log, "c3f04a38869c20d7", "adab502757b4045c");
+    replace_in(&log, "c3f04a38869c20d7", "b1f5c0054302363d");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -418,9 +418,9 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":39"#, r#""core_version":40"#),
+        (r#""core_version":40"#, r#""core_version":41"#),
         (
-            r#""data_hash":"adab502757b4045c""#,
+            r#""data_hash":"b1f5c0054302363d""#,
             r#""data_hash":"c3f04a38869c20d7""#,
         ),
         (
@@ -715,7 +715,8 @@ fn fork_point_hash_equals_parent() {
         "{}",
         ours_lines[20]
     );
-    // The census reads only times: it is that of the parent.
+    // The census reads the living and their bodies, which the override does not change:
+    // it is that of the parent.
     assert_eq!(
         text(&out.join("census.csv")),
         text(&parent.join("census.csv"))

@@ -5,7 +5,8 @@ section 3), written from the note and the repository's data, independent of the 
 genome map; the life course data are the repository's, `data/calibration/demography.json`,
 which a directory without its own takes, tools/data_reference.py).
 
-- The genome map is that of `data/genetics/genome_map.json` (format 2, its `map_version`,
+- The genome map is that of `tests/golden/map3/genetics/genome_map.json` (map 3 as data/ held
+  it before the switch to map 4; format 2, its `map_version`,
   its five disease loci where they are) plus two traits, `test:cognition` and
   `test:height`, each a factor of its own (`exclusive` false, no `includes`) with
   `sigma_ref` = sqrt(40 · 2 · 0.5 · 0.5) = sqrt(20) (the f64 of `math.sqrt(20.0)`), so that
@@ -17,7 +18,7 @@ which a directory without its own takes, tools/data_reference.py).
   segments 0, 2 and 4 are) and every odd slot stay free. Their IDs are
   `test:cognition_01` to `_40` and `test:height_01` to `_40`, numbered in map order
   (segment, then slot); the loci stand in map order (ADR-0007 `data.locus_order`).
-- The calibration is that of `data/calibration/genetics.json` (format 7) with the rows of
+- The calibration is that of `tests/golden/map3/calibration/genetics.json` (format 7) with the rows of
   the phenotype weights of the genetics specification 4.2 in `traits` (ADR-0009, ascending
   by trait): `test:cognition` h² 0.5, c² 0.25 (child), 0.75, 0.05 (adult);
   `test:height` h² 0.8, c² 0.05 (child and adult); and `cognition_trait` =
@@ -41,7 +42,10 @@ import data_reference
 from rng_reference import str_key
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORY = ROOT / "data"
+# The base of the fixture: map 3 and its calibration, the map 3 fixture tests/golden/map3 (data/
+# held them before the switch to map 4, byte for byte; design note of the switch, section 4).
+# The life course data stay the repository's (data/calibration/demography.json).
+REPOSITORY = ROOT / "tests" / "golden" / "map3"
 FIXTURE = ROOT / "tests" / "golden" / "data_pairing"
 
 COGNITION, HEIGHT = "test:cognition", "test:height"

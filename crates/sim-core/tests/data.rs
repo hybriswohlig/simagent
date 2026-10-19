@@ -1,4 +1,5 @@
-//! ADR-0007: the definitions of the repository, their checks and their data hash.
+//! ADR-0007: the definitions of the map 3 fixture (`tests/golden/map3`, with the repository's
+//! life course data), their checks and their data hash.
 
 mod common;
 

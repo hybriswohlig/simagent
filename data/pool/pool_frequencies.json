@@ -1,0 +1,53 @@
+{
+  "pool_frequencies": {
+    "core:disease_ad_late": {
+      "value": 0.00003,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4 (Grok, F3, 2026-10-12)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:disease_ad_partial": {
+      "value": 0.001,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4 (Grok, F3, 2026-10-12)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:disease_ar": {
+      "value": 0.02,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4 (Grok, F3, 2026-10-12)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:disease_mt": {
+      "value": 0.00012,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4 (Grok, F3, 2026-10-12)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:disease_xr": {
+      "value": 0.00025,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4 (Grok, F3, 2026-10-12)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:herc2": {
+      "value": 0.75,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4, game value of the one northern European profile (Dario)",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    },
+    "core:mc1r": {
+      "value": 0.15,
+      "unit": "fraction",
+      "source": "ADR-0020 section 4, game value K8.9a",
+      "as_of": "2026-10-13",
+      "note": "frequency of the alternative allele for a missing parent in the pool (G2)"
+    }
+  }
+}

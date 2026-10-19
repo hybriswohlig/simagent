@@ -85,7 +85,17 @@ the data also carry the frequencies of the pool's seven loci (`frequencies_of`, 
 by the postcard of `(pool_seed, pool_hash, frequencies)` (`pool_suffix`,
 `data_hash_with_pool`); `frozen_hash` stays the hash of the definitions alone.
 
+The repository's data (slice S5 of the switch, design note section 14): data/ holds map 4,
+its calibration and the life course data, and under data/pool/ the pool `pool.bin` with its
+frequencies `pool_frequencies.json` (the wrapped form). The CLI builds its data with that
+pool and those frequencies, so the repository's data hash is `data_hash_with_pool`
+(`repository_hash`); the hash of the definitions alone is the pool's `frozen_hash`. A data
+directory without a `pool/` (every fixture, tests/golden/map3) has no pool: its data hash is
+that of its definitions, as before.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
+       (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool and its
+       frequencies, the pool's seed, hash, frozen hash and the frequency rules)
        python3 tools/data_reference.py [DATA_DIR] --pool POOL --frequencies FILE
        (the definitions' hash and the data hash with the pool and its frequencies)
 """
@@ -712,6 +722,68 @@ def data_hash_with_pool(definitions: bytes, pool_seed: int, pool_hash: int, freq
     return xxhash.xxh3_64_intdigest(definitions + pool_suffix(pool_seed, pool_hash, frequencies), seed=0)
 
 
+# ---------------------------------------------------------------------------------------
+# The repository's pool (slice S5): data/pool/pool.bin and data/pool/pool_frequencies.json.
+
+POOL_MAGIC = b"SIMPOOL"
+
+
+def read_varint(data: bytes, at: int) -> tuple:
+    """(value, next position) of the unsigned varint at `at`."""
+    value, shift = 0, 0
+    while True:
+        byte = data[at]
+        at += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, at
+        shift += 7
+
+
+def pool_head(pool: bytes) -> dict:
+    """The first fields of a pool file (tools/pool_reference.py `encode_pool`, format 2):
+    the magic `SIMPOOL`, the version, then `pool_seed`, `frozen_at` (zigzag), `data_hash`,
+    `frozen_hash`. Only what the data hash needs; the reader's rules are
+    `pool_reference.read_pool`'s (tools/world_reference.py `DataPool` runs them)."""
+    assert pool[: len(POOL_MAGIC)] == POOL_MAGIC, "magic"
+    version, at = read_varint(pool, len(POOL_MAGIC))
+    assert version == 2, f"version {version}"
+    seed, at = read_varint(pool, at)
+    zigzag, at = read_varint(pool, at)
+    frozen_at = (zigzag >> 1) ^ -(zigzag & 1)
+    run_hash, at = read_varint(pool, at)
+    frozen_hash, at = read_varint(pool, at)
+    return {"version": version, "pool_seed": seed, "frozen_at": frozen_at, "data_hash": run_hash, "frozen_hash": frozen_hash}
+
+
+def pool_files(data_dir: Path):
+    """The pool of a data directory: (pool bytes, frequencies {locus: q}) from
+    `data_dir/pool/pool.bin` and `data_dir/pool/pool_frequencies.json`, or None without a
+    `pool/` (a pool without its frequencies, or the other way round, is an error: they travel
+    together)."""
+    folder = Path(data_dir) / "pool"
+    pool_path, frequencies_path = folder / "pool.bin", folder / "pool_frequencies.json"
+    if not pool_path.exists() and not frequencies_path.exists():
+        return None
+    assert pool_path.exists() and frequencies_path.exists(), f"{folder}: the pool and its frequencies travel together"
+    return pool_path.read_bytes(), frequencies_file(frequencies_path)
+
+
+def repository_hash(data_dir: Path) -> int:
+    """The data hash of a data directory as the CLI builds its data: with a `pool/` the
+    definitions followed by `(pool_seed, pool_hash, frequencies)` (`data_hash_with_pool`,
+    the frequencies checked by `frequencies_rejection`), else the definitions alone
+    (`data_hash`)."""
+    files = pool_files(data_dir)
+    definitions = definitions_bytes(*documents(data_dir))
+    if files is None:
+        return xxhash.xxh3_64_intdigest(definitions, seed=0)
+    pool, frequencies = files
+    assert frequencies_rejection(frequencies) is None, frequencies_rejection(frequencies)
+    head = pool_head(pool)
+    return data_hash_with_pool(definitions, head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
+
+
 def main(argv):
     if "--pool" in argv:
         # The data with a pool (S2a): the definitions of DATA_DIR, the pool file and its
@@ -731,7 +803,23 @@ def main(argv):
         )
         return
     data_dir = Path(argv[1]) if len(argv) > 1 else REPOSITORY_DATA
-    print(f"data_hash {data_hash(data_dir):016x}")
+    files = pool_files(data_dir)
+    if files is None:
+        print(f"data_hash {data_hash(data_dir):016x}")
+    else:
+        # The repository's data (S5): the definitions, then the data with the pool and its
+        # frequencies as the CLI builds them.
+        pool, frequencies = files
+        head = pool_head(pool)
+        pool_hash = xxhash.xxh3_64_intdigest(pool, seed=0)
+        definitions = data_hash(data_dir)
+        print(f"definitions_hash {definitions:016x} (the pool's frozen_hash {head['frozen_hash']:016x}: {'equal' if definitions == head['frozen_hash'] else 'DIFFERENT'})")
+        print(
+            f"data_hash {repository_hash(data_dir):016x} pool_seed {head['pool_seed']:016x} pool_hash {pool_hash:016x} pool_bytes {len(pool)}"
+            f" frozen_at {head['frozen_at']} run_data_hash {head['data_hash']:016x}"
+            f" suffix {pool_suffix(head['pool_seed'], pool_hash, frequencies).hex()}"
+        )
+        print(f"frequencies rules {frequencies_rejection(frequencies) or 'passed'} " + " ".join(f"{locus}={q!r}" for locus, q in sorted(frequencies.items())))
     # The threshold of each threshold disease that names its trait of liability (none in the
     # repository's data, so their output stays one line).
     _, calibration, _ = documents(data_dir)

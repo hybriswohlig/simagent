@@ -2,8 +2,8 @@
 //! tests 1, 2 and 4; ADR-0003 acceptance tests of `sim-cli`).
 //!
 //! The pinned contents of the run directory of scenario "tiny" (seed 0xff, one founder
-//! born one second before the start, one year) come from the ADRs and from
-//! `tools/state_reference.py`, not from a run of the program.
+//! born one second before the start, one year) come from the ADRs and from the world model
+//! of `tools/world_reference.py` on the repository's data, not from a run of the program.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":5,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":40,"data_hash":"b1f5c0054302363d","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
@@ -156,12 +156,13 @@ fn run_writes_the_run_directory() {
             "\n",
         )
     );
-    assert_eq!(text(&out.join("census.csv")), census(&["0,1,31449600"]));
-    // Year hash and log hash from tools/state_reference.py.
+    assert_eq!(text(&out.join("census.csv")), census(&["0,1,31449600,1"]));
+    // Year hash and log hash from the world model of tools/world_reference.py on the
+    // repository's data.
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":5,"core_version":39,"data_hash":"adab502757b4045c","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"3536518f68019647"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":40,"data_hash":"b1f5c0054302363d","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -172,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540227dc88d0bdf584d4d5ad011201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100d0a5dcfc1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e000000000100000000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100c7ac86c0f6b1949b35"
+        "53494d4147454e540228bdec8898d480f0fab1011201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f80af8684a8a82be0849480e4ee92801b8480d68680bcf482c0018f8a80dced80b8aa34c095ce80a8b9b8902686c0d6808084d68a200000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b4f2f6cb91d68c96b401"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -493,8 +494,8 @@ fn kinship_prints_the_coefficient() {
 }
 
 /// `simagent measure` (ADR-0020 section 3) prints the measurement of the living of a run as
-/// one line of JSON: the dummy run at its end, whose map has no traits and no additive
-/// loci (tools/golden_reference.py, `measure_json_run`); and the error `no_living` once
+/// one line of JSON: the dummy run at its end, 38 traits and 121 additive loci of map 4
+/// (tools/golden_reference.py, `dummy run measure_json`); and the error `no_living` once
 /// nobody lives: a single founder of 100, after 60 years.
 #[test]
 fn measure_prints_the_measurement() {
@@ -506,7 +507,7 @@ fn measure_prints_the_measurement() {
     assert!(outcome.ok, "{}", outcome.stderr);
     assert_eq!(
         outcome.stdout,
-        "{\"format_version\":1,\"clock\":943487999,\"living\":6,\"traits\":[],\"loci\":[]}\n"
+        "{\"format_version\":1,\"clock\":943487999,\"living\":6,\"traits\":[{\"trait\":\"core:androgen\",\"mean\":-0.14679216352924515,\"sigma\":1.0671873729054746},{\"trait\":\"core:bald\",\"mean\":0.2622871928201795,\"sigma\":1.3768926368215257},{\"trait\":\"core:beard\",\"mean\":-0.6667895802604935,\"sigma\":0.8539125638299665},{\"trait\":\"core:body_fat\",\"mean\":0.3867569977417232,\"sigma\":1.247219128924647},{\"trait\":\"core:body_hair\",\"mean\":-0.4771276551419548,\"sigma\":0.5335936864527374},{\"trait\":\"core:breast\",\"mean\":0.40927060156829403,\"sigma\":0.9758187445536298},{\"trait\":\"core:chest_depth\",\"mean\":0.7353318250377071,\"sigma\":0.4056031174545983},{\"trait\":\"core:cognition\",\"mean\":-1.3809113105505701,\"sigma\":1.462494064565354},{\"trait\":\"core:curl\",\"mean\":0.33565827520978636,\"sigma\":0.7453559924999299},{\"trait\":\"core:disease_liability\",\"mean\":-1.982200444988875,\"sigma\":0.9999999999999998},{\"trait\":\"core:estrogen\",\"mean\":1.0178995525111871,\"sigma\":0.5773502691896257},{\"trait\":\"core:face_01\",\"mean\":0.501466838329042,\"sigma\":0.5482928049865328},{\"trait\":\"core:face_02\",\"mean\":-0.16927472646517186,\"sigma\":0.8403454977302823},{\"trait\":\"core:face_03\",\"mean\":-0.14302538269876594,\"sigma\":0.5968086423264627},{\"trait\":\"core:face_04\",\"mean\":-0.5180076748081298,\"sigma\":0.6587551391323891},{\"trait\":\"core:face_05\",\"mean\":-0.6628248877111406,\"sigma\":0.4256530929707379},{\"trait\":\"core:face_06\",\"mean\":0.4924670633234169,\"sigma\":0.5482928049865327},{\"trait\":\"core:face_07\",\"mean\":0.18648304625717702,\"sigma\":0.3258535799336192},{\"trait\":\"core:face_08\",\"mean\":-0.4193351416214594,\"sigma\":0.5482928049865328},{\"trait\":\"core:face_09\",\"mean\":-0.34736610751397895,\"sigma\":0.5143091374736493},{\"trait\":\"core:face_10\",\"mean\":0.14418410373074012,\"sigma\":0.45407109086084246},{\"trait\":\"core:face_11\",\"mean\":0.007316692082697858,\"sigma\":0.6394985014316559},{\"trait\":\"core:face_12\",\"mean\":0.3264253810321409,\"sigma\":0.5302646089977677},{\"trait\":\"core:fat_distribution\",\"mean\":0.12426980992141852,\"sigma\":0.7861650943380502},{\"trait\":\"core:freckle\",\"mean\":0.9099022524436888,\"sigma\":0.5773502691896257},{\"trait\":\"core:grey\",\"mean\":-0.11401798288376123,\"sigma\":0.372677996249965},{\"trait\":\"core:growth\",\"mean\":0.1534419972834016,\"sigma\":1.0671873729054746},{\"trait\":\"core:hair_darkness\",\"mean\":-0.5306492337691556,\"sigma\":1.2583057392117916},{\"trait\":\"core:hair_density\",\"mean\":0.30933393331833364,\"sigma\":0.74535599249993},{\"trait\":\"core:head_size\",\"mean\":0.848524828545953,\"sigma\":0.47206696794228487},{\"trait\":\"core:hip_width\",\"mean\":1.0314383807071488,\"sigma\":0.6209312003399052},{\"trait\":\"core:leg_ratio\",\"mean\":0.04011587210319742,\"sigma\":0.5558402048550762},{\"trait\":\"core:longevity\",\"mean\":0.8215502945759688,\"sigma\":1.3437096247164249},{\"trait\":\"core:muscle\",\"mean\":-0.5617963717573727,\"sigma\":0.9753916592266352},{\"trait\":\"core:pigment\",\"mean\":0.5764439222352774,\"sigma\":2.1343747458109497},{\"trait\":\"core:puberty\",\"mean\":-0.9733756656083598,\"sigma\":0.816496580927726},{\"trait\":\"core:shoulder_width\",\"mean\":-0.44425347699640844,\"sigma\":0.5335936864527374},{\"trait\":\"core:skin_age\",\"mean\":-0.8766530836729082,\"sigma\":0.816496580927726}],\"loci\":[{\"locus\":\"core:androgen_01\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:breast_02\",\"mean_dose\":1.0},{\"locus\":\"core:cognition_04\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:curl_01\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:disease_liability_06\",\"mean_dose\":0.5},{\"locus\":\"core:face_06_01\",\"mean_dose\":1.5},{\"locus\":\"core:freckle_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:growth_03\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:longevity_01\",\"mean_dose\":1.5},{\"locus\":\"core:pigment_03\",\"mean_dose\":1.0},{\"locus\":\"core:skin_age_02\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:pigment_11\",\"mean_dose\":1.5},{\"locus\":\"core:growth_11\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:cognition_12\",\"mean_dose\":1.5},{\"locus\":\"core:androgen_02\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:body_fat_01\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:cognition_05\",\"mean_dose\":1.0},{\"locus\":\"core:curl_02\",\"mean_dose\":1.5},{\"locus\":\"core:disease_liability_07\",\"mean_dose\":0.5},{\"locus\":\"core:face_01_01\",\"mean_dose\":1.5},{\"locus\":\"core:face_09_01\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:freckle_02\",\"mean_dose\":1.8333333333333333},{\"locus\":\"core:growth_04\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:hair_darkness_01\",\"mean_dose\":1.0},{\"locus\":\"core:longevity_02\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:pigment_04\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:puberty_01\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:pigment_12\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:growth_12\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:cognition_13\",\"mean_dose\":0.3333333333333333},{\"locus\":\"core:androgen_03\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:body_fat_02\",\"mean_dose\":1.5},{\"locus\":\"core:chest_depth_01\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:cognition_06\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:disease_liability_08\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:face_04_01\",\"mean_dose\":0.5},{\"locus\":\"core:face_12_01\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:growth_05\",\"mean_dose\":1.0},{\"locus\":\"core:hair_darkness_02\",\"mean_dose\":0.5},{\"locus\":\"core:hip_width_01\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:longevity_03\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:pigment_05\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:puberty_02\",\"mean_dose\":0.0},{\"locus\":\"core:pigment_13\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:growth_13\",\"mean_dose\":1.0},{\"locus\":\"core:cognition_14\",\"mean_dose\":0.5},{\"locus\":\"core:androgen_04\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:bald_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:cognition_07\",\"mean_dose\":1.5},{\"locus\":\"core:disease_liability_01\",\"mean_dose\":0.5},{\"locus\":\"core:face_07_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:grey_01\",\"mean_dose\":1.0},{\"locus\":\"core:growth_06\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:longevity_04\",\"mean_dose\":1.0},{\"locus\":\"core:muscle_01\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:pigment_06\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:puberty_03\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:pigment_14\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:growth_14\",\"mean_dose\":0.3333333333333333},{\"locus\":\"core:cognition_15\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:androgen_05\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:bald_02\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:body_hair_01\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:cognition_08\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:disease_liability_02\",\"mean_dose\":0.5},{\"locus\":\"core:face_02_01\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:face_10_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:grey_02\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:growth_07\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:hair_density_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:longevity_05\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:muscle_02\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:pigment_07\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:puberty_04\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:shoulder_width_01\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:pigment_15\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:growth_15\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:cognition_16\",\"mean_dose\":2.0},{\"locus\":\"core:androgen_06\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:cognition_01\",\"mean_dose\":0.5},{\"locus\":\"core:disease_liability_03\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:face_05_01\",\"mean_dose\":0.3333333333333333},{\"locus\":\"core:fat_distribution_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:growth_08\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:hair_density_02\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:leg_ratio_01\",\"mean_dose\":1.0},{\"locus\":\"core:longevity_06\",\"mean_dose\":0.5},{\"locus\":\"core:pigment_08\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:puberty_05\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:pigment_16\",\"mean_dose\":0.3333333333333333},{\"locus\":\"core:growth_16\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:cognition_09\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:androgen_07\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:beard_01\",\"mean_dose\":1.1666666666666667},{\"locus\":\"core:cognition_02\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:disease_liability_04\",\"mean_dose\":1.0},{\"locus\":\"core:estrogen_01\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:face_08_01\",\"mean_dose\":0.5},{\"locus\":\"core:growth_01\",\"mean_dose\":0.5},{\"locus\":\"core:longevity_07\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:pigment_01\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:puberty_06\",\"mean_dose\":1.0},{\"locus\":\"core:pigment_09\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:growth_09\",\"mean_dose\":1.5},{\"locus\":\"core:cognition_10\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:androgen_08\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:beard_02\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:breast_01\",\"mean_dose\":0.6666666666666666},{\"locus\":\"core:cognition_03\",\"mean_dose\":1.0},{\"locus\":\"core:disease_liability_05\",\"mean_dose\":0.16666666666666666},{\"locus\":\"core:estrogen_02\",\"mean_dose\":1.6666666666666667},{\"locus\":\"core:face_03_01\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:face_11_01\",\"mean_dose\":1.0},{\"locus\":\"core:growth_02\",\"mean_dose\":2.0},{\"locus\":\"core:head_size_01\",\"mean_dose\":1.8333333333333333},{\"locus\":\"core:longevity_08\",\"mean_dose\":1.5},{\"locus\":\"core:pigment_02\",\"mean_dose\":1.3333333333333333},{\"locus\":\"core:skin_age_01\",\"mean_dose\":0.3333333333333333},{\"locus\":\"core:pigment_10\",\"mean_dose\":1.0},{\"locus\":\"core:growth_10\",\"mean_dose\":0.8333333333333334},{\"locus\":\"core:cognition_11\",\"mean_dose\":1.5}]}\n"
     );
     let alone = r#"{"format_version":5,"start":{"world_seed":"0000000000000002","founder_tag":"test:alone","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-3144960000,"sex":"female","alleles":[]}],"couples":[],"capacity":null,"pool":null},"until":1886975999}"#;
     let gone = run_scenario(&dir, alone, "alone");
@@ -631,16 +632,16 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":39"#, r#""core_version":40"#);
+    replace_in(&log, r#""core_version":40"#, r#""core_version":41"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 40, this is 39"
+        "error: replay_foreign_core_version: the input log is of core version 41, this is 40"
     );
-    replace_in(&log, r#""core_version":40"#, r#""core_version":39"#);
-    replace_in(&log, "adab502757b4045c", "c3f04a38869c20d7");
+    replace_in(&log, r#""core_version":41"#, r#""core_version":40"#);
+    replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is adab502757b4045c"
+        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is b1f5c0054302363d"
     );
     assert!(!out.exists(), "a rejected replay writes nothing");
 }
@@ -969,7 +970,7 @@ fn a_session_writes_each_census_row_once() {
     session.finish(&scenario).expect("finishes");
     assert_eq!(
         text(&dir.join("census.csv")),
-        census(&["0,1,31449600", "1,1,31449600", "2,1,31449600"])
+        census(&["0,1,31449600,1", "1,1,31449600,1", "2,1,31449600,1"])
     );
     assert_eq!(text(&dir.join("events.ndjson")).lines().count(), 6);
 }
@@ -1107,14 +1108,15 @@ fn bad_scenarios_and_directories_are_rejected() {
             "{missing}"
         );
     }
-    // A town from the pool needs data with a pool; the built-in data hold none yet.
+    // The built-in data hold the pool: the scenario resolves, and the core rejects a
+    // start with founders and a pool.
     assert_eq!(
         run(&TINY_SCENARIO.replacen(
             r#""pool":null"#,
             r#""pool":{"n_start":10,"immigration":false}"#,
             1
         )),
-        "error: scenario_invalid: the data hold no pool"
+        "error: input_rejected: start_pool_and_founders"
     );
     assert_eq!(
         run(&TINY_SCENARIO.replacen(r#""format_version":5"#, r#""format_version":6"#, 1)),
@@ -1183,8 +1185,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 39, "the core version in the header of the save");
-    bytes[9] = 40;
+    assert_eq!(bytes[9], 40, "the core version in the header of the save");
+    bytes[9] = 41;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),
@@ -1329,9 +1331,9 @@ fn repro_packages_pass() {
     }
 }
 
-/// `census.csv` of the repository's data, which have no body traits (ADR-0020 section 7):
-/// the three columns of every run, then the bodies, here all 0 (no evaluation, no clamp of
-/// the 21 parameters of the contract with unit `z` or `cm`, no held curve).
+/// `census.csv` of the repository's data (ADR-0020 section 7): the three columns of every
+/// run and `body_evaluated` as given, then the clamp counts of the 21 parameters of the
+/// contract with unit `z` or `cm` and the held curve, here all 0.
 fn census(rows: &[&str]) -> String {
     let header = "year,living,lived_secs,body_evaluated,clamped_height_cm,clamped_leg_ratio_z,\
                   clamped_head_size_z,clamped_body_fat_z,clamped_fat_distribution_z,\
@@ -1344,7 +1346,7 @@ fn census(rows: &[&str]) -> String {
     let mut text = format!("{header}\n");
     for row in rows {
         text.push_str(row);
-        text.push_str(&",0".repeat(23));
+        text.push_str(&",0".repeat(22));
         text.push('\n');
     }
     text
