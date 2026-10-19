@@ -53,6 +53,26 @@ test("the hourglass holds exactly the people its links reach", () => {
   assert.equal(hourglass(PEDIGREE, 99), null);
 });
 
+test("dangling parents are skipped and social parents are not biological", () => {
+  const odd = {
+    ...PEDIGREE,
+    persons: [
+      person(40, "male", null, null),
+      { ...person(41, "female", 99, 40), social_parents: [42] },
+      person(42, "female", null, null),
+    ],
+  };
+  assert.deepEqual(sims(hourglass(odd, 41).up), [[40], [], []]);
+  assert.deepEqual(sims(hourglass(odd, 42).down), [[], []]);
+});
+
+test("every row is in the order of the pedigree", () => {
+  // Two children of 7 listed in the pedigree in the opposite order of their parents.
+  const late = { ...PEDIGREE, persons: [...PEDIGREE.persons, person(15, "male", 10, null)] };
+  const reordered = { ...late, persons: [late.persons[14], ...late.persons.slice(0, 14)] };
+  assert.deepEqual(sims(hourglass(reordered, 7).down), [[9, 10], [15, 11]]);
+});
+
 test("a person reached twice is drawn once", () => {
   // 21 and 22 are cousins through 20; their child 23 has 20 twice among its forebears.
   const cousins = {
@@ -70,6 +90,29 @@ test("a person reached twice is drawn once", () => {
   };
   const glass = hourglass(cousins, 23);
   assert.deepEqual(sims(glass.up), [[21, 22], [24, 25], [20, 30, 31]]);
+});
+
+test("a shared ancestor at two depths sits at the deeper, above all its children", () => {
+  // C (50) has parents A (51) and B (52); A's parent is X (53); B's parent is Y (54), whose
+  // parent is X too.
+  const shared = {
+    ...PEDIGREE,
+    persons: [
+      person(53, "female", null, null),
+      person(54, "male", 53, null),
+      person(51, "female", 53, null),
+      person(52, "male", 54, null),
+      person(50, "female", 51, 52),
+    ],
+  };
+  const glass = hourglass(shared, 50);
+  assert.deepEqual(sims(glass.up), [[51, 52], [54], [53]]);
+  const { nodes, edges } = layout(glass);
+  const at = new Map(nodes.map((n) => [n.person.sim, n]));
+  assert.deepEqual(edges.map((e) => `${e.from}>${e.to}`).sort(), ["51>50", "52>50", "53>51", "53>54", "54>52"]);
+  for (const { from, to } of edges) {
+    assert.ok(at.get(from).y < at.get(to).y, `${from} above ${to}`);
+  }
 });
 
 test("the layout puts each parent above its children and draws each link once", () => {
