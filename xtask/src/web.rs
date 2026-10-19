@@ -3,14 +3,15 @@
 //! running Node has the major of `web/.nvmrc`, installs the locked packages without scripts
 //! (`npm ci`), compiles `web/src` with the pinned `tsc` into `web/dist`, writes the page
 //! with its import map there and copies the vendored Preact modules beside it, and runs
-//! each file of `web/test` on it. `tsc` and the tests run under Node's permission model
-//! with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read only
-//! `web/package.json`, `web/dist` and `web/test` (nothing secret), write nothing, start no
-//! process or worker and build no code from strings. A canary test proves that on every
-//! run. Node 24 cannot close the network; with nothing secret to read, it carries nothing
-//! of ours. The gate runs the repository's own code anyway (`cargo test`, build scripts)
-//! with the network, the environment and every file; the sandbox keeps the web tests below
-//! that level, it does not make the gate safe for code nobody reviewed.
+//! `web/test` with `node --test` on it. `tsc` and the tests run under Node's permission
+//! model with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read
+//! only `web/package.json`, `web/dist` and `web/test`, write nothing, start no process or
+//! worker and build no code from strings. A canary test proves that on every run. Node 24
+//! cannot close the network: the tests read no file that is not public, but what the
+//! network itself reaches (a metadata service of the CI, say) they reach. So does every
+//! Rust test and build script of this gate, which runs the repository's code with the
+//! network, the environment and every file; the sandbox keeps the web tests below that
+//! level, it does not make the gate safe for code nobody reviewed.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -207,7 +208,7 @@ test(\"no process\", () => assert.throws(() => execSync(\"true\"), denied));
 test(\"no worker\", () => assert.throws(() => new Worker(new URL(import.meta.url)), denied));
 test(\"no code from strings\", () => assert.throws(() => new Function(\"return 1\"), EvalError));
 test(\"no environment\", () => {{
-  const kept = Object.keys(process.env).filter((k) => k !== \"PATH\" && k !== \"__CF_USER_TEXT_ENCODING\");
+  const kept = Object.keys(process.env).filter((k) => ![\"PATH\", \"__CF_USER_TEXT_ENCODING\", \"NODE_TEST_WORKER_ID\"].includes(k));
   assert.deepEqual(kept, []);
 }});
 test(\"the output is readable\", () => {{ readFileSync({page:?}); }});
@@ -286,27 +287,32 @@ pub fn build(root: &Path) -> Result {
         let module = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
         add(&dist.join(to), &module)?;
     }
-    // Each file on its own: `node --test` honours only the first `--allow-fs-read` when it
-    // looks for its files (Node 24.19), and a test file runs its tests when run directly.
     let (package, test_dir) = (web.join("package.json"), web.join("test"));
-    let tests: Vec<PathBuf> = (files(root, &test_dir)?.into_iter())
-        .filter(|file| file.to_string_lossy().ends_with(".test.mjs"))
+    let tests: Vec<String> = (files(root, &test_dir)?.iter())
+        .map(|file| crate::relative(&test_dir, file))
+        .filter(|file| file.ends_with(".test.mjs"))
         .collect();
     if tests.is_empty() {
         return Err("web/test holds no *.test.mjs".to_owned());
     }
-    for test in tests {
-        let mut args = sandbox(&[&package, &dist, &test_dir]);
-        args.push(test.display().to_string());
-        node(&web, &args)?;
-    }
+    node(&test_dir, &test_run(&[&test_dir, &dist, &package], &tests))?;
     let canaries = root.join("target/xtask-canaries/web");
     std::fs::create_dir_all(&canaries).map_err(|e| format!("{}: {e}", canaries.display()))?;
     let file = canaries.join("sandbox.test.mjs");
     std::fs::write(&file, canary(&web)).map_err(|e| format!("{}: {e}", file.display()))?;
-    let mut args = sandbox(&[&package, &dist, &test_dir, &canaries]);
-    args.push(file.display().to_string());
-    node(&web, &args).map_err(|e| format!("the sandbox of the web tests leaks: {e}"))
+    let reads: [&Path; 4] = [&canaries, &dist, &test_dir, &package];
+    let canary_run = test_run(&reads, &["sandbox.test.mjs".to_owned()]);
+    node(&canaries, &canary_run).map_err(|e| format!("the sandbox of the web tests leaks: {e}"))
+}
+
+/// The arguments of `node --test` in the directory `reads[0]` over `files` relative to it.
+/// The runner looks for its files with the first `--allow-fs-read` only (Node 24.19), so
+/// that one is the directory it runs in.
+pub fn test_run(reads: &[&Path], files: &[String]) -> Vec<String> {
+    let mut args = sandbox(reads);
+    args.extend(["--test-isolation=none", "--test"].map(str::to_owned));
+    args.extend(files.iter().cloned());
+    args
 }
 
 #[cfg(test)]
