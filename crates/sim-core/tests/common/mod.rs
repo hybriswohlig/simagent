@@ -379,3 +379,50 @@ pub fn fixed(
         })
         .collect()
 }
+
+/// The repository's data (map 4 with the pool, ADR-0020): `data/`.
+const REPOSITORY_CALIBRATION: &str = include_str!("../../../../data/calibration/genetics.json");
+const REPOSITORY_GENOME_MAP: &str = include_str!("../../../../data/genetics/genome_map.json");
+#[allow(dead_code, reason = "only the tests on the repository's data need it")]
+pub const REPOSITORY_POOL: &[u8] = include_bytes!("../../../../data/pool/pool.bin");
+const REPOSITORY_FREQUENCIES: &str = include_str!("../../../../data/pool/pool_frequencies.json");
+
+/// The frequencies of `data/pool/pool_frequencies.json`, each entry's `value`, as
+/// `Data::with_pool` takes them (sim-cli reads the file the same way, its text removed).
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_frequencies()
+-> std::collections::BTreeMap<sim_core::data_id::DataId, sim_core::finite::FiniteF64> {
+    let file: Value = serde_json::from_str(REPOSITORY_FREQUENCIES).expect("json");
+    file["pool_frequencies"]
+        .as_object()
+        .expect("the entries")
+        .iter()
+        .map(|(id, entry)| {
+            assert_eq!(entry["unit"], "fraction", "{id}");
+            let q = entry["value"].as_f64().expect("a value");
+            (
+                sim_core::data_id::DataId::new(id).expect("id"),
+                sim_core::finite::FiniteF64::try_new(q).expect("finite"),
+            )
+        })
+        .collect()
+}
+
+/// The repository's data as the CLI builds them: the life course data, the calibration and
+/// the map of `data/` without their text, with the pool and its frequencies.
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_data() -> Data {
+    let (calibration, genome_map) = files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP);
+    Data::with_pool(
+        definitions(calibration, genome_map).expect("definitions"),
+        REPOSITORY_POOL,
+        repository_frequencies(),
+    )
+    .expect("data")
+}

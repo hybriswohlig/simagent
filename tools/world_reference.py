@@ -134,7 +134,12 @@ What the model knows:
   and `to = age(now)`, `used` grows by `disease_hazard_used(hazard, from, to)` if
   `to > from`, and `since` is none. Then its pending deaths of a disease are cancelled
   and planned again in data order, by the entry `core:param_changed`. An override that
-  keeps the switch as it is changes nothing but the log.
+  keeps the switch as it is changes nothing but the log. The change
+  `ParamChange::NutritionYear` (ADR-0013 section 2, `override_nutrition`) sets `N` of one
+  year, inserted or replaced, the list kept ascending; only a year from the year of the
+  second after the stamp on (`nutrition_year_past`), in the range of `Start`
+  (`nutrition_out_of_range`). Only the body mapping reads the list, so it plans and cancels
+  nothing: the entry `core:param_changed` and the `WorldParams` of the projection change.
 - Couples: after the founders, `Start` forms a partnership per couple of its list (a
   woman and a man by their places among the founders); `ArrangePartnership` forms one
   between two living sims, unless it is rejected (`arrange_rejection`, in this order:
@@ -455,6 +460,7 @@ from postcard_reference import (
     household as household_bytes,
     lineage_key,
     param_change,
+    param_change_nutrition,
     partnership,
     mutation,
     segment_meiosis,
@@ -3772,6 +3778,26 @@ class World:
             self.queue = [event for event in self.queue if event.payload not in pending]
             self._plan_disease_deaths(sim, changed, now)
 
+    def override_nutrition(self, year: int, index: float) -> None:
+        """An override block with the one change `ParamChange::NutritionYear { year, index }`
+        (ADR-0013 section 2), submitted right now: stamped with the last closed second, it
+        acts in the next one (`now`), whose calendar year is the fork year `X`; a year before
+        `X` is `nutrition_year_past`, a year or index outside the range of `Start`
+        `nutrition_out_of_range` (both rejections, asserted here). The year's entry is
+        replaced or inserted, the list stays ascending; one entry `core:param_changed` (no
+        subject, caused by the input). Nothing reads the list but the body mapping, so no
+        event is planned or cancelled."""
+        index = float(index)
+        assert 0.0 <= index <= 1.0 and -1_000_000 <= year <= 999_999, "nutrition_out_of_range"
+        now = self.closed + 1
+        assert year >= now // YEAR, "nutrition_year_past"
+        self.script.append(("override_nutrition", year, index))
+        sequence = len(self.inputs) + 1
+        change = param_change_nutrition(year, index)
+        self.inputs.append(signed(self.closed) + varint(sequence) + variant(1, seq([change])))
+        self.nutrition = sorted([entry for entry in self.nutrition if entry[0] != year] + [(int(year), index)])
+        self._entry(now, [], [variant(2, varint(sequence))], variant(3, change))
+
     # ------------------------------------------------------------------ events
 
     def _entry(self, time: int, subjects: list, causes: list, payload: bytes) -> int:
@@ -5151,6 +5177,8 @@ def without_households(world: World) -> World:
             twin.advance(call[1])
         elif call[0] == "arrange":
             twin.arrange(call[1], call[2])
+        elif call[0] == "override_nutrition":
+            twin.override_nutrition(call[1], call[2])
         else:
             twin.override(call[1])
     return twin
