@@ -470,6 +470,13 @@ fn the_runs_and_their_manifests() {
         serde_json::from_slice(&fs::read(runs.join(run).join("manifest.json")).expect("read"))
             .expect("JSON")
     };
+    // Both runs end at the last second of year 0, 364 days of 86 400 s less one: the core's
+    // calendar (ADR-0002, every unit from 0) makes it day 363, month 12 and its day 27,
+    // week 51 and its day 6, season 3, second 86 399 of its day.
+    let last_of_year_0 = serde_json::json!({
+        "year": 0, "day_of_year": 363, "month": 12, "day_of_month": 27, "week": 51,
+        "weekday": 6, "season": 3, "second_of_day": 86_399,
+    });
     assert_eq!(
         list,
         serde_json::json!({
@@ -477,9 +484,9 @@ fn the_runs_and_their_manifests() {
             "version": 1,
             "runs": [
                 {"run": "broken", "error": "manifest_invalid"},
-                {"run": "fork.b", "manifest": manifest("fork.b")},
+                {"run": "fork.b", "manifest": manifest("fork.b"), "date": last_of_year_0},
                 {"run": "shaped", "error": "manifest_invalid"},
-                {"run": "town-1", "manifest": manifest("town-1")}
+                {"run": "town-1", "manifest": manifest("town-1"), "date": last_of_year_0}
             ]
         })
     );
