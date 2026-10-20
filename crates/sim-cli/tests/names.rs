@@ -190,6 +190,25 @@ fn a_fork_names_as_its_parent() {
     for k in shared {
         assert_eq!(ours[k], theirs[k], "{k:?}");
     }
+    // And the names the exports write, by lineage key.
+    let exported = |dir: &Path| -> BTreeMap<String, (String, String)> {
+        simagent(&["export".as_ref(), dir.as_os_str()]);
+        let text = std::fs::read_to_string(dir.join("pedigree.json")).expect("the export");
+        let export: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(export["format_version"], 5);
+        (export["persons"].as_array().expect("persons").iter())
+            .map(|p| {
+                let text = |key: &str| p[key].as_str().expect("a text").to_owned();
+                (text("lineage_key"), (text("first_name"), text("surname")))
+            })
+            .collect()
+    };
+    let (ours, theirs) = (exported(&parent), exported(&fork));
+    let shared: Vec<_> = ours.keys().filter(|k| theirs.contains_key(*k)).collect();
+    assert!(shared.len() > 100, "{}", shared.len());
+    for k in shared {
+        assert_eq!(ours[k], theirs[k], "{k}");
+    }
 }
 
 /// The lists of names (`data/names`): none empty, each name once, no blank, no space at an
