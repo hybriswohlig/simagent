@@ -220,8 +220,9 @@ impl Server {
 
     /// Does `write` on `run`, opening it on its first write: listed, its lock taken, its
     /// scenario and session read as `run --resume` reads them (which checks the files are
-    /// one run). A run that does not open is not kept; one whose write failed is closed,
-    /// its lock let go, and marked failed until a write opens it whole again.
+    /// one run). A run that does not open is not kept and, unless another process holds
+    /// it, marked failed; so is one whose write failed, closed with its lock let go. The
+    /// mark goes when a write opens the run whole again.
     fn write(&mut self, run: &str, write: WriteRequest) -> Response {
         if !self.open.contains_key(run) {
             match self.run_names() {
@@ -236,7 +237,12 @@ impl Server {
                     self.failed.remove(run);
                     self.open.insert(run.to_owned(), opened);
                 }
-                Err(error) => return failure(&error),
+                Err(error) => {
+                    if error.code != "run_locked" {
+                        self.failed.insert(run.to_owned());
+                    }
+                    return failure(&error);
+                }
             }
         }
         let Some(opened) = self.open.get_mut(run) else {
