@@ -4,6 +4,7 @@ import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
+import { fullName, namesOf } from "./names.js";
 import { Chronicle, dateText } from "./lines.js";
 import { windows } from "./log.js";
 import { usePedigree } from "./person.js";
@@ -30,6 +31,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [chosen, setChosen] = useState<Step>("days28");
   const [listedAt, setListedAt] = useState(closed);
   const [living, setLiving] = useState<readonly Person[]>([]);
+  const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
   const [chronicleFailed, setChronicleFailed] = useState(false);
   const [retries, setRetries] = useState(0);
@@ -88,6 +90,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   useEffect(() => {
     if (pedigree.state === "ready") {
       setLiving(pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null));
+      setNames(namesOf(pedigree.value));
     }
   }, [pedigree]);
   return (
@@ -124,6 +127,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         items={chronicle}
         failed={chronicleFailed ? TEXT.chronicle_failed : null}
         retry={() => setRetries((n) => n + 1)}
+        names={names}
       />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
@@ -131,7 +135,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         {living.map((person) => (
           <li key={person.sim}>
             <a href={format({ page: "person", run, sim: String(person.sim) })}>
-              {`${TEXT.person} ${person.sim}`}
+              {fullName(person)}
             </a>
             {` · ${person.sex === "female" ? TEXT.female : TEXT.male}`}
           </li>

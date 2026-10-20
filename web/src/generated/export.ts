@@ -2,7 +2,7 @@
 
 import type { BodyParams } from "./body.js";
 
-/** `pedigree.json` of a run, as `simagent export` writes it. */
+/** `pedigree.json` of a run, as `simagent export` writes it (format 5, with names). */
 export type Pedigree = {
   readonly format_version: number;
   readonly persons: Person[];
@@ -28,6 +28,8 @@ export type Person = {
   readonly carer: number | null;
   readonly diseases: Disease[];
   readonly pool: FromPool | null;
+  readonly first_name: string;
+  readonly surname: string;
 };
 
 /** The allele of each copy at a locus with an alternative allele. */
