@@ -145,6 +145,13 @@ export type AdvanceAnswer = {
   readonly date: CalendarDate;
 };
 
+/** `POST /api/runs`: the name of the run made from a template. */
+export type CreatedAnswer = {
+  readonly format: "simagent.view.created";
+  readonly version: number;
+  readonly run: string;
+};
+
 /** `POST /api/runs/{run}/input`: the stamp of the accepted input. */
 export type InputAnswer = {
   readonly format: "simagent.view.input";

@@ -279,6 +279,13 @@ fn each_request_is_checked_before_it_is_answered() {
             format!(
                 "POST /api/runs HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\n\r\n"
             ),
+            403,
+            "origin_foreign",
+        ),
+        (
+            format!(
+                "PUT /api/runs HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\n\r\n"
+            ),
             405,
             "method_not_allowed",
         ),
@@ -1459,4 +1466,144 @@ fn a_run_that_does_not_open_is_not_read() {
     assert!(free(&lock), "not kept");
     let (status, _, body) = get(port, "/api/runs/town/events");
     assert_eq!((status, code(&body).as_str()), (500, "run_failed"));
+}
+
+/// The template of the fun-test town (ADR-0021 section 6).
+fn template() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/scenarios/stadt.json")
+}
+
+/// Founding a town is `run --scenario <template> --until -1` (ADR-0021 section 2): the run
+/// stands before its first second, every file byte for byte; a given seed replaces the
+/// template's. A name in use, a bad name, an unknown template or a bad seed make nothing; the
+/// new run is the server's until it ends.
+#[test]
+fn founding_a_town_is_the_template_before_its_start() {
+    let (runs, web) = fixture("found");
+    let base = runs.parent().expect("a parent").to_path_buf();
+    let server = start(&runs, &web);
+    let port = server.port;
+    let (status, _, body) = post(port, "/api/runs", r#"{"template":"stadt","run":"neu"}"#);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        json_of(&body),
+        json!({"format": "simagent.view.created", "version": 1, "run": "neu"})
+    );
+    let twin = base.join("twin");
+    let made = |scenario: &Path, out: &Path| {
+        simagent(&[
+            "run".as_ref(),
+            "--scenario".as_ref(),
+            scenario.as_os_str(),
+            "--out".as_ref(),
+            out.as_os_str(),
+            "--until".as_ref(),
+            "-1".as_ref(),
+        ])
+        .expect("runs")
+    };
+    made(&template(), &twin);
+    assert!(
+        contents(&runs.join("neu")) == contents(&twin),
+        "the template"
+    );
+    // Another seed: the template with that seed.
+    let body = r#"{"template":"stadt","run":"neu.2","world_seed":"00000000000000ff"}"#;
+    let (status, _, answer) = post(port, "/api/runs", body);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    let seeded = base.join("seeded.json");
+    let text = fs::read_to_string(template()).expect("read");
+    let other = text.replace("\"000000000000a001\"", "\"00000000000000ff\"");
+    assert_ne!(other, text, "the seed is replaced");
+    write(&seeded, other.as_bytes());
+    let twin2 = base.join("twin2");
+    made(&seeded, &twin2);
+    assert!(contents(&runs.join("neu.2")) == contents(&twin2), "a seed");
+    // Refused: nothing made.
+    for (body, status, expected) in [
+        (r#"{"template":"stadt","run":"neu"}"#, 409, "run_exists"),
+        (r#"{"template":"stadt","run":"notes"}"#, 409, "run_exists"),
+        (
+            r#"{"template":"stadt","run":"plain.txt"}"#,
+            409,
+            "run_exists",
+        ),
+        (
+            r#"{"template":"stadt","run":"linked-run"}"#,
+            409,
+            "run_exists",
+        ),
+        (r#"{"template":"stadt","run":".x"}"#, 400, "body_invalid"),
+        (r#"{"template":"stadt","run":"a/b"}"#, 400, "body_invalid"),
+        (r#"{"template":"stadt","run":""}"#, 400, "body_invalid"),
+        (r#"{"template":"dorf","run":"x1"}"#, 400, "body_invalid"),
+        (
+            r#"{"template":"stadt","run":"x2","world_seed":"ff"}"#,
+            400,
+            "body_invalid",
+        ),
+        (
+            r#"{"template":"stadt","run":"x3","world_seed":"00000000000000FF"}"#,
+            400,
+            "body_invalid",
+        ),
+        (
+            r#"{"template":"stadt","run":"x4","extra":1}"#,
+            400,
+            "body_invalid",
+        ),
+        (r#"{"run":"x5"}"#, 400, "body_invalid"),
+    ] {
+        let (found, _, answer) = post(port, "/api/runs", body);
+        assert_eq!(
+            (found, code(&answer).as_str()),
+            (status, expected),
+            "{body}"
+        );
+    }
+    for name in ["x1", "x2", "x3", "x4", "x5", "a"] {
+        assert!(!runs.join(name).exists(), "{name}");
+    }
+    // Listed, standing before its first second (the last second of year -1, ADR-0002).
+    let list = json_of(&get(port, "/api/runs").2);
+    let entry = (list["runs"].as_array().expect("runs"))
+        .iter()
+        .find(|entry| entry["run"] == "neu")
+        .cloned()
+        .expect("listed");
+    assert_eq!(entry["date"], date(-1));
+    assert_eq!(entry["date"]["year"], -1);
+    // The server holds it.
+    let refused = resume_until(&runs.join("neu"), Y - 1, None).expect_err("the server's");
+    assert_eq!(first_code(&refused), "run_locked");
+    let (status, _, _) = post(port, "/api/runs/neu/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200, "it goes on");
+    // Another method on the run list names both of its own.
+    let raw = format!("PUT /api/runs HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+    let (status, head, _) = send(port, raw.as_bytes());
+    assert_eq!(status, 405);
+    assert!(
+        head.lines().any(|line| line == "Allow: GET, POST"),
+        "{head}"
+    );
+}
+
+/// A name whose run failed and went is founded anew, and the new run is read: the mark of
+/// the old one does not stay with the name.
+#[cfg(unix)]
+#[test]
+fn a_name_founded_again_is_read_again() {
+    let (runs, web) = fixture("found-again");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let found = r#"{"template":"stadt","run":"neu"}"#;
+    assert_eq!(post(port, "/api/runs", found).0, 200);
+    set_mode(&runs.join("neu/input.ndjson"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/neu/advance", r#"{"step":"year"}"#);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert_eq!(code(&get(port, "/api/runs/neu").2), "run_failed");
+    set_mode(&runs.join("neu/input.ndjson"), 0o644);
+    fs::remove_dir_all(runs.join("neu")).expect("removed");
+    assert_eq!(post(port, "/api/runs", found).0, 200);
+    assert_eq!(get(port, "/api/runs/neu").0, 200, "read again");
 }

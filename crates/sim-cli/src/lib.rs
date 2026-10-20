@@ -290,9 +290,13 @@ fn before_the_start(until: SimTime) -> bool {
 /// the founders and couples as they stand. Format 4 is no longer read: under format 5 the
 /// same founders mean something else.
 fn read_scenario(file: &Path) -> Result<Scenario, CliError> {
+    resolve(scenario_file(&files::read_text(file)?)?, data::core_data)
+}
+
+/// The scenario file in `text`, of format version 5, not yet resolved.
+pub fn scenario_file(text: &str) -> Result<files::ScenarioFile, CliError> {
     let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
-    let text = files::read_text(file)?;
-    let version = serde_json::from_str::<serde_json::Value>(&text)
+    let version = serde_json::from_str::<serde_json::Value>(text)
         .ok()
         .and_then(|value| {
             value
@@ -304,10 +308,9 @@ fn read_scenario(file: &Path) -> Result<Scenario, CliError> {
             "a scenario of format version 4 is no longer read (format 5 draws the alleles founders do not name)",
         ));
     }
-    let file: files::ScenarioFile = files::parse_strict(&text)
+    files::parse_strict(text)
         .filter(|scenario: &files::ScenarioFile| scenario.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| invalid("not a scenario of format version 5"))?;
-    resolve(file, data::core_data)
+        .ok_or_else(|| invalid("not a scenario of format version 5"))
 }
 
 /// A scenario file resolved on the data `data` gives, which it asks for only when the file
@@ -348,6 +351,15 @@ pub fn resolve(
 fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), CliError> {
     let _lock = lock::RunLock::acquire(out)?;
     let scenario = read_scenario(file)?;
+    let mut session = begin(out, &scenario, until.unwrap_or(scenario.until))?;
+    session.advance(until.unwrap_or(scenario.until))?;
+    session.finish(&scenario)
+}
+
+/// A new run of `scenario` in `out`, standing at the second before the start: its limits
+/// (the scenario's and `limit`) are checked before anything is written. The caller holds
+/// the lock of `out`.
+pub fn begin(out: &Path, scenario: &Scenario, limit: SimTime) -> Result<Session, CliError> {
     if before_the_start(scenario.until) {
         let detail = format!("until {} lies before the start", scenario.until.as_secs());
         return Err(CliError::new("scenario_invalid", detail));
@@ -355,14 +367,11 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
     let before_start = SimTime::START.as_secs() - 1;
     let stamp =
         SimTime::try_from(before_start).unwrap_or_else(|_| panic!("invariant cli.start_stamp"));
-    // Both limits are checked before anything is written.
     session::check_limit(stamp, scenario.until)?;
-    session::check_limit(stamp, until.unwrap_or(scenario.until))?;
+    session::check_limit(stamp, limit)?;
     let first = Input::Start(scenario.start.clone());
     let rejected = |code: String| CliError::new("input_rejected", code);
-    let mut session = Session::start(out, stamp, first, Compare::Nothing, rejected)?;
-    session.advance(until.unwrap_or(scenario.until))?;
-    session.finish(&scenario)
+    Session::start(out, stamp, first, Compare::Nothing, rejected)
 }
 
 /// Continues a run from its save. The inputs of `inputs` (a JSON list in the command
