@@ -306,6 +306,11 @@ fn the_words_of_every_place() {
             FirstCousinFemaleYounger2,
             FirstCousinMaleYounger2,
         ),
+        (
+            at(2, 5, 1),
+            FirstCousinFemaleYounger3,
+            FirstCousinMaleYounger3,
+        ),
         (at(3, 3, 2), SecondCousinFemale, SecondCousinMale),
         (
             at(4, 3, 2),
