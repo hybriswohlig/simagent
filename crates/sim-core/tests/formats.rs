@@ -1282,6 +1282,8 @@ fn log_codes_are_stable() {
         KinWord::GreatGreatNephew,
         KinWord::GreatGreatGreatNiece,
         KinWord::GreatGreatGreatNephew,
+        KinWord::GreatGreatGreatGreatNiece,
+        KinWord::GreatGreatGreatGreatNephew,
         KinWord::FirstCousinFemale,
         KinWord::FirstCousinMale,
         KinWord::FirstCousinFemaleOlder1,
@@ -1292,12 +1294,15 @@ fn log_codes_are_stable() {
         KinWord::FirstCousinMaleYounger1,
         KinWord::FirstCousinFemaleYounger2,
         KinWord::FirstCousinMaleYounger2,
+        KinWord::FirstCousinFemaleYounger3,
+        KinWord::FirstCousinMaleYounger3,
         KinWord::SecondCousinFemale,
         KinWord::SecondCousinMale,
         KinWord::SecondCousinFemaleOlder1,
         KinWord::SecondCousinMaleOlder1,
         KinWord::SecondCousinFemaleYounger1,
         KinWord::SecondCousinMaleYounger1,
+        KinWord::Distant,
         KinWord::Unrelated,
     ];
     for word in &words {
@@ -1339,6 +1344,8 @@ fn log_codes_are_stable() {
             | KinWord::GreatGreatNephew
             | KinWord::GreatGreatGreatNiece
             | KinWord::GreatGreatGreatNephew
+            | KinWord::GreatGreatGreatGreatNiece
+            | KinWord::GreatGreatGreatGreatNephew
             | KinWord::FirstCousinFemale
             | KinWord::FirstCousinMale
             | KinWord::FirstCousinFemaleOlder1
@@ -1349,12 +1356,15 @@ fn log_codes_are_stable() {
             | KinWord::FirstCousinMaleYounger1
             | KinWord::FirstCousinFemaleYounger2
             | KinWord::FirstCousinMaleYounger2
+            | KinWord::FirstCousinFemaleYounger3
+            | KinWord::FirstCousinMaleYounger3
             | KinWord::SecondCousinFemale
             | KinWord::SecondCousinMale
             | KinWord::SecondCousinFemaleOlder1
             | KinWord::SecondCousinMaleOlder1
             | KinWord::SecondCousinFemaleYounger1
             | KinWord::SecondCousinMaleYounger1
+            | KinWord::Distant
             | KinWord::Unrelated => {}
         }
     }

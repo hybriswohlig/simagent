@@ -72,7 +72,7 @@ fn the_nearest_common_ancestor_by_hand() {
 
 /// Two lines below a founder couple ("a", "b"): their children "c1" and "c2", and below
 /// each a child, grandchild and great-grandchild ("d", "e", "f") with a founder partner,
-/// and a "g1" below "f1". Five generations from the couple to "f", six to "g1".
+/// and a "g1" below "f1". "f" stands four generations below the couple, "g1" five.
 const LINES: [Person; 18] = [
     ("a", 0, None),
     ("b", 0, None),
@@ -174,10 +174,72 @@ fn a_loop_reaches_five_generations_up() {
     assert_eq!(of("y", "c"), place(1, 1, 1));
 }
 
-/// A relation is there exactly when φ is above 0, for every pair of the three families.
+/// A tie of sums broken by fewer up: "y" reaches "c" in three steps and "m" in two (by
+/// "p"); "x" reaches "c" in four, "m" in five. Both sum to 7, so "m" at `(2, 5)`. Two paths
+/// of seven steps, `φ = 2 · 2^-8`.
+const TIE: [Person; 18] = [
+    ("m", 0, None),
+    ("fc", 0, None),
+    ("fe", 0, None),
+    ("fb", 0, None),
+    ("fa", 0, None),
+    ("fx", 0, None),
+    ("fd", 0, None),
+    ("fg", 0, None),
+    ("fp", 0, None),
+    ("c", 100, Some(("fc", "m"))),
+    ("p", 100, Some(("fp", "m"))),
+    ("e", 200, Some(("fe", "c"))),
+    ("d", 200, Some(("fd", "c"))),
+    ("b", 300, Some(("fb", "e"))),
+    ("g", 300, Some(("fg", "d"))),
+    ("a", 400, Some(("fa", "b"))),
+    ("y", 400, Some(("g", "p"))),
+    ("x", 500, Some(("fx", "a"))),
+];
+
+/// Three ancestors tied at 7: "c" at `(3, 4)`, "h" at `(2, 5)`, "m" at `(1, 6)` from "y";
+/// "m" wins. Three paths of seven steps, `φ = 3 · 2^-8`.
+const TIES: [Person; 17] = [
+    ("m", 0, None),
+    ("fh", 0, None),
+    ("fc", 0, None),
+    ("fe", 0, None),
+    ("fb", 0, None),
+    ("fa", 0, None),
+    ("fx", 0, None),
+    ("fd", 0, None),
+    ("h", 100, Some(("fh", "m"))),
+    ("c", 200, Some(("fc", "h"))),
+    ("e", 300, Some(("fe", "c"))),
+    ("d", 300, Some(("fd", "c"))),
+    ("b", 400, Some(("fb", "e"))),
+    ("g", 400, Some(("d", "h"))),
+    ("a", 500, Some(("fa", "b"))),
+    ("y", 500, Some(("g", "m"))),
+    ("x", 600, Some(("fx", "a"))),
+];
+
+/// The places a tie of sums adds: fewer up wins, so B may stand five or six down. From
+/// the other side the same pedigrees give `(4, 3)`.
+#[test]
+fn a_tie_of_sums_goes_to_fewer_up() {
+    let (kin, ids) = tree(&TIE);
+    let lookup = |sim: SimId| kin[&sim];
+    assert_eq!(relation(ids["y"], ids["x"], lookup), place(2, 5, 1));
+    assert_eq!(relation(ids["x"], ids["y"], lookup), place(4, 3, 1));
+    assert!(phi(ids["y"], ids["x"], lookup).to_bits() == f64::to_bits(2.0 / 256.0));
+    let (kin, ids) = tree(&TIES);
+    let lookup = |sim: SimId| kin[&sim];
+    assert_eq!(relation(ids["y"], ids["x"], lookup), place(1, 6, 1));
+    assert_eq!(relation(ids["x"], ids["y"], lookup), place(4, 3, 1));
+    assert!(phi(ids["y"], ids["x"], lookup).to_bits() == f64::to_bits(3.0 / 256.0));
+}
+
+/// A relation is there exactly when φ is above 0, for every pair of the five families.
 #[test]
 fn a_relation_exactly_when_kinship_is_above_zero() {
-    for people in [&FAMILY[..], &LINES[..], &LOOP[..]] {
+    for people in [&FAMILY[..], &LINES[..], &LOOP[..], &TIE[..], &TIES[..]] {
         let (kin, ids) = tree(people);
         for &x in ids.values() {
             for &y in ids.values() {
@@ -196,7 +258,7 @@ use sim_core::genome::Sex;
 use sim_core::presentation::kin::{Foster, KinWord, foster, r_percent, word};
 
 /// The words of Grok's list (K1, K2) for every place a search reaches (`up, down ≤ 4`, not
-/// both 4, and `(5, 1)`, `(1, 5)` in a loop), by the sex of the other person, read off the list by hand: "Ur" `k − 2` times
+/// both 4, and `(5, 1)`, `(1, 5)`, `(1, 6)`, `(2, 5)` in a loop), by the sex of the other person, read off the list by hand: "Ur" `k − 2` times
 /// from `k = 3` in the direct line, "Groß" and then "Urgroß" for the siblings of
 /// grandparents and of their parents, cousins of the grade `min − 1` with the generations
 /// between them, and half only for siblings.
@@ -225,6 +287,11 @@ fn the_words_of_every_place() {
         (at(1, 3, 2), GreatNiece, GreatNephew),
         (at(1, 4, 1), GreatGreatNiece, GreatGreatNephew),
         (at(1, 5, 1), GreatGreatGreatNiece, GreatGreatGreatNephew),
+        (
+            at(1, 6, 1),
+            GreatGreatGreatGreatNiece,
+            GreatGreatGreatGreatNephew,
+        ),
         (at(2, 2, 2), FirstCousinFemale, FirstCousinMale),
         (at(2, 2, 1), FirstCousinFemale, FirstCousinMale),
         (at(3, 2, 2), FirstCousinFemaleOlder1, FirstCousinMaleOlder1),
@@ -258,31 +325,19 @@ fn the_words_of_every_place() {
     }
 }
 
-/// A place no search reaches is an invariant break.
+/// A place no search reaches has no word of its own: distant (Grok's K4).
 #[test]
-#[should_panic(expected = "invariant kinship.place")]
-fn a_place_beyond_the_search_is_an_invariant_break() {
-    word(
-        Some(Relation {
-            up: 4,
-            down: 4,
-            shared: 2,
-        }),
-        Sex::Female,
-    );
-}
-
-#[test]
-#[should_panic(expected = "invariant kinship.place")]
-fn a_place_above_the_search_is_an_invariant_break() {
-    word(
-        Some(Relation {
-            up: 5,
-            down: 0,
-            shared: 1,
-        }),
-        Sex::Male,
-    );
+fn a_place_beyond_the_search_is_distant() {
+    for (up, down) in [(4, 4), (5, 0), (0, 5), (6, 1), (5, 2), (3, 5), (8, 0)] {
+        for sex in [Sex::Female, Sex::Male] {
+            let place = Some(Relation {
+                up,
+                down,
+                shared: 1,
+            });
+            assert_eq!(word(place, sex), KinWord::Distant, "{up} {down}");
+        }
+    }
 }
 
 /// `r = 2φ` in percent to a tenth, half up (Grok G6, K5), by hand: a parent or a sibling
