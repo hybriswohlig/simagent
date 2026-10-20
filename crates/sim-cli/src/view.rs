@@ -316,34 +316,47 @@ impl Server {
         if dir.symlink_metadata().is_ok() {
             return Response::error(409, "run_exists");
         }
-        let made = (|| {
-            let lock = RunLock::acquire(&dir)?;
-            let mut file = crate::scenario_file(template)?;
+        let lock = match RunLock::acquire(&dir) {
+            Ok(lock) => lock,
+            Err(error) => return failure(&error),
+        };
+        // Again under the lock: another process may have made it since.
+        if dir.symlink_metadata().is_ok() {
+            return Response::error(409, "run_exists");
+        }
+        let scenario = crate::scenario_file(template).and_then(|mut file| {
             if let Some(seed) = seed {
                 file.start.world_seed = seed;
             }
-            let scenario = crate::resolve(file, crate::data::core_data)?;
+            crate::resolve(file, crate::data::core_data)
+        });
+        let scenario = match scenario {
+            Ok(scenario) => scenario,
+            Err(error) => return failure(&error),
+        };
+        // From here on the directory is this server's: a failure marks it failed.
+        let made = (|| {
             // The template ends before its start: the run stands there, as `run --scenario`
             // leaves it.
             let mut session = crate::begin(&dir, &scenario, scenario.until)?;
             session.checkpoint(&scenario)?;
-            Ok::<_, CliError>(Open {
-                session,
-                scenario,
-                _lock: lock,
-            })
+            Ok::<_, CliError>(session)
         })();
         match made {
-            Ok(opened) => {
+            Ok(session) => {
+                self.failed.remove(&found.run);
+                let opened = Open {
+                    session,
+                    scenario,
+                    _lock: lock,
+                };
                 self.open.insert(found.run.clone(), opened);
                 let body =
                     json!({"format": "simagent.view.created", "version": 1, "run": found.run});
                 Response::new(200, JSON, format!("{body}\n").into_bytes())
             }
             Err(error) => {
-                if dir.symlink_metadata().is_ok() {
-                    self.failed.insert(found.run);
-                }
+                self.failed.insert(found.run);
                 failure(&error)
             }
         }
