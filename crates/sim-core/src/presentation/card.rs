@@ -16,14 +16,16 @@ use alloc::vec::Vec;
 
 use serde::Serialize;
 
-use crate::data_id::DataId;
+use crate::data::{Action, Carrier, Chromosome};
+use crate::data_id::{DataId, str_key};
 use crate::genome::Genome;
 use crate::ids::SimId;
 use crate::lineage::LineageKey;
 use crate::phenotype::{Environment, PhenotypeParts, phenotype_parts};
 use crate::rng::{Draws, WorldSeed};
 use crate::state::DomainState;
-use crate::time::{SimTime, YEAR};
+use crate::state::disease::qualifies;
+use crate::time::{SimDuration, SimTime, YEAR, calendar};
 use crate::world::World;
 
 /// The traits the card reads as a percentile (G3): height as the target height `z_h` of
@@ -106,12 +108,88 @@ pub struct HeightCard {
     pub parents_target_cm: Option<f64>,
 }
 
-/// The genetics card of a person: the traits of [`card_traits`] the map has, and the height
-/// lines where the data have the growth traits.
+/// The copies of a disease's allele a person carries (G4, L7), the mother's first: two
+/// copies of an autosome or a woman's X; a man's one X (his father gave a Y); the one
+/// mitochondrial copy, from the mother; for the threshold disease no copies but the
+/// percentile of its liability `L`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Copies {
+    Two { mother: bool, father: bool },
+    MotherAndY { mother: bool },
+    Mother { mother: bool },
+    Liability { percentile: Percentile },
+}
+
+/// What a person's genotype found for a disease: nothing, a carrier of a recessive allele,
+/// a qualifying genotype whose penetrance fell, or the onset age in years.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Found {
+    Not,
+    Carrier,
+    PenetranceFallen,
+    Onset(f64),
+}
+
+/// The status of a disease at the second shown (G4, L7, M1, M4): not affected; a carrier who
+/// stays healthy; a qualifying genotype whose penetrance fell; with the switch off a resting
+/// one; affected since the calendar year of the onset at its age in whole years; or not yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DiseaseStatus {
+    NotAffected,
+    Carrier,
+    PenetranceFallen,
+    NotYet,
+    Resting,
+    Affected { year: i64, age_years: i64 },
+}
+
+/// The status of what the genotype `found` at `at` for a person born at `born`, with the
+/// switch of the hereditary diseases `switch_on` then. Affected from the age `onset` on (as
+/// the pedigree says), since the calendar year of the second `born + ⌈onset · YEAR⌉`, at
+/// `⌊onset⌋` whole years.
+pub fn disease_status(found: Found, switch_on: bool, born: SimTime, at: SimTime) -> DiseaseStatus {
+    match found {
+        Found::Not => DiseaseStatus::NotAffected,
+        Found::Carrier => DiseaseStatus::Carrier,
+        Found::PenetranceFallen => DiseaseStatus::PenetranceFallen,
+        Found::Onset(_) if !switch_on => DiseaseStatus::Resting,
+        Found::Onset(onset) if crate::state::disease::age(born, at) >= onset => {
+            let whole = |x: f64| {
+                sim_math::to_i64_exact(x).unwrap_or_else(|| panic!("invariant card.onset"))
+            };
+            let year = sim_math::i64_to_f64_exact(YEAR.as_secs())
+                .unwrap_or_else(|| panic!("invariant card.year"));
+            let since = born
+                .checked_add(SimDuration::from_secs(whole(sim_math::ceil(onset * year))))
+                .unwrap_or_else(|| panic!("invariant card.onset"));
+            DiseaseStatus::Affected {
+                year: calendar(since).year,
+                age_years: whole(-sim_math::ceil(-onset)),
+            }
+        }
+        Found::Onset(_) => DiseaseStatus::NotYet,
+    }
+}
+
+/// One disease of the card.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DiseaseCard {
+    pub disease: DataId,
+    pub copies: Copies,
+    pub status: DiseaseStatus,
+}
+
+/// The genetics card of a person: the traits of [`card_traits`] the map has, the height
+/// lines where the data have the growth traits, and the diseases of the data, with whether
+/// the switch of the hereditary diseases was off at the second shown (M1).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct GeneticsCard {
     pub traits: Vec<TraitCard>,
     pub height: Option<HeightCard>,
+    pub diseases_off: bool,
+    pub diseases: Vec<DiseaseCard>,
 }
 
 /// What the card reads of a sim, living or archived: its birth, the second shown (now for
@@ -223,6 +301,111 @@ impl World {
                 _ => None,
             },
         });
-        Some(GeneticsCard { traits, height })
+        let (diseases_off, diseases) = self.disease_lines(sim)?;
+        Some(GeneticsCard {
+            traits,
+            height,
+            diseases_off,
+            diseases,
+        })
+    }
+
+    /// The switch off at the second shown, and the disease lines of `sim` in data order: a
+    /// disease of a locus on an autosome, X or mt, or a threshold disease with its trait of
+    /// liability (one without afflicts nobody, 11.1, and a disease on Y has no words yet;
+    /// neither has a line).
+    fn disease_lines(&self, sim: SimId) -> Option<(bool, Vec<DiseaseCard>)> {
+        let state = self.state();
+        let domain = state.domain();
+        let data = state.data();
+        let (born, at, genome, key) = facts(domain, self.closed_through(), sim)?;
+        let afflictions = (domain
+            .sims
+            .get(&sim)
+            .map(|person| person.afflictions.as_slice()))
+        .or_else(|| {
+            domain
+                .archive
+                .get(&sim)
+                .map(|gone| gone.afflictions.as_slice())
+        })?;
+        let switch_on = crate::pedigree::switch_at(self.input_log(), at);
+        let seeds = domain.seeds(data, sim);
+        let individual = Draws::new(WorldSeed::new(seeds.individual));
+        let shared = Draws::new(WorldSeed::new(seeds.shared));
+        let environment = Environment {
+            individual: &individual,
+            shared: &shared,
+        };
+        let lines = (data.diseases().iter())
+            .filter_map(|disease| {
+                let (copies, qualifies, carrier) = match &disease.carrier {
+                    Carrier::Locus { locus, .. } => {
+                        let locus = data
+                            .locus(locus)
+                            .unwrap_or_else(|| panic!("invariant card.disease_locus"));
+                        let held = genome.copies(locus);
+                        let copies = match (held.as_slice(), locus.chromosome) {
+                            (&[mother, father], _) => Copies::Two {
+                                mother: mother == 1,
+                                father: father == 1,
+                            },
+                            (&[mother], Chromosome::X) => Copies::MotherAndY {
+                                mother: mother == 1,
+                            },
+                            (&[mother], Chromosome::Mt) => Copies::Mother {
+                                mother: mother == 1,
+                            },
+                            // A disease on Y: none in the data, and no words for it.
+                            _ => return None,
+                        };
+                        let qualifies = qualifies(genome, locus);
+                        let carrier =
+                            locus.action == Action::Recessive && !qualifies && held.contains(&1);
+                        (copies, qualifies, carrier)
+                    }
+                    Carrier::Threshold {
+                        liability: Some(trait_id),
+                        ..
+                    } => {
+                        let liability = phenotype_parts(
+                            environment,
+                            data,
+                            genome,
+                            key,
+                            domain.parent_keys(sim),
+                            trait_id,
+                            SimDuration::ZERO,
+                        )
+                        .unwrap_or_else(|| panic!("invariant card.liability"))
+                        .z();
+                        let threshold = data
+                            .threshold(&disease.code)
+                            .unwrap_or_else(|| panic!("invariant card.threshold"));
+                        let copies = Copies::Liability {
+                            percentile: percentile(liability),
+                        };
+                        (copies, liability > threshold, false)
+                    }
+                    Carrier::Threshold {
+                        liability: None, ..
+                    } => return None,
+                };
+                let held = (afflictions.iter())
+                    .find(|affliction| affliction.disease == str_key(&disease.code));
+                let found = match (qualifies, held) {
+                    (false, _) if carrier => Found::Carrier,
+                    (false, _) => Found::Not,
+                    (true, None) => Found::PenetranceFallen,
+                    (true, Some(affliction)) => Found::Onset(affliction.onset.get()),
+                };
+                Some(DiseaseCard {
+                    disease: disease.code.clone(),
+                    copies,
+                    status: disease_status(found, switch_on, born, at),
+                })
+            })
+            .collect();
+        Some((!switch_on, lines))
     }
 }

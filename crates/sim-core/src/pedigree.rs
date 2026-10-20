@@ -130,7 +130,7 @@ pub struct Home {
 
 /// Whether the switch of the hereditary diseases is on at `at`: the value of `Start` from
 /// the start on, each override block's from one second after its stamp (ADR-0013).
-fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
+pub(crate) fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
     let mut on = false;
     for record in log {
         match &record.input {

@@ -16,11 +16,13 @@ use std::process::Command;
 use serde_json::{Value, json};
 use sim_core::ids::SimId;
 use sim_core::presentation::card::Parts;
-use sim_core::world::World;
+use sim_core::time::SimTime;
+use sim_core::world::{World, YearOut};
 
 const DUMMY_CARD: &str = include_str!("../../../tests/golden/dummy_card.json");
 const TOWN_CARD: &str = include_str!("../../../tests/golden/town_card.json");
 const HUNGER_HEIGHTS: &str = include_str!("../../../tests/golden/card_hunger.json");
+const DISEASES: &str = include_str!("../../../tests/golden/card_diseases.json");
 
 /// `ours` and `golden` are the same JSON, their fractional numbers within 1e-12 of the
 /// larger of 1 and the golden's magnitude.
@@ -152,6 +154,76 @@ fn the_hunger_runs_heights_are_the_references() {
                 "parents_target_cm": height.parents_target_cm,
             });
             assert!(close(&ours, person), "{t} sim {n}: {ours} against {person}");
+        }
+    }
+}
+
+/// The dummy run in this process to `until`, and its forks with the override "hereditary
+/// diseases on" stamped `T_5 − 1 s` (as `tests/golden.rs` builds the golden fork) and
+/// `T_7 − 1 s`.
+fn dummy_and_forks() -> (World, World, World) {
+    let scenario: sim_cli::files::Scenario =
+        sim_cli::files::parse_strict(include_str!("../../../tests/scenarios/dummy.json"))
+            .expect("the scenario parses");
+    let started = || {
+        let mut world = World::new(sim_cli::data::core_data().expect("data"));
+        world
+            .submit(sim_core::input::Input::Start(scenario.start.clone()))
+            .expect("accepted");
+        world
+    };
+    let mut run = started();
+    run.advance_until(&mut YearOut::default(), scenario.until, &mut |_| false);
+    let fork = |year: i64| {
+        let mut fork = started();
+        fork.advance_until(
+            &mut YearOut::default(),
+            SimTime::from_secs(year * 31_449_600 - 1),
+            &mut |_| false,
+        );
+        let block = sim_core::input::ForkOverride {
+            changes: vec![sim_core::params::ParamChange::HereditaryDiseases(true)],
+        };
+        fork.submit(sim_core::input::Input::ForkOverride(block))
+            .expect("accepted");
+        fork.advance_until(&mut YearOut::default(), scenario.until, &mut |_| false);
+        fork
+    };
+    (run, fork(5), fork(7))
+}
+
+/// The disease lines (Grok G4, L7, M1, M4) of the dummy run (switch off), its forks (on from
+/// year 5, and from year 7, after sim 3 left with the switch off) and the town equal the
+/// reference's (`tests/golden/card_diseases.json`) exactly: copies, statuses, years and ages
+/// are whole values.
+#[test]
+fn the_disease_lines_are_the_references() {
+    let golden: Value = serde_json::from_str(DISEASES).expect("JSON");
+    let (dummy, fork, fork_7) = dummy_and_forks();
+    let runs = golden.as_array().expect("a list");
+    assert_eq!(runs.len(), 4);
+    // The town to the golden's second, in its own directory (another test runs it to its end).
+    let town = run_until("town.json", runs[3]["t"].as_i64());
+    for snapshot in runs {
+        let world = match snapshot["run"].as_str().expect("a name") {
+            "dummy" => &dummy,
+            "dummy_fork" => &fork,
+            "dummy_fork_7" => &fork_7,
+            "town" => &town,
+            other => panic!("unknown run {other}"),
+        };
+        assert_eq!(
+            Some(world.closed_through().as_secs()),
+            snapshot["t"].as_i64()
+        );
+        for person in snapshot["persons"].as_array().expect("persons") {
+            let n = person["sim"].as_u64().expect("a sim");
+            let card = world
+                .genetics_card(SimId::try_from(n).expect("an id"))
+                .expect("a card");
+            let ours =
+                json!({"sim": n, "diseases_off": card.diseases_off, "diseases": card.diseases});
+            assert_eq!(&ours, person, "{} sim {n}", snapshot["run"]);
         }
     }
 }
