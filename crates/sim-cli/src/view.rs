@@ -575,7 +575,8 @@ fn leading_id(line: &str) -> Option<u64> {
 }
 
 /// `GET /api/runs/{run}/events`: the entries of `events.ndjson` that pass the filters, in
-/// the order of the file, at most [`EVENTS_PER_PAGE`]; `next` is the id of the last one if
+/// the order of the file, each with the core's calendar date of its second, at most
+/// [`EVENTS_PER_PAGE`]; `next` is the id of the last one if
 /// more follow (the next page asks `after` it). The log is read as a stream and only up to
 /// the first entry beyond the page; an entry at or before `after` is passed by its id
 /// without being parsed. Only complete lines count (see [`complete_lines`]).
@@ -613,15 +614,21 @@ fn events(dir: &Path, query: &str) -> Response {
                 more = true;
                 break;
             }
-            Some(true) => page.push(entry),
+            Some(true) => {
+                let t = entry["t"].as_i64().and_then(|t| SimTime::try_from(t).ok());
+                let Some(t) = t else {
+                    return invalid();
+                };
+                page.push(json!({"entry": entry, "date": date(t)}));
+            }
         }
     }
     let next = (page.last())
         .filter(|_| more)
-        .map(|last| last["id"].clone())
+        .map(|last| last["entry"]["id"].clone())
         .unwrap_or(Value::Null);
     let body =
-        json!({"format": "simagent.view.events", "version": 1, "events": page, "next": next});
+        json!({"format": "simagent.view.events", "version": 2, "events": page, "next": next});
     Response::new(200, JSON, format!("{body}\n").into_bytes())
 }
 
