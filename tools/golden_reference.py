@@ -22,6 +22,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
   in year 3): tests/golden/card_hunger.json, the height lines of the genetics card of every
   person of its run in the middle of year 2 (`HUNGER_MID`, year 3 still ahead) and at `until`
   (`card_height_json`).
+- tests/golden/card_diseases.json: the disease lines of the genetics card of every person of the
+  dummy run (switch off) and of its fork (on from year 5) at `until`, and of the first two
+  persons of each disease and status of the town (`card_diseases_json`).
 - tests/scenarios/town.json (format 5 with a pool): tests/golden/town.json in the same form,
   and tests/golden/town_card.json, the genetics card of two persons of each case of parents
   in the run (`town_card_json`),
@@ -68,6 +71,7 @@ EXPORT_FILE = "dummy_export.json"
 CARD_FILE = "dummy_card.json"
 TOWN_CARD_FILE = "town_card.json"
 HUNGER_FILE = "card_hunger.json"
+DISEASES_FILE = "card_diseases.json"
 # The last closed second in the middle of year 2: a hunger year under way, the next ahead.
 HUNGER_MID = 2 * YEAR + YEAR // 2 - 1
 # The traits of the card that read as a percentile (ADR-0021 section 5, Grok G3): height as the
@@ -358,6 +362,91 @@ def card_height_json(s: dict, data: wr.Data) -> str:
     return wr.json_text(snapshots)
 
 
+def disease_rows(world: wr.World, now: int, chosen=None) -> list:
+    """The disease lines of the genetics card (ADR-0021 section 5, Grok G4, L7, M1, M4) of the
+    persons of `world` (all, or `chosen`), by SimId, each at its second shown, as a list of
+    `{"sim", "diseases_off", "diseases"}`; `diseases_off` is the switch off at that second
+    (`switch_at`). Per disease of the data with a carrier (a disease locus, or a threshold
+    with its trait of liability), in data order: `copies` (allele 1 per copy, the mother's
+    first): two copies `two`, a man's one X `mother_and_y`, the one mt copy `mother`; for the
+    threshold disease `liability` with the percentile of `L`, the phenotype of its trait at
+    the age 0 with the person's seeds (`percentile`). `status`: the genotype qualifies
+    (`has_genotype`, or `L > T`) or not; not, a recessive locus with an allele 1 copy is
+    `carrier`, else `not_affected`; qualifying without an affliction (its penetrance fell)
+    `penetrance_fallen`; with one, the switch off `resting`, the age `as_years(at − born)` at
+    least the onset `affected` with `year` the calendar year of `born + ⌈onset · YEAR⌉` and
+    `age_years` `⌊onset⌋`, else `not_yet`."""
+    everyone = sorted(set(world.sims) | set(world.archive))
+    rows = []
+    for sim in everyone if chosen is None else sorted(chosen):
+        if sim in world.sims:
+            born, key, _, person, afflictions = world.sims[sim][:5]
+            at = now
+        else:
+            value = world.archive[sim]
+            born, at, key, person, afflictions = value[0], value[1], value[3], value[5], value[6]
+        e_seed, c_seed, parents = world.env_of(sim)
+        held = {affliction.disease.code: affliction for affliction in afflictions}
+        switch = world.switch_at(at)
+        lines = []
+        for disease in world.data.diseases:
+            if disease.locus is not None:
+                copies = wr.copies_at(person, disease.locus)
+                if len(copies) == 2:
+                    shape = {"kind": "two", "mother": copies[0] == 1, "father": copies[1] == 1}
+                elif len(copies) == 1 and disease.locus["chromosome"] == "x":
+                    shape = {"kind": "mother_and_y", "mother": copies[0] == 1}
+                elif len(copies) == 1 and disease.locus["chromosome"] == "mt":
+                    shape = {"kind": "mother", "mother": copies[0] == 1}
+                else:
+                    # A disease on Y (no such disease in the data, and no words for it): no line.
+                    continue
+                qualifies = wr.has_genotype(disease.locus["action"], copies)
+                carrier = disease.locus["action"] == "recessive" and not qualifies and 1 in copies
+            elif disease.liability is not None:
+                liability = wr.phenotype(e_seed, disease.liability, person, key, parents, 0, c_seed)
+                shape = {"kind": "liability", "percentile": percentile(liability)}
+                qualifies, carrier = liability > disease.threshold, False
+            else:
+                continue
+            affliction = held.get(disease.code)
+            assert (affliction is None) or qualifies
+            if not qualifies:
+                status = {"kind": "carrier" if carrier else "not_affected"}
+            elif affliction is None:
+                status = {"kind": "penetrance_fallen"}
+            elif not switch:
+                status = {"kind": "resting"}
+            elif wr.as_years(at - born) >= affliction.onset:
+                second = born + math.ceil(affliction.onset * float(YEAR))
+                status = {"kind": "affected", "year": second // YEAR, "age_years": math.floor(affliction.onset)}
+            else:
+                status = {"kind": "not_yet"}
+            lines.append({"disease": disease.code, "copies": shape, "status": status})
+        rows.append({"sim": sim, "diseases_off": not switch, "diseases": lines})
+    return rows
+
+
+def card_diseases_json(w: dict, fork_7: wr.World, town_world: wr.World, until: int, town_until: int) -> str:
+    """tests/golden/card_diseases.json: `disease_rows` of the dummy run, its fork and a second
+    fork with the switch on from year 7 (stamped at the last second of year 6, after the
+    emigrations at the end of year 5: who left before keeps the switch off), every person;
+    and of the town (the first two persons by SimId of each disease and status); as a JSON
+    list of `{"run", "t", "persons"}`."""
+    first = {}
+    for row in disease_rows(town_world, town_until):
+        for line in row["diseases"]:
+            first.setdefault((line["disease"], line["status"]["kind"]), []).append(row["sim"])
+    chosen = sorted({sim for sims in first.values() for sim in sims[:2]})
+    runs = [
+        ("dummy", w["run"], until, None),
+        ("dummy_fork", w["fork"], until, None),
+        ("dummy_fork_7", fork_7, until, None),
+        ("town", town_world, town_until, chosen),
+    ]
+    return wr.json_text([{"run": name, "t": t, "persons": disease_rows(world, t, pick)} for name, world, t, pick in runs])
+
+
 def dummy_files(w: dict) -> dict:
     return {
         "dummy.json": golden_text(w["run"]).encode(),
@@ -494,7 +583,7 @@ def pin_rows(label: str, files: dict) -> list:
     rows = []
     for name, content in files.items():
         extra = ""
-        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE, HUNGER_FILE):
+        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE, HUNGER_FILE, DISEASES_FILE):
             golden = json.loads(content)
             extra = (
                 f" core_version {golden['core_version']} data_hash {golden['data_hash']} log_hash {golden['log_hash']}"
@@ -547,6 +636,12 @@ def main(argv) -> int:
     hunger = scenario(SCENARIOS / "card_hunger.json")
     files[HUNGER_FILE] = (card_height_json(hunger, data) + "\n").encode()
     files[TOWN_FILE] = golden_text(town_run).encode()
+    fork_7 = make_world(dummy, data)
+    fork_7.advance(7 * YEAR - 1)
+    fork_7.override(True)
+    fork_7.advance(dummy["until"])
+    check_all(fork_7)
+    files[DISEASES_FILE] = (card_diseases_json(w, fork_7, town_run, dummy["until"], town["until"]) + "\n").encode()
     files[TOWN_CARD_FILE] = (town_card_json(town_run, town["until"]) + "\n").encode()
     rows = [f"data data/ data_hash {hexed(data.hash)} definitions {hexed(data.pool.frozen_hash)} pool {hexed(data.pool.hash)} core_version {wr.CORE_VERSION}"]
     rows += pin_rows("golden", files)
