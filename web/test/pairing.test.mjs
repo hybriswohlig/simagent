@@ -1,9 +1,9 @@
-// Pairing two persons: who may be offered (living, the other sex, in no open partnership;
-// age and kinship are the core's to judge), and the input with woman and man by sex.
+// Pairing two persons: who is offered (the persons the core names, which it would pair now),
+// and the input with woman and man by sex.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { arrangement, candidates, openPartners, pairingShown } from "../dist/pairing.js";
+import { arrangement, candidates, pairingShown } from "../dist/pairing.js";
 
 /** A person of a pedigree; the values follow the format, they are not computed. */
 function person(sim, sex, ended = {}) {
@@ -48,23 +48,17 @@ const PEDIGREE = {
   households: [],
 };
 
-test("the persons in an open partnership", () => {
-  assert.deepEqual([...openPartners(PEDIGREE)].sort(), [3, 4]);
-});
-
-test("the candidates are the living of the other sex in no open partnership", () => {
+test("the candidates are the persons the core offers, in its order", () => {
   assert.deepEqual(
-    candidates(PEDIGREE, 1).map((p) => p.sim),
-    [2, 7],
+    candidates(PEDIGREE, [7, 2]).map((p) => p.sim),
+    [7, 2],
   );
+  assert.deepEqual(candidates(PEDIGREE, []), [], "none offered");
   assert.deepEqual(
-    candidates(PEDIGREE, 2).map((p) => p.sim),
-    [1, 8],
+    candidates(PEDIGREE, [99, 8]).map((p) => p.sim),
+    [8],
+    "a sim the pedigree lacks is left out",
   );
-  assert.deepEqual(candidates(PEDIGREE, 3), [], "in an open partnership");
-  assert.deepEqual(candidates(PEDIGREE, 5), [], "dead");
-  assert.deepEqual(candidates(PEDIGREE, 6), [], "emigrated");
-  assert.deepEqual(candidates(PEDIGREE, 99), [], "unknown");
 });
 
 test("the input names the woman and the man by their sex", () => {
