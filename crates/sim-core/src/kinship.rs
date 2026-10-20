@@ -254,6 +254,69 @@ impl<K: Ord + Copy + Debug> KinshipCache<K> {
     }
 }
 
+/// Where the nearest common ancestor of two persons stands (ADR-0021 section 3, the ground
+/// of the kinship words): `up` generations above the first, `down` generations from it to
+/// the second, and how many common ancestors stand at exactly that place (two for full
+/// siblings, one for half siblings and for the direct line).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relation {
+    pub up: u32,
+    pub down: u32,
+    pub shared: u32,
+}
+
+/// Every person of `set` that `x` reaches by parents inside `set`, each with its fewest
+/// generations above `x`; `x` itself at 0. Parents come before their children, so the
+/// walk ends within the set.
+fn generations<K: Ord + Copy>(
+    x: K,
+    set: &BTreeSet<K>,
+    lookup: &impl Fn(K) -> Kin<K>,
+) -> BTreeMap<K, u32> {
+    let mut found = BTreeMap::from([(x, 0)]);
+    let mut layer = Vec::from([x]);
+    let mut depth = 0;
+    while !layer.is_empty() {
+        depth += 1;
+        let mut next = Vec::new();
+        for person in layer {
+            let kin = lookup(person);
+            for parent in [kin.mother, kin.father].into_iter().flatten() {
+                if set.contains(&parent) && !found.contains_key(&parent) {
+                    found.insert(parent, depth);
+                    next.push(parent);
+                }
+            }
+        }
+        layer = next;
+    }
+    found
+}
+
+/// The nearest common ancestor of `x` and `y` over the persons a query of φ reads (the two
+/// and their ancestors up to the great-grandparents, `DEPTH`), along the same paths: up
+/// from `x` and from `y` through parents of that set only. The nearest is the common
+/// ancestor with the fewest generations up from `x` and down to `y` together, then the
+/// fewest up; `None` if they have none there, which is exactly when φ is 0. Biological
+/// parents only, as `lookup` gives them.
+///
+/// The places it gives are listed in `presentation::kin` (Places): at most four
+/// generations up and four down, never both, and a few more in a pedigree with a loop.
+pub fn relation<K: Ord + Copy>(x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> Option<Relation> {
+    let set = query_set(x, y, &lookup);
+    let (above_x, above_y) = (generations(x, &set, &lookup), generations(y, &set, &lookup));
+    let places: Vec<(u32, u32)> = (above_x.iter())
+        .filter_map(|(key, &up)| above_y.get(key).map(|&down| (up, down)))
+        .collect();
+    let &(up, down) = places.iter().min_by_key(|&&(up, down)| (up + down, up))?;
+    let shared = places.iter().filter(|&&place| place == (up, down)).count();
+    Some(Relation {
+        up,
+        down,
+        shared: u32::try_from(shared).unwrap_or_else(|_| panic!("invariant kinship.shared_count")),
+    })
+}
+
 /// φ of `x` and `y` with a memory of its own for this one query.
 ///
 /// # Panics
