@@ -177,9 +177,12 @@ const LOG_CODES: &str = "tests/golden/log_codes.txt";
 const TEXTS: &str = "web/src/text.ts";
 
 /// Every code of [`LOG_CODES`] has a text in [`TEXTS`], a key `"<type> <name>":` at the start
-/// of a line (ADR-0021 section 4); a retired code too.
+/// of a line of the table `CODES` (ADR-0021 section 4); a retired code too.
 pub fn code_text_findings(codes: &str, texts: &str) -> Vec<String> {
-    let keys: BTreeSet<&str> = (texts.lines())
+    let table = (texts.split_once("export const CODES"))
+        .and_then(|(_, rest)| rest.split_once("\n};"))
+        .map_or("", |(table, _)| table);
+    let keys: BTreeSet<&str> = (table.lines())
         .filter_map(|line| line.trim_start().strip_prefix('"')?.split_once("\":"))
         .map(|(key, _)| key)
         .collect();
