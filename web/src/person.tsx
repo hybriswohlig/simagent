@@ -120,6 +120,9 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
             {node.person.sim}
           </text>
+          <text x={node.x} y={node.y} dy="32" text-anchor="middle" font-size="11">
+            {node.person.first_name}
+          </text>
         </a>
       ))}
     </svg>
@@ -239,7 +242,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <p>{TEXT.failed_contract}</p>
       ) : view.state === "ready" ? (
         <div>
-          <Portrait params={view.value.shown.body} label={`${TEXT.person} ${person.sim}`} />
+          <Portrait params={view.value.shown.body} label={fullName(person)} />
           <Life view={view.value} />
           <Ages shown={view.value.at_ages} />
         </div>
