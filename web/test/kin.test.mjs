@@ -1,6 +1,7 @@
-// The line of a kinship (Grok's G6 and K3): the blood word, the foster word beside it, and r
-// in percent with one decimal in German digits; without a blood relation the foster word
-// alone, or "nicht verwandt". The lines are written by hand from those decisions.
+// The line of a kinship (Grok's G6, K3 and K5): the blood word, the foster word beside it,
+// and r in percent with one decimal in German digits, always, 0,0 included; without a blood
+// relation the foster word alone, or "nicht verwandt". The lines are written by hand from
+// those decisions.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,11 +22,11 @@ test("a blood relation with r in percent", () => {
 
 test("a foster word beside the blood word, or alone", () => {
   assert.equal(kinshipText(kin("grandmother", "foster_mother", 25)), "Großmutter, Pflegemutter, 25,0 Prozent");
-  assert.equal(kinshipText(kin("unrelated", "foster_son", 0)), "Pflegesohn");
+  assert.equal(kinshipText(kin("unrelated", "foster_son", 0)), "Pflegesohn, 0,0 Prozent");
 });
 
 test("no relation", () => {
-  assert.equal(kinshipText(kin("unrelated", null, 0)), "nicht verwandt");
+  assert.equal(kinshipText(kin("unrelated", null, 0)), "nicht verwandt, 0,0 Prozent");
 });
 
 test("a code this view does not know shows as the code", () => {
