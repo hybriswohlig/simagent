@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 
 use serde::Serialize;
 
+use crate::body_contract::{herc2, mc1r};
 use crate::data::{Action, Carrier, Chromosome};
 use crate::data_id::{DataId, str_key};
 use crate::genome::Genome;
@@ -173,6 +174,64 @@ pub fn disease_status(found: Found, switch_on: bool, born: SimTime, at: SimTime)
     }
 }
 
+/// Where a person's copy of a pigment allele from a parent came from (G7, L8): the parent
+/// carries one copy on its mother's strand, so from the person's grandmother, or on its
+/// father's, so from the grandfather; from the pool if that grandparent is not in the run;
+/// a parent without a copy made it new.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CopySource {
+    Grandmother { sim: SimId },
+    Grandfather { sim: SimId },
+    Pool,
+    New,
+}
+
+/// The source of the copy a parent with `parent_copies` (its mother's strand first, one or
+/// no copy of the allele) passed on, its parents in the run being `grandparents` (mother,
+/// father). Read from the genotypes (Grok's N1): a carrying parent whose other strand
+/// mutated to the allele in that very meiosis is not told apart (about one such line in ten
+/// thousand at the mutation rate of 5e-5); the page of the model's assumptions says so.
+pub fn copy_source(parent_copies: &[u8], grandparents: [Option<SimId>; 2]) -> CopySource {
+    let [grandmother, grandfather] = grandparents;
+    match parent_copies {
+        [1, _] => grandmother.map_or(CopySource::Pool, |sim| CopySource::Grandmother { sim }),
+        [_, 1] => grandfather.map_or(CopySource::Pool, |sim| CopySource::Grandfather { sim }),
+        _ => CopySource::New,
+    }
+}
+
+/// A line "übersprungen" (G7, L8): the person carries two copies at a large pigment locus,
+/// both parents are in the run and neither carries two; where each copy came from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SkippedLine {
+    pub locus: DataId,
+    pub mother_copy: CopySource,
+    pub father_copy: CopySource,
+}
+
+/// The line "übersprungen" at `locus` of a person carrying `own` there, whose parents carry
+/// `mother` and `father` (each its mother's strand first) and have `grandparents` in the run
+/// (the mother's parents, then the father's): a line only if the person carries two copies
+/// and neither parent does.
+pub fn skipped_line(
+    locus: DataId,
+    own: &[u8],
+    (mother, father): (&[u8], &[u8]),
+    grandparents: [[Option<SimId>; 2]; 2],
+) -> Option<SkippedLine> {
+    let two = |copies: &[u8]| copies == [1, 1];
+    if !two(own) || two(mother) || two(father) {
+        return None;
+    }
+    let [mothers, fathers] = grandparents;
+    Some(SkippedLine {
+        locus,
+        mother_copy: copy_source(mother, mothers),
+        father_copy: copy_source(father, fathers),
+    })
+}
+
 /// One disease of the card.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DiseaseCard {
@@ -182,14 +241,17 @@ pub struct DiseaseCard {
 }
 
 /// The genetics card of a person: the traits of [`card_traits`] the map has, the height
-/// lines where the data have the growth traits, and the diseases of the data, with whether
-/// the switch of the hereditary diseases was off at the second shown (M1).
+/// lines where the data have the growth traits, the diseases of the data, with whether the
+/// switch of the hereditary diseases was off at the second shown (M1), and the lines
+/// "übersprungen".
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct GeneticsCard {
     pub traits: Vec<TraitCard>,
     pub height: Option<HeightCard>,
     pub diseases_off: bool,
     pub diseases: Vec<DiseaseCard>,
+    /// The lines "übersprungen", MC1R before HERC2.
+    pub skipped: Vec<SkippedLine>,
 }
 
 /// What the card reads of a sim, living or archived: its birth, the second shown (now for
@@ -307,7 +369,42 @@ impl World {
             height,
             diseases_off,
             diseases,
+            skipped: self.skipped_lines(sim),
         })
+    }
+
+    /// The lines "übersprungen" of `sim` at MC1R and HERC2 (see [`SkippedLine`]).
+    fn skipped_lines(&self, sim: SimId) -> Vec<SkippedLine> {
+        let state = self.state();
+        let domain = state.domain();
+        let data = state.data();
+        let now = self.closed_through();
+        let in_run = |sim: SimId| -> [Option<SimId>; 2] {
+            domain.parent_keys(sim).map_or([None, None], |parents| {
+                [parents.mother, parents.father].map(|key| domain.keys.get(&key).copied())
+            })
+        };
+        let genome = |sim: SimId| facts(domain, now, sim).map(|f| f.2);
+        let (Some(own), [Some(mother), Some(father)]) = (genome(sim), in_run(sim)) else {
+            return Vec::new();
+        };
+        let (Some(of_mother), Some(of_father)) = (genome(mother), genome(father)) else {
+            return Vec::new();
+        };
+        let grandparents = [in_run(mother), in_run(father)];
+        [mc1r(), herc2()]
+            .into_iter()
+            .filter_map(|id| {
+                let locus = data.locus(&id)?;
+                let (from_mother, from_father) = (of_mother.copies(locus), of_father.copies(locus));
+                skipped_line(
+                    id,
+                    &own.copies(locus),
+                    (&from_mother, &from_father),
+                    grandparents,
+                )
+            })
+            .collect()
     }
 
     /// The switch off at the second shown, and the disease lines of `sim` in data order: a
