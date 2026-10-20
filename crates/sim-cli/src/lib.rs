@@ -212,8 +212,9 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
 }
 
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
-/// (ADR-0021 section 3), with the contract version of its body values and the partners a
-/// pairing would be accepted with now, and with `to` what that sim is to the person (its
+/// (ADR-0021 section 3), with the contract version of its body values, the partners a
+/// pairing would be accepted with now and its genetics card (section 5), and with `to` what
+/// that sim is to the person (its
 /// kinship word, its foster word and `r` in percent, all from the core); `None` for a sim
 /// the run does not know.
 pub fn person_answer(
@@ -241,6 +242,9 @@ pub fn person_answer(
         .map(|partner| partner.get())
         .collect();
     answer["partner_candidates"] = partners.into();
+    if let Some(card) = world.genetics_card(sim) {
+        answer["card"] = json(serde_json::to_value(card))?;
+    }
     if let Some(other) = to {
         let Some(kin) = world.kin_view(sim, other) else {
             return Ok(None);

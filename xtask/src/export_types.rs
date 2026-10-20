@@ -207,7 +207,54 @@ pub fn descriptor() -> Vec<Named> {
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
                 field("partner_candidates", list(Integer)),
+                field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
+            ],
+        },
+        Named {
+            name: "GeneticsCard",
+            doc: "The core's genetics card of the person at its second shown: per trait the percentile and the parts, the height lines, per disease the copies and the status, the lines of skipped pigment copies. The variant parts (parts, copies, status, a skipped line's copy sources) are objects keyed by `kind`, a skipped line an object of `locus`, `mother_copy` and `father_copy`; the web checks their keys.",
+            fields: vec![
+                field("traits", list(Ref("TraitCard"))),
+                field("height", nullable(Ref("HeightCard"))),
+                field("diseases_off", Bool),
+                field("diseases", list(Ref("DiseaseCard"))),
+                field("skipped", list(Kind::Map)),
+            ],
+        },
+        Named {
+            name: "TraitCard",
+            doc: "A trait of the card: `z`, its percentile, whether the person is an adult, the parts `z` adds up from (`kind` split or inherited) and the percentile of the parents' mean.",
+            fields: vec![
+                field("trait", Text),
+                field("z", Number),
+                field("percentile", Ref("Percentile")),
+                field("adult", Bool),
+                field("parts", Kind::Map),
+                field("parents_mean", nullable(Ref("Percentile"))),
+            ],
+        },
+        Named {
+            name: "Percentile",
+            doc: "\"größer als n von 100\" (`up`) or \"kleiner als n von 100\", `n` from 0 to 99.",
+            fields: vec![field("up", Bool), field("n", Integer)],
+        },
+        Named {
+            name: "HeightCard",
+            doc: "The height lines in cm: the loss from hunger years and from age, the mean of both parents' target heights.",
+            fields: vec![
+                field("hunger_cm", Number),
+                field("age_cm", Number),
+                field("parents_target_cm", nullable(Number)),
+            ],
+        },
+        Named {
+            name: "DiseaseCard",
+            doc: "A disease of the card: its code, the copies and the status (each an object keyed by `kind`).",
+            fields: vec![
+                field("disease", Text),
+                field("copies", Kind::Map),
+                field("status", Kind::Map),
             ],
         },
         Named {
