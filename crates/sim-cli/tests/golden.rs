@@ -531,11 +531,13 @@ fn golden_scenarios_cover_every_kind() {
         uncovered(run.world.stats(), &run.log),
         [
             "event immigration",
+            "event disease_onset",
             "log core:param_changed",
             "log core:arrived",
             "log core:disease_onset"
         ],
-        "the dummy run has no override and no pool, and its switch is off"
+        "the dummy run has no override and no pool, its switch is off, and its only \
+         disease begins at birth"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -599,10 +601,15 @@ fn every_required_kind_is_checked() {
             .filter(|entry| log_kind(&entry.payload) != missing)
             .cloned()
             .collect();
-        // The fork has no pool: its own events never include the immigration.
+        // The fork has no pool: its own events never include the immigration; its only
+        // disease begins at birth, so it plans no onset.
         assert_eq!(
             uncovered(run.world.stats(), &without),
-            ["event immigration".to_owned(), format!("log {missing}")]
+            [
+                "event immigration".to_owned(),
+                "event disease_onset".to_owned(),
+                format!("log {missing}")
+            ]
         );
     }
     // A world that never ran: no event fired, every event kind is reported.
@@ -634,6 +641,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event separation",
             "event leave_home",
             "event immigration",
+            "event disease_onset",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -646,7 +654,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:household_formed",
             "log core:moved",
             "log core:emigrated",
-            "log core:arrived"
+            "log core:arrived",
+            "log core:disease_onset"
         ]
     );
 }
