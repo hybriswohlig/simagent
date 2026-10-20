@@ -25,6 +25,8 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
 - tests/golden/card_diseases.json: the disease lines of the genetics card of every person of the
   dummy run (switch off) and of its fork (on from year 5) at `until`, and of the first two
   persons of each disease and status of the town (`card_diseases_json`).
+- tests/golden/card_skipped.json: the lines "übersprungen" of the genetics card of the town
+  (`card_skipped_json`).
 - tests/scenarios/town.json (format 5 with a pool): tests/golden/town.json in the same form,
   and tests/golden/town_card.json, the genetics card of two persons of each case of parents
   in the run (`town_card_json`),
@@ -72,6 +74,9 @@ CARD_FILE = "dummy_card.json"
 TOWN_CARD_FILE = "town_card.json"
 HUNGER_FILE = "card_hunger.json"
 DISEASES_FILE = "card_diseases.json"
+SKIPPED_FILE = "card_skipped.json"
+# The two large recessive pigment loci of the line "übersprungen" (Grok G7, L8).
+SKIP_LOCI = ("core:mc1r", "core:herc2")
 # The last closed second in the middle of year 2: a hunger year under way, the next ahead.
 HUNGER_MID = 2 * YEAR + YEAR // 2 - 1
 # The traits of the card that read as a percentile (ADR-0021 section 5, Grok G3): height as the
@@ -447,6 +452,57 @@ def card_diseases_json(w: dict, fork_7: wr.World, town_world: wr.World, until: i
     return wr.json_text([{"run": name, "t": t, "persons": disease_rows(world, t, pick)} for name, world, t, pick in runs])
 
 
+def copy_source(parent_copies: list, grandparents: list) -> dict:
+    """Where a person's copy from a parent came from (Grok G7, L8): the parent carries one
+    copy (allele 1) on its mother's strand (index 0) or its father's (index 1), so from that
+    grandparent (`{"kind": "grandmother" or "grandfather", "sim"}`, or `{"kind": "pool"}` if
+    that grandparent is not in the run); a parent without a copy made it new (`new`). Read from
+    the genotypes (Grok N1): a mutation of the parent's other strand in that very meiosis is
+    not told apart."""
+    if parent_copies == [0, 0]:
+        return {"kind": "new"}
+    assert sorted(parent_copies) == [0, 1], parent_copies
+    strand = parent_copies.index(1)
+    grandparent = grandparents[strand]
+    if grandparent is None:
+        return {"kind": "pool"}
+    return {"kind": ("grandmother", "grandfather")[strand], "sim": grandparent}
+
+
+def card_skipped_json(world: wr.World) -> str:
+    """tests/golden/card_skipped.json: per person of the run (by SimId) with a line, `{"sim",
+    "skipped"}`, the lines "übersprungen" in the order of `SKIP_LOCI`: the person carries two
+    copies of the allele 1, both parents are in the run (living or archived), and neither
+    parent carries two; per copy (the mother's, the father's) its `copy_source`, the
+    grandparents being the parent's parents in the run by lineage key."""
+    everyone = sorted(set(world.sims) | set(world.archive))
+    by_key = {world.key_of(sim): sim for sim in everyone}
+
+    def genome(sim: int) -> dict:
+        return world.sims[sim][3] if sim in world.sims else world.archive[sim][5]
+
+    def parents_in_run(sim: int) -> list:
+        _, _, keys = world.env_of(sim)
+        return [None, None] if keys is None else [by_key.get(k) for k in keys]
+
+    rows = []
+    for sim in everyone:
+        lines = []
+        mother, father = parents_in_run(sim)
+        for name in SKIP_LOCI:
+            locus = world.data.loci[name]
+            if wr.copies_at(genome(sim), locus) != [1, 1] or mother is None or father is None:
+                continue
+            copies = [wr.copies_at(genome(parent), locus) for parent in (mother, father)]
+            if [1, 1] in copies:
+                continue
+            sources = [copy_source(copies[i], parents_in_run(parent)) for i, parent in enumerate((mother, father))]
+            lines.append({"locus": name, "mother_copy": sources[0], "father_copy": sources[1]})
+        if lines:
+            rows.append({"sim": sim, "skipped": lines})
+    return wr.json_text(rows)
+
+
 def dummy_files(w: dict) -> dict:
     return {
         "dummy.json": golden_text(w["run"]).encode(),
@@ -583,7 +639,7 @@ def pin_rows(label: str, files: dict) -> list:
     rows = []
     for name, content in files.items():
         extra = ""
-        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE, HUNGER_FILE, DISEASES_FILE):
+        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE, HUNGER_FILE, DISEASES_FILE, SKIPPED_FILE):
             golden = json.loads(content)
             extra = (
                 f" core_version {golden['core_version']} data_hash {golden['data_hash']} log_hash {golden['log_hash']}"
@@ -636,6 +692,7 @@ def main(argv) -> int:
     hunger = scenario(SCENARIOS / "card_hunger.json")
     files[HUNGER_FILE] = (card_height_json(hunger, data) + "\n").encode()
     files[TOWN_FILE] = golden_text(town_run).encode()
+    files[SKIPPED_FILE] = (card_skipped_json(town_run) + "\n").encode()
     fork_7 = make_world(dummy, data)
     fork_7.advance(7 * YEAR - 1)
     fork_7.override(True)
