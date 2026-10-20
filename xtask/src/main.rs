@@ -455,10 +455,23 @@ fn server_answers(
         answers.push(("PersonAnswer", get(port, &path)?));
         sims.push(sim);
     }
-    // A kinship without a foster word (the living person to the dead one), and one with.
+    // A kinship without a foster word (the living person to the dead one), and one with:
+    // the descriptor marks a nullable field only when it holds a value, so the null case is
+    // checked here.
     let path = format!("/api/runs/town/persons/{}?to={}", sims[0], sims[1]);
-    answers.push(("PersonAnswer", get(port, &path)?));
-    answers.push(("PersonAnswer", get(port, "/api/runs/dummy/persons/3?to=5")?));
+    let without = get(port, &path)?;
+    if !(without["kinship"].is_object() && without["kinship"]["foster"].is_null()) {
+        return Err(format!(
+            "{path}: no kinship without a foster word: {without}"
+        ));
+    }
+    answers.push(("PersonAnswer", without));
+    let path = "/api/runs/dummy/persons/3?to=5";
+    let with = get(port, path)?;
+    if with["kinship"]["foster"] != "foster_mother" {
+        return Err(format!("{path}: not the foster mother: {with}"));
+    }
+    answers.push(("PersonAnswer", with));
     let step = Some(r#"{"step":"days28"}"#);
     answers.push((
         "AdvanceAnswer",
