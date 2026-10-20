@@ -20,7 +20,8 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
   (tools/dummy_story.py), where nothing is drawn.
 - tests/scenarios/card_hunger.json (the dummy with the nutrition index 0.7 in year 2 and 0.5
   in year 3): tests/golden/card_hunger.json, the height lines of the genetics card of every
-  person of its run at `until` (`card_height_json`).
+  person of its run in the middle of year 2 (`HUNGER_MID`, year 3 still ahead) and at `until`
+  (`card_height_json`).
 - tests/scenarios/town.json (format 5 with a pool): tests/golden/town.json in the same form,
   and tests/golden/town_card.json, the genetics card of two persons of each case of parents
   in the run (`town_card_json`),
@@ -67,6 +68,8 @@ EXPORT_FILE = "dummy_export.json"
 CARD_FILE = "dummy_card.json"
 TOWN_CARD_FILE = "town_card.json"
 HUNGER_FILE = "card_hunger.json"
+# The last closed second in the middle of year 2: a hunger year under way, the next ahead.
+HUNGER_MID = 2 * YEAR + YEAR // 2 - 1
 # The traits of the card that read as a percentile (ADR-0021 section 5, Grok G3): height as the
 # target height `z_h` of `core:growth`, cognition, curls.
 CARD_TRAITS = ("core:growth", "core:cognition", "core:curl")
@@ -303,10 +306,10 @@ def town_card_json(world: wr.World, now: int) -> str:
     return card_json(world, now, [sim for case in wanted for sim in cases[case][:2]])
 
 
-def card_height_json(world: wr.World, now: int) -> str:
-    """tests/golden/card_hunger.json: the height lines of the genetics card (Grok L5, L6) of
-    every person of the run, by SimId, each at its second shown, as a JSON list of `{"sim",
-    "hunger_cm", "age_cm", "parents_target_cm"}`: with `x = min(age, 25 years)`, the
+def card_height_rows(world: wr.World, now: int) -> list:
+    """The height lines of the genetics card (Grok L5, L6) of every person of the run at `now`,
+    by SimId, each at its second shown, as a list of `{"sim", "hunger_cm", "age_cm",
+    "parents_target_cm"}`: with `x = min(age, 25 years)`, the
     individual curve of `z_h` and `z_p` (`body_reference.individual_curve`), the loss from the
     nutrition years over `[born, born + x)` (`body_reference.nutrition_loss`, G6 for an
     arrival: `census_reference.nutrition_of`), the loss of age at `b = bio_age`
@@ -340,7 +343,19 @@ def card_height_json(world: wr.World, now: int) -> str:
         found = [] if keys is None else [by_key[k] for k in keys if k in by_key]
         target = (curve(found[0])["h1_i"] + curve(found[1])["h1_i"]) / 2.0 if len(found) == 2 else None
         rows.append({"sim": sim, "hunger_cm": hunger, "age_cm": br.old_age_loss(values, parts["sex"], b), "parents_target_cm": target})
-    return wr.json_text(rows)
+    return rows
+
+
+def card_height_json(s: dict, data: wr.Data) -> str:
+    """tests/golden/card_hunger.json: `card_height_rows` of the run of `s` at `HUNGER_MID` and
+    at `until`, as a JSON list of `{"t", "persons"}`."""
+    snapshots = []
+    for now in (HUNGER_MID, s["until"]):
+        world = make_world(s, data)
+        world.advance(now)
+        check_all(world)
+        snapshots.append({"t": now, "persons": card_height_rows(world, now)})
+    return wr.json_text(snapshots)
 
 
 def dummy_files(w: dict) -> dict:
@@ -530,10 +545,7 @@ def main(argv) -> int:
     files = dummy_files(w)
     town_run = town_world(town, data)
     hunger = scenario(SCENARIOS / "card_hunger.json")
-    hunger_run = make_world(hunger, data)
-    hunger_run.advance(hunger["until"])
-    check_all(hunger_run)
-    files[HUNGER_FILE] = (card_height_json(hunger_run, hunger["until"]) + "\n").encode()
+    files[HUNGER_FILE] = (card_height_json(hunger, data) + "\n").encode()
     files[TOWN_FILE] = golden_text(town_run).encode()
     files[TOWN_CARD_FILE] = (town_card_json(town_run, town["until"]) + "\n").encode()
     rows = [f"data data/ data_hash {hexed(data.hash)} definitions {hexed(data.pool.frozen_hash)} pool {hexed(data.pool.hash)} core_version {wr.CORE_VERSION}"]
