@@ -1273,6 +1273,20 @@ fn a_write_needs_the_own_origin_and_json() {
         }
         assert!(contents(&town) == before, "{raw:?}");
     }
+    // Nor does a body that is no request, the first to reach the run.
+    for (route, body) in [
+        ("advance", ""),
+        ("advance", "[]"),
+        ("advance", r#"{"step":"week"}"#),
+        ("input", r#"{"arrange_partnership":{"woman":1}}"#),
+    ] {
+        let (status, _, answer) = post(port, &format!("/api/runs/town/{route}"), body);
+        assert_eq!(
+            (status, code(&answer).as_str()),
+            (400, "body_invalid"),
+            "{body}"
+        );
+    }
     // No refused request opened the run.
     drop(RunLock::acquire(&town).expect("not opened"));
     let (status, head, body) = get(port, advance);
@@ -1287,4 +1301,80 @@ fn a_write_needs_the_own_origin_and_json() {
         let (status, _, body) = send(port, request(advance, &host, &headers).as_bytes());
         assert_eq!(status, 200, "{host}: {}", String::from_utf8_lossy(&body));
     }
+}
+
+/// The mode of a file of a run, to make it unwritable for a while.
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("permissions set");
+}
+
+/// A write that fails leaves the run to nobody (ADR-0021 section 2): the server lets its
+/// lock go and reads none of its files, until a write opens the directory as one run again;
+/// a directory left between two files stays refused.
+#[cfg(unix)]
+#[test]
+fn a_failed_write_is_not_read_as_a_run() {
+    let (runs, web, _) = writable_fixture("failed");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let year = r#"{"step":"year"}"#;
+    let reads = [
+        "/api/runs/town",
+        "/api/runs/town/pedigree",
+        "/api/runs/town/persons/1",
+        "/api/runs/town/census",
+        "/api/runs/town/events",
+    ];
+    let refused = |when: &str| {
+        for path in reads {
+            let (status, _, body) = get(port, path);
+            assert_eq!(
+                (status, code(&body).as_str()),
+                (500, "run_failed"),
+                "{when}: {path}"
+            );
+        }
+        let list = json_of(&get(port, "/api/runs").2);
+        let entry = (list["runs"].as_array().expect("runs"))
+            .iter()
+            .find(|entry| entry["run"] == "town")
+            .cloned();
+        assert_eq!(
+            entry,
+            Some(json!({"run": "town", "error": "run_failed"})),
+            "{when}"
+        );
+    };
+    // The input log cannot be opened again, the first write of a step: nothing is
+    // written, and the run stays whole.
+    let before = contents(&town);
+    set_mode(&town.join("input.ndjson"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert!(contents(&town) == before, "nothing written");
+    drop(RunLock::acquire(&town).expect("let go"));
+    refused("input log unwritable");
+    set_mode(&town.join("input.ndjson"), 0o644);
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole again");
+    for path in reads {
+        assert_eq!(get(port, path).0, 200, "{path}");
+    }
+    // The census cannot be written: the input log is open again and the events of the
+    // year are written, the save is not.
+    set_mode(&town.join("census.csv"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    refused("census unwritable");
+    set_mode(&town.join("census.csv"), 0o644);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(
+        (status, code(&body).as_str()),
+        (500, "run_dir_inconsistent")
+    );
+    drop(RunLock::acquire(&town).expect("not kept"));
+    refused("between two files");
 }
