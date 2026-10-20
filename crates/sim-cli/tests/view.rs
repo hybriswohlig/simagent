@@ -639,9 +639,17 @@ fn the_pedigree_is_what_export_writes_and_the_census_is_the_file() {
     assert_eq!(status, 200);
     let page = json_of(&body);
     let ids: Vec<&Value> = (page["events"].as_array().expect("events").iter())
-        .map(|e| &e["id"])
+        .map(|item| &item["entry"]["id"])
         .collect();
     assert_eq!(ids, [&Value::from(1), &Value::from(2)]);
+    // Second 0 is the first of everything (ADR-0002, every unit from 0).
+    assert_eq!(
+        page["events"][0]["date"],
+        serde_json::json!({
+            "year": 0, "day_of_year": 0, "month": 0, "day_of_month": 0, "week": 0,
+            "weekday": 0, "season": 0, "second_of_day": 0,
+        })
+    );
 
     for (path, code) in [
         ("/api/runs/fork.b/census", "census_invalid"),
@@ -686,9 +694,20 @@ fn the_events_come_in_pages_and_filtered() {
         let page = json_of(&body);
         assert_eq!(
             (&page["format"], &page["version"]),
-            (&"simagent.view.events".into(), &1.into())
+            (&"simagent.view.events".into(), &2.into())
         );
-        page
+        // Each item is a line of the file with the core's calendar date of its second; the
+        // rest of this test reads the lines.
+        let items = page["events"].as_array().expect("events");
+        let entries: Vec<Value> = (items.iter())
+            .map(|item| {
+                assert_eq!(item.as_object().map(serde_json::Map::len), Some(2));
+                let t = item["entry"]["t"].as_i64().expect("a time");
+                assert_eq!(item["date"], date(t), "{query}");
+                item["entry"].clone()
+            })
+            .collect();
+        serde_json::json!({"events": entries, "next": page["next"]})
     };
     let first = page("");
     let events = first["events"].as_array().expect("events");

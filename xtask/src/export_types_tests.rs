@@ -232,3 +232,38 @@ fn a_body_has_exactly_the_contracts_keys() {
         ["$.body: no type BodyParams in the descriptor"]
     );
 }
+
+/// A map is any JSON object, whatever its keys (the payload of a log entry, whose keys the
+/// log codes define); it is typed with open keys.
+#[test]
+fn a_map_is_any_object_with_open_keys() {
+    let types = vec![Named {
+        name: "Holder",
+        doc: "A holder.",
+        fields: vec![Field {
+            key: "payload",
+            kind: Kind::Map,
+            optional: false,
+        }],
+    }];
+    for value in [
+        json!({"payload": {}}),
+        json!({"payload": {"core:birth": {"mother": 1}}}),
+    ] {
+        let found = conforms(&types, "Holder", &value, &mut Seen::new());
+        assert_eq!(found, Vec::<String>::new(), "{value}");
+    }
+    for value in [
+        json!({"payload": []}),
+        json!({"payload": 1}),
+        json!({"payload": null}),
+        json!({"payload": "core:birth"}),
+    ] {
+        let found = conforms(&types, "Holder", &value, &mut Seen::new());
+        assert_eq!(found.len(), 1, "{value}");
+    }
+    assert!(wanted(&types).is_empty());
+    assert!(
+        generate(&types).contains("  readonly payload: { readonly [key: string]: unknown };\n")
+    );
+}
