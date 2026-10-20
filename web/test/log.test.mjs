@@ -1,6 +1,6 @@
 // The log of a run is read page by page until `next` is null; windows of the run page are
-// read one after another, each from where the last read that came through ended, so a
-// failed window is read again with the next (ADR-0021 section 2).
+// read one after another, each from where the last read that came through ended up to its
+// own end, so a failed window is read again with the next (ADR-0021 section 2).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -55,9 +55,9 @@ test("windows go one after another, each from the end of the last that came thro
     [2],
   );
   assert.deepEqual(asked, [
-    "/api/runs/town/events?from=10",
-    "/api/runs/town/events?from=20",
-    "/api/runs/town/events?from=20",
+    "/api/runs/town/events?from=10&to=20",
+    "/api/runs/town/events?from=20&to=30",
+    "/api/runs/town/events?from=20&to=40",
   ]);
 });
 
@@ -69,7 +69,7 @@ test("a window asked while another is read waits for it", async () => {
   const read = windows("town", 10);
   const [first, second] = await Promise.all([read(20), read(30)]);
   assert.deepEqual([first.length, second.length], [1, 1]);
-  assert.deepEqual(asked, ["/api/runs/town/events?from=10", "/api/runs/town/events?from=20"]);
+  assert.deepEqual(asked, ["/api/runs/town/events?from=10&to=20", "/api/runs/town/events?from=20&to=30"]);
 });
 
 test("a person's log is read by subject", async () => {
