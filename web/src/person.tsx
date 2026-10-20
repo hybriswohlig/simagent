@@ -7,7 +7,7 @@ import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { Chronicle } from "./lines.js";
 import { readLog } from "./log.js";
-import { arrangement, candidates } from "./pairing.js";
+import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
@@ -153,17 +153,19 @@ function PersonChronicle({ run, sim }: { run: string; sim: string }) {
 
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
-/** What pairing reports: nothing yet, a request on its way, done, or why not. */
-type Pairing = { state: "idle" } | { state: "busy" } | { state: "paired" } | { state: "failed"; text: string };
-
 /** Pairing a living person in no partnership with one of the candidates of the other sex
  * (ADR-0021 section 6, "ein Paar stiften"); the core judges age and kinship. */
 function PairForm({ run, pedigree, person, paired }: { run: string; pedigree: Pedigree; person: Person; paired: () => void }) {
   const options = candidates(pedigree, person.sim);
   const [chosen, setChosen] = useState("");
   const [pairing, setPairing] = useState<Pairing>({ state: "idle" });
-  if (options.length === 0) {
-    return pairing.state === "paired" ? <p role="status">{TEXT.paired}</p> : null;
+  const failure = pairing.state === "failed" ? <p role="alert">{pairing.text}</p> : null;
+  const shown = pairingShown(options.length, pairing.state);
+  if (shown === "paired") {
+    return <p role="status">{TEXT.paired}</p>;
+  }
+  if (shown === "nothing") {
+    return failure;
   }
   const other = options.find((candidate) => String(candidate.sim) === chosen);
   const input = other === undefined ? null : arrangement(person, other);
@@ -193,8 +195,7 @@ function PairForm({ run, pedigree, person, paired }: { run: string; pedigree: Pe
           {TEXT.pair}
         </button>
       </p>
-      {pairing.state === "failed" ? <p role="alert">{pairing.text}</p> : null}
-      {pairing.state === "paired" ? <p role="status">{TEXT.paired}</p> : null}
+      {failure}
     </>
   );
 }
@@ -212,13 +213,12 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     last.current = { run, pedigree: loaded.value };
   }
   const kept = last.current?.run === run ? last.current.pedigree : null;
-  if (loaded.state === "failed") {
-    return <p>{TEXT[loaded.text]}</p>;
-  }
   const pedigree = loaded.state === "ready" ? loaded.value : kept;
   if (pedigree === null) {
-    return <p>{TEXT.loading}</p>;
+    return <p>{loaded.state === "failed" ? TEXT[loaded.text] : TEXT.loading}</p>;
   }
+  // A reload that failed leaves the last pedigree on the page, with why.
+  const reloadFailed = loaded.state === "failed" ? <p role="alert">{TEXT[loaded.text]}</p> : null;
   const glass = hourglass(pedigree, Number(sim));
   if (glass === null) {
     return <p>{TEXT.unknown_person}</p>;
@@ -229,6 +229,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
   return (
     <section>
       <h1>{`${TEXT.person} ${person.sim}`}</h1>
+      {reloadFailed}
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
       {view.state === "ready" && !readable(view.value.contract_version) ? (
         <p>{TEXT.failed_contract}</p>

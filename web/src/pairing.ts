@@ -39,3 +39,20 @@ export function arrangement(a: Person, b: Person): { arrange_partnership: { woma
   const [woman, man] = a.sex === "female" ? [a, b] : [b, a];
   return { arrange_partnership: { woman: woman.sim, man: man.sim } };
 }
+
+/** What pairing reports: nothing yet, a request on its way, done, or why not. */
+export type Pairing =
+  | { readonly state: "idle" }
+  | { readonly state: "busy" }
+  | { readonly state: "paired" }
+  | { readonly state: "failed"; readonly text: string };
+
+/** What the pairing part of a page shows: the form while a pair can be chosen, only the
+ * note once a pair was made from it (no second request from the same page), else nothing.
+ * A failure's text shows beside the form or alone. */
+export function pairingShown(candidateCount: number, state: Pairing["state"]): "form" | "paired" | "nothing" {
+  if (state === "paired") {
+    return "paired";
+  }
+  return candidateCount === 0 ? "nothing" : "form";
+}
