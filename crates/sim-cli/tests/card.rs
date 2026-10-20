@@ -20,6 +20,7 @@ use sim_core::world::World;
 
 const DUMMY_CARD: &str = include_str!("../../../tests/golden/dummy_card.json");
 const TOWN_CARD: &str = include_str!("../../../tests/golden/town_card.json");
+const HUNGER_HEIGHTS: &str = include_str!("../../../tests/golden/card_hunger.json");
 
 /// `ours` and `golden` are the same JSON, their fractional numbers within 1e-12 of the
 /// larger of 1 and the golden's magnitude.
@@ -112,4 +113,29 @@ fn the_dummy_runs_card_is_the_references() {
 #[test]
 fn the_towns_card_is_the_references() {
     matches(&run("town.json"), TOWN_CARD, 15);
+}
+
+/// The height lines (Grok L5, L6) of every person of the hunger run (the dummy with hunger in
+/// years 2 and 3) equal the reference's (`tests/golden/card_hunger.json`): the loss from the
+/// hunger years, the loss of age, the mean of both parents' target heights.
+#[test]
+fn the_hunger_runs_heights_are_the_references() {
+    let world = run("card_hunger.json");
+    let golden: Value = serde_json::from_str(HUNGER_HEIGHTS).expect("JSON");
+    let golden = golden.as_array().expect("a list");
+    assert_eq!(golden.len(), 13);
+    for person in golden {
+        let n = person["sim"].as_u64().expect("a sim");
+        let card = world
+            .genetics_card(SimId::try_from(n).expect("an id"))
+            .expect("a card");
+        let height = card.height.expect("height lines");
+        let ours = json!({
+            "sim": n,
+            "hunger_cm": height.hunger_cm,
+            "age_cm": height.age_cm,
+            "parents_target_cm": height.parents_target_cm,
+        });
+        assert!(close(&ours, person), "sim {n}: {ours} against {person}");
+    }
 }
