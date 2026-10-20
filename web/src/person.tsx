@@ -306,7 +306,12 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
           <Portrait params={view.value.shown.body} label={fullName(person)} />
           <Life view={view.value} />
           <Ages shown={view.value.at_ages} />
-          <CardView card={view.value.card} sex={person.sex} nowCm={view.value.shown.body.height_cm} />
+          <CardView
+            card={view.value.card}
+            sex={person.sex}
+            nowCm={view.value.shown.body.height_cm}
+            names={namesOf(pedigree)}
+          />
         </div>
       ) : view.state === "failed" ? (
         <p>{TEXT[view.text]}</p>

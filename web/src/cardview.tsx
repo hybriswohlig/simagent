@@ -1,4 +1,5 @@
 import { heightLines, parentsMeanSentence, partRows, TRAIT_HEADINGS, traitSentence, type Sex } from "./card.js";
+import { copiesLines, DISEASES, diseaseName, skippedSentence, statusWord } from "./carddiseases.js";
 import type { GeneticsCard, TraitCard } from "./generated/export.js";
 import { bar } from "./render/bar.js";
 import { TEXT } from "./text.js";
@@ -59,14 +60,57 @@ function Trait({ row, card, sex, nowCm }: { row: TraitCard; card: GeneticsCard; 
   );
 }
 
-/** The genetics card of a person, as far as the core sends it (ADR-0021 section 5). */
-export function CardView({ card, sex, nowCm }: { card: GeneticsCard; sex: Sex; nowCm: number }) {
+/** The hereditary diseases (Grok G1, G4, L7, M1): the switch when off, then per disease its
+ * name, status word, one-liner and copies. */
+function Diseases({ card, sex }: { card: GeneticsCard; sex: Sex }) {
+  return (
+    <div>
+      <h3>{TEXT.card_diseases}</h3>
+      {card.diseases_off ? <p>{TEXT.card_diseases_off}</p> : null}
+      {card.diseases.map((disease) => {
+        const status = statusWord(disease.status, sex);
+        const copies = copiesLines(disease.copies);
+        return (
+          <div key={disease.disease}>
+            <p>
+              <strong>{diseaseName(disease.disease)}</strong>
+              {status === null ? null : `: ${status}`}
+            </p>
+            {DISEASES[disease.disease] === undefined ? null : <p>{DISEASES[disease.disease]?.line}</p>}
+            {(copies ?? []).map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The genetics card of a person, as far as the core sends it (ADR-0021 section 5); `names`
+ * gives the grandparents of a skipped copy their names. */
+export function CardView({
+  card,
+  sex,
+  nowCm,
+  names,
+}: {
+  card: GeneticsCard;
+  sex: Sex;
+  nowCm: number;
+  names: ReadonlyMap<number, string>;
+}) {
+  const skipped = card.skipped.map((line) => skippedSentence(line, names)).filter((line) => line !== null);
   return (
     <section>
       <h2>{TEXT.card}</h2>
       {card.traits.map((row) => (
         <Trait key={row.trait} row={row} card={card} sex={sex} nowCm={nowCm} />
       ))}
+      {skipped.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+      <Diseases card={card} sex={sex} />
     </section>
   );
 }
