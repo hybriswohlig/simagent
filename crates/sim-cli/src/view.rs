@@ -6,7 +6,7 @@
 
 mod http;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -35,6 +35,9 @@ struct Server {
     files: BTreeMap<String, (&'static str, Vec<u8>)>,
     /// The runs a write opened, by name; each keeps its lock until the server ends.
     open: BTreeMap<String, Open>,
+    /// The runs whose write failed: their files may stand between two writes, so the
+    /// server reads none of them until a write opens the run whole again.
+    failed: BTreeSet<String>,
 }
 
 /// A run the server writes (ADR-0021 section 1): opened as `run --resume` opens it, its
@@ -58,6 +61,21 @@ pub enum Step {
 #[serde(deny_unknown_fields)]
 struct Advance {
     step: Step,
+}
+
+/// A write, read from its body before the run is opened.
+enum WriteRequest {
+    Advance(Step),
+    Input(Input),
+}
+
+/// The write the body of `POST …/{route}` asks for, if it is one.
+fn parse_write(route: &str, body: &[u8]) -> Option<WriteRequest> {
+    let body = std::str::from_utf8(body).ok()?;
+    match route {
+        "advance" => files::parse_strict(body).map(|Advance { step }| WriteRequest::Advance(step)),
+        _ => files::parse_strict(body).map(WriteRequest::Input),
+    }
 }
 
 /// The target of `step` from `closed`, by the core's calendar: 28 days on; the last second
@@ -189,26 +207,22 @@ impl Server {
                 let query = request.query.as_deref().unwrap_or("");
                 self.read(run, |dir| events(dir, query))
             }
-            ["api", "runs", run, "advance"] => self.write(run, &request.body, advance),
-            ["api", "runs", run, "input"] => self.write(run, &request.body, input),
+            ["api", "runs", run, route @ ("advance" | "input")] => {
+                match parse_write(route, &request.body) {
+                    Some(write) => self.write(run, write),
+                    None => Response::error(400, "body_invalid"),
+                }
+            }
             ["api", ..] => Response::error(404, "not_found"),
             _ => self.file(&request.path[1..], request),
         }
     }
 
-    /// Hands `run` to `act`, opening it on its first write: listed, its lock taken, its
-    /// scenario and session read as `run --resume` reads them. A run that does not open is
-    /// not kept; one whose write failed is closed, its lock let go, and the next write
-    /// opens it again and reports what it finds.
-    fn write(
-        &mut self,
-        run: &str,
-        body: &[u8],
-        act: fn(&mut Open, &str) -> Result<Response, CliError>,
-    ) -> Response {
-        let Ok(body) = std::str::from_utf8(body) else {
-            return Response::error(400, "body_invalid");
-        };
+    /// Does `write` on `run`, opening it on its first write: listed, its lock taken, its
+    /// scenario and session read as `run --resume` reads them (which checks the files are
+    /// one run). A run that does not open is not kept; one whose write failed is closed,
+    /// its lock let go, and marked failed until a write opens it whole again.
+    fn write(&mut self, run: &str, write: WriteRequest) -> Response {
         if !self.open.contains_key(run) {
             match self.run_names() {
                 None => return Response::error(500, "runs_unreadable"),
@@ -219,6 +233,7 @@ impl Server {
             }
             match open(&self.runs.join(run)) {
                 Ok(opened) => {
+                    self.failed.remove(run);
                     self.open.insert(run.to_owned(), opened);
                 }
                 Err(error) => return failure(&error),
@@ -227,8 +242,13 @@ impl Server {
         let Some(opened) = self.open.get_mut(run) else {
             return Response::error(500, "run_not_open");
         };
-        act(opened, body).unwrap_or_else(|error| {
+        let done = match write {
+            WriteRequest::Advance(step) => advance(opened, step),
+            WriteRequest::Input(input) => take_input(opened, input),
+        };
+        done.unwrap_or_else(|error| {
             self.open.remove(run);
+            self.failed.insert(run.to_owned());
             failure(&error)
         })
     }
@@ -275,6 +295,9 @@ impl Server {
         };
         let runs: Vec<Value> = (names.iter())
             .map(|name| {
+                if self.failed.contains(name) {
+                    return json!({"run": name, "error": "run_failed"});
+                }
                 let manifest = self.read_manifest(name).ok();
                 let manifest =
                     manifest.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
@@ -292,8 +315,9 @@ impl Server {
     fn read(&self, run: &str, read: impl FnOnce(&Path) -> Response) -> Response {
         match self.run_names() {
             None => Response::error(500, "runs_unreadable"),
-            Some(names) if names.iter().any(|n| n == run) => read(&self.runs.join(run)),
-            Some(_) => Response::error(404, "unknown_run"),
+            Some(names) if !names.iter().any(|n| n == run) => Response::error(404, "unknown_run"),
+            Some(_) if self.failed.contains(run) => Response::error(500, "run_failed"),
+            Some(_) => read(&self.runs.join(run)),
         }
     }
 
@@ -308,17 +332,10 @@ impl Server {
     /// `GET /api/runs/{run}`: the manifest of the command line as it lies in the directory.
     /// The name must be one of the list exactly (a file system may ignore case).
     fn manifest(&self, run: &str) -> Response {
-        match self.run_names() {
-            None => return Response::error(500, "runs_unreadable"),
-            Some(names) if !names.iter().any(|n| n == run) => {
-                return Response::error(404, "unknown_run");
-            }
-            Some(_) => {}
-        }
-        match self.read_manifest(run) {
+        self.read(run, |_| match self.read_manifest(run) {
             Ok(bytes) => Response::new(200, JSON, bytes),
             Err(code) => Response::error(500, code),
-        }
+        })
     }
 
     fn serve(&mut self, mut stream: TcpStream) {
@@ -367,10 +384,7 @@ fn failure(error: &CliError) -> Response {
 
 /// `POST /api/runs/{run}/advance`: the clock moved by one step, written like `run --resume
 /// --until` the step's target; the closed second and its calendar date.
-fn advance(open: &mut Open, body: &str) -> Result<Response, CliError> {
-    let Some(Advance { step }) = files::parse_strict(body) else {
-        return Ok(Response::error(400, "body_invalid"));
-    };
+fn advance(open: &mut Open, step: Step) -> Result<Response, CliError> {
     let closed = open.session.closed_through();
     let target = step_target(closed, step);
     if let Err(refused) = session::check_limit(closed, target) {
@@ -401,10 +415,7 @@ fn advance(open: &mut Open, body: &str) -> Result<Response, CliError> {
 /// `POST /api/runs/{run}/input`: one input in the command schema at the stop, written like
 /// `run --resume --input` before the answer; its stamp, or the core's code of a rejection,
 /// which writes nothing.
-fn input(open: &mut Open, body: &str) -> Result<Response, CliError> {
-    let Some(input) = files::parse_strict::<Input>(body) else {
-        return Ok(Response::error(400, "body_invalid"));
-    };
+fn take_input(open: &mut Open, input: Input) -> Result<Response, CliError> {
     let stamp = match open
         .session
         .submit(input, |code| CliError::new("input_rejected", code))
@@ -634,6 +645,7 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         port,
         files: found,
         open: BTreeMap::new(),
+        failed: BTreeSet::new(),
     };
     let mut out = std::io::stdout();
     writeln!(out, "http://127.0.0.1:{port}/")
