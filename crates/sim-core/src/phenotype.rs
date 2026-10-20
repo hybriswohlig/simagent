@@ -85,9 +85,30 @@ fn held(weight: f64) -> f64 {
     }
 }
 
-/// The phenotype `z_t` at the calendar age `age` (ADR-0009 section 4); `None` for a trait
-/// without a phenotype or not in the map.
-pub fn phenotype(
+/// The three terms of a phenotype `z_t` (ADR-0009 section 4), each with its held weight:
+/// `√h² · G`, `√c² · C` and `√e² · E`, and `√h²` alone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PhenotypeParts {
+    /// `√h²`, the weight of the genetic value.
+    pub root_h2: f64,
+    /// `√h² · G`.
+    pub genetic: f64,
+    /// `√c² · C`, the shared environment.
+    pub shared: f64,
+    /// `√e² · E`, the individual environment.
+    pub individual: f64,
+}
+
+impl PhenotypeParts {
+    /// `z_t = ((√h² · G) + (√c² · C)) + (√e² · E)`, summed in this order.
+    pub fn z(&self) -> f64 {
+        (self.genetic + self.shared) + self.individual
+    }
+}
+
+/// The terms of the phenotype `z_t` at the calendar age `age` (ADR-0009 section 4); `None`
+/// for a trait without a phenotype or not in the map.
+pub fn phenotype_parts(
     environment: Environment<'_>,
     data: &Data,
     genome: &Genome,
@@ -95,7 +116,7 @@ pub fn phenotype(
     parents: Option<Parents>,
     t: &DataId,
     age: SimDuration,
-) -> Option<f64> {
+) -> Option<PhenotypeParts> {
     let [h2_child, c2_child, h2_adult, c2_adult] = data.phenotype_weights(t)?;
     let g = genome.genetic_value(t, data)?;
     let x = age.as_years();
@@ -105,10 +126,27 @@ pub fn phenotype(
     let e2 = (1.0 - h2) - c2;
     let c = shared_environment(environment.shared, t, own, parents);
     let e = individual_environment(environment.individual, t, own);
-    Some(
-        ((sim_math::sqrt(held(h2)) * g) + (sim_math::sqrt(held(c2)) * c))
-            + (sim_math::sqrt(held(e2)) * e),
-    )
+    let root_h2 = sim_math::sqrt(held(h2));
+    Some(PhenotypeParts {
+        root_h2,
+        genetic: root_h2 * g,
+        shared: sim_math::sqrt(held(c2)) * c,
+        individual: sim_math::sqrt(held(e2)) * e,
+    })
+}
+
+/// The phenotype `z_t` at the calendar age `age` (ADR-0009 section 4): the sum of its
+/// terms (`phenotype_parts`); `None` for a trait without a phenotype or not in the map.
+pub fn phenotype(
+    environment: Environment<'_>,
+    data: &Data,
+    genome: &Genome,
+    own: LineageKey,
+    parents: Option<Parents>,
+    t: &DataId,
+    age: SimDuration,
+) -> Option<f64> {
+    phenotype_parts(environment, data, genome, own, parents, t, age).map(|parts| parts.z())
 }
 
 /// The expression of a trait in standard deviations of women (genetics specification 6.2,

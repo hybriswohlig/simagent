@@ -13,11 +13,14 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
   tests/golden/dummy.save, the save of the run on day 100 of year 3; tests/golden/
   dummy_pedigree.json and dummy_fork_pedigree.json, the text of `pedigree.json` of the run and
   of the fork at `until`, compact as serde_json writes it, followed by one newline (`simagent
-  export`). Its founders draw every locus they do not name (F1, purpose tag 28
+  export`); tests/golden/dummy_card.json, the genetics card of every person of the run at
+  `until` (`card_json`). Its founders draw every locus they do not name (F1, purpose tag 28
   FOUNDER_ALLELE: `q = d_ref / 2` at an additive locus, the pool's frequency at the seven loci
   of the pool), so its story follows the draws; the hand story of this scenario lives on map 3
   (tools/dummy_story.py), where nothing is drawn.
 - tests/scenarios/town.json (format 5 with a pool): tests/golden/town.json in the same form,
+  and tests/golden/town_card.json, the genetics card of two persons of each case of parents
+  in the run (`town_card_json`),
   the run of a town founded from the pool: the CLI fills `pool_hash` and `households` with the
   draw of occasion 0 (`PoolStart::drawn`, `world_reference.pool_start`), the core judges.
 
@@ -36,9 +39,13 @@ Usage: .venv/bin/python tools/golden_reference.py           (write the six golde
 """
 
 import json
+import math
 import sys
 from pathlib import Path
 
+import mpmath
+
+import data_reference
 import rng_reference as rng
 import world_reference as wr
 from postcard_reference import FEMALE, MALE
@@ -54,6 +61,12 @@ SAVE_AT = 3 * YEAR + 100 * DAY
 DUMMY_FILES = ("dummy.json", "dummy_fork.json", "dummy.save", "dummy_pedigree.json", "dummy_fork_pedigree.json")
 # The export of the run with names (`simagent export`, format 5); not one of the story's files.
 EXPORT_FILE = "dummy_export.json"
+CARD_FILE = "dummy_card.json"
+TOWN_CARD_FILE = "town_card.json"
+# The traits of the card that read as a percentile (ADR-0021 section 5, Grok G3): height as the
+# target height `z_h` of `core:growth`, cognition, curls.
+CARD_TRAITS = ("core:growth", "core:cognition", "core:curl")
+ADULT_YEARS = 18
 NAMES = ROOT / "data" / "names"
 # The purpose tags of the names (crates/sim-core/src/rng/tags.rs, ADR-0021 section 3).
 FIRST_NAME, SURNAME = 29, 30
@@ -142,7 +155,7 @@ def dummy_worlds(s: dict, data: wr.Data) -> dict:
     saved = make_world(s, data)
     saved.advance(SAVE_AT)
     check_all(saved)
-    return {"run": run, "fork": fork, "saved": saved}
+    return {"run": run, "fork": fork, "saved": saved, "until": s["until"]}
 
 
 def export_json(world: wr.World) -> str:
@@ -175,6 +188,117 @@ def export_json(world: wr.World) -> str:
     return wr.json_text(view)
 
 
+def percentile(z: float) -> dict:
+    """The percentile of a phenotype against the frozen model reference, where `z` is N(0, 1)
+    (Grok G2 and L1): `p = 100 Φ(z)` with mpmath; from the middle up (`z ≥ 0`) "größer als
+    `n`" with `n = min(⌊p⌋, 99)`, below "kleiner als `n`" with `n = min(⌊100 − p⌋, 99)`. A
+    value whose share lies within 1e-9 of a whole number from 1 to 99 is refused (only
+    `z = 0`, exactly 50, is allowed there): the core decides it with the pinned probit, whose
+    tolerance this reference does not model."""
+    with mpmath.workdps(60):
+        phi = mpmath.ncdf(mpmath.mpf(z))
+        up = z >= 0.0
+        share = 100 * (phi if up else 1 - phi)
+        n = int(mpmath.floor(share))
+        nearest = int(mpmath.nint(share))
+        assert z == 0.0 or not 1 <= nearest <= 99 or abs(share - nearest) > mpmath.mpf("1e-9"), (z, share)
+    return {"up": up, "n": min(n, 99)}
+
+
+def card_json(world: wr.World, now: int, chosen=None) -> str:
+    """tests/golden/dummy_card.json: the genetics card (ADR-0021 section 5, Grok G2 to G5, L1
+    to L5) of every person of the run, by SimId, each at its second shown (`now` for the
+    living, the second it left for the archived), as a JSON list of `{"sim", "traits"}`.
+
+    Per trait of `CARD_TRAITS`, from `wr.phenotype_parts` at the age then: `z` and its
+    `percentile`; `adult` if the age in whole years is at least 18; the parts with `r =
+    sqrt(h2)`: `genetic = r · G`, `childhood = sqrt(c2) · C`, `own = sqrt(e2) · E`. With both
+    parents in the run (their lineage keys those of sims of the run, living or archived): kind
+    `split`, `parents = r · ((G_mother + G_father) / 2)` and `passing = genetic − parents`, and
+    `parents_mean` the percentile of `(z_mother + z_father) / 2`, each parent's `z` at its own
+    second shown; else kind `inherited` with `inherited = genetic` and `parents_in_town` (0 or
+    1), and `parents_mean` null (Grok L4, L5). `chosen`, if given, limits the list to those
+    sims."""
+    _, calibration, genome_map = data_reference.documents(wr.ROOT / "data")
+    stripped = data_reference.strip(calibration)
+    traits = [wr.Data.phenotype_trait(name, stripped, genome_map) for name in CARD_TRAITS]
+    everyone = sorted(set(world.sims) | set(world.archive))
+    by_key = {world.key_of(sim): sim for sim in everyone}
+
+    def facts(sim: int) -> tuple:
+        if sim in world.sims:
+            born, key, _, person = world.sims[sim][:4]
+            return born, key, person, now
+        born, left, _, key, _, person = world.archive[sim][:6]
+        return born, key, person, left
+
+    def parts(sim: int, trait) -> dict:
+        born, key, person, at = facts(sim)
+        e_seed, c_seed, parents = world.env_of(sim)
+        return wr.phenotype_parts(e_seed, trait, person, key, parents, at - born, c_seed)
+
+    cards = []
+    for sim in everyone if chosen is None else sorted(chosen):
+        born, _, person, at = facts(sim)
+        _, _, parent_keys = world.env_of(sim)
+        in_town = [] if parent_keys is None else [by_key[k] for k in parent_keys if k in by_key]
+        rows = []
+        for name, trait in zip(CARD_TRAITS, traits):
+            p = parts(sim, trait)
+            root = math.sqrt(p["h2"])
+            genetic = root * p["G"]
+            childhood = math.sqrt(p["c2"]) * p["C"]
+            own = math.sqrt(p["e2"]) * p["E"]
+            assert (genetic + childhood) + own == p["z"]
+            if len(in_town) == 2:
+                mother, father = in_town
+                g_mother, g_father = (wr.genetic_value(facts(parent)[2], trait) for parent in (mother, father))
+                share = root * ((g_mother + g_father) / 2.0)
+                split = {"kind": "split", "parents": share, "passing": genetic - share, "childhood": childhood, "own": own}
+                mean = percentile((parts(mother, trait)["z"] + parts(father, trait)["z"]) / 2.0)
+            else:
+                split = {"kind": "inherited", "inherited": genetic, "childhood": childhood, "own": own, "parents_in_town": len(in_town)}
+                mean = None
+            rows.append({
+                "trait": name,
+                "z": p["z"],
+                "percentile": percentile(p["z"]),
+                "adult": (at - born) // YEAR >= ADULT_YEARS,
+                "parts": split,
+                "parents_mean": mean,
+            })
+        cards.append({"sim": sim, "traits": rows})
+    return wr.json_text(cards)
+
+
+def town_card_json(world: wr.World, now: int) -> str:
+    """tests/golden/town_card.json: `card_json` of the first two sims (by SimId) of each case of
+    parents in the run, each case asserted to occur: a pool person with 0, 1 or 2 parents in
+    the run, with 2 also with an archived parent; a town-born child of two pool persons, also
+    with an archived parent; of a pool person and a town person; of two town persons (the
+    town has one)."""
+    everyone = sorted(set(world.sims) | set(world.archive))
+    by_key = {world.key_of(sim): sim for sim in everyone}
+    cases = {}
+    for sim in everyone:
+        _, _, keys = world.env_of(sim)
+        found = [] if keys is None else [by_key[k] for k in keys if k in by_key]
+        archived = any(parent in world.archive for parent in found)
+        if world.is_pool_person(sim):
+            case = ("pool", len(found), archived)
+        elif keys is not None:
+            pool_parents = sum(1 for parent in found if world.is_pool_person(parent))
+            kind = {0: "town", 1: "mixed", 2: "town of pool"}[pool_parents]
+            case = (kind, len(found), archived)
+        else:
+            continue
+        cases.setdefault(case, []).append(sim)
+    wanted = [("pool", 0, False), ("pool", 1, False), ("pool", 2, False), ("pool", 2, True),
+              ("town of pool", 2, False), ("town of pool", 2, True), ("mixed", 2, False), ("town", 2, False)]
+    assert all(case in cases for case in wanted), sorted(cases)
+    return card_json(world, now, [sim for case in wanted for sim in cases[case][:2]])
+
+
 def dummy_files(w: dict) -> dict:
     return {
         "dummy.json": golden_text(w["run"]).encode(),
@@ -183,6 +307,7 @@ def dummy_files(w: dict) -> dict:
         "dummy_pedigree.json": (w["run"].pedigree_json() + "\n").encode(),
         "dummy_fork_pedigree.json": (w["fork"].pedigree_json() + "\n").encode(),
         EXPORT_FILE: (export_json(w["run"]) + "\n").encode(),
+        CARD_FILE: (card_json(w["run"], w["until"]) + "\n").encode(),
     }
 
 
@@ -310,7 +435,7 @@ def pin_rows(label: str, files: dict) -> list:
     rows = []
     for name, content in files.items():
         extra = ""
-        if name.endswith(".json") and "pedigree" not in name and "export" not in name:
+        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE):
             golden = json.loads(content)
             extra = (
                 f" core_version {golden['core_version']} data_hash {golden['data_hash']} log_hash {golden['log_hash']}"
@@ -361,6 +486,7 @@ def main(argv) -> int:
     files = dummy_files(w)
     town_run = town_world(town, data)
     files[TOWN_FILE] = golden_text(town_run).encode()
+    files[TOWN_CARD_FILE] = (town_card_json(town_run, town["until"]) + "\n").encode()
     rows = [f"data data/ data_hash {hexed(data.hash)} definitions {hexed(data.pool.frozen_hash)} pool {hexed(data.pool.hash)} core_version {wr.CORE_VERSION}"]
     rows += pin_rows("golden", files)
     rows += story_rows("dummy", w)
