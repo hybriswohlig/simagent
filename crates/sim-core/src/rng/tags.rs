@@ -135,11 +135,11 @@ pub const POOL_RANK: PurposeTag = PurposeTag::from_pinned_list(27);
 pub const FOUNDER_ALLELE: PurposeTag = PurposeTag::from_pinned_list(28);
 
 /// A first name (ADR-0021 section 3, presentation only). subject: the person's lineage key;
-/// occasion: its sex (0 female, 1 male); the world seed.
+/// occasion: its sex (0 female, 1 male); detail: 0; the world seed.
 pub const FIRST_NAME: PurposeTag = PurposeTag::from_pinned_list(29);
 
 /// A surname (ADR-0021 section 3, presentation only). subject: the lineage key of the root
-/// of the paternal chain; the world seed.
+/// of the paternal chain; occasion: 0; detail: 0; the world seed.
 pub const SURNAME: PurposeTag = PurposeTag::from_pinned_list(30);
 
 /// Every tag in use with its name.

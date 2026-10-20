@@ -58,19 +58,37 @@ impl World {
                 current = parents.father;
                 continue;
             }
-            let Some(mut father) = pool.and_then(|origin| origin.father) else {
+            let Some(father) = pool.and_then(|origin| origin.father) else {
                 return Some(key);
             };
             let records = self.data().pool();
-            while let Some(next) = records
-                .and_then(|pool| pool.record(father))
-                .and_then(|record| record.father)
-            {
-                father = next;
-            }
-            return Some(father);
+            let bound = records.map_or(0, |pool| pool.pool().ancestors.len());
+            let father_of = |key| {
+                records
+                    .and_then(|pool| pool.record(key))
+                    .and_then(|record| record.father)
+            };
+            return Some(chain_root(father, father_of, bound));
         }
     }
+}
+
+/// The end of a chain of fathers from `start`: the first key `father_of` names no father
+/// for. At most `bound` steps (the number of records): a chain that runs longer can only
+/// be a cycle in the pool's records, and ends where the bound stops it.
+pub fn chain_root(
+    start: LineageKey,
+    father_of: impl Fn(LineageKey) -> Option<LineageKey>,
+    bound: usize,
+) -> LineageKey {
+    let mut key = start;
+    for _ in 0..bound {
+        match father_of(key) {
+            Some(father) => key = father,
+            None => break,
+        }
+    }
+    key
 }
 
 #[cfg(test)]
@@ -115,5 +133,35 @@ mod tests {
             surname_index(WorldSeed::new(1), key("3d147d76b5f097ff"), len(1)),
             0
         );
+    }
+
+    /// The chain of fathers by hand: a -> b -> c, c without a father; a key without a
+    /// record ends the chain at itself; cycles end where the bound stops them.
+    #[test]
+    fn a_chain_ends_at_the_first_without_a_father() {
+        let (a, b, c) = (
+            key("000000000000000a"),
+            key("000000000000000b"),
+            key("000000000000000c"),
+        );
+        let fathers = [(a, b), (b, c)];
+        let father_of = |k: LineageKey| {
+            fathers
+                .iter()
+                .find(|(child, _)| *child == k)
+                .map(|(_, f)| *f)
+        };
+        assert_eq!(chain_root(a, father_of, 10), c);
+        assert_eq!(chain_root(b, father_of, 10), c);
+        assert_eq!(chain_root(c, father_of, 10), c);
+        let unknown = key("00000000000000ff");
+        assert_eq!(chain_root(unknown, father_of, 10), unknown);
+        // A record that is its own father, and two that are each other's.
+        assert_eq!(chain_root(a, |_| Some(a), 3), a);
+        let swap = |k: LineageKey| Some(if k == a { b } else { a });
+        assert_eq!(chain_root(a, swap, 3), b);
+        assert_eq!(chain_root(a, swap, 4), a);
+        // Without records nothing is followed.
+        assert_eq!(chain_root(a, father_of, 0), a);
     }
 }
