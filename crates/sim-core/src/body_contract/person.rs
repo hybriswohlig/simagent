@@ -120,14 +120,21 @@ impl WorldState {
     }
 }
 
+/// The terms of a sim's height at `t` (5.2 to 5.4): its individual growth curve, the age
+/// `x = min(age, 25 years)` it is read at, the loss from its nutrition years over
+/// `[born, born + x)` (G6 for an arrival) and the loss of age at its biological age, in cm.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HeightTerms {
+    pub(crate) curve: IndividualCurve,
+    pub(crate) x: SimDuration,
+    pub(crate) nutrition_loss: f64,
+    pub(crate) age_loss: f64,
+}
+
 impl WorldState {
-    /// The pure height of a sim at `t` in cm (ADR-0015 section 4; criterion P6): the
-    /// height of the mapping, `κ_i · H(x; θ_i) − v_i(x) − Verlust(b)` (specification 10.2,
-    /// with 5.2, 5.4 and 5.3), never clamped: its individual growth curve at
-    /// `x = min(age, 25 years)`, less the loss of its nutrition years (G6 for an arrival) and
-    /// the loss of age at its biological age. Living or archived; `None` for an unknown sim,
+    /// The terms of the height of a sim at `t`, living or archived; `None` for an unknown sim,
     /// a `t` before its birth, or data without the two traits.
-    pub fn pure_height(&self, sim: SimId, t: SimTime) -> Option<f64> {
+    pub(crate) fn height_terms(&self, sim: SimId, t: SimTime) -> Option<HeightTerms> {
         let data = self.data();
         let domain = self.domain();
         let (born, sex, genome) = domain
@@ -154,8 +161,23 @@ impl WorldState {
             .map_or(&[][..], |params| params.nutrition.as_slice());
         let nutrition = nutrition_of(domain, sim, world);
         let b = bio_age(data, sex, genome, age);
-        let grown =
-            curve.height(x) - nutrition_loss(&nutrition, &genetics.nutrition, born, x, curve.theta);
-        Some(grown - height_loss(&genetics.height_loss, sex, b))
+        Some(HeightTerms {
+            curve,
+            x,
+            nutrition_loss: nutrition_loss(&nutrition, &genetics.nutrition, born, x, curve.theta),
+            age_loss: height_loss(&genetics.height_loss, sex, b),
+        })
+    }
+
+    /// The pure height of a sim at `t` in cm (ADR-0015 section 4; criterion P6): the
+    /// height of the mapping, `κ_i · H(x; θ_i) − v_i(x) − Verlust(b)` (specification 10.2,
+    /// with 5.2, 5.4 and 5.3), never clamped: its individual growth curve at
+    /// `x = min(age, 25 years)`, less the loss of its nutrition years (G6 for an arrival) and
+    /// the loss of age at its biological age. Living or archived; `None` for an unknown sim,
+    /// a `t` before its birth, or data without the two traits.
+    pub fn pure_height(&self, sim: SimId, t: SimTime) -> Option<f64> {
+        let terms = self.height_terms(sim, t)?;
+        let grown = terms.curve.height(terms.x) - terms.nutrition_loss;
+        Some(grown - terms.age_loss)
     }
 }

@@ -96,10 +96,22 @@ pub struct TraitCard {
     pub parents_mean: Option<Percentile>,
 }
 
-/// The genetics card of a person: the traits of [`card_traits`] the map has.
+/// The height lines of the card (L5, L6), in cm: what the curve loses at the second shown
+/// to the hunger years (5.4) and to age (5.3), and with both parents in the run the mean of
+/// their target heights `h1_i` (5.2). The height itself is the body's.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct HeightCard {
+    pub hunger_cm: f64,
+    pub age_cm: f64,
+    pub parents_target_cm: Option<f64>,
+}
+
+/// The genetics card of a person: the traits of [`card_traits`] the map has, and the height
+/// lines where the data have the growth traits.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct GeneticsCard {
     pub traits: Vec<TraitCard>,
+    pub height: Option<HeightCard>,
 }
 
 /// What the card reads of a sim, living or archived: its birth, the second shown (now for
@@ -200,6 +212,17 @@ impl World {
                 })
             })
             .collect();
-        Some(GeneticsCard { traits })
+        let shown = |sim: SimId| facts(domain, self.closed_through(), sim).map(|f| f.1);
+        let terms = |sim: SimId| state.height_terms(sim, shown(sim)?);
+        let height = terms(sim).map(|own| HeightCard {
+            hunger_cm: own.nutrition_loss,
+            age_cm: own.age_loss,
+            parents_target_cm: match in_town.as_slice() {
+                &[mother, father] => (terms(mother).zip(terms(father)))
+                    .map(|(m, f)| (m.curve.target + f.curve.target) / 2.0),
+                _ => None,
+            },
+        });
+        Some(GeneticsCard { traits, height })
     }
 }
