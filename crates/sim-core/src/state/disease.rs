@@ -30,7 +30,7 @@ fn key(tag: PurposeTag, lineage_key: LineageKey, disease: &Disease) -> DrawKey {
 
 /// The genotype can have the disease (3.4): recessive, every copy the sim has carries the
 /// allele (a man's X has one copy); dominant, one copy does.
-fn qualifies(genome: &Genome, locus: &Locus) -> bool {
+pub(crate) fn qualifies(genome: &Genome, locus: &Locus) -> bool {
     let copies = genome.copies(locus);
     match locus.action {
         Action::Recessive => !copies.is_empty() && copies.iter().all(|allele| *allele == 1),
