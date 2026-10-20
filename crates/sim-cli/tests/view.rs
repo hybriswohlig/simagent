@@ -3,6 +3,8 @@
 //! run list and the manifests. The expected answers are the files the command line wrote
 //! and the rules of the ADR.
 
+mod common;
+
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -10,8 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use common::{Holder, free};
 use serde_json::{Value, json};
-use sim_cli::lock::RunLock;
+use sim_cli::lock::{RunLock, lock_path};
 use sim_core::time::{SimTime, calendar};
 
 const TINY_SCENARIO: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":31449599}"#;
@@ -1154,8 +1157,9 @@ fn the_server_holds_the_lock_of_a_run_it_writes() {
     let town = runs.join("town");
     let before = contents(&town);
     let step = r#"{"step":"days28"}"#;
+    let lock = lock_path(&town).expect("a path");
     {
-        let _held = RunLock::acquire(&town).expect("free");
+        let _held = Holder::hold(&lock);
         let (status, _, body) = post(server.port, "/api/runs/town/advance", step);
         assert_eq!((status, code(&body).as_str()), (409, "run_locked"));
         assert!(contents(&town) == before, "a locked run");
@@ -1168,6 +1172,7 @@ fn the_server_holds_the_lock_of_a_run_it_writes() {
         RunLock::acquire(&town).err().map(|e| e.code),
         Some("run_locked")
     );
+    assert!(!free(&lock), "the server's");
     drop(server);
     resume_until(&town, 5 * Y - 1, None).expect("free once the server ended");
 }
@@ -1288,7 +1293,7 @@ fn a_write_needs_the_own_origin_and_json() {
         );
     }
     // No refused request opened the run.
-    drop(RunLock::acquire(&town).expect("not opened"));
+    assert!(free(&lock_path(&town).expect("a path")), "not opened");
     let (status, head, body) = get(port, advance);
     assert_eq!((status, code(&body).as_str()), (405, "method_not_allowed"));
     assert!(head.lines().any(|line| line == "Allow: POST"), "{head}");
@@ -1316,7 +1321,7 @@ fn set_mode(path: &Path, mode: u32) {
 #[cfg(unix)]
 #[test]
 fn a_failed_write_is_not_read_as_a_run() {
-    let (runs, web, _) = writable_fixture("failed");
+    let (runs, web, twin) = writable_fixture("failed");
     let server = start(&runs, &web);
     let port = server.port;
     let town = runs.join("town");
@@ -1355,7 +1360,8 @@ fn a_failed_write_is_not_read_as_a_run() {
     let (status, _, body) = post(port, "/api/runs/town/advance", year);
     assert_eq!((status, code(&body).as_str()), (500, "io"));
     assert!(contents(&town) == before, "nothing written");
-    drop(RunLock::acquire(&town).expect("let go"));
+    let lock = lock_path(&town).expect("a path");
+    assert!(free(&lock), "let go");
     refused("input log unwritable");
     set_mode(&town.join("input.ndjson"), 0o644);
     let (status, _, _) = post(port, "/api/runs/town/advance", year);
@@ -1363,6 +1369,17 @@ fn a_failed_write_is_not_read_as_a_run() {
     for path in reads {
         assert_eq!(get(port, path).0, 200, "{path}");
     }
+    // An accepted input whose log cannot be written is a failure, no rejection.
+    let before = contents(&town);
+    set_mode(&town.join("input.ndjson"), 0o444);
+    let arrange = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+    let (status, _, body) = post(port, "/api/runs/town/input", arrange);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert!(contents(&town) == before, "nothing written");
+    refused("input unwritable");
+    set_mode(&town.join("input.ndjson"), 0o644);
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole again");
     // The census cannot be written: the input log is open again and the events of the
     // year are written, the save is not.
     set_mode(&town.join("census.csv"), 0o444);
@@ -1375,6 +1392,45 @@ fn a_failed_write_is_not_read_as_a_run() {
         (status, code(&body).as_str()),
         (500, "run_dir_inconsistent")
     );
-    drop(RunLock::acquire(&town).expect("not kept"));
+    assert!(free(&lock), "not kept");
     refused("between two files");
+    // Another process puts a whole run in its place: the next write opens it.
+    for file in RUN_FILES {
+        fs::copy(twin.join(file), town.join(file)).expect("copied");
+    }
+    refused("replaced, not yet opened");
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole");
+    for path in reads {
+        assert_eq!(get(port, path).0, 200, "{path}");
+    }
+}
+
+/// A run found between two files at its first open is refused like one the server left so
+/// (ADR-0021 section 2); a run another process holds is only busy.
+#[test]
+fn a_run_that_does_not_open_is_not_read() {
+    let (runs, web, _) = writable_fixture("not-open");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let events = fs::read_to_string(town.join("events.ndjson")).expect("read");
+    let last = events.lines().last().expect("an entry").to_owned();
+    fs::write(town.join("events.ndjson"), format!("{events}{last}\n")).expect("written");
+    let step = r#"{"step":"days28"}"#;
+    let lock = lock_path(&town).expect("a path");
+    {
+        let _held = Holder::hold(&lock);
+        let (status, _, body) = post(port, "/api/runs/town/advance", step);
+        assert_eq!((status, code(&body).as_str()), (409, "run_locked"));
+    }
+    assert_eq!(get(port, "/api/runs/town/events").0, 200, "only busy");
+    let (status, _, body) = post(port, "/api/runs/town/advance", step);
+    assert_eq!(
+        (status, code(&body).as_str()),
+        (500, "run_dir_inconsistent")
+    );
+    assert!(free(&lock), "not kept");
+    let (status, _, body) = get(port, "/api/runs/town/events");
+    assert_eq!((status, code(&body).as_str()), (500, "run_failed"));
 }
