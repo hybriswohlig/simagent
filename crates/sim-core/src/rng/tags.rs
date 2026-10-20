@@ -134,6 +134,14 @@ pub const POOL_RANK: PurposeTag = PurposeTag::from_pinned_list(27);
 /// copy as a gamete (0 maternal, 1 paternal; Y 1, mt 0); the world seed.
 pub const FOUNDER_ALLELE: PurposeTag = PurposeTag::from_pinned_list(28);
 
+/// A first name (ADR-0021 section 3, presentation only). subject: the person's lineage key;
+/// occasion: its sex (0 female, 1 male); the world seed.
+pub const FIRST_NAME: PurposeTag = PurposeTag::from_pinned_list(29);
+
+/// A surname (ADR-0021 section 3, presentation only). subject: the lineage key of the root
+/// of the paternal chain; the world seed.
+pub const SURNAME: PurposeTag = PurposeTag::from_pinned_list(30);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -164,6 +172,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (POOL_ALLELE, "POOL_ALLELE"),
     (POOL_RANK, "POOL_RANK"),
     (FOUNDER_ALLELE, "FOUNDER_ALLELE"),
+    (FIRST_NAME, "FIRST_NAME"),
+    (SURNAME, "SURNAME"),
 ];
 
 /// Values of deleted tags; they are never used again.
