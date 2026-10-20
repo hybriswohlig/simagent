@@ -45,18 +45,29 @@ fn close(ours: &Value, golden: &Value) -> bool {
 
 /// The world at the end of `scenario` (a file of `tests/scenarios`), run by the binary.
 fn run(scenario: &str) -> World {
+    run_until(scenario, None)
+}
+
+/// The world of `scenario` at `until` (its own `until` if `None`), run by the binary.
+fn run_until(scenario: &str, until: Option<i64>) -> World {
+    let name = until.map_or_else(|| scenario.to_owned(), |t| format!("{scenario}@{t}"));
     let run = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("card")
-        .join(scenario);
+        .join(name);
     if run.exists() {
         std::fs::remove_dir_all(&run).expect("removes the old run");
     }
     let scenario = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/scenarios")
         .join(scenario);
-    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_simagent"));
+    command
         .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
-        .args(["--out".as_ref(), run.as_os_str()])
+        .args(["--out".as_ref(), run.as_os_str()]);
+    if let Some(t) = until {
+        command.args(["--until".to_owned(), t.to_string()]);
+    }
+    let status = command
         .stdout(std::process::Stdio::null())
         .status()
         .expect("runs");
@@ -116,26 +127,31 @@ fn the_towns_card_is_the_references() {
 }
 
 /// The height lines (Grok L5, L6) of every person of the hunger run (the dummy with hunger in
-/// years 2 and 3) equal the reference's (`tests/golden/card_hunger.json`): the loss from the
-/// hunger years, the loss of age, the mean of both parents' target heights.
+/// years 2 and 3) equal the reference's (`tests/golden/card_hunger.json`) in the middle of
+/// year 2, with year 3 still ahead, and at the end: the loss from the hunger years up to the
+/// second shown, the loss of age, the mean of both parents' target heights.
 #[test]
 fn the_hunger_runs_heights_are_the_references() {
-    let world = run("card_hunger.json");
     let golden: Value = serde_json::from_str(HUNGER_HEIGHTS).expect("JSON");
-    let golden = golden.as_array().expect("a list");
-    assert_eq!(golden.len(), 13);
-    for person in golden {
-        let n = person["sim"].as_u64().expect("a sim");
-        let card = world
-            .genetics_card(SimId::try_from(n).expect("an id"))
-            .expect("a card");
-        let height = card.height.expect("height lines");
-        let ours = json!({
-            "sim": n,
-            "hunger_cm": height.hunger_cm,
-            "age_cm": height.age_cm,
-            "parents_target_cm": height.parents_target_cm,
-        });
-        assert!(close(&ours, person), "sim {n}: {ours} against {person}");
+    let snapshots = golden.as_array().expect("a list");
+    assert_eq!(snapshots.len(), 2);
+    for snapshot in snapshots {
+        let t = snapshot["t"].as_i64().expect("a second");
+        let world = run_until("card_hunger.json", Some(t));
+        assert_eq!(world.closed_through().as_secs(), t);
+        for person in snapshot["persons"].as_array().expect("persons") {
+            let n = person["sim"].as_u64().expect("a sim");
+            let card = world
+                .genetics_card(SimId::try_from(n).expect("an id"))
+                .expect("a card");
+            let height = card.height.expect("height lines");
+            let ours = json!({
+                "sim": n,
+                "hunger_cm": height.hunger_cm,
+                "age_cm": height.age_cm,
+                "parents_target_cm": height.parents_target_cm,
+            });
+            assert!(close(&ours, person), "{t} sim {n}: {ours} against {person}");
+        }
     }
 }
