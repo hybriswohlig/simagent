@@ -77,3 +77,11 @@ test("a person's log is read by subject", async () => {
   await readLog("town", "subject=7");
   assert.deepEqual(asked, ["/api/runs/town/events?subject=7"]);
 });
+
+test("a window that ends where the last one ended asks for nothing", async () => {
+  const asked = serve([{ events: [item(1)], next: null }]);
+  const read = windows("town", 10);
+  const [first, again] = await Promise.all([read(20), read(20)]);
+  assert.deepEqual([first.length, again.length], [1, 0]);
+  assert.deepEqual(asked, ["/api/runs/town/events?from=10&to=20"]);
+});
