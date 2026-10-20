@@ -2,9 +2,13 @@
 //! lock of a run, stops the run goes on from, and a crash between two files reported on
 //! the next open, never a silently wrong run.
 
-use std::fs::{self, OpenOptions};
+mod common;
+
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use common::{Holder, free};
 
 use serde_json::Value;
 use sim_cli::error::CliError;
@@ -113,13 +117,7 @@ fn a_locked_run_is_not_opened() {
     let base = scratch("locked");
     let dir = three_years(&base, "run");
     assert_eq!(lock_path(&dir).expect("a path"), base.join("run.lock"));
-    let held = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(base.join("run.lock"))
-        .expect("opens");
-    held.try_lock().expect("locks");
+    let held = Holder::hold(&base.join("run.lock"));
     let error = resume_to(&dir, 6 * Y - 1).expect_err("locked");
     assert_eq!(code(&error), "run_locked", "{error}");
     let export = simagent(&["export".as_ref(), dir.as_os_str()]).expect_err("locked");
@@ -135,13 +133,13 @@ fn a_locked_run_is_not_opened() {
     ])
     .expect_err("its parent is locked");
     assert_eq!(code(&forked), "run_locked", "{forked}");
-    // In this process too: a second lock of the same run is refused.
     drop(held);
-    let first = RunLock::acquire(&dir).expect("free again");
+    resume_to(&dir, 6 * Y - 1).expect("free");
+    // In this process too: a second lock of the same run is refused. Last, since nothing
+    // can tell when a lock of this process is free again (`common`).
+    let _first = RunLock::acquire(&dir).expect("free again");
     let second = RunLock::acquire(&dir).expect_err("held by the first");
     assert_eq!(second.code, "run_locked");
-    drop(first);
-    resume_to(&dir, 6 * Y - 1).expect("free");
 }
 
 /// A link to a run takes the run's own lock; a new run, a replay and a fork into a locked
@@ -157,7 +155,8 @@ fn a_lock_follows_the_run_not_its_name() {
         lock_path(&alias).expect("a path"),
         lock_path(&dir).expect("a path")
     );
-    let held = RunLock::acquire(&dir).expect("free");
+    let lock_file = lock_path(&dir).expect("a path");
+    let held = Holder::hold(&lock_file);
     assert_eq!(
         RunLock::acquire(&alias).expect_err("the same run").code,
         "run_locked"
@@ -175,7 +174,7 @@ fn a_lock_follows_the_run_not_its_name() {
     );
     // Every command that writes a new directory takes its lock first.
     let target = base.join("target");
-    let lock = RunLock::acquire(&target).expect("free");
+    let lock = Holder::hold(&lock_path(&target).expect("a path"));
     let scenario = base.join("ten.json");
     let until = (2 * Y - 1).to_string();
     let run = simagent(&[
@@ -206,25 +205,17 @@ fn a_lock_follows_the_run_not_its_name() {
     ]);
     assert_eq!(code(&fork.expect_err("locked")), "run_locked");
     drop(lock);
+    assert!(
+        free(&lock_path(&target).expect("a path")),
+        "free after the holder died"
+    );
     // A process that holds the lock and dies lets it go (flock, as `File::try_lock`).
-    let lock_file = lock_path(&dir).expect("a path");
-    let mut holder = Command::new("perl")
-        .args(["-e", "use Fcntl qw(:flock); open(my $f, '>>', $ARGV[0]) or die; flock($f, LOCK_EX) or die; $| = 1; print qq(held\n); sleep 60"])
-        .arg(&lock_file)
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .expect("perl runs");
-    let mut line = String::new();
-    std::io::BufRead::read_line(
-        &mut std::io::BufReader::new(holder.stdout.take().expect("its output")),
-        &mut line,
-    )
-    .expect("reads");
-    assert_eq!(line, "held\n");
+    let holder = Holder::hold(&lock_file);
     assert_eq!(RunLock::acquire(&dir).expect_err("held").code, "run_locked");
-    holder.kill().expect("killed");
-    holder.wait().expect("ended");
-    RunLock::acquire(&dir).expect("free after the holder died");
+    assert!(!free(&lock_file), "held");
+    drop(holder);
+    assert!(free(&lock_file), "free after the holder died");
+    resume_to(&dir, 6 * Y - 1).expect("and the run goes on");
 }
 
 /// Stops of the session in every order the server may take: a fresh run's first stop,
@@ -241,7 +232,6 @@ fn every_order_of_stops_leaves_a_run_to_go_on_from() {
     )
     .expect("a scenario");
     {
-        let _lock = RunLock::acquire(&dir).expect("free");
         let mut session = Session::resume(&dir).expect("resumes");
         session.checkpoint(&scenario).expect("a stop at once");
         session.checkpoint(&scenario).expect("and another");
@@ -262,7 +252,6 @@ fn every_order_of_stops_leaves_a_run_to_go_on_from() {
     // A fresh run stopped at once is a run too.
     let fresh = base.join("fresh");
     {
-        let _lock = RunLock::acquire(&fresh).expect("free");
         let first = Input::Start(scenario.start.clone());
         let mut session = Session::start(
             &fresh,
@@ -291,7 +280,6 @@ fn checkpoints_give_the_run_the_command_line_gives() {
     )
     .expect("a scenario");
     {
-        let _lock = RunLock::acquire(&by_session).expect("free");
         let mut session = Session::resume(&by_session).expect("resumes");
         session.reopen().expect("nothing to reopen");
         for until in [5 * Y - 1, 5 * Y - 1 + 28 * 86_400, 7 * Y - 1] {
@@ -344,7 +332,6 @@ fn a_rejected_input_writes_nothing() {
     let stopped = contents(&dir);
     let rejected = |code: String| CliError::new("input_rejected", code);
     {
-        let _lock = RunLock::acquire(&dir).expect("free");
         let mut session = Session::resume(&dir).expect("resumes");
         let error = session.submit(pair(2, 1), rejected).expect_err("rejected");
         assert_eq!(
