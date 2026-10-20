@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use sim_core::body_contract::CLAMPED_KEYS;
-use sim_core::input::{Input, InputRecord};
+use sim_core::input::{Input, InputRecord, InputStamp};
 use sim_core::log::{LogEntry, LogHasher};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
 use sim_core::version::CORE_VERSION;
@@ -123,8 +123,9 @@ pub fn check_limit(closed: SimTime, limit: SimTime) -> Result<(), CliError> {
     Ok(())
 }
 
-/// The last second of the year that begins or continues right after `closed`.
-fn end_of_the_open_year(closed: SimTime) -> SimTime {
+/// The last second of the year that begins or continues right after `closed`. In range
+/// for every `closed` a run can stand at (`check_limit`).
+pub fn end_of_the_open_year(closed: SimTime) -> SimTime {
     let second = SimDuration::from_secs(1);
     year_start(calendar(closed + second).year + 1) - second
 }
@@ -388,16 +389,17 @@ impl Session {
         self.check_stamp(t, seq)
     }
 
-    /// Applies an input of this run's own (the override of a fork) and records it.
+    /// Applies an input of this run's own (the override of a fork, an input of the
+    /// server) and records it; its stamp.
     pub fn submit(
         &mut self,
         input: Input,
         rejected: impl FnOnce(String) -> CliError,
-    ) -> Result<(), CliError> {
+    ) -> Result<InputStamp, CliError> {
         let recorded = self.world.input_log().len();
         let dir = self.dir.clone();
         let pending = input.clone();
-        crate::repro::guarded(
+        let stamp = crate::repro::guarded(
             &mut self.world,
             &mut self.out,
             &dir,
@@ -406,7 +408,8 @@ impl Session {
         )?
         .map_err(|error| rejected(files::code(&error.code)))?;
         self.record_since(recorded)?;
-        self.drain()
+        self.drain()?;
+        Ok(stamp)
     }
 
     /// Runs to `limit` and writes what the run produced. A replay with a manifest goes

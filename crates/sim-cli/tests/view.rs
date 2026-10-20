@@ -3,6 +3,8 @@
 //! run list and the manifests. The expected answers are the files the command line wrote
 //! and the rules of the ADR.
 
+mod common;
+
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -10,7 +12,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use common::{Holder, free};
+use serde_json::{Value, json};
+use sim_cli::lock::{RunLock, lock_path};
+use sim_core::time::{SimTime, calendar};
 
 const TINY_SCENARIO: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":31449599}"#;
 
@@ -123,13 +128,16 @@ fn start(runs: &Path, web: &Path) -> Server {
 
 /// The status, the head and the body of the answer to `raw`.
 /// The status line of each status the server sends.
-const STATUS_LINES: [(u16, &str); 9] = [
+const STATUS_LINES: [(u16, &str); 12] = [
     (200, "HTTP/1.1 200 OK"),
     (400, "HTTP/1.1 400 Bad Request"),
+    (403, "HTTP/1.1 403 Forbidden"),
     (404, "HTTP/1.1 404 Not Found"),
     (405, "HTTP/1.1 405 Method Not Allowed"),
     (408, "HTTP/1.1 408 Request Timeout"),
+    (409, "HTTP/1.1 409 Conflict"),
     (413, "HTTP/1.1 413 Content Too Large"),
+    (415, "HTTP/1.1 415 Unsupported Media Type"),
     (421, "HTTP/1.1 421 Misdirected Request"),
     (431, "HTTP/1.1 431 Request Header Fields Too Large"),
     (500, "HTTP/1.1 500 Internal Server Error"),
@@ -903,4 +911,526 @@ fn a_person_is_the_cores_presentation_state() {
     }
     let (status, _, body) = get(server.port, "/api/runs/fork.b/persons/1");
     assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
+}
+
+/// Three founders, ten years (as in `cli.rs`): a woman (sim 1) and two men to pair.
+const TEN_YEARS: &str = r#"{
+  "format_version": 5,
+  "start": {
+    "world_seed": "0000000000000001",
+    "founder_tag": "test:cli",
+    "world_params": {"hereditary_diseases": false, "nutrition": []},
+    "founders": [
+      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:disease_ar", "copies": [0, 1]}]},
+      {"born": -794880000, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 0]}]},
+      {"born": -1, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [1, 1]}]}
+    ],
+    "couples": [],
+    "capacity": null,
+    "pool": null
+  },
+  "until": 314495999
+}"#;
+
+/// A year and a day of the calendar (ADR-0002): 364 days of 86 400 s.
+const Y: i64 = 31_449_600;
+const DAY: i64 = 86_400;
+const RUN_FILES: [&str; 6] = [
+    "manifest.json",
+    "scenario.resolved.json",
+    "input.ndjson",
+    "events.ndjson",
+    "census.csv",
+    "state.save",
+];
+
+/// `simagent args`: success, or the first line of its error.
+fn simagent(args: &[&std::ffi::OsStr]) -> Result<(), String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(args)
+        .output()
+        .expect("runs simagent");
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8");
+    Err(stderr.lines().next().unwrap_or("").to_owned())
+}
+
+fn first_code(error: &str) -> &str {
+    let rest = error.trim_start_matches("error: ");
+    rest.split(':').next().unwrap_or("")
+}
+
+fn resume_until(dir: &Path, until: i64, inputs: Option<&Path>) -> Result<(), String> {
+    let until = until.to_string();
+    let mut args: Vec<&std::ffi::OsStr> = vec![
+        "run".as_ref(),
+        "--resume".as_ref(),
+        "--out".as_ref(),
+        dir.as_os_str(),
+    ];
+    if let Some(inputs) = inputs {
+        args.extend::<[&std::ffi::OsStr; 2]>(["--input".as_ref(), inputs.as_os_str()]);
+    }
+    args.extend::<[&std::ffi::OsStr; 2]>(["--until".as_ref(), until.as_ref()]);
+    simagent(&args)
+}
+
+/// The fixture's runs and `web/dist`, with the run `town` of the ten-year scenario at the
+/// end of its third year, and its twin beside the runs, made the same way.
+fn writable_fixture(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let (runs, web) = fixture(name);
+    let base = runs.parent().expect("a parent").to_path_buf();
+    let scenario = base.join("ten.json");
+    write(&scenario, TEN_YEARS.as_bytes());
+    let twin = base.join("twin");
+    let until = (4 * Y - 1).to_string();
+    for out in [runs.join("town"), twin.clone()] {
+        simagent(&[
+            "run".as_ref(),
+            "--scenario".as_ref(),
+            scenario.as_os_str(),
+            "--out".as_ref(),
+            out.as_os_str(),
+            "--until".as_ref(),
+            until.as_ref(),
+        ])
+        .expect("runs");
+    }
+    (runs, web, twin)
+}
+
+/// The bytes of every file of a run directory.
+fn contents(dir: &Path) -> Vec<Vec<u8>> {
+    RUN_FILES
+        .iter()
+        .map(|file| fs::read(dir.join(file)).expect("read"))
+        .collect()
+}
+
+/// A `POST` as the server's own page sends it.
+fn post(port: u16, path: &str, body: &str) -> (u16, String, Vec<u8>) {
+    let raw = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    send(port, raw.as_bytes())
+}
+
+/// The core's calendar date of `t`, as the server answers it.
+fn date(t: i64) -> Value {
+    let date = calendar(SimTime::from_secs(t));
+    json!({
+        "year": date.year,
+        "day_of_year": date.day_of_year,
+        "month": date.month,
+        "day_of_month": date.day_of_month,
+        "week": date.week,
+        "weekday": date.weekday,
+        "season": date.season,
+        "second_of_day": date.second_of_day,
+    })
+}
+
+/// Each step of the clock over HTTP is `run --resume --until` to the step's target
+/// (ADR-0021 section 2): 28 days of 86 400 s; the last second of the year the run stands in
+/// or the next one, if it stands at a year end; ten such year ends. Every file byte for byte.
+#[test]
+fn advancing_over_http_is_resume_until() {
+    let (runs, web, twin) = writable_fixture("advance");
+    let server = start(&runs, &web);
+    let after_28_days = 4 * Y - 1 + 28 * DAY;
+    let steps = [
+        ("days28", after_28_days),
+        ("year", 5 * Y - 1),
+        ("year", 6 * Y - 1),
+        ("days28", 6 * Y - 1 + 28 * DAY),
+        ("decade", 16 * Y - 1),
+    ];
+    for (step, target) in steps {
+        let (status, head, body) = post(
+            server.port,
+            "/api/runs/town/advance",
+            &format!(r#"{{"step":"{step}"}}"#),
+        );
+        assert_eq!(status, 200, "{step}: {}", String::from_utf8_lossy(&body));
+        assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+        assert_eq!(
+            json_of(&body),
+            json!({
+                "format": "simagent.view.advanced",
+                "version": 1,
+                "closed_through": target,
+                "date": date(target),
+            }),
+            "{step}"
+        );
+        resume_until(&twin, target, None).expect("the twin goes on");
+        assert!(
+            contents(&runs.join("town")) == contents(&twin),
+            "{step} to {target}"
+        );
+    }
+}
+
+/// An input over HTTP is `run --resume --input` at the stop, written before the answer;
+/// a rejected one and a body that is no request change no file; the input log the browser
+/// wrote replays to the run (ADR-0021 section 2, ADR-0004).
+#[test]
+fn an_input_over_http_is_resume_with_input() {
+    let (runs, web, twin) = writable_fixture("input");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let before = contents(&town);
+    let (status, _, body) = post(
+        port,
+        "/api/runs/town/input",
+        r#"{"arrange_partnership":{"woman":2,"man":1}}"#,
+    );
+    let rejected = json_of(&body);
+    assert_eq!(
+        (status, &rejected["code"], &rejected["reason"]),
+        (
+            409,
+            &json!("input_rejected"),
+            &json!("partners_of_wrong_sex")
+        )
+    );
+    assert!(contents(&town) == before, "a rejected input");
+    for (route, body) in [
+        ("input", r#"{"arrange_partnership":{"woman":1}}"#),
+        (
+            "input",
+            r#"{"arrange_partnership":{"woman":1,"man":2,"x":0}}"#,
+        ),
+        ("input", "[]"),
+        ("input", "\u{ff}"),
+        ("advance", r#"{"step":"week"}"#),
+        ("advance", r#"{"step":"year","times":2}"#),
+        ("advance", "{}"),
+        ("advance", ""),
+    ] {
+        let (status, _, answer) = post(port, &format!("/api/runs/town/{route}"), body);
+        assert_eq!(
+            (status, code(&answer).as_str()),
+            (400, "body_invalid"),
+            "{body}"
+        );
+        assert!(contents(&town) == before, "{body}");
+    }
+    let arrange = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+    let (status, _, body) = post(port, "/api/runs/town/input", arrange);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    // The start is the input with seq 1; the pair is the next, at the stop.
+    assert_eq!(
+        json_of(&body),
+        json!({"format": "simagent.view.input", "version": 1, "t": 4 * Y - 1, "seq": 2})
+    );
+    let inputs = runs.parent().expect("a parent").join("inputs.json");
+    write(&inputs, format!("[{arrange}]").as_bytes());
+    resume_until(&twin, 4 * Y - 1, Some(&inputs)).expect("the twin takes it");
+    assert!(contents(&town) == contents(&twin), "the input");
+    let (status, _, _) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200);
+    drop(server);
+    let replayed = runs.parent().expect("a parent").join("replayed");
+    simagent(&[
+        "run".as_ref(),
+        "--replay".as_ref(),
+        town.join("input.ndjson").as_os_str(),
+        "--manifest".as_ref(),
+        town.join("manifest.json").as_os_str(),
+        "--out".as_ref(),
+        replayed.as_os_str(),
+    ])
+    .expect("the log replays to the run");
+}
+
+/// A run another process writes is not opened; a run the server opened is the server's
+/// until it ends (ADR-0021 section 1).
+#[test]
+fn the_server_holds_the_lock_of_a_run_it_writes() {
+    let (runs, web, _) = writable_fixture("lock");
+    let server = start(&runs, &web);
+    let town = runs.join("town");
+    let before = contents(&town);
+    let step = r#"{"step":"days28"}"#;
+    let lock = lock_path(&town).expect("a path");
+    {
+        let _held = Holder::hold(&lock);
+        let (status, _, body) = post(server.port, "/api/runs/town/advance", step);
+        assert_eq!((status, code(&body).as_str()), (409, "run_locked"));
+        assert!(contents(&town) == before, "a locked run");
+    }
+    let (status, _, _) = post(server.port, "/api/runs/town/advance", step);
+    assert_eq!(status, 200);
+    let refused = resume_until(&town, 5 * Y - 1, None).expect_err("the server's");
+    assert_eq!(first_code(&refused), "run_locked");
+    assert_eq!(
+        RunLock::acquire(&town).err().map(|e| e.code),
+        Some("run_locked")
+    );
+    assert!(!free(&lock), "the server's");
+    drop(server);
+    resume_until(&town, 5 * Y - 1, None).expect("free once the server ended");
+}
+
+/// A write comes from the server's own page as JSON (ADR-0021 section 1), or nothing is
+/// written and no run is opened; each route answers its own method only.
+#[test]
+fn a_write_needs_the_own_origin_and_json() {
+    let (runs, web, _) = writable_fixture("origin");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let before = contents(&town);
+    let step = r#"{"step":"days28"}"#;
+    let request = |path: &str, host: &str, headers: &str| {
+        format!(
+            "POST {path} HTTP/1.1\r\nHost: {host}\r\n{headers}Content-Length: {}\r\n\r\n{step}",
+            step.len()
+        )
+    };
+    let own = format!("127.0.0.1:{port}");
+    let origin = format!("Origin: http://{own}\r\n");
+    let json = "Content-Type: application/json\r\n";
+    let advance = "/api/runs/town/advance";
+    let with_origin = |value: &str| request(advance, &own, &format!("{json}Origin: {value}\r\n"));
+    let with_type =
+        |value: &str| request(advance, &own, &format!("{origin}Content-Type: {value}\r\n"));
+    let cases = [
+        (request(advance, &own, json), 403, "origin_foreign"),
+        (
+            request(advance, &own, &format!("{json}{origin}{origin}")),
+            403,
+            "origin_foreign",
+        ),
+        (
+            with_origin(&format!("http://127.0.0.1:{}", port + 1)),
+            403,
+            "origin_foreign",
+        ),
+        (
+            with_origin(&format!("http://localhost:{port}")),
+            403,
+            "origin_foreign",
+        ),
+        (with_origin("null"), 403, "origin_foreign"),
+        (
+            with_origin(&format!("https://127.0.0.1:{port}")),
+            403,
+            "origin_foreign",
+        ),
+        (
+            with_origin(&format!("http://127.0.0.1:{port}/")),
+            403,
+            "origin_foreign",
+        ),
+        (
+            request(advance, &own, &origin),
+            415,
+            "content_type_not_json",
+        ),
+        (with_type("text/plain"), 415, "content_type_not_json"),
+        (with_type("application/jsonx"), 415, "content_type_not_json"),
+        (
+            with_type("text/plain; a=application/json"),
+            415,
+            "content_type_not_json",
+        ),
+        (
+            request("/api/runs/town/census", &own, &format!("{origin}{json}")),
+            405,
+            "method_not_allowed",
+        ),
+        (
+            request("/api/runs/nobody/advance", &own, &format!("{origin}{json}")),
+            404,
+            "unknown_run",
+        ),
+        (
+            request("/api/runs/town/advance/x", &own, &format!("{origin}{json}")),
+            405,
+            "method_not_allowed",
+        ),
+        (
+            request(
+                "/api/runs/town/advance?x=1",
+                &own,
+                &format!("{origin}{json}"),
+            ),
+            400,
+            "bad_query",
+        ),
+        (
+            request("/api/runs/%74own/advance", &own, &format!("{origin}{json}")),
+            404,
+            "not_found",
+        ),
+    ];
+    for (raw, status, expected) in cases {
+        let (found, head, body) = send(port, raw.as_bytes());
+        assert_eq!((found, code(&body).as_str()), (status, expected), "{raw:?}");
+        if status == 405 {
+            assert!(head.lines().any(|line| line == "Allow: GET"), "{head}");
+        }
+        assert!(contents(&town) == before, "{raw:?}");
+    }
+    // Nor does a body that is no request, the first to reach the run.
+    for (route, body) in [
+        ("advance", ""),
+        ("advance", "[]"),
+        ("advance", r#"{"step":"week"}"#),
+        ("input", r#"{"arrange_partnership":{"woman":1}}"#),
+    ] {
+        let (status, _, answer) = post(port, &format!("/api/runs/town/{route}"), body);
+        assert_eq!(
+            (status, code(&answer).as_str()),
+            (400, "body_invalid"),
+            "{body}"
+        );
+    }
+    // No refused request opened the run.
+    assert!(free(&lock_path(&town).expect("a path")), "not opened");
+    let (status, head, body) = get(port, advance);
+    assert_eq!((status, code(&body).as_str()), (405, "method_not_allowed"));
+    assert!(head.lines().any(|line| line == "Allow: POST"), "{head}");
+    // The page's own origin under either name of the host, and a type with a parameter.
+    for (host, content_type) in [
+        (own.clone(), "application/json; charset=utf-8"),
+        (format!("localhost:{port}"), "Application/JSON"),
+    ] {
+        let headers = format!("Origin: http://{host}\r\nContent-Type: {content_type}\r\n");
+        let (status, _, body) = send(port, request(advance, &host, &headers).as_bytes());
+        assert_eq!(status, 200, "{host}: {}", String::from_utf8_lossy(&body));
+    }
+}
+
+/// The mode of a file of a run, to make it unwritable for a while.
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("permissions set");
+}
+
+/// A write that fails leaves the run to nobody (ADR-0021 section 2): the server lets its
+/// lock go and reads none of its files, until a write opens the directory as one run again;
+/// a directory left between two files stays refused.
+#[cfg(unix)]
+#[test]
+fn a_failed_write_is_not_read_as_a_run() {
+    let (runs, web, twin) = writable_fixture("failed");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let year = r#"{"step":"year"}"#;
+    let reads = [
+        "/api/runs/town",
+        "/api/runs/town/pedigree",
+        "/api/runs/town/persons/1",
+        "/api/runs/town/census",
+        "/api/runs/town/events",
+    ];
+    let refused = |when: &str| {
+        for path in reads {
+            let (status, _, body) = get(port, path);
+            assert_eq!(
+                (status, code(&body).as_str()),
+                (500, "run_failed"),
+                "{when}: {path}"
+            );
+        }
+        let list = json_of(&get(port, "/api/runs").2);
+        let entry = (list["runs"].as_array().expect("runs"))
+            .iter()
+            .find(|entry| entry["run"] == "town")
+            .cloned();
+        assert_eq!(
+            entry,
+            Some(json!({"run": "town", "error": "run_failed"})),
+            "{when}"
+        );
+    };
+    // The input log cannot be opened again, the first write of a step: nothing is
+    // written, and the run stays whole.
+    let before = contents(&town);
+    set_mode(&town.join("input.ndjson"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert!(contents(&town) == before, "nothing written");
+    let lock = lock_path(&town).expect("a path");
+    assert!(free(&lock), "let go");
+    refused("input log unwritable");
+    set_mode(&town.join("input.ndjson"), 0o644);
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole again");
+    for path in reads {
+        assert_eq!(get(port, path).0, 200, "{path}");
+    }
+    // An accepted input whose log cannot be written is a failure, no rejection.
+    let before = contents(&town);
+    set_mode(&town.join("input.ndjson"), 0o444);
+    let arrange = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+    let (status, _, body) = post(port, "/api/runs/town/input", arrange);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert!(contents(&town) == before, "nothing written");
+    refused("input unwritable");
+    set_mode(&town.join("input.ndjson"), 0o644);
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole again");
+    // The census cannot be written: the input log is open again and the events of the
+    // year are written, the save is not.
+    set_mode(&town.join("census.csv"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    refused("census unwritable");
+    set_mode(&town.join("census.csv"), 0o644);
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(
+        (status, code(&body).as_str()),
+        (500, "run_dir_inconsistent")
+    );
+    assert!(free(&lock), "not kept");
+    refused("between two files");
+    // Another process puts a whole run in its place: the next write opens it.
+    for file in RUN_FILES {
+        fs::copy(twin.join(file), town.join(file)).expect("copied");
+    }
+    refused("replaced, not yet opened");
+    let (status, _, _) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "opened whole");
+    for path in reads {
+        assert_eq!(get(port, path).0, 200, "{path}");
+    }
+}
+
+/// A run found between two files at its first open is refused like one the server left so
+/// (ADR-0021 section 2); a run another process holds is only busy.
+#[test]
+fn a_run_that_does_not_open_is_not_read() {
+    let (runs, web, _) = writable_fixture("not-open");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let town = runs.join("town");
+    let events = fs::read_to_string(town.join("events.ndjson")).expect("read");
+    let last = events.lines().last().expect("an entry").to_owned();
+    fs::write(town.join("events.ndjson"), format!("{events}{last}\n")).expect("written");
+    let step = r#"{"step":"days28"}"#;
+    let lock = lock_path(&town).expect("a path");
+    {
+        let _held = Holder::hold(&lock);
+        let (status, _, body) = post(port, "/api/runs/town/advance", step);
+        assert_eq!((status, code(&body).as_str()), (409, "run_locked"));
+    }
+    assert_eq!(get(port, "/api/runs/town/events").0, 200, "only busy");
+    let (status, _, body) = post(port, "/api/runs/town/advance", step);
+    assert_eq!(
+        (status, code(&body).as_str()),
+        (500, "run_dir_inconsistent")
+    );
+    assert!(free(&lock), "not kept");
+    let (status, _, body) = get(port, "/api/runs/town/events");
+    assert_eq!((status, code(&body).as_str()), (500, "run_failed"));
 }
