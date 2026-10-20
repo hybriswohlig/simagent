@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { Refused, postJson } from "./api.js";
+import { Refused, UnknownAnswer, postJson } from "./api.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
-import type { AdvanceAnswer, CalendarDate } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, Person } from "./generated/export.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
@@ -35,6 +35,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [clock, setClock] = useState<Clock>(() => standing(closed, date));
   const [chosen, setChosen] = useState<Step>("days28");
   const [listedAt, setListedAt] = useState(closed);
+  const [living, setLiving] = useState<readonly Person[]>([]);
   const latest = useRef(clock);
   const live = useRef(true);
   useEffect(() => {
@@ -58,11 +59,12 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         apply(answered(latest.current, answer.closed_through, answer.date));
       })
       .catch((error: unknown) => {
-        apply(refused(latest.current, error instanceof Refused ? error.code : "network"));
+        const code = error instanceof Refused ? error.code : error instanceof UnknownAnswer ? "version" : "network";
+        apply(refused(latest.current, code));
       });
   };
   useEffect(() => {
-    if (!clock.busy && clock.playing === null) {
+    if (!clock.busy) {
       setListedAt(clock.closed);
     }
     if (clock.busy || clock.playing === null) {
@@ -71,11 +73,13 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
+  // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
-  const living =
-    pedigree.state === "ready"
-      ? pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null)
-      : [];
+  useEffect(() => {
+    if (pedigree.state === "ready") {
+      setLiving(pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null));
+    }
+  }, [pedigree]);
   return (
     <section>
       <h1>{`${TEXT.run} ${run}`}</h1>
@@ -128,8 +132,11 @@ export function RunPage({ run }: { run: string }) {
     return <p>{runs.state === "loading" ? TEXT.loading : TEXT[runs.text]}</p>;
   }
   const entry = runs.value.runs.find((candidate) => candidate.run === run);
-  if (entry?.manifest === undefined || entry.date === undefined) {
-    return <p>{entry === undefined ? TEXT.not_found : TEXT.refused_run_failed}</p>;
+  if (entry === undefined) {
+    return <p>{TEXT.not_found}</p>;
+  }
+  if (entry.manifest === undefined || entry.date === undefined) {
+    return <p>{entry.error === "run_failed" ? TEXT.refused_run_failed : TEXT.run_no_manifest}</p>;
   }
   return <Town key={run} run={run} closed={entry.manifest.closed_through} date={entry.date} />;
 }

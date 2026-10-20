@@ -24,9 +24,14 @@ export function standing(closed: number, date: CalendarDate): Clock {
   return { closed, date, playing: null, busy: false, refused: null };
 }
 
-/** One step, pressed: asked for unless a request is on its way (never two at a time). */
+/** One step, pressed: asked for unless a request is on its way (never two at a time);
+ * while playing, it becomes the step that plays. */
 export function press(clock: Clock, step: Step): Next {
-  return clock.busy ? [clock, null] : [{ ...clock, busy: true, refused: null }, step];
+  if (clock.busy) {
+    return [clock, null];
+  }
+  const playing = clock.playing === null ? null : step;
+  return [{ ...clock, playing, busy: true, refused: null }, step];
 }
 
 /** Playing `step`: at once, and after each answer, at the next `tick`, the same step again,

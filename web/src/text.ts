@@ -47,6 +47,9 @@ export const TEXT = {
   refused_until_beyond_horizon: "Weiter läuft die Zeit dieses Laufs nicht.",
   refused_run_failed: "Der Lauf konnte nicht geschrieben werden und wird nicht mehr gelesen.",
   refused_other: "Der Server hat den Schritt abgelehnt:",
+  refused_network: "Der Server antwortet nicht.",
+  refused_version: "Der Server sendet Daten in einer Form, die diese Ansicht nicht kennt.",
+  run_no_manifest: "Dieser Lauf hat kein lesbares Manifest.",
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */
