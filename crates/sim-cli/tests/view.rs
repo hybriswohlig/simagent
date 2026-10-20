@@ -933,6 +933,8 @@ fn a_person_is_the_cores_presentation_state() {
             .map(|p| p.get())
             .collect();
         fields.insert("partner_candidates".into(), partners.into());
+        let card = world.genetics_card(id).expect("a card");
+        fields.insert("card".into(), serde_json::to_value(card).expect("JSON"));
         assert_eq!(json_of(&body), expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
