@@ -4,6 +4,7 @@
 //! years and the calendar year of every second shown. It is no state: not in the hash, not
 //! in the save, and taking it changes nothing.
 
+pub mod card;
 pub mod kin;
 pub mod names;
 pub mod partners;
