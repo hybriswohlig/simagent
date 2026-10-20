@@ -25,6 +25,7 @@ use sim_core::input::{
 use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
+use sim_core::presentation::kin::{Foster, KinWord};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
@@ -1242,6 +1243,137 @@ fn log_codes_are_stable() {
     }
     actual.extend(strands.iter().map(|s| line("strand", s)));
     actual.extend(chromosomes.iter().map(|c| line("sex_chromosome", c)));
+    // The kinship and foster words the viewer shows (ADR-0021 section 3).
+    let words = [
+        KinWord::Myself,
+        KinWord::Mother,
+        KinWord::Father,
+        KinWord::Grandmother,
+        KinWord::Grandfather,
+        KinWord::GreatGrandmother,
+        KinWord::GreatGrandfather,
+        KinWord::GreatGreatGrandmother,
+        KinWord::GreatGreatGrandfather,
+        KinWord::Daughter,
+        KinWord::Son,
+        KinWord::Granddaughter,
+        KinWord::Grandson,
+        KinWord::GreatGranddaughter,
+        KinWord::GreatGrandson,
+        KinWord::GreatGreatGranddaughter,
+        KinWord::GreatGreatGrandson,
+        KinWord::Sister,
+        KinWord::Brother,
+        KinWord::HalfSister,
+        KinWord::HalfBrother,
+        KinWord::Aunt,
+        KinWord::Uncle,
+        KinWord::GreatAunt,
+        KinWord::GreatUncle,
+        KinWord::GreatGreatAunt,
+        KinWord::GreatGreatUncle,
+        KinWord::GreatGreatGreatAunt,
+        KinWord::GreatGreatGreatUncle,
+        KinWord::Niece,
+        KinWord::Nephew,
+        KinWord::GreatNiece,
+        KinWord::GreatNephew,
+        KinWord::GreatGreatNiece,
+        KinWord::GreatGreatNephew,
+        KinWord::GreatGreatGreatNiece,
+        KinWord::GreatGreatGreatNephew,
+        KinWord::FirstCousinFemale,
+        KinWord::FirstCousinMale,
+        KinWord::FirstCousinFemaleOlder1,
+        KinWord::FirstCousinMaleOlder1,
+        KinWord::FirstCousinFemaleOlder2,
+        KinWord::FirstCousinMaleOlder2,
+        KinWord::FirstCousinFemaleYounger1,
+        KinWord::FirstCousinMaleYounger1,
+        KinWord::FirstCousinFemaleYounger2,
+        KinWord::FirstCousinMaleYounger2,
+        KinWord::SecondCousinFemale,
+        KinWord::SecondCousinMale,
+        KinWord::SecondCousinFemaleOlder1,
+        KinWord::SecondCousinMaleOlder1,
+        KinWord::SecondCousinFemaleYounger1,
+        KinWord::SecondCousinMaleYounger1,
+        KinWord::Unrelated,
+    ];
+    for word in &words {
+        match word {
+            KinWord::Myself
+            | KinWord::Mother
+            | KinWord::Father
+            | KinWord::Grandmother
+            | KinWord::Grandfather
+            | KinWord::GreatGrandmother
+            | KinWord::GreatGrandfather
+            | KinWord::GreatGreatGrandmother
+            | KinWord::GreatGreatGrandfather
+            | KinWord::Daughter
+            | KinWord::Son
+            | KinWord::Granddaughter
+            | KinWord::Grandson
+            | KinWord::GreatGranddaughter
+            | KinWord::GreatGrandson
+            | KinWord::GreatGreatGranddaughter
+            | KinWord::GreatGreatGrandson
+            | KinWord::Sister
+            | KinWord::Brother
+            | KinWord::HalfSister
+            | KinWord::HalfBrother
+            | KinWord::Aunt
+            | KinWord::Uncle
+            | KinWord::GreatAunt
+            | KinWord::GreatUncle
+            | KinWord::GreatGreatAunt
+            | KinWord::GreatGreatUncle
+            | KinWord::GreatGreatGreatAunt
+            | KinWord::GreatGreatGreatUncle
+            | KinWord::Niece
+            | KinWord::Nephew
+            | KinWord::GreatNiece
+            | KinWord::GreatNephew
+            | KinWord::GreatGreatNiece
+            | KinWord::GreatGreatNephew
+            | KinWord::GreatGreatGreatNiece
+            | KinWord::GreatGreatGreatNephew
+            | KinWord::FirstCousinFemale
+            | KinWord::FirstCousinMale
+            | KinWord::FirstCousinFemaleOlder1
+            | KinWord::FirstCousinMaleOlder1
+            | KinWord::FirstCousinFemaleOlder2
+            | KinWord::FirstCousinMaleOlder2
+            | KinWord::FirstCousinFemaleYounger1
+            | KinWord::FirstCousinMaleYounger1
+            | KinWord::FirstCousinFemaleYounger2
+            | KinWord::FirstCousinMaleYounger2
+            | KinWord::SecondCousinFemale
+            | KinWord::SecondCousinMale
+            | KinWord::SecondCousinFemaleOlder1
+            | KinWord::SecondCousinMaleOlder1
+            | KinWord::SecondCousinFemaleYounger1
+            | KinWord::SecondCousinMaleYounger1
+            | KinWord::Unrelated => {}
+        }
+    }
+    actual.extend(words.iter().map(|w| line("kinship", w)));
+    let fosters = [
+        Foster::FosterMother,
+        Foster::FosterFather,
+        Foster::FosterDaughter,
+        Foster::FosterSon,
+    ];
+    for foster in &fosters {
+        match foster {
+            Foster::FosterMother
+            | Foster::FosterFather
+            | Foster::FosterDaughter
+            | Foster::FosterSon => {}
+        }
+    }
+    actual.extend(fosters.iter().map(|f| line("foster", f)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
