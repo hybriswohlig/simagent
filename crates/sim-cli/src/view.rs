@@ -63,6 +63,32 @@ struct Advance {
     step: Step,
 }
 
+/// The templates a new run is made from (ADR-0021 section 2): a closed list, the fun-test
+/// town first (section 6).
+const TEMPLATES: [(&str, &str); 1] =
+    [("stadt", include_str!("../../../data/scenarios/stadt.json"))];
+
+/// The body of `POST /api/runs`.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Found {
+    template: String,
+    run: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    world_seed: Option<String>,
+}
+
+/// A seed as the files write it: 16 lower-case hex digits.
+fn hex_seed(text: &str) -> Result<u64, ()> {
+    let digits = text
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    if text.len() != 16 || !digits {
+        return Err(());
+    }
+    u64::from_str_radix(text, 16).map_err(|_| ())
+}
+
 /// A write, read from its body before the run is opened.
 enum WriteRequest {
     Advance(Step),
@@ -171,14 +197,17 @@ impl Server {
             Some(host) => host,
         };
         let segments: Vec<&str> = request.path.split('/').skip(1).collect();
-        let writes = matches!(segments.as_slice(), ["api", "runs", _, "advance" | "input"]);
-        let method = if writes { "POST" } else { "GET" };
-        if request.method != method {
+        let allowed = match segments.as_slice() {
+            ["api", "runs"] => "GET, POST",
+            ["api", "runs", _, "advance" | "input"] => "POST",
+            _ => "GET",
+        };
+        if !allowed.split(", ").any(|method| method == request.method) {
             let mut refused = Response::error(405, "method_not_allowed");
-            refused.allow = Some(method);
+            refused.allow = Some(allowed);
             return refused;
         }
-        if writes {
+        if request.method == "POST" {
             if let Some(refused) = foreign_write(request, host) {
                 return refused;
             }
@@ -198,6 +227,7 @@ impl Server {
             _ => {}
         }
         match segments.as_slice() {
+            ["api", "runs"] if request.method == "POST" => self.create(&request.body),
             ["api", "runs"] => self.runs(),
             ["api", "runs", run] => self.manifest(run),
             ["api", "runs", run, "pedigree"] => self.read(run, |dir| self.pedigree(dir)),
@@ -257,6 +287,64 @@ impl Server {
             self.failed.insert(run.to_owned());
             failure(&error)
         })
+    }
+
+    /// `POST /api/runs`: a new run from a template, made like `run --scenario <template>
+    /// --until -1` (it stands before its first second) and kept open by the server. The name
+    /// must be free in the runs directory; a seed may replace the template's.
+    fn create(&mut self, body: &[u8]) -> Response {
+        let found = std::str::from_utf8(body)
+            .ok()
+            .and_then(files::parse_strict::<Found>);
+        let template = found.as_ref().and_then(|found| {
+            let (_, text) = TEMPLATES.iter().find(|(name, _)| *name == found.template)?;
+            Some(*text)
+        });
+        let seed = found
+            .as_ref()
+            .map(|found| found.world_seed.as_deref().map(hex_seed));
+        let (Some(found), Some(template), Some(seed)) = (found, template, seed) else {
+            return Response::error(400, "body_invalid");
+        };
+        let Some(seed) = seed.transpose().ok() else {
+            return Response::error(400, "body_invalid");
+        };
+        if !run_name(&found.run) {
+            return Response::error(400, "body_invalid");
+        }
+        let dir = self.runs.join(&found.run);
+        if dir.symlink_metadata().is_ok() {
+            return Response::error(409, "run_exists");
+        }
+        let made = (|| {
+            let lock = RunLock::acquire(&dir)?;
+            let mut file = crate::scenario_file(template)?;
+            if let Some(seed) = seed {
+                file.start.world_seed = seed;
+            }
+            let scenario = crate::resolve(file, crate::data::core_data)?;
+            let mut session = crate::begin(&dir, &scenario, SimTime::from_secs(-1))?;
+            session.checkpoint(&scenario)?;
+            Ok::<_, CliError>(Open {
+                session,
+                scenario,
+                _lock: lock,
+            })
+        })();
+        match made {
+            Ok(opened) => {
+                self.open.insert(found.run.clone(), opened);
+                let body =
+                    json!({"format": "simagent.view.created", "version": 1, "run": found.run});
+                Response::new(200, JSON, format!("{body}\n").into_bytes())
+            }
+            Err(error) => {
+                if dir.symlink_metadata().is_ok() {
+                    self.failed.insert(found.run);
+                }
+                failure(&error)
+            }
+        }
     }
 
     fn file(&self, path: &str, request: &Request) -> Response {

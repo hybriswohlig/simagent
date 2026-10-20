@@ -9,6 +9,11 @@ export type Route =
 
 /** A run is a directory name: letters, digits, `.`, `_` and `-`, not starting with `.`. */
 const RUN = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+/** Whether `name` may name a run: the rule of the server for its run directories. */
+export function runName(name: string): boolean {
+  return RUN.test(name);
+}
+
 /** A sim is its id in decimal, without a leading zero. */
 const SIM = /^[1-9][0-9]*$/;
 

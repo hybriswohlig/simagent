@@ -250,6 +250,15 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "CreatedAnswer",
+            doc: "`POST /api/runs`: the name of the run made from a template.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.created"])),
+                field("version", Integer),
+                field("run", Text),
+            ],
+        },
+        Named {
             name: "InputAnswer",
             doc: "`POST /api/runs/{run}/input`: the stamp of the accepted input.",
             fields: vec![
