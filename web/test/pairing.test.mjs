@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { arrangement, candidates, openPartners } from "../dist/pairing.js";
+import { arrangement, candidates, openPartners, pairingShown } from "../dist/pairing.js";
 
 /** A person of a pedigree; the values follow the format, they are not computed. */
 function person(sim, sex, ended = {}) {
@@ -74,4 +74,14 @@ test("the input names the woman and the man by their sex", () => {
   assert.deepEqual(arrangement(woman, man), input);
   assert.deepEqual(arrangement(man, woman), input);
   assert.equal(arrangement(woman, PEDIGREE.persons[2]), null, "two women");
+});
+
+test("once paired only the note shows: no second pair from the same page", () => {
+  assert.equal(pairingShown(3, "idle"), "form");
+  assert.equal(pairingShown(3, "busy"), "form");
+  assert.equal(pairingShown(3, "failed"), "form");
+  assert.equal(pairingShown(3, "paired"), "paired");
+  assert.equal(pairingShown(0, "paired"), "paired");
+  assert.equal(pairingShown(0, "idle"), "nothing");
+  assert.equal(pairingShown(0, "failed"), "nothing");
 });
