@@ -928,6 +928,11 @@ fn a_person_is_the_cores_presentation_state() {
             "contract_version".into(),
             sim_core::body_contract::CONTRACT_VERSION.into(),
         );
+        let id = sim_core::ids::SimId::try_from(sim).expect("an id");
+        let partners: Vec<u64> = (world.partner_candidates(id).iter())
+            .map(|p| p.get())
+            .collect();
+        fields.insert("partner_candidates".into(), partners.into());
         assert_eq!(json_of(&body), expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -975,6 +980,15 @@ fn a_person_with_its_kinship_to_another() {
         kinship("/api/runs/dummy/persons/3?to=5"),
         json!({"to": 5, "word": "unrelated", "foster": "foster_mother", "r_percent": 0.0})
     );
+    // The partners a pairing would be accepted with, by hand from the golden pedigree (as in
+    // `tests/partners.rs`): sim 8, the one living woman, and her former partner, sim 4.
+    let partners = |sim: u64| {
+        json_of(&get(server.port, &format!("/api/runs/dummy/persons/{sim}")).2)["partner_candidates"]
+            .clone()
+    };
+    assert_eq!(partners(8), json!([4]));
+    assert_eq!(partners(4), json!([8]));
+    assert_eq!(partners(13), json!([]));
     // Without a query the answer stays as it was.
     let (_, _, plain) = get(server.port, "/api/runs/dummy/persons/13");
     let plain = json_of(&plain);

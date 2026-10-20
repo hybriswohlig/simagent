@@ -206,10 +206,22 @@ function KinForm({ run, sim, pedigree }: { run: string; sim: string; pedigree: P
 
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
-/** Pairing a living person in no partnership with one of the candidates of the other sex
- * (ADR-0021 section 6, "ein Paar stiften"); the core judges age and kinship. */
-function PairForm({ run, pedigree, person, paired }: { run: string; pedigree: Pedigree; person: Person; paired: () => void }) {
-  const options = candidates(pedigree, person.sim);
+/** Pairing a person with one of the partners the core offers (ADR-0021 section 6, "ein
+ * Paar stiften"); the core judges age and kinship. */
+function PairForm({
+  run,
+  pedigree,
+  person,
+  offered,
+  paired,
+}: {
+  run: string;
+  pedigree: Pedigree;
+  person: Person;
+  offered: readonly number[];
+  paired: () => void;
+}) {
+  const options = candidates(pedigree, offered);
   const [chosen, setChosen] = useState("");
   const [pairing, setPairing] = useState<Pairing>({ state: "idle" });
   const failure = pairing.state === "failed" ? <p role="alert">{pairing.text}</p> : null;
@@ -310,6 +322,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         run={run}
         pedigree={pedigree}
         person={person}
+        offered={view.state === "ready" ? view.value.partner_candidates : []}
         paired={() => setChanged((n) => n + 1)}
       />
       <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />

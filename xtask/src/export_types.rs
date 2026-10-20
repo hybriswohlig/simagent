@@ -206,6 +206,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("ended", nullable(Kind::Literal(&["death", "emigration"]))),
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
+                field("partner_candidates", list(Integer)),
                 optional("kinship", Ref("Kinship")),
             ],
         },

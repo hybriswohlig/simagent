@@ -212,9 +212,10 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
 }
 
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
-/// (ADR-0021 section 3), with the contract version of its body values, and with `to` what
-/// that sim is to the person (its kinship word, its foster word and `r` in percent, all
-/// from the core); `None` for a sim the run does not know.
+/// (ADR-0021 section 3), with the contract version of its body values and the partners a
+/// pairing would be accepted with now, and with `to` what that sim is to the person (its
+/// kinship word, its foster word and `r` in percent, all from the core); `None` for a sim
+/// the run does not know.
 pub fn person_answer(
     dir: &Path,
     sim: SimId,
@@ -236,6 +237,10 @@ pub fn person_answer(
     if let (Some(answer), Some(fields)) = (answer.as_object_mut(), fields.as_object()) {
         answer.extend(fields.clone());
     }
+    let partners: Vec<u64> = (world.partner_candidates(sim).iter())
+        .map(|partner| partner.get())
+        .collect();
+    answer["partner_candidates"] = partners.into();
     if let Some(other) = to {
         let Some(kin) = world.kin_view(sim, other) else {
             return Ok(None);

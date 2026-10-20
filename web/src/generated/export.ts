@@ -110,6 +110,7 @@ export type PersonAnswer = {
   readonly ended: "death" | "emigration" | null;
   readonly shown: Shown;
   readonly at_ages: Shown[];
+  readonly partner_candidates: number[];
   readonly kinship?: Kinship;
 };
 
