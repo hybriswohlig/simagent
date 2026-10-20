@@ -369,9 +369,7 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
 /// schema, ADR-0004 section 4) act at the stop, before the clock moves on.
 fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(), CliError> {
     let _lock = lock::RunLock::acquire(dir)?;
-    let scenario: Scenario = files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
-        .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
-        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 5"))?;
+    let scenario = resumed_scenario(dir)?;
     let inputs: Vec<Input> = match inputs {
         Some(file) => files::parse_strict(&files::read_text(file)?).ok_or_else(|| {
             CliError::new(
@@ -389,6 +387,13 @@ fn resume(dir: &Path, until: Option<SimTime>, inputs: Option<&Path>) -> Result<(
     let mut session = session.submit_at_stop(inputs)?;
     session.advance(limit)?;
     session.finish(&scenario)
+}
+
+/// The resolved scenario a run directory goes on with.
+pub fn resumed_scenario(dir: &Path) -> Result<Scenario, CliError> {
+    files::parse_strict(&files::read_text(&dir.join(files::SCENARIO))?)
+        .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
+        .ok_or_else(|| CliError::new("scenario_invalid", "not a scenario of format version 5"))
 }
 
 /// Whose log is read, for the messages about a foreign version.

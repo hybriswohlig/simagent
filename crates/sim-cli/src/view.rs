@@ -1,6 +1,7 @@
 //! `simagent view` (ADR-0021 sections 1 and 2): a local server for the browser. It listens
 //! on 127.0.0.1 only, answers one connection at a time, serves the files `web/dist` held
-//! when it started, and reads the run directories below its directory. It computes nothing:
+//! when it started, reads the run directories below its directory, and moves their clocks
+//! and takes their inputs through the `Session` of the command line. It computes nothing:
 //! every number it sends comes from the files of the command line or from the core.
 
 mod http;
@@ -10,10 +11,15 @@ use std::io::Write;
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sim_core::input::Input;
+use sim_core::time::{DAY, SimTime, calendar};
 
 use crate::error::CliError;
-use crate::files;
+use crate::files::{self, Scenario};
+use crate::lock::RunLock;
+use crate::session::{self, Session};
 
 pub use http::{BODY_LIMIT, HEAD_LIMIT, READ_TIME};
 use http::{JSON, Request, Response};
@@ -27,6 +33,51 @@ struct Server {
     port: u16,
     /// The files of `web/dist` at start: relative path to type and bytes.
     files: BTreeMap<String, (&'static str, Vec<u8>)>,
+    /// The runs a write opened, by name; each keeps its lock until the server ends.
+    open: BTreeMap<String, Open>,
+}
+
+/// A run the server writes (ADR-0021 section 1): opened as `run --resume` opens it, its
+/// lock held while it is open.
+struct Open {
+    session: Session,
+    scenario: Scenario,
+    _lock: RunLock,
+}
+
+/// The one step of `POST …/advance` (ADR-0021 section 2).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Step {
+    Days28,
+    Year,
+    Decade,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Advance {
+    step: Step,
+}
+
+/// The target of `step` from `closed`, by the core's calendar: 28 days on; the last second
+/// of the year that begins or continues after `closed`; ten such year ends. A decade that
+/// would pass the horizon stops at its first year end beyond, which `check_limit` refuses.
+pub fn step_target(closed: SimTime, step: Step) -> SimTime {
+    match step {
+        Step::Days28 => closed + DAY * 28,
+        Step::Year => session::end_of_the_open_year(closed),
+        Step::Decade => {
+            let mut target = closed;
+            for _ in 0..10 {
+                target = session::end_of_the_open_year(target);
+                if session::check_limit(closed, target).is_err() {
+                    break;
+                }
+            }
+            target
+        }
+    }
 }
 
 /// The type of a served file by its extension.
@@ -88,25 +139,32 @@ fn plain(path: &str) -> bool {
 
 impl Server {
     /// The answer to a request: origin, method, then the route.
-    fn answer(&self, request: &Request) -> Response {
+    fn answer(&mut self, request: &Request) -> Response {
         let host = request.header("host");
         let own = [
             format!("127.0.0.1:{}", self.port),
             format!("localhost:{}", self.port),
         ];
-        match host {
+        let host = match host {
             None => return Response::error(400, "host_missing"),
             Some(host) if !own.iter().any(|o| o == host) => {
                 return Response::error(421, "host_foreign");
             }
-            Some(_) => {}
-        }
-        if request.method != "GET" {
+            Some(host) => host,
+        };
+        let segments: Vec<&str> = request.path.split('/').skip(1).collect();
+        let writes = matches!(segments.as_slice(), ["api", "runs", _, "advance" | "input"]);
+        let method = if writes { "POST" } else { "GET" };
+        if request.method != method {
             let mut refused = Response::error(405, "method_not_allowed");
-            refused.allow = Some("GET");
+            refused.allow = Some(method);
             return refused;
         }
-        if !request.body.is_empty() {
+        if writes {
+            if let Some(refused) = foreign_write(request, host) {
+                return refused;
+            }
+        } else if !request.body.is_empty() {
             return Response::error(400, "bad_request");
         }
         if request.path == "/" {
@@ -115,7 +173,6 @@ impl Server {
         if !plain(&request.path) {
             return Response::error(404, "not_found");
         }
-        let segments: Vec<&str> = request.path.split('/').skip(1).collect();
         match segments.as_slice() {
             // A query belongs to the events alone.
             ["api", "runs", _, "events"] => {}
@@ -132,9 +189,48 @@ impl Server {
                 let query = request.query.as_deref().unwrap_or("");
                 self.read(run, |dir| events(dir, query))
             }
+            ["api", "runs", run, "advance"] => self.write(run, &request.body, advance),
+            ["api", "runs", run, "input"] => self.write(run, &request.body, input),
             ["api", ..] => Response::error(404, "not_found"),
             _ => self.file(&request.path[1..], request),
         }
+    }
+
+    /// Hands `run` to `act`, opening it on its first write: listed, its lock taken, its
+    /// scenario and session read as `run --resume` reads them. A run that does not open is
+    /// not kept; one whose write failed is closed, its lock let go, and the next write
+    /// opens it again and reports what it finds.
+    fn write(
+        &mut self,
+        run: &str,
+        body: &[u8],
+        act: fn(&mut Open, &str) -> Result<Response, CliError>,
+    ) -> Response {
+        let Ok(body) = std::str::from_utf8(body) else {
+            return Response::error(400, "body_invalid");
+        };
+        if !self.open.contains_key(run) {
+            match self.run_names() {
+                None => return Response::error(500, "runs_unreadable"),
+                Some(names) if !names.iter().any(|n| n == run) => {
+                    return Response::error(404, "unknown_run");
+                }
+                Some(_) => {}
+            }
+            match open(&self.runs.join(run)) {
+                Ok(opened) => {
+                    self.open.insert(run.to_owned(), opened);
+                }
+                Err(error) => return failure(&error),
+            }
+        }
+        let Some(opened) = self.open.get_mut(run) else {
+            return Response::error(500, "run_not_open");
+        };
+        act(opened, body).unwrap_or_else(|error| {
+            self.open.remove(run);
+            failure(&error)
+        })
     }
 
     fn file(&self, path: &str, request: &Request) -> Response {
@@ -225,7 +321,7 @@ impl Server {
         }
     }
 
-    fn serve(&self, mut stream: TcpStream) {
+    fn serve(&mut self, mut stream: TcpStream) {
         let response = match http::read_request(&mut stream) {
             Ok(request) => self.answer(&request),
             Err(refusal) => refusal,
@@ -233,6 +329,106 @@ impl Server {
         let _ = http::write_response(&mut stream, &response);
         let _ = stream.shutdown(Shutdown::Both);
     }
+}
+
+/// A write that does not come from the server's own page as JSON (ADR-0021 section 1):
+/// `Origin` exactly the origin of the checked `Host`, the media type `application/json`.
+fn foreign_write(request: &Request, host: &str) -> Option<Response> {
+    if request.header("origin") != Some(format!("http://{host}").as_str()) {
+        return Some(Response::error(403, "origin_foreign"));
+    }
+    let media = (request.header("content-type"))
+        .and_then(|value| value.split(';').next())
+        .map(str::trim);
+    if !media.is_some_and(|media| media.eq_ignore_ascii_case(JSON)) {
+        return Some(Response::error(415, "content_type_not_json"));
+    }
+    None
+}
+
+/// A run opened for writing: its lock first, then what `run --resume` reads.
+fn open(dir: &Path) -> Result<Open, CliError> {
+    let lock = RunLock::acquire(dir)?;
+    let scenario = crate::resumed_scenario(dir)?;
+    let session = Session::resume(dir)?;
+    Ok(Open {
+        session,
+        scenario,
+        _lock: lock,
+    })
+}
+
+/// The answer to an error of the command line: a run another process holds is a conflict,
+/// anything else a failure of the run.
+fn failure(error: &CliError) -> Response {
+    let status = if error.code == "run_locked" { 409 } else { 500 };
+    Response::error(status, error.code)
+}
+
+/// `POST /api/runs/{run}/advance`: the clock moved by one step, written like `run --resume
+/// --until` the step's target; the closed second and its calendar date.
+fn advance(open: &mut Open, body: &str) -> Result<Response, CliError> {
+    let Some(Advance { step }) = files::parse_strict(body) else {
+        return Ok(Response::error(400, "body_invalid"));
+    };
+    let closed = open.session.closed_through();
+    let target = step_target(closed, step);
+    if let Err(refused) = session::check_limit(closed, target) {
+        return Ok(Response::error(409, refused.code));
+    }
+    open.session.advance(target)?;
+    open.session.checkpoint(&open.scenario)?;
+    let t = open.session.closed_through();
+    let date = calendar(t);
+    let body = json!({
+        "format": "simagent.view.advanced",
+        "version": 1,
+        "closed_through": t.as_secs(),
+        "date": {
+            "year": date.year,
+            "day_of_year": date.day_of_year,
+            "month": date.month,
+            "day_of_month": date.day_of_month,
+            "week": date.week,
+            "weekday": date.weekday,
+            "season": date.season,
+            "second_of_day": date.second_of_day,
+        },
+    });
+    Ok(Response::new(200, JSON, format!("{body}\n").into_bytes()))
+}
+
+/// `POST /api/runs/{run}/input`: one input in the command schema at the stop, written like
+/// `run --resume --input` before the answer; its stamp, or the core's code of a rejection,
+/// which writes nothing.
+fn input(open: &mut Open, body: &str) -> Result<Response, CliError> {
+    let Some(input) = files::parse_strict::<Input>(body) else {
+        return Ok(Response::error(400, "body_invalid"));
+    };
+    let stamp = match open
+        .session
+        .submit(input, |code| CliError::new("input_rejected", code))
+    {
+        Ok(stamp) => stamp,
+        Err(rejected) if rejected.code == "input_rejected" => {
+            let body = json!({
+                "format": "simagent.view.error",
+                "version": 1,
+                "code": rejected.code,
+                "reason": rejected.detail,
+            });
+            return Ok(Response::new(409, JSON, format!("{body}\n").into_bytes()));
+        }
+        Err(error) => return Err(error),
+    };
+    open.session.checkpoint(&open.scenario)?;
+    let body = json!({
+        "format": "simagent.view.input",
+        "version": 1,
+        "t": stamp.t.as_secs(),
+        "seq": stamp.seq.get(),
+    });
+    Ok(Response::new(200, JSON, format!("{body}\n").into_bytes()))
 }
 
 /// `GET /api/runs/{run}/persons/{sim}`: the presentation state of the core for one person.
@@ -433,10 +629,11 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         .local_addr()
         .map_err(|e| CliError::new("port_unavailable", e.to_string()))?
         .port();
-    let server = Server {
+    let mut server = Server {
         runs: runs.to_path_buf(),
         port,
         files: found,
+        open: BTreeMap::new(),
     };
     let mut out = std::io::stdout();
     writeln!(out, "http://127.0.0.1:{port}/")
@@ -484,5 +681,29 @@ mod tests {
         // The tenth failure in a row.
         assert_eq!(after_accept(9, false), None);
         assert_eq!(after_accept(9, true), Some(0));
+    }
+
+    /// Near the end of the time range every step stays in range and the limit refuses it;
+    /// a decade stops at its first year end beyond the horizon (one year before the end).
+    #[test]
+    fn a_step_past_the_horizon_stays_in_range_and_is_refused() {
+        use sim_core::time::{MAX_ABS_SECS, YEAR};
+        let year = YEAR.as_secs();
+        let horizon = SimTime::from_secs(MAX_ABS_SECS - year);
+        for step in [Step::Days28, Step::Year, Step::Decade] {
+            let target = step_target(horizon, step);
+            let refused = session::check_limit(horizon, target).err();
+            assert_eq!(refused.map(|e| e.code), Some("until_beyond_horizon"));
+        }
+        let end = SimTime::from_secs(MAX_ABS_SECS - 1);
+        assert_eq!(step_target(horizon, Step::Decade), end);
+        // From the end of the year three before the last: two year ends within, the third
+        // beyond.
+        let before = SimTime::from_secs(MAX_ABS_SECS - 3 * year - 1);
+        assert_eq!(step_target(before, Step::Decade), end);
+        assert_eq!(
+            step_target(before, Step::Year),
+            SimTime::from_secs(MAX_ABS_SECS - 2 * year - 1)
+        );
     }
 }

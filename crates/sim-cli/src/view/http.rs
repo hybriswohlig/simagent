@@ -75,10 +75,13 @@ fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         408 => "Request Timeout",
+        409 => "Conflict",
         413 => "Content Too Large",
+        415 => "Unsupported Media Type",
         421 => "Misdirected Request",
         431 => "Request Header Fields Too Large",
         _ => "Internal Server Error",
