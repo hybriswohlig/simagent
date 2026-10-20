@@ -145,6 +145,16 @@ household, and a choice of the market that the depth decides. Both print each qu
 the pairs its recursion visited and the value over every ancestor, and check the recursion
 against Wright's path counting on every pair.
 
+The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and 2; core 42):
+a creation writes `core:disease_onset` right after its creation entry for a reached onset if
+the switch is on, and plans the event `DiseaseOnset` at a later onset second whatever the
+switch; `check_all` also runs `world_reference.check_onsets`. Every save changes in its header
+byte; a scenario whose sims have a disease with a later onset has the events in its queue
+(saves, year and state hashes), and one with the switch on and a reached onset has the entries
+(logs). "onset" (new) holds the saves of the save tests: the start of a woman with a visible
+disease of onset 30, and four saves that break only the onset rule (the event missing,
+doubled, one second late, and left for an archived sim in "onset_mortal").
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -3023,6 +3033,7 @@ def check_all(world: world_reference.World) -> None:
         world_reference.check_market,
         world_reference.check_afflictions,
         world_reference.check_emigration,
+        world_reference.check_onsets,
     ):
         check(world)
 
@@ -3591,6 +3602,7 @@ def entry_json(line: bytes) -> str:
         10: lambda: {"core:household_formed": {"household": number()}},
         11: lambda: {"core:moved": {"household": number()}},
         12: lambda: {"core:emigrated": {"household": number()}},
+        14: lambda: {"core:disease_onset": {"disease": text(), "since_year": zigzag(), "age_years": zigzag()}},
     }
     if kind not in readers:
         return None
@@ -4464,6 +4476,7 @@ def rejecting_checks(world: world_reference.World) -> list:
         world_reference.check_market,
         world_reference.check_afflictions,
         world_reference.check_emigration,
+        world_reference.check_onsets,
     ):
         try:
             check(world)
@@ -5509,6 +5522,132 @@ assert _pedigree.phi(SYNTHETIC_Y, SYNTHETIC_X) == Fraction(1, 128)
 assert sorted(SYNTHETIC_CASE[1]) == [1, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 
 
+
+# Scenario "onset" (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and 2; the save tests of
+# the onset): the data of the save tests (`common::data()`: the map 3 fixture with the
+# repository's life course data) with accident 1e-9 per year and senescence `a` 1e-15, `b` 0.001
+# for both sexes (`common::death_data(1e-9, None, diseases)`), the list of diseases replaced by
+# two visible diseases of penetrance 1 and a fixed onset (`visible()` of
+# crates/sim-core/tests/onset.rs): `test:onset_birth` at `core:disease_ar`, onset 0, then
+# `test:onset_late` at `core:disease_ad_late`, onset 30. Start: seed 0xff, founder tag
+# `test:tiny`, the switch on, one female founder born at −1 with `core:disease_ad_late` [0, 1]
+# (dominant: affected, onset 30; `core:disease_ar` [0, 0]: not), no couples, no capacity, no
+# pool. Her `B = −1 + ceil(30 · YEAR) = 943 487 999 > E = 0`: path 2, the event `DiseaseOnset`
+# planned at `B` by `core:founder_added` (entry 2) at 0, insertion number 3 (after the year end
+# series 1 and the round series 2, before her birthday 4, her death of senescence 5 (her
+# accident lies beyond 100 000 years: never) and her leaving home 6; entry 3 is her household,
+# a minor alone by the orphan rule). By hand: `B` and the order. "onset_mortal" is the same with accident 0.5 per year: she dies of accident
+# long before `B`, which takes her pending onset with her other plans.
+def onset_disease(code: str, locus: str, onset: float) -> dict:
+    """A visible disease at `locus` with penetrance 1 for both sexes and the fixed onset
+    `onset` in years (the JSON of `visible()` in crates/sim-core/tests/onset.rs, with texts)."""
+    return {
+        "code": code,
+        "carrier": {
+            "locus": {
+                "locus": locus,
+                "penetrance_female": world_reference.test_value(1.0, "fraction"),
+                "penetrance_male": world_reference.test_value(1.0, "fraction"),
+            }
+        },
+        "onset": {"fixed": {"age": world_reference.test_value(onset, "year")}},
+        "effect": "visible",
+    }
+
+
+ONSET_DISEASES = [
+    onset_disease("test:onset_birth", "core:disease_ar", 0.0),
+    onset_disease("test:onset_late", "core:disease_ad_late", 30.0),
+]
+ONSET_DATA = world_reference.death_test_data(1e-9, 1e-15, 0.001, diseases=ONSET_DISEASES)
+ONSET_MORTAL_DATA = world_reference.death_test_data(0.5, 1e-15, 0.001, diseases=ONSET_DISEASES)
+ONSET_FOUNDERS = [(-1, FEMALE, [("core:disease_ad_late", [0, 1])])]
+ONSET_KEY = founder_key("test:tiny", 0)
+# `B` by hand: 30 years are 943 488 000 seconds exactly.
+ONSET_B = -1 + 30 * 31_449_600
+assert ONSET_B == world_reference.onset_second(-1, 30.0) == 943_487_999
+
+
+def onset_world(data=ONSET_DATA) -> world_reference.World:
+    return world_reference.World(0xFF, "test:tiny", True, ONSET_FOUNDERS, data=data)
+
+
+def onset_event(world: world_reference.World):
+    (event,) = [event for event in world.queue if event.kind == world_reference.DISEASE_ONSET_KIND]
+    return event
+
+
+def onset_rejected_only_by_the_onset(world: world_reference.World) -> None:
+    """Every load check accepts the state but `check_onsets`, which rejects it."""
+    names = rejecting_checks(world)
+    assert names == ["check_onsets"], names
+    world_reference.check_deaths(world)
+
+
+ONSET = onset_world()
+check_all(ONSET)
+world_reference.check_deaths(ONSET)
+assert [(affliction.disease.code, affliction.onset) for affliction in ONSET.sims[1][4]] == [("test:onset_late", 30.0)]
+ONSET_EVENT = onset_event(ONSET)
+assert (ONSET_EVENT.time, ONSET_EVENT.insertion, ONSET_EVENT.plan, ONSET_EVENT.cls, ONSET_EVENT.subject) == (
+    ONSET_B, 3, (2, 0), world_reference.GENERAL, (world_reference.SIM_SUBJECT, 1)
+)
+assert ONSET_EVENT.payload == variant(10, varint(1), varint(str_key("test:onset_late")))
+assert [line[0] for line in ONSET.log] == [1, 2, 3] and ONSET.next_insertion == 7
+ONSET_SAVE_AFTER_START = ONSET.save()
+
+# The broken saves (only the onset rule broken; every other byte as the rules make it): the
+# event removed (its insertion number 3 stays used, the counter at 7, its plan goes with it);
+# a second such event at the same second with the next insertion number 7 (the counter 8, its
+# plan the same `by` 2 at 0); the event one second late.
+_broken = copy_world(ONSET)
+_broken.queue = [event for event in _broken.queue if event.kind != world_reference.DISEASE_ONSET_KIND]
+onset_rejected_only_by_the_onset(_broken)
+ONSET_SAVE_MISSING = _broken.save()
+_broken = copy_world(ONSET)
+_double = copy.copy(onset_event(_broken))
+_double.insertion = _broken.next_insertion
+_broken.next_insertion += 1
+_broken.queue.append(_double)
+onset_rejected_only_by_the_onset(_broken)
+ONSET_SAVE_DOUBLE = _broken.save()
+_broken = copy_world(ONSET)
+onset_event(_broken).time += 1
+onset_rejected_only_by_the_onset(_broken)
+ONSET_SAVE_LATE = _broken.save()
+
+# "onset_mortal": the same start with accident 0.5 per year; the save in the second of her
+# death (the clock that second), valid, and broken with her onset event (as the start planned
+# it: `B`, insertion 3, by 2 at 0) back in the queue although she is in the archive.
+ONSET_MORTAL = onset_world(ONSET_MORTAL_DATA)
+ONSET_MORTAL_EVENT = copy.copy(onset_event(ONSET_MORTAL))
+ONSET_MORTAL_DEATH = min(event.time for event in ONSET_MORTAL.queue if event.kind == world_reference.DEATH_KIND)
+assert ONSET_MORTAL_DEATH == ONSET_MORTAL.cause_due(1, ACCIDENT) < ONSET_B
+ONSET_MORTAL_SAVE_AFTER_START = ONSET_MORTAL.save()
+ONSET_MORTAL.advance(ONSET_MORTAL_DEATH)
+assert 1 in ONSET_MORTAL.archive and not ONSET_MORTAL.sims and ONSET_MORTAL.archive[1][1] == ONSET_MORTAL_DEATH
+assert not [event for event in ONSET_MORTAL.queue if event.kind == world_reference.DISEASE_ONSET_KIND]
+check_all(ONSET_MORTAL)
+ONSET_MORTAL_SAVE_AT_DEATH = ONSET_MORTAL.save()
+_broken = copy_world(ONSET_MORTAL)
+_broken.queue.append(copy.copy(ONSET_MORTAL_EVENT))
+onset_rejected_only_by_the_onset(_broken)
+ONSET_SAVE_ARCHIVED = _broken.save()
+
+# Run on (not saved): with the switch on throughout, the event at `B` writes the one entry,
+# caused by its plan (by 2 at 0), at 30 whole years in year 29 (`B` = born + 30 · YEAR, her
+# 30th birthday, is the last second of year 29); nothing more in 60 years.
+_run = onset_world()
+_run.advance(60 * YEAR)
+ONSET_ENTRIES = [line for line in _run.log if line.endswith(world_reference.onset_entry_payload("test:onset_late", ONSET_B, 30.0))]
+assert len(ONSET_ENTRIES) == 1 and [record[:5] for record in _run.onsets] == [(ONSET_B, 1, "test:onset_late", 2, _run.onsets[0][4])]
+ONSET_ENTRY_JSON = json.dumps(
+    {"id": _run.onsets[0][4], "t": ONSET_B, "subjects": [{"sim": 1}], "causes": [{"plan": {"by": 2, "planned_at": 0}}],
+     "payload": {"core:disease_onset": {"disease": "test:onset_late", "since_year": 29, "age_years": 30}}},
+    separators=(",", ":"),
+)
+assert entry_json(ONSET_ENTRIES[0]) == ONSET_ENTRY_JSON, (entry_json(ONSET_ENTRIES[0]), ONSET_ENTRY_JSON)
+
 if __name__ == "__main__":
     print(f"core_version {CORE_VERSION} projection_version {PROJECTION_VERSION}")
     print(f"longevity_dues (senescence with the trait, without, accident) {LONGEVITY_DUES}")
@@ -6005,3 +6144,24 @@ if __name__ == "__main__":
         f"kinship_synthetic_one_parent_outside_related sims {SYNTHETIC_X} {SYNTHETIC_Y} phi {_value} json {world_reference.json_number(float(_value))}"
         f" all_ancestors {synthetic_pedigree().phi(SYNTHETIC_X, SYNTHETIC_Y, None)} S {len(_s)} {sorted(_s)} visited_pairs {len(_visited)}"
     )
+    # The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20): the scenario "onset"
+    # and "onset_mortal" for the save tests.
+    print(
+        f"onset_data_hash {ONSET_DATA.hash:016x} accident {ONSET_DATA.accident[FEMALE]!r} senescence_a {ONSET_DATA.senescence[FEMALE][0]!r}"
+        f" senescence_b {ONSET_DATA.senescence[FEMALE][1]!r} diseases {[disease.code for disease in ONSET_DATA.diseases]}"
+    )
+    print(f"onset_mortal_data_hash {ONSET_MORTAL_DATA.hash:016x} accident {ONSET_MORTAL_DATA.accident[FEMALE]!r}")
+    print(
+        f"onset_founder key {ONSET_KEY:016x} born -1 B {ONSET_B} (year {ONSET_B // YEAR}, 30 whole years) event insertion {ONSET_EVENT.insertion}"
+        f" plan {ONSET_EVENT.plan} payload {ONSET_EVENT.payload.hex()}"
+    )
+    print(f"onset_save_after_start {ONSET_SAVE_AFTER_START.hex()}")
+    print(f"onset_save_missing (the event removed) {ONSET_SAVE_MISSING.hex()}")
+    print(f"onset_save_double (a second event at {ONSET_B}, insertion 7, the counter 8) {ONSET_SAVE_DOUBLE.hex()}")
+    print(f"onset_save_late (the event at {ONSET_B + 1}) {ONSET_SAVE_LATE.hex()}")
+    print(f"onset_mortal_death accident at {ONSET_MORTAL_DEATH} (B {ONSET_B} never comes)")
+    print(f"onset_mortal_save_after_start {ONSET_MORTAL_SAVE_AFTER_START.hex()}")
+    print(f"onset_mortal_save_at_death (clock {ONSET_MORTAL_DEATH}, valid) {ONSET_MORTAL_SAVE_AT_DEATH.hex()}")
+    print(f"onset_save_archived (clock {ONSET_MORTAL_DEATH}, her onset event at {ONSET_B} back in the queue) {ONSET_SAVE_ARCHIVED.hex()}")
+    print(f"onset_entry (switch on throughout, at B) {ONSET_ENTRIES[0].hex()}")
+    print(f"onset_entry_json {entry_json(ONSET_ENTRIES[0])}")
