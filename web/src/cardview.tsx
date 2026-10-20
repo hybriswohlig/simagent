@@ -2,6 +2,7 @@ import { heightLines, parentsMeanSentence, partRows, TRAIT_HEADINGS, traitSenten
 import { copiesLines, DISEASES, diseaseName, skippedSentence, statusWord } from "./carddiseases.js";
 import type { GeneticsCard, TraitCard } from "./generated/export.js";
 import { bar } from "./render/bar.js";
+import { format } from "./router.js";
 import { TEXT } from "./text.js";
 
 /** The parts of `z` as rows with a bar from the middle (Grok G5, M2). */
@@ -111,6 +112,9 @@ export function CardView({
         <p key={line}>{line}</p>
       ))}
       <Diseases card={card} sex={sex} />
+      <p>
+        <a href={format({ page: "assumptions" })}>{TEXT.assumptions}</a>
+      </p>
     </section>
   );
 }

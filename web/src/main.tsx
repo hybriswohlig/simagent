@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { AssumptionsPage } from "./assumptionspage.js";
 import { PersonPage } from "./person.js";
 import { format, parse, type Route } from "./router.js";
 import { RunsPage } from "./runs.js";
@@ -15,6 +16,8 @@ function Page({ route }: { route: Route }) {
       return <RunsPage />;
     case "portraits":
       return <Sheet />;
+    case "assumptions":
+      return <AssumptionsPage />;
     case "run":
       return <RunPage run={route.run} />;
     case "person":

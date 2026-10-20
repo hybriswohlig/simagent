@@ -2,6 +2,7 @@
 export type Route =
   | { page: "runs" }
   | { page: "portraits" }
+  | { page: "assumptions" }
   | { page: "run"; run: string }
   | { page: "person"; run: string; sim: string }
   | { page: "tree"; run: string; sim: string }
@@ -26,6 +27,9 @@ export function parse(hash: string): Route {
   if (path === "/portraits") {
     return { page: "portraits" };
   }
+  if (path === "/assumptions") {
+    return { page: "assumptions" };
+  }
   const parts = path.split("/");
   const [empty, runs, run, persons, sim, tree] = parts;
   const known = empty === "" && runs === "runs" && run !== undefined && RUN.test(run);
@@ -49,6 +53,8 @@ export function format(route: Route): string {
       return "#/";
     case "portraits":
       return "#/portraits";
+    case "assumptions":
+      return "#/assumptions";
     case "run":
       return `#/runs/${route.run}`;
     case "person":

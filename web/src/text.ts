@@ -61,6 +61,7 @@ export const TEXT = {
   pair_with: "Mit wem?",
   kin_with: "Verwandtschaft mit",
   card: "Genetik",
+  assumptions: "Modellannahmen",
   card_growth: "Größe",
   card_cognition: "Kognition",
   card_curl: "Locken",
