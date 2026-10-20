@@ -1523,6 +1523,16 @@ fn founding_a_town_is_the_template_before_its_start() {
     for (body, status, expected) in [
         (r#"{"template":"stadt","run":"neu"}"#, 409, "run_exists"),
         (r#"{"template":"stadt","run":"notes"}"#, 409, "run_exists"),
+        (
+            r#"{"template":"stadt","run":"plain.txt"}"#,
+            409,
+            "run_exists",
+        ),
+        (
+            r#"{"template":"stadt","run":"linked-run"}"#,
+            409,
+            "run_exists",
+        ),
         (r#"{"template":"stadt","run":".x"}"#, 400, "body_invalid"),
         (r#"{"template":"stadt","run":"a/b"}"#, 400, "body_invalid"),
         (r#"{"template":"stadt","run":""}"#, 400, "body_invalid"),
@@ -1568,4 +1578,32 @@ fn founding_a_town_is_the_template_before_its_start() {
     assert_eq!(first_code(&refused), "run_locked");
     let (status, _, _) = post(port, "/api/runs/neu/advance", r#"{"step":"year"}"#);
     assert_eq!(status, 200, "it goes on");
+    // Another method on the run list names both of its own.
+    let raw = format!("PUT /api/runs HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+    let (status, head, _) = send(port, raw.as_bytes());
+    assert_eq!(status, 405);
+    assert!(
+        head.lines().any(|line| line == "Allow: GET, POST"),
+        "{head}"
+    );
+}
+
+/// A name whose run failed and went is founded anew, and the new run is read: the mark of
+/// the old one does not stay with the name.
+#[cfg(unix)]
+#[test]
+fn a_name_founded_again_is_read_again() {
+    let (runs, web) = fixture("found-again");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let found = r#"{"template":"stadt","run":"neu"}"#;
+    assert_eq!(post(port, "/api/runs", found).0, 200);
+    set_mode(&runs.join("neu/input.ndjson"), 0o444);
+    let (status, _, body) = post(port, "/api/runs/neu/advance", r#"{"step":"year"}"#);
+    assert_eq!((status, code(&body).as_str()), (500, "io"));
+    assert_eq!(code(&get(port, "/api/runs/neu").2), "run_failed");
+    set_mode(&runs.join("neu/input.ndjson"), 0o644);
+    fs::remove_dir_all(runs.join("neu")).expect("removed");
+    assert_eq!(post(port, "/api/runs", found).0, 200);
+    assert_eq!(get(port, "/api/runs/neu").0, 200, "read again");
 }
