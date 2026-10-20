@@ -18,6 +18,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
   FOUNDER_ALLELE: `q = d_ref / 2` at an additive locus, the pool's frequency at the seven loci
   of the pool), so its story follows the draws; the hand story of this scenario lives on map 3
   (tools/dummy_story.py), where nothing is drawn.
+- tests/scenarios/card_hunger.json (the dummy with the nutrition index 0.7 in year 2 and 0.5
+  in year 3): tests/golden/card_hunger.json, the height lines of the genetics card of every
+  person of its run at `until` (`card_height_json`).
 - tests/scenarios/town.json (format 5 with a pool): tests/golden/town.json in the same form,
   and tests/golden/town_card.json, the genetics card of two persons of each case of parents
   in the run (`town_card_json`),
@@ -63,6 +66,7 @@ DUMMY_FILES = ("dummy.json", "dummy_fork.json", "dummy.save", "dummy_pedigree.js
 EXPORT_FILE = "dummy_export.json"
 CARD_FILE = "dummy_card.json"
 TOWN_CARD_FILE = "town_card.json"
+HUNGER_FILE = "card_hunger.json"
 # The traits of the card that read as a percentile (ADR-0021 section 5, Grok G3): height as the
 # target height `z_h` of `core:growth`, cognition, curls.
 CARD_TRAITS = ("core:growth", "core:cognition", "core:curl")
@@ -299,6 +303,46 @@ def town_card_json(world: wr.World, now: int) -> str:
     return card_json(world, now, [sim for case in wanted for sim in cases[case][:2]])
 
 
+def card_height_json(world: wr.World, now: int) -> str:
+    """tests/golden/card_hunger.json: the height lines of the genetics card (Grok L5, L6) of
+    every person of the run, by SimId, each at its second shown, as a JSON list of `{"sim",
+    "hunger_cm", "age_cm", "parents_target_cm"}`: with `x = min(age, 25 years)`, the
+    individual curve of `z_h` and `z_p` (`body_reference.individual_curve`), the loss from the
+    nutrition years over `[born, born + x)` (`body_reference.nutrition_loss`, G6 for an
+    arrival: `census_reference.nutrition_of`), the loss of age at `b = bio_age`
+    (`body_reference.old_age_loss`), and with both parents in the run the mean of their target
+    heights `h1_i`, `(h1_mother + h1_father) / 2`, else null. The same terms as
+    `census_reference.heights`, whose pure height the mapping's raw height equals bit for
+    bit."""
+    import body_reference as br
+    import census_reference as cr
+
+    body = cr.BodyCensusData(world.data, data_reference.documents(wr.ROOT / "data"))
+    evaluator = cr.Evaluator(world, body)
+    values = body.values
+    everyone = sorted(set(world.sims) | set(world.archive))
+    by_key = {world.key_of(sim): sim for sim in everyone}
+
+    def curve(sim: int) -> dict:
+        parts = evaluator.person_parts(sim)
+        return br.individual_curve(values, parts["sex"], parts["z"]["z_h"], parts["z"]["z_p"])
+
+    rows = []
+    for sim in everyone:
+        parts = evaluator.person_parts(sim)
+        at = now if sim in world.sims else world.archive[sim][1]
+        age = at - parts["born"]
+        x_seconds = min(age, 25 * YEAR)
+        own = curve(sim)
+        hunger = br.nutrition_loss(values, cr.nutrition_of(world, sim), parts["born"], x_seconds, own["theta_i"])
+        b = br.bio_age(wr.as_years(age), parts["delta"], values.bio_age_weight)
+        _, _, keys = world.env_of(sim)
+        found = [] if keys is None else [by_key[k] for k in keys if k in by_key]
+        target = (curve(found[0])["h1_i"] + curve(found[1])["h1_i"]) / 2.0 if len(found) == 2 else None
+        rows.append({"sim": sim, "hunger_cm": hunger, "age_cm": br.old_age_loss(values, parts["sex"], b), "parents_target_cm": target})
+    return wr.json_text(rows)
+
+
 def dummy_files(w: dict) -> dict:
     return {
         "dummy.json": golden_text(w["run"]).encode(),
@@ -435,7 +479,7 @@ def pin_rows(label: str, files: dict) -> list:
     rows = []
     for name, content in files.items():
         extra = ""
-        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE):
+        if name.endswith(".json") and "pedigree" not in name and name not in (EXPORT_FILE, CARD_FILE, TOWN_CARD_FILE, HUNGER_FILE):
             golden = json.loads(content)
             extra = (
                 f" core_version {golden['core_version']} data_hash {golden['data_hash']} log_hash {golden['log_hash']}"
@@ -485,6 +529,11 @@ def main(argv) -> int:
     w = dummy_worlds(dummy, data)
     files = dummy_files(w)
     town_run = town_world(town, data)
+    hunger = scenario(SCENARIOS / "card_hunger.json")
+    hunger_run = make_world(hunger, data)
+    hunger_run.advance(hunger["until"])
+    check_all(hunger_run)
+    files[HUNGER_FILE] = (card_height_json(hunger_run, hunger["until"]) + "\n").encode()
     files[TOWN_FILE] = golden_text(town_run).encode()
     files[TOWN_CARD_FILE] = (town_card_json(town_run, town["until"]) + "\n").encode()
     rows = [f"data data/ data_hash {hexed(data.hash)} definitions {hexed(data.pool.frozen_hash)} pool {hexed(data.pool.hash)} core_version {wr.CORE_VERSION}"]
