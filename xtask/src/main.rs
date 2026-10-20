@@ -352,7 +352,8 @@ const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 /// answer of a living, a dead and an emigrated person of the town; a step of the town's
 /// clock, a rejected input (an error with the core's reason), a fork that does not open (an
 /// extra line in its events: an error without one), and then the run list with the town
-/// (manifest and date), the failed fork and a directory whose manifest is broken.
+/// (manifest and date), the failed fork and a directory whose manifest is broken; a page of
+/// the town's log with a next page, and an empty page.
 fn server_answers(
     root: &Path,
     out: &Path,
@@ -476,6 +477,10 @@ fn server_answers(
     std::fs::write(broken.join("manifest.json"), "{")
         .map_err(|e| format!("{}: {e}", broken.display()))?;
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
+    // A page of the log with a next page, and an empty one without.
+    answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
+    let none = "/api/runs/town/events?from=-5&to=-1";
+    answers.push(("EventsAnswer", get(port, none)?));
     drop(server);
     Ok(answers)
 }
