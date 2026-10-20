@@ -29,6 +29,9 @@ pub enum Kind {
     /// The body values of the contract, `BodyParams` of `web/src/generated/body.ts`: checked
     /// as the named type `BodyParams` that [`body_type`] makes of the contract's keys.
     Body,
+    /// Any JSON object, whatever its keys: the cause and the payload of a log entry, whose
+    /// keys the log codes define (`tests/golden/log_codes.txt`).
+    Map,
 }
 
 /// A field of an object: its key, its kind, and whether it may be left out.
@@ -257,6 +260,40 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "EventsAnswer",
+            doc: "`GET /api/runs/{run}/events`: a page of the log, each entry with its date.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.events"])),
+                field("version", Integer),
+                field("events", list(Ref("EventItem"))),
+                field("next", nullable(Integer)),
+            ],
+        },
+        Named {
+            name: "EventItem",
+            doc: "An entry of `events.ndjson` and the core's calendar date of its second.",
+            fields: vec![
+                field("entry", Ref("LogEntry")),
+                field("date", Ref("CalendarDate")),
+            ],
+        },
+        Named {
+            name: "LogEntry",
+            doc: "An entry of the domain log; its causes and payload keyed by their codes.",
+            fields: vec![
+                field("id", Integer),
+                field("t", Integer),
+                field("subjects", list(Ref("Subject"))),
+                field("causes", list(Kind::Map)),
+                field("payload", Kind::Map),
+            ],
+        },
+        Named {
+            name: "Subject",
+            doc: "What a log entry is about.",
+            fields: vec![field("sim", Integer)],
+        },
+        Named {
             name: "Moment",
             doc: "A second of a life: the second, the age then in whole years, its calendar year.",
             fields: vec![
@@ -307,6 +344,7 @@ fn typescript(kind: &Kind) -> String {
         Kind::Ref(name) => (*name).to_owned(),
         Kind::Nullable(inner) => format!("{} | null", typescript(inner)),
         Kind::Body => "BodyParams".to_owned(),
+        Kind::Map => "{ readonly [key: string]: unknown }".to_owned(),
     }
 }
 
@@ -465,6 +503,7 @@ fn check_kind(
             check_named(types, BODY, value, path, seen, found);
             true
         }
+        Kind::Map => value.is_object(),
         Kind::Nullable(inner) => {
             if !value.is_null() {
                 seen.insert(mark.to_owned());

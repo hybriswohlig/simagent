@@ -1,22 +1,21 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { Refused, UnknownAnswer, postJson } from "./api.js";
+import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
-import type { AdvanceAnswer, CalendarDate, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
+import { Chronicle, dateText } from "./lines.js";
+import { windows } from "./log.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
-import { DAYS, MONTHS, TEXT } from "./text.js";
+import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
-/** The date as the core gives it, its units named by the texts. */
-function dateText(date: CalendarDate): string {
-  return `${TEXT.year} ${date.year}, ${MONTHS[date.month] ?? ""}, ${DAYS[date.day_of_month] ?? ""}`;
-}
 
 /** The text of a refusal by its code. */
 function refusalText(code: string): string {
@@ -36,6 +35,10 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [chosen, setChosen] = useState<Step>("days28");
   const [listedAt, setListedAt] = useState(closed);
   const [living, setLiving] = useState<readonly Person[]>([]);
+  const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
+  const [chronicleFailed, setChronicleFailed] = useState(false);
+  const [retries, setRetries] = useState(0);
+  const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
   useEffect(() => {
@@ -73,6 +76,19 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
+  // After each step (and when asked again after a failure), the log from the last stop that
+  // was read on.
+  useEffect(() => {
+    read
+      .current(clock.closed)
+      .then((items) => {
+        if (live.current) {
+          setChronicle((kept) => added(kept, items));
+          setChronicleFailed(false);
+        }
+      })
+      .catch(() => live.current && setChronicleFailed(true));
+  }, [clock.closed, retries]);
   // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
   useEffect(() => {
@@ -109,6 +125,12 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         )}
       </p>
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
+      <Chronicle
+        run={run}
+        items={chronicle}
+        failed={chronicleFailed ? TEXT.chronicle_failed : null}
+        retry={() => setRetries((n) => n + 1)}
+      />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
       <ul>

@@ -201,6 +201,11 @@ fn tree(name: &str, source: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&root);
     for (path, text) in [
         ("web/src/deep/a.ts", source),
+        (
+            "web/src/text.ts",
+            "export const CODES = {\n  \"payload core:birth\": \"wird geboren\",\n};\n",
+        ),
+        ("tests/golden/log_codes.txt", "payload 8 core:birth\n"),
         ("web/test/a.test.mjs", ""),
         ("web/dist/stale.js", ""),
     ] {
@@ -285,4 +290,43 @@ fn node_runs_with_an_empty_environment() {
         Err("`node -e process.exit(3)` failed".to_owned())
     );
     std::fs::remove_dir_all(&root).expect("removed");
+}
+
+/// Every code of the log codes needs a text under `<type> <name>` in `text.ts`; a retired
+/// code too, comments and blank lines are none.
+#[test]
+fn every_log_code_needs_a_text() {
+    let codes =
+        "# a comment\n\npayload 0 core:birth\nreject 3 too_young\nretired applies_to 0 everyone\n";
+    let texts = r#"export const CODES = {
+  "payload core:birth": "wird geboren",
+  "applies_to everyone": "alle",
+};"#;
+    assert_eq!(
+        code_text_findings(codes, texts),
+        ["web/src/text.ts: no text for the code `reject too_young` of tests/golden/log_codes.txt"]
+    );
+    let all = texts.replace("};", "  \"reject too_young\": \"zu jung\",\n};");
+    assert_eq!(code_text_findings(codes, &all), Vec::<String>::new());
+    // A key only in a comment or as a value is none.
+    let elsewhere = r#"// "reject too_young": no
+const X = { a: "reject too_young" };"#;
+    assert_eq!(
+        code_text_findings("reject 3 too_young\n", elsewhere).len(),
+        1
+    );
+    // A key outside the table of codes is none.
+    let outside = r#"export const TEXT = {
+  "reject too_young": "zu jung",
+};
+export const CODES = {
+  "payload core:birth": "wird geboren",
+  "applies_to everyone": "alle",
+};"#;
+    assert_eq!(code_text_findings(codes, outside).len(), 1);
+    // The repository's own.
+    assert_eq!(
+        code_texts(&root()).map_err(|e| e.to_string()),
+        Ok(Vec::new())
+    );
 }

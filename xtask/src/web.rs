@@ -13,6 +13,7 @@
 //! network, the environment and every file; the sandbox keeps the web tests below that
 //! level, it does not make the gate safe for code nobody reviewed.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -164,6 +165,42 @@ pub fn scan(root: &Path) -> Result<Vec<String>> {
     Ok(findings)
 }
 
+/// The codes of the repository without a text in `web/` (see [`code_text_findings`]).
+pub fn code_texts(root: &Path) -> Result<Vec<String>> {
+    let codes = crate::read(&root.join(LOG_CODES))?;
+    Ok(code_text_findings(&codes, &crate::read(&root.join(TEXTS))?))
+}
+
+/// The stable codes of the log, the inputs and saving.
+const LOG_CODES: &str = "tests/golden/log_codes.txt";
+/// The player texts of `web/`.
+const TEXTS: &str = "web/src/text.ts";
+
+/// Every code of [`LOG_CODES`] has a text in [`TEXTS`], a key `"<type> <name>":` at the start
+/// of a line of the table `CODES` (ADR-0021 section 4); a retired code too.
+pub fn code_text_findings(codes: &str, texts: &str) -> Vec<String> {
+    let table = (texts.split_once("export const CODES"))
+        .and_then(|(_, rest)| rest.split_once("\n};"))
+        .map_or("", |(table, _)| table);
+    let keys: BTreeSet<&str> = (table.lines())
+        .filter_map(|line| line.trim_start().strip_prefix('"')?.split_once("\":"))
+        .map(|(key, _)| key)
+        .collect();
+    (codes.lines())
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let words = words.strip_prefix(&["retired"]).unwrap_or(&words);
+            match words {
+                [kind, _, name, ..] => format!("{kind} {name}"),
+                _ => line.to_owned(),
+            }
+        })
+        .filter(|code| !keys.contains(code.as_str()))
+        .map(|code| format!("{TEXTS}: no text for the code `{code}` of {LOG_CODES}"))
+        .collect()
+}
+
 /// The flags of Node's permission model for a run that reads `reads` and nothing else.
 pub fn sandbox(reads: &[&Path]) -> Vec<String> {
     let mut args = vec!["--permission".to_owned()];
@@ -253,7 +290,8 @@ pub fn build(root: &Path) -> Result {
     if dist.symlink_metadata().is_ok() {
         std::fs::remove_dir_all(&dist).map_err(|e| format!("{}: {e}", dist.display()))?;
     }
-    let findings = scan(root)?;
+    let mut findings = scan(root)?;
+    findings.extend(code_texts(root)?);
     if !findings.is_empty() {
         return Err(format!("\n  {}", findings.join("\n  ")));
     }

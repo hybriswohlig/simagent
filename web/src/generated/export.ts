@@ -153,6 +153,34 @@ export type ErrorAnswer = {
   readonly reason?: string;
 };
 
+/** `GET /api/runs/{run}/events`: a page of the log, each entry with its date. */
+export type EventsAnswer = {
+  readonly format: "simagent.view.events";
+  readonly version: number;
+  readonly events: EventItem[];
+  readonly next: number | null;
+};
+
+/** An entry of `events.ndjson` and the core's calendar date of its second. */
+export type EventItem = {
+  readonly entry: LogEntry;
+  readonly date: CalendarDate;
+};
+
+/** An entry of the domain log; its causes and payload keyed by their codes. */
+export type LogEntry = {
+  readonly id: number;
+  readonly t: number;
+  readonly subjects: Subject[];
+  readonly causes: { readonly [key: string]: unknown }[];
+  readonly payload: { readonly [key: string]: unknown };
+};
+
+/** What a log entry is about. */
+export type Subject = {
+  readonly sim: number;
+};
+
 /** A second of a life: the second, the age then in whole years, its calendar year. */
 export type Moment = {
   readonly t: number;
