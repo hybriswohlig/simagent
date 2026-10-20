@@ -1,0 +1,177 @@
+//! The onset of a hereditary disease as a log entry (ADR-0017 section 3, addendum of
+//! 2026-10-20; ADR-0021 G4; Grok's P1 to P3 and Q1): exactly one `core:disease_onset` per
+//! person and disease, in the second the person becomes affected in this run.
+//!
+//! `B` is the onset second `born + ⌈onset · YEAR⌉`, `E` the second of the person's creation
+//! (the start for a founder, the arrival for a pool person, the birth otherwise): (1) a
+//! creation with `B ≤ E` writes the entry right after the person's creation entry if the
+//! switch is on; (2) a creation with `B > E` plans an event at `B` that writes it if the
+//! switch is on then. Nothing of this is state but the planned events.
+
+use alloc::vec::Vec;
+
+use super::{Affliction, DomainState, Slot, disease};
+use crate::data::Data;
+use crate::data_id::Code;
+use crate::ids::{EventId, SimId};
+use crate::log::{Cause, Causes, LogPayload, Subject};
+use crate::time::{SimDuration, SimTime, YEAR, calendar};
+use crate::world::{EventPayload, SimCtx};
+
+/// The onset second `born + ⌈onset · YEAR⌉` of an onset age in years.
+pub(crate) fn onset_second(born: SimTime, onset: f64) -> SimTime {
+    let year = sim_math::i64_to_f64_exact(YEAR.as_secs())
+        .unwrap_or_else(|| panic!("invariant onset.year"));
+    let secs = sim_math::to_i64_exact(sim_math::ceil(onset * year))
+        .unwrap_or_else(|| panic!("invariant onset.second"));
+    born.checked_add(SimDuration::from_secs(secs))
+        .unwrap_or_else(|| panic!("invariant onset.second"))
+}
+
+/// The calendar year of the onset second and the onset in whole years.
+pub(crate) fn since(born: SimTime, onset: f64) -> (i64, i64) {
+    let whole = sim_math::to_i64_exact(-sim_math::ceil(-onset))
+        .unwrap_or_else(|| panic!("invariant onset.age"));
+    (calendar(onset_second(born, onset)).year, whole)
+}
+
+/// The second a person of the state was created: the start for a founder, the arrival for
+/// a pool person (a pool child's is its birth), the birth for a town child.
+pub(crate) fn creation_second(born: SimTime, founder: bool, arrived: Option<SimTime>) -> SimTime {
+    match (founder, arrived) {
+        (_, Some(arrived)) => arrived,
+        (true, None) => SimTime::START,
+        (false, None) => born,
+    }
+}
+
+/// The entry of `sim`'s onset of `affliction`.
+fn write(
+    data: &Data,
+    sim: SimId,
+    born: SimTime,
+    affliction: &Affliction,
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) -> EventId {
+    let disease = disease::of_key(data, affliction.disease)
+        .map(|disease| Code::from(disease.code.clone()))
+        .unwrap_or_else(|| panic!("invariant onset.disease"));
+    let (since_year, age_years) = since(born, affliction.onset.get());
+    ctx.emit(
+        LogPayload::DiseaseOnset {
+            disease,
+            since_year,
+            age_years,
+        },
+        Vec::from([Subject::Sim(sim)]),
+        causes,
+    )
+}
+
+/// Paths 1 and 2 at the creation of `sim` by the entry `creation` (`now` is `E`), with the
+/// switch the creation sees: each disease in data order either written now (`B ≤ E`) or
+/// planned at `B`.
+pub(crate) fn on_creation(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    creation: EventId,
+    switch_on: bool,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let person = domain
+        .sims
+        .get(&sim)
+        .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()));
+    let (born, afflictions) = (person.born, person.afflictions.clone());
+    let now = ctx.now();
+    for affliction in &afflictions {
+        let at = onset_second(born, affliction.onset.get());
+        if at <= now {
+            if switch_on {
+                write(
+                    data,
+                    sim,
+                    born,
+                    affliction,
+                    Causes::new(Cause::Event(creation)),
+                    ctx,
+                );
+            }
+        } else {
+            let payload = EventPayload::DiseaseOnset {
+                sim,
+                disease: affliction.disease,
+            };
+            let handle = ctx.schedule(at, payload, creation);
+            domain
+                .pending
+                .insert((sim, Slot::Onset(affliction.disease)), handle);
+        }
+    }
+}
+
+/// Path 2: the planned onset of `disease` of `sim` comes due; written if the switch is on.
+pub(crate) fn on_onset(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    disease: u64,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    domain.pending.remove(&(sim, Slot::Onset(disease)));
+    let on = (domain.world_params.as_ref()).is_some_and(|params| params.hereditary_diseases);
+    let person = domain
+        .sims
+        .get(&sim)
+        .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()));
+    let affliction = (person.afflictions.iter())
+        .find(|affliction| affliction.disease == disease)
+        .unwrap_or_else(|| panic!("invariant onset.affliction"));
+    if on {
+        write(
+            data,
+            sim,
+            person.born,
+            affliction,
+            Causes::new(ctx.trigger()),
+            ctx,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The onset second is the birth plus the onset in years, rounded up to a second; its
+    /// year and whole years by hand (a year is 31 449 600 seconds).
+    #[test]
+    fn the_onset_second_and_its_year() {
+        let y = YEAR.as_secs();
+        let born = SimTime::from_secs(-10 * y);
+        assert_eq!(onset_second(born, 0.0), born);
+        assert_eq!(onset_second(born, 45.0), SimTime::from_secs(35 * y));
+        assert_eq!(
+            onset_second(born, 1.5),
+            SimTime::from_secs(-10 * y + 3 * y / 2)
+        );
+        // 1e-7 years is 3.14496 seconds: rounded up to 4.
+        assert_eq!(onset_second(born, 1e-7), SimTime::from_secs(-10 * y + 4));
+        assert_eq!(since(born, 45.9), (35, 45));
+        assert_eq!(since(born, 0.0), (-10, 0));
+        assert_eq!(since(born, 1.0), (-9, 1));
+    }
+
+    #[test]
+    fn the_creation_second_of_each_kind() {
+        let t = SimTime::from_secs;
+        assert_eq!(creation_second(t(-100), true, None), SimTime::START);
+        assert_eq!(creation_second(t(500), false, None), t(500));
+        assert_eq!(
+            creation_second(t(-100), false, Some(t(31_449_600))),
+            t(31_449_600)
+        );
+    }
+}

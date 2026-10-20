@@ -14,6 +14,7 @@ export const FOLLOWED: ReadonlySet<string> = new Set([
   "core:moved",
   "core:emigrated",
   "core:param_changed",
+  "core:disease_onset",
 ]);
 
 /** The most lines the chronicle keeps; older ones go. */

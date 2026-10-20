@@ -304,6 +304,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Immigration { persons } => {
                 state::arrival::on_immigration(&mut self.domain, &self.data, persons, &mut ctx);
             }
+            EventPayload::DiseaseOnset { sim, disease } => {
+                state::onset::on_onset(&mut self.domain, &self.data, sim, disease, &mut ctx);
+            }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
         }
     }
@@ -348,7 +351,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::MarketRound
             | EventPayload::LeaveHome { .. }
             | EventPayload::Emigration { .. }
-            | EventPayload::Immigration { .. } => {
+            | EventPayload::Immigration { .. }
+            | EventPayload::DiseaseOnset { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }

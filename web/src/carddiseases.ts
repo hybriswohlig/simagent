@@ -1,5 +1,5 @@
 import { object, type Sex } from "./card.js";
-import { TEXT } from "./text.js";
+import { CODES, TEXT } from "./text.js";
 
 type Open = { readonly [key: string]: unknown };
 
@@ -74,6 +74,31 @@ export function copiesLines(value: unknown): string[] | null {
   }
 }
 
+/** "mit N Jahren", with one year "mit 1 Jahr" (Grok P1). */
+function atAge(years: number): string {
+  return `${TEXT.card_at} ${years} ${years === 1 ? TEXT.card_year_at : TEXT.card_years_at}`;
+}
+
+/** The chronicle's template of an onset entry in the calendar year `year` (Grok P1, P2, P3):
+ * in the year of the onset "{0} erkrankt an X", else "{0} ist an X erkrankt, seit Jahr Y, mit
+ * A Jahren", or "seit der Geburt" at 0 whole years; X is the name uninflected. Null for a
+ * payload of another shape. */
+export function onsetTemplate(payload: unknown, year: number): string | null {
+  const onset = object(payload);
+  const disease = onset?.disease;
+  const since = onset?.since_year;
+  const age = onset?.age_years;
+  if (typeof disease !== "string" || typeof since !== "number" || typeof age !== "number") {
+    return null;
+  }
+  const late = age === 0 ? TEXT.onset_from_birth : TEXT.onset_late;
+  const template = since === year ? (CODES["payload core:disease_onset"] ?? "") : late;
+  return template
+    .replace("{disease}", diseaseName(disease))
+    .replace("{year}", String(since))
+    .replace("{age}", atAge(age));
+}
+
 /** The status word of a disease (Grok G4, L7, M1, M3, M4); null for another shape. */
 export function statusWord(value: unknown, sex: Sex): string | null {
   const status = object(value);
@@ -94,7 +119,7 @@ export function statusWord(value: unknown, sex: Sex): string | null {
       }
       return status.age_years === 0
         ? TEXT.card_affected_from_birth
-        : `${TEXT.card_affected_since} ${status.year}, ${TEXT.card_at} ${status.age_years} ${TEXT.card_years_at}`;
+        : `${TEXT.card_affected_since} ${status.year}, ${atAge(status.age_years)}`;
     default:
       return null;
   }

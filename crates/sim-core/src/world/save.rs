@@ -300,6 +300,7 @@ pub(super) fn pending_index(
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
             EventPayload::Birth { mother } => (*mother, Slot::Birth),
             EventPayload::LeaveHome { sim } => (*sim, Slot::LeaveHome),
+            EventPayload::DiseaseOnset { sim, disease } => (*sim, Slot::Onset(*disease)),
             EventPayload::Separation { partnership } => {
                 let Some(partnership) = partnerships.get(partnership) else {
                     panic!("invariant save.separation_of_unknown_partnership");
@@ -704,8 +705,9 @@ type CarriedPlan = ((usize, usize, u8), u64, PlanRef);
 
 /// The plans an arrival brought and the queue still holds (design note of the carried
 /// plans, C4 and C5): each was planned at her arrival by her `core:arrived`, so planned at
-/// `A`, all of one arrival by one entry, those of one household by consecutive entries in
-/// the order of its members; and they were inserted in the order of the arrival: by
+/// `A`, all of one arrival by one entry, those of one household by entries in the order of
+/// its members, each member's followed only by the onsets it had reached then if the switch
+/// was on (ADR-0017 section 3); and they were inserted in the order of the arrival: by
 /// household, member, then conception, birth, separation, leaving home.
 fn carried_plans_consistent(
     loaded: &LoadedState,
@@ -754,13 +756,36 @@ fn carried_plans_consistent(
     }
     carried.sort_unstable_by_key(|(order, ..)| *order);
     let in_order = carried.windows(2).all(|pair| pair[0].1 < pair[1].1);
-    // One entry per arrival; within a household one after the other.
+    // The entries the arrival at a place wrote: its `core:arrived` and its onsets.
+    let at_place: BTreeMap<(usize, usize), SimId> = (rules.pool.places.iter())
+        .map(|(id, place)| (*place, *id))
+        .collect();
+    let written = |place: (usize, usize)| {
+        let id = at_place.get(&place)?;
+        let (born, afflictions, origin) = match loaded.sims.get(id) {
+            Some(sim) => (sim.born, &sim.afflictions, sim.pool.as_ref()?),
+            None => {
+                let sim = loaded.archive.get(id)?;
+                (sim.born, &sim.afflictions, sim.pool.as_ref()?)
+            }
+        };
+        let onsets = if rules.switch_at(origin.arrived.as_secs()) {
+            (afflictions.iter())
+                .filter(|a| state::onset::onset_second(born, a.onset.get()) <= origin.arrived)
+                .count()
+        } else {
+            0
+        };
+        u64::try_from(onsets).ok()?.checked_add(1)
+    };
+    // One entry per arrival; within a household one after the other, but for the onsets.
     let by_arrival = carried.windows(2).all(|pair| {
         let ((household, member, _), _, plan) = pair[0];
         let ((next_household, next_member, _), _, next_plan) = pair[1];
         household != next_household
-            || u64::try_from(next_member - member)
-                .ok()
+            || (member..next_member)
+                .map(|between| written((household, between)))
+                .sum::<Option<u64>>()
                 .and_then(|step| plan.by.get().checked_add(step))
                 == Some(next_plan.by.get())
     });
@@ -1343,6 +1368,14 @@ struct Rules<'a> {
 }
 
 impl Rules<'_> {
+    /// The switch of the hereditary diseases in the second `at`, after its inputs.
+    fn switch_at(&self, at: i64) -> bool {
+        (self.switch.iter())
+            .filter(|(from, _)| *from <= at)
+            .next_back()
+            .is_some_and(|(_, on)| *on)
+    }
+
     /// Where the hazards of a person act from and the detail of its budgets (design note of
     /// the arrival, section 6.4), as seconds.
     fn lot(&self, born: SimTime, pool: Option<&state::PoolOrigin>) -> (SimTime, u64) {
@@ -2196,10 +2229,23 @@ fn died_by_the_rule(sim: &ArchivedSim, cause: u64, rules: &Rules<'_>) -> bool {
         })
 }
 
+/// The onset second of each disease of `person` that is still to come after `now`, if its
+/// creation planned an event for it (ADR-0017 section 3): `B` after its creation second
+/// and not before `now`.
+fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + '_ {
+    let founder = person.parents.is_none() && person.pool.is_none();
+    let arrived = person.pool.as_ref().map(|origin| origin.arrived);
+    let created = state::onset::creation_second(person.born, founder, arrived);
+    (person.afflictions.iter()).filter_map(move |affliction| {
+        let at = state::onset::onset_second(person.born, affliction.onset.get());
+        (at > created && at.as_secs() >= now).then_some((affliction.disease, at))
+    })
+}
+
 /// One year end series, due at the next year end; one birthday per living sim, due at
 /// its next anniversary; per living sim and cause of death one death, due when the
-/// budget for that cause runs out, and none where it never does; nothing for a sim that
-/// does not live.
+/// budget for that cause runs out, and none where it never does; per living sim and
+/// disease whose onset is still to come one onset; nothing for a sim that does not live.
 fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let next_year_end = (now.div_euclid(YEAR.as_secs()) + 1) * YEAR.as_secs() - 1;
     let mut year_end_seen = false;
@@ -2214,6 +2260,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut separations = BTreeSet::new();
     let mut leaving = BTreeSet::new();
     let mut deaths = BTreeSet::new();
+    let mut onsets = BTreeSet::new();
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
     let dues = |person: &Sim| {
@@ -2332,6 +2379,13 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                         !person.moved_out && due == Some(entry.time)
                     })
             }
+            EventPayload::DiseaseOnset { sim, disease } => {
+                entry.period.is_none()
+                    && onsets.insert((*sim, *disease))
+                    && loaded.sims.get(sim).is_some_and(|person| {
+                        onsets_due(person, now).any(|due| due == (*disease, entry.time))
+                    })
+            }
             EventPayload::Separation { partnership: id } => {
                 entry.period.is_none()
                     && separations.insert(*id)
@@ -2351,6 +2405,10 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         dues(person)
             .iter()
             .all(|(key, due)| due.is_none() || deaths.contains(&(*id, *key)))
+    });
+    // Every onset still to come is in the queue.
+    let all_onsets_planned = loaded.sims.iter().all(|(id, person)| {
+        onsets_due(person, now).all(|(disease, _)| onsets.contains(&(*id, disease)))
     });
     // The deaths of a sim were planned in the order of the causes: of two due in the same
     // second the earlier cause runs first, as `died_by_the_rule` expects.
@@ -2381,6 +2439,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && birthdays.len() == loaded.sims.len()
         && all_separations_planned
         && all_deaths_planned
+        && all_onsets_planned
         && in_order
         && all_attempts_planned
         && births.len() == loaded.pregnancies.len()

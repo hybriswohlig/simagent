@@ -26,7 +26,7 @@ use crate::phenotype::{Environment, PhenotypeParts, phenotype_parts};
 use crate::rng::{Draws, WorldSeed};
 use crate::state::DomainState;
 use crate::state::disease::qualifies;
-use crate::time::{SimDuration, SimTime, YEAR, calendar};
+use crate::time::{SimDuration, SimTime, YEAR};
 use crate::world::World;
 
 /// The traits the card reads as a percentile (G3): height as the target height `z_h` of
@@ -157,18 +157,9 @@ pub fn disease_status(found: Found, switch_on: bool, born: SimTime, at: SimTime)
         Found::PenetranceFallen => DiseaseStatus::PenetranceFallen,
         Found::Onset(_) if !switch_on => DiseaseStatus::Resting,
         Found::Onset(onset) if crate::state::disease::age(born, at) >= onset => {
-            let whole = |x: f64| {
-                sim_math::to_i64_exact(x).unwrap_or_else(|| panic!("invariant card.onset"))
-            };
-            let year = sim_math::i64_to_f64_exact(YEAR.as_secs())
-                .unwrap_or_else(|| panic!("invariant card.year"));
-            let since = born
-                .checked_add(SimDuration::from_secs(whole(sim_math::ceil(onset * year))))
-                .unwrap_or_else(|| panic!("invariant card.onset"));
-            DiseaseStatus::Affected {
-                year: calendar(since).year,
-                age_years: whole(-sim_math::ceil(-onset)),
-            }
+            // The year and whole years the onset entry of the log carries.
+            let (year, age_years) = crate::state::onset::since(born, onset);
+            DiseaseStatus::Affected { year, age_years }
         }
         Found::Onset(_) => DiseaseStatus::NotYet,
     }
