@@ -29,6 +29,10 @@ export function windows(run: string, start: number): (until: number) => Promise<
   let queue: Promise<unknown> = Promise.resolve();
   return (until: number) => {
     const read = queue.then(async () => {
+      // Read already, by the call before that ended here.
+      if (until === from) {
+        return [];
+      }
       const items = await readLog(run, `from=${from}&to=${until}`);
       from = until;
       return items;
