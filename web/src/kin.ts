@@ -8,21 +8,18 @@ const PERCENT = new Intl.NumberFormat("de-DE", {
   useGrouping: false,
 });
 
-/** What the other sim is to a person, as one line (Grok's G6 and K3): the blood word, the
- * foster word beside it, and `r` in percent; without a blood relation the foster word
- * alone, or "nicht verwandt". The words are the core's codes. */
+/** What the other sim is to a person, as one line (Grok's G6, K3 and K5): the blood word,
+ * the foster word beside it, and `r` in percent, always (0,0 included); without a blood
+ * relation the foster word alone, or "nicht verwandt". The words are the core's codes. */
 export function kinshipText(kinship: Kinship): string {
   const text = (code: string) => CODES[code] ?? code;
-  const related = kinship.word !== "unrelated";
   const parts: string[] = [];
-  if (related || kinship.foster === null) {
+  if (kinship.word !== "unrelated" || kinship.foster === null) {
     parts.push(text(`kinship ${kinship.word}`));
   }
   if (kinship.foster !== null) {
     parts.push(text(`foster ${kinship.foster}`));
   }
-  if (related) {
-    parts.push(`${PERCENT.format(kinship.r_percent)} ${TEXT.percent}`);
-  }
+  parts.push(`${PERCENT.format(kinship.r_percent)} ${TEXT.percent}`);
   return parts.join(", ");
 }
