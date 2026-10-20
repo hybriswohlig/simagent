@@ -1,9 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
+import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import type { Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import { Chronicle } from "./lines.js";
+import { readLog } from "./log.js";
 import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
 import { format } from "./router.js";
@@ -120,7 +123,25 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   );
 }
 
-/** A person of a run: who they are related to, and the tree around them. */
+/** The chronicle of one person: the entries of the log about them, newest first. */
+function PersonChronicle({ run, sim }: { run: string; sim: string }) {
+  const key = `${run}/${sim}`;
+  const [loaded, setLoaded] = useState<Loaded<readonly EventItem[]>>({ state: "loading", key });
+  useEffect(() => {
+    let live = true;
+    setLoaded({ state: "loading", key });
+    readLog(run, `subject=${sim}`)
+      .then((items) => live && setLoaded({ state: "ready", key, value: added([], items) }))
+      .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  const shown = current(loaded, key);
+  return <Chronicle run={run} items={shown.state === "ready" ? shown.value : []} failed={shown.state === "failed"} />;
+}
+
+/** A person of a run: who they are related to, the tree around them, and their chronicle. */
 export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const loaded = usePedigree(run);
   const view = usePersonView(run, sim);
@@ -159,6 +180,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <Name run={run} person={parent(person.father)} />
       </p>
       <TreeView run={run} glass={glass} />
+      <PersonChronicle run={run} sim={sim} />
     </section>
   );
 }
