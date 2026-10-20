@@ -439,6 +439,10 @@ fn the_presentation_shows_the_references_bodies() {
             log.extend(world.take_log());
             twin_log.extend(twin.take_log());
             assert_eq!(world.closed_through(), t, "{name}");
+            // The names of everybody, as the server takes them: read only, like the views.
+            for person in world.pedigree().persons {
+                assert!(world.name_root(person.sim).is_some(), "{name}");
+            }
             for person in shot["persons"].as_array().expect("persons") {
                 let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("an id");
                 let view = world.person_view(sim).expect("a view");
@@ -926,4 +930,70 @@ fn the_census_view_reads_absent_pigment_loci_as_dose_zero() {
             );
         }
     }
+}
+
+/// The root of a person's paternal chain in the pool (ADR-0021 section 3): from the father's
+/// key from record to record, as long as a record names a father; a key without a record
+/// is the root.
+fn pool_root(data: &Data, mut key: LineageKey) -> (LineageKey, usize) {
+    let mut steps = 0;
+    while let Some(father) = (data.pool())
+        .and_then(|pool| pool.record(key))
+        .and_then(|record| record.father)
+    {
+        key = father;
+        steps += 1;
+    }
+    (key, steps)
+}
+
+/// The surname follows the paternal chain (ADR-0021 section 3): a child of the run has the
+/// root of its father; a pool person without a father in the run the root of its pool
+/// father's chain; anybody else is its own root.
+#[test]
+fn the_name_roots_follow_the_fathers() {
+    let (mut by_father, mut by_pool, mut deep, mut own) = (0, 0, 0, 0);
+    for (name, scenario, data) in fixtures() {
+        let scenario: Value = serde_json::from_str(scenario).expect("scenario");
+        let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
+        let start = start_of(&scenario, &data);
+        let mut world = World::new(data);
+        world.submit(Input::Start(start)).expect("accepted");
+        world.advance_until(&mut YearOut::default(), until, &mut |_| false);
+        for person in world.pedigree().persons {
+            let root = world.name_root(person.sim).expect("a root");
+            let pool_father = person.pool.as_ref().and_then(|pool| pool.father_key);
+            match (person.father, pool_father) {
+                (Some(father), _) => {
+                    assert_eq!(
+                        Some(root),
+                        world.name_root(father),
+                        "{name}: {:?}",
+                        person.sim
+                    );
+                    by_father += 1;
+                }
+                (None, Some(key)) => {
+                    let (expected, steps) = pool_root(world.data(), key);
+                    assert_eq!(root, expected, "{name}: {:?}", person.sim);
+                    by_pool += 1;
+                    deep += usize::from(steps > 0);
+                }
+                (None, None) => {
+                    assert_eq!(root, person.lineage_key, "{name}: {:?}", person.sim);
+                    own += 1;
+                }
+            }
+        }
+        assert_eq!(
+            world.name_root(SimId::try_from(999_999).expect("an id")),
+            None
+        );
+    }
+    // A pool father with a father of his own does not occur in these small pools; the town
+    // of the repository's pool shows it (`sim-cli/tests/names.rs`).
+    assert!(
+        by_father > 0 && by_pool > 0 && own > 0,
+        "{by_father} {by_pool} {deep} {own}"
+    );
 }
