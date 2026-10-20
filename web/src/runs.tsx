@@ -37,7 +37,7 @@ export function RunsPage() {
     return <p>{runs.state === "loading" ? TEXT.loading : TEXT[runs.text]}</p>;
   }
   return (
-    <main>
+    <section>
       <h1>{TEXT.runs}</h1>
       {runs.value.runs.length === 0 ? <p>{TEXT.no_runs}</p> : null}
       <ul>
@@ -48,6 +48,6 @@ export function RunsPage() {
           </li>
         ))}
       </ul>
-    </main>
+    </section>
   );
 }

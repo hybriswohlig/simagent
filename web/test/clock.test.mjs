@@ -1,9 +1,10 @@
 // The clock of a run page asks for one step at a time; playing asks for the same step after
-// each answer until a pause or a refusal (ADR-0021 section 2). Pausing is no input.
+// each answer, at the pace of its ticks, until a pause or a refusal (ADR-0021 section 2).
+// Pausing is no input.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { answered, pause, play, press, refused, standing } from "../dist/clock.js";
+import { answered, pause, play, press, refused, standing, tick } from "../dist/clock.js";
 
 const DATE = {
   year: 3,
@@ -27,27 +28,31 @@ test("a pressed step is asked for once, never two at a time", () => {
   assert.deepEqual(done, { closed: 20, date: LATER, playing: null, busy: false, refused: null });
 });
 
-test("playing asks the same step after each answer until a pause", () => {
+test("playing asks the same step at each tick after an answer, until a pause", () => {
   let [clock, asked] = play(standing(10, DATE), "decade");
-  assert.equal(asked, "decade");
+  assert.equal(asked, "decade", "at once");
+  assert.deepEqual(tick(clock), [clock, null], "not while a request is on its way");
   [clock, asked] = answered(clock, 20, LATER);
+  assert.equal(asked, null, "the player sees the step first");
+  assert.equal(clock.busy, false);
+  [clock, asked] = tick(clock);
   assert.equal(asked, "decade");
-  assert.equal(clock.busy, true);
   [clock, asked] = pause(clock);
   assert.equal(asked, null);
   assert.equal(clock.busy, true, "the request on its way still lands");
   [clock, asked] = answered(clock, 30, LATER);
-  assert.equal(asked, null);
   assert.equal(clock.closed, 30);
-  assert.equal(clock.busy, false);
+  assert.deepEqual(tick(clock), [clock, null], "paused");
 });
 
-test("playing while a request is on its way waits for its answer", () => {
+test("playing while a request is on its way waits for its answer and the tick", () => {
   let [clock] = press(standing(10, DATE), "year");
   let asked;
   [clock, asked] = play(clock, "days28");
   assert.equal(asked, null);
   [clock, asked] = answered(clock, 20, LATER);
+  assert.equal(asked, null);
+  [clock, asked] = tick(clock);
   assert.equal(asked, "days28");
 });
 
@@ -63,6 +68,7 @@ test("a refusal ends playing and is shown until the next step", () => {
     busy: false,
     refused: "run_locked",
   });
+  assert.deepEqual(tick(clock), [clock, null], "playing ended");
   [clock, asked] = press(clock, "year");
   assert.equal(asked, "year");
   assert.equal(clock.refused, null);

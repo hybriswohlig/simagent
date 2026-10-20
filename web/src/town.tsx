@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { Refused, postJson } from "./api.js";
-import { answered, pause, play, press, refused, standing, type Clock, type Next, type Step } from "./clock.js";
+import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import type { AdvanceAnswer, CalendarDate } from "./generated/export.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
@@ -9,6 +9,9 @@ import { useRuns } from "./runs.js";
 import { DAYS, MONTHS, TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
+
+/** The pace of playing: how long each step stands before the next is asked for. */
+const PACE_MS = 800;
 
 /** The date as the core gives it, its units named by the texts. */
 function dateText(date: CalendarDate): string {
@@ -62,6 +65,11 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     if (!clock.busy && clock.playing === null) {
       setListedAt(clock.closed);
     }
+    if (clock.busy || clock.playing === null) {
+      return;
+    }
+    const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
+    return () => clearTimeout(timer);
   }, [clock]);
   const pedigree = usePedigree(run, String(listedAt));
   const living =
@@ -69,7 +77,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       ? pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null)
       : [];
   return (
-    <main>
+    <section>
       <h1>{`${TEXT.run} ${run}`}</h1>
       <p>{dateText(clock.date)}</p>
       <p role="group" aria-label={TEXT.steps}>
@@ -109,7 +117,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </li>
         ))}
       </ul>
-    </main>
+    </section>
   );
 }
 

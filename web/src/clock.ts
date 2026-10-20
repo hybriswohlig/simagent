@@ -29,7 +29,8 @@ export function press(clock: Clock, step: Step): Next {
   return clock.busy ? [clock, null] : [{ ...clock, busy: true, refused: null }, step];
 }
 
-/** Playing `step`: after each answer the same step again, until a pause or a refusal. */
+/** Playing `step`: at once, and after each answer, at the next `tick`, the same step again,
+ * until a pause or a refusal. */
 export function play(clock: Clock, step: Step): Next {
   const playing = { ...clock, playing: step };
   return clock.busy ? [playing, null] : [{ ...playing, busy: true, refused: null }, step];
@@ -40,10 +41,19 @@ export function pause(clock: Clock): Next {
   return [{ ...clock, playing: null }, null];
 }
 
-/** The server's answer to a step: where the run stands now; the playing step again. */
+/** The server's answer to a step: where the run stands now. Playing goes on at the next
+ * `tick`, so that the player sees each step. */
 export function answered(clock: Clock, closed: number, date: CalendarDate): Next {
-  const now = { ...clock, closed, date, busy: false };
-  return now.playing === null ? [now, null] : [{ ...now, busy: true }, now.playing];
+  return [{ ...clock, closed, date, busy: false }, null];
+}
+
+/** The pace of playing has come round: the playing step again, if it still plays and no
+ * request is on its way. */
+export function tick(clock: Clock): Next {
+  if (clock.playing === null || clock.busy) {
+    return [clock, null];
+  }
+  return [{ ...clock, busy: true, refused: null }, clock.playing];
 }
 
 /** A refusal: the clock stands, playing ends, the code is shown. */
