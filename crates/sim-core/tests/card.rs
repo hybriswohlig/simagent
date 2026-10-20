@@ -94,3 +94,64 @@ fn the_status_of_a_disease_by_hand() {
         );
     }
 }
+
+/// Where a copy from a parent came from (Grok G7, L8), by hand: the parent's one copy on its
+/// mother's strand came from the person's grandmother, on its father's from the grandfather,
+/// from the pool if that grandparent is not in the run; a parent without a copy made it new.
+#[test]
+fn the_source_of_a_copy_by_hand() {
+    use sim_core::ids::SimId;
+    use sim_core::presentation::card::{CopySource, copy_source};
+    let sim = |n: u64| SimId::try_from(n).expect("an id");
+    let both = [Some(sim(4)), Some(sim(5))];
+    assert_eq!(
+        copy_source(&[1, 0], both),
+        CopySource::Grandmother { sim: sim(4) }
+    );
+    assert_eq!(
+        copy_source(&[0, 1], both),
+        CopySource::Grandfather { sim: sim(5) }
+    );
+    assert_eq!(copy_source(&[1, 0], [None, Some(sim(5))]), CopySource::Pool);
+    assert_eq!(copy_source(&[0, 1], [Some(sim(4)), None]), CopySource::Pool);
+    assert_eq!(copy_source(&[0, 0], both), CopySource::New);
+    assert_eq!(copy_source(&[0, 0], [None, None]), CopySource::New);
+}
+
+/// The line "übersprungen" (Grok G7, L8) by hand: only for two copies with no parent
+/// carrying two; each copy's source from that parent's copies and its parents in the run.
+#[test]
+fn the_skipped_line_by_hand() {
+    use sim_core::data_id::DataId;
+    use sim_core::ids::SimId;
+    use sim_core::presentation::card::{CopySource, SkippedLine, skipped_line};
+    let sim = |n: u64| SimId::try_from(n).expect("an id");
+    let mc1r = DataId::new("core:mc1r").expect("an id");
+    let grandparents = [[Some(sim(4)), Some(sim(5))], [Some(sim(6)), Some(sim(7))]];
+    let line = |own: &[u8], mother: &[u8], father: &[u8]| {
+        skipped_line(mc1r.clone(), own, (mother, father), grandparents)
+    };
+    // The mother's copy on her mother's strand, the father's on his father's.
+    assert_eq!(
+        line(&[1, 1], &[1, 0], &[0, 1]),
+        Some(SkippedLine {
+            locus: mc1r.clone(),
+            mother_copy: CopySource::Grandmother { sim: sim(4) },
+            father_copy: CopySource::Grandfather { sim: sim(7) },
+        })
+    );
+    // Neither parent carries a copy: both new.
+    assert_eq!(
+        line(&[1, 1], &[0, 0], &[0, 0]),
+        Some(SkippedLine {
+            locus: mc1r.clone(),
+            mother_copy: CopySource::New,
+            father_copy: CopySource::New,
+        })
+    );
+    // A parent with two copies, or a person with fewer than two: no line.
+    assert_eq!(line(&[1, 1], &[1, 1], &[0, 1]), None);
+    assert_eq!(line(&[1, 1], &[1, 0], &[1, 1]), None);
+    assert_eq!(line(&[1, 0], &[1, 0], &[0, 1]), None);
+    assert_eq!(line(&[0, 1], &[1, 0], &[0, 1]), None);
+}
