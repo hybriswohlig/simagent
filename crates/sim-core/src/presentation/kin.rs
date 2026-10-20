@@ -7,13 +7,19 @@
 //!
 //! # Places
 //!
-//! The nearest common ancestor stands at most four generations above A and four above B,
-//! never four above both: a shortest path from A up through the set of the query leaves
-//! A's great-grandparents after at most three steps, and the next person on it is an
-//! ancestor of B within three, so a common ancestor itself. A pedigree with a loop adds
-//! `(5, 1)` and `(1, 5)` (B's parent is also its great-great-grandparent). Every place has
-//! a word, so Grok's "entfernt verwandt" (K4, beyond `a + b = 8`) never applies, and the
-//! path to that ancestor alone gives `φ ≥ 1/256`, so no `r` above 0 rounds to 0.0 (K5).
+//! The nearest common ancestor stands at up, down ≤ 4 and not both at 4, or at one of
+//! `(5, 1)`, `(1, 5)`, `(1, 6)` and `(2, 5)`. A shortest path from A up through the set of
+//! the query has at most three steps among A's own ancestors to depth 3 (each of them lies
+//! within three steps); a fourth step reaches a person of B's set, an ancestor of B within
+//! three, so a common ancestor `Q` at `(≤ 4, ≤ 3)`, or `(≤ 3, ≤ 4)` from B's side. The
+//! nearest one, the minimum by `(up + down, up)`, has a sum of at most 7. It is five or more
+//! up only with a sum below `Q`'s: `(5, 1)` (B itself is never five up: the fourth person
+//! on the path would be an ancestor and a descendant of B at once, and the same holds for A
+//! five down). It is five or more down with a sum below `Q`'s or, by fewer up, equal to it:
+//! `(1, 5)`, `(1, 6)` and `(2, 5)`. Those four need a loop (a parent who is also a
+//! great-grandparent, or the like). Every place has a word, and any other one would be
+//! "entfernt verwandt" (K4, never reached); the path to that ancestor alone gives
+//! `φ ≥ 1/256`, so no `r` above 0 rounds to 0.0 (K5).
 
 use serde::Serialize;
 
@@ -69,6 +75,8 @@ pub enum KinWord {
     GreatGreatNephew,
     GreatGreatGreatNiece,
     GreatGreatGreatNephew,
+    GreatGreatGreatGreatNiece,
+    GreatGreatGreatGreatNephew,
     FirstCousinFemale,
     FirstCousinMale,
     FirstCousinFemaleOlder1,
@@ -79,12 +87,16 @@ pub enum KinWord {
     FirstCousinMaleYounger1,
     FirstCousinFemaleYounger2,
     FirstCousinMaleYounger2,
+    FirstCousinFemaleYounger3,
+    FirstCousinMaleYounger3,
     SecondCousinFemale,
     SecondCousinMale,
     SecondCousinFemaleOlder1,
     SecondCousinMaleOlder1,
     SecondCousinFemaleYounger1,
     SecondCousinMaleYounger1,
+    /// A place without a word of its own (K4); no search reaches one (see Places).
+    Distant,
     Unrelated,
 }
 
@@ -111,11 +123,7 @@ pub struct KinView {
 /// The word of the place of the nearest common ancestor and the sex of B: `up` generations
 /// above A, `down` from there to B (Grok's K1). Cousins are of the grade `min(up, down) − 1`;
 /// B is older by `up − down` generations when it stands higher, younger by `down − up`.
-/// Half only for siblings (K2).
-///
-/// # Panics
-///
-/// Invariant `kinship.place` for a place no search reaches (see Places).
+/// Half only for siblings (K2). Any other place is distant (K4); no search reaches one.
 pub fn word(place: Option<Relation>, sex: Sex) -> KinWord {
     use KinWord::*;
     let Some(Relation { up, down, shared }) = place else {
@@ -145,15 +153,17 @@ pub fn word(place: Option<Relation>, sex: Sex) -> KinWord {
         (1, 3) => pick(GreatNiece, GreatNephew),
         (1, 4) => pick(GreatGreatNiece, GreatGreatNephew),
         (1, 5) => pick(GreatGreatGreatNiece, GreatGreatGreatNephew),
+        (1, 6) => pick(GreatGreatGreatGreatNiece, GreatGreatGreatGreatNephew),
         (2, 2) => pick(FirstCousinFemale, FirstCousinMale),
         (3, 2) => pick(FirstCousinFemaleOlder1, FirstCousinMaleOlder1),
         (4, 2) => pick(FirstCousinFemaleOlder2, FirstCousinMaleOlder2),
         (2, 3) => pick(FirstCousinFemaleYounger1, FirstCousinMaleYounger1),
         (2, 4) => pick(FirstCousinFemaleYounger2, FirstCousinMaleYounger2),
+        (2, 5) => pick(FirstCousinFemaleYounger3, FirstCousinMaleYounger3),
         (3, 3) => pick(SecondCousinFemale, SecondCousinMale),
         (4, 3) => pick(SecondCousinFemaleOlder1, SecondCousinMaleOlder1),
         (3, 4) => pick(SecondCousinFemaleYounger1, SecondCousinMaleYounger1),
-        _ => panic!("invariant kinship.place: {up} {down}"),
+        _ => Distant,
     }
 }
 

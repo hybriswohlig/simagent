@@ -300,9 +300,8 @@ fn generations<K: Ord + Copy>(
 /// fewest up; `None` if they have none there, which is exactly when φ is 0. Biological
 /// parents only, as `lookup` gives them.
 ///
-/// Where every ancestor is reached by one route, the places are those of the paths φ
-/// counts (see Depth): `up, down ≤ 4` and not both 4. A path that goes higher passes a
-/// nearer common ancestor of the set.
+/// The places it gives are listed in `presentation::kin` (Places): at most four
+/// generations up and four down, never both, and a few more in a pedigree with a loop.
 pub fn relation<K: Ord + Copy>(x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> Option<Relation> {
     let set = query_set(x, y, &lookup);
     let (above_x, above_y) = (generations(x, &set, &lookup), generations(y, &set, &lookup));
