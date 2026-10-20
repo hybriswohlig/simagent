@@ -191,3 +191,23 @@ fn a_fork_names_as_its_parent() {
         assert_eq!(ours[k], theirs[k], "{k:?}");
     }
 }
+
+/// The lists of names (`data/names`): none empty, each name once, no blank, no space at an
+/// end and no control character in a name.
+#[test]
+fn the_name_lists_are_clean() {
+    for list in ["female", "male", "surnames"] {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../data/names/{list}.json"));
+        let names: Vec<String> =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("a list");
+        assert!(names.len() >= 100, "{list}: {}", names.len());
+        let unique: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "{list}: a name twice");
+        for name in &names {
+            assert!(!name.is_empty() && name.trim() == name, "{list}: {name:?}");
+            assert!(!name.chars().any(char::is_control), "{list}: {name:?}");
+        }
+    }
+    assert!(sim_cli::names::NameLists::load().is_ok());
+}
