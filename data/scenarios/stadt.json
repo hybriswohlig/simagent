@@ -1,0 +1,19 @@
+{
+  "format_version": 5,
+  "start": {
+    "world_seed": "000000000000a001",
+    "founder_tag": "base:stadt",
+    "world_params": {
+      "hereditary_diseases": true,
+      "nutrition": []
+    },
+    "founders": [],
+    "couples": [],
+    "capacity": 600,
+    "pool": {
+      "n_start": 300,
+      "immigration": true
+    }
+  },
+  "until": -1
+}
