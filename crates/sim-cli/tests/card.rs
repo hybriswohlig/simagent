@@ -23,6 +23,7 @@ const DUMMY_CARD: &str = include_str!("../../../tests/golden/dummy_card.json");
 const TOWN_CARD: &str = include_str!("../../../tests/golden/town_card.json");
 const HUNGER_HEIGHTS: &str = include_str!("../../../tests/golden/card_hunger.json");
 const DISEASES: &str = include_str!("../../../tests/golden/card_diseases.json");
+const SKIPPED: &str = include_str!("../../../tests/golden/card_skipped.json");
 
 /// `ours` and `golden` are the same JSON, their fractional numbers within 1e-12 of the
 /// larger of 1 and the golden's magnitude.
@@ -53,6 +54,12 @@ fn run(scenario: &str) -> World {
 /// The world of `scenario` at `until` (its own `until` if `None`), run by the binary.
 fn run_until(scenario: &str, until: Option<i64>) -> World {
     let name = until.map_or_else(|| scenario.to_owned(), |t| format!("{scenario}@{t}"));
+    run_in(&name, scenario, until)
+}
+
+/// The world of `scenario` at `until`, run by the binary into its own directory `name`
+/// (tests run in parallel, each needs a directory of its own).
+fn run_in(name: &str, scenario: &str, until: Option<i64>) -> World {
     let run = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("card")
         .join(name);
@@ -224,6 +231,27 @@ fn the_disease_lines_are_the_references() {
             let ours =
                 json!({"sim": n, "diseases_off": card.diseases_off, "diseases": card.diseases});
             assert_eq!(&ours, person, "{} sim {n}", snapshot["run"]);
+        }
+    }
+}
+
+/// The lines "übersprungen" (Grok G7, L8) of the town equal the reference's
+/// (`tests/golden/card_skipped.json`) exactly, and every other person of the town has none.
+#[test]
+fn the_skipped_lines_are_the_references() {
+    let world = run_in("skipped", "town.json", None);
+    let golden: Value = serde_json::from_str(SKIPPED).expect("JSON");
+    let golden = golden.as_array().expect("a list");
+    assert_eq!(golden.len(), 7);
+    let persons = world.pedigree().persons;
+    assert!(persons.len() > 200);
+    for person in persons {
+        let n = person.sim.get();
+        let card = world.genetics_card(person.sim).expect("a card");
+        let expected = golden.iter().find(|row| row["sim"].as_u64() == Some(n));
+        match expected {
+            Some(row) => assert_eq!(json!(card.skipped), row["skipped"], "sim {n}"),
+            None => assert!(card.skipped.is_empty(), "sim {n}"),
         }
     }
 }
