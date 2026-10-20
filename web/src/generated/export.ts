@@ -110,6 +110,15 @@ export type PersonAnswer = {
   readonly ended: "death" | "emigration" | null;
   readonly shown: Shown;
   readonly at_ages: Shown[];
+  readonly kinship?: Kinship;
+};
+
+/** With `?to={other}`: what the other sim is to the person, by the core; `word` and `foster` are codes of `tests/golden/log_codes.txt`. */
+export type Kinship = {
+  readonly to: number;
+  readonly word: string;
+  readonly foster: string | null;
+  readonly r_percent: number;
 };
 
 /** `GET /api/runs`: the runs of the server's directory in name order. */

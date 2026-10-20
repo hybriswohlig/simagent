@@ -5,6 +5,7 @@ import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import { kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
@@ -156,6 +157,53 @@ function PersonChronicle({ run, sim, names }: { run: string; sim: string; names:
   );
 }
 
+/** What another person of the run is to this one (ADR-0021 section 3): the core's kinship
+ * word, foster word and `r`, for a person chosen from the pedigree. Only the answer for the
+ * chosen person counts. */
+function KinForm({ run, sim, pedigree }: { run: string; sim: string; pedigree: Pedigree }) {
+  const [other, setOther] = useState("");
+  const key = `${run}/${sim}?to=${other}`;
+  const [loaded, setLoaded] = useState<Loaded<PersonAnswer>>({ state: "loading", key });
+  useEffect(() => {
+    if (other === "") {
+      return;
+    }
+    let live = true;
+    setLoaded({ state: "loading", key });
+    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 1 })
+      .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
+      .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  const shown = current(loaded, key);
+  const kinship = shown.state === "ready" ? shown.value.kinship : undefined;
+  const others = pedigree.persons.filter((person) => String(person.sim) !== sim);
+  return (
+    <>
+      <h2>{TEXT.kin_with}</h2>
+      <p>
+        <select aria-label={TEXT.kin_with} value={other} onChange={(event) => setOther(event.currentTarget.value)}>
+          <option value="">{TEXT.pair_with}</option>
+          {others.map((person) => (
+            <option key={person.sim} value={String(person.sim)}>
+              {fullName(person)}
+            </option>
+          ))}
+        </select>{" "}
+        {other === "" ? null : kinship !== undefined ? (
+          <span role="status">{kinshipText(kinship)}</span>
+        ) : shown.state === "failed" ? (
+          <span role="alert">{TEXT[shown.text]}</span>
+        ) : (
+          <span>{TEXT.loading}</span>
+        )}
+      </p>
+    </>
+  );
+}
+
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
 /** Pairing a living person in no partnership with one of the candidates of the other sex
@@ -256,6 +304,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <Name run={run} person={parent(person.father)} />
       </p>
       <TreeView run={run} glass={glass} />
+      <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} />
       <PairForm
         key={`${run}/${sim}`}
         run={run}

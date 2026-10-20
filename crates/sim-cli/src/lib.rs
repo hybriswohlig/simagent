@@ -212,10 +212,16 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
 }
 
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
-/// (ADR-0021 section 3), with the contract version of its body values; `None` for a sim
-/// the run does not know.
-pub fn person_answer(dir: &Path, sim: SimId) -> Result<Option<serde_json::Value>, CliError> {
-    let Some(view) = load_world(dir)?.person_view(sim) else {
+/// (ADR-0021 section 3), with the contract version of its body values, and with `to` what
+/// that sim is to the person (its kinship word, its foster word and `r` in percent, all
+/// from the core); `None` for a sim the run does not know.
+pub fn person_answer(
+    dir: &Path,
+    sim: SimId,
+    to: Option<SimId>,
+) -> Result<Option<serde_json::Value>, CliError> {
+    let world = load_world(dir)?;
+    let Some(view) = world.person_view(sim) else {
         return Ok(None);
     };
     let mut answer = serde_json::json!({
@@ -223,9 +229,22 @@ pub fn person_answer(dir: &Path, sim: SimId) -> Result<Option<serde_json::Value>
         "version": 1,
         "contract_version": sim_core::body_contract::CONTRACT_VERSION,
     });
-    let fields = serde_json::to_value(&view).map_err(|e| CliError::new("io", e.to_string()))?;
+    let json = |value: serde_json::Result<serde_json::Value>| {
+        value.map_err(|e| CliError::new("io", e.to_string()))
+    };
+    let fields = json(serde_json::to_value(&view))?;
     if let (Some(answer), Some(fields)) = (answer.as_object_mut(), fields.as_object()) {
         answer.extend(fields.clone());
+    }
+    if let Some(other) = to {
+        let Some(kin) = world.kin_view(sim, other) else {
+            return Ok(None);
+        };
+        let mut kinship = json(serde_json::to_value(kin))?;
+        if let Some(kinship) = kinship.as_object_mut() {
+            kinship.insert("to".into(), other.get().into());
+        }
+        answer["kinship"] = kinship;
     }
     Ok(Some(answer))
 }

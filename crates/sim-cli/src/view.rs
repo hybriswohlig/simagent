@@ -221,8 +221,8 @@ impl Server {
             return Response::error(404, "not_found");
         }
         match segments.as_slice() {
-            // A query belongs to the events alone.
-            ["api", "runs", _, "events"] => {}
+            // A query belongs to the events and the persons alone.
+            ["api", "runs", _, "events"] | ["api", "runs", _, "persons", _] => {}
             ["api", ..] if request.query.is_some() => return Response::error(400, "bad_query"),
             _ => {}
         }
@@ -231,7 +231,10 @@ impl Server {
             ["api", "runs"] => self.runs(),
             ["api", "runs", run] => self.manifest(run),
             ["api", "runs", run, "pedigree"] => self.read(run, |dir| self.pedigree(dir)),
-            ["api", "runs", run, "persons", sim] => self.read(run, |dir| person(dir, sim)),
+            ["api", "runs", run, "persons", sim] => match person_query(request.query.as_deref()) {
+                Some(to) => self.read(run, |dir| person(dir, sim, to)),
+                None => Response::error(400, "bad_query"),
+            },
             ["api", "runs", run, "census"] => self.read(run, census),
             ["api", "runs", run, "events"] => {
                 let query = request.query.as_deref().unwrap_or("");
@@ -562,18 +565,39 @@ fn take_input(open: &mut Open, input: Input) -> Result<Response, CliError> {
     Ok(Response::new(200, JSON, format!("{body}\n").into_bytes()))
 }
 
-/// `GET /api/runs/{run}/persons/{sim}`: the presentation state of the core for one person.
-fn person(dir: &Path, sim: &str) -> Response {
-    let id = sim
-        .parse::<u64>()
-        .ok()
-        .filter(|_| !sim.starts_with('0') && !sim.starts_with('+'));
-    let Some(id) = id.and_then(|n| sim_core::ids::SimId::try_from(n).ok()) else {
-        return Response::error(404, "unknown_sim");
+/// The query of the person route: none, or exactly `to=` and digits (the second sim, still
+/// as text); anything else is `None`.
+fn person_query(query: Option<&str>) -> Option<Option<&str>> {
+    match query {
+        None => Some(None),
+        Some(query) => (query.strip_prefix("to="))
+            .filter(|to| !to.is_empty() && to.bytes().all(|b| b.is_ascii_digit()))
+            .map(Some),
+    }
+}
+
+/// A sim of a path or a query: decimal, without a leading zero or sign; `None` otherwise.
+fn sim_of(text: &str) -> Option<sim_core::ids::SimId> {
+    (text.parse::<u64>().ok())
+        .filter(|_| !text.starts_with('0') && !text.starts_with('+'))
+        .and_then(|n| sim_core::ids::SimId::try_from(n).ok())
+}
+
+/// `GET /api/runs/{run}/persons/{sim}`: the presentation state of the core for one person,
+/// with `?to=` also what the second sim is to it.
+fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
+    let unknown = || Response::error(404, "unknown_sim");
+    let Some(id) = sim_of(sim) else {
+        return unknown();
     };
-    match crate::person_answer(dir, id) {
+    let other = match to.map(sim_of) {
+        None => None,
+        Some(Some(other)) => Some(other),
+        Some(None) => return unknown(),
+    };
+    match crate::person_answer(dir, id, other) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
-        Ok(None) => Response::error(404, "unknown_sim"),
+        Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),
     }
 }

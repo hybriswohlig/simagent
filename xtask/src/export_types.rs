@@ -206,6 +206,17 @@ pub fn descriptor() -> Vec<Named> {
                 field("ended", nullable(Kind::Literal(&["death", "emigration"]))),
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
+                optional("kinship", Ref("Kinship")),
+            ],
+        },
+        Named {
+            name: "Kinship",
+            doc: "With `?to={other}`: what the other sim is to the person, by the core; `word` and `foster` are codes of `tests/golden/log_codes.txt`.",
+            fields: vec![
+                field("to", Integer),
+                field("word", Text),
+                field("foster", nullable(Text)),
+                field("r_percent", Number),
             ],
         },
         Named {
