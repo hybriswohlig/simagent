@@ -59,6 +59,8 @@ export const TEXT = {
   chronicle: "Chronik",
   pair: "Paar stiften",
   pair_with: "Mit wem?",
+  kin_with: "Verwandtschaft mit",
+  percent: "Prozent",
   paired: "Das Paar ist gestiftet.",
   chronicle_failed: "Ein Teil der Chronik konnte nicht geladen werden.",
   retry: "Erneut laden",
