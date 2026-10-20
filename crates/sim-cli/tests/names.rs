@@ -190,4 +190,43 @@ fn a_fork_names_as_its_parent() {
     for k in shared {
         assert_eq!(ours[k], theirs[k], "{k:?}");
     }
+    // And the names the exports write, by lineage key.
+    let exported = |dir: &Path| -> BTreeMap<String, (String, String)> {
+        simagent(&["export".as_ref(), dir.as_os_str()]);
+        let text = std::fs::read_to_string(dir.join("pedigree.json")).expect("the export");
+        let export: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(export["format_version"], 5);
+        (export["persons"].as_array().expect("persons").iter())
+            .map(|p| {
+                let text = |key: &str| p[key].as_str().expect("a text").to_owned();
+                (text("lineage_key"), (text("first_name"), text("surname")))
+            })
+            .collect()
+    };
+    let (ours, theirs) = (exported(&parent), exported(&fork));
+    let shared: Vec<_> = ours.keys().filter(|k| theirs.contains_key(*k)).collect();
+    assert!(shared.len() > 100, "{}", shared.len());
+    for k in shared {
+        assert_eq!(ours[k], theirs[k], "{k}");
+    }
+}
+
+/// The lists of names (`data/names`): none empty, each name once, no blank, no space at an
+/// end and no control character in a name.
+#[test]
+fn the_name_lists_are_clean() {
+    for list in ["female", "male", "surnames"] {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../data/names/{list}.json"));
+        let names: Vec<String> =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("a list");
+        assert!(names.len() >= 100, "{list}: {}", names.len());
+        let unique: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "{list}: a name twice");
+        for name in &names {
+            assert!(!name.is_empty() && name.trim() == name, "{list}: {name:?}");
+            assert!(!name.chars().any(char::is_control), "{list}: {name:?}");
+        }
+    }
+    assert!(sim_cli::names::NameLists::load().is_ok());
 }

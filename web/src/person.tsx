@@ -6,6 +6,7 @@ import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { Chronicle } from "./lines.js";
+import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
 import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
 import { inputFailureText } from "./refusals.js";
@@ -16,7 +17,7 @@ import { TEXT } from "./text.js";
 import { hourglass, type Hourglass } from "./tree.js";
 
 /** The format of `pedigree.json` this viewer reads (`simagent export`). */
-const PEDIGREE_FORMAT = 4;
+const PEDIGREE_FORMAT = 5;
 
 /** The pedigree of a run from the server, checked for its format; only an answer for this
  * run (and this `at`, which asks again when the run moved on) counts. */
@@ -85,7 +86,7 @@ export function personHref(run: string, sim: number): string {
 }
 
 function Name({ run, person }: { run: string; person: Person | undefined }) {
-  return person === undefined ? <span>{TEXT.unknown}</span> : <a href={personHref(run, person.sim)}>{person.sim}</a>;
+  return person === undefined ? <span>{TEXT.unknown}</span> : <a href={personHref(run, person.sim)}>{fullName(person)}</a>;
 }
 
 /** The hourglass as a drawing; each person a link that centres the tree on them (P11). */
@@ -106,7 +107,7 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           key={node.person.sim}
           href={personHref(run, node.person.sim)}
           data-sim={node.person.sim}
-          aria-label={`${TEXT.person} ${node.person.sim}`}
+          aria-label={fullName(node.person)}
         >
           <circle
             cx={node.x}
@@ -119,6 +120,9 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
             {node.person.sim}
           </text>
+          <text x={node.x} y={node.y} dy="32" text-anchor="middle" font-size="11">
+            {node.person.first_name}
+          </text>
         </a>
       ))}
     </svg>
@@ -126,7 +130,7 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
 }
 
 /** The chronicle of one person: the entries of the log about them, newest first. */
-function PersonChronicle({ run, sim }: { run: string; sim: string }) {
+function PersonChronicle({ run, sim, names }: { run: string; sim: string; names: ReadonlyMap<number, string> }) {
   const [retries, setRetries] = useState(0);
   const key = `${run}/${sim}/${retries}`;
   const [loaded, setLoaded] = useState<Loaded<readonly EventItem[]>>({ state: "loading", key });
@@ -145,6 +149,7 @@ function PersonChronicle({ run, sim }: { run: string; sim: string }) {
     <Chronicle
       run={run}
       items={shown.state === "ready" ? shown.value : []}
+      names={names}
       failed={shown.state === "failed" ? TEXT[shown.text] : null}
       retry={() => setRetries((n) => n + 1)}
     />
@@ -188,7 +193,9 @@ function PairForm({ run, pedigree, person, paired }: { run: string; pedigree: Pe
         <select aria-label={TEXT.pair_with} value={chosen} onChange={(event) => setChosen(event.currentTarget.value)}>
           <option value="">{TEXT.pair_with}</option>
           {options.map((candidate) => (
-            <option key={candidate.sim} value={String(candidate.sim)}>{`${TEXT.person} ${candidate.sim}`}</option>
+            <option key={candidate.sim} value={String(candidate.sim)}>
+              {fullName(candidate)}
+            </option>
           ))}
         </select>{" "}
         <button type="button" disabled={input === null || pairing.state === "busy"} onClick={send}>
@@ -228,14 +235,14 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
   return (
     <section>
-      <h1>{`${TEXT.person} ${person.sim}`}</h1>
+      <h1>{fullName(person)}</h1>
       {reloadFailed}
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
       {view.state === "ready" && !readable(view.value.contract_version) ? (
         <p>{TEXT.failed_contract}</p>
       ) : view.state === "ready" ? (
         <div>
-          <Portrait params={view.value.shown.body} label={`${TEXT.person} ${person.sim}`} />
+          <Portrait params={view.value.shown.body} label={fullName(person)} />
           <Life view={view.value} />
           <Ages shown={view.value.at_ages} />
         </div>
@@ -256,7 +263,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         person={person}
         paired={() => setChanged((n) => n + 1)}
       />
-      <PersonChronicle key={changed} run={run} sim={sim} />
+      <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />
     </section>
   );
 }

@@ -520,8 +520,9 @@ fn measure_prints_the_measurement() {
 /// The pedigree (HANDOFF §9 steps 5 and 10): `simagent export` writes every person of a
 /// run with its biological and social parents, its birth and death, household, carer and
 /// hereditary diseases, every partnership with its end and kinship, and every household
-/// into `pedigree.json`. The dummy scenario after thirty years: the golden
-/// `tests/golden/dummy_pedigree.json` from tools/golden_reference.py.
+/// into `pedigree.json`, each person with its first name and surname (ADR-0021 section 3).
+/// The dummy scenario after thirty years: the golden `tests/golden/dummy_export.json` from
+/// tools/golden_reference.py (its pedigree is `dummy_pedigree.json`, the core's).
 #[test]
 fn export_writes_the_pedigree() {
     let dir = scratch("export");
@@ -534,7 +535,7 @@ fn export_writes_the_pedigree() {
         .collect();
     must(&["export", arg(&run)]);
     let expected =
-        text(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden/dummy_pedigree.json"));
+        text(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden/dummy_export.json"));
     assert_eq!(text(&run.join("pedigree.json")), expected);
     // The run itself stays as it was.
     let after: Vec<Vec<u8>> = FILES

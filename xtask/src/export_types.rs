@@ -81,7 +81,7 @@ pub fn descriptor() -> Vec<Named> {
     vec![
         Named {
             name: "Pedigree",
-            doc: "`pedigree.json` of a run, as `simagent export` writes it.",
+            doc: "`pedigree.json` of a run, as `simagent export` writes it (format 5, with names).",
             fields: vec![
                 field("format_version", Integer),
                 field("persons", list(Ref("Person"))),
@@ -109,6 +109,8 @@ pub fn descriptor() -> Vec<Named> {
                 field("carer", nullable(Integer)),
                 field("diseases", list(Ref("Disease"))),
                 field("pool", nullable(Ref("FromPool"))),
+                field("first_name", Text),
+                field("surname", Text),
             ],
         },
         Named {

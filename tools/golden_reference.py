@@ -39,6 +39,7 @@ import json
 import sys
 from pathlib import Path
 
+import rng_reference as rng
 import world_reference as wr
 from postcard_reference import FEMALE, MALE
 from world_reference import MONTH, YEAR, hash64
@@ -51,6 +52,11 @@ DAY = 86_400
 FORK_YEAR = 5
 SAVE_AT = 3 * YEAR + 100 * DAY
 DUMMY_FILES = ("dummy.json", "dummy_fork.json", "dummy.save", "dummy_pedigree.json", "dummy_fork_pedigree.json")
+# The export of the run with names (`simagent export`, format 5); not one of the story's files.
+EXPORT_FILE = "dummy_export.json"
+NAMES = ROOT / "data" / "names"
+# The purpose tags of the names (crates/sim-core/src/rng/tags.rs, ADR-0021 section 3).
+FIRST_NAME, SURNAME = 29, 30
 TOWN_FILE = "town.json"
 # The kinds of ADR-0003 6.3: event kinds 1 (year_end) to 10 (immigration), log payloads 0
 # (core:started) to 13 (core:arrived), as tests/golden/event_codes.txt and log_codes.txt
@@ -139,6 +145,36 @@ def dummy_worlds(s: dict, data: wr.Data) -> dict:
     return {"run": run, "fork": fork, "saved": saved}
 
 
+def export_json(world: wr.World) -> str:
+    """`pedigree.json` as `simagent export` writes it, format 5 (ADR-0021 section 3): the
+    core's pedigree with `first_name` and `surname` last in each person. The first name is
+    the list of the person's sex at `uniform_below` of the first word of the draw (seed,
+    FIRST_NAME, its lineage key, 0 female or 1 male, 0); the surname the list of surnames at
+    the draw (seed, SURNAME, root, 0, 0), the root being the first person without a father up
+    the chain of fathers in the run (a run without a pool here)."""
+    view = world.pedigree_view()
+    lists = {name: json.loads((NAMES / f"{name}.json").read_text()) for name in ("female", "male", "surnames")}
+    persons = {person["sim"]: person for person in view["persons"]}
+
+    def root(person: dict) -> int:
+        while person["father"] is not None:
+            person = persons[person["father"]]
+        assert person["pool"] is None, person["sim"]
+        return int(person["lineage_key"], 16)
+
+    def pick(names: list, tag: int, subject: int, occasion: int) -> str:
+        word = rng.words(rng.chacha_key(world.seed, tag, subject, occasion, 0))[0]
+        return names[rng.uniform_below(word, len(names))]
+
+    for person in view["persons"]:
+        female = person["sex"] == "female"
+        first = pick(lists["female" if female else "male"], FIRST_NAME, int(person["lineage_key"], 16), 0 if female else 1)
+        person["first_name"] = first
+        person["surname"] = pick(lists["surnames"], SURNAME, root(person), 0)
+    view["format_version"] = 5
+    return wr.json_text(view)
+
+
 def dummy_files(w: dict) -> dict:
     return {
         "dummy.json": golden_text(w["run"]).encode(),
@@ -146,6 +182,7 @@ def dummy_files(w: dict) -> dict:
         "dummy.save": w["saved"].save(),
         "dummy_pedigree.json": (w["run"].pedigree_json() + "\n").encode(),
         "dummy_fork_pedigree.json": (w["fork"].pedigree_json() + "\n").encode(),
+        EXPORT_FILE: (export_json(w["run"]) + "\n").encode(),
     }
 
 
@@ -273,7 +310,7 @@ def pin_rows(label: str, files: dict) -> list:
     rows = []
     for name, content in files.items():
         extra = ""
-        if name.endswith(".json") and "pedigree" not in name:
+        if name.endswith(".json") and "pedigree" not in name and "export" not in name:
             golden = json.loads(content)
             extra = (
                 f" core_version {golden['core_version']} data_hash {golden['data_hash']} log_hash {golden['log_hash']}"

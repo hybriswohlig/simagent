@@ -13,13 +13,13 @@ fn person() -> Value {
         "mother": null, "father": null, "social_parents": [], "household": 1,
         "moved_out": false, "carer": null,
         "diseases": [{"disease": "core:disease_ar", "onset": 0.5, "affected": false}],
-        "pool": null
+        "pool": null, "first_name": "Anna", "surname": "Wolf"
     })
 }
 
 fn pedigree(persons: Vec<Value>) -> Value {
     json!({
-        "format_version": 4,
+        "format_version": 5,
         "persons": persons,
         "partnerships": [{"partnership": 1, "woman": 1, "man": 2, "formed": 0, "ended": null, "ended_by": null, "kinship": 0.0}],
         "households": [{"household": 1, "formed": 0, "ended": null}]

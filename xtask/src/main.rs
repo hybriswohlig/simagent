@@ -535,6 +535,16 @@ fn accepted_pair(
 /// The most pairs the export gate step sends before it gives up on an accepted input.
 const PAIRS_TRIED: usize = 100;
 
+/// The form of the export the web reads (`pedigree.json` with names, ADR-0021 section 3).
+const EXPORT_FORMAT: u64 = 5;
+
+/// Why an export is not of the form the web reads, if it is not.
+fn export_format_finding(pedigree: &serde_json::Value) -> Option<String> {
+    let found = &pedigree["format_version"];
+    (found.as_u64() != Some(EXPORT_FORMAT))
+        .then(|| format!("the export has format_version {found}, the web reads {EXPORT_FORMAT}"))
+}
+
 /// The longest the gate waits for the server to start or to answer.
 const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -596,6 +606,7 @@ fn check_export_types(root: &Path) -> Result {
         }
     }
     let pedigree = json(&town.join("pedigree.json"))?;
+    found.extend(export_format_finding(&pedigree));
     let contract: serde_json::Value = serde_json::from_str(&read(&root.join(BODY_FILE))?)
         .map_err(|e| format!("{BODY_FILE}: {e}"))?;
     let keys: Vec<String> = (contract["parameters"].as_array().into_iter().flatten())
@@ -1328,6 +1339,22 @@ mod tests {
     /// The pre-push hook runs these tests with `GIT_DIR` of the pushing repository in the
     /// environment. A git command that inherits it works on that repository instead of
     /// the one in its directory (it happened: `git init` of a test set `core.bare` there).
+    /// The export gate takes only the form the web reads.
+    #[test]
+    fn only_the_export_format_the_web_reads_passes() {
+        assert_eq!(
+            export_format_finding(&serde_json::json!({"format_version": 5})),
+            None
+        );
+        for other in [
+            serde_json::json!({"format_version": 4}),
+            serde_json::json!({}),
+            serde_json::json!({"format_version": "5"}),
+        ] {
+            assert!(export_format_finding(&other).is_some(), "{other}");
+        }
+    }
+
     #[test]
     fn git_finds_the_repository_by_the_directory_alone() {
         let root = workspace_root().expect("the workspace root");

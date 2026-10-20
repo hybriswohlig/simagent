@@ -10,7 +10,7 @@ export function dateText(date: CalendarDate): string {
 
 /** A line of the chronicle: its date and the template of its code with the persons it is
  * about, each a link to their page. */
-function ChronicleLine({ run, item }: { run: string; item: EventItem }) {
+function ChronicleLine({ run, item, names }: { run: string; item: EventItem; names: ReadonlyMap<number, string> }) {
   const template = CODES[`payload ${payloadCode(item) ?? ""}`] ?? "";
   const sims = item.entry.subjects.map((subject) => subject.sim);
   return (
@@ -19,7 +19,7 @@ function ChronicleLine({ run, item }: { run: string; item: EventItem }) {
       {segments(template, sims, ` ${TEXT.and} `, ", ").map((segment, i) =>
         typeof segment === "number" ? (
           <a key={i} href={format({ page: "person", run, sim: String(segment) })}>
-            {`${TEXT.person} ${segment}`}
+            {names.get(segment) ?? `${TEXT.person} ${segment}`}
           </a>
         ) : (
           (segment ?? TEXT.unknown)
@@ -36,11 +36,13 @@ export function Chronicle({
   items,
   failed,
   retry,
+  names,
 }: {
   run: string;
   items: readonly EventItem[];
   failed: string | null;
   retry: () => void;
+  names: ReadonlyMap<number, string>;
 }) {
   return (
     <>
@@ -55,7 +57,7 @@ export function Chronicle({
       )}
       <ol>
         {items.map((item) => (
-          <ChronicleLine key={item.entry.id} run={run} item={item} />
+          <ChronicleLine key={item.entry.id} run={run} item={item} names={names} />
         ))}
       </ol>
     </>

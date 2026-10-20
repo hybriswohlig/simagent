@@ -6,6 +6,7 @@ pub mod data;
 pub mod error;
 pub mod files;
 pub mod lock;
+pub mod names;
 pub mod repro;
 pub mod session;
 pub mod view;
@@ -193,9 +194,13 @@ fn export_run(dir: &Path) -> Result<(), CliError> {
 }
 
 /// The pedigree of the run in `dir` as `simagent export` writes it and `simagent view`
-/// sends it: the core's view of the state in its save, one line of JSON.
+/// sends it: the core's view of the state in its save with each person's names (ADR-0021
+/// section 3), one line of JSON.
 pub fn pedigree_text(dir: &Path) -> Result<String, CliError> {
-    Ok(files::json(&load_world(dir)?.pedigree()) + "\n")
+    let world = load_world(dir)?;
+    let pedigree = world.pedigree();
+    let lists = names::NameLists::load()?;
+    Ok(files::json(&names::export(&world, &pedigree, &lists)?) + "\n")
 }
 
 /// The world of the run in `dir`, from its save.
