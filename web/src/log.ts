@@ -18,16 +18,18 @@ export async function readLog(run: string, filter: string): Promise<EventItem[]>
 }
 
 /**
- * The log of a run page window by window: each call reads from the second the last read that
- * came through ended at (at first `start`) and then ends at `until`. Reads go one after
- * another; a failed one moves nothing, so its window is read again with the next.
+ * The log of a run page window by window: each call reads the entries from the second the
+ * last read that came through ended at (at first `start`) up to `until`, its own end, and
+ * then ends there. Reads go one after another; a failed one moves nothing, so its window is
+ * read again with the next. An entry at a shared end comes in both; the chronicle keeps it
+ * once.
  */
 export function windows(run: string, start: number): (until: number) => Promise<EventItem[]> {
   let from = start;
   let queue: Promise<unknown> = Promise.resolve();
   return (until: number) => {
     const read = queue.then(async () => {
-      const items = await readLog(run, `from=${from}`);
+      const items = await readLog(run, `from=${from}&to=${until}`);
       from = until;
       return items;
     });

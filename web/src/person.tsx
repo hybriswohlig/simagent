@@ -125,7 +125,8 @@ function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
 
 /** The chronicle of one person: the entries of the log about them, newest first. */
 function PersonChronicle({ run, sim }: { run: string; sim: string }) {
-  const key = `${run}/${sim}`;
+  const [retries, setRetries] = useState(0);
+  const key = `${run}/${sim}/${retries}`;
   const [loaded, setLoaded] = useState<Loaded<readonly EventItem[]>>({ state: "loading", key });
   useEffect(() => {
     let live = true;
@@ -138,7 +139,14 @@ function PersonChronicle({ run, sim }: { run: string; sim: string }) {
     };
   }, [key]);
   const shown = current(loaded, key);
-  return <Chronicle run={run} items={shown.state === "ready" ? shown.value : []} failed={shown.state === "failed"} />;
+  return (
+    <Chronicle
+      run={run}
+      items={shown.state === "ready" ? shown.value : []}
+      failed={shown.state === "failed" ? TEXT[shown.text] : null}
+      retry={() => setRetries((n) => n + 1)}
+    />
+  );
 }
 
 /** A person of a run: who they are related to, the tree around them, and their chronicle. */

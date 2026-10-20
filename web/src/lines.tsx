@@ -29,12 +29,30 @@ function ChronicleLine({ run, item }: { run: string; item: EventItem }) {
   );
 }
 
-/** A chronicle: its lines, newest first, and a note if a part of the log could not be read. */
-export function Chronicle({ run, items, failed }: { run: string; items: readonly EventItem[]; failed: boolean }) {
+/** A chronicle: its lines, newest first, and why a part of the log could not be read, with a
+ * way to read it again. */
+export function Chronicle({
+  run,
+  items,
+  failed,
+  retry,
+}: {
+  run: string;
+  items: readonly EventItem[];
+  failed: string | null;
+  retry: () => void;
+}) {
   return (
     <>
       <h2>{TEXT.chronicle}</h2>
-      {failed ? <p role="alert">{TEXT.chronicle_failed}</p> : null}
+      {failed === null ? null : (
+        <p role="alert">
+          {failed}{" "}
+          <button type="button" onClick={retry}>
+            {TEXT.retry}
+          </button>
+        </p>
+      )}
       <ol>
         {items.map((item) => (
           <ChronicleLine key={item.entry.id} run={run} item={item} />

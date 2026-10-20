@@ -37,6 +37,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
   const [chronicleFailed, setChronicleFailed] = useState(false);
+  const [retries, setRetries] = useState(0);
   const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
@@ -75,7 +76,8 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
-  // After each step, the log from the last stop that was read on.
+  // After each step (and when asked again after a failure), the log from the last stop that
+  // was read on.
   useEffect(() => {
     read
       .current(clock.closed)
@@ -86,7 +88,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         }
       })
       .catch(() => live.current && setChronicleFailed(true));
-  }, [clock.closed]);
+  }, [clock.closed, retries]);
   // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
   useEffect(() => {
@@ -123,7 +125,12 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         )}
       </p>
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
-      <Chronicle run={run} items={chronicle} failed={chronicleFailed} />
+      <Chronicle
+        run={run}
+        items={chronicle}
+        failed={chronicleFailed ? TEXT.chronicle_failed : null}
+        retry={() => setRetries((n) => n + 1)}
+      />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
       <ul>

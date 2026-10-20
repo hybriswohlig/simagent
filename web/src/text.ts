@@ -51,7 +51,8 @@ export const TEXT = {
   refused_version: "Der Server sendet Daten in einer Form, die diese Ansicht nicht kennt.",
   run_no_manifest: "Dieser Lauf hat kein lesbares Manifest.",
   chronicle: "Chronik",
-  chronicle_failed: "Ein Teil der Chronik konnte nicht geladen werden; der nächste Schritt versucht es erneut.",
+  chronicle_failed: "Ein Teil der Chronik konnte nicht geladen werden.",
+  retry: "Erneut laden",
   and: "und",
 } as const;
 
