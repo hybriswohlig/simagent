@@ -349,7 +349,10 @@ fn gate(require_clean_tree: bool) -> Result {
 const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 
 /// The answers of `simagent view` (the release binary) over the runs in `out`: the person
-/// answer of a living, a dead and an emigrated person of the town.
+/// answer of a living, a dead and an emigrated person of the town; a step of the town's
+/// clock, a rejected input (an error with the core's reason), a fork that does not open (an
+/// extra line in its events: an error without one), and then the run list with the town
+/// (manifest and date), the failed fork and a directory whose manifest is broken.
 fn server_answers(
     root: &Path,
     out: &Path,
@@ -389,14 +392,27 @@ fn server_answers(
         .strip_prefix("http://127.0.0.1:")
         .and_then(|rest| rest.strip_suffix('/'))
         .and_then(|port| port.parse::<u16>().ok());
-    let get = |port: u16, path: &str| -> Result<serde_json::Value> {
+    // The answer to a request, if its status is `status`; a write as the server's own page
+    // sends it.
+    let ask = |port: u16,
+               path: &str,
+               body: Option<&str>,
+               status: u16|
+     -> Result<serde_json::Value> {
         let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
             .map_err(|e| format!("the server: {e}"))?;
         stream
             .set_read_timeout(Some(SERVER_TIME))
             .and_then(|()| stream.set_write_timeout(Some(SERVER_TIME)))
             .map_err(|e| format!("the server: {e}"))?;
-        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        let host = format!("127.0.0.1:{port}");
+        let request = match body {
+            None => format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"),
+            Some(body) => format!(
+                "POST {path} HTTP/1.1\r\nHost: {host}\r\nOrigin: http://{host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        };
         stream
             .write_all(request.as_bytes())
             .map_err(|e| format!("the server: {e}"))?;
@@ -406,14 +422,15 @@ fn server_answers(
             .map_err(|e| format!("the server: {e}"))?;
         let end = (answer.windows(4).position(|w| w == b"\r\n\r\n"))
             .ok_or(format!("{path}: no answer"))?;
-        if !answer.starts_with(b"HTTP/1.1 200 ") {
+        if !answer.starts_with(format!("HTTP/1.1 {status} ").as_bytes()) {
             return Err(format!(
-                "{path}: {}",
+                "{path}: not {status}: {}",
                 String::from_utf8_lossy(&answer[..end])
             ));
         }
         serde_json::from_slice(&answer[end + 4..]).map_err(|e| format!("{path}: {e}"))
     };
+    let get = |port: u16, path: &str| ask(port, path, None, 200);
     let persons = pedigree["persons"]
         .as_array()
         .map(Vec::as_slice)
@@ -424,23 +441,43 @@ fn server_answers(
         first(&|p| !p["died"].is_null()),
         first(&|p| !p["emigrated"].is_null()),
     ];
-    let answers = match port {
-        None => Err(format!("the server printed no address: {line:?}")),
-        Some(port) => chosen
-            .iter()
-            .map(|person| {
-                let sim = person
-                    .and_then(|p| p["sim"].as_u64())
-                    .ok_or("the town lacks a person")?;
-                Ok((
-                    "PersonAnswer",
-                    get(port, &format!("/api/runs/town/persons/{sim}"))?,
-                ))
-            })
-            .collect(),
+    let Some(port) = port else {
+        return Err(format!("the server printed no address: {line:?}"));
     };
+    let mut answers = Vec::new();
+    for person in chosen {
+        let sim = person
+            .and_then(|p| p["sim"].as_u64())
+            .ok_or("the town lacks a person")?;
+        let path = format!("/api/runs/town/persons/{sim}");
+        answers.push(("PersonAnswer", get(port, &path)?));
+    }
+    let step = Some(r#"{"step":"days28"}"#);
+    answers.push((
+        "AdvanceAnswer",
+        ask(port, "/api/runs/town/advance", step, 200)?,
+    ));
+    let same = r#"{"arrange_partnership":{"woman":1,"man":1}}"#;
+    answers.push((
+        "ErrorAnswer",
+        ask(port, "/api/runs/town/input", Some(same), 409)?,
+    ));
+    let events = out.join("fork").join("events.ndjson");
+    let text = read(&events)?;
+    let last = text.lines().last().ok_or("the fork has no events")?;
+    std::fs::write(&events, format!("{text}{last}\n"))
+        .map_err(|e| format!("{}: {e}", events.display()))?;
+    answers.push((
+        "ErrorAnswer",
+        ask(port, "/api/runs/fork/advance", step, 500)?,
+    ));
+    let broken = out.join("broken");
+    std::fs::create_dir_all(&broken).map_err(|e| format!("{}: {e}", broken.display()))?;
+    std::fs::write(broken.join("manifest.json"), "{")
+        .map_err(|e| format!("{}: {e}", broken.display()))?;
+    answers.push(("RunsAnswer", get(port, "/api/runs")?));
     drop(server);
-    answers
+    Ok(answers)
 }
 
 /// The longest the gate waits for the server to start or to answer.
