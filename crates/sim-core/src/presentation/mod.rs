@@ -6,6 +6,7 @@
 
 pub mod kin;
 pub mod names;
+pub mod partners;
 
 use alloc::vec::Vec;
 
