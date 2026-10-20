@@ -4406,8 +4406,9 @@ def struct_bits(value: float) -> str:
 def json_text(value) -> str:
     """Compact JSON as serde_json's `to_string` writes it: no spaces, the keys of an object
     in the order given, integers as integers, f64 by `json_number`, `null`, `true`,
-    `false`; strings here are data IDs, hex digits and names (printable ASCII, no quote or
-    backslash, so no escapes)."""
+    `false`; strings here are data IDs, hex digits and names (printable ASCII or beyond
+    ASCII, as serde_json writes them unescaped; no quote, backslash or control character,
+    so no escapes)."""
     if value is None:
         return "null"
     if value is True:
@@ -4420,7 +4421,7 @@ def json_text(value) -> str:
     if isinstance(value, float):
         return json_number(value)
     if isinstance(value, str):
-        assert all(" " <= char <= "~" and char not in '"\\' for char in value), value
+        assert all((" " <= char <= "~" or ord(char) > 0x9F) and char not in '"\\' for char in value), value
         return f'"{value}"'
     if isinstance(value, list):
         return "[" + ",".join(json_text(item) for item in value) + "]"
