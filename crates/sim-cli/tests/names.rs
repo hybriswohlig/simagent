@@ -13,7 +13,6 @@ use sim_core::input::Input;
 use sim_core::lineage::LineageKey;
 use sim_core::presentation::names::{first_name_index, surname_index};
 use sim_core::rng::WorldSeed;
-use sim_core::time::SimTime;
 use sim_core::world::{World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/export_coverage.json");
@@ -27,9 +26,9 @@ fn a_pool_fathers_fathers_give_the_root() {
     world
         .submit(Input::Start(scenario.start))
         .expect("accepted");
-    // Twenty years: enough for arrivals, births in the town and their children.
-    let twenty = SimTime::from_secs(20 * 31_449_600 - 1).min(until);
-    world.advance_until(&mut YearOut::default(), twenty, &mut |_| false);
+    // The whole scenario: its sixty years show each case (one child of a pool pregnancy is
+    // born in the town).
+    world.advance_until(&mut YearOut::default(), until, &mut |_| false);
     let records = world.data().pool().expect("the pool");
     let pool_root = |mut key: LineageKey| {
         let mut steps = 0;
@@ -39,24 +38,42 @@ fn a_pool_fathers_fathers_give_the_root() {
         }
         (key, steps)
     };
-    let (mut by_father, mut deep) = (0, 0);
-    for person in world.pedigree().persons {
+    let pedigree = world.pedigree();
+    let from_pool = |sim| {
+        (pedigree.persons.iter())
+            .find(|p| p.sim == sim)
+            .and_then(|p| p.pool.as_ref())
+            .is_some()
+    };
+    // Each case of the definition, counted: a child of the town whose father came from the
+    // pool (mixed parentage), a child of a pool pregnancy born in the town, a pool person whose
+    // pool father has fathers among the records.
+    let (mut mixed, mut imported, mut deep) = (0, 0, 0);
+    for person in &pedigree.persons {
         let root = world.name_root(person.sim).expect("a root");
         let pool_father = person.pool.as_ref().and_then(|pool| pool.father_key);
         match (person.father, pool_father) {
             (Some(father), _) => {
                 assert_eq!(Some(root), world.name_root(father), "{:?}", person.sim);
-                by_father += 1;
+                mixed += usize::from(from_pool(father));
             }
             (None, Some(key)) => {
                 let (expected, steps) = pool_root(key);
                 assert_eq!(root, expected, "{:?}", person.sim);
+                let born_here = person
+                    .pool
+                    .as_ref()
+                    .is_some_and(|pool| pool.born_pool.is_none());
+                imported += usize::from(born_here);
                 deep += usize::from(steps > 0);
             }
             (None, None) => assert_eq!(root, person.lineage_key, "{:?}", person.sim),
         }
     }
-    assert!(by_father > 0 && deep > 0, "{by_father} {deep}");
+    assert!(
+        mixed > 0 && imported > 0 && deep > 0,
+        "{mixed} {imported} {deep}"
+    );
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -92,7 +109,7 @@ fn key(hex: &str) -> LineageKey {
 
 /// The dummy run (`tests/golden/dummy_pedigree.json`, from the Python reference): the root of
 /// each person's chain, read off that pedigree by hand. Founders are their own roots; the
-/// children of sim 6 (who died) and of sim 2 and sim 4 (who live) have their fathers'.
+/// children of sim 6 (who emigrated) and of sim 2 and sim 4 (who live) have their fathers'.
 #[test]
 fn the_dummy_runs_roots_by_hand() {
     let base = scratch("dummy");
