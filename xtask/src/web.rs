@@ -66,7 +66,8 @@ pub fn node_major(printed: &str, nvmrc: &str) -> Result {
     }
 }
 
-/// The ways a page reaches the network; only [`API`] may use them (its `getJson`).
+/// The ways a page reaches the network; only [`API`] may use them (its `getJson` and
+/// `postJson`).
 const NETWORK: [&str; 6] = [
     "fetch",
     "XMLHttpRequest",

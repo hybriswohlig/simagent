@@ -71,7 +71,8 @@ fn nullable(kind: Kind) -> Kind {
     Kind::Nullable(Box::new(kind))
 }
 
-/// The shapes of the pedigree (`simagent export`, format 4) and the manifest (format 5).
+/// The shapes of the pedigree (`simagent export`, format 4), the manifest (format 5) and the
+/// answers of the server.
 pub fn descriptor() -> Vec<Named> {
     use Kind::{Bool, Integer, Number, Ref, Text};
     vec![
@@ -200,6 +201,59 @@ pub fn descriptor() -> Vec<Named> {
                 field("ended", nullable(Kind::Literal(&["death", "emigration"]))),
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
+            ],
+        },
+        Named {
+            name: "RunsAnswer",
+            doc: "`GET /api/runs`: the runs of the server's directory in name order.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.runs"])),
+                field("version", Integer),
+                field("runs", list(Ref("RunEntry"))),
+            ],
+        },
+        Named {
+            name: "RunEntry",
+            doc: "A run of the list: its manifest and the date of its last closed second, or why not.",
+            fields: vec![
+                field("run", Text),
+                optional("manifest", Ref("Manifest")),
+                optional("date", Ref("CalendarDate")),
+                optional("error", Kind::Literal(&["manifest_invalid", "run_failed"])),
+            ],
+        },
+        Named {
+            name: "CalendarDate",
+            doc: "The core's calendar date of a second: every unit counted from 0, named by `web/`.",
+            fields: vec![
+                field("year", Integer),
+                field("day_of_year", Integer),
+                field("month", Integer),
+                field("day_of_month", Integer),
+                field("week", Integer),
+                field("weekday", Integer),
+                field("season", Integer),
+                field("second_of_day", Integer),
+            ],
+        },
+        Named {
+            name: "AdvanceAnswer",
+            doc: "`POST /api/runs/{run}/advance`: the last closed second after the step, and its date.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.advanced"])),
+                field("version", Integer),
+                field("closed_through", Integer),
+                field("date", Ref("CalendarDate")),
+            ],
+        },
+        Named {
+            name: "ErrorAnswer",
+            doc: "A refusal of the server: its code, and the core's code of a rejected input.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.error"])),
+                field("version", Integer),
+                field("code", Text),
+                optional("reason", Text),
             ],
         },
         Named {

@@ -110,6 +110,49 @@ export type PersonAnswer = {
   readonly at_ages: Shown[];
 };
 
+/** `GET /api/runs`: the runs of the server's directory in name order. */
+export type RunsAnswer = {
+  readonly format: "simagent.view.runs";
+  readonly version: number;
+  readonly runs: RunEntry[];
+};
+
+/** A run of the list: its manifest and the date of its last closed second, or why not. */
+export type RunEntry = {
+  readonly run: string;
+  readonly manifest?: Manifest;
+  readonly date?: CalendarDate;
+  readonly error?: "manifest_invalid" | "run_failed";
+};
+
+/** The core's calendar date of a second: every unit counted from 0, named by `web/`. */
+export type CalendarDate = {
+  readonly year: number;
+  readonly day_of_year: number;
+  readonly month: number;
+  readonly day_of_month: number;
+  readonly week: number;
+  readonly weekday: number;
+  readonly season: number;
+  readonly second_of_day: number;
+};
+
+/** `POST /api/runs/{run}/advance`: the last closed second after the step, and its date. */
+export type AdvanceAnswer = {
+  readonly format: "simagent.view.advanced";
+  readonly version: number;
+  readonly closed_through: number;
+  readonly date: CalendarDate;
+};
+
+/** A refusal of the server: its code, and the core's code of a rejected input. */
+export type ErrorAnswer = {
+  readonly format: "simagent.view.error";
+  readonly version: number;
+  readonly code: string;
+  readonly reason?: string;
+};
+
 /** A second of a life: the second, the age then in whole years, its calendar year. */
 export type Moment = {
   readonly t: number;

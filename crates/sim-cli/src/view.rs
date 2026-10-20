@@ -285,16 +285,18 @@ impl Server {
         Some(names)
     }
 
-    /// The manifest of a run as the command line wrote it, if it reads as one.
-    fn read_manifest(&self, run: &str) -> Result<Vec<u8>, &'static str> {
+    /// The manifest of a run as the command line wrote it, and what it says, if it reads
+    /// as one.
+    fn read_manifest(&self, run: &str) -> Result<(Vec<u8>, files::Manifest), &'static str> {
         let bytes = std::fs::read(self.runs.join(run).join(files::MANIFEST))
             .map_err(|_| "manifest_invalid")?;
         let text = std::str::from_utf8(&bytes).map_err(|_| "manifest_invalid")?;
-        files::read_manifest(text).map_err(|e| e.code)?;
-        Ok(bytes)
+        let manifest = files::read_manifest(text).map_err(|e| e.code)?;
+        Ok((bytes, manifest))
     }
 
-    /// `GET /api/runs`: the runs in name order, each with its manifest or why it has none.
+    /// `GET /api/runs`: the runs in name order, each with its manifest and the core's
+    /// calendar date of its last closed second, or why it has none.
     fn runs(&self) -> Response {
         let Some(names) = self.run_names() else {
             return Response::error(500, "runs_unreadable");
@@ -304,11 +306,14 @@ impl Server {
                 if self.failed.contains(name) {
                     return json!({"run": name, "error": "run_failed"});
                 }
-                let manifest = self.read_manifest(name).ok();
-                let manifest =
-                    manifest.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-                match manifest {
-                    Some(manifest) => json!({"run": name, "manifest": manifest}),
+                let read = self.read_manifest(name).ok().and_then(|(bytes, manifest)| {
+                    let value = serde_json::from_slice::<Value>(&bytes).ok()?;
+                    Some((value, manifest.closed_through))
+                });
+                match read {
+                    Some((manifest, closed)) => {
+                        json!({"run": name, "manifest": manifest, "date": date(closed)})
+                    }
                     None => json!({"run": name, "error": "manifest_invalid"}),
                 }
             })
@@ -339,7 +344,7 @@ impl Server {
     /// The name must be one of the list exactly (a file system may ignore case).
     fn manifest(&self, run: &str) -> Response {
         self.read(run, |_| match self.read_manifest(run) {
-            Ok(bytes) => Response::new(200, JSON, bytes),
+            Ok((bytes, _)) => Response::new(200, JSON, bytes),
             Err(code) => Response::error(500, code),
         })
     }
@@ -352,6 +357,22 @@ impl Server {
         let _ = http::write_response(&mut stream, &response);
         let _ = stream.shutdown(Shutdown::Both);
     }
+}
+
+/// The core's calendar date of `t` (ADR-0002: every unit counted from 0; their names are
+/// texts of `web/`).
+fn date(t: SimTime) -> Value {
+    let date = calendar(t);
+    json!({
+        "year": date.year,
+        "day_of_year": date.day_of_year,
+        "month": date.month,
+        "day_of_month": date.day_of_month,
+        "week": date.week,
+        "weekday": date.weekday,
+        "season": date.season,
+        "second_of_day": date.second_of_day,
+    })
 }
 
 /// A write that does not come from the server's own page as JSON (ADR-0021 section 1):
@@ -399,21 +420,11 @@ fn advance(open: &mut Open, step: Step) -> Result<Response, CliError> {
     open.session.advance(target)?;
     open.session.checkpoint(&open.scenario)?;
     let t = open.session.closed_through();
-    let date = calendar(t);
     let body = json!({
         "format": "simagent.view.advanced",
         "version": 1,
         "closed_through": t.as_secs(),
-        "date": {
-            "year": date.year,
-            "day_of_year": date.day_of_year,
-            "month": date.month,
-            "day_of_month": date.day_of_month,
-            "week": date.week,
-            "weekday": date.weekday,
-            "season": date.season,
-            "second_of_day": date.second_of_day,
-        },
+        "date": date(t),
     });
     Ok(Response::new(200, JSON, format!("{body}\n").into_bytes()))
 }

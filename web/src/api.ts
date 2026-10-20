@@ -44,3 +44,51 @@ export async function getJson(path: string, expected: Expected): Promise<Json> {
   }
   return accept(await response.json(), expected);
 }
+
+/** A refusal of the server: its code, and the core's code of a rejected input. */
+export class Refused extends Error {
+  override name = "Refused";
+  constructor(
+    readonly code: string,
+    readonly reason: string | null,
+  ) {
+    super(reason === null ? code : `${code}: ${reason}`);
+  }
+}
+
+/** The refusal an error answer of the server names, or null if the body is none. */
+export function refusal(body: unknown): Refused | null {
+  let json: Json;
+  try {
+    json = accept(body, { format: "simagent.view.error", version: 1 });
+  } catch {
+    return null;
+  }
+  const code = json["code"];
+  const reason = json["reason"];
+  if (typeof code !== "string" || (reason !== undefined && typeof reason !== "string")) {
+    return null;
+  }
+  return new Refused(code, reason ?? null);
+}
+
+/**
+ * Sends a write to the local server as JSON (ADR-0021 section 1; the browser adds the
+ * page's own `Origin`). The answer must be of the expected kind; a refusal of the server
+ * becomes `Refused`.
+ */
+export async function postJson(path: string, body: unknown, expected: Expected): Promise<Json> {
+  if (!path.startsWith("/api/")) {
+    throw new Error(`not a route of the server: ${path}`);
+  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const answer: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw refusal(answer) ?? new Error(`${path}: ${response.status}`);
+  }
+  return accept(answer, expected);
+}
