@@ -463,6 +463,10 @@ fn server_answers(
         "ErrorAnswer",
         ask(port, "/api/runs/town/input", Some(same), 409)?,
     ));
+    let pair = accepted_pair(pedigree, |body| {
+        ask(port, "/api/runs/town/input", Some(body), 200)
+    })?;
+    answers.push(("InputAnswer", pair));
     let events = out.join("fork").join("events.ndjson");
     let text = read(&events)?;
     let last = text.lines().last().ok_or("the fork has no events")?;
@@ -483,6 +487,41 @@ fn server_answers(
     answers.push(("EventsAnswer", get(port, none)?));
     drop(server);
     Ok(answers)
+}
+
+/// The answer to the first pair of the pedigree the core accepts: the oldest living woman
+/// and man in no open partnership, then the next of each, at most ten pairs (the core judges
+/// age and kinship; a rejected pair writes nothing).
+fn accepted_pair(
+    pedigree: &serde_json::Value,
+    send: impl Fn(&str) -> Result<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let none = Vec::new();
+    let list = |key: &str| pedigree[key].as_array().unwrap_or(&none);
+    let open: Vec<&serde_json::Value> = (list("partnerships").iter())
+        .filter(|p| p["ended"].is_null())
+        .flat_map(|p| [&p["woman"], &p["man"]])
+        .collect();
+    let single = |sex: &str| {
+        let mut found: Vec<&serde_json::Value> = (list("persons").iter())
+            .filter(|p| p["sex"] == sex && p["died"].is_null() && p["emigrated"].is_null())
+            .filter(|p| !open.contains(&&p["sim"]))
+            .collect();
+        found.sort_by_key(|p| p["born"].as_i64());
+        found
+    };
+    let mut last = String::from("the town has no single woman and man");
+    for (woman, man) in single("female").iter().zip(single("male")).take(10) {
+        let body = format!(
+            r#"{{"arrange_partnership":{{"woman":{},"man":{}}}}}"#,
+            woman["sim"], man["sim"]
+        );
+        match send(&body) {
+            Ok(answer) => return Ok(answer),
+            Err(refused) => last = refused,
+        }
+    }
+    Err(format!("no pair was accepted: {last}"))
 }
 
 /// The longest the gate waits for the server to start or to answer.
