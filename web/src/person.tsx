@@ -5,6 +5,7 @@ import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import { CardView } from "./cardview.js";
 import { kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
@@ -305,6 +306,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
           <Portrait params={view.value.shown.body} label={fullName(person)} />
           <Life view={view.value} />
           <Ages shown={view.value.at_ages} />
+          <CardView card={view.value.card} sex={person.sex} nowCm={view.value.shown.body.height_cm} />
         </div>
       ) : view.state === "failed" ? (
         <p>{TEXT[view.text]}</p>
