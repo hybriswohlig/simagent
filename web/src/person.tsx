@@ -14,20 +14,21 @@ import { hourglass, type Hourglass } from "./tree.js";
 const PEDIGREE_FORMAT = 4;
 
 /** The pedigree of a run from the server, checked for its format; only an answer for this
- * run counts. */
-function usePedigree(run: string): Loaded<Pedigree> {
-  const [loaded, setLoaded] = useState<Loaded<Pedigree>>({ state: "loading", key: run });
+ * run (and this `at`, which asks again when the run moved on) counts. */
+export function usePedigree(run: string, at = ""): Loaded<Pedigree> {
+  const key = `${run}@${at}`;
+  const [loaded, setLoaded] = useState<Loaded<Pedigree>>({ state: "loading", key });
   useEffect(() => {
     let live = true;
-    setLoaded({ state: "loading", key: run });
+    setLoaded({ state: "loading", key });
     getJson(`/api/runs/${run}/pedigree`, { format_version: PEDIGREE_FORMAT })
-      .then((json) => live && setLoaded({ state: "ready", key: run, value: json as unknown as Pedigree }))
-      .catch((error: unknown) => live && setLoaded({ state: "failed", key: run, text: failure(error) }));
+      .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as Pedigree }))
+      .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
       live = false;
     };
-  }, [run]);
-  return current(loaded, run);
+  }, [key]);
+  return current(loaded, key);
 }
 
 /** The presentation state of a person from the server; only an answer for this person

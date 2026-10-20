@@ -1,0 +1,127 @@
+import { useEffect, useRef, useState } from "preact/hooks";
+
+import { Refused, postJson } from "./api.js";
+import { answered, pause, play, press, refused, standing, type Clock, type Next, type Step } from "./clock.js";
+import type { AdvanceAnswer, CalendarDate } from "./generated/export.js";
+import { usePedigree } from "./person.js";
+import { format } from "./router.js";
+import { useRuns } from "./runs.js";
+import { DAYS, MONTHS, TEXT } from "./text.js";
+
+const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
+
+/** The date as the core gives it, its units named by the texts. */
+function dateText(date: CalendarDate): string {
+  return `${TEXT.year} ${date.year}, ${MONTHS[date.month] ?? ""}, ${DAYS[date.day_of_month] ?? ""}`;
+}
+
+/** The text of a refusal by its code. */
+function refusalText(code: string): string {
+  const texts: Record<string, string> = TEXT;
+  return texts[`refused_${code}`] ?? `${TEXT.refused_other} ${code}`;
+}
+
+const STEPS: readonly (readonly [Step, keyof typeof TEXT])[] = [
+  ["days28", "step_days28"],
+  ["year", "step_year"],
+  ["decade", "step_decade"],
+];
+
+/** The clock of a run and its living, moved by the server one step at a time. */
+function Town({ run, closed, date }: { run: string; closed: number; date: CalendarDate }) {
+  const [clock, setClock] = useState<Clock>(() => standing(closed, date));
+  const [chosen, setChosen] = useState<Step>("days28");
+  const [listedAt, setListedAt] = useState(closed);
+  const latest = useRef(clock);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const apply = ([next, step]: Next) => {
+    if (!live.current) {
+      return;
+    }
+    latest.current = next;
+    setClock(next);
+    if (step === null) {
+      return;
+    }
+    postJson(`/api/runs/${run}/advance`, { step }, ADVANCED)
+      .then((json) => {
+        const answer = json as unknown as AdvanceAnswer;
+        apply(answered(latest.current, answer.closed_through, answer.date));
+      })
+      .catch((error: unknown) => {
+        apply(refused(latest.current, error instanceof Refused ? error.code : "network"));
+      });
+  };
+  useEffect(() => {
+    if (!clock.busy && clock.playing === null) {
+      setListedAt(clock.closed);
+    }
+  }, [clock]);
+  const pedigree = usePedigree(run, String(listedAt));
+  const living =
+    pedigree.state === "ready"
+      ? pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null)
+      : [];
+  return (
+    <main>
+      <h1>{`${TEXT.run} ${run}`}</h1>
+      <p>{dateText(clock.date)}</p>
+      <p role="group" aria-label={TEXT.steps}>
+        {STEPS.map(([step, text]) => (
+          <button
+            type="button"
+            key={step}
+            disabled={clock.busy}
+            onClick={() => {
+              setChosen(step);
+              apply(press(latest.current, step));
+            }}
+          >
+            {TEXT[text]}
+          </button>
+        ))}
+        {clock.playing === null ? (
+          <button type="button" onClick={() => apply(play(latest.current, chosen))}>
+            {TEXT.play}
+          </button>
+        ) : (
+          <button type="button" onClick={() => apply(pause(latest.current))}>
+            {TEXT.pause}
+          </button>
+        )}
+      </p>
+      {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
+      <h2>{TEXT.living}</h2>
+      {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
+      <ul>
+        {living.map((person) => (
+          <li key={person.sim}>
+            <a href={format({ page: "person", run, sim: String(person.sim) })}>
+              {`${TEXT.person} ${person.sim}`}
+            </a>
+            {` · ${person.sex === "female" ? TEXT.female : TEXT.male}`}
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+
+/** A run's page: its clock and its living, from where the run list says it stands. */
+export function RunPage({ run }: { run: string }) {
+  const runs = useRuns(run);
+  if (runs.state !== "ready") {
+    return <p>{runs.state === "loading" ? TEXT.loading : TEXT[runs.text]}</p>;
+  }
+  const entry = runs.value.runs.find((candidate) => candidate.run === run);
+  if (entry?.manifest === undefined || entry.date === undefined) {
+    return <p>{entry === undefined ? TEXT.not_found : TEXT.refused_run_failed}</p>;
+  }
+  return <Town key={run} run={run} closed={entry.manifest.closed_through} date={entry.date} />;
+}
