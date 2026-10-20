@@ -323,7 +323,9 @@ impl Server {
                 file.start.world_seed = seed;
             }
             let scenario = crate::resolve(file, crate::data::core_data)?;
-            let mut session = crate::begin(&dir, &scenario, SimTime::from_secs(-1))?;
+            // The template ends before its start: the run stands there, as `run --scenario`
+            // leaves it.
+            let mut session = crate::begin(&dir, &scenario, scenario.until)?;
             session.checkpoint(&scenario)?;
             Ok::<_, CliError>(Open {
                 session,
