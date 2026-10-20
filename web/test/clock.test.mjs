@@ -73,3 +73,17 @@ test("a refusal ends playing and is shown until the next step", () => {
   assert.equal(asked, "year");
   assert.equal(clock.refused, null);
 });
+
+test("a step pressed while playing becomes the playing step", () => {
+  let [clock] = play(standing(10, DATE), "year");
+  let asked;
+  [clock] = answered(clock, 20, LATER);
+  [clock, asked] = press(clock, "decade");
+  assert.equal(asked, "decade");
+  assert.equal(clock.playing, "decade");
+  [clock] = answered(clock, 30, LATER);
+  [clock, asked] = tick(clock);
+  assert.equal(asked, "decade");
+  const [pressed] = press(standing(10, DATE), "year");
+  assert.equal(pressed.playing, null, "pressing alone does not play");
+});
