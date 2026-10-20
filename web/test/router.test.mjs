@@ -8,6 +8,7 @@ test("each known hash is its route, and back", () => {
   const known = [
     ["#/", { page: "runs" }],
     ["#/portraits", { page: "portraits" }],
+    ["#/assumptions", { page: "assumptions" }],
     ["#/runs/town-1", { page: "run", run: "town-1" }],
     ["#/runs/town_1.fork/persons/17", { page: "person", run: "town_1.fork", sim: "17" }],
     ["#/runs/a/persons/1/tree", { page: "tree", run: "a", sim: "1" }],
