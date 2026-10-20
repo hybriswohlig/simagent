@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { onsetTemplate } from "../dist/carddiseases.js";
 import { KEPT, added, payloadCode, segments } from "../dist/chronicle.js";
 
 const DATE = {
@@ -83,4 +84,46 @@ test("a template puts the persons in their roles, all members as a list", () => 
   ]);
   assert.deepEqual(segments("Die Welt beginnt.", []), ["Die Welt beginnt."]);
   assert.deepEqual(segments("{0} und {1}", [7]), [7, " und ", null], "a role without a person");
+});
+
+// The onset of a disease (Grok P1, P2, P3): the short form in the year of the onset, else the
+// late form with the year and the whole years ("seit der Geburt" at 0, "mit 1 Jahr" at 1).
+// Every expected sentence is written by hand from Grok's wording; the name is G1's, uninflected.
+test("the chronicle follows the onset of a disease", () => {
+  const page = [item(1, "core:disease_onset"), item(2, "core:birthday")];
+  assert.deepEqual(
+    added([], page).map((i) => i.entry.id),
+    [1],
+  );
+});
+
+test("an onset in its own year is the short form", () => {
+  const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
+  assert.equal(onsetTemplate(onset("core:disease_ar", 12, 0), 12), "{0} erkrankt an Zäher Atem");
+  assert.equal(onsetTemplate(onset("core:disease_ad_late", 40, 45), 40), "{0} erkrankt an Später Verfall");
+  assert.equal(onsetTemplate(onset("core:disease_mt", -3, 21), -3), "{0} erkrankt an Mütterliches Augenlicht");
+  assert.equal(onsetTemplate(onset("core:disease_new", 7, 30), 7), "{0} erkrankt an core:disease_new");
+});
+
+test("an onset written later is the late form", () => {
+  const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
+  assert.equal(
+    onsetTemplate(onset("core:disease_ar", 12, 12), 20),
+    "{0} ist an Zäher Atem erkrankt, seit Jahr 12, mit 12 Jahren",
+  );
+  assert.equal(onsetTemplate(onset("core:disease_xr", -10, 0), 4), "{0} ist an Schwere Blutung erkrankt, seit der Geburt");
+  assert.equal(
+    onsetTemplate(onset("core:disease_liability", 5, 1), 9),
+    "{0} ist an Geteilte Schwere erkrankt, seit Jahr 5, mit 1 Jahr",
+  );
+  assert.equal(
+    onsetTemplate(onset("core:disease_ad_partial", -10, 30), 0),
+    "{0} ist an Ungleicher Ausbruch erkrankt, seit Jahr -10, mit 30 Jahren",
+  );
+});
+
+test("an onset of another shape has no template", () => {
+  assert.equal(onsetTemplate(null, 3), null);
+  assert.equal(onsetTemplate({ disease: "core:disease_ar", since_year: 3 }, 3), null);
+  assert.equal(onsetTemplate({ disease: 4, since_year: 3, age_years: 0 }, 3), null);
 });
