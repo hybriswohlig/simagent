@@ -204,7 +204,8 @@ fn a_body_has_exactly_the_contracts_keys() {
         json!({
             "format": "simagent.view.person", "version": 1, "contract_version": "0.1.0",
             "sim": 1, "born": {"t": 0, "age_years": 0, "calendar_year": 0}, "ended": null,
-            "shown": shown(body), "at_ages": [], "partner_candidates": []
+            "shown": shown(body), "at_ages": [], "partner_candidates": [],
+            "card": {"traits": [], "height": null, "diseases_off": false, "diseases": [], "skipped": []}
         })
     };
     let mut seen = Seen::new();

@@ -111,7 +111,47 @@ export type PersonAnswer = {
   readonly shown: Shown;
   readonly at_ages: Shown[];
   readonly partner_candidates: number[];
+  readonly card: GeneticsCard;
   readonly kinship?: Kinship;
+};
+
+/** The core's genetics card of the person at its second shown: per trait the percentile and the parts, the height lines, per disease the copies and the status, the lines of skipped pigment copies. The variant parts (parts, copies, status, a skipped line's copy sources) are objects keyed by `kind`, a skipped line an object of `locus`, `mother_copy` and `father_copy`; the web checks their keys. */
+export type GeneticsCard = {
+  readonly traits: TraitCard[];
+  readonly height: HeightCard | null;
+  readonly diseases_off: boolean;
+  readonly diseases: DiseaseCard[];
+  readonly skipped: { readonly [key: string]: unknown }[];
+};
+
+/** A trait of the card: `z`, its percentile, whether the person is an adult, the parts `z` adds up from (`kind` split or inherited) and the percentile of the parents' mean. */
+export type TraitCard = {
+  readonly trait: string;
+  readonly z: number;
+  readonly percentile: Percentile;
+  readonly adult: boolean;
+  readonly parts: { readonly [key: string]: unknown };
+  readonly parents_mean: Percentile | null;
+};
+
+/** "größer als n von 100" (`up`) or "kleiner als n von 100", `n` from 0 to 99. */
+export type Percentile = {
+  readonly up: boolean;
+  readonly n: number;
+};
+
+/** The height lines in cm: the loss from hunger years and from age, the mean of both parents' target heights. */
+export type HeightCard = {
+  readonly hunger_cm: number;
+  readonly age_cm: number;
+  readonly parents_target_cm: number | null;
+};
+
+/** A disease of the card: its code, the copies and the status (each an object keyed by `kind`). */
+export type DiseaseCard = {
+  readonly disease: string;
+  readonly copies: { readonly [key: string]: unknown };
+  readonly status: { readonly [key: string]: unknown };
 };
 
 /** With `?to={other}`: what the other sim is to the person, by the core; `word` and `foster` are codes of `tests/golden/log_codes.txt`. */
