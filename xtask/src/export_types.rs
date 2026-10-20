@@ -250,6 +250,16 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "InputAnswer",
+            doc: "`POST /api/runs/{run}/input`: the stamp of the accepted input.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.input"])),
+                field("version", Integer),
+                field("t", Integer),
+                field("seq", Integer),
+            ],
+        },
+        Named {
             name: "ErrorAnswer",
             doc: "A refusal of the server: its code, and the core's code of a rejected input.",
             fields: vec![

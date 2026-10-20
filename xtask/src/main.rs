@@ -463,6 +463,12 @@ fn server_answers(
         "ErrorAnswer",
         ask(port, "/api/runs/town/input", Some(same), 409)?,
     ));
+    // The pedigree as the town stands now, after the step above.
+    let now = get(port, "/api/runs/town/pedigree")?;
+    let pair = accepted_pair(&now, |body| {
+        ask(port, "/api/runs/town/input", Some(body), 200)
+    })?;
+    answers.push(("InputAnswer", pair));
     let events = out.join("fork").join("events.ndjson");
     let text = read(&events)?;
     let last = text.lines().last().ok_or("the fork has no events")?;
@@ -484,6 +490,48 @@ fn server_answers(
     drop(server);
     Ok(answers)
 }
+
+/// The answer to the first pair of the pedigree the core accepts: the living women and men
+/// in no open partnership, oldest first, each woman with each man in turn, at most
+/// [`PAIRS_TRIED`] pairs (the core judges age and kinship; a rejected pair writes nothing).
+fn accepted_pair(
+    pedigree: &serde_json::Value,
+    send: impl Fn(&str) -> Result<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let none = Vec::new();
+    let list = |key: &str| pedigree[key].as_array().unwrap_or(&none);
+    let open: Vec<&serde_json::Value> = (list("partnerships").iter())
+        .filter(|p| p["ended"].is_null())
+        .flat_map(|p| [&p["woman"], &p["man"]])
+        .collect();
+    let single = |sex: &str| {
+        let mut found: Vec<&serde_json::Value> = (list("persons").iter())
+            .filter(|p| p["sex"] == sex && p["died"].is_null() && p["emigrated"].is_null())
+            .filter(|p| !open.contains(&&p["sim"]))
+            .collect();
+        found.sort_by_key(|p| p["born"].as_i64());
+        found
+    };
+    let mut last = String::from("the town has no single woman and man");
+    let (women, men) = (single("female"), single("male"));
+    let pairs = women
+        .iter()
+        .flat_map(|woman| men.iter().map(move |man| (woman, man)));
+    for (woman, man) in pairs.take(PAIRS_TRIED) {
+        let body = format!(
+            r#"{{"arrange_partnership":{{"woman":{},"man":{}}}}}"#,
+            woman["sim"], man["sim"]
+        );
+        match send(&body) {
+            Ok(answer) => return Ok(answer),
+            Err(refused) => last = refused,
+        }
+    }
+    Err(format!("no pair was accepted: {last}"))
+}
+
+/// The most pairs the export gate step sends before it gives up on an accepted input.
+const PAIRS_TRIED: usize = 100;
 
 /// The longest the gate waits for the server to start or to answer.
 const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);

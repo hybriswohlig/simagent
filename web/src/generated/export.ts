@@ -145,6 +145,14 @@ export type AdvanceAnswer = {
   readonly date: CalendarDate;
 };
 
+/** `POST /api/runs/{run}/input`: the stamp of the accepted input. */
+export type InputAnswer = {
+  readonly format: "simagent.view.input";
+  readonly version: number;
+  readonly t: number;
+  readonly seq: number;
+};
+
 /** A refusal of the server: its code, and the core's code of a rejected input. */
 export type ErrorAnswer = {
   readonly format: "simagent.view.error";

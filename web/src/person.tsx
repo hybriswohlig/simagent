@@ -1,12 +1,14 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
-import { getJson } from "./api.js";
+import { getJson, postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { Chronicle } from "./lines.js";
 import { readLog } from "./log.js";
+import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
+import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
 import { format } from "./router.js";
@@ -149,26 +151,85 @@ function PersonChronicle({ run, sim }: { run: string; sim: string }) {
   );
 }
 
-/** A person of a run: who they are related to, the tree around them, and their chronicle. */
+const INPUT = { format: "simagent.view.input", version: 1 } as const;
+
+/** Pairing a living person in no partnership with one of the candidates of the other sex
+ * (ADR-0021 section 6, "ein Paar stiften"); the core judges age and kinship. */
+function PairForm({ run, pedigree, person, paired }: { run: string; pedigree: Pedigree; person: Person; paired: () => void }) {
+  const options = candidates(pedigree, person.sim);
+  const [chosen, setChosen] = useState("");
+  const [pairing, setPairing] = useState<Pairing>({ state: "idle" });
+  const failure = pairing.state === "failed" ? <p role="alert">{pairing.text}</p> : null;
+  const shown = pairingShown(options.length, pairing.state);
+  if (shown === "paired") {
+    return <p role="status">{TEXT.paired}</p>;
+  }
+  if (shown === "nothing") {
+    return failure;
+  }
+  const other = options.find((candidate) => String(candidate.sim) === chosen);
+  const input = other === undefined ? null : arrangement(person, other);
+  const send = () => {
+    if (input === null) {
+      return;
+    }
+    setPairing({ state: "busy" });
+    postJson(`/api/runs/${run}/input`, input, INPUT)
+      .then(() => {
+        setPairing({ state: "paired" });
+        paired();
+      })
+      .catch((error: unknown) => setPairing({ state: "failed", text: inputFailureText(error) }));
+  };
+  return (
+    <>
+      <h2>{TEXT.pair}</h2>
+      <p>
+        <select aria-label={TEXT.pair_with} value={chosen} onChange={(event) => setChosen(event.currentTarget.value)}>
+          <option value="">{TEXT.pair_with}</option>
+          {options.map((candidate) => (
+            <option key={candidate.sim} value={String(candidate.sim)}>{`${TEXT.person} ${candidate.sim}`}</option>
+          ))}
+        </select>{" "}
+        <button type="button" disabled={input === null || pairing.state === "busy"} onClick={send}>
+          {TEXT.pair}
+        </button>
+      </p>
+      {failure}
+    </>
+  );
+}
+
+/** A person of a run: who they are related to, the tree around them, pairing, and their
+ * chronicle. */
 export function PersonPage({ run, sim }: { run: string; sim: string }) {
-  const loaded = usePedigree(run);
+  const [changed, setChanged] = useState(0);
+  const loaded = usePedigree(run, String(changed));
   const view = usePersonView(run, sim);
-  if (loaded.state === "loading") {
-    return <p>{TEXT.loading}</p>;
+  // The last pedigree of this run stays while a newer one loads after a change, so the
+  // page (and what pairing reports) does not go away in between.
+  const last = useRef<{ run: string; pedigree: Pedigree } | null>(null);
+  if (loaded.state === "ready") {
+    last.current = { run, pedigree: loaded.value };
   }
-  if (loaded.state === "failed") {
-    return <p>{TEXT[loaded.text]}</p>;
+  const kept = last.current?.run === run ? last.current.pedigree : null;
+  const pedigree = loaded.state === "ready" ? loaded.value : kept;
+  if (pedigree === null) {
+    return <p>{loaded.state === "failed" ? TEXT[loaded.text] : TEXT.loading}</p>;
   }
-  const glass = hourglass(loaded.value, Number(sim));
+  // A reload that failed leaves the last pedigree on the page, with why.
+  const reloadFailed = loaded.state === "failed" ? <p role="alert">{TEXT[loaded.text]}</p> : null;
+  const glass = hourglass(pedigree, Number(sim));
   if (glass === null) {
     return <p>{TEXT.unknown_person}</p>;
   }
   const person = glass.center;
-  const bySim = new Map(loaded.value.persons.map((p) => [p.sim, p]));
+  const bySim = new Map(pedigree.persons.map((p) => [p.sim, p]));
   const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
   return (
     <section>
       <h1>{`${TEXT.person} ${person.sim}`}</h1>
+      {reloadFailed}
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
       {view.state === "ready" && !readable(view.value.contract_version) ? (
         <p>{TEXT.failed_contract}</p>
@@ -188,7 +249,14 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <Name run={run} person={parent(person.father)} />
       </p>
       <TreeView run={run} glass={glass} />
-      <PersonChronicle run={run} sim={sim} />
+      <PairForm
+        key={`${run}/${sim}`}
+        run={run}
+        pedigree={pedigree}
+        person={person}
+        paired={() => setChanged((n) => n + 1)}
+      />
+      <PersonChronicle key={changed} run={run} sim={sim} />
     </section>
   );
 }

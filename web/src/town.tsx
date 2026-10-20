@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { Refused, UnknownAnswer, postJson } from "./api.js";
+import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
@@ -9,6 +9,7 @@ import { windows } from "./log.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
+import { failureCode, refusalText } from "./refusals.js";
 import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
@@ -16,12 +17,6 @@ const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
-
-/** The text of a refusal by its code. */
-function refusalText(code: string): string {
-  const texts: Record<string, string> = TEXT;
-  return texts[`refused_${code}`] ?? `${TEXT.refused_other} ${code}`;
-}
 
 const STEPS: readonly (readonly [Step, keyof typeof TEXT])[] = [
   ["days28", "step_days28"],
@@ -62,8 +57,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         apply(answered(latest.current, answer.closed_through, answer.date));
       })
       .catch((error: unknown) => {
-        const code = error instanceof Refused ? error.code : error instanceof UnknownAnswer ? "version" : "network";
-        apply(refused(latest.current, code));
+        apply(refused(latest.current, failureCode(error)));
       });
   };
   useEffect(() => {
