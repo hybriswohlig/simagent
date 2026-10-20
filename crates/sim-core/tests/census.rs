@@ -43,6 +43,7 @@ use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{NutritionYear, WorldParams};
 use sim_core::phenotype::Environment;
 use sim_core::pool::{Pool, pool_loci, take_households};
+use sim_core::presentation::names::{first_name_index, surname_index};
 use sim_core::rng::{Draws, WorldSeed};
 use sim_core::time::{SimDuration, SimTime};
 use sim_core::trace::{TraceFilter, TracePayload};
@@ -440,8 +441,12 @@ fn the_presentation_shows_the_references_bodies() {
             twin_log.extend(twin.take_log());
             assert_eq!(world.closed_through(), t, "{name}");
             // The names of everybody, as the server takes them: read only, like the views.
+            let seed = WorldSeed::new(world.state().world_seed().expect("started"));
+            let list = std::num::NonZeroU64::new(7).expect("not zero");
             for person in world.pedigree().persons {
-                assert!(world.name_root(person.sim).is_some(), "{name}");
+                let root = world.name_root(person.sim).expect("a root");
+                let first = first_name_index(seed, person.lineage_key, person.sex, list);
+                assert!(first < 7 && surname_index(seed, root, list) < 7, "{name}");
             }
             for person in shot["persons"].as_array().expect("persons") {
                 let sim = SimId::try_from(person[0].as_u64().expect("sim")).expect("an id");
