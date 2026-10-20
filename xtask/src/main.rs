@@ -463,7 +463,9 @@ fn server_answers(
         "ErrorAnswer",
         ask(port, "/api/runs/town/input", Some(same), 409)?,
     ));
-    let pair = accepted_pair(pedigree, |body| {
+    // The pedigree as the town stands now, after the step above.
+    let now = get(port, "/api/runs/town/pedigree")?;
+    let pair = accepted_pair(&now, |body| {
         ask(port, "/api/runs/town/input", Some(body), 200)
     })?;
     answers.push(("InputAnswer", pair));
@@ -489,9 +491,9 @@ fn server_answers(
     Ok(answers)
 }
 
-/// The answer to the first pair of the pedigree the core accepts: the oldest living woman
-/// and man in no open partnership, then the next of each, at most ten pairs (the core judges
-/// age and kinship; a rejected pair writes nothing).
+/// The answer to the first pair of the pedigree the core accepts: the living women and men
+/// in no open partnership, oldest first, each woman with each man in turn, at most
+/// [`PAIRS_TRIED`] pairs (the core judges age and kinship; a rejected pair writes nothing).
 fn accepted_pair(
     pedigree: &serde_json::Value,
     send: impl Fn(&str) -> Result<serde_json::Value>,
@@ -511,7 +513,11 @@ fn accepted_pair(
         found
     };
     let mut last = String::from("the town has no single woman and man");
-    for (woman, man) in single("female").iter().zip(single("male")).take(10) {
+    let (women, men) = (single("female"), single("male"));
+    let pairs = women
+        .iter()
+        .flat_map(|woman| men.iter().map(move |man| (woman, man)));
+    for (woman, man) in pairs.take(PAIRS_TRIED) {
         let body = format!(
             r#"{{"arrange_partnership":{{"woman":{},"man":{}}}}}"#,
             woman["sim"], man["sim"]
@@ -523,6 +529,9 @@ fn accepted_pair(
     }
     Err(format!("no pair was accepted: {last}"))
 }
+
+/// The most pairs the export gate step sends before it gives up on an accepted input.
+const PAIRS_TRIED: usize = 100;
 
 /// The longest the gate waits for the server to start or to answer.
 const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);
