@@ -446,13 +446,19 @@ fn server_answers(
         return Err(format!("the server printed no address: {line:?}"));
     };
     let mut answers = Vec::new();
+    let mut sims = Vec::new();
     for person in chosen {
         let sim = person
             .and_then(|p| p["sim"].as_u64())
             .ok_or("the town lacks a person")?;
         let path = format!("/api/runs/town/persons/{sim}");
         answers.push(("PersonAnswer", get(port, &path)?));
+        sims.push(sim);
     }
+    // A kinship without a foster word (the living person to the dead one), and one with.
+    let path = format!("/api/runs/town/persons/{}?to={}", sims[0], sims[1]);
+    answers.push(("PersonAnswer", get(port, &path)?));
+    answers.push(("PersonAnswer", get(port, "/api/runs/dummy/persons/3?to=5")?));
     let step = Some(r#"{"step":"days28"}"#);
     answers.push((
         "AdvanceAnswer",
@@ -588,6 +594,10 @@ fn check_export_types(root: &Path) -> Result {
     };
     let (town_arg, fork_arg) = (town.display().to_string(), fork.display().to_string());
     simagent(&["run", "--scenario", EXPORT_SCENARIO, "--out", &town_arg])?;
+    // The gate scenario beside it: its pedigree has a foster child (sim 3, taken in by
+    // sim 5), which the town lacks.
+    let dummy_arg = out.join("dummy").display().to_string();
+    simagent(&["run", "--scenario", GATE_SCENARIO, "--out", &dummy_arg])?;
     simagent(&["export", &town_arg])?;
     simagent(&["fork", &town_arg, "--from-year", "10", "--out", &fork_arg])?;
     let json = |path: &Path| -> Result<serde_json::Value> {
