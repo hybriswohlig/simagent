@@ -946,6 +946,73 @@ fn a_person_is_the_cores_presentation_state() {
     assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
 }
 
+/// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section
+/// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the uncle
+/// of sim 13 (φ 1/8) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly
+/// `to=` and digits; digits that name no sim of the run are an unknown sim, as in the path.
+#[test]
+fn a_person_with_its_kinship_to_another() {
+    let (runs, web) = fixture("kinship");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
+        .args(["--out".as_ref(), runs.join("dummy").as_os_str()])
+        .stdout(Stdio::null())
+        .status()
+        .expect("runs");
+    assert!(status.success());
+    let server = start(&runs, &web);
+    let kinship = |path: &str| {
+        let (status, _, body) = get(server.port, path);
+        assert_eq!(status, 200, "{path}");
+        json_of(&body)["kinship"].clone()
+    };
+    assert_eq!(
+        kinship("/api/runs/dummy/persons/13?to=10"),
+        json!({"to": 10, "word": "uncle", "foster": null, "r_percent": 25.0})
+    );
+    assert_eq!(
+        kinship("/api/runs/dummy/persons/3?to=5"),
+        json!({"to": 5, "word": "unrelated", "foster": "foster_mother", "r_percent": 0.0})
+    );
+    // Without a query the answer stays as it was.
+    let (_, _, plain) = get(server.port, "/api/runs/dummy/persons/13");
+    let plain = json_of(&plain);
+    assert!(plain.get("kinship").is_none());
+    let mut with = json_of(&get(server.port, "/api/runs/dummy/persons/13?to=10").2);
+    with.as_object_mut().expect("an object").remove("kinship");
+    assert_eq!(with, plain);
+    for to in ["0", "01", "999", "18446744073709551616"] {
+        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/13?to={to}"));
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "unknown_sim".to_owned()),
+            "{to}"
+        );
+    }
+    for query in [
+        "?to=+1",
+        "?to=x",
+        "?to=",
+        "?to=-1",
+        "?to=1&to=2",
+        "?from=1",
+        "?to",
+        "?To=1",
+        "?to=1&",
+        "?",
+        "?to=1;x=2",
+        "?to=%31",
+    ] {
+        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/13{query}"));
+        assert_eq!(
+            (status, code_of(&body)),
+            (400, "bad_query".to_owned()),
+            "{query}"
+        );
+    }
+}
+
 /// Three founders, ten years (as in `cli.rs`): a woman (sim 1) and two men to pair.
 const TEN_YEARS: &str = r#"{
   "format_version": 5,
