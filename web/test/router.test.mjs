@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { format, parse } from "../dist/router.js";
+import { format, parse, runName } from "../dist/router.js";
 
 test("each known hash is its route, and back", () => {
   const known = [
@@ -43,5 +43,14 @@ test("anything else is not found and keeps its hash", () => {
   for (const hash of unknown) {
     assert.deepEqual(parse(hash), { page: "not_found", hash }, hash);
     assert.equal(format(parse(hash)), hash);
+  }
+});
+
+test("a new run's name follows the rule of the run directory", () => {
+  for (const name of ["stadt", "Stadt-2", "a.b_c", "0"]) {
+    assert.equal(runName(name), true, name);
+  }
+  for (const name of ["", ".x", "a/b", "a b", "ä", "a%20"]) {
+    assert.equal(runName(name), false, name);
   }
 });
