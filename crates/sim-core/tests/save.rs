@@ -1914,7 +1914,9 @@ fn sick_switched_on() -> File {
     file.next_event_seq = 13;
     file.sims = vec![(1, sick_she()), (2, sick_he((0.0, Some(Y))))];
     file.households = vec![(1, (0, None)), (2, (0, None))];
-    file.next_event_id = 9;
+    // The override (entry 8) sets the switch on, so right after it comes his onset at
+    // birth (entry 9): the start had the switch off, nothing reported it before.
+    file.next_event_id = 10;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
     file.year_hashes = vec![(0, 0x569b_506f_54f1_1788)];
     file
