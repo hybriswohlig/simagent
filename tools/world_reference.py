@@ -639,8 +639,12 @@ FOUNDER_ALLELE = 28
 # Path 3 of the onset (the addendum, "Drei Wege" (3)): an override that sets the switch on
 # writes the reached onsets nothing reported yet, a new rule without a new field: core 43, the
 # projection stays 18.
+# The population columns of the yearly census (ADR-0021 section 3, addendum of 2026-10-21:
+# births, arrivals, emigrations, deaths per cause; tools/census_reference.py): the census is
+# output, neither state nor save field, but the output changes: core 44, the projection stays
+# 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 43
+CORE_VERSION = 44
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
