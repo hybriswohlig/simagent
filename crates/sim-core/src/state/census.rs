@@ -1,12 +1,18 @@
 //! The yearly census (ADR-0004 section 8): values from the state, never from the log
-//! and never from earlier rows.
+//! and never from earlier rows; the one value from outside is the number of persons
+//! `Start` made (ADR-0021, addendum 2026-10-21).
 
-use super::DomainState;
+use alloc::vec;
+use alloc::vec::Vec;
+
+use super::{DomainState, LeftBy, death};
 use crate::body_contract::BodyCensus;
+use crate::data::Data;
+use crate::data_id::Code;
 use crate::time::{SimTime, calendar, year_start};
 
 /// One row of `census.csv`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CensusRow {
     pub year: i64,
     /// Sims in the active population at the end of the year.
@@ -15,6 +21,21 @@ pub struct CensusRow {
     pub lived_secs: u64,
     /// The living's bodies at the end of the year (ADR-0020 section 7).
     pub body: BodyCensus,
+    /// Who was born, arrived, left or died in the year (ADR-0021, addendum 2026-10-21).
+    pub population: PopulationCensus,
+}
+
+/// The population columns of a row (ADR-0021, addendum 2026-10-21), over the living and
+/// the archive.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PopulationCensus {
+    /// Born in the town: of two town parents or of a pregnancy from the pool.
+    pub births: u64,
+    /// Arrived from the pool, without the persons `Start` made.
+    pub arrivals: u64,
+    pub emigrations: u64,
+    /// Per cause of death, in the order of `world::death_causes`.
+    pub deaths: Vec<u64>,
 }
 
 /// The row of the year that contains `t`; the observer runs in its last second.
@@ -47,7 +68,53 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
             .unwrap_or_else(|_| panic!("invariant census.count_range")),
         lived_secs,
         body: BodyCensus::default(),
+        population: PopulationCensus::default(),
     }
+}
+
+/// The population of the year that contains `t`. `started` is the number of persons
+/// `Start` made, the SimIds 1 to it: they arrive in second 0 like an arrival of that
+/// second and are none (the one value from outside the state, ADR-0021).
+pub(crate) fn population(
+    domain: &DomainState,
+    data: &Data,
+    started: u64,
+    t: SimTime,
+) -> PopulationCensus {
+    let year = calendar(t).year;
+    let (from, to) = (year_start(year), year_start(year + 1));
+    let within = |at: SimTime| from <= at && at < to;
+    let causes: Vec<u64> = death::causes(data).iter().map(Code::key).collect();
+    let mut row = PopulationCensus {
+        deaths: vec![0; causes.len()],
+        ..PopulationCensus::default()
+    };
+    let living = (domain.sims.iter()).map(|(id, sim)| (id, sim.born, &sim.parents, &sim.pool));
+    let archived = (domain.archive.iter()).map(|(id, sim)| (id, sim.born, &sim.parents, &sim.pool));
+    for (id, born, parents, pool) in living.chain(archived) {
+        let in_town = parents.is_some() || pool.as_ref().is_some_and(|o| o.born_pool.is_none());
+        if in_town && within(born) {
+            row.births += 1;
+        }
+        let arrived = pool
+            .as_ref()
+            .is_some_and(|o| o.born_pool.is_some() && within(o.arrived));
+        if arrived && id.get() > started {
+            row.arrivals += 1;
+        }
+    }
+    for sim in (domain.archive.values()).filter(|sim| within(sim.left)) {
+        match sim.left_by {
+            LeftBy::Emigration => row.emigrations += 1,
+            LeftBy::Death { cause } => {
+                let at = (causes.iter())
+                    .position(|key| *key == cause)
+                    .unwrap_or_else(|| panic!("invariant census.cause"));
+                row.deaths[at] += 1;
+            }
+        }
+    }
+    row
 }
 
 #[cfg(test)]
@@ -210,9 +277,8 @@ mod tests {
     #[test]
     fn the_causes_of_death_come_in_the_order_of_the_addendum() {
         let data = crate::data::testing::data();
-        let codes: alloc::vec::Vec<&str> = (crate::state::death::causes(&data).iter())
-            .map(|code| code.as_str())
-            .collect();
+        let causes = crate::state::death::causes(&data);
+        let codes: alloc::vec::Vec<&str> = causes.iter().map(|code| code.as_str()).collect();
         assert_eq!(
             codes,
             [

@@ -9,7 +9,7 @@ use crate::data::{Action, Chromosome, Data, PoolData};
 use crate::data_id::{DataId, str_key};
 use crate::genome::{AlleleError, Genome};
 use crate::ids::HouseholdId;
-use crate::input::{Founder, InputRejected, PoolStart, RejectCode, Start};
+use crate::input::{Founder, Input, InputRecord, InputRejected, PoolStart, RejectCode, Start};
 use crate::lineage::LineageKey;
 use crate::log::{Causes, LogPayload};
 use crate::params::NutritionYear;
@@ -18,6 +18,27 @@ use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::time::{MONTH, SimDuration, SimTime, YEAR, year_start};
 use crate::trace::TracePayload;
 use crate::world::{EventPayload, SimCtx};
+
+/// How many persons `start` creates: its founders and the members of the households of
+/// its pool (a village's persons). They have the SimIds 1 to this number (ADR-0017
+/// section 3, path 3 of the onset; ADR-0021, addendum 2026-10-21).
+pub(crate) fn persons(start: &Start) -> u64 {
+    let pooled: usize = (start.pool.iter())
+        .flat_map(|pool| pool.households.iter())
+        .map(|household| household.members.len())
+        .sum();
+    u64::try_from(start.founders.len() + pooled).unwrap_or_else(|_| panic!("invariant start.count"))
+}
+
+/// `persons` of the `Start` of an input log; 0 without one.
+pub(crate) fn persons_in(history: &[InputRecord]) -> u64 {
+    (history.iter())
+        .find_map(|record| match &record.input {
+            Input::Start(start) => Some(persons(start)),
+            Input::ForkOverride(_) | Input::ArrangePartnership(_) => None,
+        })
+        .unwrap_or(0)
+}
 
 pub(crate) fn check_start(
     domain: &DomainState,

@@ -10,7 +10,7 @@ pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
 pub use save::{FORMAT_VERSION, LoadError, SaveError};
 
-pub use crate::state::census::CensusRow;
+pub use crate::state::census::{CensusRow, PopulationCensus};
 
 use alloc::vec::Vec;
 
@@ -43,6 +43,12 @@ pub struct YearOut {
     pub trace: Vec<TraceEntry>,
 }
 
+/// The causes of death of `data` in the order of the census columns (ADR-0017 section 2;
+/// ADR-0021, addendum 2026-10-21).
+pub fn death_causes(data: &Data) -> Vec<crate::data_id::Code> {
+    crate::state::death::causes(data)
+}
+
 pub struct World {
     sched: Scheduler<EventPayload, PlanRef>,
     state: WorldState,
@@ -60,6 +66,9 @@ pub struct WorldState {
     /// The checked definitions (ADR-0007): no state either, only their hash is part of a
     /// save's header.
     data: Data,
+    /// How many persons `Start` made, from its input (ADR-0021, addendum 2026-10-21): no
+    /// state either, not hashed, not saved; a load takes it from the input log again.
+    started: u64,
 }
 
 impl World {
@@ -72,6 +81,7 @@ impl World {
                 log: LogBuffer::new(),
                 trace: TraceBuffer::default(),
                 data,
+                started: 0,
             },
             inputs: InputLog {
                 next_seq: Counter::new(),
@@ -200,6 +210,7 @@ impl WorldState {
         );
         match input {
             Input::Start(start) => {
+                self.started = state::start::persons(start);
                 state::start::apply_start(&mut self.domain, &self.data, start, &mut ctx);
             }
             Input::ForkOverride(block) => {
@@ -335,6 +346,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::YearEnd => {
                 let mut row = state::census::census_row(&self.domain, ev.key.time);
                 let t = ev.key.time;
+                row.population =
+                    state::census::population(&self.domain, &self.data, self.started, t);
                 let trace = &self.trace;
                 let entries = &mut out.trace;
                 row.body = crate::body_contract::count(

@@ -180,12 +180,7 @@ fn by_start(history: &[InputRecord]) -> u64 {
         Input::Start(start) => Some(start),
         Input::ForkOverride(_) | Input::ArrangePartnership(_) => None,
     });
-    let start = start.unwrap_or_else(|| panic!("invariant onset.no_start"));
-    let pooled: usize = (start.pool.iter())
-        .flat_map(|pool| pool.households.iter())
-        .map(|household| household.members.len())
-        .sum();
-    u64::try_from(start.founders.len() + pooled).unwrap_or_else(|_| panic!("invariant onset.count"))
+    super::start::persons(start.unwrap_or_else(|| panic!("invariant onset.no_start")))
 }
 
 /// Path 3: an input that sets the switch on, in its second `T` (`history` the inputs before

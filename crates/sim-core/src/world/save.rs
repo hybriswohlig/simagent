@@ -241,6 +241,7 @@ impl World {
                 log: LogBuffer::restore(counter(exceptions.next_event_id)?),
                 trace: TraceBuffer::default(),
                 data,
+                started: crate::state::start::persons_in(&exceptions.input_log),
             },
             inputs: InputLog {
                 next_seq: counter(next_input)?,

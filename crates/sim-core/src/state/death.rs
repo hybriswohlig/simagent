@@ -97,6 +97,18 @@ pub(crate) fn everyone_dues(
     ]
 }
 
+/// The causes of death in their order (ADR-0017 section 2): senescence, accident, then
+/// the diseases of the data that can kill, in the order of the data.
+pub(crate) fn causes(data: &Data) -> Vec<Code> {
+    let mut causes = vec![senescence(), accident()];
+    causes.extend(
+        (data.diseases().iter())
+            .filter(|d| disease::hazard(d).is_some())
+            .map(|d| Code::from(d.code.clone())),
+    );
+    causes
+}
+
 /// From when the causes for everyone act on a sim: from its birth, on a founder from the
 /// start.
 pub(crate) fn origin(born: SimTime) -> SimTime {
