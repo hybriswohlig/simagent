@@ -29,7 +29,7 @@ use sim_core::log::{LogEntry, log_hash};
 use sim_core::mortality;
 use sim_core::params::WorldParams;
 use sim_core::time::{SimDuration, SimTime};
-use sim_core::world::{CensusRow, World, YearOut};
+use sim_core::world::{CensusRow, PopulationCensus, World, YearOut};
 
 const Y: i64 = 31_449_600;
 
@@ -199,23 +199,31 @@ fn a_sim_dies_when_its_budget_runs_out() {
         hex(MORTAL_SAVE_AFTER_YEAR_5)
     );
 
-    // The census counts the seconds they lived: the second of death is not lived.
+    // The census counts the seconds they lived: the second of death is not lived. Both
+    // die of accident, the second of the seven causes of the repository's data (ADR-0021,
+    // addendum 2026-10-21): she in year 4, he in year 5.
     let lived = |secs: i64| u64::try_from(secs).expect("positive");
-    let row = |year: i64, living: u64, secs: i64| CensusRow {
+    let row = |year: i64, living: u64, secs: i64, accidents: u64| CensusRow {
         year,
         living,
         lived_secs: lived(secs),
         body: BodyCensus::default(),
+        population: PopulationCensus {
+            births: 0,
+            arrivals: 0,
+            emigrations: 0,
+            deaths: vec![0, accidents, 0, 0, 0, 0, 0],
+        },
     };
     assert_eq!(
         run.out.census,
         [
-            row(0, 2, 2 * Y),
-            row(1, 2, 2 * Y),
-            row(2, 2, 2 * Y),
-            row(3, 2, 2 * Y),
-            row(4, 1, (HER_DEATH - 4 * Y) + Y),
-            row(5, 0, HIS_DEATH - 5 * Y),
+            row(0, 2, 2 * Y, 0),
+            row(1, 2, 2 * Y, 0),
+            row(2, 2, 2 * Y, 0),
+            row(3, 2, 2 * Y, 0),
+            row(4, 1, (HER_DEATH - 4 * Y) + Y, 1),
+            row(5, 0, HIS_DEATH - 5 * Y, 1),
         ]
     );
 }

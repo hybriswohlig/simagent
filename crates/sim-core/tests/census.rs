@@ -853,7 +853,7 @@ fn the_census_reads_absent_pigment_loci_as_the_reference_allele() {
         let mut out = YearOut::default();
         let end = SimTime::from_secs(sim_core::time::YEAR.as_secs() - 1);
         world.advance_until(&mut out, end, &mut |_| false);
-        out.census[0]
+        out.census[0].clone()
     };
     let row = first_year_end(prerun_data());
     assert!(row.living > 0);

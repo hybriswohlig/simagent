@@ -57,11 +57,34 @@ mod tests {
     use crate::genome::{Genome, Sex};
     use crate::ids::SimId;
     use crate::lineage::LineageKey;
-    use crate::state::{ArchivedSim, LeftBy, Sim};
+    use crate::state::{ArchivedSim, LeftBy, Parents, PoolOrigin, Sim};
     use crate::time::{DAY, SimTime, year_start};
 
     fn sim(n: u64) -> SimId {
         SimId::try_from(n).expect("valid")
+    }
+
+    /// Born in the town: two parents of the town.
+    fn parents() -> Option<Parents> {
+        Some(Parents {
+            mother: sim(1),
+            father: sim(1),
+            conception: 0,
+        })
+    }
+
+    /// From the pool: `born_pool` its birth in the pool run (`None` for a child of a
+    /// pregnancy from the pool born in the town), `arrived` its second.
+    fn pool(born_pool: Option<SimTime>, arrived: SimTime) -> Option<PoolOrigin> {
+        Some(PoolOrigin {
+            genome_key: crate::lineage::GenomeKey::of_zygote(key(0)),
+            born_pool,
+            arrived,
+            arrival_year: 0,
+            mother: Some(key(0)),
+            father: Some(key(0)),
+            social_parents: alloc::vec::Vec::new(),
+        })
     }
 
     fn key(n: u64) -> LineageKey {
@@ -137,6 +160,7 @@ mod tests {
                 living: 2,
                 lived_secs: (year_secs - 10 * day_secs) + 100 * day_secs + year_secs,
                 body: BodyCensus::default(),
+                population: PopulationCensus::default(),
             }
         );
         assert_eq!(
@@ -146,6 +170,7 @@ mod tests {
                 living: 2,
                 lived_secs: 2 * year_secs,
                 body: BodyCensus::default(),
+                population: PopulationCensus::default(),
             }
         );
         // Year 2: sims 2, 3 and 4 (until its last second); sim 1 is not born yet.
@@ -156,6 +181,7 @@ mod tests {
                 living: 2,
                 lived_secs: year_secs + year_secs + (year_secs - 1),
                 body: BodyCensus::default(),
+                population: PopulationCensus::default(),
             }
         );
     }
@@ -172,7 +198,143 @@ mod tests {
                 living: 0,
                 lived_secs: 0,
                 body: BodyCensus::default(),
+                population: PopulationCensus::default(),
             }
         );
+    }
+
+    /// The causes of death of the repository's data, by hand from
+    /// `data/calibration/genetics.json`: senescence and accident, then the diseases with the
+    /// effect `death` or `death_in_two_steps` in the order of the data (`core:disease_mt` is
+    /// `visible` and kills nobody).
+    #[test]
+    fn the_causes_of_death_come_in_the_order_of_the_addendum() {
+        let data = crate::data::testing::data();
+        let codes: alloc::vec::Vec<&str> = (crate::state::death::causes(&data).iter())
+            .map(|code| code.as_str())
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                "core:senescence",
+                "core:accident",
+                "core:disease_ar",
+                "core:disease_ad_late",
+                "core:disease_ad_partial",
+                "core:disease_xr",
+                "core:disease_liability",
+            ]
+        );
+    }
+
+    /// The population of year 3 and of year 2 by hand (a year has 364 days); the deaths in
+    /// the order of `the_causes_of_death_come_in_the_order_of_the_addendum`:
+    /// - sim 1, a founder made by `Start`, counts nowhere.
+    /// - sims 2 and 3 are born in year 3, in the town and of a pregnancy from the pool.
+    /// - sim 4 arrives in year 3.
+    /// - sim 5 is born in year 3 and dies of `core:disease_ar` in it.
+    /// - sim 6 dies of an accident in the last second of year 3.
+    /// - sim 7 dies of senescence in the last second of year 2.
+    /// - sim 8 leaves the town in year 3.
+    /// - sim 9 is born in the last second of year 2, sim 10 arrives in year 2.
+    #[test]
+    fn the_census_counts_births_arrivals_emigrations_and_deaths_by_cause() {
+        let data = crate::data::testing::data();
+        let day = DAY.as_secs();
+        let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
+        let cause = |code: &str| crate::data_id::Code::new(code).expect("a code").key();
+        let died = |n: u64, born: SimTime, left: SimTime, code: &str| ArchivedSim {
+            left_by: LeftBy::Death { cause: cause(code) },
+            ..archived(n, born, left)
+        };
+        let mut domain = DomainState::new();
+        domain.sims.insert(sim(1), living(1, at(-10, 0)));
+        let child = |n: u64, born: SimTime| Sim {
+            parents: parents(),
+            ..living(n, born)
+        };
+        domain.sims.insert(sim(2), child(2, at(3, 10 * day)));
+        domain.sims.insert(
+            sim(3),
+            Sim {
+                pool: pool(None, at(3, 20 * day)),
+                ..living(3, at(3, 20 * day))
+            },
+        );
+        domain.sims.insert(
+            sim(4),
+            Sim {
+                pool: pool(Some(at(-20, 0)), at(3, 30 * day)),
+                ..living(4, at(-20, 0))
+            },
+        );
+        domain.archive.insert(
+            sim(5),
+            ArchivedSim {
+                parents: parents(),
+                ..died(5, at(3, 40 * day), at(3, 50 * day), "core:disease_ar")
+            },
+        );
+        domain
+            .archive
+            .insert(sim(6), died(6, at(-30, 0), at(4, -1), "core:accident"));
+        domain
+            .archive
+            .insert(sim(7), died(7, at(-70, 0), at(3, -1), "core:senescence"));
+        domain.archive.insert(
+            sim(8),
+            ArchivedSim {
+                left_by: LeftBy::Emigration,
+                ..archived(8, at(-30, 0), at(3, 100 * day))
+            },
+        );
+        domain.sims.insert(sim(9), child(9, at(3, -1)));
+        domain.sims.insert(
+            sim(10),
+            Sim {
+                pool: pool(Some(at(-20, 0)), at(2, 5 * day)),
+                ..living(10, at(-20, 0))
+            },
+        );
+        let last_second = |year: i64| at(year + 1, -1);
+        assert_eq!(
+            population(&domain, &data, 1, last_second(3)),
+            PopulationCensus {
+                births: 3,
+                arrivals: 1,
+                emigrations: 1,
+                deaths: alloc::vec![0, 1, 1, 0, 0, 0, 0],
+            }
+        );
+        assert_eq!(
+            population(&domain, &data, 1, last_second(2)),
+            PopulationCensus {
+                births: 1,
+                arrivals: 1,
+                emigrations: 0,
+                deaths: alloc::vec![1, 0, 0, 0, 0, 0, 0],
+            }
+        );
+    }
+
+    /// In year 0 the persons `Start` made (SimIds 1 to 3, from the pool with `arrived = 0`
+    /// like an arrival of second 0) are no arrivals; sims 4 and 5, arrived in second 0,
+    /// are (ADR-0021, addendum 2026-10-21).
+    #[test]
+    fn what_start_made_is_no_arrival() {
+        let data = crate::data::testing::data();
+        let born = SimTime::from_secs(-1000);
+        let mut domain = DomainState::new();
+        for n in 1..=5 {
+            domain.sims.insert(
+                sim(n),
+                Sim {
+                    pool: pool(Some(born), SimTime::START),
+                    ..living(n, born)
+                },
+            );
+        }
+        let row = population(&domain, &data, 3, year_start(1) - DAY);
+        assert_eq!(row.arrivals, 2);
     }
 }

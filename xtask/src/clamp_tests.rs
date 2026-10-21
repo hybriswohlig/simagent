@@ -6,7 +6,7 @@
 //! by hand.
 
 use sim_core::body_contract::{BodyCensus, CLAMPED_KEYS};
-use sim_core::world::CensusRow;
+use sim_core::world::{CensusRow, PopulationCensus};
 
 use super::*;
 use crate::ordered::Json;
@@ -115,6 +115,7 @@ fn row(year: i64, evaluated: u64) -> CensusRow {
             evaluated,
             ..BodyCensus::default()
         },
+        population: PopulationCensus::default(),
     }
 }
 

@@ -3411,3 +3411,87 @@ fn two_who_moved_out_share_a_household_only_as_a_pair() {
         );
     }
 }
+
+/// The census's population columns are the year's entries of the log, counted from the
+/// definitions of the addendum to ADR-0021 (2026-10-21): births the entries `core:birth`,
+/// emigrations the entries `core:emigrated` (one per person), the deaths of a cause the
+/// entries `core:death` with it, arrivals the entries `core:arrived` not caused by `Start`
+/// (input 1). In year 0 the arrivals of second 0 count and the 50 persons `Start` brought
+/// from the pool do not. The census reads the state, the entries are the log: two outputs
+/// of one run.
+#[test]
+fn the_census_counts_the_population_the_log_reports() {
+    let mut run = switched_town(0xff, true);
+    run.play(30 * Y - 1);
+    let causes: Vec<String> = (sim_core::world::death_causes(run.world.data()).iter())
+        .map(|code| code.as_str().to_owned())
+        .collect();
+    #[derive(Default, Debug, PartialEq)]
+    struct Year {
+        births: u64,
+        arrivals: u64,
+        emigrations: u64,
+        deaths: BTreeMap<String, u64>,
+    }
+    let mut years: BTreeMap<i64, Year> = BTreeMap::new();
+    let mut by_start = 0;
+    for entry in &run.log {
+        let entry = serde_json::to_value(entry).expect("json");
+        let year = years
+            .entry(entry["t"].as_i64().expect("a second").div_euclid(Y))
+            .or_default();
+        let payload = entry["payload"].as_object().expect("a payload");
+        let (code, value) = payload.iter().next().expect("a code");
+        match code.as_str() {
+            "core:birth" => year.births += 1,
+            "core:emigrated" => year.emigrations += 1,
+            "core:death" => {
+                let cause = value["cause"].as_str().expect("a cause").to_owned();
+                assert!(causes.contains(&cause), "{cause}");
+                *year.deaths.entry(cause).or_default() += 1;
+            }
+            "core:arrived" if entry["causes"] == serde_json::json!([{"input": 1}]) => {
+                by_start += 1;
+            }
+            "core:arrived" => year.arrivals += 1,
+            _ => {}
+        }
+    }
+    assert_eq!(by_start, 50, "Start brought its 50 persons");
+    assert_eq!(run.out.census.len(), 30);
+    let (mut births, mut arrivals, mut deaths) = (0, 0, 0);
+    for row in &run.out.census {
+        let expected = years.remove(&row.year).unwrap_or_default();
+        let got = Year {
+            births: row.population.births,
+            arrivals: row.population.arrivals,
+            emigrations: row.population.emigrations,
+            deaths: (causes.iter().zip(&row.population.deaths))
+                .filter(|(_, n)| **n > 0)
+                .map(|(code, n)| (code.clone(), *n))
+                .collect(),
+        };
+        assert_eq!(got, expected, "year {}", row.year);
+        births += got.births;
+        arrivals += got.arrivals;
+        deaths += got.deaths.values().sum::<u64>();
+    }
+    assert!(
+        births > 0 && arrivals > 0 && deaths > 0,
+        "{births} {arrivals} {deaths}"
+    );
+}
+
+/// A save in year 0 continues with the census row of year 0 the uninterrupted run writes:
+/// the loaded world knows again which persons `Start` made.
+#[test]
+fn a_save_in_year_0_keeps_what_start_made_out_of_the_arrivals() {
+    let mut whole = switched_town(0xff, true);
+    whole.play(Y - 1);
+    let mut part = switched_town(0xff, true);
+    part.play(Y / 2);
+    let (mut loaded, _) = World::load(&part.save(), pool_c_data(POOL_C)).expect("loads");
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(Y - 1), &mut |_| false);
+    assert_eq!(out.census, whole.out.census);
+}

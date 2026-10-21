@@ -1334,7 +1334,10 @@ fn repro_packages_pass() {
 
 /// `census.csv` of the repository's data (ADR-0020 section 7): the three columns of every
 /// run and `body_evaluated` as given, then the clamp counts of the 21 parameters of the
-/// contract with unit `z` or `cm` and the held curve, here all 0.
+/// contract with unit `z` or `cm` and the held curve; then births, arrivals, emigrations
+/// and the deaths per cause (ADR-0021, addendum 2026-10-21): senescence, accident and the
+/// five lethal diseases of `data/calibration/genetics.json` in its order. Here all 0: a
+/// founder of `Start` is no arrival.
 fn census(rows: &[&str]) -> String {
     let header = "year,living,lived_secs,body_evaluated,clamped_height_cm,clamped_leg_ratio_z,\
                   clamped_head_size_z,clamped_body_fat_z,clamped_fat_distribution_z,\
@@ -1343,11 +1346,14 @@ fn census(rows: &[&str]) -> String {
                   clamped_face_axis_03,clamped_face_axis_04,clamped_face_axis_05,\
                   clamped_face_axis_06,clamped_face_axis_07,clamped_face_axis_08,\
                   clamped_face_axis_09,clamped_face_axis_10,clamped_face_axis_11,\
-                  clamped_face_axis_12,curve_clamped";
+                  clamped_face_axis_12,curve_clamped,births,arrivals,emigrations,\
+                  deaths.core:senescence,deaths.core:accident,deaths.core:disease_ar,\
+                  deaths.core:disease_ad_late,deaths.core:disease_ad_partial,\
+                  deaths.core:disease_xr,deaths.core:disease_liability";
     let mut text = format!("{header}\n");
     for row in rows {
         text.push_str(row);
-        text.push_str(&",0".repeat(22));
+        text.push_str(&",0".repeat(32));
         text.push('\n');
     }
     text
