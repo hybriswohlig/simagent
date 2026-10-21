@@ -187,9 +187,7 @@ mod tests {
         let t = SimTime::from_secs;
         assert_eq!(creation_second(t(-100), true, None), SimTime::START);
         assert_eq!(creation_second(t(500), false, None), t(500));
-        assert_eq!(
-            creation_second(t(-100), false, Some(t(31_449_600))),
-            t(31_449_600)
-        );
+        let year = t(YEAR.as_secs());
+        assert_eq!(creation_second(t(-100), false, Some(year)), year);
     }
 }
