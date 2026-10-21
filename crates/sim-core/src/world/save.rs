@@ -400,6 +400,9 @@ struct PoolView<'a> {
     immigration: Option<u64>,
     /// Each arrival's place: its household's among the used ones, its own in the household.
     places: BTreeMap<SimId, (usize, usize)>,
+    /// How many of the used households (or a village's persons) `Start` brought: the
+    /// first ones; the others came by immigration.
+    by_start: usize,
 }
 
 impl PoolView<'_> {
@@ -467,6 +470,7 @@ fn pool_view<'a>(
             .map(|index| (index, 0))
             .collect()
     };
+    view.by_start = drawn.len() + village.len();
     if let Some(persons) = view.immigration {
         let mut taken: BTreeSet<usize> = drawn.iter().map(|(index, _)| *index).collect();
         let mut year = 0_u64;
@@ -707,8 +711,8 @@ type CarriedPlan = ((usize, usize, u8), u64, PlanRef);
 /// plans, C4 and C5): each was planned at her arrival by her `core:arrived`, so planned at
 /// `A`, all of one arrival by one entry, those of one household by entries in the order of
 /// its members, each member's followed only by the onsets it had reached then if the switch
-/// was on (ADR-0017 section 3); and they were inserted in the order of the arrival: by
-/// household, member, then conception, birth, separation, leaving home.
+/// its arrival saw was on (ADR-0017 section 3); and they were inserted in the order of the
+/// arrival: by household, member, then conception, birth, separation, leaving home.
 fn carried_plans_consistent(
     loaded: &LoadedState,
     plan_refs: &[PlanRef],
@@ -769,9 +773,13 @@ fn carried_plans_consistent(
                 (sim.born, &sim.afflictions, sim.pool.as_ref()?)
             }
         };
-        let onsets = if rules.switch_at(origin.arrived.as_secs()) {
+        let by_start = place.0 < rules.pool.by_start;
+        let onsets = if rules.switch_seen(by_start, origin.arrived.as_secs()) {
             (afflictions.iter())
-                .filter(|a| state::onset::onset_second(born, a.onset.get()) <= origin.arrived)
+                .filter(|a| {
+                    state::onset::onset_second(born, a.onset.get())
+                        .is_some_and(|at| at <= origin.arrived)
+                })
                 .count()
         } else {
             0
@@ -1371,9 +1379,18 @@ impl Rules<'_> {
     /// The switch of the hereditary diseases in the second `at`, after its inputs.
     fn switch_at(&self, at: i64) -> bool {
         (self.switch.iter())
-            .filter(|(from, _)| *from <= at)
-            .next_back()
+            .rfind(|(from, _)| *from <= at)
             .is_some_and(|(_, on)| *on)
+    }
+
+    /// The switch a creation in the second `at` saw: `Start`'s own for what `Start` made
+    /// (an override stamped before the start acts only after it), else the switch then.
+    fn switch_seen(&self, by_start: bool, at: i64) -> bool {
+        if by_start {
+            self.switch.first().is_some_and(|(_, on)| *on)
+        } else {
+            self.switch_at(at)
+        }
     }
 
     /// Where the hazards of a person act from and the detail of its budgets (design note of
@@ -2230,14 +2247,14 @@ fn died_by_the_rule(sim: &ArchivedSim, cause: u64, rules: &Rules<'_>) -> bool {
 }
 
 /// The onset second of each disease of `person` that is still to come after `now`, if its
-/// creation planned an event for it (ADR-0017 section 3): `B` after its creation second
-/// and not before `now`.
+/// creation planned an event for it (ADR-0017 section 3): `B` after its creation second,
+/// not before `now` and not beyond the clock.
 fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + '_ {
     let founder = person.parents.is_none() && person.pool.is_none();
     let arrived = person.pool.as_ref().map(|origin| origin.arrived);
     let created = state::onset::creation_second(person.born, founder, arrived);
     (person.afflictions.iter()).filter_map(move |affliction| {
-        let at = state::onset::onset_second(person.born, affliction.onset.get());
+        let at = state::onset::onset_second(person.born, affliction.onset.get())?;
         (at > created && at.as_secs() >= now).then_some((affliction.disease, at))
     })
 }

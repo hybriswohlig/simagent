@@ -18,21 +18,23 @@ use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::time::{SimDuration, SimTime, YEAR, calendar};
 use crate::world::{EventPayload, SimCtx};
 
-/// The onset second `born + ⌈onset · YEAR⌉` of an onset age in years.
-pub(crate) fn onset_second(born: SimTime, onset: f64) -> SimTime {
+/// The onset second `born + ⌈onset · YEAR⌉` of an onset age in years; `None` beyond the
+/// clock, where it never comes, as a death beyond it (ADR-0002).
+pub(crate) fn onset_second(born: SimTime, onset: f64) -> Option<SimTime> {
     let year = sim_math::i64_to_f64_exact(YEAR.as_secs())
         .unwrap_or_else(|| panic!("invariant onset.year"));
     let secs = sim_math::to_i64_exact(sim_math::ceil(onset * year))
         .unwrap_or_else(|| panic!("invariant onset.second"));
     born.checked_add(SimDuration::from_secs(secs))
-        .unwrap_or_else(|| panic!("invariant onset.second"))
 }
 
-/// The calendar year of the onset second and the onset in whole years.
+/// The calendar year of the onset second and the onset in whole years, of an onset that
+/// has come.
 pub(crate) fn since(born: SimTime, onset: f64) -> (i64, i64) {
     let whole = sim_math::to_i64_exact(-sim_math::ceil(-onset))
         .unwrap_or_else(|| panic!("invariant onset.age"));
-    (calendar(onset_second(born, onset)).year, whole)
+    let at = onset_second(born, onset).unwrap_or_else(|| panic!("invariant onset.second"));
+    (calendar(at).year, whole)
 }
 
 /// The second a person of the state was created: the start for a founder, the arrival for
@@ -71,7 +73,7 @@ fn write(
 
 /// Paths 1 and 2 at the creation of `sim` by the entry `creation` (`now` is `E`), with the
 /// switch the creation sees: each disease in data order either written now (`B ≤ E`) or
-/// planned at `B`.
+/// planned at `B`, unless `B` lies beyond the clock.
 pub(crate) fn on_creation(
     domain: &mut DomainState,
     data: &Data,
@@ -87,7 +89,9 @@ pub(crate) fn on_creation(
     let (born, afflictions) = (person.born, person.afflictions.clone());
     let now = ctx.now();
     for affliction in &afflictions {
-        let at = onset_second(born, affliction.onset.get());
+        let Some(at) = onset_second(born, affliction.onset.get()) else {
+            continue;
+        };
         if at <= now {
             if switch_on {
                 write(
@@ -151,17 +155,31 @@ mod tests {
     fn the_onset_second_and_its_year() {
         let y = YEAR.as_secs();
         let born = SimTime::from_secs(-10 * y);
-        assert_eq!(onset_second(born, 0.0), born);
-        assert_eq!(onset_second(born, 45.0), SimTime::from_secs(35 * y));
+        assert_eq!(onset_second(born, 0.0), Some(born));
+        assert_eq!(onset_second(born, 45.0), Some(SimTime::from_secs(35 * y)));
         assert_eq!(
             onset_second(born, 1.5),
-            SimTime::from_secs(-10 * y + 3 * y / 2)
+            Some(SimTime::from_secs(-10 * y + 3 * y / 2))
         );
         // 1e-7 years is 3.14496 seconds: rounded up to 4.
-        assert_eq!(onset_second(born, 1e-7), SimTime::from_secs(-10 * y + 4));
+        assert_eq!(
+            onset_second(born, 1e-7),
+            Some(SimTime::from_secs(-10 * y + 4))
+        );
         assert_eq!(since(born, 45.9), (35, 45));
         assert_eq!(since(born, 0.0), (-10, 0));
         assert_eq!(since(born, 1.0), (-9, 1));
+    }
+
+    /// The clock ends at a million years (`MAX_ABS_SECS`): an onset after its last second
+    /// never comes, one in it does.
+    #[test]
+    fn an_onset_beyond_the_clock_never_comes() {
+        let last = crate::time::MAX_ABS_SECS;
+        let born = SimTime::from_secs(last - 4);
+        assert_eq!(onset_second(born, 1e-7), Some(SimTime::from_secs(last)));
+        // 2e-7 years is 6.28992 seconds: rounded up to 7, three beyond the last second.
+        assert_eq!(onset_second(born, 2e-7), None);
     }
 
     #[test]
