@@ -672,6 +672,103 @@ fn a_fork_with_the_stamp_of_the_start_writes_the_founders_onset() {
     assert_eq!(entries.get(at + 1), Some(&expected));
 }
 
+/// A founder born at `−30 · YEAR` reaches the onset 30 in second 0, `B = E = T = 0`: no
+/// event of its own was ever open, so a fork with the start's stamp writes it, in second 0
+/// after its `core:param_changed`, caused by input 2, in year 0 at 30 years.
+#[test]
+fn a_fork_with_the_stamp_of_the_start_writes_an_onset_of_second_0() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-30 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 0);
+    let mut expected = onset(0, 1, LATE, (0, 30), json!({"input": 2}));
+    expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
+    assert_eq!(entries.get(at + 1), Some(&expected));
+}
+
+/// "On, off, on" with the start's stamp, all acting in second 0, the second of the
+/// founders' creation: their creation saw `Start`'s "off", and the first "on" (input 2)
+/// writes both founders' onsets. The second "on" finds that earlier "on" of their creation
+/// second and writes nothing.
+#[test]
+fn on_off_on_with_the_stamp_of_the_start_writes_each_onset_once() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![
+            founder(-40 * Y, Sex::Female, false, true),
+            founder(-40 * Y, Sex::Female, false, true),
+        ],
+        Vec::new(),
+    ));
+    run.fork(true);
+    run.fork(false);
+    run.fork(true);
+    assert_eq!(
+        onsets(&run.entries()),
+        [
+            onset(0, 1, LATE, (-10, 30), json!({"input": 2})),
+            onset(0, 2, LATE, (-10, 30), json!({"input": 2})),
+        ]
+    );
+}
+
+/// A child born in the second `b` of an "on, off" (both stamped `b − 1`) saw the switch off:
+/// the inputs act before its birth, so the "on" did not see it. The next "on" (input 4,
+/// acting in `b + 1`) writes its onset, in the year of its birth at 0 years; the parents got
+/// theirs at the first "on" (input 2) and get nothing again. The second `b` is the first
+/// birth of the same start without forks; the forks act after the conception that set it.
+#[test]
+fn a_child_born_in_the_second_of_on_and_off_gets_its_onset_at_the_next_on() {
+    let start = || {
+        started(
+            data(1e-9, false),
+            false,
+            vec![
+                founder(-20 * Y, Sex::Female, true, false),
+                founder(-22 * Y, Sex::Male, true, false),
+            ],
+            vec![Couple { woman: 0, man: 1 }],
+        )
+    };
+    let mut plain = Run::new(start());
+    plain.advance(6 * Y);
+    let (child, b) = (plain.entries().iter())
+        .find(|entry| code(entry) == "core:birth")
+        .map(|entry| (sim(entry), entry["t"].as_i64().expect("a second")))
+        .expect("a child is born");
+    let mut run = Run::new(start());
+    run.advance(b - 1);
+    run.fork(true);
+    run.fork(false);
+    run.advance(b);
+    assert!(
+        (run.entries().iter())
+            .any(|entry| code(entry) == "core:birth" && sim(entry) == child && entry["t"] == b),
+        "the same birth"
+    );
+    run.fork(true);
+    assert_eq!(
+        onsets(&run.entries()),
+        [
+            onset(b, 1, BIRTH, (-20, 0), json!({"input": 2})),
+            onset(b, 2, BIRTH, (-22, 0), json!({"input": 2})),
+            onset(
+                b + 1,
+                child,
+                BIRTH,
+                (b.div_euclid(Y), 0),
+                json!({"input": 4})
+            ),
+        ]
+    );
+}
+
 /// The entries of one fork go by SimId, each person's in the order of the data: founder 1
 /// with `test:onset_birth` (begun at her birth, year −40, 0 years) and `test:onset_late`
 /// (year −10, 30 years), then founder 2 the same, all caused by the fork.
