@@ -3,7 +3,8 @@
 //! conception.
 
 use super::{
-    DomainState, Parents, Sim, Slot, conception, death, disease, household, partnership, start,
+    DomainState, Parents, Sim, Slot, conception, death, disease, household, onset, partnership,
+    start,
 };
 use crate::data::Data;
 use crate::data_id::Code;
@@ -74,6 +75,7 @@ pub(crate) fn on_birth(
     };
     let year = u64::try_from(now.as_secs().div_euclid(crate::time::YEAR.as_secs()))
         .unwrap_or_else(|_| panic!("invariant time.out_of_range"));
+    let mut children = alloc::vec::Vec::with_capacity(pregnancy.children.len());
     for unborn in &pregnancy.children {
         let (child, born) = ctx.create_child(
             LogPayload::Birth {
@@ -146,7 +148,13 @@ pub(crate) fn on_birth(
                 pool,
             },
         );
+        onset::on_creation(domain, data, child, born, switch_on, ctx);
         household::born_into(domain, child, mother, ctx);
+        children.push((child, born));
+    }
+    // Then per child its first birthday, its deaths and its leaving home: as at an arrival,
+    // the onsets of every person a step creates are planned before their other plans.
+    for &(child, born) in &children {
         let next = start::first_birthday(now, now);
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: child }, born);
         domain.pending.insert((child, Slot::Birthday), handle);

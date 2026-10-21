@@ -36,6 +36,9 @@ pub enum EventPayload {
     /// Yearly series in the first second of each year: households of the pool arrive
     /// until they bring `persons` (ADR-0020 section 5).
     Immigration { persons: u64 },
+    /// `sim` reaches the onset of a hereditary disease; `disease` is the `str_key` of its
+    /// code (ADR-0017 section 3, addendum of 2026-10-20).
+    DiseaseOnset { sim: SimId, disease: u64 },
 }
 
 impl EventPayload {
@@ -49,6 +52,7 @@ impl EventPayload {
     pub const LEAVE_HOME: EventKind = EventKind(8);
     pub const EMIGRATION: EventKind = EventKind(9);
     pub const IMMIGRATION: EventKind = EventKind(10);
+    pub const DISEASE_ONSET: EventKind = EventKind(11);
 }
 
 impl Payload for EventPayload {
@@ -59,7 +63,8 @@ impl Payload for EventPayload {
             | EventPayload::ConceptionAttempt { .. }
             | EventPayload::Separation { .. }
             | EventPayload::MarketRound
-            | EventPayload::LeaveHome { .. } => EventClass::GENERAL,
+            | EventPayload::LeaveHome { .. }
+            | EventPayload::DiseaseOnset { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
             EventPayload::Emigration { .. } => EventClass::EMIGRATION,
@@ -77,7 +82,8 @@ impl Payload for EventPayload {
             | EventPayload::Death { sim, .. }
             | EventPayload::ConceptionAttempt { woman: sim }
             | EventPayload::Birth { mother: sim }
-            | EventPayload::LeaveHome { sim } => EventSubject::sim(sim.get()),
+            | EventPayload::LeaveHome { sim }
+            | EventPayload::DiseaseOnset { sim, .. } => EventSubject::sim(sim.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -96,6 +102,7 @@ impl Payload for EventPayload {
             EventPayload::LeaveHome { .. } => EventPayload::LEAVE_HOME,
             EventPayload::Emigration { .. } => EventPayload::EMIGRATION,
             EventPayload::Immigration { .. } => EventPayload::IMMIGRATION,
+            EventPayload::DiseaseOnset { .. } => EventPayload::DISEASE_ONSET,
         }
     }
 }

@@ -275,7 +275,7 @@ pub(crate) fn archive(
     };
     let slots: Vec<(SimId, Slot)> = domain
         .pending
-        .range((sim, Slot::Birthday)..=(sim, Slot::Death(u64::MAX)))
+        .range((sim, Slot::Birthday)..=(sim, Slot::Onset(u64::MAX)))
         .map(|(slot, _)| *slot)
         .collect();
     for slot in slots {

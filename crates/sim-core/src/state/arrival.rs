@@ -113,6 +113,7 @@ fn arrive_household(
         domain
             .sims
             .insert(id, arrival_state(data, member, delta, now, year, switch_on));
+        super::onset::on_creation(domain, data, id, entry, switch_on, ctx);
         by_key.insert(member.lineage_key, id);
         arrived.push((id, entry));
     }

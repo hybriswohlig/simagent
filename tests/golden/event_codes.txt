@@ -20,3 +20,4 @@ kind market_round 7
 kind leave_home 8
 kind emigration 9
 kind immigration 10
+kind disease_onset 11

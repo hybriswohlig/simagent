@@ -187,6 +187,15 @@ pub enum LogPayload {
     /// section 5): a founder at `Start` or an immigrant.
     #[serde(rename = "core:arrived")]
     Arrived { lineage_key: LineageKey },
+    /// A person (the subject) became affected by this hereditary disease in the run
+    /// (ADR-0017 section 3): `since_year` is the calendar year of its onset second and
+    /// `age_years` the onset in whole years, as the genetics card shows them.
+    #[serde(rename = "core:disease_onset")]
+    DiseaseOnset {
+        disease: Code,
+        since_year: i64,
+        age_years: i64,
+    },
 }
 
 /// One entry of the domain log.

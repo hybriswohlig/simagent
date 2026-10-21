@@ -451,6 +451,23 @@ What the model knows:
   as it arrived. `village` is not a field of the CLI's scenario file (only xtask builds a
   village `Start`); a resolved scenario's pool has `village` false. Core 41 (the new byte changes every save of a pool start; year
   and log hashes of a town stay).
+- The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and 2; Grok P1
+  to P3 and Q1): per affliction `B = born + ceil(onset · YEAR)` (`onset_second`: the product as
+  an f64, its ceiling), `E` the creation second (`creation_second`: a founder 0, an arrival
+  its arrival second, a child born in the town, a pool child too, its birth). The creating
+  step (`_start`, `_birth`, `_arrive`) runs `_onset_step` right after the sim's creation
+  entry (`core:founder_added`, `core:birth`, `core:arrived`), before anything else of it and
+  before the next sim's creation entry: per affliction in data order, `B <= E` writes
+  `core:disease_onset { disease, since_year, age_years }` (log payload 14: the code as a
+  string, `B div YEAR`, `floor(onset)`; subjects the sim; cause the creation entry) if the
+  switch in effect then is on (path 1); `B > E` plans `DiseaseOnset { sim, disease }` (queue
+  payload 10: the SimId and the `str_key` of the code; kind 11, class general, subject the
+  sim) at `B` whatever the switch, by the creation entry (path 2). The event writes the entry
+  with its plan as the cause if the switch is on, else nothing. Death and emigration remove it
+  with the sim's other plans. A ForkOverride writes no onset (path 3 is a later stage).
+  `check_onsets` is the load check: exactly one open event at `B` per living sim and
+  affliction with `B > E` and `B` after the clock, none else; `check_carried_plans` (C4)
+  counts the path-1 entries between the `core:arrived` entries of a household. Core 42.
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -603,8 +620,11 @@ FOUNDER_ALLELE = 28
 # alone).
 # The village start mode (design note of the village, section 6): `PoolStart.village` changes
 # every save of a pool start (the save holds `Start`), core 41; the projection stays 18.
+# The onset of a disease as an entry (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and
+# 2): a new event `DiseaseOnset` in the queue and a new log payload change logs, queues, saves
+# and state hashes without a new field: core 42, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 41
+CORE_VERSION = 42
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -626,6 +646,15 @@ START_POOL_AND_FOUNDERS, START_POOL_MISSING, START_POOL_N_START, START_POOL_HOUS
 START_POOL_VILLAGE_N_START, START_POOL_VILLAGE_IMMIGRATION, START_POOL_VILLAGE_CANDIDATES = 28, 29, 30
 VILLAGE_OCCASION = 1
 VILLAGE_AGES = (18, 41)
+# The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20; Grok P1 to P3 and Q1,
+# protocol sections 21 and 22): the event `DiseaseOnset { sim, disease }` (class general 500,
+# subject the sim, kind 11, the queue payload after Immigration, 9; `disease` the `str_key` of
+# the disease's code, as the cause of `Death`) and the log payload `core:disease_onset {
+# disease, since_year, age_years }` (after core:arrived, 13: the code as the other codes, then
+# two i64).
+DISEASE_ONSET_KIND = 11
+DISEASE_ONSET_VARIANT = 10
+DISEASE_ONSET_ENTRY = 14
 # The largest micro step (ADR-0002).
 MAX_MICRO_STEP = 64
 # The lines the code lists of tests/golden (protected) need for the arrival; they are not
@@ -2222,6 +2251,39 @@ def death_key(payload: bytes) -> int:
     return numbers[2]
 
 
+def onset_second(born: int, onset: float) -> int:
+    """`B = born + ⌈onset · YEAR⌉` (ADR-0017 section 3, addendum): the product as an f64, its
+    ceiling, then an int; the second the card reads "affected since year …" from."""
+    return born + math.ceil(onset * YEAR)
+
+
+def onset_payload(sim: int, disease_key: int) -> bytes:
+    """The queue payload `DiseaseOnset { sim, disease }` (variant 10): the SimId, then the
+    `str_key` of the disease's code."""
+    return variant(DISEASE_ONSET_VARIANT, varint(sim), varint(disease_key))
+
+
+def onset_of_payload(payload: bytes) -> tuple:
+    """(sim, disease key) of the payload of a planned `DiseaseOnset`: three varints, the
+    variant 10, the sim and the key."""
+    numbers, value, shift = [], 0, 0
+    for byte in payload:
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            numbers.append(value)
+            value, shift = 0, 0
+    assert shift == 0 and len(numbers) == 3 and numbers[0] == DISEASE_ONSET_VARIANT, payload.hex()
+    return numbers[1], numbers[2]
+
+
+def onset_entry_payload(code: str, b: int, onset: float) -> bytes:
+    """The log payload `core:disease_onset { disease, since_year, age_years }` (variant 14): the
+    code as a string (as `core:death` names its cause), the calendar year of `B` (`⌊B / YEAR⌋`)
+    and the onset in whole years (`⌊onset⌋`), both i64."""
+    return variant(DISEASE_ONSET_ENTRY, string(code), signed(b // YEAR), signed(math.floor(onset)))
+
+
 class World:
     """A started world. `switch` is the switch of the hereditary diseases at the start,
     `founders` a list of (born, sex, alleles) with the sex as postcard bytes and the
@@ -2365,6 +2427,13 @@ class World:
         # 3) as a record: the second, `P`, `K`, `e`, the draws per household and who left;
         # not state.
         self.emigrations = []
+        # The onsets of diseases (ADR-0017 section 3, addendum, paths 1 and 2) as records: per
+        # entry written or event fired `(second, sim, code, path, the entry's id or None, its
+        # causes as postcard bytes)`, path 1 at the creation, 2 by the event (None: the event
+        # fired with the switch off and wrote nothing); per event planned `(second planned,
+        # sim, code, B)` in `onset_plans`. For the stories; not state.
+        self.onsets = []
+        self.onset_plans = []
         start = variant(
             0,
             varint(seed),
@@ -2619,6 +2688,9 @@ class World:
                 self.pedigree.add(sim)
                 self.by_key[key] = sim
                 sims.append(sim)
+                # Its onsets right after its `core:arrived` (paths 1 and 2), before the next
+                # member's `core:arrived` and before any other entry or plan of it.
+                self._onset_step(sim, entry, arrival)
             mine = {member["lineage_key"]: sim for member, sim in zip(members, sims)}
             for member, sim in zip(members, sims):
                 if member["carer"] is not None:
@@ -2767,6 +2839,87 @@ class World:
                 continue
             payload = death_payload(sim, affliction.disease.key)
             self._schedule(due, DEATH, (SIM_SUBJECT, sim), DEATH_KIND, payload, None, by, now)
+
+    # ------------------------------------------------------------------ onsets
+
+    def creation_second(self, sim: int) -> int:
+        """`E` of a living or archived sim (ADR-0017 section 3, addendum): a founder 0 (the
+        start), an arrival its arrival second (0 at a pool start), a child born in the town (a
+        pool child too) its birth second; `origin_of` gives exactly these."""
+        return self.origin_of(sim)
+
+    def onset_second_of(self, sim: int, affliction: Affliction) -> int:
+        """`B` of an affliction of a living or archived sim."""
+        return onset_second(self.born_of(sim), affliction.onset)
+
+    def made_by_start(self, sim: int) -> bool:
+        """Whether `Start` created a living or archived sim: a founder, a person of a village,
+        or a member of a household of the start's draw (occasion 0 and `n_start`); everyone
+        else came by an immigration (also the one in second 0, after the inputs stamped
+        before it), a birth or not at all. What a loader derives from the input log."""
+        if not self.is_pool_person(sim):
+            return self.born_of(sim) <= 0
+        if not self.is_arrival(sim) or self.creation_second(sim) != 0:
+            return False
+        if self.village:
+            return True
+        index, _ = self.data.pool.members[self.key_of(sim)]
+        return index in pool_draw(self.data.pool, self.seed, 0, self.pool_start["n_start"], [])
+
+    def creation_onset_entries(self, sim: int) -> int:
+        """How many entries of path 1 the creation of a living or archived sim wrote: its
+        afflictions with `B <= E` if the switch its creation saw was on, else none: `Start`'s
+        own value for what `Start` made (an override stamped before the start holds only
+        after it, ADR-0017 section 3, addendum), else the switch in effect at `E` after the
+        inputs of that second (the input log's history, `switch_at`). What a loader can count
+        without the domain log."""
+        e = self.creation_second(sim)
+        afflictions = self.sims[sim][4] if sim in self.sims else self.archive[sim][6]
+        seen = self.switch_history[0][1] if self.made_by_start(sim) else self.switch_at(max(e, 0))
+        if not seen:
+            return 0
+        return sum(1 for affliction in afflictions if self.onset_second_of(sim, affliction) <= e)
+
+    def _onset_step(self, sim: int, created: int, now: int) -> None:
+        """The onset step of a sim (ADR-0017 section 3, addendum, paths 1 and 2), right after
+        its creation entry `created` at `now` (`E`), before any other entry or plan of it: per
+        affliction in data order with `B = born + ⌈onset · YEAR⌉`, `B <= E` writes the entry now
+        if the switch (the one in effect now: the start's own value at the start, the switch
+        then at a birth or an arrival) is on (path 1, caused by the creation entry); `B > E`
+        plans the event `DiseaseOnset { sim, disease }` at `B` whatever the switch (path 2, by
+        the creation entry, planned now, micro 0 since `B` is a later second; a `B` beyond the
+        clock is never, as a death beyond it, ADR-0002). Path 3 (a ForkOverride that turns the
+        switch on) is a later stage: `override` writes no onset."""
+        assert now == self.creation_second(sim), (sim, now)
+        for affliction in self.sims[sim][4]:
+            b = self.onset_second_of(sim, affliction)
+            if b <= now:
+                if self.switch:
+                    self._onset_entry(sim, affliction, now, [variant(0, varint(created))], 1)
+                continue
+            if abs(b) > MAX_ABS_SECS:
+                continue
+            self.onset_plans.append((now, sim, affliction.disease.code, b))
+            self._schedule(b, GENERAL, (SIM_SUBJECT, sim), DISEASE_ONSET_KIND, onset_payload(sim, affliction.disease.key), None, created, now)
+
+    def _onset_entry(self, sim: int, affliction: Affliction, now: int, causes: list, path: int) -> int:
+        """The entry `core:disease_onset` of `sim` (subjects the sim) with `causes`."""
+        b = self.onset_second_of(sim, affliction)
+        entry = self._entry(now, [variant(0, varint(sim))], causes, onset_entry_payload(affliction.disease.code, b, affliction.onset))
+        self.onsets.append((now, sim, affliction.disease.code, path, entry, causes))
+        return entry
+
+    def _disease_onset(self, event: Event, now: int, plan: bytes) -> None:
+        """The event `DiseaseOnset` at `B` (path 2): the entry if the switch is on now (after
+        the inputs of this second), caused by the plan; otherwise nothing."""
+        sim, key = onset_of_payload(event.payload)
+        assert event.subject == (SIM_SUBJECT, sim) and sim in self.sims, (event.subject, sim)
+        (affliction,) = [affliction for affliction in self.sims[sim][4] if affliction.disease.key == key]
+        assert self.onset_second_of(sim, affliction) == now, (sim, key, now)
+        if self.switch:
+            self._onset_entry(sim, affliction, now, [plan], 2)
+        else:
+            self.onsets.append((now, sim, affliction.disease.code, 2, None, [plan]))
 
     # ------------------------------------------------------------------ inputs
 
@@ -3730,6 +3883,9 @@ class World:
             self.created_by[child] = entry
             self.by_key[key] = child
             born.append((child, entry))
+            # Its onsets right after its `core:birth` (paths 1 and 2), before its `core:moved`
+            # and the next child's `core:birth` (twins: birth A, onset A, birth B, onset B).
+            self._onset_step(child, entry, now)
             if self.households_on:
                 # The child joins the mother's household, right after its `core:birth`
                 # (causes the plan of the birth and the rule), carer the mother, not moved
@@ -3808,6 +3964,8 @@ class World:
             self.created_by[sim] = added
             self.pedigree.add(sim)
             self.by_key[key] = sim
+            # Its onsets right after its `core:founder_added` (paths 1 and 2), before its plans.
+            self._onset_step(sim, added, now)
             self._plan_birthday(sim, first_birthday(born, now), added, now)
             self._plan_deaths(sim, added, now)
 
@@ -3954,6 +4112,8 @@ class World:
             self._separate(event, now, plan)
         elif event.kind == LEAVE_HOME_KIND:
             self._leave_home(event, now, plan)
+        elif event.kind == DISEASE_ONSET_KIND:
+            self._disease_onset(event, now, plan)
         elif event.kind == BIRTHDAY_KIND:
             sim = event.subject[1]
             age = (now - self.sims[sim][0]) // YEAR
@@ -5266,8 +5426,11 @@ def check_carried_births(world: World) -> None:
 def check_carried_plans(world: World) -> None:
     """C4 (design note of the carried plans, section 2.5; decision Q2): every pending carried plan
     (`carried_plans`) was planned at its owner's arrival second (`planned_at = A`); one owner's
-    plans name one `by`; and within one household `by − place` is the same for every owner (the
-    `core:arrived` entries of a household are consecutive, in member order)."""
+    plans name one `by`; and within one household `by − place − onsets` is the same for every
+    owner, `onsets` the number of onset entries of path 1 the members before the owner wrote at
+    their arrival (`World.creation_onset_entries`; the `core:arrived` entries of a household
+    are in member order, each followed by its own onset entries of path 1 and nothing else:
+    ADR-0017 section 3, addendum; without such entries they are consecutive, as before)."""
     if world.data.pool is None or world.pool_start is None:
         return
     pool = world.data.pool
@@ -5277,8 +5440,11 @@ def check_carried_plans(world: World) -> None:
         assert planned_at == world.origins[owner]["arrived"], (owner, event.kind, event.plan)
         assert by_owner.setdefault(owner, by) == by, (owner, by_owner[owner], by)
         index, _ = pool.members[world.key_of(owner)]
-        place = [m["lineage_key"] for m in pool.households[index]["members"]].index(world.key_of(owner))
-        assert offsets.setdefault(index, by - place) == by - place, (owner, index, by, place)
+        keys = [m["lineage_key"] for m in pool.households[index]["members"]]
+        place = keys.index(world.key_of(owner))
+        onsets = sum(world.creation_onset_entries(world.by_key[key]) for key in keys[:place])
+        offset = by - place - onsets
+        assert offsets.setdefault(index, offset) == offset, (owner, index, by, place, onsets)
 
 
 def check_carried_order(world: World) -> None:
@@ -5320,6 +5486,31 @@ def check_deaths(world: World) -> None:
                     want.append((due, death_payload(sim, affliction.disease.key)))
         got = [(event.time, event.payload) for event in world.queue if event.kind == DEATH_KIND and event.subject == (SIM_SUBJECT, sim)]
         assert sorted(got) == sorted(want), (sim, got, want)
+
+
+def check_onsets(world: World) -> None:
+    """The load check of the onsets (ADR-0017 section 3, addendum, "Speicherstand"; ADR-0006):
+    for every sim of the active population (living, `World.sims`) and every affliction with
+    `B > E` and `B` after the last closed second exactly one open event `DiseaseOnset { sim,
+    disease }` at `B` (no period); no other such event. A missing, doubled or misdated one, or
+    one for a sim outside the active population (archived or unknown) or for a disease the sim
+    does not have, is `Inconsistent` in the core, an assertion here. The event's class, kind and
+    subject follow from its payload (the save holds the payload only)."""
+    want = []
+    for sim in sorted(world.sims):
+        e = world.creation_second(sim)
+        for affliction in world.sims[sim][4]:
+            b = world.onset_second_of(sim, affliction)
+            if b > e and b > world.closed and abs(b) <= MAX_ABS_SECS:
+                want.append((sim, affliction.disease.key, b))
+    got = []
+    for event in world.queue:
+        if event.kind != DISEASE_ONSET_KIND:
+            continue
+        sim, key = onset_of_payload(event.payload)
+        assert event.subject == (SIM_SUBJECT, sim) and event.cls == GENERAL and event.period is None, (event.subject, event.period)
+        got.append((sim, key, event.time))
+    assert sorted(got) == sorted(want), (sorted(set(got) ^ set(want)), len(got), len(want))
 
 
 def check_unstarted_households(next_household_id: int, households: dict) -> None:
@@ -5785,9 +5976,23 @@ if __name__ == "__main__":
         ("class", "emigration", str(EMIGRATION_CLASS)),
         ("kind", "emigration", str(EMIGRATION_KIND)),
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),
+        ("kind", "disease_onset", str(DISEASE_ONSET_KIND)),
+        ("payload", str(DISEASE_ONSET_ENTRY), "core:disease_onset"),
     } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL + NEW_CODE_LINES_OF_THE_VILLAGE}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
+    # The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20): the codes, the bytes
+    # of a queue payload and of a log payload, and `B` with its year and whole years for the
+    # onsets of the hand tests (tests/onset.rs: born −40 or −10 years, onset 0 and 30).
+    print(
+        f"disease_onset event kind {DISEASE_ONSET_KIND} class {GENERAL} subject sim {SIM_SUBJECT}"
+        f" queue payload {onset_payload(1, str_key('core:disease_ad_late')).hex()} (sim 1, core:disease_ad_late)"
+        f" log payload core:disease_onset {DISEASE_ONSET_ENTRY}"
+        f" {onset_entry_payload('core:disease_ad_late', onset_second(-40 * YEAR, 30.0), 30.0).hex()} (-10, 30)"
+    )
+    for born_years, onset in [(-40, 0.0), (-40, 30.0), (-10, 30.0), (0, 30.0), (0, 0.5), (-1, 41.7)]:
+        b = onset_second(born_years * YEAR, onset)
+        print(f"disease_onset_second born {born_years * YEAR} onset {onset!r} B {b} since_year {b // YEAR} age_years {math.floor(onset)}")
     print("step hazard checks (disease_age, disease_hazard_used): ok")
     print("closed form checks (senescence_age, accident_age against mortality.rs W7.1): ok")
     # The pedigree (step 10): f64 in the JSON as serde_json 1.0.151 writes them (zmij 1.0.23),

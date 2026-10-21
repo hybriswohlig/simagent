@@ -18,6 +18,7 @@ payload 10 core:household_formed
 payload 11 core:moved
 payload 12 core:emigrated
 payload 13 core:arrived
+payload 14 core:disease_onset
 cause 0 event
 cause 1 plan
 cause 2 input

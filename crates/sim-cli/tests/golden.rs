@@ -442,6 +442,10 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
         ("leave_home", EventPayload::LeaveHome { sim }),
         ("emigration", EventPayload::Emigration { capacity: 1 }),
         ("immigration", EventPayload::Immigration { persons: 1 }),
+        (
+            "disease_onset",
+            EventPayload::DiseaseOnset { sim, disease: 0 },
+        ),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -455,7 +459,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::MarketRound
                 | EventPayload::LeaveHome { .. }
                 | EventPayload::Emigration { .. }
-                | EventPayload::Immigration { .. } => {}
+                | EventPayload::Immigration { .. }
+                | EventPayload::DiseaseOnset { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -478,10 +483,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Moved { .. } => "core:moved",
         LogPayload::Emigrated { .. } => "core:emigrated",
         LogPayload::Arrived { .. } => "core:arrived",
+        LogPayload::DiseaseOnset { .. } => "core:disease_onset",
     }
 }
 
-const LOG_KINDS: [&str; 14] = [
+const LOG_KINDS: [&str; 15] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -496,6 +502,7 @@ const LOG_KINDS: [&str; 14] = [
     "core:moved",
     "core:emigrated",
     "core:arrived",
+    "core:disease_onset",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -524,10 +531,13 @@ fn golden_scenarios_cover_every_kind() {
         uncovered(run.world.stats(), &run.log),
         [
             "event immigration",
+            "event disease_onset",
             "log core:param_changed",
-            "log core:arrived"
+            "log core:arrived",
+            "log core:disease_onset"
         ],
-        "the dummy run has no override and no pool"
+        "the dummy run has no override and no pool, its switch is off, and its only \
+         disease begins at birth"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -567,7 +577,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 10);
+    assert_eq!(kinds.len(), 11);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -575,7 +585,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 14);
+    assert_eq!(logs.len(), 15);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -591,10 +601,15 @@ fn every_required_kind_is_checked() {
             .filter(|entry| log_kind(&entry.payload) != missing)
             .cloned()
             .collect();
-        // The fork has no pool: its own events never include the immigration.
+        // The fork has no pool: its own events never include the immigration; its only
+        // disease begins at birth, so it plans no onset.
         assert_eq!(
             uncovered(run.world.stats(), &without),
-            ["event immigration".to_owned(), format!("log {missing}")]
+            [
+                "event immigration".to_owned(),
+                "event disease_onset".to_owned(),
+                format!("log {missing}")
+            ]
         );
     }
     // A world that never ran: no event fired, every event kind is reported.
@@ -626,6 +641,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event separation",
             "event leave_home",
             "event immigration",
+            "event disease_onset",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -638,7 +654,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:household_formed",
             "log core:moved",
             "log core:emigrated",
-            "log core:arrived"
+            "log core:arrived",
+            "log core:disease_onset"
         ]
     );
 }

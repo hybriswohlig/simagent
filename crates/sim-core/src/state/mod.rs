@@ -11,6 +11,7 @@ pub(crate) mod disease;
 pub(crate) mod emigration;
 pub(crate) mod household;
 pub(crate) mod market;
+pub(crate) mod onset;
 pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod start;
@@ -270,6 +271,8 @@ pub(crate) enum Slot {
     LeaveHome,
     /// The death of the cause with this `str_key`.
     Death(u64),
+    /// The onset of the hereditary disease with this `str_key` (ADR-0017 section 3).
+    Onset(u64),
 }
 
 impl DomainState {

@@ -4,7 +4,7 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
-use super::{DomainState, Sim, Slot, death, disease, household, partnership, years_between};
+use super::{DomainState, Sim, Slot, death, disease, household, onset, partnership, years_between};
 use crate::data::{Action, Chromosome, Data, PoolData};
 use crate::data_id::{DataId, str_key};
 use crate::genome::{AlleleError, Genome};
@@ -311,6 +311,14 @@ pub(crate) fn apply_start(
                 social_parents: Vec::new(),
                 pool: None,
             },
+        );
+        onset::on_creation(
+            domain,
+            data,
+            id,
+            added,
+            start.world_params.hereditary_diseases,
+            ctx,
         );
         let next = first_birthday(born, ctx.now());
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: id }, added);

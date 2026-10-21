@@ -1,7 +1,7 @@
 {
  "format_version": 1,
  "written_by": "tools/census_reference.py (independent of crates/)",
- "core_version_modelled": 41,
+ "core_version_modelled": 42,
  "projection_version_modelled": 18,
  "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
  "clamped_keys": [
@@ -1906,22 +1906,22 @@
    "body_data": "accepted",
    "start_input_hash": "1254a9c9a3a9c937",
    "year_hashes": [
-    "793d81b8642b6545",
-    "b2fbcdf2f85d9c58",
-    "f5161027b8662d58",
-    "c1e6a327eed3b9a0",
-    "c351cb7a574de050",
-    "900d4b1e9396be9b",
-    "350586dc3a273fcb",
-    "59ba4f6cc300c70c",
-    "fc14f4e75ff1253c",
-    "454e1afe8fa6a32f",
-    "867e48a8b2eefbb0",
-    "ea0cbd2044cc6a27",
-    "14e73c31c827e202",
-    "2e901c70b3e89413"
+    "3f46622227ac2f26",
+    "66cddd2c0152fdb9",
+    "d3de4ffe1580f360",
+    "abdca18823174a21",
+    "fe0519602cf561c6",
+    "0b91217a124679b6",
+    "1c63f90f4b0acc96",
+    "4408e2d734179048",
+    "1cdc607e95212fcf",
+    "1af65e68de945cd7",
+    "ad1d12b8fd2468e2",
+    "a90e6a007246a03a",
+    "e551eede9f148c32",
+    "0c981e806ef0a9f6"
    ],
-   "log_hash": "a7f50c2cd8fcb27c",
+   "log_hash": "0512a03c7e1f9868",
    "rows": [
     {
      "year": 0,

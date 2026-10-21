@@ -36,8 +36,12 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
 Every model load check runs on the save and at the ends (`check_all`). The coverage of
 ADR-0003 6.3 is recounted over the dummy run, its fork, the arrival (tests/golden/
 arrival.json, tools/arrival_reference.py) and the town: every event kind (event_codes.txt,
-codes 1 to 10) must run and every log kind (log_codes.txt, payloads 0 to 13) must appear in
-one of them; printed per scenario and for the union (`coverage_rows`).
+codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 14) must appear in
+one of them; printed per scenario and for the union (`coverage_rows`). The onset of a disease
+(ADR-0017 section 3, addendum of 2026-10-20: the event `disease_onset`, kind 11, and the entry
+`core:disease_onset`, payload 14) is counted per scenario in `onset_rows`. The year hash, the
+log hash and the save of the CLI's run "tiny" (crates/sim-cli/tests/cli.rs) are printed too
+(`cli_tiny_rows`).
 
 Usage: .venv/bin/python tools/golden_reference.py           (write the six goldens, print
        the values of the CLI tests)
@@ -87,17 +91,18 @@ NAMES = ROOT / "data" / "names"
 # The purpose tags of the names (crates/sim-core/src/rng/tags.rs, ADR-0021 section 3).
 FIRST_NAME, SURNAME = 29, 30
 TOWN_FILE = "town.json"
-# The kinds of ADR-0003 6.3: event kinds 1 (year_end) to 10 (immigration), log payloads 0
-# (core:started) to 13 (core:arrived), as tests/golden/event_codes.txt and log_codes.txt
+# The kinds of ADR-0003 6.3: event kinds 1 (year_end) to 11 (disease_onset), log payloads 0
+# (core:started) to 14 (core:disease_onset), as tests/golden/event_codes.txt and log_codes.txt
 # register them.
 EVENT_NAMES = {
     1: "year_end", 2: "birthday", 3: "death", 4: "conception_attempt", 5: "birth", 6: "separation",
-    7: "market_round", 8: "leave_home", 9: "emigration", 10: "immigration",
+    7: "market_round", 8: "leave_home", 9: "emigration", 10: "immigration", 11: "disease_onset",
 }
 LOG_NAMES = {
     0: "core:started", 1: "core:founder_added", 2: "core:birthday", 3: "core:param_changed", 4: "core:death",
     5: "core:partnered", 6: "core:conception", 7: "core:meiosis", 8: "core:birth", 9: "core:separated",
     10: "core:household_formed", 11: "core:moved", 12: "core:emigrated", 13: "core:arrived",
+    14: "core:disease_onset",
 }
 # The pairs of the CLI's kinship test (crates/sim-cli/tests/cli.rs) on the dummy run.
 KINSHIP_PAIRS = [(1, 8), (8, 10), (1, 2), (3, 3), (13, 13), (2, 13), (10, 13), (8, 7), (8, 4), (14, 1)]
@@ -141,7 +146,7 @@ def make_world(s: dict, data: wr.Data) -> wr.World:
 
 
 def check_all(world: wr.World) -> None:
-    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths):
+    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths, wr.check_onsets):
         check(world)
 
 
@@ -562,6 +567,49 @@ def coverage_rows(worlds: dict) -> list:
     return rows
 
 
+def cli_tiny_rows(data: wr.Data) -> list:
+    """The run directory of the CLI's "tiny" (crates/sim-cli/tests/cli.rs `TINY_SCENARIO`: seed
+    0xff, tag `test:tiny`, the switch off, one woman born at −1 with `core:disease_ar` [0, 1],
+    until the end of year 0) on the repository's data: the year hash, the log hash, the
+    entries, her afflictions and onset plans, and the save at the end (`state.save`)."""
+    world = wr.World(0xFF, "test:tiny", False, [(-1, FEMALE, [("core:disease_ar", [0, 1])])], data=data)
+    world.advance(YEAR - 1)
+    check_all(world)
+    return [
+        f"cli_tiny year_hashes {[hexed(value) for value in world.year_hashes]} log_hash {hexed(world.log_hash())} entries {len(world.log)}"
+        f" afflictions {[(a.disease.code, a.onset) for a in world.sims[1][4]]} onset_plans {world.onset_plans}",
+        f"cli_tiny_save {world.save().hex()}",
+    ]
+
+
+def onset_rows(worlds: dict) -> list:
+    """The onsets of diseases per scenario (ADR-0017 section 3, addendum of 2026-10-20, paths 1
+    and 2): the entries path 1 wrote at a creation, the entries path 2 wrote by its event, the
+    events `disease_onset` that fired (with the switch off they write nothing), the events planned
+    and those still pending at the end; then the first entry of each path as (sim, second, the
+    entry's JSON)."""
+    import arrival_reference
+
+    rows = []
+    for name, world in worlds.items():
+        path_1 = [record for record in world.onsets if record[3] == 1]
+        path_2 = [record for record in world.onsets if record[3] == 2 and record[4] is not None]
+        silent = [record for record in world.onsets if record[3] == 2 and record[4] is None]
+        fired = [kind for _, kind in world.ran if kind == wr.DISEASE_ONSET_KIND]
+        pending = [event for event in world.queue if event.kind == wr.DISEASE_ONSET_KIND]
+        assert len(fired) == len(path_2) + len(silent)
+        rows.append(
+            f"onsets {name} path_1_entries {len(path_1)} path_2_entries {len(path_2)} events_fired {len(fired)}"
+            f" (writing nothing {len(silent)}) events_planned {len(world.onset_plans)} pending_at_end {len(pending)}"
+            f" entries_in_log {world.entry_kinds.count(wr.DISEASE_ONSET_ENTRY)}"
+        )
+        for label, records in (("path_1", path_1), ("path_2", path_2), ("silent", silent)):
+            for t, sim, code, _, entry, _ in records[:2]:
+                text = arrival_reference.entry_json(world.log[entry - 1]) if entry is not None else f"(nothing written, {code})"
+                rows.append(f"onsets {name} example {label} sim {sim} second {t} entry {text}")
+    return rows
+
+
 def person_of(world: wr.World, sim: int) -> tuple:
     """(born, key, sex, genome, parents, left, cause) of a living or archived sim."""
     if sim in world.sims:
@@ -704,7 +752,10 @@ def main(argv) -> int:
     rows += pin_rows("golden", files)
     rows += story_rows("dummy", w)
     rows += town_rows(town_run)
-    rows += coverage_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival_world(), "town": town_run})
+    arrival = arrival_world()
+    rows += coverage_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival, "town": town_run})
+    rows += onset_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival, "town": town_run})
+    rows += cli_tiny_rows(data)
     if "--check" in argv:
         same = {name: (GOLDEN / name).exists() and (GOLDEN / name).read_bytes() == content for name, content in files.items()}
         story, story_ok = story_check()

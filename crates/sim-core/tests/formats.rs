@@ -930,6 +930,11 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Arrived {
             lineage_key: LineageKey::founder(&DataId::new("test:x").expect("valid"), 0),
         },
+        LogPayload::DiseaseOnset {
+            disease: Code::new("core:disease_ad_late").expect("valid"),
+            since_year: -10,
+            age_years: 30,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -947,7 +952,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::HouseholdFormed { .. }
             | LogPayload::Arrived { .. }
             | LogPayload::Moved { .. }
-            | LogPayload::Emigrated { .. } => {}
+            | LogPayload::Emigrated { .. }
+            | LogPayload::DiseaseOnset { .. } => {}
         }
     }
     payloads

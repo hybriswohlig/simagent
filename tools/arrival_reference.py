@@ -49,6 +49,12 @@ diseases on; NOTES.md of the reference says why each was chosen and how to rebui
   town's rule missing, two immigrations swapped, a world that never started with a used
   household), and one accepted state: a carried leaving home due exactly at second 0
   (`leave_home_at_start`).
+- The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20; core 42): an arrival's
+  `core:arrived` is followed by its reached onsets (`core:disease_onset`, path 1) before the
+  next member's, and its later onsets are planned there (`DiseaseOnset`, path 2); the entries
+  read back as JSON (`entry_json`). `check_onsets` is one of the load checks (`check_all`,
+  `OLD_CHECKS`, last); the helpers that move a birth or an arrival move the pending onsets with
+  it (`replan_onsets`), so a changed state still breaks only the rule it means to.
 
 Usage: .venv/bin/python tools/arrival_reference.py [--out DIR]
        (with --out the constructed pool files are written to DIR as well, and the CLI's
@@ -159,7 +165,7 @@ def with_carried_at_frozen(pool: bytes, member_key: int, field: str) -> bytes:
 
 
 def check_all(world: wr.World, deaths: bool = True) -> None:
-    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool):
+    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_onsets):
         check(world)
     if deaths:
         wr.check_deaths(world)
@@ -276,6 +282,7 @@ def entry_json(line: bytes):
         11: lambda: {"core:moved": {"household": c.varint()}},
         12: lambda: {"core:emigrated": {"household": c.varint()}},
         wr.ARRIVED_VARIANT: lambda: {"core:arrived": {"lineage_key": hexed(c.varint())}},
+        wr.DISEASE_ONSET_ENTRY: lambda: {"core:disease_onset": {"disease": c.string(), "since_year": c.signed(), "age_years": c.signed()}},
     }
     if kind not in readers:
         return None
@@ -288,6 +295,7 @@ KIND_NAMES = {
     0: "core:started", 1: "core:founder_added", 2: "core:birthday", 3: "core:param_changed", 4: "core:death",
     5: "core:partnered", 6: "core:conception", 7: "core:meiosis", 8: "core:birth", 9: "core:separated",
     10: "core:household_formed", 11: "core:moved", 12: "core:emigrated", 13: "core:arrived",
+    14: "core:disease_onset",
 }
 
 
@@ -981,7 +989,9 @@ def invariant_rows() -> list:
 # States the load checks of section 9 reject
 
 
-OLD_CHECKS = (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths)
+# The onsets (ADR-0017 section 3, addendum of 2026-10-20): `check_onsets` at the end, so the
+# rows of a state it does not reject keep their list.
+OLD_CHECKS = (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths, wr.check_onsets)
 # With the checks of the carried plans (NOTES2.md section 5d): the rows of round 6 and the old
 # rows evaluated again; the old rows themselves keep the old list (their output stays as it was).
 ALL_CHECKS = OLD_CHECKS + wr.CARRIED_CHECKS
@@ -1310,6 +1320,20 @@ def replan_deaths(world: wr.World, sim: int) -> None:
         event.time = due
 
 
+def replan_onsets(world: wr.World, sim: int) -> None:
+    """Sets each planned onset of a living sim (ADR-0017 section 3, addendum, path 2) to the second
+    `B` its birth gives now (after a change of its birth or arrival); the diseases stay the ones
+    planned, and each `B` stays after the clock and after the creation."""
+    for event in world.queue:
+        if event.kind != wr.DISEASE_ONSET_KIND or event.subject != (wr.SIM_SUBJECT, sim):
+            continue
+        _, key = wr.onset_of_payload(event.payload)
+        (affliction,) = [a for a in world.sims[sim][4] if a.disease.key == key]
+        b = world.onset_second_of(sim, affliction)
+        assert b > world.closed and b > world.creation_second(sim), (sim, key, b)
+        event.time = b
+
+
 def next_birthday(born: int, first: int, clock: int) -> int:
     """The pending birthday at the clock of a sim born at `born` whose first one in the town is
     `first`: `first` if it lies after the clock, else the next anniversary after it."""
@@ -1362,6 +1386,7 @@ def shift_household(world: wr.World, index: int, d: int) -> list:
         (birthday,) = [e for e in world.queue if e.kind == wr.BIRTHDAY_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
         birthday.time = next_birthday(born, wr.first_birthday(born, new), world.closed)
         replan_deaths(world, sim)
+        replan_onsets(world, sim)
         series = [e for e in world.queue if e.kind == wr.ATTEMPT_KIND and e.subject == (wr.SIM_SUBJECT, sim)]
         if series:
             (event,) = series
@@ -1599,6 +1624,7 @@ def move_birth(world: wr.World, child: int, born: int) -> None:
         elif event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.LEAVE_HOME_KIND:
             event.time = world.leave_home_second(child)
     replan_deaths(world, child)
+    replan_onsets(world, child)
 
 
 def carried_rows() -> list:
@@ -1871,9 +1897,10 @@ def cancelled_child_rows() -> list:
     present anyway, born at her death second (a birth, class 200, would run before her death,
     class 900, in that second), with everything the rules give a pool child born then: its SimId
     (the next), its PoolOrigin, the pool's afflictions with the exposure from its birth, her
-    household, her `births` + 1, its creation entry and `core:moved` (log only), its first
-    birthday, its deaths, its leaving home (world seed), and as carer its father (the
-    succession at her death: the other parent in the household, by its PoolOrigin key)."""
+    household, her `births` + 1, its creation entry, its onsets and `core:moved` (log only; the
+    events of its later onsets in the queue), its first birthday, its deaths, its leaving home
+    (world seed), and as carer its father (the succession at her death: the other parent in the
+    household, by its PoolOrigin key)."""
     copy_world = lambda world: copy.deepcopy(world, {id(world.data): world.data})
     cancel = make_world(golden_town_data(KIN_POOL), CANCEL_SEED, KIN_N_START, True)
     cancel.advance(3263752)
@@ -1906,6 +1933,9 @@ def cancelled_child_rows() -> list:
     w.by_key[key] = sim
     w.pedigree.add(sim)
     w.created_by[sim] = entry
+    # Its onsets right after its creation entry (ADR-0017 section 3, addendum): the entries of
+    # a reached onset (log only) and the events of a later one, before its other plans.
+    w._onset_step(sim, entry, born)
     w._entry(born, [variant(0, varint(sim))], [variant(3, string(wr.HOUSEHOLD_RULE))], variant(wr.MOVED_VARIANT, varint(home)))
     set_archived(w, mother, 8, w.archive[mother][8] + 1)
     w._plan_birthday(sim, born + YEAR, entry, born)
@@ -2236,6 +2266,7 @@ def pool_field_rows() -> list:
         elif event.subject == (wr.SIM_SUBJECT, child) and event.kind == wr.LEAVE_HOME_KIND:
             event.time = w.leave_home_second(child)
     replan_deaths(w, child)
+    replan_onsets(w, child)
     rows.append(field_row(
         "pool_child_born_after_the_clock", c, c_base, w,
         f"{b}: born (and arrived) {later} = the clock + 1, its first birthday, leaving home and deaths from there (the base itself, born = the clock, is accepted)",

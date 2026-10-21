@@ -1,8 +1,10 @@
-// The chronicle of a run page keeps the entries a player follows, newest first, each once,
-// at most a fixed number (ADR-0021 section 2: the log in the order of the file).
+// The chronicle of a run page keeps the entries a player follows, the newest second first
+// and one second in the core's order (Grok's Q1), each once, at most a fixed number (ADR-0021
+// section 2: the log in the order of the file).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { onsetTemplate } from "../dist/carddiseases.js";
 import { KEPT, added, payloadCode, segments } from "../dist/chronicle.js";
 
 const DATE = {
@@ -55,6 +57,42 @@ test("a page that overlaps the kept adds each entry once", () => {
   );
 });
 
+/** An item of the second `t` about `sim`. */
+function during(id, t, code, sim) {
+  return { entry: { id, t, subjects: [{ sim }], causes: [], payload: { [code]: {} } }, date: DATE };
+}
+
+// Grok's Q1: at a year start a family arrives with a disease already begun (sim 100), and a
+// resident's planned onset comes in the same second (sim 1). The core writes the arrival, its
+// onset, then the resident's; the chronicle shows the newest second first and one second in
+// the core's order, cause before consequence.
+test("one second keeps the core's order, cause before consequence", () => {
+  const page = [
+    during(1, 5, "core:birth", 7),
+    during(2, 9, "core:arrived", 100),
+    during(3, 9, "core:disease_onset", 100),
+    during(4, 9, "core:disease_onset", 1),
+  ];
+  assert.deepEqual(
+    added([], page).map((i) => i.entry.id),
+    [2, 3, 4, 1],
+  );
+});
+
+test("a second split over two pages keeps the core's order", () => {
+  const kept = added([], [during(1, 5, "core:birth", 7), during(2, 9, "core:arrived", 100)]);
+  const next = added(kept, [
+    during(2, 9, "core:arrived", 100),
+    during(3, 9, "core:disease_onset", 100),
+    during(4, 9, "core:disease_onset", 1),
+    during(5, 12, "core:death", 7),
+  ]);
+  assert.deepEqual(
+    next.map((i) => i.entry.id),
+    [5, 2, 3, 4, 1],
+  );
+});
+
 test("the chronicle keeps at most its limit, the newest", () => {
   const page = Array.from({ length: KEPT + 5 }, (_, i) => item(i + 1, "core:birth"));
   const kept = added([], page);
@@ -83,4 +121,46 @@ test("a template puts the persons in their roles, all members as a list", () => 
   ]);
   assert.deepEqual(segments("Die Welt beginnt.", []), ["Die Welt beginnt."]);
   assert.deepEqual(segments("{0} und {1}", [7]), [7, " und ", null], "a role without a person");
+});
+
+// The onset of a disease (Grok P1, P2, P3): the short form in the year of the onset, else the
+// late form with the year and the whole years ("seit der Geburt" at 0, "mit 1 Jahr" at 1).
+// Every expected sentence is written by hand from Grok's wording; the name is G1's, uninflected.
+test("the chronicle follows the onset of a disease", () => {
+  const page = [item(1, "core:disease_onset"), item(2, "core:birthday")];
+  assert.deepEqual(
+    added([], page).map((i) => i.entry.id),
+    [1],
+  );
+});
+
+test("an onset in its own year is the short form", () => {
+  const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
+  assert.equal(onsetTemplate(onset("core:disease_ar", 12, 0), 12), "{0} erkrankt an Zäher Atem");
+  assert.equal(onsetTemplate(onset("core:disease_ad_late", 40, 45), 40), "{0} erkrankt an Später Verfall");
+  assert.equal(onsetTemplate(onset("core:disease_mt", -3, 21), -3), "{0} erkrankt an Mütterliches Augenlicht");
+  assert.equal(onsetTemplate(onset("core:disease_new", 7, 30), 7), "{0} erkrankt an core:disease_new");
+});
+
+test("an onset written later is the late form", () => {
+  const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
+  assert.equal(
+    onsetTemplate(onset("core:disease_ar", 12, 12), 20),
+    "{0} ist an Zäher Atem erkrankt, seit Jahr 12, mit 12 Jahren",
+  );
+  assert.equal(onsetTemplate(onset("core:disease_xr", -10, 0), 4), "{0} ist an Schwere Blutung erkrankt, seit der Geburt");
+  assert.equal(
+    onsetTemplate(onset("core:disease_liability", 5, 1), 9),
+    "{0} ist an Geteilte Schwere erkrankt, seit Jahr 5, mit 1 Jahr",
+  );
+  assert.equal(
+    onsetTemplate(onset("core:disease_ad_partial", -10, 30), 0),
+    "{0} ist an Ungleicher Ausbruch erkrankt, seit Jahr -10, mit 30 Jahren",
+  );
+});
+
+test("an onset of another shape has no template", () => {
+  assert.equal(onsetTemplate(null, 3), null);
+  assert.equal(onsetTemplate({ disease: "core:disease_ar", since_year: 3 }, 3), null);
+  assert.equal(onsetTemplate({ disease: 4, since_year: 3, age_years: 0 }, 3), null);
 });
