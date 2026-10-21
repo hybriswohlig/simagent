@@ -49,6 +49,7 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::pool::{Pool, ranked_households, take_households};
+use sim_core::presentation::card::DiseaseStatus;
 use sim_core::time::SimTime;
 use sim_core::world::{LoadError, World, YearOut};
 
@@ -1696,6 +1697,85 @@ fn an_immigration_sees_the_switch_of_its_second() {
         let year_9 = run.onsets_at_arrival(|entry| entry["t"] == 9 * Y);
         assert_eq!(year_9, expected);
         run.assert_loads();
+    }
+}
+
+/// The onsets of "arrival"'s town with the switch off at the start, on from `3 · YEAR`,
+/// off from `6 · YEAR`, on from `9 · YEAR` (forks stamped one second before; inputs 2 to 4),
+/// to the end of year 13 (ADR-0017 section 3, addendum): a person becomes affected in the run
+/// in the first second from `max(B, E)` in which it belongs to the active population and the
+/// switch is on, and exactly there stands its entry. So: at most one per person and disease;
+/// none while the switch is off; one caused by a fork only in the second the fork acts; and
+/// whenever the switch is on, every living person whose card shows a disease as affected
+/// has its entry, with the card's year and whole years, and no other.
+#[test]
+fn a_town_with_forks_reports_each_onset_once_while_the_switch_is_on() {
+    let mut run = switched_town(0xff, false);
+    let on = |t: i64| (3 * Y..6 * Y).contains(&t) || t >= 9 * Y;
+    let affected_have_entries = |run: &Run| {
+        let mut entries: BTreeMap<(u64, String), (Option<i64>, Option<i64>)> = BTreeMap::new();
+        for entry in &run.log {
+            let entry = serde_json::to_value(entry).expect("json");
+            let Some(payload) = entry["payload"].get("core:disease_onset") else {
+                continue;
+            };
+            let sim = entry["subjects"][0]["sim"].as_u64().expect("a sim");
+            let disease = payload["disease"].as_str().expect("a code").to_owned();
+            let once = (
+                payload["since_year"].as_i64(),
+                payload["age_years"].as_i64(),
+            );
+            assert!(
+                entries.insert((sim, disease), once).is_none(),
+                "once: {entry}"
+            );
+        }
+        let pedigree = run.world.pedigree();
+        for person in
+            (pedigree.persons.iter()).filter(|p| p.died.is_none() && p.emigrated.is_none())
+        {
+            let card = run.world.genetics_card(person.sim).expect("a card");
+            for disease in &card.diseases {
+                let key = (person.sim.get(), disease.disease.as_str().to_owned());
+                let expected = match disease.status {
+                    DiseaseStatus::Affected { year, age_years } => {
+                        Some((Some(year), Some(age_years)))
+                    }
+                    _ => None,
+                };
+                assert_eq!(entries.get(&key).copied(), expected, "{key:?}");
+            }
+        }
+        entries.len()
+    };
+    // Checked in the second each fork that turns the switch on acts (the card reads the
+    // switch of its second; a lethal onset may soon kill), before it goes off, and at the end.
+    run.play(3 * Y - 1);
+    run.fork(true);
+    run.play(3 * Y);
+    assert!(affected_have_entries(&run) > 0, "the town has onsets");
+    run.play(6 * Y - 1);
+    affected_have_entries(&run);
+    run.fork(false);
+    run.play(9 * Y - 1);
+    run.fork(true);
+    run.play(9 * Y);
+    affected_have_entries(&run);
+    run.play(14 * Y - 1);
+    affected_have_entries(&run);
+    for entry in &run.log {
+        let entry = serde_json::to_value(entry).expect("json");
+        if entry["payload"].get("core:disease_onset").is_none() {
+            continue;
+        }
+        let t = entry["t"].as_i64().expect("a second");
+        assert!(on(t), "{entry}");
+        if let Some(input) = entry["causes"][0]["input"].as_u64() {
+            assert!(
+                (t, input) == (3 * Y, 2) || (t, input) == (9 * Y, 4),
+                "{entry}"
+            );
+        }
     }
 }
 
