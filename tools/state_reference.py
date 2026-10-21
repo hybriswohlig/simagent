@@ -155,6 +155,16 @@ byte; a scenario whose sims have a disease with a later onset has the events in 
 disease of onset 30, and four saves that break only the onset rule (the event missing,
 doubled, one second late, and left for an archived sim in "onset_mortal").
 
+Path 3 of the onset (the addendum, "Drei Wege" (3); core 43): an override that sets the
+switch on writes, after its `core:param_changed`, the onsets of the living that are reached,
+have no open event and that no earlier moment reported with the switch on. Of the runs here
+"switched_on" and "no_disease" (the switch off at the start, then on, his disease begun at
+birth) get his onset at the override, caused by it, so their later entries are one further
+on; "accident_wins" gets his and that of sim 5 (dummy twice, born while the switch was off),
+two further on. The other overrides that set the switch on find every onset reported (the
+switch on at the start, so the creation wrote it), the rest set it off. Every save changes in
+its header byte.
+
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
 one second before the start, female, with the alleles wild (from the mother) and dummy
@@ -853,14 +863,28 @@ assert death_of(TWO_PERIODS, 2) == (TWO_PERIODS_DEATH, DISEASE_KEY)
 # data: he has `core:disease_ar` (recessive, onset 0, two steps), and switched on at the
 # start of year 1 its death is planned by the entry of the override, after about 20.5
 # years; his death of accident keeps its plan (his creation entry 3 at the start, after
-# about 58.8 years) and comes later. He dies of `core:disease_ar`.
+# about 58.8 years) and comes later. He dies of `core:disease_ar`. Since core 43 the override
+# writes, right after its `core:param_changed`, his onset of path 3 (ADR-0017 section 3,
+# addendum): reached at his birth (`B = −2 ≤ E = 0`), and the start left the switch off, so
+# nothing reported it; caused by the input (sequence number 2), since year −1, 0 years. The
+# override's entry is the one before it.
 NO_DISEASE_DATA = world_reference.death_test_data(0.02)
 NO_DISEASE = sick_world(False, [(YEAR, True)], data=NO_DISEASE_DATA)
 assert NO_DISEASE.cause_due(2, ACCIDENT) == HIS_ACCIDENT
 (HIS_AR,) = NO_DISEASE.sims[2][4]
 NO_DISEASE_HIS_AR_DEATH = NO_DISEASE.disease_due(2, HIS_AR)
 assert 20 * YEAR < NO_DISEASE_HIS_AR_DEATH < HIS_ACCIDENT
-NO_DISEASE_OVERRIDE_ENTRY = len(NO_DISEASE.log)
+NO_DISEASE_OVERRIDE_ENTRY = len(NO_DISEASE.log) - 1
+assert NO_DISEASE.log[-2:] == [
+    entry(NO_DISEASE_OVERRIDE_ENTRY, YEAR, [], [variant(2, varint(2))], variant(3, param_change(True))),
+    entry(
+        NO_DISEASE_OVERRIDE_ENTRY + 1,
+        YEAR,
+        [variant(0, varint(2))],
+        [variant(2, varint(2))],
+        variant(14, string("core:disease_ar"), signed(-1), signed(0)),
+    ),
+]
 assert [
     (event.time, event.plan)
     for event in NO_DISEASE.queue
@@ -926,7 +950,9 @@ assert death_of(ACCIDENT_WINS, 2) == (HIS_ACCIDENT, ACCIDENT_KEY)
 # market); she bears sims 3 to 6 (months 308, 335, 357, 385; sims 4 and 6 die of accident
 # in years 34.9 and 40.3), sim 5 (dummy twice) is exposed from the switch on. His death
 # ends the partnership. The tie is the same; only the EventId of his death entry is larger
-# than before the market (225, was 121).
+# than before the market (225, was 121). Since core 43 the override writes the onsets of path
+# 3 of him and of sim 5 (born while the switch was off, before the switch), so every later
+# entry is two further on.
 assert ACCIDENT_WINS.partnerships == {1: [1, 2, 297 * MONTH, (HIS_ACCIDENT, world_reference.ENDED_BY_DEATH)]}
 assert [(r["n"], c["woman"], c["chosen"], c["outcome"]) for r in ACCIDENT_WINS.rounds for c in r["choices"]][0] == (297, 1, 2, "paired")
 assert ACCIDENT_WINS.rounds[0]["n"] == 208
