@@ -364,6 +364,13 @@ fn the_census_counts_the_bodies_as_the_reference() {
         let until = SimTime::from_secs(scenario["until"].as_i64().expect("until"));
         world.advance_until(&mut out, until, &mut |_| false);
         log.extend(world.take_log());
+        let codes = sim_core::world::death_causes(world.data());
+        let causes: Vec<&str> = codes.iter().map(|code| code.as_str()).collect();
+        assert_eq!(
+            serde_json::to_value(&causes).expect("json"),
+            expected["death_causes"],
+            "{name}: causes of death"
+        );
         let rows: Vec<Value> = out
             .census
             .iter()
@@ -375,6 +382,10 @@ fn the_census_counts_the_bodies_as_the_reference() {
                     "body_evaluated": row.body.evaluated,
                     "clamped": row.body.clamped.to_vec(),
                     "curve_clamped": row.body.curve_clamped,
+                    "births": row.population.births,
+                    "arrivals": row.population.arrivals,
+                    "emigrations": row.population.emigrations,
+                    "deaths": row.population.deaths,
                 })
             })
             .collect();
@@ -853,7 +864,7 @@ fn the_census_reads_absent_pigment_loci_as_the_reference_allele() {
         let mut out = YearOut::default();
         let end = SimTime::from_secs(sim_core::time::YEAR.as_secs() - 1);
         world.advance_until(&mut out, end, &mut |_| false);
-        out.census[0]
+        out.census[0].clone()
     };
     let row = first_year_end(prerun_data());
     assert!(row.living > 0);

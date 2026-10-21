@@ -5,11 +5,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use sim_core::body_contract::CLAMPED_KEYS;
+use sim_core::data::Data;
 use sim_core::input::{Input, InputRecord, InputStamp};
 use sim_core::log::{LogEntry, LogHasher};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, year_start};
 use sim_core::version::CORE_VERSION;
-use sim_core::world::{CensusRow, World, YearOut};
+use sim_core::world::{CensusRow, World, YearOut, death_causes};
 
 use crate::error::CliError;
 use crate::files::{self, ForkInfo, LogEnd, LogHeader, Manifest, Scenario};
@@ -206,7 +207,7 @@ impl Session {
         files::write(&session.path(files::INPUT_LOG), log.as_bytes())?;
         files::write(
             &session.path(files::CENSUS),
-            (census_header() + "\n").as_bytes(),
+            (census_header(session.world.data()) + "\n").as_bytes(),
         )?;
         files::write(&session.path(files::EVENTS), b"")?;
         session.drain()?;
@@ -242,7 +243,7 @@ impl Session {
         }
         input_log_matches(dir, &world)?;
         let census = files::read_text(&dir.join(files::CENSUS))?;
-        if census.lines().next() != Some(census_header().as_str()) {
+        if census.lines().next() != Some(census_header(world.data()).as_str()) {
             return Err(inconsistent(
                 "census.csv does not start with the header of this version".to_owned(),
             ));
@@ -256,7 +257,7 @@ impl Session {
         }
         // Each row whole: as many integers as the header has columns, and the line end
         // after the last; a row cut off in its last cell keeps the count of lines.
-        let columns = census_header().split(',').count();
+        let columns = census_header(world.data()).split(',').count();
         let whole = |row: &str| {
             let cells: Vec<&str> = row.split(',').collect();
             cells.len() == columns && cells.iter().all(|cell| cell.parse::<i64>().is_ok())
@@ -646,14 +647,19 @@ fn input_log_matches(dir: &Path, world: &World) -> Result<(), CliError> {
 
 /// The header of `census.csv` (ADR-0004 section 8): the three columns of every run, then
 /// the bodies of the living (ADR-0020 section 7): evaluations, the clamps per parameter
-/// of `CLAMPED_KEYS` and the held growth curves.
-pub fn census_header() -> String {
+/// of `CLAMPED_KEYS` and the held growth curves; then the population (ADR-0021, addendum
+/// 2026-10-21): births, arrivals, emigrations and the deaths per cause of `data`.
+pub fn census_header(data: &Data) -> String {
     let mut header = String::from("year,living,lived_secs,body_evaluated");
     for key in CLAMPED_KEYS {
         header.push_str(",clamped_");
         header.push_str(key.as_str());
     }
-    header.push_str(",curve_clamped");
+    header.push_str(",curve_clamped,births,arrivals,emigrations");
+    for cause in death_causes(data) {
+        header.push_str(",deaths.");
+        header.push_str(cause.as_str());
+    }
     header
 }
 
@@ -667,5 +673,13 @@ pub fn census_line(row: &CensusRow) -> String {
         line.push_str(&format!(",{count}"));
     }
     line.push_str(&format!(",{}", row.body.curve_clamped));
+    let people = &row.population;
+    line.push_str(&format!(
+        ",{},{},{}",
+        people.births, people.arrivals, people.emigrations
+    ));
+    for count in &people.deaths {
+        line.push_str(&format!(",{count}"));
+    }
     line
 }

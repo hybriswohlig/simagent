@@ -22,6 +22,24 @@ domain event of year `k`; `World.advance(t)` runs that second fully):
   fails. Integers only.
 - `CLAMPED_KEYS`: the parameters of `contracts/body.json` whose unit is `z` or `cm`, in the
   contract's order (`height_cm`, the eight body `*_z`, `face_axis_01` to `face_axis_12`).
+- `births`, `arrivals`, `emigrations` and `deaths` (ADR-0021 section 3, addendum of
+  2026-10-21, "Allgemein", "Reihenfolge" and "Bevölkerung"; core 44), after the columns above,
+  integers counted over the living and the archive together; "in the year" means
+  `year_start(k) <= t < year_start(k + 1)`:
+  - `births`: the persons born in the town in the year (`born_in_town`): a child of two town
+    parents, or the child of a pregnancy brought from the pool and born in the town;
+  - `arrivals`: the arrivals (a pool person with `born_pool`) whose arrival second lies in
+    the year, without the persons `Start` created: the SimIds 1 to `N`, `N` its founders plus
+    the members of the households of its pool (a village's persons), read from the input
+    `Start` (`start_persons`), not `n_start`. An immigration of second 0 counts;
+  - `emigrations`: the persons who left the town by emigration in the year;
+  - `deaths`: per cause of `death_causes` (`core:senescence`, `core:accident`, then each
+    disease of the data that can kill, effect `death` or `death_in_two_steps`, in the data's
+    order) the persons who died of it in the year; each fixture names the list
+    (`death_causes` in census.json) and each row holds the counts in its order.
+  Each row is checked against the year's entries of the log (`LogPopulation`: `core:birth`,
+  `core:arrived` not caused by the input `Start`, `core:emigrated`, `core:death` per cause),
+  and at the end of a fixture `N` against `World.made_by_start`.
 
 One evaluation (note sections 1 and 3.1), for the living sim `s` at `t`:
 
@@ -102,6 +120,7 @@ import arrival_reference
 import body_reference as br
 import data_reference
 import map4_reference
+import pool_reference
 import prerun_reference
 import world_reference as wr
 from postcard_reference import FEMALE, MALE, varint
@@ -377,11 +396,13 @@ def lived_secs(world: wr.World, year: int) -> int:
 
 def census_row(evaluator: Evaluator, year: int, margins=None) -> tuple:
     """The census of year `year` at its year end (the world advanced to it): the row and the
-    curve-held persons (sim, lineage key, `z_h`, `z_p` before the hold) for the trace."""
+    curve-held persons (sim, lineage key, `z_h`, `z_p` before the hold) for the trace. The
+    population columns follow the body's (`population`), whatever the body data."""
     world = evaluator.world
     t = year_end(year)
     assert world.closed == t
     row = {"year": year, "living": len(world.sims), "lived_secs": lived_secs(world, year), "body_evaluated": 0, "clamped": [0] * len(CLAMPED_KEYS), "curve_clamped": 0}
+    row.update(population(world, year, death_causes(world.data)))
     held = []
     if not evaluator.body.accepted:
         return row, held
@@ -398,6 +419,114 @@ def census_row(evaluator: Evaluator, year: int, margins=None) -> tuple:
             held.append([sim, hexed(evaluation["parts"]["key"]), bits(z["z_h"]), bits(z["z_p"])])
     assert row["body_evaluated"] == row["living"]
     return row, held
+
+
+# ---------------------------------------------------------------------------------------
+# The population columns (ADR-0021 section 3, addendum of 2026-10-21, "Allgemein",
+# "Reihenfolge" and "Bevölkerung")
+
+
+def death_causes(data: wr.Data) -> list:
+    """The causes of death of the census in their order: `core:senescence`, `core:accident`,
+    then each disease of the data that can kill (effect `death` or `death_in_two_steps`; a
+    `visible` one has no hazard and never kills) in the order of the data's list `diseases`."""
+    return [wr.SENESCENCE, wr.ACCIDENT] + [disease.code for disease in data.diseases if disease.hazard is not None]
+
+
+def start_persons(world: wr.World) -> int:
+    """`N` of the column `arrivals`: the persons `Start` created, read from the input `Start`
+    alone (its founders plus the members of the households of its pool; a village's persons,
+    one per household), not the requested `n_start`. They hold the SimIds 1 to `N`."""
+    pool = world.pool_start
+    members = 0 if pool is None else sum(len(household["members"]) for household in pool["households"])
+    return len(world.args["founders"]) + members
+
+
+def born_in_town(world: wr.World, sim: int) -> bool:
+    """A living or archived sim born in the town: a child of two town parents (`parents` set
+    at its birth) or the child of a pregnancy brought from the pool and born here (a pool child,
+    its PoolOrigin without `born_pool`). Founders and arrivals were not born here."""
+    parents = world.sims[sim][7] if sim in world.sims else world.archive[sim][9]
+    if parents is not None:
+        return True
+    return world.is_pool_person(sim) and world.origins[sim]["born_pool"] is None
+
+
+def population(world: wr.World, year: int, causes: list) -> dict:
+    """The population columns of the row of `year` (the world advanced to its year end), over
+    the living and the archive together, "in the year" meaning `year · YEAR <= t < (year + 1) ·
+    YEAR`: `births` the sims born in the town (`born_in_town`) with `born` in the year;
+    `arrivals` the arrivals (`is_arrival`: a pool person with `born_pool`) with `arrived` in the
+    year and a SimId above `N` (`start_persons`; an immigration of second 0 counts, the persons
+    `Start` made do not); `emigrations` the archived sims that left by emigration (no cause) in
+    the year; `deaths` per cause of `causes` the archived sims that died of it in the year."""
+    start, end = year * YEAR, (year + 1) * YEAR
+    n = start_persons(world)
+    births = arrivals = emigrations = 0
+    deaths = [0] * len(causes)
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        if born_in_town(world, sim) and start <= world.born_of(sim) < end:
+            births += 1
+        if world.is_arrival(sim) and sim > n and start <= world.origins[sim]["arrived"] < end:
+            arrivals += 1
+    for sim, value in world.archive.items():
+        left, cause = value[1], value[2]
+        if not start <= left < end:
+            continue
+        if cause is None:
+            emigrations += 1
+        else:
+            deaths[causes.index(world.cause_code(cause))] += 1
+    return {"births": births, "arrivals": arrivals, "emigrations": emigrations, "deaths": deaths}
+
+
+class LogPopulation:
+    """The same columns counted from the year's entries of the log (a check of `population`,
+    not a definition): `core:birth` per child, `core:arrived` not caused by the input `Start`
+    (sequence 1), `core:emigrated` per person, `core:death` per cause. Reads the entries the
+    world wrote since the last call."""
+
+    # The payload variants of `core:birth` and `core:death` (tests/golden/log_codes.txt).
+    BIRTH, DEATH = 8, 4
+
+    def __init__(self, world: wr.World, causes: list):
+        self.world, self.causes, self.read, self.years = world, causes, 0, {}
+
+    def row(self, year: int) -> dict:
+        for line in self.world.log[self.read :]:
+            c = pool_reference.Cursor(line)
+            c.varint()
+            t = c.signed()
+            for _ in range(c.varint()):
+                assert c.varint() == 0, "a subject is a sim"
+                c.varint()
+            by_start = False
+            for _ in range(c.varint()):
+                kind = c.varint()
+                if kind in (0, 2):
+                    value = c.varint()
+                    by_start = by_start or (kind == 2 and value == 1)
+                elif kind == 1:
+                    c.varint()
+                    c.signed()
+                elif kind == 3:
+                    c.string()
+                else:
+                    assert kind == 4
+                    for _ in range(4):
+                        c.varint()
+            kind = c.varint()
+            counts = self.years.setdefault(t // YEAR, {"births": 0, "arrivals": 0, "emigrations": 0, "deaths": [0] * len(self.causes)})
+            if kind == self.BIRTH:
+                counts["births"] += 1
+            elif kind == wr.ARRIVED_VARIANT and not by_start:
+                counts["arrivals"] += 1
+            elif kind == wr.EMIGRATED_VARIANT:
+                counts["emigrations"] += 1
+            elif kind == self.DEATH:
+                counts["deaths"][self.causes.index(c.string())] += 1
+        self.read = len(self.world.log)
+        return self.years.get(year, {"births": 0, "arrivals": 0, "emigrations": 0, "deaths": [0] * len(self.causes)})
 
 
 def params_bytes(params: dict) -> bytes:
@@ -709,6 +838,8 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
     evaluator = Evaluator(world, body)
     margins = Margins()
     rows, held, snapshots, effects = [], {}, [], []
+    causes = death_causes(world.data)
+    from_log = LogPopulation(world, causes)
     started = time.time()
     world_seconds = census_seconds = 0.0
     for year in range(years):
@@ -718,6 +849,8 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
         mark = time.time()
         row, curve_held = census_row(evaluator, year, margins)
         census_seconds += time.time() - mark
+        # The state's population columns are the year's entries of the log.
+        assert {key: row[key] for key in ("births", "arrivals", "emigrations", "deaths")} == from_log.row(year), (name, year)
         rows.append(row)
         if curve_held:
             held[str(year)] = curve_held
@@ -727,6 +860,9 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
                 effects += g6_effects(evaluator, year)
     # Seconds of the whole loop, of the world alone and of the census rows (not a pin).
     elapsed = (time.time() - started, world_seconds, census_seconds)
+    # `N` read from `Start` is the world's own record of what `Start` made.
+    n = start_persons(world)
+    assert all((sim <= n) == world.made_by_start(sim) for sim in set(world.sims) | set(world.archive)), name
     record = {
         "data": data_note,
         "data_hash": hexed(world.data.hash),
@@ -736,6 +872,7 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
         "start_input_hash": hexed(hash64(world.inputs[0])),
         "year_hashes": [hexed(value) for value in world.year_hashes],
         "log_hash": hexed(world.log_hash()),
+        "death_causes": causes,
         "rows": rows,
         "curve_clamped_sims": held,
         "margins": margins.json(),
@@ -744,6 +881,8 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
     if world.pool_start is not None:
         record["pool"] = {"pool_hash": hexed(world.data.pool.hash), "pool_seed": hexed(world.data.pool.seed), "frozen_at": world.data.pool.frozen_at}
         record["g6_effects"] = effects
+    # For census.txt only (not in census.json): `N`, the persons `Start` made.
+    record["start_persons"] = n
     return record, evaluator, elapsed
 
 
@@ -1084,15 +1223,28 @@ def pigment_check() -> dict:
 def text_rows(name: str, record: dict) -> list:
     lines = [
         f"census_{name}_config data_hash {record['data_hash']} body_data {record['body_data']} start_input_hash {record['start_input_hash']}"
-        f" log_hash {record['log_hash']} until {record['scenario']['until']} nutrition {record['scenario']['start']['world_params']['nutrition']}"
+        f" log_hash {record['log_hash']} until {record['scenario']['until']} nutrition {record['scenario']['start']['world_params']['nutrition']}",
+        f"census_{name}_population start_persons {record['start_persons']} death_causes {','.join(record['death_causes'])}",
     ]
+    causes = record["death_causes"]
+
+    def population_text(counts: dict) -> str:
+        deaths = " ".join(f"deaths.{code}={counts['deaths'][i]}" for i, code in enumerate(causes))
+        return f"births {counts['births']} arrivals {counts['arrivals']} emigrations {counts['emigrations']} {deaths}"
+
     for row in record["rows"]:
         counts = " ".join(f"{key}={row['clamped'][i]}" for i, key in enumerate(CLAMPED_KEYS))
-        lines.append(f"census_{name}_row year {row['year']} living {row['living']} lived_secs {row['lived_secs']} body_evaluated {row['body_evaluated']} {counts} curve_clamped {row['curve_clamped']}")
+        lines.append(
+            f"census_{name}_row year {row['year']} living {row['living']} lived_secs {row['lived_secs']} body_evaluated {row['body_evaluated']} {counts} curve_clamped {row['curve_clamped']}"
+            f" {population_text(row)}"
+        )
     totals = [sum(row["clamped"][i] for row in record["rows"]) for i in range(len(CLAMPED_KEYS))]
+    population_totals = {key: sum(row[key] for row in record["rows"]) for key in ("births", "arrivals", "emigrations")}
+    population_totals["deaths"] = [sum(row["deaths"][i] for row in record["rows"]) for i in range(len(causes))]
     lines.append(
         f"census_{name}_totals evaluations {sum(row['body_evaluated'] for row in record['rows'])} curve_clamped {sum(row['curve_clamped'] for row in record['rows'])} "
         + " ".join(f"{key}={totals[i]}" for i, key in enumerate(CLAMPED_KEYS))
+        + f" {population_text(population_totals)}"
     )
     if record["margins"] is not None:
         lines.append(f"census_{name}_margins {json.dumps(record['margins'], separators=(',', ':'))}")
@@ -1335,7 +1487,7 @@ def compact(record: dict) -> dict:
     """The golden candidate of a fixture: everything but the scenario's founders (in its
     own file), the bytes of `Start` (its hash only) and the per-person details (in
     census_details.json); per snapshot person (SimId, lineage key, hash)."""
-    out = {key: value for key, value in record.items() if key not in ("scenario", "start_input", "snapshots", "founder_plan")}
+    out = {key: value for key, value in record.items() if key not in ("scenario", "start_input", "snapshots", "founder_plan", "start_persons")}
     out["until"] = record["scenario"]["until"]
     out["snapshots"] = [
         {"year": snap["year"], "t": snap["t"], "living": snap["living"], "hash": snap["hash"], "persons": [[p["sim"], p["lineage_key"], p["hash"]] for p in snap["persons"]]}

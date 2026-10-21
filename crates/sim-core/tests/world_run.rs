@@ -23,7 +23,7 @@ use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::params::WorldParams;
 use sim_core::time::{AdvanceOutcome, EventClass, SimDuration, SimTime, YEAR, year_start};
-use sim_core::world::{CensusRow, EventPayload, World, YearOut};
+use sim_core::world::{CensusRow, EventPayload, PopulationCensus, World, YearOut};
 
 const Y: i64 = 31_449_600;
 const _: () = assert!(Y == YEAR.as_secs());
@@ -91,6 +91,17 @@ fn expected_birthdays() -> Vec<String> {
         .collect()
 }
 
+/// Nobody born, arrived, gone or dead: founders of `Start` are no arrivals, and the
+/// repository's data has seven causes of death (ADR-0021, addendum 2026-10-21).
+fn unmoved() -> PopulationCensus {
+    PopulationCensus {
+        births: 0,
+        arrivals: 0,
+        emigrations: 0,
+        deaths: vec![0; 7],
+    }
+}
+
 fn expected_census() -> Vec<CensusRow> {
     (0..10)
         .map(|year| CensusRow {
@@ -98,6 +109,7 @@ fn expected_census() -> Vec<CensusRow> {
             living: 3,
             lived_secs: 94_348_800,
             body: BodyCensus::default(),
+            population: unmoved(),
         })
         .collect()
 }
@@ -284,6 +296,7 @@ fn an_empty_world_runs_only_year_ends() {
             living: 0,
             lived_secs: 0,
             body: BodyCensus::default(),
+            population: unmoved(),
         })
         .collect();
     assert_eq!(out.census, rows);
@@ -316,6 +329,7 @@ fn founders_show_in_the_first_census() {
                 living: count,
                 lived_secs: count * 31_449_600,
                 body: BodyCensus::default(),
+                population: unmoved(),
             }]
         );
     }
