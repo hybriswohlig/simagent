@@ -2852,13 +2852,31 @@ class World:
         """`B` of an affliction of a living or archived sim."""
         return onset_second(self.born_of(sim), affliction.onset)
 
+    def made_by_start(self, sim: int) -> bool:
+        """Whether `Start` created a living or archived sim: a founder, a person of a village,
+        or a member of a household of the start's draw (occasion 0 and `n_start`); everyone
+        else came by an immigration (also the one in second 0, after the inputs stamped
+        before it), a birth or not at all. What a loader derives from the input log."""
+        if not self.is_pool_person(sim):
+            return self.born_of(sim) <= 0
+        if not self.is_arrival(sim) or self.creation_second(sim) != 0:
+            return False
+        if self.village:
+            return True
+        index, _ = self.data.pool.members[self.key_of(sim)]
+        return index in pool_draw(self.data.pool, self.seed, 0, self.pool_start["n_start"], [])
+
     def creation_onset_entries(self, sim: int) -> int:
         """How many entries of path 1 the creation of a living or archived sim wrote: its
-        afflictions with `B <= E` if the switch in effect at `E` was on (the input log's
-        history, `switch_at`), else none. What a loader can count without the domain log."""
+        afflictions with `B <= E` if the switch its creation saw was on, else none: `Start`'s
+        own value for what `Start` made (an override stamped before the start holds only
+        after it, ADR-0017 section 3, addendum), else the switch in effect at `E` after the
+        inputs of that second (the input log's history, `switch_at`). What a loader can count
+        without the domain log."""
         e = self.creation_second(sim)
         afflictions = self.sims[sim][4] if sim in self.sims else self.archive[sim][6]
-        if not self.switch_at(max(e, 0)):
+        seen = self.switch_history[0][1] if self.made_by_start(sim) else self.switch_at(max(e, 0))
+        if not seen:
             return 0
         return sum(1 for affliction in afflictions if self.onset_second_of(sim, affliction) <= e)
 
