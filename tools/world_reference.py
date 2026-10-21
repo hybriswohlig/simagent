@@ -133,8 +133,10 @@ What the model knows:
   `since = now`; switched off, the period closes: with `from = max(age(since), onset)`
   and `to = age(now)`, `used` grows by `disease_hazard_used(hazard, from, to)` if
   `to > from`, and `since` is none. Then its pending deaths of a disease are cancelled
-  and planned again in data order, by the entry `core:param_changed`. An override that
-  keeps the switch as it is changes nothing but the log. The change
+  and planned again in data order, by the entry `core:param_changed`. A change that sets the
+  switch on then writes the onsets of path 3 (below, the onset of a disease). An override that
+  keeps the switch as it is changes nothing but the log (an "on" while it is on finds every
+  reached onset reported). The change
   `ParamChange::NutritionYear` (ADR-0013 section 2, `override_nutrition`) sets `N` of one
   year, inserted or replaced, the list kept ascending; only a year from the year of the
   second after the stamp on (`nutrition_year_past`), in the range of `Start`
@@ -451,7 +453,7 @@ What the model knows:
   as it arrived. `village` is not a field of the CLI's scenario file (only xtask builds a
   village `Start`); a resolved scenario's pool has `village` false. Core 41 (the new byte changes every save of a pool start; year
   and log hashes of a town stay).
-- The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and 2; Grok P1
+- The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20, paths 1 to 3; Grok P1
   to P3 and Q1): per affliction `B = born + ceil(onset · YEAR)` (`onset_second`: the product as
   an f64, its ceiling), `E` the creation second (`creation_second`: a founder 0, an arrival
   its arrival second, a child born in the town, a pool child too, its birth). The creating
@@ -464,10 +466,21 @@ What the model knows:
   payload 10: the SimId and the `str_key` of the code; kind 11, class general, subject the
   sim) at `B` whatever the switch, by the creation entry (path 2). The event writes the entry
   with its plan as the cause if the switch is on, else nothing. Death and emigration remove it
-  with the sim's other plans. A ForkOverride writes no onset (path 3 is a later stage).
-  `check_onsets` is the load check: exactly one open event at `B` per living sim and
-  affliction with `B > E` and `B` after the clock, none else; `check_carried_plans` (C4)
-  counts the path-1 entries between the `core:arrived` entries of a household. Core 42.
+  with the sim's other plans. Path 3 (`_fork_onsets`, core 43): an override block whose change
+  sets the switch on, acting in `T`, writes in its input context, after its
+  `core:param_changed` and the deaths it plans again, for every sim of the active population
+  by SimId and each affliction in data order with `B <= T` and no own open event (open: `B > E`
+  and `B >= T`; an onset exactly in `T` with `B > E` is left to its event, which runs after the
+  input) the same entry, caused by the input, if none of its earlier reporting moments had the
+  switch on (`onset_reported`: the creation if `B <= E` with the switch it saw, `Start`'s own
+  value for what `Start` made, else the switch at `E` after the inputs of `E`; the own event at
+  `B` if `B > E` with the switch at `B` after the inputs of `B`; every earlier override that set
+  the switch on after `E` (in `E` for what `Start` made) if `B <= E`, after `B` if `B > E`,
+  inputs of one second in their sequence). It reads only `B`, `E`, the active population and
+  the switch history of the input log; no state, no event. `check_onsets` is the load check:
+  exactly one open event at `B` per living sim and affliction with `B > E` and `B` after the
+  clock, none else; `check_carried_plans` (C4) counts the path-1 entries between the
+  `core:arrived` entries of a household.
 
 Usage: .venv/bin/python tools/world_reference.py (prints the data hashes, the checks of
 the step hazard and pure values of the market; the other tools use the model)
@@ -623,8 +636,11 @@ FOUNDER_ALLELE = 28
 # The onset of a disease as an entry (ADR-0017 section 3, addendum of 2026-10-20, paths 1 and
 # 2): a new event `DiseaseOnset` in the queue and a new log payload change logs, queues, saves
 # and state hashes without a new field: core 42, the projection stays 18.
+# Path 3 of the onset (the addendum, "Drei Wege" (3)): an override that sets the switch on
+# writes the reached onsets nothing reported yet, a new rule without a new field: core 43, the
+# projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 42
+CORE_VERSION = 43
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -2427,13 +2443,17 @@ class World:
         # 3) as a record: the second, `P`, `K`, `e`, the draws per household and who left;
         # not state.
         self.emigrations = []
-        # The onsets of diseases (ADR-0017 section 3, addendum, paths 1 and 2) as records: per
+        # The onsets of diseases (ADR-0017 section 3, addendum, paths 1 to 3) as records: per
         # entry written or event fired `(second, sim, code, path, the entry's id or None, its
         # causes as postcard bytes)`, path 1 at the creation, 2 by the event (None: the event
-        # fired with the switch off and wrote nothing); per event planned `(second planned,
-        # sim, code, B)` in `onset_plans`. For the stories; not state.
+        # fired with the switch off and wrote nothing), 3 by an override that set the switch
+        # on; per event planned `(second planned, sim, code, B)` in `onset_plans`; per such
+        # override in `fork_onsets` its second, its sequence number, the entries it wrote
+        # (sim, code, id) and how many afflictions it passed over as reported before, with an
+        # open event, or not reached. For the stories; not state.
         self.onsets = []
         self.onset_plans = []
+        self.fork_onsets = []
         start = variant(
             0,
             varint(seed),
@@ -2889,7 +2909,7 @@ class World:
         plans the event `DiseaseOnset { sim, disease }` at `B` whatever the switch (path 2, by
         the creation entry, planned now, micro 0 since `B` is a later second; a `B` beyond the
         clock is never, as a death beyond it, ADR-0002). Path 3 (a ForkOverride that turns the
-        switch on) is a later stage: `override` writes no onset."""
+        switch on) is `_fork_onsets`."""
         assert now == self.creation_second(sim), (sim, now)
         for affliction in self.sims[sim][4]:
             b = self.onset_second_of(sim, affliction)
@@ -2903,7 +2923,11 @@ class World:
             self._schedule(b, GENERAL, (SIM_SUBJECT, sim), DISEASE_ONSET_KIND, onset_payload(sim, affliction.disease.key), None, created, now)
 
     def _onset_entry(self, sim: int, affliction: Affliction, now: int, causes: list, path: int) -> int:
-        """The entry `core:disease_onset` of `sim` (subjects the sim) with `causes`."""
+        """The entry `core:disease_onset` of `sim` (subjects the sim) with `causes`. A check of
+        this reference on its records (not a rule the paths read): one entry per sim and
+        disease, never a second ("danach nie wieder")."""
+        code = affliction.disease.code
+        assert not [r for r in self.onsets if r[1] == sim and r[2] == code and r[4] is not None], (sim, code, now, path)
         b = self.onset_second_of(sim, affliction)
         entry = self._entry(now, [variant(0, varint(sim))], causes, onset_entry_payload(affliction.disease.code, b, affliction.onset))
         self.onsets.append((now, sim, affliction.disease.code, path, entry, causes))
@@ -2920,6 +2944,72 @@ class World:
             self._onset_entry(sim, affliction, now, [plan], 2)
         else:
             self.onsets.append((now, sim, affliction.disease.code, 2, None, [plan]))
+
+    def onset_reported(self, sim: int, affliction: Affliction, history: list) -> bool:
+        """Whether one of the reporting moments of an affliction of a sim of the active
+        population had the switch on, before an input (ADR-0017 section 3, addendum, path 3):
+        `history` is the switch history of the input log up to that input (`switch_history`
+        without it: `Start`'s value from 0, then each override block from one second after its
+        stamp, in sequence). The moments, with `B` the onset second and `E` the creation second:
+        - the creation, if `B <= E`, with the switch it saw: `Start`'s own value for what
+          `Start` made (`made_by_start`; an override stamped before the start acts only after
+          it), otherwise the switch in effect at `E` after the inputs of `E`;
+        - its own event at `B`, if `B > E`, with the switch in effect at `B` after the inputs
+          of `B` (the event runs after them);
+        - every override of `history` that set the switch on while the onset was reached and
+          no own event was open: one acting after `E` if `B <= E` (or in `E` itself for what
+          `Start` made, after `Start`), after `B` if `B > E`; inputs of one second count in
+          their sequence.
+        The caller asks only for an onset reached and without an open event, so the sim was in
+        the active population at every one of these moments. Reads no log and no new state:
+        `B`, `E`, the input log."""
+        e = self.creation_second(sim)
+        b = self.onset_second_of(sim, affliction)
+
+        def at(r: int) -> bool:
+            return [value for since, value in history if since <= r][-1]
+
+        if b <= e and self.made_by_start(sim):
+            seen, later = history[0][1], [value for since, value in history[1:] if since >= e]
+        elif b <= e:
+            seen, later = at(e), [value for since, value in history[1:] if since > e]
+        else:
+            seen, later = at(b), [value for since, value in history[1:] if since > b]
+        return seen or any(later)
+
+    def _fork_onsets(self, now: int, sequence: int) -> None:
+        """Path 3 (ADR-0017 section 3, addendum, "Drei Wege" (3); Grok P1 and Q1): an override
+        block whose change sets the switch on, acting in `now` (`T`, its stamp plus one) with
+        the sequence number `sequence`, in its own input context after its `core:param_changed`
+        and everything else it does, writes for every sim of the active population
+        (`World.sims`) by SimId, and for each of its afflictions in data order with `B <= T` and
+        no own open event (open: `B > E` and `B >= T`; an onset exactly in `T` with `B > E`
+        keeps its event, which runs after the input and writes it by path 2), the entry
+        `core:disease_onset` if none of its earlier reporting moments had the switch on
+        (`onset_reported`, on the history before this input). The entry is the one of paths 1
+        and 2, subjects the sim, caused by the input. No state, no event, no plan."""
+        history = self.switch_history[:-1]
+        assert self.switch_history[-1] == (now, True), self.switch_history[-1]
+        cause = [variant(2, varint(sequence))]
+        record = {"second": now, "input": sequence, "written": [], "reported": 0, "open": 0, "ahead": 0}
+        for sim in sorted(self.sims):
+            e = self.creation_second(sim)
+            for affliction in self.sims[sim][4]:
+                b = self.onset_second_of(sim, affliction)
+                if b > now:
+                    record["ahead"] += 1
+                    continue
+                if b > e and b >= now:
+                    # Its own event at `B = T` is still in the queue (a check of this reference).
+                    assert [event for event in self.queue if event.kind == DISEASE_ONSET_KIND and event.payload == onset_payload(sim, affliction.disease.key) and event.time == b]
+                    record["open"] += 1
+                    continue
+                if self.onset_reported(sim, affliction, history):
+                    record["reported"] += 1
+                    continue
+                entry = self._onset_entry(sim, affliction, now, cause, 3)
+                record["written"].append((sim, affliction.disease.code, entry))
+        self.fork_onsets.append(record)
 
     # ------------------------------------------------------------------ inputs
 
@@ -3970,7 +4060,9 @@ class World:
             self._plan_deaths(sim, added, now)
 
     def override(self, switch: bool) -> None:
-        """An override block with the one change, submitted right now."""
+        """An override block with the one change, submitted right now. A change that sets the
+        switch on then writes the onsets of path 3 in the input's context (`_fork_onsets`),
+        after its `core:param_changed` and the deaths it plans again."""
         self.script.append(("override", switch))
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(1, seq([param_change(switch)])))
@@ -3979,8 +4071,17 @@ class World:
         flips = switch != self.switch
         self.switch = switch
         changed = self._entry(now, [], [variant(2, varint(sequence))], variant(3, param_change(switch)))
-        if not flips:
-            return
+        if flips:
+            self._switch_exposures(switch, changed, now)
+        if switch:
+            self._fork_onsets(now, sequence)
+            # An "on" while the switch is on writes nothing: an earlier moment had it on (a
+            # check of this reference, not a rule the path reads).
+            assert flips or not self.fork_onsets[-1]["written"], self.fork_onsets[-1]
+
+    def _switch_exposures(self, switch: bool, changed: int, now: int) -> None:
+        """The switch flips at `now` by the entry `changed`: the exposures of every living sim's
+        lethal afflictions open or close, and its deaths of a disease are planned again."""
         for sim in sorted(self.sims):
             born = self.sims[sim][0]
             lethal = [affliction for affliction in self.sims[sim][4] if affliction.exposure is not None]

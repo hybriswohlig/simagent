@@ -3,9 +3,9 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, death};
+use super::{DomainState, death, onset};
 use crate::data::Data;
-use crate::input::{ForkOverride, InputRejected, RejectCode};
+use crate::input::{ForkOverride, InputRecord, InputRejected, RejectCode};
 use crate::log::{Causes, LogPayload};
 use crate::params::ParamChange;
 use crate::time::{SimDuration, SimTime, calendar};
@@ -46,11 +46,13 @@ pub(crate) fn block_rejection(block: &ForkOverride, stamp: SimTime) -> Option<Re
 
 /// One entry `core:param_changed` per change, in list order. A change that flips the
 /// switch of the hereditary diseases plans the deaths of the exposed sims again, by
-/// its entry; one that keeps a value changes nothing else.
+/// its entry; one that keeps a value changes nothing else. A block that sets the switch on
+/// then writes the onsets nothing could report yet (path 3; `history` the inputs before it).
 pub(crate) fn apply_override(
     domain: &mut DomainState,
     data: &Data,
     block: &ForkOverride,
+    history: &[InputRecord],
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let mut params = domain
@@ -69,5 +71,10 @@ pub(crate) fn apply_override(
         if params.hereditary_diseases != before {
             death::switch_diseases(domain, data, params.hereditary_diseases, entry, ctx);
         }
+    }
+    let on = (block.changes.iter())
+        .any(|change| matches!(change, ParamChange::HereditaryDiseases(true)));
+    if on {
+        onset::on_switch_on(domain, data, history, ctx);
     }
 }

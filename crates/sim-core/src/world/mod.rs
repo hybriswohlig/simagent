@@ -102,7 +102,8 @@ impl World {
         check(&self.state.domain, &self.state.data, t, &input)?;
         let seq = self.inputs.next_seq.allocate_input();
         let mut ctx = self.sched.input_ctx();
-        self.state.apply(&input, seq, &mut ctx);
+        self.state
+            .apply(&input, seq, &self.inputs.records, &mut ctx);
         self.inputs.records.push(InputRecord { t, seq, input });
         Ok(InputStamp { t, seq })
     }
@@ -182,7 +183,14 @@ fn check(
 }
 
 impl WorldState {
-    fn apply(&mut self, input: &Input, seq: InputSeq, ctx: &mut Ctx<'_, EventPayload, PlanRef>) {
+    /// `history` is the input log before `input`.
+    fn apply(
+        &mut self,
+        input: &Input,
+        seq: InputSeq,
+        history: &[InputRecord],
+        ctx: &mut Ctx<'_, EventPayload, PlanRef>,
+    ) {
         let mut ctx = SimCtx::new(
             ctx,
             &mut self.ids,
@@ -195,7 +203,13 @@ impl WorldState {
                 state::start::apply_start(&mut self.domain, &self.data, start, &mut ctx);
             }
             Input::ForkOverride(block) => {
-                state::params::apply_override(&mut self.domain, &self.data, block, &mut ctx);
+                state::params::apply_override(
+                    &mut self.domain,
+                    &self.data,
+                    block,
+                    history,
+                    &mut ctx,
+                );
             }
             Input::ArrangePartnership(pair) => {
                 state::partnership::apply_arrange(&mut self.domain, &self.data, pair, &mut ctx);

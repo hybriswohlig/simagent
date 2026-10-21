@@ -568,3 +568,368 @@ fn a_town_writes_each_onset_once_where_the_addendum_says() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// Path 3: a fork that turns the switch on
+
+/// The id of the first entry `core:param_changed` of `entries` in the second `t`.
+fn changed(entries: &[Value], t: i64) -> usize {
+    (entries.iter())
+        .position(|entry| code(entry) == "core:param_changed" && entry["t"] == t)
+        .expect("changed")
+}
+
+/// Path 3: a founder of 40 whose start left the switch off has reached the onset 30 at
+/// `−10 · YEAR`. A fork turning it on, stamped `5 · YEAR − 1`, writes the entry in
+/// `5 · YEAR` in its own context, right after its `core:param_changed` and caused by it
+/// (input 2), with the year of `B` (−10) and 30 years. Never again: off and on again in year
+/// 8, then 60 years.
+#[test]
+fn a_fork_turning_the_switch_on_writes_a_reached_onset() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.advance(5 * Y - 1);
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 5 * Y);
+    let mut expected = onset(5 * Y, 1, LATE, (-10, 30), json!({"input": 2}));
+    expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
+    assert_eq!(entries.get(at + 1), Some(&expected));
+    run.advance(8 * Y - 1);
+    run.fork(false);
+    run.fork(true);
+    run.advance(60 * Y);
+    assert_eq!(onsets(&run.entries()).len(), 1, "never again");
+}
+
+/// "On, off, on" with one stamp writes the onset only at the first "on": the second finds
+/// an earlier input of this path that turned the switch on while the onset was reached.
+#[test]
+fn on_off_on_in_one_second_writes_the_onset_once() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.advance(5 * Y - 1);
+    run.fork(true);
+    run.fork(false);
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 5 * Y);
+    assert_eq!(code(&entries[at + 1]), ONSET);
+    assert_eq!(
+        onsets(&entries),
+        [onset(5 * Y, 1, LATE, (-10, 30), json!({"input": 2}))]
+    );
+}
+
+/// "On, off" stamped `B − 1` while the onset's own event is still open counts for nothing:
+/// the event in `B = 20 · YEAR` finds the switch off and writes nothing, and neither input
+/// writes (its event was open). A later "on", stamped `25 · YEAR − 1` (input 4), writes it in
+/// `25 · YEAR`, in year 20 at 30 years.
+#[test]
+fn on_and_off_before_an_open_event_leave_the_onset_to_a_later_on() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-10 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.advance(20 * Y - 1);
+    run.fork(true);
+    run.fork(false);
+    run.advance(25 * Y - 1);
+    assert_eq!(onsets(&run.entries()), Vec::<Value>::new());
+    run.fork(true);
+    assert_eq!(
+        onsets(&run.entries()),
+        [onset(25 * Y, 1, LATE, (20, 30), json!({"input": 4}))]
+    );
+}
+
+/// A founder whose start left the switch off gets the onset at a fork with the start's
+/// stamp (submitted right after `Start`, acting in second 0): in second 0, after the fork's
+/// `core:param_changed`, caused by input 2.
+#[test]
+fn a_fork_with_the_stamp_of_the_start_writes_the_founders_onset() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 0);
+    let mut expected = onset(0, 1, LATE, (-10, 30), json!({"input": 2}));
+    expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
+    assert_eq!(entries.get(at + 1), Some(&expected));
+}
+
+/// A founder born at `−30 · YEAR` reaches the onset 30 in second 0, `B = E = T = 0`: no
+/// event of its own was ever open, so a fork with the start's stamp writes it, in second 0
+/// after its `core:param_changed`, caused by input 2, in year 0 at 30 years.
+#[test]
+fn a_fork_with_the_stamp_of_the_start_writes_an_onset_of_second_0() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-30 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 0);
+    let mut expected = onset(0, 1, LATE, (0, 30), json!({"input": 2}));
+    expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
+    assert_eq!(entries.get(at + 1), Some(&expected));
+}
+
+/// "On, off, on" with the start's stamp, all acting in second 0, the second of the
+/// founders' creation: their creation saw `Start`'s "off", and the first "on" (input 2)
+/// writes both founders' onsets. The second "on" finds that earlier "on" of their creation
+/// second and writes nothing.
+#[test]
+fn on_off_on_with_the_stamp_of_the_start_writes_each_onset_once() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![
+            founder(-40 * Y, Sex::Female, false, true),
+            founder(-40 * Y, Sex::Female, false, true),
+        ],
+        Vec::new(),
+    ));
+    run.fork(true);
+    run.fork(false);
+    run.fork(true);
+    assert_eq!(
+        onsets(&run.entries()),
+        [
+            onset(0, 1, LATE, (-10, 30), json!({"input": 2})),
+            onset(0, 2, LATE, (-10, 30), json!({"input": 2})),
+        ]
+    );
+}
+
+/// A child born in the second `b` of an "on, off" (both stamped `b − 1`) saw the switch off:
+/// the inputs act before its birth, so the "on" did not see it. The next "on" (input 4,
+/// acting in `b + 1`) writes its onset, in the year of its birth at 0 years; the parents got
+/// theirs at the first "on" (input 2) and get nothing again. The second `b` is the first
+/// birth of the same start without forks; the forks act after the conception that set it.
+#[test]
+fn a_child_born_in_the_second_of_on_and_off_gets_its_onset_at_the_next_on() {
+    let start = || {
+        started(
+            data(1e-9, false),
+            false,
+            vec![
+                founder(-20 * Y, Sex::Female, true, false),
+                founder(-22 * Y, Sex::Male, true, false),
+            ],
+            vec![Couple { woman: 0, man: 1 }],
+        )
+    };
+    let mut plain = Run::new(start());
+    plain.advance(6 * Y);
+    let (child, b) = (plain.entries().iter())
+        .find(|entry| code(entry) == "core:birth")
+        .map(|entry| (sim(entry), entry["t"].as_i64().expect("a second")))
+        .expect("a child is born");
+    let mut run = Run::new(start());
+    run.advance(b - 1);
+    run.fork(true);
+    run.fork(false);
+    run.advance(b);
+    assert!(
+        (run.entries().iter())
+            .any(|entry| code(entry) == "core:birth" && sim(entry) == child && entry["t"] == b),
+        "the same birth"
+    );
+    run.fork(true);
+    assert_eq!(
+        onsets(&run.entries()),
+        [
+            onset(b, 1, BIRTH, (-20, 0), json!({"input": 2})),
+            onset(b, 2, BIRTH, (-22, 0), json!({"input": 2})),
+            onset(
+                b + 1,
+                child,
+                BIRTH,
+                (b.div_euclid(Y), 0),
+                json!({"input": 4})
+            ),
+        ]
+    );
+}
+
+/// The entries of one fork go by SimId, each person's in the order of the data: founder 1
+/// with `test:onset_birth` (begun at her birth, year −40, 0 years) and `test:onset_late`
+/// (year −10, 30 years), then founder 2 the same, all caused by the fork.
+#[test]
+fn a_fork_writes_by_sim_and_in_data_order() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![
+            founder(-40 * Y, Sex::Female, true, true),
+            founder(-40 * Y, Sex::Female, true, true),
+        ],
+        Vec::new(),
+    ));
+    run.advance(5 * Y - 1);
+    run.fork(true);
+    let entries = run.entries();
+    let at = changed(&entries, 5 * Y);
+    let fork = json!({"input": 2});
+    let expected = [
+        onset(5 * Y, 1, BIRTH, (-40, 0), fork.clone()),
+        onset(5 * Y, 1, LATE, (-10, 30), fork.clone()),
+        onset(5 * Y, 2, BIRTH, (-40, 0), fork.clone()),
+        onset(5 * Y, 2, LATE, (-10, 30), fork),
+    ];
+    let after = entries.get(at + 1..at + 5).unwrap_or_default();
+    assert_eq!(onsets(after), expected);
+    assert_eq!(onsets(&entries).len(), 4);
+}
+
+/// A fork writes only what no earlier moment could report with the switch on: with the
+/// switch on at the start the creation wrote it, and "on" again writes nothing; an event that
+/// found the switch on wrote it, and off then on writes nothing; an event that found it off
+/// leaves it to the next "on" (input 2 in `22 · YEAR`, year 20, 30 years).
+#[test]
+fn a_fork_writes_only_what_no_earlier_moment_reported() {
+    let mut on_at_start = Run::new(started(
+        data(1e-9, false),
+        true,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    on_at_start.advance(5 * Y - 1);
+    on_at_start.fork(true);
+    let entries = on_at_start.entries();
+    assert_eq!(onsets(&entries).len(), 1, "the creation's");
+    assert!(
+        entries[changed(&entries, 5 * Y)..]
+            .iter()
+            .all(|e| code(e) != ONSET)
+    );
+
+    let late = || vec![founder(-10 * Y, Sex::Female, false, true)];
+    let mut found_on = Run::new(started(data(1e-9, false), true, late(), Vec::new()));
+    found_on.advance(22 * Y - 1);
+    found_on.fork(false);
+    found_on.advance(24 * Y - 1);
+    found_on.fork(true);
+    let by = added(&found_on.entries(), 1);
+    assert_eq!(
+        onsets(&found_on.entries()),
+        [onset(
+            20 * Y,
+            1,
+            LATE,
+            (20, 30),
+            json!({"plan": {"by": by, "planned_at": 0}})
+        )]
+    );
+
+    let mut found_off = Run::new(started(data(1e-9, false), false, late(), Vec::new()));
+    found_off.advance(22 * Y - 1);
+    found_off.fork(true);
+    assert_eq!(
+        onsets(&found_off.entries()),
+        [onset(22 * Y, 1, LATE, (20, 30), json!({"input": 2}))]
+    );
+}
+
+/// Path 3 sees only the active population: of eight founders of 40 with the onset reached
+/// and an accident of 0.1 per year, a fork in `10 · YEAR` writes for exactly those who live
+/// then (the input acts before the events of its second).
+#[test]
+fn a_fork_writes_nothing_for_who_has_left() {
+    let founders = (0..8)
+        .map(|_| founder(-40 * Y, Sex::Female, false, true))
+        .collect();
+    let mut run = Run::new(started(data(0.1, false), false, founders, Vec::new()));
+    run.advance(10 * Y - 1);
+    run.fork(true);
+    let written: BTreeMap<u64, i64> = (onsets(&run.entries()).iter())
+        .map(|entry| (sim(entry), entry["t"].as_i64().expect("a second")))
+        .collect();
+    let pedigree = run.world.pedigree();
+    let (mut gone, mut living) = (0, 0);
+    for person in &pedigree.persons {
+        let left = person.died.or(person.emigrated).map(SimTime::as_secs);
+        let expected = match left {
+            Some(left) if left < 10 * Y => {
+                gone += 1;
+                None
+            }
+            _ => {
+                living += 1;
+                Some(10 * Y)
+            }
+        };
+        assert_eq!(written.get(&person.sim.get()).copied(), expected);
+    }
+    assert!(gone > 0 && living > 0, "{gone} gone, {living} living");
+}
+
+/// Children of two parents with `core:disease_ar` twice have `test:onset_birth` from their
+/// birth. Born while the switch is off, they get it at the fork that turns it on, with the
+/// parents, caused by the fork, in the year of their birth at 0 years; at a later "on" only
+/// who has none yet gets one.
+#[test]
+fn children_born_while_the_switch_is_off_get_their_onset_at_the_fork() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![
+            founder(-20 * Y, Sex::Female, true, false),
+            founder(-22 * Y, Sex::Male, true, false),
+        ],
+        vec![Couple { woman: 0, man: 1 }],
+    ));
+    run.advance(6 * Y - 1);
+    run.fork(true);
+    let born: BTreeMap<u64, i64> = (run.entries().iter())
+        .filter(|entry| code(entry) == "core:birth")
+        .map(|entry| (sim(entry), entry["t"].as_i64().expect("a second")))
+        .collect();
+    assert!(!born.is_empty(), "children are born");
+    let fork = |input: u64| json!({"input": input});
+    let mut expected = vec![
+        onset(6 * Y, 1, BIRTH, (-20, 0), fork(2)),
+        onset(6 * Y, 2, BIRTH, (-22, 0), fork(2)),
+    ];
+    for (&child, &t) in &born {
+        expected.push(onset(6 * Y, child, BIRTH, (t.div_euclid(Y), 0), fork(2)));
+    }
+    assert_eq!(onsets(&run.entries()), expected);
+    run.advance(8 * Y - 1);
+    run.fork(false);
+    run.advance(10 * Y - 1);
+    run.fork(true);
+    let entries = run.entries();
+    let before: Vec<u64> = (onsets(&entries).iter())
+        .filter(|entry| entry["t"].as_i64() < Some(10 * Y))
+        .map(sim)
+        .collect();
+    let now: Vec<u64> = (onsets(&entries).iter())
+        .filter(|entry| entry["t"] == 10 * Y)
+        .map(sim)
+        .collect();
+    let pedigree = run.world.pedigree();
+    let unreported: Vec<u64> = (pedigree.persons.iter())
+        .filter(|person| person.died.is_none() && person.emigrated.is_none())
+        .map(|person| person.sim.get())
+        .filter(|sim| !before.contains(sim))
+        .collect();
+    assert_eq!(now, unreported);
+}

@@ -1,5 +1,5 @@
 {
-  "core_version": 42,
+  "core_version": 43,
   "data_hash": "b1f5c0054302363d",
   "year_hashes": [
     {
@@ -123,5 +123,5 @@
       "hash": "aef0390e567321af"
     }
   ],
-  "log_hash": "bb6f62915112aee7"
+  "log_hash": "f2392e62d4fd2d0f"
 }

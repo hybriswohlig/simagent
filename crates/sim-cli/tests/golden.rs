@@ -240,8 +240,9 @@ fn golden_fork_matches() {
     // The entry of the override. It plans the death of sim 1 of `core:disease_ar` (cystic
     // fibrosis on the repository's data, ADR-0017 section 3) for second 1 506 119 448, at
     // about 78; she dies of senescence in year 26 first (second 836 172 484, at 56.6), as
-    // in the run (tools/golden_reference.py).
-    assert_eq!(fork.log.len(), whole_run().log.len() + 1);
+    // in the run (tools/golden_reference.py). After it come the onsets of sims 1 and 3,
+    // reached at their birth and never reported while the switch was off.
+    assert_eq!(fork.log.len(), whole_run().log.len() + 3);
 }
 
 /// The pedigrees of the golden run and of its fork after thirty years are the goldens

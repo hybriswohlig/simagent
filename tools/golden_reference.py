@@ -39,7 +39,9 @@ arrival.json, tools/arrival_reference.py) and the town: every event kind (event_
 codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 14) must appear in
 one of them; printed per scenario and for the union (`coverage_rows`). The onset of a disease
 (ADR-0017 section 3, addendum of 2026-10-20: the event `disease_onset`, kind 11, and the entry
-`core:disease_onset`, payload 14) is counted per scenario in `onset_rows`. The year hash, the
+`core:disease_onset`, payload 14) is counted per scenario and path in `onset_rows`, the dummy
+fork at year 7 of card_diseases.json among them; the forks write path 3 (core 43: an override
+that sets the switch on writes the reached onsets nothing reported yet). The year hash, the
 log hash and the save of the CLI's run "tiny" (crates/sim-cli/tests/cli.rs) are printed too
 (`cli_tiny_rows`).
 
@@ -584,26 +586,35 @@ def cli_tiny_rows(data: wr.Data) -> list:
 
 def onset_rows(worlds: dict) -> list:
     """The onsets of diseases per scenario (ADR-0017 section 3, addendum of 2026-10-20, paths 1
-    and 2): the entries path 1 wrote at a creation, the entries path 2 wrote by its event, the
-    events `disease_onset` that fired (with the switch off they write nothing), the events planned
-    and those still pending at the end; then the first entry of each path as (sim, second, the
-    entry's JSON)."""
+    to 3): the entries path 1 wrote at a creation, the entries path 2 wrote by its event, the
+    entries path 3 wrote at an override that set the switch on, the events `disease_onset` that
+    fired (with the switch off they write nothing), the events planned and those still pending
+    at the end; per such override its second, input, entries and the afflictions it passed
+    over (reported before, an open event, not reached); then the first entries of each path as
+    (sim, second, the entry's JSON)."""
     import arrival_reference
 
     rows = []
     for name, world in worlds.items():
         path_1 = [record for record in world.onsets if record[3] == 1]
         path_2 = [record for record in world.onsets if record[3] == 2 and record[4] is not None]
+        path_3 = [record for record in world.onsets if record[3] == 3]
         silent = [record for record in world.onsets if record[3] == 2 and record[4] is None]
         fired = [kind for _, kind in world.ran if kind == wr.DISEASE_ONSET_KIND]
         pending = [event for event in world.queue if event.kind == wr.DISEASE_ONSET_KIND]
         assert len(fired) == len(path_2) + len(silent)
+        assert world.entry_kinds.count(wr.DISEASE_ONSET_ENTRY) == len(path_1) + len(path_2) + len(path_3)
         rows.append(
-            f"onsets {name} path_1_entries {len(path_1)} path_2_entries {len(path_2)} events_fired {len(fired)}"
+            f"onsets {name} path_1_entries {len(path_1)} path_2_entries {len(path_2)} path_3_entries {len(path_3)} events_fired {len(fired)}"
             f" (writing nothing {len(silent)}) events_planned {len(world.onset_plans)} pending_at_end {len(pending)}"
             f" entries_in_log {world.entry_kinds.count(wr.DISEASE_ONSET_ENTRY)}"
         )
-        for label, records in (("path_1", path_1), ("path_2", path_2), ("silent", silent)):
+        for record in world.fork_onsets:
+            rows.append(
+                f"onsets {name} override second {record['second']} input {record['input']} entries {len(record['written'])}"
+                f" (sim, disease, id) {record['written']} passed_over reported_before {record['reported']} open_event {record['open']} not_reached {record['ahead']}"
+            )
+        for label, records in (("path_1", path_1), ("path_2", path_2), ("path_3", path_3), ("silent", silent)):
             for t, sim, code, _, entry, _ in records[:2]:
                 text = arrival_reference.entry_json(world.log[entry - 1]) if entry is not None else f"(nothing written, {code})"
                 rows.append(f"onsets {name} example {label} sim {sim} second {t} entry {text}")
@@ -754,7 +765,7 @@ def main(argv) -> int:
     rows += town_rows(town_run)
     arrival = arrival_world()
     rows += coverage_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival, "town": town_run})
-    rows += onset_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival, "town": town_run})
+    rows += onset_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "dummy_fork_7": fork_7, "arrival": arrival, "town": town_run})
     rows += cli_tiny_rows(data)
     if "--check" in argv:
         same = {name: (GOLDEN / name).exists() and (GOLDEN / name).read_bytes() == content for name, content in files.items()}

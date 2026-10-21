@@ -345,15 +345,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":42"#, r#""core_version":43"#);
+    replace_in(&log, r#""core_version":43"#, r#""core_version":44"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 43, this is 42"
+            "error: fork_foreign_core_version: the parent run is of core version 44, this is 43"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":43"#, r#""core_version":42"#);
+    replace_in(&log, r#""core_version":44"#, r#""core_version":43"#);
     replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -418,7 +418,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":42"#, r#""core_version":43"#),
+        (r#""core_version":43"#, r#""core_version":44"#),
         (
             r#""data_hash":"b1f5c0054302363d""#,
             r#""data_hash":"c3f04a38869c20d7""#,
@@ -695,7 +695,7 @@ fn fork_point_hash_equals_parent() {
     );
     let ours_lines: Vec<&str> = ours_events.lines().collect();
     let theirs_lines: Vec<&str> = theirs_events.lines().collect();
-    assert_eq!(ours_lines.len(), theirs_lines.len() + 1);
+    assert_eq!(ours_lines.len(), theirs_lines.len() + 2);
     // Seven entries of the start (with three households) and three birthdays in each of
     // the years 0 to 4.
     assert_eq!(ours_lines[..22], theirs_lines[..22]);
@@ -706,14 +706,24 @@ fn fork_point_hash_equals_parent() {
             5 * Y
         )
     );
+    // The override sets the switch on, so in its context it writes the onset of sim 3 (two
+    // copies of `core:disease_ar`, onset 0, so reached at his birth one second before the
+    // start; the start had the switch off): since year −1, at 0 years.
+    assert_eq!(
+        ours_lines[23],
+        format!(
+            r#"{{"id":24,"t":{},"subjects":[{{"sim":3}}],"causes":[{{"input":2}}],"payload":{{"core:disease_onset":{{"disease":"core:disease_ar","since_year":-1,"age_years":0}}}}}}"#,
+            5 * Y
+        )
+    );
     // The birthday of sim 1 in that second follows with the next EventId.
     assert!(
-        ours_lines[23].starts_with(&format!(
-            r#"{{"id":24,"t":{},"subjects":[{{"sim":1}}]"#,
+        ours_lines[24].starts_with(&format!(
+            r#"{{"id":25,"t":{},"subjects":[{{"sim":1}}]"#,
             5 * Y
         )),
         "{}",
-        ours_lines[20]
+        ours_lines[24]
     );
     // The census reads the living and their bodies, which the override does not change:
     // it is that of the parent.

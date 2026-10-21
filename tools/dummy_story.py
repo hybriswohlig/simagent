@@ -189,15 +189,21 @@ emigration is the same: the switch changes neither the living nor a draw. The fe
 the same: the switch changes no chance, and the market reads no disease: sim 8 is paired
 with sim 4 in month 260 as in the run (sim 8 has one dummy allele, sim 4 none, so sim 13
 carries at most one and has no affliction). Sims 4 to 6 and the children of sims 5 and 6
-have no affliction, and partnership 3 separates in the same second as in the run. So the
-fork has one entry more than the run (the override), and its year hashes differ from
-year 5 on (the switch and the exposures are state, the planned deaths are in the
-queue). After the fork point the fork runs every event kind (birthdays, sim 1's
+have no affliction, and partnership 3 separates in the same second as in the run. The
+override sets the switch on, so in its context, right after its `core:param_changed`, it
+writes the onsets of path 3 (ADR-0017 section 3, addendum, "Drei Wege" (3); core 43): sims
+1 and 3 are living at T_5 and reached the onset 0 of `core:disease_ar` at their birth (`B =
+born ≤ E = 0`), and their creation by `Start` saw the switch off, so nothing reported it
+before: one entry `core:disease_onset` each, by SimId (sim 1 since year −30, sim 3 since
+year −1, both at 0 years), caused by the input. So the fork has three entries more than the
+run (the override and the two onsets), every later entry is three further on, and its year
+hashes differ from year 5 on (the switch and the exposures are state, the planned deaths
+are in the queue). After the fork point the fork runs every event kind (birthdays, sim 1's
 attempts, her conception in month 74 and birth in month 84, the year ends, the
 emigration in every year and its departures in year 5, the separation of partnership 3
 in year 27.9, sim 1's death in year 27, the rounds of the market), and the fork's log has
-every log kind (the run's all but `core:param_changed`); both are checked here (the
-coverage of ADR-0003 6.3).
+every log kind of payloads 0 to 12 (the run's all but `core:param_changed`) and since core
+43 `core:disease_onset` too; both are checked here (the coverage of ADR-0003 6.3).
 
 `story_files()` gives the five files of the story on map 3 (dummy.json, dummy.save,
 dummy_fork.json, dummy_pedigree.json, dummy_fork_pedigree.json) in the form of the goldens:
@@ -216,11 +222,12 @@ from pathlib import Path
 
 import xxhash
 
-from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype
+from postcard_reference import DUMMY, FEMALE, MALE, WILD, genotype, seq, signed, string, variant, varint
 
 from world_reference import (
     CORE_VERSION,
     DEATH_KIND,
+    DISEASE_ONSET_ENTRY,
     EMIGRATION_KIND,
     ENDED_BY_DEATH,
     ENDED_BY_EMIGRATION,
@@ -326,7 +333,8 @@ assert all(DUE[(sim, ACCIDENT)] > 1000 * YEAR for sim in range(1, 7))
 # change, so the age at death is `35 + B / h1`, due `ceil((a - 35) * YEAR)` seconds after
 # T_5.
 (CYSTIC,) = [disease for disease in DATA.diseases if disease.code == "core:disease_ar"]
-AR_KEY = str_key("core:disease_ar")
+AR_CODE = "core:disease_ar"
+AR_KEY = str_key(AR_CODE)
 FORK_AGE = (FORK_YEAR * YEAR - BORN[0]) / 31_449_600.0
 assert FORK_AGE == 35.0 and FORK_AGE >= CYSTIC.hazard[1]
 HER_AR_AGE = FORK_AGE + budget_of(SEED, founder_key(TAG, 0), "core:disease_ar") / CYSTIC.hazard[2]
@@ -583,10 +591,24 @@ def run(fork: bool, capacity=CAPACITY) -> World:
     world = dummy_world(capacity)
     if fork:
         world.advance(FORK_YEAR * YEAR - 1)
+        before = len(world.log)
         world.override(True)
-        # The override is the last entry so far; EventIds count from 1. It plans the
-        # deaths of the disease of the living with it, sim 1's as by hand.
-        entry = len(world.log)
+        # The override is the next entry; EventIds count from 1. It plans the deaths of the
+        # disease of the living with it, sim 1's as by hand. Right after it come the onsets
+        # of path 3 of sims 1 and 3 if living (both are with the capacity 9 and without one;
+        # a small capacity of the scan may have sent sim 3 away), caused by the input
+        # (sequence number 2): `core:disease_ar` since their birth, sim 1 in year −30, sim 3
+        # in year −1, at 0 years.
+        entry = before + 1
+        cause = variant(2, varint(2))
+        living = [(sim, year) for sim, year in [(1, -30), (3, -1)] if sim in world.sims]
+        if capacity in (CAPACITY, None):
+            assert [sim for sim, _ in living] == [1, 3]
+        assert world.log[before + 1:] == [
+            varint(entry + 1 + i) + signed(FORK_YEAR * YEAR) + seq([variant(0, varint(sim))]) + seq([cause])
+            + variant(DISEASE_ONSET_ENTRY, string(AR_CODE), signed(year), signed(0))
+            for i, (sim, year) in enumerate(living)
+        ], [line.hex() for line in world.log[before:]]
         if capacity in (CAPACITY, None):
             assert ar_deaths(world)[0] == (1, HER_AR_DEATH, (entry, FORK_YEAR * YEAR))
             assert all(plan == (entry, FORK_YEAR * YEAR) for *_, plan in ar_deaths(world))
@@ -628,9 +650,14 @@ NO_CAPACITY = run(fork=False, capacity=None)
 NO_CAPACITY_FORK = run(fork=True, capacity=None)
 assert NO_CAPACITY.year_hashes != PARENT.year_hashes and not NO_CAPACITY.emigrations
 check_story_kept(NO_CAPACITY)
-# The log hashes of the goldens of core 33 (tests/golden/dummy.json and dummy_fork.json
-# before the emigration): a world without a capacity runs as before.
-assert (NO_CAPACITY.log_hash(), NO_CAPACITY_FORK.log_hash()) == (0x09C1_7754_9EA2_83A5, 0x996F_E07F_C38E_7600)
+# The log hash of the golden of core 33 (tests/golden/dummy.json before the emigration): a
+# world without a capacity runs as before. Its fork (0x996f_e07f_c38e_7600 in core 33) has
+# since core 43 the two onsets of path 3 after the override, and every later entry two
+# further on; up to the fork point it is the run's log.
+assert NO_CAPACITY.log_hash() == 0x09C1_7754_9EA2_83A5
+_point = next(i for i, line in enumerate(NO_CAPACITY.log) if line != NO_CAPACITY_FORK.log[i])
+assert len(NO_CAPACITY_FORK.log) == len(NO_CAPACITY.log) + 3 and NO_CAPACITY_FORK.log[:_point] == NO_CAPACITY.log[:_point]
+assert [line[0] for line in NO_CAPACITY_FORK.log[_point:_point + 3]] == [_point + 1, _point + 2, _point + 3]
 _cut = next(i for i, line in enumerate(PARENT.log) if line != NO_CAPACITY.log[i])
 assert all(t == EMIGRATION_AT for t, kind, *_ in PARENT.home_log if kind == "left by emigration")
 assert _cut + 1 == min(entry for t, kind, _, _, _, entry in PARENT.home_log if kind == "left by emigration")
@@ -640,7 +667,7 @@ assert all(
     ours != theirs
     for ours, theirs in zip(FORK.year_hashes[FORK_YEAR:], PARENT.year_hashes[FORK_YEAR:])
 )
-assert len(FORK.log) == len(PARENT.log) + 1, "the override; the same death"
+assert len(FORK.log) == len(PARENT.log) + 3, "the override and the onsets of sims 1 and 3; the same death"
 # Sim 1 dies of senescence in year 27, in the run and in the fork: the only death. Household
 # 2 emigrates at the end of year 5 in both.
 HER_DEATH = DUE[(1, SENESCENCE)]
@@ -738,7 +765,7 @@ assert [sim for sim, *_ in FORK_AR_DEATHS] == LETHAL and not ar_deaths(FORK)
 assert all(plan == (FORK_OVERRIDE_ENTRY, FORK_YEAR * YEAR) for _, _, plan in FORK_AR_DEATHS)
 assert FORK_AR_DEATHS[0][1] == HER_AR_DEATH > HER_DEATH and FORK_AR_DEATHS[1][1] > EMIGRATION_AT
 # The rounds of the fork are those of the run (the switch changes no draw of the market);
-# only the EventId of the pairing's entry is one more (the override).
+# only the EventId of the pairing's entry is three more (the override and the two onsets).
 assert [
     (r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in FORK.rounds
 ] == [(r["n"], r["men"], r["considered"], [{k: v for k, v in c.items() if k != "entry"} for c in r["choices"]]) for r in PARENT.rounds]
@@ -746,10 +773,10 @@ assert [
 # Coverage (ADR-0003 6.3): after the fork point the fork runs every event kind
 # (tests/golden/event_codes.txt: year_end 1 to emigration 9), and the fork writes every
 # log kind (tests/golden/log_codes.txt: payloads 0 to 12; the run all but
-# `core:param_changed`).
+# `core:param_changed`), and since core 43 also `core:disease_onset` (14), by path 3.
 EVENT_KINDS, LOG_KINDS = set(range(1, 10)), set(range(13))
 assert {kind for t, kind in FORK.ran if t >= FORK_YEAR * YEAR} == EVENT_KINDS
-assert set(FORK.entry_kinds) == LOG_KINDS and set(PARENT.entry_kinds) == LOG_KINDS - {3}
+assert set(FORK.entry_kinds) == LOG_KINDS | {DISEASE_ONSET_ENTRY} and set(PARENT.entry_kinds) == LOG_KINDS - {3}
 
 # The households of the story above (design note of the households; part 2: sim 3 is
 # fostered at the start by sim 5, the one FOSTER_RANK ranks first of sims 1 and 5).
@@ -775,10 +802,10 @@ assert PARENT.archive[3][13] == (5, 6) and FORK.archive[3][13] == (5, 6)
 # Each emigrant's entry `core:emigrated` names household 2, by SimId, EventIds 91 to 96.
 EMIGRATION_ENTRIES = [entry for t, kind, _, _, _, entry in PARENT.home_log if kind == "left by emigration"]
 assert EMIGRATION_ENTRIES == list(range(91, 97))
-# The fork has the households of the run; from the fork point on every entry is one later
-# (the override).
+# The fork has the households of the run; from the fork point on every entry is three later
+# (the override and the two onsets of path 3).
 assert FORK.home_log == [
-    row[:5] + (row[5] if row[5] is None or row[0] < FORK_YEAR * YEAR else row[5] + 1,) for row in PARENT.home_log
+    row[:5] + (row[5] if row[5] is None or row[0] < FORK_YEAR * YEAR else row[5] + 3,) for row in PARENT.home_log
 ]
 
 
@@ -999,7 +1026,7 @@ def main() -> None:
     for year, living, e, draws in HAND_EMIGRATION:
         rows = {household: (f"{subject:016x}", u, leaves) for household, (subject, u, leaves) in draws.items()}
         print(f"emigration_year {year} t {(year + 1) * YEAR - 1} P {living} e {e!r} draws (household: subject key, u, leaves) {rows}")
-    print(f"emigration_left household 2 at {EMIGRATION_AT} (year {EMIGRATION_AT / YEAR:.6f}) sims {EMIGRANTS} entries {EMIGRATION_ENTRIES} (in the fork {[entry + 1 for entry in EMIGRATION_ENTRIES]})")
+    print(f"emigration_left household 2 at {EMIGRATION_AT} (year {EMIGRATION_AT / YEAR:.6f}) sims {EMIGRANTS} entries {EMIGRATION_ENTRIES} (in the fork {[entry + 3 for entry in EMIGRATION_ENTRIES]})")
     for line in PARENT.log[EMIGRATION_ENTRIES[0] - 1:EMIGRATION_ENTRIES[-1]]:
         print(f"emigration_entry {line.hex()}")
     print(f"emigration_population (year, P) {[(r['year'], r['P']) for r in PARENT.emigrations]}")
