@@ -345,15 +345,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":44"#, r#""core_version":45"#);
+    replace_in(&log, r#""core_version":45"#, r#""core_version":46"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 45, this is 44"
+            "error: fork_foreign_core_version: the parent run is of core version 46, this is 45"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":45"#, r#""core_version":44"#);
+    replace_in(&log, r#""core_version":46"#, r#""core_version":45"#);
     replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -418,7 +418,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":44"#, r#""core_version":45"#),
+        (r#""core_version":45"#, r#""core_version":46"#),
         (
             r#""data_hash":"b1f5c0054302363d""#,
             r#""data_hash":"c3f04a38869c20d7""#,
