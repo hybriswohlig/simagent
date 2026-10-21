@@ -277,18 +277,17 @@ mod tests {
     #[test]
     fn the_causes_of_death_come_in_the_order_of_the_addendum() {
         let data = crate::data::testing::data();
-        let causes = crate::state::death::causes(&data);
-        let codes: alloc::vec::Vec<&str> = causes.iter().map(|code| code.as_str()).collect();
+        let code = |text| crate::data_id::Code::new(text).expect("a code");
         assert_eq!(
-            codes,
+            crate::state::death::causes(&data),
             [
-                "core:senescence",
-                "core:accident",
-                "core:disease_ar",
-                "core:disease_ad_late",
-                "core:disease_ad_partial",
-                "core:disease_xr",
-                "core:disease_liability",
+                code("core:senescence"),
+                code("core:accident"),
+                code("core:disease_ar"),
+                code("core:disease_ad_late"),
+                code("core:disease_ad_partial"),
+                code("core:disease_xr"),
+                code("core:disease_liability"),
             ]
         );
     }
@@ -310,9 +309,9 @@ mod tests {
         let data = crate::data::testing::data();
         let day = DAY.as_secs();
         let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
-        let cause = |code: &str| crate::data_id::Code::new(code).expect("a code").key();
-        let died = |n: u64, born: SimTime, left: SimTime, code: &str| ArchivedSim {
-            left_by: LeftBy::Death { cause: cause(code) },
+        let cause = |text| crate::data_id::Code::new(text).expect("a code").key();
+        let died = |n: u64, born: SimTime, left: SimTime, cause: u64| ArchivedSim {
+            left_by: LeftBy::Death { cause },
             ..archived(n, born, left)
         };
         let mut domain = DomainState::new();
@@ -340,15 +339,22 @@ mod tests {
             sim(5),
             ArchivedSim {
                 parents: parents(),
-                ..died(5, at(3, 40 * day), at(3, 50 * day), "core:disease_ar")
+                ..died(
+                    5,
+                    at(3, 40 * day),
+                    at(3, 50 * day),
+                    cause("core:disease_ar"),
+                )
             },
         );
-        domain
-            .archive
-            .insert(sim(6), died(6, at(-30, 0), at(4, -1), "core:accident"));
-        domain
-            .archive
-            .insert(sim(7), died(7, at(-70, 0), at(3, -1), "core:senescence"));
+        domain.archive.insert(
+            sim(6),
+            died(6, at(-30, 0), at(4, -1), cause("core:accident")),
+        );
+        domain.archive.insert(
+            sim(7),
+            died(7, at(-70, 0), at(3, -1), cause("core:senescence")),
+        );
         domain.archive.insert(
             sim(8),
             ArchivedSim {
