@@ -303,6 +303,8 @@ mod tests {
     /// - sim 7 dies of senescence in the last second of year 2.
     /// - sim 8 leaves the town in year 3.
     /// - sim 9 is born in the last second of year 2, sim 10 arrives in year 2.
+    /// - sim 11 is born in the first second of year 3: in year 3, not in year 2 (the year
+    ///   is half-open).
     #[test]
     fn the_census_counts_births_arrivals_emigrations_and_deaths_by_cause() {
         let data = crate::data::testing::data();
@@ -362,11 +364,12 @@ mod tests {
                 ..living(10, at(-20, 0))
             },
         );
+        domain.sims.insert(sim(11), child(11, at(3, 0)));
         let last_second = |year: i64| at(year + 1, -1);
         assert_eq!(
             population(&domain, &data, 1, last_second(3)),
             PopulationCensus {
-                births: 3,
+                births: 4,
                 arrivals: 1,
                 emigrations: 1,
                 deaths: alloc::vec![0, 1, 1, 0, 0, 0, 0],
