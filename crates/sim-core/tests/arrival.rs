@@ -51,7 +51,7 @@ use sim_core::params::{ParamChange, WorldParams};
 use sim_core::pool::{Pool, ranked_households, take_households};
 use sim_core::presentation::card::DiseaseStatus;
 use sim_core::time::SimTime;
-use sim_core::world::{LoadError, World, YearOut};
+use sim_core::world::{HeightMean, LoadError, World, YearOut};
 
 const Y: i64 = 31_449_600;
 const TAG: &str = "test:arrival";
@@ -3495,4 +3495,61 @@ fn a_save_in_year_0_keeps_what_start_made_out_of_the_arrivals() {
     let mut out = YearOut::default();
     loaded.advance_until(&mut out, SimTime::from_secs(Y - 1), &mut |_| false);
     assert_eq!(out.census, whole.out.census);
+}
+
+/// The mean of the addendum to ADR-0021 (2026-10-21): one division, then half away from
+/// zero.
+fn mean_mm(sum: f64, count: u64) -> u64 {
+    if count == 0 {
+        return 0;
+    }
+    let n = sim_math::i64_to_f64_exact(i64::try_from(count).expect("small")).expect("exact");
+    let m = sum / n;
+    let up = sim_math::ceil(m);
+    let down = if up > m { up - 1.0 } else { up };
+    let rounded = if m - down >= 0.5 { down + 1.0 } else { down };
+    u64::try_from(sim_math::to_i64_exact(rounded).expect("an integer")).expect("positive")
+}
+
+/// The census's heights are those of the cards (ADR-0021, addendum 2026-10-21): in each
+/// year's last second, the living by sex, of at least 25 and of exactly 25 full years, the
+/// mean of their height now (the body's `height_cm`, as on the card) in tenths of a cm,
+/// added in ascending SimId. Every living person here has a body.
+#[test]
+fn the_census_heights_are_the_cards() {
+    let mut run = switched_town(0xff, true);
+    for year in 0..14 {
+        let end = (year + 1) * Y - 1;
+        run.play(end);
+        let t = SimTime::from_secs(end);
+        let (mut sums, mut counts) = ([[0.0_f64; 2]; 2], [[0_u64; 2]; 2]);
+        for person in &run.world.pedigree().persons {
+            if person.died.is_some() || person.emigrated.is_some() {
+                continue;
+            }
+            let body = run.world.state().body_at(person.sim, t).expect("a body");
+            let tenths = body
+                .params
+                .get(sim_core::body_contract::BodyParamKey::HeightCm)
+                * 10.0;
+            let sex = usize::from(person.sex == Sex::Male);
+            let age = (end - person.born.as_secs()).div_euclid(Y);
+            for (group, member) in [(0, age >= 25), (1, age == 25)] {
+                if member {
+                    sums[group][sex] += tenths;
+                    counts[group][sex] += 1;
+                }
+            }
+        }
+        let means = |group: usize| {
+            [0, 1].map(|sex| HeightMean {
+                count: counts[group][sex],
+                mm: mean_mm(sums[group][sex], counts[group][sex]),
+            })
+        };
+        let row = run.out.census.last().expect("a row");
+        assert_eq!(row.year, year);
+        assert_eq!(row.inheritance.adults, means(0), "year {year}: at least 25");
+        assert_eq!(row.inheritance.age25, means(1), "year {year}: 25");
+    }
 }

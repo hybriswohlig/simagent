@@ -41,7 +41,7 @@ use sim_core::kinship::{Kin, phi};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::world::{World, YearOut};
+use sim_core::world::{CensusRow, World, YearOut};
 
 const Y: i64 = 31_449_600;
 
@@ -1274,6 +1274,30 @@ impl Scenario {
         assert_eq!(pedigree, self.pedigree, "pedigree");
     }
 
+    /// The census of the run, its inputs submitted as in `check` (without its checks).
+    fn census(&self) -> Vec<CensusRow> {
+        let mut run = Run {
+            world: World::new(self.data()),
+            out: YearOut::default(),
+            log: Vec::new(),
+        };
+        run.world.submit(self.start()).expect("accepted");
+        for mark in self.marks {
+            if let Some((woman, man)) = mark.input {
+                run.advance(mark.at);
+                let pair = ArrangePartnership {
+                    woman: sim(woman),
+                    man: sim(man),
+                };
+                run.world
+                    .submit(Input::ArrangePartnership(pair))
+                    .expect("accepted");
+            }
+        }
+        run.advance(self.years * Y - 1);
+        run.out.census
+    }
+
     /// The world at its end, from the reference's save.
     fn end(&self) -> World {
         World::load(&hex(self.end), self.data()).expect("loads").0
@@ -1386,6 +1410,32 @@ fn assert_looks_up_only_its_set(world: &World, queries: &[Query]) {
 #[test]
 fn kin_deep_runs_as_the_reference() {
     KIN_DEEP.check();
+}
+
+/// The census's mean inbreeding of the newborns (ADR-0021, addendum 2026-10-21: `F` = φ of
+/// the parents as the kinship percent computes it, up to the great-grandparents of both,
+/// times 10 000, one rounding half away from zero), by hand from the pedigree of
+/// "kin_deep" (a year is 31 449 600 s):
+/// - year 1: sim 10, of the founders 1 and 2: `F` = 0.
+/// - year 38: sims 25 (of 15 and 18, first cousins through the sisters 10 and 12: 1/16),
+///   26 (of 16 and the founder 6) and 27 (of 14 and the founder 5): 625 / 3 → 208.
+/// - year 39: sims 28 (of 15 and 18) and 29 (of 16 and 6): exactly 312.5 → 313.
+/// - year 59: sims 41 (of 32 and 22, second cousins through 12 and 10: 1/64) and 42 (of 29
+///   and the founder 8): 156.25 / 2 = 78.125 → 78.
+/// - year 2: sims 11 and 12, of 1 and 2: 0. Year 4 has no birth: 0.
+#[test]
+fn the_census_averages_the_inbreeding_of_the_newborns() {
+    let census = KIN_DEEP.census();
+    let year = |y: i64| {
+        let row = census.iter().find(|row| row.year == y).expect("a row");
+        (row.population.births, row.inheritance.inbreeding_e4)
+    };
+    assert_eq!(year(1), (1, 0));
+    assert_eq!(year(2), (2, 0));
+    assert_eq!(year(4), (0, 0));
+    assert_eq!(year(38), (3, 208));
+    assert_eq!(year(39), (2, 313));
+    assert_eq!(year(59), (2, 78));
 }
 
 #[test]

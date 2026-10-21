@@ -412,4 +412,130 @@ mod tests {
         let row = population(&domain, &data, 3, year_start(1) - DAY);
         assert_eq!(row.arrivals, 2);
     }
+
+    /// The living with `afflictions` (the key of the disease's code and its onset in years).
+    fn afflicted(n: u64, born: SimTime, afflictions: &[(u64, f64)]) -> Sim {
+        Sim {
+            afflictions: (afflictions.iter())
+                .map(|&(disease, onset)| crate::state::Affliction {
+                    disease,
+                    onset: crate::finite::FiniteF64::try_new(onset).expect("finite"),
+                    exposure: None,
+                })
+                .collect(),
+            ..living(n, born)
+        }
+    }
+
+    fn switch(domain: &mut DomainState, on: bool) {
+        domain.world_params = Some(crate::params::WorldParams {
+            hereditary_diseases: on,
+            nutrition: alloc::vec::Vec::new(),
+        });
+    }
+
+    /// The affected at the end of year 3 by hand, the diseases in the order of the data
+    /// (`core:disease_ar`, `core:disease_ad_late`, `core:disease_ad_partial`,
+    /// `core:disease_xr`, `core:disease_mt`, `core:disease_liability`): the card's rule,
+    /// the switch on and the age at least the onset.
+    /// - sim 1, born 20 years before year 0: `core:disease_ar` from 0 years (affected) and
+    ///   `core:disease_liability` from 25 (not yet: almost 24 years old).
+    /// - sim 2, born 30 years before year 0: `core:disease_ad_late` from 30 and
+    ///   `core:disease_mt` from 25 (both affected: almost 34 years old).
+    /// - sim 3 is archived with `core:disease_ar` and counts nowhere.
+    ///
+    /// With the switch off nobody is affected and `diseases_on` is false.
+    #[test]
+    fn the_census_counts_the_affected_by_the_cards_rule() {
+        let data = crate::data::testing::data();
+        let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
+        let key = |text| crate::data_id::Code::new(text).expect("a code").key();
+        let mut domain = DomainState::new();
+        domain.sims.insert(
+            sim(1),
+            afflicted(
+                1,
+                at(-20, 0),
+                &[
+                    (key("core:disease_ar"), 0.0),
+                    (key("core:disease_liability"), 25.0),
+                ],
+            ),
+        );
+        domain.sims.insert(
+            sim(2),
+            afflicted(
+                2,
+                at(-30, 0),
+                &[
+                    (key("core:disease_ad_late"), 30.0),
+                    (key("core:disease_mt"), 25.0),
+                ],
+            ),
+        );
+        domain.archive.insert(
+            sim(3),
+            ArchivedSim {
+                afflictions: afflicted(3, at(-20, 0), &[(key("core:disease_ar"), 0.0)]).afflictions,
+                ..archived(3, at(-20, 0), at(3, 0))
+            },
+        );
+        let end = at(4, -1);
+        switch(&mut domain, true);
+        let on = inheritance(&domain, &data, end, &[]);
+        assert!(on.diseases_on);
+        assert_eq!(on.affected, alloc::vec![1, 1, 0, 0, 1, 0]);
+        switch(&mut domain, false);
+        let off = inheritance(&domain, &data, end, &[]);
+        assert!(!off.diseases_on);
+        assert_eq!(off.affected, alloc::vec![0, 0, 0, 0, 0, 0]);
+    }
+
+    /// The heights at the end of year 3 by hand, from the heights the bodies give (in cm):
+    /// - women of at least 25: sim 5 (born 30 years before year 0, 160.0), sim 6 (40
+    ///   years, 165.5) and sim 9 (born in the last second of year −22, so exactly 25
+    ///   full years, 170.25): 1600 + 1655 + 1702.5 = 4957.5 tenths of a cm (exact), mean
+    ///   1652.5, half away from zero 1653 mm.
+    /// - men of at least 25: sim 7 (30 years, 175.0) and sim 8 (born in the first second
+    ///   of year −22, 25 full years, 180.0): mean 1775 mm.
+    /// - exactly 25: the woman sim 9, 1702.5 → 1703 mm; the man sim 8, 1800 mm.
+    /// - sim 10, a child, counts nowhere.
+    #[test]
+    fn the_census_averages_the_heights_of_the_adults_and_of_the_25_year_olds() {
+        let data = crate::data::testing::data();
+        let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
+        let person = |n: u64, born: SimTime, sex: Sex| Sim {
+            sex,
+            ..living(n, born)
+        };
+        let mut domain = DomainState::new();
+        let people = [
+            (5, at(-30, 0), Sex::Female, 160.0),
+            (6, at(-40, 0), Sex::Female, 165.5),
+            (7, at(-30, 0), Sex::Male, 175.0),
+            (8, at(-22, 0), Sex::Male, 180.0),
+            (9, at(-21, -1), Sex::Female, 170.25),
+            (10, at(0, 0), Sex::Female, 100.0),
+        ];
+        for (n, born, sex, _) in people {
+            domain.sims.insert(sim(n), person(n, born, sex));
+        }
+        let heights: alloc::vec::Vec<(SimId, f64)> =
+            (people.iter()).map(|&(n, _, _, cm)| (sim(n), cm)).collect();
+        let row = inheritance(&domain, &data, at(4, -1), &heights);
+        let mean = |count, mm| HeightMean { count, mm };
+        assert_eq!(row.adults, [mean(3, 1653), mean(2, 1775)]);
+        assert_eq!(row.age25, [mean(1, 1703), mean(1, 1800)]);
+    }
+
+    /// The mean of the addendum by hand: one division, then half away from zero.
+    #[test]
+    fn a_mean_rounds_half_away_from_zero() {
+        assert_eq!(mean_e(625.0, 2), 313);
+        assert_eq!(mean_e(624.999_999_999_9, 2), 312);
+        assert_eq!(mean_e(625.0, 3), 208);
+        assert_eq!(mean_e(3550.0, 2), 1775);
+        assert_eq!(mean_e(0.0, 4), 0);
+        assert_eq!(mean_e(0.0, 0), 0);
+    }
 }

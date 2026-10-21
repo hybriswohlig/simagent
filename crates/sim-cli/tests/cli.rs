@@ -1336,8 +1336,11 @@ fn repro_packages_pass() {
 /// run and `body_evaluated` as given, then the clamp counts of the 21 parameters of the
 /// contract with unit `z` or `cm` and the held curve; then births, arrivals, emigrations
 /// and the deaths per cause (ADR-0021, addendum 2026-10-21): senescence, accident and the
-/// five lethal diseases of `data/calibration/genetics.json` in its order. Here all 0: a
-/// founder of `Start` is no arrival.
+/// five lethal diseases of `data/calibration/genetics.json` in its order; then the
+/// switch, the affected per disease (all six in the data's order), the heights of the
+/// women and men of at least 25 and of exactly 25 (count and mean in mm) and the mean
+/// inbreeding of the newborns. Here all 0: a founder of `Start` is no arrival, the switch
+/// is off, the founder is a carrier under 25 and nobody is born.
 fn census(rows: &[&str]) -> String {
     let header = "year,living,lived_secs,body_evaluated,clamped_height_cm,clamped_leg_ratio_z,\
                   clamped_head_size_z,clamped_body_fat_z,clamped_fat_distribution_z,\
@@ -1349,11 +1352,16 @@ fn census(rows: &[&str]) -> String {
                   clamped_face_axis_12,curve_clamped,births,arrivals,emigrations,\
                   deaths.core:senescence,deaths.core:accident,deaths.core:disease_ar,\
                   deaths.core:disease_ad_late,deaths.core:disease_ad_partial,\
-                  deaths.core:disease_xr,deaths.core:disease_liability";
+                  deaths.core:disease_xr,deaths.core:disease_liability,diseases_on,\
+                  affected.core:disease_ar,affected.core:disease_ad_late,\
+                  affected.core:disease_ad_partial,affected.core:disease_xr,\
+                  affected.core:disease_mt,affected.core:disease_liability,adults_female,\
+                  adult_height_mm_female,adults_male,adult_height_mm_male,age25_female,\
+                  age25_height_mm_female,age25_male,age25_height_mm_male,inbreeding_e4";
     let mut text = format!("{header}\n");
     for row in rows {
         text.push_str(row);
-        text.push_str(&",0".repeat(32));
+        text.push_str(&",0".repeat(48));
         text.push('\n');
     }
     text
