@@ -729,22 +729,32 @@ fn fork_point_hash_equals_parent() {
     // it is that of the parent, except that from year 5 on the switch is on and sim 3 (two
     // copies of `core:disease_ar`, onset 0, alive to the end: the living are the parent's)
     // is affected (ADR-0021, addendum 2026-10-21).
-    let ours = text(&out.join("census.csv"));
-    let theirs = text(&parent.join("census.csv"));
-    let header: Vec<&str> = ours.lines().next().expect("a header").split(',').collect();
-    assert_eq!(theirs.lines().next(), ours.lines().next());
+    let our_census = text(&out.join("census.csv"));
+    let their_census = text(&parent.join("census.csv"));
+    let header: Vec<&str> = our_census
+        .lines()
+        .next()
+        .expect("a header")
+        .split(',')
+        .collect();
+    assert_eq!(their_census.lines().next(), our_census.lines().next());
     let switched = ["diseases_on", "affected.core:disease_ar"];
     assert!(switched.iter().all(|name| header.contains(name)));
-    for (row, (our, their)) in ours.lines().zip(theirs.lines()).skip(1).enumerate() {
+    for (row, (our, their)) in our_census
+        .lines()
+        .zip(their_census.lines())
+        .skip(1)
+        .enumerate()
+    {
         let (our, their): (Vec<&str>, Vec<&str>) =
             (our.split(',').collect(), their.split(',').collect());
-        for ((name, ours), theirs) in header.iter().zip(&our).zip(&their) {
+        for ((name, value), parent_value) in header.iter().zip(&our).zip(&their) {
             let expected = if row >= 5 && switched.contains(name) {
                 "1"
             } else {
-                theirs
+                parent_value
             };
-            assert_eq!((name, *ours), (name, expected), "year {row}");
+            assert_eq!((name, *value), (name, expected), "year {row}");
         }
         let column = |name: &str| header.iter().position(|h| *h == name).expect("a column");
         // Nobody is born: the three founders are all the living, so sim 3 is the only one
@@ -754,7 +764,7 @@ fn fork_point_hash_equals_parent() {
             assert!(switched.iter().all(|name| their[column(name)] == "0"));
         }
     }
-    assert_eq!(ours.lines().count(), theirs.lines().count());
+    assert_eq!(our_census.lines().count(), their_census.lines().count());
 
     // The fork replays from its own input log, with its own manifest.
     let replayed = dir.join("replayed");
