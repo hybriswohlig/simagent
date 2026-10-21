@@ -17,7 +17,9 @@
 //!   cousins. Third cousins, second cousins twice removed, first cousins thrice removed,
 //!   third cousins once removed and a great-great-great-grandparent become 0; second
 //!   cousins once removed keep 1/128; the child of the second cousins has `F` = 0, the child
-//!   of the first cousins `F` = 1/16.
+//!   of the first cousins `F` = 1/16 (both `F` = 2 φ(child, child) − 1, the window around
+//!   the child; φ of the second cousins themselves, the window around both parents, keeps
+//!   1/64, and the census's inbreeding of the newborns takes that, ADR-0021).
 //! - "kin_line" (90 years, the wish always 1, the market on with `c` = 1, two test diseases
 //!   with the switch on): a line of women who die at 25 and founder men. In year 80 the last
 //!   daughter is orphaned; her only adult relative alive is her

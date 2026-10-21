@@ -22,7 +22,9 @@
 //! (Grok's H2b): exact are `φ ≥ 1/8`, first cousins (1/16), second cousins (1/64), second
 //! cousins once removed (1/128), a great-great-grandparent (1/32) and `F` = 1/16 of a child
 //! of first cousins; third cousins and a great-great-great-grandparent become 0, and so
-//! does `F` of a child of second cousins. In an inbred pedigree a person can be in the set
+//! does `F` of a child of second cousins taken as 2 φ(child, child) − 1 (the window around
+//! the child), while φ of the two second cousins keeps 1/64 (the census takes that as the
+//! newborn's inbreeding, ADR-0021). In an inbred pedigree a person can be in the set
 //! by a short route and still close a long path, which then counts.
 //!
 //! The recursion works on any key `K` (a `SimId` in the tests, a lineage key in the world,
