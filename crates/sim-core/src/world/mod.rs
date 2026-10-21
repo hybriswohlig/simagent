@@ -10,7 +10,7 @@ pub(crate) use ctx::SimCtx;
 pub use event::EventPayload;
 pub use save::{FORMAT_VERSION, LoadError, SaveError};
 
-pub use crate::state::census::{CensusRow, PopulationCensus};
+pub use crate::state::census::{CensusRow, HeightMean, InheritanceCensus, PopulationCensus};
 
 use alloc::vec::Vec;
 
@@ -350,6 +350,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                     state::census::population(&self.domain, &self.data, self.started, t);
                 let trace = &self.trace;
                 let entries = &mut out.trace;
+                let mut heights = Vec::new();
                 row.body = crate::body_contract::count(
                     &self.domain,
                     &self.data,
@@ -363,7 +364,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                             });
                         }
                     },
+                    &mut |sim, cm| heights.push((sim, cm)),
                 );
+                row.inheritance = state::census::inheritance(&self.domain, &self.data, t, &heights);
                 out.year_hashes.push(YearHash {
                     year: row.year,
                     hash: canonical::state_hash(self, sched),

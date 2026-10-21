@@ -5,10 +5,12 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{DomainState, LeftBy, death};
+use super::{DomainState, LeftBy, Parents, PoolOrigin, death, disease, market, whole_years};
 use crate::body_contract::BodyCensus;
 use crate::data::Data;
-use crate::data_id::Code;
+use crate::data_id::{Code, str_key};
+use crate::genome::Sex;
+use crate::ids::SimId;
 use crate::time::{SimTime, calendar, year_start};
 
 /// One row of `census.csv`.
@@ -23,6 +25,31 @@ pub struct CensusRow {
     pub body: BodyCensus,
     /// Who was born, arrived, left or died in the year (ADR-0021, addendum 2026-10-21).
     pub population: PopulationCensus,
+    /// The switch, the affected, the heights and the newborns' inbreeding (ADR-0021,
+    /// addendum 2026-10-21; Grok R1 to R3).
+    pub inheritance: InheritanceCensus,
+}
+
+/// The inheritance columns of a row.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InheritanceCensus {
+    /// The switch of the hereditary diseases at the end of the year.
+    pub diseases_on: bool,
+    /// Per disease of the data, in its order: the living the card calls affected.
+    pub affected: Vec<u64>,
+    /// The living of at least 25 full years whose body the core evaluates, women then men.
+    pub adults: [HeightMean; 2],
+    /// The same of exactly 25 full years.
+    pub age25: [HeightMean; 2],
+    /// The mean inbreeding `F` of the year's newborns, times 10 000.
+    pub inbreeding_e4: u64,
+}
+
+/// How many were measured, and the mean of their height now in millimetres.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeightMean {
+    pub count: u64,
+    pub mm: u64,
 }
 
 /// The population columns of a row (ADR-0021, addendum 2026-10-21), over the living and
@@ -69,7 +96,13 @@ pub(crate) fn census_row(domain: &DomainState, t: SimTime) -> CensusRow {
         lived_secs,
         body: BodyCensus::default(),
         population: PopulationCensus::default(),
+        inheritance: InheritanceCensus::default(),
     }
+}
+
+/// Born in the town: of two town parents or of a pregnancy from the pool.
+fn born_in_town(parents: Option<&Parents>, pool: Option<&PoolOrigin>) -> bool {
+    parents.is_some() || pool.is_some_and(|origin| origin.born_pool.is_none())
 }
 
 /// The population of the year that contains `t`. `started` is the number of persons
@@ -92,8 +125,7 @@ pub(crate) fn population(
     let living = (domain.sims.iter()).map(|(id, sim)| (id, sim.born, &sim.parents, &sim.pool));
     let archived = (domain.archive.iter()).map(|(id, sim)| (id, sim.born, &sim.parents, &sim.pool));
     for (id, born, parents, pool) in living.chain(archived) {
-        let in_town = parents.is_some() || pool.as_ref().is_some_and(|o| o.born_pool.is_none());
-        if in_town && within(born) {
+        if born_in_town(parents.as_ref(), pool.as_ref()) && within(born) {
             row.births += 1;
         }
         let arrived = pool
@@ -115,6 +147,102 @@ pub(crate) fn population(
         }
     }
     row
+}
+
+/// The inheritance of the year that contains `t`; `heights` the height now of each living
+/// sim whose body the core evaluates, in ascending SimId. The means after the addendum's
+/// contract (`mean_e`): each value scaled, added in ascending SimId, divided once.
+pub(crate) fn inheritance(
+    domain: &DomainState,
+    data: &Data,
+    t: SimTime,
+    heights: &[(SimId, f64)],
+) -> InheritanceCensus {
+    let diseases_on = (domain.world_params.as_ref()).is_some_and(|p| p.hereditary_diseases);
+    let keys: Vec<u64> = data.diseases().iter().map(|d| str_key(&d.code)).collect();
+    let mut affected = vec![0; keys.len()];
+    for sim in domain.sims.values().filter(|_| diseases_on) {
+        let age = disease::age(sim.born, t);
+        for affliction in (sim.afflictions.iter()).filter(|a| age >= a.onset.get()) {
+            let at = (keys.iter())
+                .position(|key| *key == affliction.disease)
+                .unwrap_or_else(|| panic!("invariant census.disease"));
+            affected[at] += 1;
+        }
+    }
+    let (mut sums, mut counts) = ([[0.0; 2]; 2], [[0_u64; 2]; 2]);
+    for &(id, cm) in heights {
+        let sim = (domain.sims.get(&id)).unwrap_or_else(|| panic!("invariant census.measured"));
+        let sex = match sim.sex {
+            Sex::Female => 0,
+            Sex::Male => 1,
+        };
+        for (group, member) in [
+            (0, market::of_age(sim.born, t, 25)),
+            (1, whole_years(sim.born, t) == 25),
+        ] {
+            if member {
+                sums[group][sex] += cm * 10.0;
+                counts[group][sex] += 1;
+            }
+        }
+    }
+    let means = |group: usize| {
+        [0, 1].map(|sex| HeightMean {
+            count: counts[group][sex],
+            mm: mean_e(sums[group][sex], counts[group][sex]),
+        })
+    };
+    let year = calendar(t).year;
+    let (from, to) = (year_start(year), year_start(year + 1));
+    let mut newborns: Vec<SimId> = (domain.sims.iter())
+        .map(|(id, sim)| (*id, sim.born, sim.parents.as_ref(), sim.pool.as_ref()))
+        .chain(
+            (domain.archive.iter())
+                .map(|(id, sim)| (*id, sim.born, sim.parents.as_ref(), sim.pool.as_ref())),
+        )
+        .filter(|(_, born, parents, pool)| {
+            born_in_town(*parents, *pool) && from <= *born && *born < to
+        })
+        .map(|(id, ..)| id)
+        .collect();
+    newborns.sort_unstable();
+    let mut inbred = 0.0;
+    for &id in &newborns {
+        let parents = domain
+            .parent_keys(id)
+            .unwrap_or_else(|| panic!("invariant census.parents"));
+        let lookup = |key| market::kin_of(domain, data, key);
+        inbred += crate::kinship::phi(parents.mother, parents.father, lookup) * 10_000.0;
+    }
+    let born = u64::try_from(newborns.len()).unwrap_or_else(|_| panic!("invariant census.count"));
+    InheritanceCensus {
+        diseases_on,
+        affected,
+        adults: means(0),
+        age25: means(1),
+        inbreeding_e4: mean_e(inbred, born),
+    }
+}
+
+/// The addendum's mean (ADR-0021, 2026-10-21): `sum` divided once by `count`, then the
+/// nearest whole number, exactly half away from zero (both are never negative here); 0
+/// for nobody. Rounded with `ceil`, exact below 2^53.
+pub(crate) fn mean_e(sum: f64, count: u64) -> u64 {
+    if count == 0 {
+        return 0;
+    }
+    let n = i64::try_from(count)
+        .ok()
+        .and_then(sim_math::i64_to_f64_exact)
+        .unwrap_or_else(|| panic!("invariant census.mean_count"));
+    let m = sum / n;
+    let up = sim_math::ceil(m);
+    let down = if up > m { up - 1.0 } else { up };
+    let near = if m - down >= 0.5 { down + 1.0 } else { down };
+    sim_math::to_i64_exact(near)
+        .and_then(|whole| u64::try_from(whole).ok())
+        .unwrap_or_else(|| panic!("invariant census.mean"))
 }
 
 #[cfg(test)]
@@ -228,6 +356,7 @@ mod tests {
                 lived_secs: (year_secs - 10 * day_secs) + 100 * day_secs + year_secs,
                 body: BodyCensus::default(),
                 population: PopulationCensus::default(),
+                inheritance: InheritanceCensus::default(),
             }
         );
         assert_eq!(
@@ -238,6 +367,7 @@ mod tests {
                 lived_secs: 2 * year_secs,
                 body: BodyCensus::default(),
                 population: PopulationCensus::default(),
+                inheritance: InheritanceCensus::default(),
             }
         );
         // Year 2: sims 2, 3 and 4 (until its last second); sim 1 is not born yet.
@@ -249,6 +379,7 @@ mod tests {
                 lived_secs: year_secs + year_secs + (year_secs - 1),
                 body: BodyCensus::default(),
                 population: PopulationCensus::default(),
+                inheritance: InheritanceCensus::default(),
             }
         );
     }
@@ -266,6 +397,7 @@ mod tests {
                 lived_secs: 0,
                 body: BodyCensus::default(),
                 population: PopulationCensus::default(),
+                inheritance: InheritanceCensus::default(),
             }
         );
     }

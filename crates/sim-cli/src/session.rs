@@ -660,6 +660,18 @@ pub fn census_header(data: &Data) -> String {
         header.push_str(",deaths.");
         header.push_str(cause.as_str());
     }
+    header.push_str(",diseases_on");
+    for disease in data.diseases() {
+        header.push_str(",affected.");
+        header.push_str(disease.code.as_str());
+    }
+    for group in ["adult", "age25"] {
+        for sex in ["female", "male"] {
+            let count = if group == "adult" { "adults" } else { group };
+            header.push_str(&format!(",{count}_{sex},{group}_height_mm_{sex}"));
+        }
+    }
+    header.push_str(",inbreeding_e4");
     header
 }
 
@@ -681,5 +693,14 @@ pub fn census_line(row: &CensusRow) -> String {
     for count in &people.deaths {
         line.push_str(&format!(",{count}"));
     }
+    let heirs = &row.inheritance;
+    line.push_str(&format!(",{}", u8::from(heirs.diseases_on)));
+    for count in &heirs.affected {
+        line.push_str(&format!(",{count}"));
+    }
+    for mean in heirs.adults.iter().chain(&heirs.age25) {
+        line.push_str(&format!(",{},{}", mean.count, mean.mm));
+    }
+    line.push_str(&format!(",{}", heirs.inbreeding_e4));
     line
 }

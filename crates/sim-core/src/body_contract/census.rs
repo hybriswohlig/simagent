@@ -3,7 +3,7 @@
 //! counts do not depend on an order of sums.
 
 use super::person::{inputs_of, nutrition_of};
-use super::{BodyData, CLAMPED_KEYS, body_params};
+use super::{BodyData, BodyParamKey, CLAMPED_KEYS, body_params};
 use crate::data::Data;
 use crate::ids::SimId;
 use crate::state::DomainState;
@@ -20,12 +20,15 @@ pub struct BodyCensus {
 }
 
 /// The body census of the living at `t`; all zero for data without body traits. Each sim
-/// whose growth curve held an input goes to `held` with `z_h` and `z_p` before the hold.
+/// whose growth curve held an input goes to `held` with `z_h` and `z_p` before the hold;
+/// each evaluated sim goes to `measured` with its height now (`height_cm`), in ascending
+/// SimId.
 pub(crate) fn count(
     domain: &DomainState,
     data: &Data,
     t: SimTime,
     held: &mut dyn FnMut(SimId, f64, f64),
+    measured: &mut dyn FnMut(SimId, f64),
 ) -> BodyCensus {
     let mut census = BodyCensus::default();
     let Ok(body) = BodyData::census(data) else {
@@ -44,6 +47,7 @@ pub(crate) fn count(
         let inputs = inputs_of(domain, data, &body, *sim, t, &nutrition)
             .unwrap_or_else(|| panic!("invariant census.body_inputs"));
         let evaluation = body_params(&body, &inputs);
+        measured(*sim, evaluation.params.get(BodyParamKey::HeightCm));
         census.evaluated = one(census.evaluated);
         for (place, key) in CLAMPED_KEYS.iter().enumerate() {
             if evaluation.is_clamped(*key) {
