@@ -219,6 +219,42 @@ fn a_founder_past_the_onset_gets_its_entry_right_after_being_added() {
     assert_eq!(onsets(&run.entries()).len(), 1, "never again");
 }
 
+/// A founder born at `−30 · YEAR` reaches the onset 30 in the second of the start, `B = E =
+/// 0`: path 1, so nothing is planned for it (as many events as for a founder without the
+/// disease), and with the switch on its entry comes at the start, in year 0 at 30 years. The
+/// save right after the start loads, the switch on or off.
+#[test]
+fn an_onset_in_the_second_of_the_start_is_reached_at_the_creation() {
+    for on in [true, false] {
+        let of = |late| {
+            started(
+                data(1e-9, false),
+                on,
+                vec![founder(-30 * Y, Sex::Female, false, late)],
+                Vec::new(),
+            )
+        };
+        let (world, healthy) = (of(true), of(false));
+        assert_eq!(world.pending_events(), healthy.pending_events(), "{on}");
+        let run = Run::new(world);
+        let bytes = run.world.save(&[]).expect("saves");
+        let entries = run.entries();
+        let expected = if on {
+            vec![onset(
+                0,
+                1,
+                LATE,
+                (0, 30),
+                json!({"event": added(&entries, 1)}),
+            )]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(onsets(&entries), expected, "{on}");
+        assert!(World::load(&bytes, data(1e-9, false)).is_ok(), "{on}");
+    }
+}
+
 /// With the switch off at the start the reached onset writes nothing and plans nothing: the
 /// queue holds as many events as for a founder without the disease, and in 60 years no
 /// entry comes (path 3 would need a fork).

@@ -43,9 +43,11 @@ use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::hash::stable_hash64;
 use sim_core::ids::{InputSeq, SimId};
-use sim_core::input::{ArrangePartnership, Couple, Founder, Input, InputRecord, PoolStart, Start};
+use sim_core::input::{
+    ArrangePartnership, Couple, ForkOverride, Founder, Input, InputRecord, PoolStart, Start,
+};
 use sim_core::log::{LogEntry, log_hash};
-use sim_core::params::WorldParams;
+use sim_core::params::{ParamChange, WorldParams};
 use sim_core::pool::{Pool, ranked_households, take_households};
 use sim_core::time::SimTime;
 use sim_core::world::{LoadError, World, YearOut};
@@ -1584,6 +1586,117 @@ fn a_birth_and_a_market_pairing_in_one_second_start_the_series_at_the_pairing() 
     run.play(TIE_FIRST_ATTEMPT - 1);
     assert_eq!(sized(&run.save()), TIE_SAVE_BEFORE_ATTEMPT);
     run.assert_loads();
+}
+
+// ---------------------------------------------------------------------------------------
+// The switch an arrival saw
+
+/// "arrival"'s town (`pool_c`, `n_start` 50, immigration) with the seed `seed` and the
+/// switch `on` at `Start`, its log so far.
+fn switched_town(seed: u64, on: bool) -> Run {
+    let data = pool_c_data(POOL_C);
+    let mut start = start(
+        seed,
+        Vec::new(),
+        Vec::new(),
+        pool_start(&data, seed, 50, true),
+    );
+    start.world_params.hereditary_diseases = on;
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    let log = world.take_log();
+    Run {
+        world,
+        out: YearOut::default(),
+        log,
+        data: ARRIVAL.data,
+    }
+}
+
+impl Run {
+    /// A fork that sets the switch, stamped with the last closed second.
+    fn fork(&mut self, on: bool) {
+        self.world
+            .submit(Input::ForkOverride(ForkOverride {
+                changes: vec![ParamChange::HereditaryDiseases(on)],
+            }))
+            .expect("accepted");
+        self.log.extend(self.world.take_log());
+    }
+
+    /// The onset entries caused by a `core:arrived` entry for which `arrived` holds.
+    fn onsets_at_arrival(&self, arrived: impl Fn(&Value) -> bool) -> usize {
+        let entries: Vec<Value> = (self.log.iter())
+            .map(|entry| serde_json::to_value(entry).expect("json"))
+            .collect();
+        let ids: BTreeSet<u64> = (entries.iter())
+            .filter(|entry| entry["payload"].get("core:arrived").is_some() && arrived(entry))
+            .filter_map(|entry| entry["id"].as_u64())
+            .collect();
+        (entries.iter())
+            .filter(|entry| entry["payload"].get("core:disease_onset").is_some())
+            .filter(|entry| {
+                (entry["causes"][0]["event"].as_u64()).is_some_and(|id| ids.contains(&id))
+            })
+            .count()
+    }
+}
+
+/// A fork submitted right after `Start` is stamped before the start and acts from second 0
+/// on, after `Start` and before the immigration of second 0 (ADR-0017 section 3, addendum):
+/// what `Start` brought saw `Start`'s own switch, the immigration sees the fork's. Household
+/// 40 of `pool_c` has a second member with an onset reached at its arrival and plans it
+/// brought, a third with plans too (found with the reference), so their arrival entries are
+/// one apart, or two with the onset between. With seed 1 it comes with `Start` (the sims 4 to
+/// 6), with seed 150 by the immigration of second 0 (the sims 52 to 54). Every save loads,
+/// before second 0 and after it.
+#[test]
+fn a_fork_before_the_start_acts_after_start_and_before_the_immigration() {
+    let at_arrival = |sim: u64| move |entry: &Value| entry["subjects"][0]["sim"] == sim;
+    for on in [true, false] {
+        let mut run = switched_town(1, on);
+        run.fork(!on);
+        assert_eq!(
+            run.onsets_at_arrival(at_arrival(5)),
+            usize::from(on),
+            "{on}"
+        );
+        run.assert_loads();
+        run.play(0);
+        run.assert_loads();
+        let mut run = switched_town(150, on);
+        run.fork(!on);
+        run.play(0);
+        assert_eq!(
+            run.onsets_at_arrival(at_arrival(53)),
+            usize::from(!on),
+            "{on}"
+        );
+        run.assert_loads();
+    }
+}
+
+/// An immigration sees the switch of its second, after the inputs stamped before it: in
+/// "arrival" the immigration of year 9 brings household 40 of `pool_c` alone, its second
+/// member with an onset reached at the arrival and plans it brought, its third with plans
+/// (found with the reference). Its entry stands between their arrivals with the switch on
+/// then, not with it off (off from the start, or on until a fork stamped `9 · YEAR − 1`);
+/// each save after the arrival loads.
+#[test]
+fn an_immigration_sees_the_switch_of_its_second() {
+    let mut on = switched_town(0xff, true);
+    on.play(9 * Y);
+    let mut off = switched_town(0xff, false);
+    off.play(9 * Y);
+    let mut forked = switched_town(0xff, true);
+    forked.play(9 * Y - 1);
+    forked.fork(false);
+    forked.play(9 * Y);
+    for (run, expected) in [(&on, 1), (&off, 0), (&forked, 0)] {
+        let year_9 = run.onsets_at_arrival(|entry| entry["t"] == 9 * Y);
+        assert_eq!(year_9, expected);
+        run.assert_loads();
+    }
 }
 
 // ---- generated by gen/arrival_pins.py from the reference's output ----
