@@ -46,5 +46,14 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           package-manager-cache: false
+      # The Chromium headless shell of the pinned playwright-core for the browser smoke
+      # test of the gate (ADR-0021 section 4), cached per architecture and lockfile; the
+      # system libraries it needs come from apt on every run.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
+      - name: Install the browser
+        run: cargo xtask browser --with-deps
       - name: Gate
         run: cargo xtask ci

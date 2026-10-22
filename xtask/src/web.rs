@@ -257,7 +257,7 @@ test(\"the output is readable\", () => {{ readFileSync({page:?}); }});
     )
 }
 
-fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
+pub(crate) fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
     let status = Command::new(program)
         .args(args)
         .current_dir(dir)

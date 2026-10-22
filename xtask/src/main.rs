@@ -21,6 +21,7 @@ mod prerun;
 mod release_run;
 mod results;
 mod scan;
+mod smoke;
 mod web;
 mod web_deps;
 
@@ -59,6 +60,13 @@ fn main() -> ExitCode {
             );
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
+        Some("browser") => {
+            let with_deps = std::env::args().skip(2).any(|arg| arg == "--with-deps");
+            return report(
+                "browser",
+                workspace_root().and_then(|root| smoke::browser(&root, with_deps)),
+            );
+        }
         Some("criteria") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let result = match args.split_first() {
@@ -104,6 +112,12 @@ fn main() -> ExitCode {
             );
         }
         Some("web") => return report("web", workspace_root().and_then(|root| web::build(&root))),
+        Some("smoke") => {
+            return report(
+                "smoke",
+                workspace_root().and_then(|root| smoke::smoke(&root)),
+            );
+        }
         Some("export-types") => {
             return report(
                 "export-types",
@@ -341,7 +355,8 @@ fn gate(require_clean_tree: bool) -> Result {
     })?;
     step("export types (release binary)", || {
         check_export_types(&root)
-    })
+    })?;
+    step("smoke (release binary)", || smoke::smoke(&root))
 }
 
 /// The scenario whose output must show every optional field, nullable value, listed text
@@ -359,40 +374,13 @@ fn server_answers(
     out: &Path,
     pedigree: &serde_json::Value,
 ) -> Result<Vec<(&'static str, serde_json::Value)>> {
-    use std::io::{BufRead, BufReader, Read, Write};
+    use std::io::{Read, Write};
     let web = out.join("web");
     std::fs::create_dir_all(&web).map_err(|e| format!("{}: {e}", web.display()))?;
     std::fs::write(web.join("index.html"), "<!doctype html>\n")
         .map_err(|e| format!("{}: {e}", web.display()))?;
-    let binary = root.join("target").join("release").join("simagent");
-    let child = Command::new(&binary)
-        .arg("view")
-        .arg(out)
-        .args(["--port", "0", "--web"])
-        .arg(&web)
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
     // Ended on every way out of this function, an error or a panic included.
-    let mut server = Running(child);
-    // Its address within the time limit, read beside this thread: a server that never
-    // prints one must not hold the gate.
-    let (sender, receiver) = std::sync::mpsc::channel();
-    if let Some(stdout) = server.0.stdout.take() {
-        std::thread::spawn(move || {
-            let mut line = String::new();
-            let _ = BufReader::new(stdout).read_line(&mut line);
-            let _ = sender.send(line);
-        });
-    }
-    let line = receiver
-        .recv_timeout(SERVER_TIME)
-        .map_err(|_| format!("the server printed no address within {SERVER_TIME:?}"))?;
-    let port = line
-        .trim()
-        .strip_prefix("http://127.0.0.1:")
-        .and_then(|rest| rest.strip_suffix('/'))
-        .and_then(|port| port.parse::<u16>().ok());
+    let (server, port) = start_view(root, out, &web)?;
     // The answer to a request, if its status is `status`; a write as the server's own page
     // sends it.
     let ask = |port: u16,
@@ -442,9 +430,6 @@ fn server_answers(
         first(&|p| !p["died"].is_null()),
         first(&|p| !p["emigrated"].is_null()),
     ];
-    let Some(port) = port else {
-        return Err(format!("the server printed no address: {line:?}"));
-    };
     let mut answers = Vec::new();
     let mut sims = Vec::new();
     for person in chosen {
@@ -570,6 +555,42 @@ const SERVER_TIME: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A child process that is ended when the value goes.
 struct Running(std::process::Child);
+
+/// `simagent view` of this commit (the release binary) over the runs in `runs` with the page
+/// in `web`, on a free port, and that port: ended when the first value goes. Its address is
+/// read beside this thread within the time limit: a server that never prints one must not
+/// hold the gate.
+fn start_view(root: &Path, runs: &Path, web: &Path) -> Result<(Running, u16)> {
+    use std::io::{BufRead, BufReader};
+    let binary = root.join("target").join("release").join("simagent");
+    let child = Command::new(&binary)
+        .arg("view")
+        .arg(runs)
+        .args(["--port", "0", "--web"])
+        .arg(web)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
+    let mut server = Running(child);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if let Some(stdout) = server.0.stdout.take() {
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = BufReader::new(stdout).read_line(&mut line);
+            let _ = sender.send(line);
+        });
+    }
+    let line = receiver
+        .recv_timeout(SERVER_TIME)
+        .map_err(|_| format!("the server printed no address within {SERVER_TIME:?}"))?;
+    let port = line
+        .trim()
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix('/'))
+        .and_then(|port| port.parse::<u16>().ok())
+        .ok_or_else(|| format!("the server printed no address: {line:?}"))?;
+    Ok((server, port))
+}
 
 impl Drop for Running {
     fn drop(&mut self) {
