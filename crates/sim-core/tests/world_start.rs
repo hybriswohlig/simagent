@@ -11,8 +11,9 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
+use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::input::{
-    ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start,
+    ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start, TriggerShock,
 };
 use sim_core::log::LogEntry;
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
@@ -744,5 +745,154 @@ fn the_fork_year_is_the_year_of_the_next_second() {
         InputRejected {
             code: RejectCode::NutritionYearPast
         }
+    );
+}
+
+const YEAR: i64 = 31_449_600;
+
+/// A hunger template of `years` years at 0.7 (G8).
+fn hunger(id: &str, years: u32) -> ShockTemplate {
+    ShockTemplate {
+        id: DataId::new(id).expect("valid"),
+        kind: ShockKind::Hunger,
+        years,
+        index: FiniteF64::try_new(0.7).expect("finite"),
+    }
+}
+
+/// The test data with the two templates of the repository (ADR-0023 section 3).
+fn shock_data() -> Data {
+    common::data()
+        .with_shocks(vec![
+            hunger("core:hunger_one_year", 1),
+            hunger("core:hunger_three_years", 3),
+        ])
+        .expect("checked")
+}
+
+fn shock(id: &str) -> Input {
+    Input::TriggerShock(TriggerShock {
+        shock: DataId::new(id).expect("valid"),
+    })
+}
+
+/// The JSON of the entries of one input: (cause, payload) of each.
+fn caused(log: &[LogEntry]) -> Vec<(serde_json::Value, serde_json::Value, i64)> {
+    log.iter()
+        .map(|entry| {
+            let json = serde_json::to_value(entry).expect("json");
+            (json["causes"].clone(), json["payload"].clone(), entry.t.as_secs())
+        })
+        .collect()
+}
+
+/// ADR-0023 section 3 and its addendum: a shock sets the nutrition index of the years
+/// from the first calendar year that begins at or after the second after its stamp. For
+/// a stamp inside year 3 (`3 · YEAR + 1000`) and for the last second of year 3
+/// (`4 · YEAR − 1`) that is year 4: three years give 4, 5 and 6 at 0.7. The entry of the
+/// shock names both years and is caused by the input; each change is caused by that entry,
+/// all in the second after the stamp.
+#[test]
+fn a_hunger_hits_the_next_calendar_year() {
+    for stamp in [3 * YEAR + 1000, 4 * YEAR - 1] {
+        let mut world = World::new(shock_data());
+        world.submit(start_with(&BORN)).expect("accepted");
+        let mut out = sim_core::world::YearOut::default();
+        world.advance_until(&mut out, SimTime::from_secs(stamp), &mut |_| false);
+        world.take_log();
+        let accepted = world
+            .submit(shock("core:hunger_three_years"))
+            .expect("accepted");
+        assert_eq!(
+            serde_json::to_string(&accepted).expect("json"),
+            format!(r#"{{"t":{stamp},"seq":2}}"#)
+        );
+        let log = world.take_log();
+        let entries = caused(&log);
+        let id = serde_json::to_value(&log[0]).expect("json")["id"].clone();
+        let mut expected = vec![(
+            serde_json::json!([{"input": 2}]),
+            serde_json::json!({"core:shock_triggered": {"shock": "core:hunger_three_years", "first_year": 4, "last_year": 6}}),
+            stamp + 1,
+        )];
+        for year in [4, 5, 6] {
+            expected.push((
+                serde_json::json!([{ "event": id }]),
+                serde_json::json!({"core:param_changed": {"change": {"core:nutrition_year": {"year": year, "index": 0.7}}}}),
+                stamp + 1,
+            ));
+        }
+        assert_eq!(entries, expected, "stamp {stamp}");
+        let params = world.state().world_params().expect("started");
+        assert_eq!(params.nutrition, vec![fed(4, 0.7), fed(5, 0.7), fed(6, 0.7)]);
+        assert_eq!(
+            serde_json::to_string(&world.input_log()[1]).expect("json"),
+            format!(
+                r#"{{"t":{stamp},"seq":2,"input":{{"trigger_shock":{{"shock":"core:hunger_three_years"}}}}}}"#
+            )
+        );
+    }
+    let mut world = World::new(shock_data());
+    world.submit(start_with(&BORN)).expect("accepted");
+    world
+        .submit(shock("core:hunger_one_year"))
+        .expect("accepted");
+    // Stamped at −1, before the start: the first year that begins at or after second 0
+    // is year 0 itself.
+    let params = world.state().world_params().expect("started");
+    assert_eq!(params.nutrition, vec![fed(0, 0.7)]);
+}
+
+/// ADR-0023 section 3: before the start `not_started`; on data without templates and for
+/// an unknown template `shock_unknown`; a year that already has a hunger (index below 1)
+/// `shock_overlaps`. Each changes nothing and takes no sequence number. A year whose index
+/// is 1 has no hunger: the shock replaces it.
+#[test]
+fn a_rejected_shock_changes_nothing() {
+    let mut world = World::new(shock_data());
+    let before = fingerprint(&world);
+    let rejected = world.submit(shock("core:hunger_one_year")).expect_err("not started");
+    assert_eq!(rejected.code, RejectCode::NotStarted);
+    assert_eq!(fingerprint(&world), before);
+
+    let mut plain = World::new(common::data());
+    plain.submit(start_with(&BORN)).expect("accepted");
+    let rejected = plain.submit(shock("core:hunger_one_year")).expect_err("no templates");
+    assert_eq!(rejected.code, RejectCode::ShockUnknown);
+
+    let mut world = World::new(shock_data());
+    world.submit(start_fed(&[(5, 0.5), (7, 1.0)])).expect("accepted");
+    let mut out = sim_core::world::YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(3 * YEAR + 1000), &mut |_| false);
+    world.take_log();
+    let before = fingerprint(&world);
+    for (id, code) in [
+        ("core:hunger_unknown", RejectCode::ShockUnknown),
+        ("core:hunger_three_years", RejectCode::ShockOverlaps),
+    ] {
+        let rejected = world.submit(shock(id)).expect_err("rejected");
+        assert_eq!(rejected, InputRejected { code }, "{id}");
+        assert_eq!(fingerprint(&world), before, "{id}");
+        assert!(world.take_log().is_empty());
+    }
+    let stamp = world.submit(shock("core:hunger_one_year")).expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        format!(r#"{{"t":{},"seq":2}}"#, 3 * YEAR + 1000)
+    );
+    world.advance_until(&mut out, SimTime::from_secs(6 * YEAR + 1000), &mut |_| false);
+    world
+        .submit(shock("core:hunger_three_years"))
+        .expect("year 7 has no hunger");
+    let params = world.state().world_params().expect("started");
+    assert_eq!(
+        params.nutrition,
+        vec![
+            fed(4, 0.7),
+            fed(5, 0.5),
+            fed(7, 0.7),
+            fed(8, 0.7),
+            fed(9, 0.7)
+        ]
     );
 }

@@ -83,7 +83,7 @@ fn whole_run() -> Run {
 
 /// The year of the fork point of the golden fork, and the fork: the dummy run with the
 /// override "hereditary diseases on", submitted with the stamp `T_5 - 1 s` (ADR-0001
-/// section 6).
+/// section 6), and a hunger of one year at the same stamp, which hits year 5 (ADR-0023).
 const FORK_YEAR: usize = 5;
 
 fn fork_run() -> Run {
@@ -97,6 +97,13 @@ fn fork_run() -> Run {
         .submit(Input::ForkOverride(block))
         .expect("accepted");
     assert_eq!(stamp.t, fork_stamp);
+    // A hunger of one year at the same stamp (ADR-0023, addendum before S1b): year 5.
+    let shock = sim_core::input::TriggerShock {
+        shock: sim_core::data_id::DataId::new("core:hunger_one_year").expect("valid"),
+    };
+    part.world
+        .submit(Input::TriggerShock(shock))
+        .expect("accepted");
     run_to(part.world, part.out, part.log, scenario().until)
 }
 
@@ -485,10 +492,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Emigrated { .. } => "core:emigrated",
         LogPayload::Arrived { .. } => "core:arrived",
         LogPayload::DiseaseOnset { .. } => "core:disease_onset",
+        LogPayload::ShockTriggered { .. } => "core:shock_triggered",
     }
 }
 
-const LOG_KINDS: [&str; 15] = [
+const LOG_KINDS: [&str; 16] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -504,6 +512,7 @@ const LOG_KINDS: [&str; 15] = [
     "core:emigrated",
     "core:arrived",
     "core:disease_onset",
+    "core:shock_triggered",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -586,7 +595,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 15);
+    assert_eq!(logs.len(), 16);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is

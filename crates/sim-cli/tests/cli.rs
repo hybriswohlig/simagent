@@ -226,18 +226,21 @@ fn commands() -> Vec<(Input, &'static str)> {
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
     let rule = r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#;
+    let shock = r#"{"trigger_shock":{"shock":"core:hunger_one_year"}}"#;
     let commands = vec![
         (parse(start), start),
         (parse(block), block),
         (parse(ARRANGE), ARRANGE),
         (parse(rule), rule),
+        (parse(shock), shock),
     ];
     for (input, _) in &commands {
         match input {
             Input::Start(_)
             | Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
-            | Input::SetWorldParam(_) => {}
+            | Input::SetWorldParam(_)
+            | Input::TriggerShock(_) => {}
         }
     }
     commands

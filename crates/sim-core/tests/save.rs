@@ -10,11 +10,11 @@ use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 use serde::Serialize;
 use sim_core::canonical::YearHash;
-use sim_core::data::Data;
+use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
-use sim_core::input::{ForkOverride, Founder, Input, Start};
+use sim_core::input::{ForkOverride, Founder, Input, Start, TriggerShock};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::mortality::{StepHazard, disease_hazard_used};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
@@ -180,6 +180,10 @@ enum TestInput {
     /// A world rule (ADR-0023 section 2), variant 3.
     SetWorldParam {
         change: TestChange,
+    },
+    /// A shock by its template (ADR-0023 section 3), variant 4.
+    TriggerShock {
+        shock: String,
     },
 }
 
@@ -4350,5 +4354,90 @@ fn load_checks_the_world_rules_of_the_input_log() {
         ),
     ] {
         assert_eq!(load_error(&file), Some(LoadError::Inconsistent), "{name}");
+    }
+}
+
+/// The test data with the repository's two hunger templates (ADR-0023 section 3).
+fn shocked_data() -> Data {
+    let hunger = |id: &str, years| ShockTemplate {
+        id: DataId::new(id).expect("valid"),
+        kind: ShockKind::Hunger,
+        years,
+        index: FiniteF64::try_new(0.7).expect("finite"),
+    };
+    common::data()
+        .with_shocks(vec![
+            hunger("core:hunger_one_year", 1),
+            hunger("core:hunger_three_years", 3),
+        ])
+        .expect("checked")
+}
+
+/// ADR-0023 sections 1 and 3: the load folds a shock into the world parameters and checks
+/// it like the input, against the parameters at its place in the log. Stamped at −1, the
+/// shock of one year sets year 0 (the first that begins at or after second 0); the start
+/// wrote entries 1 to 3, the shock 4 and 5. Its save loads only with data that have the
+/// templates (their data hash); a log with an unknown shock, with a shock over a year that
+/// has a hunger, or parameters without the shock's year is not one the world wrote.
+#[test]
+fn load_checks_the_shocks_of_the_input_log() {
+    let hash = shocked_data().hash();
+    let shock = |id: &str| TestInput::TriggerShock {
+        shock: id.to_string(),
+    };
+    let shocked = File::tiny().with(|f| {
+        f.data_hash = hash;
+        f.world_params = Some((false, vec![(0, 0.7)]));
+        f.next_event_id = 6;
+        f.input_log.push((-1, 2, shock("core:hunger_one_year")));
+    });
+    assert_eq!(load_error_with(shocked_data(), &shocked), None);
+    let mut world = World::new(shocked_data());
+    world
+        .submit(start(0xff, "test:tiny", &[-1]))
+        .expect("accepted");
+    world
+        .submit(Input::TriggerShock(TriggerShock {
+            shock: DataId::new("core:hunger_one_year").expect("valid"),
+        }))
+        .expect("accepted");
+    world.take_log();
+    assert_eq!(world.save(&[]).expect("saves"), shocked);
+    assert_eq!(load_error(&shocked), Some(LoadError::ForeignDataHash));
+
+    for (name, file) in [
+        (
+            "an unknown shock",
+            File::tiny().with(|f| {
+                f.data_hash = hash;
+                f.world_params = Some((false, vec![(0, 0.7)]));
+                f.next_event_id = 6;
+                f.input_log.push((-1, 2, shock("core:hunger_unknown")));
+            }),
+        ),
+        (
+            "a shock over a year with a hunger",
+            File::tiny().with(|f| {
+                f.data_hash = hash;
+                f.world_params = Some((false, vec![(0, 0.7)]));
+                f.next_event_id = 8;
+                f.input_log.push((-1, 2, shock("core:hunger_one_year")));
+                f.input_log.push((-1, 3, shock("core:hunger_one_year")));
+            }),
+        ),
+        (
+            "world parameters without the shock's year",
+            File::tiny().with(|f| {
+                f.data_hash = hash;
+                f.next_event_id = 6;
+                f.input_log.push((-1, 2, shock("core:hunger_one_year")));
+            }),
+        ),
+    ] {
+        assert_eq!(
+            load_error_with(shocked_data(), &file),
+            Some(LoadError::Inconsistent),
+            "{name}"
+        );
     }
 }

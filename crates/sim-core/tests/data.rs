@@ -5,7 +5,8 @@ mod common;
 
 use serde_json::{Value, json};
 use sim_core::data::{
-    Calibrated, Carrier, Data, DataError, Effect, Morgans, Onset, PerTransmission,
+    Calibrated, Carrier, Data, DataError, Effect, Morgans, Onset, PerTransmission, ShockKind,
+    ShockTemplate,
 };
 use sim_core::data_id::DataId;
 
@@ -2127,4 +2128,40 @@ fn diseases_reject() {
         }),
         "serde: missing field `carrier`"
     );
+}
+
+/// ADR-0023 section 3 and its addendum: the shock templates are checked (an id twice, no
+/// year, an index outside [0, 1) each with its code), they enter the data hash after the
+/// definitions in the order of their ids, and data without templates keep their hash. A
+/// template one ulp apart gives another hash.
+#[test]
+fn the_shock_templates_are_checked_and_hashed() {
+    let hunger = |id: &str, years: u32, index: f64| ShockTemplate {
+        id: DataId::new(id).expect("valid"),
+        kind: ShockKind::Hunger,
+        years,
+        index: sim_core::finite::FiniteF64::try_new(index).expect("finite"),
+    };
+    let base = common::data();
+    let none = base.clone().with_shocks(Vec::new()).expect("no templates");
+    assert_eq!(none.hash(), base.hash());
+    for (templates, code) in [
+        (
+            vec![hunger("core:a", 1, 0.7), hunger("core:a", 3, 0.7)],
+            DataError::ShocksDuplicate,
+        ),
+        (vec![hunger("core:a", 0, 0.7)], DataError::ShocksYears),
+        (vec![hunger("core:a", 1, 1.0)], DataError::ShocksIndex),
+        (vec![hunger("core:a", 1, -0.1)], DataError::ShocksIndex),
+    ] {
+        assert_eq!(base.clone().with_shocks(templates).err(), Some(code));
+    }
+    let both = |first, second| base.clone().with_shocks(vec![first, second]).expect("checked");
+    let ordered = both(hunger("core:a", 1, 0.7), hunger("core:b", 3, 0.7));
+    let swapped = both(hunger("core:b", 3, 0.7), hunger("core:a", 1, 0.7));
+    assert_eq!(ordered.hash(), swapped.hash(), "in the order of their ids");
+    assert_ne!(ordered.hash(), base.hash());
+    let next = f64::from_bits(0.7_f64.to_bits() + 1);
+    let ulp = both(hunger("core:a", 1, next), hunger("core:b", 3, 0.7));
+    assert_ne!(ulp.hash(), ordered.hash());
 }
