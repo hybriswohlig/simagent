@@ -97,8 +97,41 @@ pub fn repository_data(root: &Path) -> Result<Data> {
         frequencies.insert(DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?, q);
     }
     let frequencies = crate::pool_file::finite(frequencies)?;
+    let shocks = shocks(root)?;
     Data::with_pool(definitions, &pool, frequencies)
+        .and_then(|data| data.with_shocks(shocks))
         .map_err(|e| format!("the repository's data: {e}"))
+}
+
+/// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
+/// (ADR-0023 section 3); the core checks the values.
+fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
+    let path = root.join("data/shocks.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: Value =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if file["format"] != "simagent.shocks" || file["version"] != 1 {
+        return Err(format!("{}: not simagent.shocks version 1", path.display()));
+    }
+    let entries = file["shocks"].as_array().ok_or("shocks: no list")?;
+    entries
+        .iter()
+        .map(|entry| {
+            let field = |name: &str| format!("shocks: an entry without its {name}");
+            if entry["kind"] != "hunger" {
+                return Err(field("kind hunger"));
+            }
+            let id = entry["id"].as_str().ok_or_else(|| field("id"))?;
+            let years = entry["years"].as_u64().ok_or_else(|| field("years"))?;
+            let index = entry["index"].as_f64().ok_or_else(|| field("index"))?;
+            Ok(sim_core::data::ShockTemplate {
+                id: DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?,
+                kind: sim_core::data::ShockKind::Hunger,
+                years: u32::try_from(years).map_err(|_| field("years"))?,
+                index: sim_core::finite::FiniteF64::try_new(index).map_err(|_| field("index"))?,
+            })
+        })
+        .collect()
 }
 
 /// One village at one end: its block as the report writes it (with the export's hash), and

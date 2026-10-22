@@ -9,7 +9,7 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::data_id::Code;
+use crate::data_id::{Code, DataId};
 use crate::genome::SexChromosome;
 use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
@@ -195,6 +195,15 @@ pub enum LogPayload {
         disease: Code,
         since_year: i64,
         age_years: i64,
+    },
+    /// A shock from its template (ADR-0023 section 3 and its addendum): the calendar years
+    /// it sets, from `first_year` to `last_year`; one `core:param_changed` per year follows,
+    /// caused by this entry.
+    #[serde(rename = "core:shock_triggered")]
+    ShockTriggered {
+        shock: DataId,
+        first_year: i64,
+        last_year: i64,
     },
 }
 

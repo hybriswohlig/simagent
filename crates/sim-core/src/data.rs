@@ -547,6 +547,27 @@ pub struct Data {
     thresholds: BTreeMap<DataId, f64>,
     /// The pool of the pre-run, if the data hold one (ADR-0020 section 4).
     pool: Option<Arc<PoolData>>,
+    /// The shock templates, in the order of their ids (ADR-0023 section 3).
+    shocks: Vec<ShockTemplate>,
+}
+
+/// The kind of a shock template (ADR-0023 section 3); in phase 1 only the hunger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShockKind {
+    /// Sets the nutrition index of calendar years.
+    Hunger,
+}
+
+/// A shock template (ADR-0023 section 3): how many calendar years it sets and to which
+/// nutrition index.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShockTemplate {
+    pub id: DataId,
+    pub kind: ShockKind,
+    pub years: u32,
+    pub index: FiniteF64,
 }
 
 /// The pool of the pre-run in the data with its lookups by lineage key (design note of the
@@ -645,6 +666,12 @@ pub enum DataError {
     PoolFrequenciesLoci,
     /// A frequency of the pool is not strictly between 0 and 1.
     PoolFrequencyRange,
+    /// Two shock templates with one id (ADR-0023 section 3).
+    ShocksDuplicate,
+    /// A shock template of no year.
+    ShocksYears,
+    /// A shock template whose index is not in [0, 1).
+    ShocksIndex,
 }
 
 impl fmt::Display for DataError {
@@ -682,6 +709,9 @@ impl fmt::Display for DataError {
             DataError::PoolFrozenHash => "pool.frozen_hash",
             DataError::PoolFrequenciesLoci => "pool.frequencies_loci",
             DataError::PoolFrequencyRange => "pool.frequency_range",
+            DataError::ShocksDuplicate => "shocks.duplicate",
+            DataError::ShocksYears => "shocks.years",
+            DataError::ShocksIndex => "shocks.index",
         })
     }
 }
@@ -1626,6 +1656,7 @@ impl Data {
             sex_differences,
             thresholds,
             pool: None,
+            shocks: Vec::new(),
         })
     }
 
@@ -1706,10 +1737,6 @@ impl Data {
             .map(|(place, record)| (record.lineage_key, place))
             .collect();
         let hash = pool.hash();
-        let listed: Vec<(&DataId, f64)> = frequencies.iter().map(|(id, q)| (id, q.get())).collect();
-        let mut bytes = encode(&data.definitions);
-        bytes.extend(encode(&(pool.pool_seed, hash, listed)));
-        data.hash = stable_hash64(&bytes);
         data.pool = Some(Arc::new(PoolData {
             pool,
             hash,
@@ -1717,7 +1744,53 @@ impl Data {
             unborn,
             frequencies,
         }));
+        data.hash = data.hashed();
         Ok(data)
+    }
+
+    /// These data with the shock templates (ADR-0023 section 3 and its addendum): each id
+    /// once, at least one year, the index in [0, 1). They enter the data hash after the
+    /// definitions and the pool, in the order of their ids; without templates the hash is
+    /// the one of the data without them.
+    pub fn with_shocks(mut self, mut shocks: Vec<ShockTemplate>) -> Result<Data, DataError> {
+        shocks.sort_by(|a, b| a.id.cmp(&b.id));
+        if shocks.windows(2).any(|pair| pair[0].id == pair[1].id) {
+            return Err(DataError::ShocksDuplicate);
+        }
+        if shocks.iter().any(|shock| shock.years == 0) {
+            return Err(DataError::ShocksYears);
+        }
+        if shocks
+            .iter()
+            .any(|shock| !(0.0..1.0).contains(&shock.index.get()))
+        {
+            return Err(DataError::ShocksIndex);
+        }
+        self.shocks = shocks;
+        self.hash = self.hashed();
+        Ok(self)
+    }
+
+    /// The template with this id, if the data hold it.
+    pub fn shock(&self, id: &DataId) -> Option<&ShockTemplate> {
+        (self.shocks.binary_search_by(|shock| shock.id.cmp(id)).ok()).map(|at| &self.shocks[at])
+    }
+
+    /// The data hash (ADR-0007 section 3, ADR-0020 section 4, ADR-0023 section 3): xxh3 of
+    /// the definitions' bytes, followed by those of `(pool_seed, pool_hash, frequencies)` if
+    /// the data hold a pool, followed by those of the shock templates if they hold any.
+    fn hashed(&self) -> u64 {
+        let mut bytes = encode(&self.definitions);
+        if let Some(pool) = &self.pool {
+            let listed: Vec<(&DataId, f64)> = (pool.frequencies.iter())
+                .map(|(id, q)| (id, q.get()))
+                .collect();
+            bytes.extend(encode(&(pool.pool.pool_seed, pool.hash, listed)));
+        }
+        if !self.shocks.is_empty() {
+            bytes.extend(encode(&self.shocks));
+        }
+        stable_hash64(&bytes)
     }
 
     /// The pool of the data, if it holds one.

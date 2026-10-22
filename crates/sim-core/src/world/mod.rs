@@ -190,6 +190,9 @@ fn check(
             state::partnership::check_arrange(domain, data, closed_through, pair)
         }
         Input::SetWorldParam(rule) => state::params::check_set(domain, closed_through, rule),
+        Input::TriggerShock(shock) => {
+            state::params::check_shock(domain, data, closed_through, shock)
+        }
     }
 }
 
@@ -228,6 +231,9 @@ impl WorldState {
             }
             Input::SetWorldParam(rule) => {
                 state::params::apply_set(&mut self.domain, &self.data, rule, history, &mut ctx);
+            }
+            Input::TriggerShock(shock) => {
+                state::params::apply_shock(&mut self.domain, &self.data, shock, &mut ctx);
             }
         }
     }
@@ -623,7 +629,8 @@ mod tests {
         world.submit(start(&[-5, -1])).expect("accepted");
         world.take_log();
         world.sched = Scheduler::restore(SchedulerSnapshot {
-            closed_through: crate::time::year_start(999_998) - crate::time::SimDuration::from_secs(1_000),
+            closed_through: crate::time::year_start(999_998)
+                - crate::time::SimDuration::from_secs(1_000),
             next_seq: world.sched.snapshot().next_seq,
             entries: Vec::new(),
         })
@@ -643,7 +650,9 @@ mod tests {
             world.state.world_params().map(|p| p.nutrition.len()),
             Some(0)
         );
-        world.submit(shock("core:hunger_one_year")).expect("accepted");
+        world
+            .submit(shock("core:hunger_one_year"))
+            .expect("accepted");
         let years = (world.state.world_params())
             .map(|p| p.nutrition.iter().map(|y| y.year).collect::<Vec<_>>());
         assert_eq!(years, Some(alloc::vec![999_998]));
