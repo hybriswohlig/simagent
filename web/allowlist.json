@@ -2,6 +2,7 @@
   "format": "simagent.web.allowlist",
   "version": 1,
   "packages": [
+    {"name": "playwright-core", "license": "Apache-2.0"},
     {"name": "preact", "license": "MIT"},
     {"name": "typescript", "license": "Apache-2.0"}
   ]
