@@ -81,13 +81,15 @@ pub fn smoke(root: &Path) -> Result {
     std::fs::write(&main, "throw new Error(\"canary\");\n")
         .map_err(|e| format!("{}: {e}", main.display()))?;
     let log = out.join("canary.log");
-    if drive(root, &runs, &broken, Some(&log)).is_ok() {
+    let Err(failure) = drive(root, &runs, &broken, Some(&log)) else {
         return Err("canary: the smoke test passed a page whose main.js throws".to_string());
-    }
-    let said = std::fs::read_to_string(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+    };
+    // A drive that failed before the script wrote anything (a server that did not start, a
+    // time limit) leaves no log; its own error says why.
+    let said = std::fs::read_to_string(&log).unwrap_or_default();
     if !said.contains(CANARY_ERROR) {
         return Err(format!(
-            "canary: the smoke test failed without the page's error ({}):\n{said}",
+            "canary: the smoke test failed without the page's error: {failure} ({}):\n{said}",
             log.display()
         ));
     }
