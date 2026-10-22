@@ -177,6 +177,10 @@ enum TestInput {
         woman: u64,
         man: u64,
     },
+    /// A world rule (ADR-0023 section 2), variant 3.
+    SetWorldParam {
+        change: TestChange,
+    },
 }
 
 #[derive(Clone, Serialize)]
@@ -4284,5 +4288,62 @@ fn the_loader_rejects_a_wrong_onset_event() {
             Some(LoadError::Inconsistent),
             "{case}"
         );
+    }
+}
+
+/// ADR-0023 sections 1 and 2: the load folds a world rule into the world parameters like
+/// an override block and checks it like the input, against the parameters at its place in
+/// the log. A world that set the switch by a rule saves and loads with it; a log whose
+/// rule keeps the switch (`param_unchanged`) or sets a nutrition year (`param_not_settable`)
+/// is not one the world wrote, even when the parameters agree with it.
+#[test]
+fn load_checks_the_world_rules_of_the_input_log() {
+    let rule = |change| TestInput::SetWorldParam { change };
+    let ruled = File::tiny().with(|f| {
+        f.world_params = Some(params(true));
+        f.next_event_id = 5;
+        f.input_log
+            .push((-1, 2, rule(TestChange::HereditaryDiseases(true))));
+    });
+    assert_eq!(load_error(&ruled), None);
+    let mut world = tiny();
+    let change = ParamChange::HereditaryDiseases(true);
+    world
+        .submit(Input::SetWorldParam(sim_core::input::SetWorldParam { change }))
+        .expect("accepted");
+    world.take_log();
+    let bytes = world.save(&[]).expect("saves");
+    assert_eq!(bytes, ruled);
+    let (loaded, _) = load(&bytes).expect("loads");
+    assert_eq!(loaded.state().world_params().map(|p| p.hereditary_diseases), Some(true));
+
+    for (name, file) in [
+        (
+            "a world rule that keeps the switch",
+            File::tiny().with(|f| {
+                f.next_event_id = 5;
+                f.input_log
+                    .push((-1, 2, rule(TestChange::HereditaryDiseases(false))));
+            }),
+        ),
+        (
+            "a world rule that sets a nutrition year",
+            File::tiny().with(|f| {
+                f.world_params = Some((false, vec![(0, 0.7)]));
+                f.next_event_id = 5;
+                f.input_log
+                    .push((-1, 2, rule(TestChange::NutritionYear(0, 0.7))));
+            }),
+        ),
+        (
+            "world parameters before the world rule",
+            File::tiny().with(|f| {
+                f.next_event_id = 5;
+                f.input_log
+                    .push((-1, 2, rule(TestChange::HereditaryDiseases(true))));
+            }),
+        ),
+    ] {
+        assert_eq!(load_error(&file), Some(LoadError::Inconsistent), "{name}");
     }
 }

@@ -20,7 +20,7 @@ mod common;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
-use sim_core::input::{ForkOverride, Founder, Input, Start};
+use sim_core::input::{ForkOverride, Founder, Input, SetWorldParam, Start};
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -122,6 +122,15 @@ impl Run {
     fn switch(&mut self, at: i64, on: bool) {
         self.advance(at - 1);
         self.world.submit(switch(on)).expect("accepted");
+        self.log.extend(self.world.take_log());
+    }
+
+    /// A world rule (ADR-0023) that acts at `at`: stamped with the second before.
+    fn set(&mut self, at: i64, on: bool) {
+        self.advance(at - 1);
+        let change = ParamChange::HereditaryDiseases(on);
+        let rule = Input::SetWorldParam(SetWorldParam { change });
+        self.world.submit(rule).expect("accepted");
         self.log.extend(self.world.take_log());
     }
 
@@ -236,6 +245,44 @@ fn the_exposure_adds_up_over_the_periods_of_the_switch() {
     assert_eq!(
         two.deaths(),
         [died(2 * Y + HIS_DISEASE, "test:dummy_disease")]
+    );
+}
+
+/// ADR-0023 section 2: a world rule acts like a change of an override. Off, on, off and
+/// on again at seconds inside the years, once by override blocks and once by world rules:
+/// the same domain log entry for entry (both write `core:param_changed` caused by the
+/// input), the same census and year hashes, the same death of the disease.
+#[test]
+fn a_world_rule_acts_like_an_override() {
+    let times = [
+        (Y + Y / 2, false),
+        (2 * Y + 1_000, true),
+        (3 * Y + Y / 3, false),
+        (4 * Y + 7, true),
+    ];
+    let (mut by_override, mut by_rule) = (Run::new(sick(true)), Run::new(sick(true)));
+    for (at, on) in times {
+        by_override.switch(at, on);
+        by_rule.set(at, on);
+    }
+    by_override.advance(9 * Y - 1);
+    by_rule.advance(9 * Y - 1);
+    let json = |run: &Run| -> Vec<String> {
+        (run.log.iter())
+            .map(|entry| serde_json::to_string(entry).expect("json"))
+            .collect()
+    };
+    assert_eq!(json(&by_rule), json(&by_override));
+    assert_eq!(by_rule.out.census, by_override.out.census);
+    assert_eq!(
+        format!("{:?}", by_rule.out.year_hashes),
+        format!("{:?}", by_override.out.year_hashes)
+    );
+    assert_eq!(by_rule.world.state_hash(), by_override.world.state_hash());
+    let deaths = by_rule.deaths();
+    assert!(
+        deaths.iter().any(|(_, cause)| cause == "test:dummy_disease"),
+        "{deaths:?}"
     );
 }
 

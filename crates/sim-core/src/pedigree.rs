@@ -334,4 +334,33 @@ mod tests {
         assert!(switch_at(&log, t(8)));
         assert!(!switch_at(&[], t(8)));
     }
+
+    /// A world rule (ADR-0023 section 2) sets the switch from one second after its stamp
+    /// on, like an override block; an arranged partnership leaves it.
+    #[test]
+    fn the_switch_follows_the_world_rules() {
+        let t = SimTime::from_secs;
+        let rule = |on| {
+            Input::SetWorldParam(crate::input::SetWorldParam {
+                change: ParamChange::HereditaryDiseases(on),
+            })
+        };
+        let pair = Input::ArrangePartnership(crate::input::ArrangePartnership {
+            woman: crate::ids::SimId::try_from(2).expect("valid"),
+            man: crate::ids::SimId::try_from(1).expect("valid"),
+        });
+        let log = [
+            record(-1, start(false)),
+            record(5, rule(true)),
+            record(6, pair),
+            record(20, rule(false)),
+            record(30, set(true)),
+        ];
+        assert!(!switch_at(&log, t(5)));
+        assert!(switch_at(&log, t(6)));
+        assert!(switch_at(&log, t(20)));
+        assert!(!switch_at(&log, t(21)));
+        assert!(!switch_at(&log, t(30)));
+        assert!(switch_at(&log, t(31)));
+    }
 }
