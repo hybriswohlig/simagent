@@ -31,6 +31,7 @@ export const ASSUMPTIONS: readonly { readonly heading: string; readonly paragrap
       "Neben dem Verwandtschaftswort steht ein Prozent, etwa „Cousine, 12,5 Prozent“. Die Zahl ist r = 2φ. φ misst die gemeinsame Abstammung, und r ist ihr Doppeltes in Prozent: der Anteil der Erbanlagen, den beide darüber erwartbar teilen.",
       "Ohne Schleife im Stammbaum sind das 50 Prozent bei Eltern und Kind und bei Vollgeschwistern, 25 Prozent bei Großeltern, Halbgeschwistern, Tante oder Onkel, 12,5 Prozent bei Cousins ersten Grades.",
       "Die Rechnung reicht bis zu den Urgroßeltern beider. Wer weiter zurückliegt, zählt nicht mit.",
+      "Die mittlere Inzucht der Neugeborenen ist F = φ der Eltern und damit die Hälfte des Verwandtschaftsprozents, F = φ = r/2: Eltern, die als Cousins 12,5 Prozent teilen, geben ihrem Kind 6,25 Prozent Inzucht.",
     ],
   },
   {

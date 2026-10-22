@@ -228,6 +228,14 @@ export type EventsAnswer = {
   readonly next: number | null;
 };
 
+/** `GET /api/runs/{run}/census`: the header of `census.csv` and its full rows, each cell an integer. */
+export type CensusAnswer = {
+  readonly format: "simagent.view.census";
+  readonly version: number;
+  readonly columns: string[];
+  readonly rows: number[][];
+};
+
 /** An entry of `events.ndjson` and the core's calendar date of its second. */
 export type EventItem = {
   readonly entry: LogEntry;

@@ -350,6 +350,16 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "CensusAnswer",
+            doc: "`GET /api/runs/{run}/census`: the header of `census.csv` and its full rows, each cell an integer.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.census"])),
+                field("version", Integer),
+                field("columns", list(Text)),
+                field("rows", list(list(Integer))),
+            ],
+        },
+        Named {
             name: "EventItem",
             doc: "An entry of `events.ndjson` and the core's calendar date of its second.",
             fields: vec![

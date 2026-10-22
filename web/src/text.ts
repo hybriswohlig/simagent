@@ -134,6 +134,21 @@ export const TEXT = {
   chronicle_failed: "Ein Teil der Chronik konnte nicht geladen werden.",
   retry: "Erneut laden",
   and: "und",
+  curves: "Kurven",
+  curve_moves: "Geburten, Zuzüge und Wegzüge",
+  curve_births: "Geburten",
+  curve_arrivals: "Zuzüge",
+  curve_emigrations: "Wegzüge",
+  curve_deaths: "Tode",
+  curve_senescence: "Alter",
+  curve_accident: "Unfall",
+  curve_affected: "Betroffene je Erbkrankheit",
+  curve_adults: "Mittlere Größe der Erwachsenen",
+  curve_age25: "Mittlere Größe mit 25",
+  curve_women: "Frauen",
+  curve_men: "Männer",
+  curve_inbreeding: "Mittlere Inzucht der Neugeborenen",
+  curve_values: "Werte",
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */

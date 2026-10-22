@@ -14,3 +14,10 @@ test("the six sections in order", () => {
   assert.ok(ASSUMPTIONS[3].paragraphs.some((paragraph) => paragraph.includes("r = 2φ")));
   assert.equal(ASSUMPTIONS[5].paragraphs.length, 1);
 });
+
+test("the newborns' inbreeding closes the section on kinship (Grok R3)", () => {
+  assert.equal(
+    ASSUMPTIONS[3].paragraphs.at(-1),
+    "Die mittlere Inzucht der Neugeborenen ist F = φ der Eltern und damit die Hälfte des Verwandtschaftsprozents, F = φ = r/2: Eltern, die als Cousins 12,5 Prozent teilen, geben ihrem Kind 6,25 Prozent Inzucht.",
+  );
+});
