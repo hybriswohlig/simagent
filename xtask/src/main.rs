@@ -504,6 +504,7 @@ fn server_answers(
     let found = Some(r#"{"template":"stadt","run":"stadt"}"#);
     answers.push(("CreatedAnswer", ask(port, "/api/runs", found, 200)?));
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
+    answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
     // A page of the log with a next page, and an empty one without.
     answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
     let none = "/api/runs/town/events?from=-5&to=-1";

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
+import { CurvesView } from "./curvesview.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { Chronicle, dateText } from "./lines.js";
@@ -129,6 +130,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         retry={() => setRetries((n) => n + 1)}
         names={names}
       />
+      <CurvesView run={run} at={String(listedAt)} />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
       <ul>
