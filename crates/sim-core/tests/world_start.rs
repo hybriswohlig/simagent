@@ -7,11 +7,11 @@
 
 mod common;
 
+use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
-use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::input::{
     ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start, TriggerShock,
 };
@@ -781,7 +781,11 @@ fn caused(log: &[LogEntry]) -> Vec<(serde_json::Value, serde_json::Value, i64)> 
     log.iter()
         .map(|entry| {
             let json = serde_json::to_value(entry).expect("json");
-            (json["causes"].clone(), json["payload"].clone(), entry.t.as_secs())
+            (
+                json["causes"].clone(),
+                json["payload"].clone(),
+                entry.t.as_secs(),
+            )
         })
         .collect()
 }
@@ -824,7 +828,10 @@ fn a_hunger_hits_the_next_calendar_year() {
         }
         assert_eq!(entries, expected, "stamp {stamp}");
         let params = world.state().world_params().expect("started");
-        assert_eq!(params.nutrition, vec![fed(4, 0.7), fed(5, 0.7), fed(6, 0.7)]);
+        assert_eq!(
+            params.nutrition,
+            vec![fed(4, 0.7), fed(5, 0.7), fed(6, 0.7)]
+        );
         assert_eq!(
             serde_json::to_string(&world.input_log()[1]).expect("json"),
             format!(
@@ -851,19 +858,27 @@ fn a_hunger_hits_the_next_calendar_year() {
 fn a_rejected_shock_changes_nothing() {
     let mut world = World::new(shock_data());
     let before = fingerprint(&world);
-    let rejected = world.submit(shock("core:hunger_one_year")).expect_err("not started");
+    let rejected = world
+        .submit(shock("core:hunger_one_year"))
+        .expect_err("not started");
     assert_eq!(rejected.code, RejectCode::NotStarted);
     assert_eq!(fingerprint(&world), before);
 
     let mut plain = World::new(common::data());
     plain.submit(start_with(&BORN)).expect("accepted");
-    let rejected = plain.submit(shock("core:hunger_one_year")).expect_err("no templates");
+    let rejected = plain
+        .submit(shock("core:hunger_one_year"))
+        .expect_err("no templates");
     assert_eq!(rejected.code, RejectCode::ShockUnknown);
 
     let mut world = World::new(shock_data());
-    world.submit(start_fed(&[(5, 0.5), (7, 1.0)])).expect("accepted");
+    world
+        .submit(start_fed(&[(5, 0.5), (7, 1.0)]))
+        .expect("accepted");
     let mut out = sim_core::world::YearOut::default();
-    world.advance_until(&mut out, SimTime::from_secs(3 * YEAR + 1000), &mut |_| false);
+    world.advance_until(&mut out, SimTime::from_secs(3 * YEAR + 1000), &mut |_| {
+        false
+    });
     world.take_log();
     let before = fingerprint(&world);
     for (id, code) in [
@@ -875,12 +890,16 @@ fn a_rejected_shock_changes_nothing() {
         assert_eq!(fingerprint(&world), before, "{id}");
         assert!(world.take_log().is_empty());
     }
-    let stamp = world.submit(shock("core:hunger_one_year")).expect("accepted");
+    let stamp = world
+        .submit(shock("core:hunger_one_year"))
+        .expect("accepted");
     assert_eq!(
         serde_json::to_string(&stamp).expect("json"),
         format!(r#"{{"t":{},"seq":2}}"#, 3 * YEAR + 1000)
     );
-    world.advance_until(&mut out, SimTime::from_secs(6 * YEAR + 1000), &mut |_| false);
+    world.advance_until(&mut out, SimTime::from_secs(6 * YEAR + 1000), &mut |_| {
+        false
+    });
     world
         .submit(shock("core:hunger_three_years"))
         .expect("year 7 has no hunger");

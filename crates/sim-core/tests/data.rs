@@ -2156,7 +2156,11 @@ fn the_shock_templates_are_checked_and_hashed() {
     ] {
         assert_eq!(base.clone().with_shocks(templates).err(), Some(code));
     }
-    let both = |first, second| base.clone().with_shocks(vec![first, second]).expect("checked");
+    let both = |first, second| {
+        base.clone()
+            .with_shocks(vec![first, second])
+            .expect("checked")
+    };
     let ordered = both(hunger("core:a", 1, 0.7), hunger("core:b", 3, 0.7));
     let swapped = both(hunger("core:b", 3, 0.7), hunger("core:a", 1, 0.7));
     assert_eq!(ordered.hash(), swapped.hash(), "in the order of their ids");
