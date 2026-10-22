@@ -874,9 +874,22 @@ fn input_log_consistent(
                 pairs.push((pair.woman, pair.man, formed));
                 started = Some(kept);
             }
+            // A world rule passes the check of the input against the parameters at its
+            // place in the log (ADR-0023 section 1) and acts in the next second.
+            (Input::SetWorldParam(rule), Some((before, start))) => {
+                if state::params::set_rejection(rule.change, &before, record.t).is_some() {
+                    return None;
+                }
+                let after = before.with(rule.change);
+                switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
+                started = Some((after, start));
+            }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_))
-            | (Input::ForkOverride(_) | Input::ArrangePartnership(_), None) => return None,
+            | (
+                Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_),
+                None,
+            ) => return None,
         }
     }
     let (params, start) = started?;

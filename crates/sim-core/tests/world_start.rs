@@ -11,7 +11,9 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
-use sim_core::input::{ForkOverride, Founder, Input, InputRejected, RejectCode, Start};
+use sim_core::input::{
+    ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start,
+};
 use sim_core::log::LogEntry;
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -467,6 +469,96 @@ fn a_rejected_override_block_changes_nothing() {
     }
     // The next accepted input takes the next sequence number.
     let stamp = world.submit(override_block(&[true])).expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        r#"{"t":-1,"seq":2}"#
+    );
+}
+
+/// `SetWorldParam` with one change (ADR-0023 section 2).
+fn set_param(change: ParamChange) -> Input {
+    Input::SetWorldParam(SetWorldParam { change })
+}
+
+/// ADR-0023 section 2: a world rule set at a stop mid-year acts like a change of an
+/// override (ADR-0001 section 6): one entry `core:param_changed` in the second after the
+/// stamp, caused by the input. The start writes entries 1 to 3, nothing happens up to
+/// second 99 (as in the test of the override block above), so the entry is 4.
+#[test]
+fn a_world_rule_sets_the_switch_at_a_stop() {
+    let mut world = World::new(common::data());
+    world.submit(start_with(&[-1])).expect("accepted");
+    world.take_log();
+    let mut out = sim_core::world::YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(99), &mut |_| false);
+    let stamp = world
+        .submit(set_param(ParamChange::HereditaryDiseases(true)))
+        .expect("accepted");
+    assert_eq!(
+        serde_json::to_string(&stamp).expect("json"),
+        r#"{"t":99,"seq":2}"#
+    );
+    assert_eq!(world.state().world_params(), Some(ON));
+    assert_eq!(
+        lines(&world.take_log()),
+        [
+            r#"{"id":4,"t":100,"subjects":[],"causes":[{"input":2}],"payload":{"core:param_changed":{"change":{"core:hereditary_diseases":true}}}}"#
+        ]
+    );
+    assert_eq!(
+        serde_json::to_string(&world.input_log()[1]).expect("json"),
+        r#"{"t":99,"seq":2,"input":{"set_world_param":{"change":{"core:hereditary_diseases":true}}}}"#
+    );
+    world
+        .submit(set_param(ParamChange::HereditaryDiseases(false)))
+        .expect("accepted");
+    assert_eq!(world.state().world_params(), Some(OFF));
+    assert_eq!(world.take_log().len(), 1);
+}
+
+/// ADR-0023 sections 1 and 2: before the start `not_started`; a year of the nutrition
+/// index is not to be set at run time (`param_not_settable`); the switch as it stands is
+/// no change (`param_unchanged`). Each changes nothing and takes no sequence number.
+#[test]
+fn a_rejected_world_rule_changes_nothing() {
+    let mut world = World::new(common::data());
+    let before = fingerprint(&world);
+    for change in [
+        ParamChange::HereditaryDiseases(true),
+        ParamChange::NutritionYear(fed(5, 0.7)),
+    ] {
+        let rejected = world
+            .submit(set_param(change))
+            .expect_err("before the start");
+        assert_eq!(rejected.code, RejectCode::NotStarted, "{change:?}");
+    }
+    assert_eq!(fingerprint(&world), before);
+
+    world.submit(start_with(&BORN)).expect("accepted");
+    world.take_log();
+    let before = fingerprint(&world);
+    for (change, code) in [
+        (
+            ParamChange::NutritionYear(fed(5, 0.7)),
+            RejectCode::ParamNotSettable,
+        ),
+        (
+            ParamChange::NutritionYear(fed(5, 1.0)),
+            RejectCode::ParamNotSettable,
+        ),
+        (
+            ParamChange::HereditaryDiseases(false),
+            RejectCode::ParamUnchanged,
+        ),
+    ] {
+        let rejected = world.submit(set_param(change)).expect_err("rejected");
+        assert_eq!(rejected, InputRejected { code }, "{change:?}");
+        assert_eq!(fingerprint(&world), before, "{change:?}");
+        assert!(world.take_log().is_empty());
+    }
+    let stamp = world
+        .submit(set_param(ParamChange::HereditaryDiseases(true)))
+        .expect("accepted");
     assert_eq!(
         serde_json::to_string(&stamp).expect("json"),
         r#"{"t":-1,"seq":2}"#

@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::{LocusAlleles, Sex};
-use sim_core::input::{Couple, ForkOverride, Founder, Input, PoolStart, Start};
+use sim_core::input::{Couple, ForkOverride, Founder, Input, PoolStart, SetWorldParam, Start};
 use sim_core::log::LogEntry;
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::presentation::card::DiseaseStatus;
@@ -138,6 +138,15 @@ impl Run {
             .submit(Input::ForkOverride(ForkOverride {
                 changes: vec![ParamChange::HereditaryDiseases(on)],
             }))
+            .expect("accepted");
+        self.log.extend(self.world.take_log());
+    }
+
+    /// A world rule that sets the switch (ADR-0023), stamped with the last closed second.
+    fn set(&mut self, on: bool) {
+        let change = ParamChange::HereditaryDiseases(on);
+        (self.world)
+            .submit(Input::SetWorldParam(SetWorldParam { change }))
             .expect("accepted");
         self.log.extend(self.world.take_log());
     }
@@ -600,6 +609,37 @@ fn a_fork_turning_the_switch_on_writes_a_reached_onset() {
     expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
     assert_eq!(entries.get(at + 1), Some(&expected));
     run.advance(8 * Y - 1);
+    run.fork(false);
+    run.fork(true);
+    run.advance(60 * Y);
+    assert_eq!(onsets(&run.entries()).len(), 1, "never again");
+}
+
+/// Path 3 by a world rule (ADR-0023 section 2, the wording of the onset addendum of
+/// ADR-0017): the same founder, the rule stamped mid-year `5 · YEAR + 999`, writes the entry
+/// in `5 · YEAR + 1000` right after its `core:param_changed`, caused by it (input 2), with
+/// the year of `B` (−10) and 30 years. Off and on again later by world rules, and once
+/// more by a fork: never again, since every input that turned the switch on counts as
+/// earlier.
+#[test]
+fn a_world_rule_turning_the_switch_on_writes_a_reached_onset() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        false,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.advance(5 * Y + 999);
+    run.set(true);
+    let entries = run.entries();
+    let at = changed(&entries, 5 * Y + 1000);
+    let mut expected = onset(5 * Y + 1000, 1, LATE, (-10, 30), json!({"input": 2}));
+    expected["id"] = json!(entries[at]["id"].as_u64().expect("an id") + 1);
+    assert_eq!(entries.get(at + 1), Some(&expected));
+    run.advance(8 * Y + 5);
+    run.set(false);
+    run.set(true);
+    run.advance(9 * Y - 1);
     run.fork(false);
     run.fork(true);
     run.advance(60 * Y);

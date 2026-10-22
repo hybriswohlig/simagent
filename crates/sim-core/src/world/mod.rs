@@ -189,6 +189,7 @@ fn check(
         Input::ArrangePartnership(pair) => {
             state::partnership::check_arrange(domain, data, closed_through, pair)
         }
+        Input::SetWorldParam(rule) => state::params::check_set(domain, closed_through, rule),
     }
 }
 
@@ -224,6 +225,9 @@ impl WorldState {
             }
             Input::ArrangePartnership(pair) => {
                 state::partnership::apply_arrange(&mut self.domain, &self.data, pair, &mut ctx);
+            }
+            Input::SetWorldParam(rule) => {
+                state::params::apply_set(&mut self.domain, &self.data, rule, history, &mut ctx);
             }
         }
     }
@@ -536,6 +540,56 @@ mod tests {
         assert_eq!(world.stats().contexts, 0);
         assert_eq!(world.state.world_seed(), None);
         assert!(world.take_log().is_empty());
+    }
+
+    /// ADR-0023 section 1: at the last second of time there is no next second for an
+    /// input to act in. A world rule, an override that only sets the switch and an arranged
+    /// partnership are `end_of_time` (before, the override broke in `input_ctx` and the
+    /// partnership in its own check), take no sequence number and change nothing; so is
+    /// the rule of an override block and of a world rule as the load fold calls them.
+    #[test]
+    fn an_input_at_the_last_second_of_time_is_end_of_time() {
+        let mut world = World::new(testing::data());
+        world.submit(start(&[-5, -1])).expect("accepted");
+        world.take_log();
+        let last = SimTime::from_secs(crate::time::MAX_ABS_SECS);
+        world.sched = Scheduler::restore(SchedulerSnapshot {
+            closed_through: last,
+            next_seq: world.sched.snapshot().next_seq,
+            entries: Vec::new(),
+        })
+        .expect("valid snapshot");
+        let sim = |n: u64| SimId::try_from(n).expect("valid");
+        let switch = crate::params::ParamChange::HereditaryDiseases(true);
+        let override_block = crate::input::ForkOverride {
+            changes: alloc::vec![switch],
+        };
+        for input in [
+            Input::SetWorldParam(crate::input::SetWorldParam { change: switch }),
+            Input::ForkOverride(override_block.clone()),
+            Input::ArrangePartnership(crate::input::ArrangePartnership {
+                woman: sim(2),
+                man: sim(1),
+            }),
+        ] {
+            let rejected = world.submit(input).expect_err("rejected");
+            assert_eq!(rejected.code, RejectCode::EndOfTime);
+            assert_eq!(world.inputs.next_seq.peek(), 2);
+            assert_eq!(world.inputs.records.len(), 1);
+            assert!(world.take_log().is_empty());
+        }
+        assert_eq!(
+            crate::state::params::block_rejection(&override_block, last),
+            Some(RejectCode::EndOfTime)
+        );
+        let params = WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        };
+        assert_eq!(
+            crate::state::params::set_rejection(switch, &params, last),
+            Some(RejectCode::EndOfTime)
+        );
     }
 
     /// ADR-0004 section 1: looking up an unknown ID in the core is an invariant break.

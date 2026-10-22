@@ -150,8 +150,8 @@ pub(crate) fn on_onset(
 }
 
 /// The switch of the hereditary diseases in `history`: `Start`'s value and each change of an
-/// override, each with the second it acts from (one after its stamp), in the order of the
-/// input log.
+/// override or a world rule, each with the second it acts from (one after its stamp), in
+/// the order of the input log.
 fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
     let acts = |t: SimTime| {
         t.checked_add(SimDuration::from_secs(1))
@@ -168,6 +168,10 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
                     ParamChange::NutritionYear(_) => None,
                 })
                 .collect(),
+            Input::SetWorldParam(rule) => match rule.change {
+                ParamChange::HereditaryDiseases(on) => Vec::from([(acts(record.t), on)]),
+                ParamChange::NutritionYear(_) => Vec::new(),
+            },
             Input::ArrangePartnership(_) => Vec::new(),
         })
         .collect()
@@ -178,7 +182,7 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
 fn by_start(history: &[InputRecord]) -> u64 {
     let start = (history.iter()).find_map(|record| match &record.input {
         Input::Start(start) => Some(start),
-        Input::ForkOverride(_) | Input::ArrangePartnership(_) => None,
+        Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => None,
     });
     super::start::persons(start.unwrap_or_else(|| panic!("invariant onset.no_start")))
 }

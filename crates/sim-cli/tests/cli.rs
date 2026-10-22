@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":5,"core_version":45,"data_hash":"b1f5c0054302363d","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":46,"data_hash":"b1f5c0054302363d","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":5,"core_version":45,"data_hash":"b1f5c0054302363d","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":46,"data_hash":"b1f5c0054302363d","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e54022dbdec8898d480f0fab1011201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f80af8684a8a82be0849480e4ee92801b8480d68680bcf482c0018f8a80dced80b8aa34c095ce80a8b9b8902686c0d6808084d68a200000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b4f2f6cb91d68c96b401"
+        "53494d4147454e54022ebdec8898d480f0fab1011201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f80af8684a8a82be0849480e4ee92801b8480d68680bcf482c0018f8a80dced80b8aa34c095ce80a8b9b8902686c0d6808084d68a200000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b4f2f6cb91d68c96b401"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -225,14 +225,19 @@ fn commands() -> Vec<(Input, &'static str)> {
     let start = r#"{"start":{"world_seed":"0000000000000001","founder_tag":"test:cli","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-943488000,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]},{"born":-794880000,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,0]}]},{"born":-1,"sex":"male","alleles":[{"locus":"core:disease_ar","copies":[1,1]}]}],"couples":[],"capacity":null,"pool":null}}"#;
     let block = r#"{"fork_override":{"changes":[{"core:hereditary_diseases":true}]}}"#;
     let parse = |line: &str| serde_json::from_str::<Input>(line).expect("parses");
+    let rule = r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#;
     let commands = vec![
         (parse(start), start),
         (parse(block), block),
         (parse(ARRANGE), ARRANGE),
+        (parse(rule), rule),
     ];
     for (input, _) in &commands {
         match input {
-            Input::Start(_) | Input::ForkOverride(_) | Input::ArrangePartnership(_) => {}
+            Input::Start(_)
+            | Input::ForkOverride(_)
+            | Input::ArrangePartnership(_)
+            | Input::SetWorldParam(_) => {}
         }
     }
     commands
@@ -320,6 +325,103 @@ fn a_partnership_at_a_stop_replays() {
         fs::read(run.join("state.save")).expect("reads"),
         world.save(&out.year_hashes).expect("saves")
     );
+}
+
+/// ADR-0023 section 5, the lever of the switch: world rules at stops inside the years,
+/// on at `2.5 · Y − 1` and off at `6.5 · Y − 1` (`run --resume --input`). The census row
+/// of the year of each rule shows the new state: `diseases_on` and
+/// `affected.core:disease_ar` are 1 in the rows 2 to 5 and 0 from row 6 on; every other
+/// column and every row of the run without rules (the switch off throughout) is the
+/// twin's. Sim 3 (two copies, onset 0) lives with 4 years of exposure: the fork test
+/// shows him alive with 5. Turning on writes his onset (path 3) caused by the rule, as
+/// the fork does; the replay from `input.ndjson` gives the same run.
+#[test]
+fn world_rules_move_the_census_from_their_year() {
+    let dir = scratch("world_rules");
+    let scenario = dir.join("ten.scenario.json");
+    fs::write(&scenario, TEN_YEARS).expect("writes the scenario");
+    let (run, twin) = (dir.join("run"), dir.join("twin"));
+    let end = (10 * Y - 1).to_string();
+    let twin_args = [
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&twin),
+        "--until",
+        &end,
+    ];
+    must(&twin_args);
+    let (on, off) = (2 * Y + Y / 2 - 1, 6 * Y + Y / 2 - 1);
+    let first = on.to_string();
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&run),
+        "--until",
+        &first,
+    ]);
+    let rule = |value: bool| {
+        format!(r#"{{"set_world_param":{{"change":{{"core:hereditary_diseases":{value}}}}}}}"#)
+    };
+    for (value, until) in [(true, off.to_string()), (false, end.clone())] {
+        let inputs = dir.join(format!("rule_{value}.json"));
+        fs::write(&inputs, format!("[{}]", rule(value))).expect("writes the inputs");
+        must(&[
+            "run",
+            "--resume",
+            "--out",
+            arg(&run),
+            "--input",
+            arg(&inputs),
+            "--until",
+            &until,
+        ]);
+    }
+    let log = text(&run.join("input.ndjson"));
+    assert_eq!(
+        log.lines().skip(2).take(2).collect::<Vec<_>>(),
+        [
+            format!(r#"{{"t":{on},"seq":2,"input":{}}}"#, rule(true)),
+            format!(r#"{{"t":{off},"seq":3,"input":{}}}"#, rule(false)),
+        ]
+    );
+    assert!(text(&run.join("events.ndjson")).contains(&format!(
+        r#""t":{},"subjects":[{{"sim":3}}],"causes":[{{"input":2}}],"payload":{{"core:disease_onset":{{"disease":"core:disease_ar","since_year":-1,"age_years":0}}}}"#,
+        on + 1
+    )));
+    let (ours, theirs) = (
+        text(&run.join("census.csv")),
+        text(&twin.join("census.csv")),
+    );
+    let header: Vec<&str> = ours.lines().next().expect("a header").split(',').collect();
+    assert_eq!(theirs.lines().next(), ours.lines().next());
+    let switched = ["diseases_on", "affected.core:disease_ar"];
+    for (row, (our, their)) in ours.lines().zip(theirs.lines()).skip(1).enumerate() {
+        for ((name, value), twin_value) in header.iter().zip(our.split(',')).zip(their.split(',')) {
+            let expected = match (switched.contains(name), row) {
+                (true, 2..=5) => "1",
+                (true, _) => "0",
+                (false, _) => twin_value,
+            };
+            assert_eq!((name, value), (name, expected), "year {row}");
+        }
+    }
+    assert_eq!(ours.lines().count(), 11);
+    assert_eq!(theirs.lines().count(), 11);
+    let replayed = dir.join("replayed");
+    must(&[
+        "run",
+        "--replay",
+        arg(&run.join("input.ndjson")),
+        "--manifest",
+        arg(&run.join("manifest.json")),
+        "--out",
+        arg(&replayed),
+    ]);
+    assert_same_run(&run, &replayed);
 }
 
 /// An input at a stop that the core rejects ends with its code and changes nothing in
@@ -633,12 +735,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":45"#, r#""core_version":46"#);
+    replace_in(&log, r#""core_version":46"#, r#""core_version":47"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 46, this is 45"
+        "error: replay_foreign_core_version: the input log is of core version 47, this is 46"
     );
-    replace_in(&log, r#""core_version":46"#, r#""core_version":45"#);
+    replace_in(&log, r#""core_version":47"#, r#""core_version":46"#);
     replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -1186,8 +1288,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 45, "the core version in the header of the save");
-    bytes[9] = 46;
+    assert_eq!(bytes[9], 46, "the core version in the header of the save");
+    bytes[9] = 47;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

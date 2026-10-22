@@ -28,6 +28,7 @@ subject 0 sim
 input 0 start
 input 1 fork_override
 input 2 arrange_partnership
+input 3 set_world_param
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
@@ -59,6 +60,9 @@ reject 27 start_pool_households
 reject 28 start_pool_village_n_start
 reject 29 start_pool_village_immigration
 reject 30 start_pool_village_candidates
+reject 31 end_of_time
+reject 32 param_not_settable
+reject 33 param_unchanged
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

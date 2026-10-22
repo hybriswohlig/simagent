@@ -21,15 +21,14 @@ pub(crate) fn check_arrange(
     closed_through: SimTime,
     pair: &ArrangePartnership,
 ) -> Result<(), InputRejected> {
-    let code = if domain.world_seed.is_none() {
-        Some(RejectCode::NotStarted)
-    } else {
-        // The input acts in the second after the clock: the partnership forms there.
-        let formed = closed_through
-            .checked_add(SimDuration::from_secs(1))
-            .unwrap_or_else(|| panic!("invariant partnership.clock"));
-        arrange_rejection(domain, pair)
-            .or_else(|| kin_or_age_rejection(domain, data, (pair.woman, pair.man), formed))
+    // The input acts in the second after the clock: the partnership forms there, and at
+    // the last second of time there is none (ADR-0023 section 1).
+    let formed = closed_through.checked_add(SimDuration::from_secs(1));
+    let code = match (domain.world_seed, formed) {
+        (None, _) => Some(RejectCode::NotStarted),
+        (Some(_), None) => Some(RejectCode::EndOfTime),
+        (Some(_), Some(formed)) => arrange_rejection(domain, pair)
+            .or_else(|| kin_or_age_rejection(domain, data, (pair.woman, pair.man), formed)),
     };
     match code {
         Some(code) => Err(InputRejected { code }),

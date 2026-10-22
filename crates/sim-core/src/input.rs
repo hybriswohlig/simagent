@@ -23,6 +23,9 @@ pub enum Input {
     ForkOverride(ForkOverride),
     /// Pairs two living sims ("Paare stiften", A2).
     ArrangePartnership(ArrangePartnership),
+    /// Sets one world parameter at a stop of the run (ADR-0023 section 2); in phase 1
+    /// only the switch of the hereditary diseases.
+    SetWorldParam(SetWorldParam),
 }
 
 /// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
@@ -136,6 +139,13 @@ pub struct Couple {
 pub struct ArrangePartnership {
     pub woman: SimId,
     pub man: SimId,
+}
+
+/// One world parameter with its new value, set at a stop of the run (ADR-0023 section 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetWorldParam {
+    pub change: ParamChange,
 }
 
 /// World parameters with their new values, applied in list order. A block is never
@@ -271,6 +281,14 @@ pub enum RejectCode {
     StartPoolVillageImmigration,
     /// A village whose pool holds too few women or men of 18 to before 41.
     StartPoolVillageCandidates,
+    /// An input stamped at the last second of time: there is no next second for it to
+    /// act in (ADR-0023 section 1).
+    EndOfTime,
+    /// A world rule for a parameter that is not to be set at run time (ADR-0023
+    /// section 2: in phase 1 only the switch of the hereditary diseases).
+    ParamNotSettable,
+    /// A world rule that sets the value the parameter has (ADR-0023 section 2).
+    ParamUnchanged,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

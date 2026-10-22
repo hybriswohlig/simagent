@@ -129,20 +129,27 @@ pub struct Home {
 }
 
 /// Whether the switch of the hereditary diseases is on at `at`: the value of `Start` from
-/// the start on, each override block's from one second after its stamp (ADR-0013).
+/// the start on, each override block's and world rule's from one second after its stamp
+/// (ADR-0013, ADR-0023 section 2).
 pub(crate) fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
     let mut on = false;
     for record in log {
+        let acted = record.t.as_secs() < at.as_secs();
         match &record.input {
             Input::Start(start) => on = start.world_params.hereditary_diseases,
-            Input::ForkOverride(block) if record.t.as_secs() < at.as_secs() => {
-                for change in &block.changes {
+            Input::ForkOverride(block) => {
+                for change in block.changes.iter().filter(|_| acted) {
                     if let ParamChange::HereditaryDiseases(value) = change {
                         on = *value;
                     }
                 }
             }
-            _ => {}
+            Input::SetWorldParam(rule) => {
+                if let (true, ParamChange::HereditaryDiseases(value)) = (acted, rule.change) {
+                    on = value;
+                }
+            }
+            Input::ArrangePartnership(_) => {}
         }
     }
     on
@@ -333,5 +340,34 @@ mod tests {
         assert!(!switch_at(&log, t(7)));
         assert!(switch_at(&log, t(8)));
         assert!(!switch_at(&[], t(8)));
+    }
+
+    /// A world rule (ADR-0023 section 2) sets the switch from one second after its stamp
+    /// on, like an override block; an arranged partnership leaves it.
+    #[test]
+    fn the_switch_follows_the_world_rules() {
+        let t = SimTime::from_secs;
+        let rule = |on| {
+            Input::SetWorldParam(crate::input::SetWorldParam {
+                change: ParamChange::HereditaryDiseases(on),
+            })
+        };
+        let pair = Input::ArrangePartnership(crate::input::ArrangePartnership {
+            woman: crate::ids::SimId::try_from(2).expect("valid"),
+            man: crate::ids::SimId::try_from(1).expect("valid"),
+        });
+        let log = [
+            record(-1, start(false)),
+            record(5, rule(true)),
+            record(6, pair),
+            record(20, rule(false)),
+            record(30, set(true)),
+        ];
+        assert!(!switch_at(&log, t(5)));
+        assert!(switch_at(&log, t(6)));
+        assert!(switch_at(&log, t(20)));
+        assert!(!switch_at(&log, t(21)));
+        assert!(!switch_at(&log, t(30)));
+        assert!(switch_at(&log, t(31)));
     }
 }

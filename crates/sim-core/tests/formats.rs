@@ -118,12 +118,26 @@ fn sample_arrange() -> Input {
     })
 }
 
+fn sample_rule() -> Input {
+    Input::SetWorldParam(sim_core::input::SetWorldParam {
+        change: sim_core::params::ParamChange::HereditaryDiseases(false),
+    })
+}
+
 /// Every `Input` variant. A new variant fails to compile here until it is in the list.
 fn all_inputs() -> Vec<Input> {
-    let inputs = vec![sample_input(), sample_override(), sample_arrange()];
+    let inputs = vec![
+        sample_input(),
+        sample_override(),
+        sample_arrange(),
+        sample_rule(),
+    ];
     for input in &inputs {
         match input {
-            Input::Start(_) | Input::ForkOverride(_) | Input::ArrangePartnership(_) => {}
+            Input::Start(_)
+            | Input::ForkOverride(_)
+            | Input::ArrangePartnership(_)
+            | Input::SetWorldParam(_) => {}
         }
     }
     inputs
@@ -715,7 +729,9 @@ fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
         from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| match input {
             Input::Start(start) => start.world_seed,
-            Input::ForkOverride(_) | Input::ArrangePartnership(_) => panic!("a start"),
+            Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => {
+                panic!("a start")
+            }
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -992,6 +1008,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::StartPoolVillageNStart,
         RejectCode::StartPoolVillageImmigration,
         RejectCode::StartPoolVillageCandidates,
+        RejectCode::EndOfTime,
+        RejectCode::ParamNotSettable,
+        RejectCode::ParamUnchanged,
     ];
     for code in &codes {
         match code {
@@ -1025,7 +1044,10 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::StartPoolHouseholds
             | RejectCode::StartPoolVillageNStart
             | RejectCode::StartPoolVillageImmigration
-            | RejectCode::StartPoolVillageCandidates => {}
+            | RejectCode::StartPoolVillageCandidates
+            | RejectCode::EndOfTime
+            | RejectCode::ParamNotSettable
+            | RejectCode::ParamUnchanged => {}
         }
     }
     codes
