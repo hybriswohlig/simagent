@@ -897,7 +897,8 @@ def main(argv):
     data_dir = Path(argv[1]) if len(argv) > 1 else REPOSITORY_DATA
     files = pool_files(data_dir)
     if files is None:
-        print(f"data_hash {data_hash(data_dir):016x}")
+        # Without a pool: the definitions, followed by the templates if there are any.
+        print(f"data_hash {repository_hash(data_dir):016x}")
     else:
         # The repository's data (S5): the definitions, then the data with the pool and its
         # frequencies as the CLI builds them.
