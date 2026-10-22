@@ -2,7 +2,9 @@
  * The SVG geometry of a census curve, which only `web/src/render/` may compute: a fixed box,
  * x linear in the year, y linear between the ends of an axis whose step is the smallest of
  * 1, 2 and 5 times a power of ten, not below the shown decimals, that needs at most five
- * steps. A line breaks at a year without a point; a lone value is a dot.
+ * steps. A line breaks at a year without a point; a lone value is a dot. The axis is worked
+ * out in whole units of the last shown decimal (tenths of a cm, say), where binary64 is
+ * exact: 160.1 / 0.1 lies below 1601.
  */
 export type Point = { x: number; y: number };
 export type Tick = { value: number; at: number };
@@ -36,23 +38,24 @@ export function lineColor(i: number): string {
   return PALETTE[i % PALETTE.length] as string;
 }
 
-/** The steps 1, 2 and 5 times a power of ten, from `10^-decimals` up. */
-function* steps(decimals: number): Generator<number> {
-  for (let k = -decimals; ; k += 1) {
+/** The whole steps 1, 2 and 5 times a power of ten, from 1 up. */
+function* steps(): Generator<number> {
+  for (let power = 1; ; power *= 10) {
     for (const m of [1, 2, 5]) {
-      yield k < 0 ? m / 10 ** -k : m * 10 ** k;
+      yield m * power;
     }
   }
 }
 
-/** The axis of the values: its first step count from `lo / step`, its step and its count. */
-function axis(values: number[], fromZero: boolean, decimals: number): { base: number; step: number; count: number } {
-  if (values.length === 0) {
-    return { base: 0, step: 1, count: 1 };
+/** The axis of `units` (whole units): its first step count from `lo / step`, its step and
+ * its count; `none` the step of an axis without values. */
+function axis(units: number[], fromZero: boolean, none: number): { base: number; step: number; count: number } {
+  if (units.length === 0) {
+    return { base: 0, step: none, count: 1 };
   }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  for (const step of steps(decimals)) {
+  const min = Math.min(...units);
+  const max = Math.max(...units);
+  for (const step of steps()) {
     const base = fromZero ? 0 : Math.floor(min / step);
     const count = Math.ceil(max / step) - base;
     if (count <= MOST_STEPS) {
@@ -70,7 +73,7 @@ function yearTicks(years: readonly number[], x: (year: number) => number): Tick[
   if (first === undefined || last === undefined) {
     return [];
   }
-  for (const step of steps(0)) {
+  for (const step of steps()) {
     if ((last - first) / step <= MOST_STEPS) {
       const ticks: Tick[] = [];
       for (let n = Math.ceil(first / step); n * step <= last; n += 1) {
@@ -82,7 +85,8 @@ function yearTicks(years: readonly number[], x: (year: number) => number): Tick[
   throw new Error("unreachable: the steps grow without end");
 }
 
-/** The curve of `lines` over `years` (one value or `null` per year and line). */
+/** The curve of `lines` over `years` (one value or `null` per year and line, with at most
+ * `decimals` decimals). */
 export function chart(
   years: readonly number[],
   lines: readonly (readonly (number | null)[])[],
@@ -92,11 +96,13 @@ export function chart(
   const first = years[0] ?? 0;
   const span = (years[years.length - 1] ?? 0) - first;
   const x = (year: number) => (span === 0 ? LEFT + PLOT_WIDTH / 2 : LEFT + (PLOT_WIDTH * (year - first)) / span);
+  const scale = 10 ** decimals;
+  const unit = (value: number) => Math.round(value * scale);
   const shown = lines.flatMap((line) => line.filter((value): value is number => value !== null));
-  const { base, step, count } = axis(shown, fromZero, decimals);
+  const { base, step, count } = axis(shown.map(unit), fromZero, scale);
   const lo = base * step;
   const hi = (base + count) * step;
-  const y = (value: number) => TOP + PLOT_HEIGHT * (1 - (value - lo) / (hi - lo));
+  const y = (value: number) => TOP + PLOT_HEIGHT * (1 - (unit(value) - lo) / (hi - lo));
   const segments: Point[][][] = [];
   const dots: Point[][] = [];
   for (const line of lines) {
@@ -117,8 +123,8 @@ export function chart(
     dots.push(runs.filter((points) => points.length === 1).flat());
   }
   const yTicks = Array.from({ length: count + 1 }, (_, i) => {
-    const value = (base + i) * step;
-    return { value, at: y(value) };
+    const units = (base + i) * step;
+    return { value: units / scale, at: TOP + PLOT_HEIGHT * (1 - (units - lo) / (hi - lo)) };
   });
   return { width: WIDTH, height: HEIGHT, segments, dots, yTicks, xTicks: yearTicks(years, x) };
 }

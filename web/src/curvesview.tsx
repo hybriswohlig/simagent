@@ -51,6 +51,11 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
             </text>
           </g>
         ))}
+        {curve.unit === null ? null : (
+          <text x={2} y={BOTTOM + 16} font-size="11">
+            {curve.unit}
+          </text>
+        )}
         {drawn.xTicks.map((tick) => (
           <text key={`x${tick.value}`} x={tick.at} y={BOTTOM + 16} text-anchor="middle" font-size="11">
             {String(tick.value)}
@@ -83,12 +88,39 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
           </li>
         ))}
       </ul>
+      <details>
+        <summary>{TEXT.curve_values}</summary>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">{TEXT.year}</th>
+              {curve.lines.map((line) => (
+                <th scope="col" key={line.name}>
+                  {line.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {years.map((year, i) => (
+              <tr key={year}>
+                <th scope="row">{String(year)}</th>
+                {curve.lines.map((line) => {
+                  const value = line.values[i] ?? null;
+                  return <td key={line.name}>{value === null ? "" : curve.label(value)}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </figure>
   );
 }
 
-/** The curves of the run (ADR-0021, addendum 2026-10-21): two pictures side by side; the last
- * curves that came stay while the next load, so playing does not flicker. */
+/** The curves of the run (ADR-0021, addendum 2026-10-21): the pictures side by side, each with
+ * its values as a folded table (a year without a point an empty cell); the last curves that
+ * came stay while the next load, so playing does not flicker. */
 export function CurvesView({ run, at }: { run: string; at: string }) {
   const loaded = useCurves(run, at);
   const [shown, setShown] = useState<Curves | null>(null);

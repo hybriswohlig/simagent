@@ -7,12 +7,13 @@ import { TEXT } from "./text.js";
  * last year's value as text. */
 export type Line = { name: string; values: (number | null)[]; last: string | null };
 
-/** A picture: its title, whether its axis starts at zero, the decimals it shows, its lines,
- * the sentence above it, and how a value and a tick of its axis read. */
+/** A picture: its title, whether its axis starts at zero, the decimals it shows, the unit of
+ * its axis, its lines, the sentence above it, and how a value and a tick of its axis read. */
 export type Curve = {
   title: string;
   fromZero: boolean;
   decimals: number;
+  unit: string | null;
   lines: Line[];
   note: string | null;
   label: (value: number) => string;
@@ -44,12 +45,14 @@ function curve(
   lines: [string, (number | null)[]][],
   note: string | null = null,
 ): Curve {
+  const unit = [null, TEXT.card_cm, TEXT.percent][decimals] ?? null;
   const format = (value: number) => (DIGITS[decimals] as Intl.NumberFormat).format(value);
   const label = decimals === 2 ? (value: number) => `${format(value)} ${TEXT.percent}` : format;
   return {
     title,
     fromZero,
     decimals,
+    unit,
     lines: lines.map(([name, values]) => {
       const last = values[values.length - 1] ?? null;
       return { name, values, last: last === null ? null : label(last) };
@@ -66,7 +69,8 @@ function curve(
  * has no point where its count is 0. The card's sentence stands above the affected and the
  * deaths when the switch is off at the end of the last year.
  *
- * Throws `UnknownAnswer` for a census without a column of the curves or with a short row.
+ * Throws `UnknownAnswer` for a census without a column of the curves (the deaths of age and
+ * of accidents among them, which the addendum always has) or with a short row.
  */
 export function curves(answer: CensusAnswer): Curves {
   const index = new Map(answer.columns.map((column, i) => [column, i]));
@@ -98,6 +102,9 @@ export function curves(answer: CensusAnswer): Curves {
     [TEXT.curve_men, mean(`${group}_male`, `${mm}_male`, 10)],
   ];
   const years = column("year");
+  for (const cause of Object.keys(CAUSES)) {
+    column(`deaths.${cause}`);
+  }
   const on = column("diseases_on");
   const off = on.length > 0 && on[on.length - 1] === 0;
   const note = off ? TEXT.card_diseases_off : null;

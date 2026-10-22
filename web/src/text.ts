@@ -148,6 +148,7 @@ export const TEXT = {
   curve_women: "Frauen",
   curve_men: "Männer",
   curve_inbreeding: "Mittlere Inzucht der Neugeborenen",
+  curve_values: "Werte",
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */
