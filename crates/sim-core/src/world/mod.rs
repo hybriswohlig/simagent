@@ -613,7 +613,7 @@ mod tests {
     /// changes; one of one year sets 999 998.
     #[test]
     fn a_shock_past_the_end_of_time_changes_nothing() {
-        let hunger = |id: &str, years| crate::data::ShockTemplate {
+        let hunger = |id, years| crate::data::ShockTemplate {
             id: DataId::new(id).expect("valid"),
             kind: crate::data::ShockKind::Hunger,
             years,
@@ -635,7 +635,7 @@ mod tests {
             entries: Vec::new(),
         })
         .expect("valid snapshot");
-        let shock = |id: &str| {
+        let shock = |id| {
             Input::TriggerShock(crate::input::TriggerShock {
                 shock: DataId::new(id).expect("valid"),
             })
