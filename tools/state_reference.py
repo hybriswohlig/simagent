@@ -3629,6 +3629,7 @@ def entry_json(line: bytes) -> str:
         11: lambda: {"core:moved": {"household": number()}},
         12: lambda: {"core:emigrated": {"household": number()}},
         14: lambda: {"core:disease_onset": {"disease": text(), "since_year": zigzag(), "age_years": zigzag()}},
+        15: lambda: {"core:shock_triggered": {"shock": text(), "first_year": zigzag(), "last_year": zigzag()}},
     }
     if kind not in readers:
         return None

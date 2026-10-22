@@ -9,7 +9,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
 - tests/scenarios/dummy.json (format 5, no pool): tests/golden/dummy.json (the core version,
   the data hash, the year hashes, the log hash) of the run to `until`; tests/golden/
   dummy_fork.json of its fork (the same run to the last second of year 4, the override
-  "hereditary diseases on" stamped T_5 − 1 s, then to `until`; ADR-0001 section 6);
+  "hereditary diseases on" stamped T_5 − 1 s, then at the same stamp the shock
+  `core:hunger_one_year`, which sets year 5 to 0.7 (input 3; ADR-0023, addendum before S1b:
+  the golden fork covers `core:shock_triggered`), then to `until`; ADR-0001 section 6);
   tests/golden/dummy.save, the save of the run on day 100 of year 3; tests/golden/
   dummy_pedigree.json and dummy_fork_pedigree.json, the text of `pedigree.json` of the run and
   of the fork at `until`, compact as serde_json writes it, followed by one newline (`simagent
@@ -36,8 +38,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
 Every model load check runs on the save and at the ends (`check_all`). The coverage of
 ADR-0003 6.3 is recounted over the dummy run, its fork, the arrival (tests/golden/
 arrival.json, tools/arrival_reference.py) and the town: every event kind (event_codes.txt,
-codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 14) must appear in
-one of them; printed per scenario and for the union (`coverage_rows`). The onset of a disease
+codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 15) must appear in
+one of them (payload 15, `core:shock_triggered`, only in the fork); printed per scenario and
+for the union (`coverage_rows`). The onset of a disease
 (ADR-0017 section 3, addendum of 2026-10-20: the event `disease_onset`, kind 11, and the entry
 `core:disease_onset`, payload 14) is counted per scenario and path in `onset_rows`, the dummy
 fork at year 7 of card_diseases.json among them; the forks write path 3 (core 43: an override
@@ -72,6 +75,9 @@ SCENARIOS = ROOT / "tests" / "scenarios"
 DAY = 86_400
 # The fork point of the dummy goldens (the override acts at T_5) and the second of the save.
 FORK_YEAR = 5
+# The shock of the golden fork (ADR-0023, addendum before S1b): after the override, at its
+# stamp; it sets year 5.
+FORK_SHOCK = "core:hunger_one_year"
 SAVE_AT = 3 * YEAR + 100 * DAY
 DUMMY_FILES = ("dummy.json", "dummy_fork.json", "dummy.save", "dummy_pedigree.json", "dummy_fork_pedigree.json")
 # The export of the run with names (`simagent export`, format 5); not one of the story's files.
@@ -94,8 +100,8 @@ NAMES = ROOT / "data" / "names"
 FIRST_NAME, SURNAME = 29, 30
 TOWN_FILE = "town.json"
 # The kinds of ADR-0003 6.3: event kinds 1 (year_end) to 11 (disease_onset), log payloads 0
-# (core:started) to 14 (core:disease_onset), as tests/golden/event_codes.txt and log_codes.txt
-# register them.
+# (core:started) to 15 (core:shock_triggered), as tests/golden/event_codes.txt and
+# log_codes.txt register them.
 EVENT_NAMES = {
     1: "year_end", 2: "birthday", 3: "death", 4: "conception_attempt", 5: "birth", 6: "separation",
     7: "market_round", 8: "leave_home", 9: "emigration", 10: "immigration", 11: "disease_onset",
@@ -104,7 +110,7 @@ LOG_NAMES = {
     0: "core:started", 1: "core:founder_added", 2: "core:birthday", 3: "core:param_changed", 4: "core:death",
     5: "core:partnered", 6: "core:conception", 7: "core:meiosis", 8: "core:birth", 9: "core:separated",
     10: "core:household_formed", 11: "core:moved", 12: "core:emigrated", 13: "core:arrived",
-    14: "core:disease_onset",
+    14: "core:disease_onset", 15: "core:shock_triggered",
 }
 # The pairs of the CLI's kinship test (crates/sim-cli/tests/cli.rs) on the dummy run.
 KINSHIP_PAIRS = [(1, 8), (8, 10), (1, 2), (3, 3), (13, 13), (2, 13), (10, 13), (8, 7), (8, 4), (14, 1)]
@@ -164,21 +170,29 @@ def golden_text(world: wr.World) -> str:
     return json.dumps(content, indent=2) + "\n"
 
 
-def dummy_worlds(s: dict, data: wr.Data) -> dict:
+def dummy_worlds(s: dict, data: wr.Data, shock: bool = True) -> dict:
     """The run to `until`, the fork (the override "hereditary diseases on" at the last second
-    of year 4), the world of the save (day 100 of year 3); every load check on each."""
+    of year 4, then the shock `FORK_SHOCK` at the same stamp, which sets year 5), the world of
+    the save (day 100 of year 3); every load check on each. `shock` False leaves the shock
+    out (the story on map 3, `story_check`: its data hold no templates and its hand story
+    predates the shocks)."""
     run = make_world(s, data)
     run.advance(s["until"])
     check_all(run)
     fork = make_world(s, data)
     fork.advance(FORK_YEAR * YEAR - 1)
+    first_entry = fork.next_event_id
     fork.override(True)
+    if shock:
+        fork.trigger_shock(FORK_SHOCK)
+        assert fork.shocks[-1]["years"] == [FORK_YEAR] and fork.shocks[-1]["input"] == 3, fork.shocks
+    input_entries = range(first_entry, fork.next_event_id)
     fork.advance(s["until"])
     check_all(fork)
     saved = make_world(s, data)
     saved.advance(SAVE_AT)
     check_all(saved)
-    return {"run": run, "fork": fork, "saved": saved, "until": s["until"]}
+    return {"run": run, "fork": fork, "saved": saved, "until": s["until"], "fork_input_entries": input_entries}
 
 
 def export_json(world: wr.World) -> str:
@@ -621,6 +635,35 @@ def onset_rows(worlds: dict) -> list:
     return rows
 
 
+def fork_input_rows(w: dict) -> list:
+    """The inputs of the golden fork at its stamp (the override, then the shock; ADR-0023,
+    addendum before S1b): the shock's record (years, index, its entries), every entry the two
+    inputs wrote at `T_5` in log order (hex, and the JSON where `arrival_reference.entry_json`
+    reads it), the input records, and how many entries the fork has more than the run (the
+    golden test's `fork.log.len() == whole_run().log.len() + n`)."""
+    import arrival_reference
+
+    run, fork = w["run"], w["fork"]
+    rows = [f"fork_shock {record}" for record in fork.shocks]
+    for record in fork.inputs[1:]:
+        rows.append(f"fork_input record {record.hex()}")
+    for entry_id in w["fork_input_entries"]:
+        line = fork.log[entry_id - 1]
+        assert wr_entry_head(line) == (entry_id, FORK_YEAR * YEAR), line.hex()
+        text = arrival_reference.entry_json(line)
+        rows.append(f"fork_input entry {entry_id} {line.hex()} {text if text is not None else ''}".rstrip())
+    rows.append(f"fork_extra_entries {len(fork.log) - len(run.log)} (fork {len(fork.log)}, run {len(run.log)})")
+    return rows
+
+
+def wr_entry_head(line: bytes) -> tuple:
+    """(id, t) of an entry's bytes: the varint id, then the zigzag second."""
+    import pool_reference
+
+    c = pool_reference.Cursor(line)
+    return c.varint(), c.signed()
+
+
 def person_of(world: wr.World, sim: int) -> tuple:
     """(born, key, sex, genome, parents, left, cause) of a living or archived sim."""
     if sim in world.sims:
@@ -730,7 +773,7 @@ def story_check() -> list:
     import dummy_story
 
     story = dummy_story.story_files()
-    writer = dummy_files(dummy_worlds(scenario(SCENARIOS / "dummy.json"), wr.MAP3))
+    writer = dummy_files(dummy_worlds(scenario(SCENARIOS / "dummy.json"), wr.MAP3, shock=False))
     same = {name: writer[name] == story[name] for name in DUMMY_FILES}
     return [f"story map3 data_hash {hexed(wr.MAP3.hash)} the writer's files equal the story's {same}"], all(same.values())
 
@@ -762,6 +805,7 @@ def main(argv) -> int:
     rows = [f"data data/ data_hash {hexed(data.hash)} definitions {hexed(data.pool.frozen_hash)} pool {hexed(data.pool.hash)} core_version {wr.CORE_VERSION}"]
     rows += pin_rows("golden", files)
     rows += story_rows("dummy", w)
+    rows += fork_input_rows(w)
     rows += town_rows(town_run)
     arrival = arrival_world()
     rows += coverage_rows({"dummy_run": w["run"], "dummy_fork": w["fork"], "arrival": arrival, "town": town_run})

@@ -93,9 +93,23 @@ pool and those frequencies, so the repository's data hash is `data_hash_with_poo
 directory without a `pool/` (every fixture, tests/golden/map3) has no pool: its data hash is
 that of its definitions, as before.
 
+The shock templates (ADR-0023 section 3 and its addendum before S1b): data/shocks.json
+(`{"format": "simagent.shocks", "version": 1, "shocks": [{id, kind, years, index, source}]}`,
+every field required, none other; `source` is text and not hashed) holds the templates of
+`TriggerShock`, the kind `hunger` only, `years` at least 1 (a u32), `index` in [0, 1), an ID
+at most once (`shocks_of`). Data that hold templates append them to the data hash as their
+own data set `core:shocks`, after the definitions and after the pool if there is one: the
+postcard of the list of templates sorted by ID, `varint(len)`, then per template `string(id)`,
+`varint(kind)` (hunger 0), `varint(years)`, the f64 `index` little endian (`shocks_suffix`).
+Data without templates (every fixture, every test data set) append nothing, so their hash
+stays; the pool's check still compares with the hash of the definitions alone
+(`frozen_hash`). The CLI's data carry the repository's templates, so `repository_hash` is
+xxh3-64 of the definitions, the pool suffix and the templates' suffix.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
-       (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool and its
-       frequencies, the pool's seed, hash, frozen hash and the frequency rules)
+       (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
+       frequencies and, with DATA_DIR/shocks.json, the templates; the pool's seed, hash,
+       frozen hash and the frequency rules, the templates' suffix)
        python3 tools/data_reference.py [DATA_DIR] --pool POOL --frequencies FILE
        (the definitions' hash and the data hash with the pool and its frequencies)
 """
@@ -723,6 +737,82 @@ def data_hash_with_pool(definitions: bytes, pool_seed: int, pool_hash: int, freq
 
 
 # ---------------------------------------------------------------------------------------
+# The shock templates (ADR-0023 section 3, addendum before S1b): data/shocks.json, their own
+# data set `core:shocks` in the data hash, after the definitions and the pool.
+
+SHOCKS_FORMAT = "simagent.shocks"
+SHOCKS_VERSION = 1
+SHOCKS_FILE_FIELDS = ("format", "version", "shocks")
+SHOCK_FIELDS = ("id", "kind", "years", "index", "source")
+# The kinds of a template in the order of the enum: variant 0 `hunger` (the only kind of
+# phase 1, ADR-0023 section 4).
+SHOCK_KINDS = ["hunger"]
+# `years` is a u32.
+SHOCK_YEARS_MAX = 2**32 - 1
+
+
+def templates_checked(templates) -> list:
+    """The templates (each a dict with `id`, `kind`, `years`, `index`; a `source` is ignored)
+    checked by the rules of the data (ADR-0023 section 3) and sorted by ID, each failure an
+    AssertionError naming its rule: `shocks.duplicate` (an ID twice), `shocks.kind` (not
+    `hunger`), `shocks.years` (below 1, or no u32), `shocks.index` (not a number in [0, 1);
+    a NaN, an infinity or -0.0 is no `FiniteF64` and fails it too). Returns the templates as
+    dicts of the four hashed fields, ascending by ID."""
+    out = []
+    for template in templates:
+        identifier, kind, years, index = template["id"], template["kind"], template["years"], template["index"]
+        assert isinstance(identifier, str) and identifier, f"shocks.id {identifier!r}"
+        assert kind in SHOCK_KINDS, f"shocks.kind {identifier} {kind!r}"
+        assert isinstance(years, int) and not isinstance(years, bool) and 1 <= years <= SHOCK_YEARS_MAX, f"shocks.years {identifier} {years!r}"
+        assert isinstance(index, (int, float)) and not isinstance(index, bool), f"shocks.index {identifier} {index!r}"
+        index = float(index)
+        assert math.isfinite(index) and not (index == 0.0 and math.copysign(1.0, index) < 0.0), f"shocks.index {identifier} {index!r}"
+        assert 0.0 <= index < 1.0, f"shocks.index {identifier} {index!r}"
+        out.append({"id": identifier, "kind": kind, "years": years, "index": index})
+    ids = [template["id"] for template in out]
+    assert len(set(ids)) == len(ids), f"shocks.duplicate {sorted(ids)}"
+    return sorted(out, key=lambda template: template["id"].encode("utf-8"))
+
+
+def shocks_of(document) -> list:
+    """The templates of a shocks file (data/shocks.json), parsed JSON: exactly the fields
+    `format` (`simagent.shocks`), `version` (1) and `shocks` (a list), each template exactly
+    `id`, `kind`, `years`, `index` and `source` (`deny_unknown_fields`, every field required;
+    the text `source` filled, as every text of the data, and not hashed); then
+    `templates_checked`. Returns them without their text, ascending by ID."""
+    assert isinstance(document, dict) and set(document) == set(SHOCKS_FILE_FIELDS), f"shocks.fields {sorted(document) if isinstance(document, dict) else document!r}"
+    assert document["format"] == SHOCKS_FORMAT, f"shocks.format {document['format']!r}"
+    assert document["version"] == SHOCKS_VERSION, f"shocks.version {document['version']!r}"
+    assert isinstance(document["shocks"], list), "shocks.fields shocks"
+    for template in document["shocks"]:
+        assert isinstance(template, dict) and set(template) == set(SHOCK_FIELDS), f"shocks.fields {sorted(template) if isinstance(template, dict) else template!r}"
+        filled(template, ("source",))
+    return templates_checked(document["shocks"])
+
+
+def shock_templates(data_dir: Path):
+    """The templates of `data_dir/shocks.json` (`shocks_of`), or None without that file (every
+    fixture: test data hold no templates)."""
+    path = Path(data_dir) / "shocks.json"
+    if not path.exists():
+        return None
+    return shocks_of(json.loads(path.read_text()))
+
+
+def shocks_suffix(templates) -> bytes:
+    """The postcard of the templates that the data hash appends (ADR-0023 section 3, addendum
+    before S1b): the list sorted by ID, `varint(len)`, then per template `string(id)`,
+    `varint(kind)` (hunger 0), `varint(years)` and `index` as an f64 little endian. Empty
+    (nothing appended) for data without templates (None or an empty list)."""
+    if not templates:
+        return b""
+    out = varint(len(templates))
+    for template in templates_checked(templates):
+        out += string(template["id"]) + varint(SHOCK_KINDS.index(template["kind"])) + varint(template["years"]) + f64(template["index"])
+    return out
+
+
+# ---------------------------------------------------------------------------------------
 # The repository's pool (slice S5): data/pool/pool.bin and data/pool/pool_frequencies.json.
 
 POOL_MAGIC = b"SIMPOOL"
@@ -770,18 +860,20 @@ def pool_files(data_dir: Path):
 
 
 def repository_hash(data_dir: Path) -> int:
-    """The data hash of a data directory as the CLI builds its data: with a `pool/` the
-    definitions followed by `(pool_seed, pool_hash, frequencies)` (`data_hash_with_pool`,
-    the frequencies checked by `frequencies_rejection`), else the definitions alone
-    (`data_hash`)."""
+    """The data hash of a data directory as the CLI builds its data: the definitions, with a
+    `pool/` followed by `(pool_seed, pool_hash, frequencies)` (`pool_suffix`, the frequencies
+    checked by `frequencies_rejection`), with a `shocks.json` followed by its templates
+    (`shocks_suffix`, ADR-0023 section 3); xxh3-64 with seed 0 of the concatenation. Without
+    either it is the definitions alone (`data_hash`)."""
     files = pool_files(data_dir)
-    definitions = definitions_bytes(*documents(data_dir))
-    if files is None:
-        return xxhash.xxh3_64_intdigest(definitions, seed=0)
-    pool, frequencies = files
-    assert frequencies_rejection(frequencies) is None, frequencies_rejection(frequencies)
-    head = pool_head(pool)
-    return data_hash_with_pool(definitions, head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
+    out = definitions_bytes(*documents(data_dir))
+    if files is not None:
+        pool, frequencies = files
+        assert frequencies_rejection(frequencies) is None, frequencies_rejection(frequencies)
+        head = pool_head(pool)
+        out += pool_suffix(head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
+    out += shocks_suffix(shock_templates(data_dir))
+    return xxhash.xxh3_64_intdigest(out, seed=0)
 
 
 def main(argv):
@@ -820,6 +912,16 @@ def main(argv):
             f" suffix {pool_suffix(head['pool_seed'], pool_hash, frequencies).hex()}"
         )
         print(f"frequencies rules {frequencies_rejection(frequencies) or 'passed'} " + " ".join(f"{locus}={q!r}" for locus, q in sorted(frequencies.items())))
+        # The shock templates (ADR-0023 section 3): the data hash above ends with them; the
+        # hash of the definitions and the pool without them, for comparison.
+        templates = shock_templates(data_dir)
+        definitions_and_pool = definitions_bytes(*documents(data_dir)) + pool_suffix(head["pool_seed"], pool_hash, frequencies)
+        listed = " ".join("{}:{}:{}:{!r}".format(t["id"], t["kind"], t["years"], t["index"]) for t in templates or [])
+        print(
+            f"shocks {listed or 'none'} suffix {shocks_suffix(templates).hex()}"
+            f" data_hash_without_shocks {xxhash.xxh3_64_intdigest(definitions_and_pool, seed=0):016x}"
+            f" data_hash {repository_hash(data_dir):016x} ({repository_hash(data_dir)})"
+        )
     # The threshold of each threshold disease that names its trait of liability (none in the
     # repository's data, so their output stays one line).
     _, calibration, _ = documents(data_dir)

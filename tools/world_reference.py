@@ -142,6 +142,19 @@ What the model knows:
   second after the stamp on (`nutrition_year_past`), in the range of `Start`
   (`nutrition_out_of_range`). Only the body mapping reads the list, so it plans and cancels
   nothing: the entry `core:param_changed` and the `WorldParams` of the projection change.
+- A shock (ADR-0023 section 3 and its addendum before S1b; `trigger_shock`): the input
+  `TriggerShock { shock }` (input variant 4, the template's data ID as a string) names a
+  template of the data (`Data(..., shocks=...)`, data/shocks.json: the kind `hunger`, `years`,
+  `index`). Stamped with the last closed second `t`, it acts in `t + 1`; checked before it
+  takes a sequence number, a rejected one changes nothing (`shock_rejection`, in this order):
+  `end_of_time` (`t` the last second of the time), `shock_unknown`, `nutrition_out_of_range`
+  (a year outside the range of `Start`), `shock_overlaps` (a year with an index below 1
+  now), every year before any change. It sets `Y1` to `Y1 + years − 1` (`shock_years`: `Y1`
+  the first calendar year beginning in or after `t + 1`) to the index, inserted or replaced
+  as the nutrition override, and writes at `t + 1` the entry `core:shock_triggered { shock,
+  first_year, last_year }` (log payload 15, caused by the input), then per year one
+  `core:param_changed` with `core:nutrition_year`, caused by the shock's entry. The switch
+  stays; nothing is planned or cancelled.
 - Couples: after the founders, `Start` forms a partnership per couple of its list (a
   woman and a man by their places among the founders); `ArrangePartnership` forms one
   between two living sims, unless it is rejected (`arrange_rejection`, in this order:
@@ -727,7 +740,25 @@ WORLD_SUBJECT, SIM_SUBJECT, PARTNERSHIP_SUBJECT = 0, 1, 2
 # the end of the list (design note of the market, section 4).
 UNKNOWN_FOUNDER, UNKNOWN_SIM, SIM_NOT_ALIVE, PARTNERS_OF_WRONG_SEX, ALREADY_PARTNERED = 13, 9, 10, 11, 12
 PARTNER_TOO_YOUNG, PARTNERS_TOO_CLOSELY_RELATED = 21, 22
+# The world rules of the toy (ADR-0023 sections 1 and 3): an input before `Start`, an input
+# stamped in the last second of the time, a year out of the range of `Start`, a year that has
+# begun, a template the data do not know, a year that already has a hunger.
+NOT_STARTED, NUTRITION_OUT_OF_RANGE, NUTRITION_YEAR_PAST = 4, 19, 20
+END_OF_TIME, SHOCK_UNKNOWN, SHOCK_OVERLAPS = 31, 34, 35
+# `TriggerShock { shock }` (ADR-0023 section 3): input variant 4 (after SetWorldParam, 3), the
+# log payload `core:shock_triggered { shock, first_year, last_year }` (after
+# core:disease_onset, 14: the template's ID as a string, then two i64).
+TRIGGER_SHOCK_INPUT = 4
+SHOCK_TRIGGERED_ENTRY = 15
+# The range of the years of `Start`'s nutrition (ADR-0013 section 1, ADR-0002).
+NUTRITION_YEARS = (-1_000_000, 999_999)
 REJECT_NAMES = {
+    NOT_STARTED: "not_started",
+    NUTRITION_OUT_OF_RANGE: "nutrition_out_of_range",
+    NUTRITION_YEAR_PAST: "nutrition_year_past",
+    END_OF_TIME: "end_of_time",
+    SHOCK_UNKNOWN: "shock_unknown",
+    SHOCK_OVERLAPS: "shock_overlaps",
     START_POOL_AND_FOUNDERS: "start_pool_and_founders",
     START_POOL_MISSING: "start_pool_missing",
     START_POOL_N_START: "start_pool_n_start",
@@ -1227,9 +1258,14 @@ class Data:
     and height (`PhenotypeTrait` or None). With a pool (`pool`, the file's bytes) the data
     carry the pool's frequencies (`frequencies`, {locus: q}; S2a, design note of the switch
     to map 4, section 12): `Data::with_pool(definitions, pool_bytes, frequencies)`. They travel
-    with the pool: data without a pool carry none (`pool_frequencies` None)."""
+    with the pool: data without a pool carry none (`pool_frequencies` None). With `shocks`
+    (a list of templates `{id, kind, years, index}`, `data_reference.shock_templates`;
+    ADR-0023 section 3) the data hold the templates of `TriggerShock` (`shocks`, by ID) and
+    the data hash ends with their postcard (`data_reference.shocks_suffix`), after the pool's
+    if there is one; without templates (None or none at all) nothing is appended and every
+    shock is unknown."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None):
         definitions = data_reference.definitions_bytes(demography, calibration, genome_map)
         self.hash = xxhash.xxh3_64_intdigest(definitions, seed=0)
         assert self.hash == data_reference.documents_hash(demography, calibration, genome_map)
@@ -1239,12 +1275,23 @@ class Data:
         # postcard of `(pool_seed, pool_hash, frequencies)` (`data_reference.pool_suffix`).
         self.pool = None
         self.pool_frequencies = None
+        hashed = definitions
         if pool is not None:
             self.pool = DataPool(pool, self.loci, self.hash, {} if frequencies is None else dict(frequencies))
             self.pool_frequencies = self.pool.frequencies
             self.hash = data_reference.data_hash_with_pool(definitions, self.pool.seed, self.pool.hash, self.pool.frequencies)
+            hashed += data_reference.pool_suffix(self.pool.seed, self.pool.hash, self.pool.frequencies)
         else:
             assert frequencies is None, "the frequencies travel with the pool"
+        # The shock templates (ADR-0023 section 3): checked (an ID twice, the kind, `years` at
+        # least 1, `index` in [0, 1)), by ID; their own data set `core:shocks` after the
+        # definitions and the pool. The pool above was checked against the definitions alone.
+        templates = data_reference.templates_checked(shocks or [])
+        self.shocks = {template["id"]: template for template in templates}
+        if templates:
+            hashed += data_reference.shocks_suffix(templates)
+            self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
+        assert self.hash == xxhash.xxh3_64_intdigest(hashed, seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
         # of the map in map order as its terms, and the loci of the mean doses, those whose
         # action is `additive`, in map order (decision 1 of the notes of the measurement: a
@@ -1404,11 +1451,13 @@ class Data:
 def repository_data() -> Data:
     """The repository's data as the CLI builds them (slice S5): the documents under data/, the
     pool data/pool/pool.bin and its frequencies data/pool/pool_frequencies.json
-    (`Data::with_pool`)."""
+    (`Data::with_pool`), and the shock templates of data/shocks.json (ADR-0023 section 3)."""
     files = data_reference.pool_files(ROOT / "data")
     assert files is not None, "the repository's data hold the pool (data/pool/)"
     pool, frequencies = files
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies)
+    shocks = data_reference.shock_templates(ROOT / "data")
+    assert shocks, "the repository's data hold the shock templates (data/shocks.json)"
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
@@ -1566,8 +1615,8 @@ _REPOSITORY = []
 def repository() -> Data:
     """The repository's data as the CLI builds them (`repository_data`), read once; their data
     hash is checked against their own reference (`data_reference.repository_hash`: the
-    definitions, then the pool's seed and hash and the frequencies), and the definitions alone
-    must hash to the pool's `frozen_hash`."""
+    definitions, then the pool's seed and hash and the frequencies, then the shock
+    templates), and the definitions alone must hash to the pool's `frozen_hash`."""
     if not _REPOSITORY:
         data = repository_data()
         assert data.hash == data_reference.repository_hash(ROOT / "data")
@@ -1840,6 +1889,15 @@ for low, high, want in [(0.0, 18.0, 0.02), (10.0, 30.0, 0.180_756_254_138_236_62
 # Fertility (genetics specification 5.6 and 11.3; design note of the fertility curves,
 # section 2): pure functions, ages in years as f64 (11.1: `(t − born).as_years()`). The
 # world reads them in its attempts (design note of the fertility in the world).
+
+
+def shock_years(t: int, years: int) -> range:
+    """The calendar years a shock of `years` years stamped at `t` sets (ADR-0023 section 3,
+    Grok G8): from `Y1`, the first calendar year whose first second `Y1 · YEAR` is in or after
+    the second after the stamp, `t + 1`, to `Y1 + years − 1`. For a player whose clock shows
+    year `Y` that is always `Y + 1`, in the middle of the year as in its last second."""
+    first = -((-(t + 1)) // YEAR)
+    return range(first, first + years)
 
 
 def month_start_after(t: int) -> int:
@@ -2461,6 +2519,11 @@ class World:
         self.onsets = []
         self.onset_plans = []
         self.fork_onsets = []
+        # Every accepted `TriggerShock` (ADR-0023 section 3) as a record: the second it acted,
+        # its sequence number, the template, the years and the index it set, the id of its
+        # `core:shock_triggered` and those of its `core:param_changed`; for the stories, not
+        # state (the input log and `nutrition` hold it).
+        self.shocks = []
         start = variant(
             0,
             varint(seed),
@@ -4128,6 +4191,59 @@ class World:
         self.nutrition = sorted([entry for entry in self.nutrition if entry[0] != year] + [(int(year), index)])
         self._entry(now, [], [variant(2, varint(sequence))], variant(3, change))
 
+    def shock_rejection(self, shock_id: str):
+        """The reject code of `TriggerShock { shock }` submitted right now (ADR-0023 sections 1
+        and 3), or None. Stamped with the last closed second `t`, it acts in `t + 1`; the
+        rules in this order, each before the input takes a sequence number: `not_started`
+        (never here, a `World` has started), `end_of_time` (`t` is the last second of the
+        time, `MAX_ABS_SECS`: there is no second after it), `shock_unknown` (no template of
+        the data has that ID; data without templates know none), `nutrition_out_of_range` (a
+        year of the shock, `shock_years`, outside −1 000 000 to 999 999), `shock_overlaps` (a
+        year whose index is below 1 now, from the scenario, a fork or an earlier shock; a year
+        at 1 has no hunger and the shock replaces it). Every year is checked before any
+        change, so a shock that would run past the time changes nothing."""
+        t = self.closed
+        if t >= MAX_ABS_SECS:
+            return END_OF_TIME
+        template = self.data.shocks.get(shock_id)
+        if template is None:
+            return SHOCK_UNKNOWN
+        years = shock_years(t, template["years"])
+        if years[0] < NUTRITION_YEARS[0] or years[-1] > NUTRITION_YEARS[1]:
+            return NUTRITION_OUT_OF_RANGE
+        if any(year in years and index < 1.0 for year, index in self.nutrition):
+            return SHOCK_OVERLAPS
+        return None
+
+    def trigger_shock(self, shock_id: str) -> None:
+        """`TriggerShock { shock }` (ADR-0023 section 3; input variant 4, its payload the
+        template's ID as a string), submitted right now; it must be accepted
+        (`shock_rejection`). Stamped with the last closed second `t`, it acts in `t + 1`: the
+        years `Y1` to `Y1 + years − 1` of the template (`shock_years`: `Y1` the first
+        calendar year that begins in or after `t + 1`) get its index, each inserted or
+        replaced as the override `override_nutrition` does, the list kept ascending; the
+        switch stays. Entries, all at `t + 1` and without a subject: first
+        `core:shock_triggered { shock, first_year, last_year }` (log payload 15) caused by the
+        input, then per year in order one `core:param_changed` with the change
+        `core:nutrition_year { year, index }` caused by the shock's entry. Only the body
+        mapping reads the years, so no event is planned or cancelled."""
+        code = self.shock_rejection(shock_id)
+        assert code is None, f"TriggerShock is rejected: {REJECT_NAMES[code]}"
+        self.script.append(("trigger_shock", shock_id))
+        sequence = len(self.inputs) + 1
+        self.inputs.append(signed(self.closed) + varint(sequence) + variant(TRIGGER_SHOCK_INPUT, string(shock_id)))
+        now = self.closed + 1
+        template = self.data.shocks[shock_id]
+        years = shock_years(self.closed, template["years"])
+        index = float(template["index"])
+        payload = variant(SHOCK_TRIGGERED_ENTRY, string(shock_id), signed(years[0]), signed(years[-1]))
+        shock_entry = self._entry(now, [], [variant(2, varint(sequence))], payload)
+        changed = []
+        for year in years:
+            self.nutrition = sorted([entry for entry in self.nutrition if entry[0] != year] + [(year, index)])
+            changed.append(self._entry(now, [], [variant(0, varint(shock_entry))], variant(3, param_change_nutrition(year, index))))
+        self.shocks.append({"second": now, "input": sequence, "shock": shock_id, "years": list(years), "index": index, "entry": shock_entry, "changes": changed})
+
     # ------------------------------------------------------------------ events
 
     def _entry(self, time: int, subjects: list, causes: list, payload: bytes) -> int:
@@ -5664,7 +5780,10 @@ def without_households(world: World) -> World:
             twin.arrange(call[1], call[2])
         elif call[0] == "override_nutrition":
             twin.override_nutrition(call[1], call[2])
+        elif call[0] == "trigger_shock":
+            twin.trigger_shock(call[1])
         else:
+            assert call[0] == "override", call
             twin.override(call[1])
     return twin
 
@@ -6086,9 +6205,29 @@ if __name__ == "__main__":
         ("payload", str(EMIGRATED_VARIANT), "core:emigrated"),
         ("kind", "disease_onset", str(DISEASE_ONSET_KIND)),
         ("payload", str(DISEASE_ONSET_ENTRY), "core:disease_onset"),
+        ("payload", str(SHOCK_TRIGGERED_ENTRY), "core:shock_triggered"),
+        ("input", str(TRIGGER_SHOCK_INPUT), "trigger_shock"),
+        ("payload", "3", "core:param_changed"),
+        ("input", "1", "fork_override"),
     } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL + NEW_CODE_LINES_OF_THE_VILLAGE}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
+    # The shocks (ADR-0023 section 3, addendum before S1b; section 5 "Hunger, die Jahre"): the
+    # changes (year, index) of both templates of the repository for a stamp in the middle of
+    # year 3 and one in its last second, and before the start; the bytes of the input and of
+    # the entry of the shock.
+    for shock_id, template in sorted(repository().shocks.items()):
+        for stamp in (-1, 3 * YEAR + 1000, 4 * YEAR - 1, 4 * YEAR):
+            years = shock_years(stamp, template["years"])
+            print(
+                f"shock {shock_id} stamp {stamp} acts {stamp + 1} changes {[(year, template['index']) for year in years]}"
+                f" entry payload {variant(SHOCK_TRIGGERED_ENTRY, string(shock_id), signed(years[0]), signed(years[-1])).hex()}"
+            )
+        print(f"shock {shock_id} input record stamp {4 * YEAR - 1} seq 2 {(signed(4 * YEAR - 1) + varint(2) + variant(TRIGGER_SHOCK_INPUT, string(shock_id))).hex()}")
+    # The years and the end of the time: a stamp in the last second of the time is
+    # `end_of_time`; one second before, the shock's first year would be 1 000 000.
+    assert shock_years(MAX_ABS_SECS - 1, 1)[0] == NUTRITION_YEARS[1] + 1
+    print(f"shock end_of_time stamp {MAX_ABS_SECS} code {END_OF_TIME}; stamp {MAX_ABS_SECS - 1} first year {shock_years(MAX_ABS_SECS - 1, 1)[0]} code {NUTRITION_OUT_OF_RANGE}")
     # The onset of a disease (ADR-0017 section 3, addendum of 2026-10-20): the codes, the bytes
     # of a queue payload and of a log payload, and `B` with its year and whole years for the
     # onsets of the hand tests (tests/onset.rs: born −40 or −10 years, onset 0 and 30).
