@@ -189,6 +189,7 @@ fn check(
         Input::ArrangePartnership(pair) => {
             state::partnership::check_arrange(domain, data, closed_through, pair)
         }
+        Input::SetWorldParam(rule) => state::params::check_set(domain, closed_through, rule),
     }
 }
 
@@ -224,6 +225,9 @@ impl WorldState {
             }
             Input::ArrangePartnership(pair) => {
                 state::partnership::apply_arrange(&mut self.domain, &self.data, pair, &mut ctx);
+            }
+            Input::SetWorldParam(rule) => {
+                state::params::apply_set(&mut self.domain, &self.data, rule, history, &mut ctx);
             }
         }
     }
