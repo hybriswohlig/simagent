@@ -660,7 +660,7 @@ FOUNDER_ALLELE = 28
 # per disease, the mean heights of the adults and of those aged 25, the newborns' mean
 # inbreeding; tools/census_reference.py): output only, core 45, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 46
+CORE_VERSION = 47
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
