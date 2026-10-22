@@ -6,8 +6,9 @@
 //! fail. The browser comes from `cargo xtask browser`, which installs the Chromium headless
 //! shell of the pinned `playwright-core`; the gate itself downloads nothing.
 
+use std::fs::File;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::{GATE_SCENARIO, Result, Running, cargo, start_view, web};
@@ -19,6 +20,9 @@ const RUN: &str = "town";
 const UNTIL: &str = "912038399";
 /// The longest a drive may take; its own steps wait at most ten seconds each.
 const DRIVE_TIME: Duration = Duration::from_secs(120);
+/// What the canary's drive must say: a drive that fails before it loads the page (a browser
+/// that does not start, say) proves nothing.
+const CANARY_ERROR: &str = "the page threw: canary";
 
 /// `cargo xtask browser [--with-deps]`: the Chromium headless shell of the pinned
 /// `playwright-core` (from Playwright's download, not npm), with the system libraries it
@@ -76,15 +80,24 @@ pub fn smoke(root: &Path) -> Result {
     let main = broken.join("main.js");
     std::fs::write(&main, "throw new Error(\"canary\");\n")
         .map_err(|e| format!("{}: {e}", main.display()))?;
-    if drive(root, &runs, &broken, true).is_ok() {
+    let log = out.join("canary.log");
+    if drive(root, &runs, &broken, Some(&log)).is_ok() {
         return Err("canary: the smoke test passed a page whose main.js throws".to_string());
     }
-    drive(root, &runs, &dist, false)
+    let said = std::fs::read_to_string(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+    if !said.contains(CANARY_ERROR) {
+        return Err(format!(
+            "canary: the smoke test failed without the page's error ({}):\n{said}",
+            log.display()
+        ));
+    }
+    drive(root, &runs, &dist, None)
 }
 
-/// One drive of the script against `simagent view` over `runs` with the page in `page`;
-/// `quiet` for the canary, whose failure is expected and says nothing.
-fn drive(root: &Path, runs: &Path, page: &Path, quiet: bool) -> Result {
+/// One drive of the script against `simagent view` over `runs` with the page in `page`; the
+/// script's output into `log` if given (the canary's, whose failure is expected), else to
+/// the terminal.
+fn drive(root: &Path, runs: &Path, page: &Path, log: Option<&Path>) -> Result {
     let (server, port) = start_view(root, runs, page)?;
     let mut command = Command::new("node");
     command
@@ -93,8 +106,12 @@ fn drive(root: &Path, runs: &Path, page: &Path, quiet: bool) -> Result {
         .arg(RUN)
         .current_dir(root.join("web"))
         .env_clear();
-    if quiet {
-        command.stdout(Stdio::null()).stderr(Stdio::null());
+    if let Some(log) = log {
+        let file = File::create(log).map_err(|e| format!("{}: {e}", log.display()))?;
+        let copy = file
+            .try_clone()
+            .map_err(|e| format!("{}: {e}", log.display()))?;
+        command.stdout(copy).stderr(file);
     }
     // Node finds itself on the path and Playwright its browsers below the home directory, or
     // where the CI put them.

@@ -15,7 +15,7 @@ function fail(message) {
 
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, timeout: 30_000 });
 } catch (error) {
   fail(`chromium is missing or does not start (run \`cargo xtask browser\`): ${error.message}`);
 }
@@ -63,9 +63,10 @@ if (browser !== undefined) {
     const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr" });
     await step("step one year", year.click());
     await step("the date of year 29", dated(29));
-    await step("the steps free again", page.waitForFunction(() =>
-      [...document.querySelectorAll('[aria-label="Zeit"] button')].every((button) => !button.disabled),
-    ));
+    await step("the steps free again", page.waitForFunction(() => {
+      const buttons = [...document.querySelectorAll('[aria-label="Zeit"] button')];
+      return buttons.length > 0 && buttons.every((button) => !button.disabled);
+    }));
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
@@ -77,7 +78,10 @@ if (browser !== undefined) {
     await step(
       "the mother's page",
       page.waitForFunction(
-        ([hash, name]) => location.hash === hash && document.querySelector("h1")?.textContent !== name,
+        ([hash, name]) => {
+          const heading = document.querySelector("h1");
+          return location.hash === hash && heading !== null && heading.textContent !== name;
+        },
         [`#/runs/${run}/persons/8`, before],
       ),
     );
