@@ -27,7 +27,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0xb1f5_c005_4302_363d;
+const DATA_HASH: u64 = 0x63e4_b3ea_3dcc_1fe6;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -248,8 +248,9 @@ fn golden_fork_matches() {
     // fibrosis on the repository's data, ADR-0017 section 3) for second 1 506 119 448, at
     // about 78; she dies of senescence in year 26 first (second 836 172 484, at 56.6), as
     // in the run (tools/golden_reference.py). After it come the onsets of sims 1 and 3,
-    // reached at their birth and never reported while the switch was off.
-    assert_eq!(fork.log.len(), whole_run().log.len() + 3);
+    // reached at their birth and never reported while the switch was off, then the shock's
+    // `core:shock_triggered` and its one `core:param_changed` for year 5.
+    assert_eq!(fork.log.len(), whole_run().log.len() + 5);
 }
 
 /// The pedigrees of the golden run and of its fork after thirty years are the goldens
