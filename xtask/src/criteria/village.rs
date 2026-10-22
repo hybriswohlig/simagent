@@ -110,7 +110,17 @@ fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let file: Value =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    if file["format"] != "simagent.shocks" || file["version"] != 1 {
+    // The fields of the file and of each template, exactly (`deny_unknown_fields`, as
+    // sim-cli reads them).
+    let exactly = |value: &Value, keys: &[&str]| {
+        value.as_object().is_some_and(|object| {
+            object.len() == keys.len() && keys.iter().all(|key| object.contains_key(*key))
+        })
+    };
+    if !exactly(&file, &["format", "version", "shocks"])
+        || file["format"] != "simagent.shocks"
+        || file["version"] != 1
+    {
         return Err(format!("{}: not simagent.shocks version 1", path.display()));
     }
     let entries = file["shocks"].as_array().ok_or("shocks: no list")?;
@@ -118,8 +128,11 @@ fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
         .iter()
         .map(|entry| {
             let field = |name: &str| format!("shocks: an entry without its {name}");
-            if entry["kind"] != "hunger" {
-                return Err(field("kind hunger"));
+            if !exactly(entry, &["id", "kind", "years", "index", "source"]) {
+                return Err(field("fields id, kind, years, index and source alone"));
+            }
+            if entry["kind"] != "hunger" || !entry["source"].is_string() {
+                return Err(field("kind hunger and its source"));
             }
             let id = entry["id"].as_str().ok_or_else(|| field("id"))?;
             let years = entry["years"].as_u64().ok_or_else(|| field("years"))?;

@@ -553,3 +553,29 @@ fn the_command_names_its_directory() {
     let error = command(&nowhere, &args).expect_err("no data");
     assert!(error.contains("demography.json"), "{error}");
 }
+
+/// ADR-0023 section 3: the shock templates are read as strictly as sim-cli reads them, the
+/// fields of the file and of each template exactly (`deny_unknown_fields`).
+#[test]
+fn the_shocks_file_is_read_strictly() {
+    let dir = std::env::temp_dir().join(format!("xtask-shocks-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("data")).expect("a directory");
+    let read = |text: &str| {
+        std::fs::write(dir.join("data/shocks.json"), text).expect("written");
+        shocks(&dir)
+    };
+    let entry =
+        r#"{"id":"core:hunger_one_year","kind":"hunger","years":1,"index":0.7,"source":"G8"}"#;
+    let file =
+        |shocks: &str| format!(r#"{{"format":"simagent.shocks","version":1,"shocks":[{shocks}]}}"#);
+    assert_eq!(read(&file(entry)).map(|templates| templates.len()), Ok(1));
+    for bad in [
+        file(&entry.replace(r#","source":"G8""#, "")),
+        file(&entry.replace(r#""years":1"#, r#""years":1,"duration":3"#)),
+        file(&entry.replace(r#""source":"G8""#, r#""source":3"#)),
+        file(entry).replace(r#""version":1"#, r#""version":1,"note":"x""#),
+    ] {
+        assert!(read(&bad).is_err(), "{bad}");
+    }
+    std::fs::remove_dir_all(&dir).expect("removed");
+}
