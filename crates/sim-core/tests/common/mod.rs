@@ -386,6 +386,37 @@ const REPOSITORY_GENOME_MAP: &str = include_str!("../../../../data/genetics/geno
 #[allow(dead_code, reason = "only the tests on the repository's data need it")]
 pub const REPOSITORY_POOL: &[u8] = include_bytes!("../../../../data/pool/pool.bin");
 const REPOSITORY_FREQUENCIES: &str = include_str!("../../../../data/pool/pool_frequencies.json");
+const REPOSITORY_SHOCKS: &str = include_str!("../../../../data/shocks.json");
+
+/// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
+/// (ADR-0023 section 3).
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_shocks() -> Vec<sim_core::data::ShockTemplate> {
+    let file: Value = serde_json::from_str(REPOSITORY_SHOCKS).expect("json");
+    assert_eq!(file["format"], "simagent.shocks");
+    assert_eq!(file["version"], 1);
+    file["shocks"]
+        .as_array()
+        .expect("the templates")
+        .iter()
+        .map(|entry| {
+            assert_eq!(entry["kind"], "hunger");
+            sim_core::data::ShockTemplate {
+                id: sim_core::data_id::DataId::new(entry["id"].as_str().expect("an id"))
+                    .expect("id"),
+                kind: sim_core::data::ShockKind::Hunger,
+                years: u32::try_from(entry["years"].as_u64().expect("years")).expect("fits"),
+                index: sim_core::finite::FiniteF64::try_new(
+                    entry["index"].as_f64().expect("index"),
+                )
+                .expect("finite"),
+            }
+        })
+        .collect()
+}
 
 /// The frequencies of `data/pool/pool_frequencies.json`, each entry's `value`, as
 /// `Data::with_pool` takes them (sim-cli reads the file the same way, its text removed).
@@ -424,5 +455,6 @@ pub fn repository_data() -> Data {
         REPOSITORY_POOL,
         repository_frequencies(),
     )
+    .and_then(|data| data.with_shocks(repository_shocks()))
     .expect("data")
 }

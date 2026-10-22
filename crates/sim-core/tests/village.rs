@@ -80,6 +80,7 @@ fn repository_data() -> Data {
         POOL,
         frequencies(),
     )
+    .and_then(|data| data.with_shocks(common::repository_shocks()))
     .expect("data")
 }
 
