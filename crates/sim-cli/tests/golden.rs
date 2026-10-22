@@ -533,7 +533,8 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
 /// appears at least once. The scenarios are the dummy run, its fork at year 5 and the
-/// arrival; only the arrival has a pool, so only it has immigrants.
+/// arrival; only the arrival has a pool, so only it has immigrants, and only the fork has
+/// a shock (ADR-0023, addendum before S1b).
 #[test]
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
@@ -544,10 +545,11 @@ fn golden_scenarios_cover_every_kind() {
             "event disease_onset",
             "log core:param_changed",
             "log core:arrived",
-            "log core:disease_onset"
+            "log core:disease_onset",
+            "log core:shock_triggered"
         ],
-        "the dummy run has no override and no pool, its switch is off, and its only \
-         disease begins at birth"
+        "the dummy run has no override, no shock and no pool, its switch is off, and its \
+         only disease begins at birth"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -665,7 +667,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:moved",
             "log core:emigrated",
             "log core:arrived",
-            "log core:disease_onset"
+            "log core:disease_onset",
+            "log core:shock_triggered"
         ]
     );
 }
