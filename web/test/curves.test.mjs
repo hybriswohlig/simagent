@@ -75,6 +75,7 @@ test("seven pictures in their order", () => {
   );
   assert.deepEqual(shown.curves.map((curve) => curve.fromZero), [true, true, true, true, false, false, true]);
   assert.deepEqual(shown.curves.map((curve) => curve.decimals), [0, 0, 0, 0, 1, 1, 2]);
+  assert.deepEqual(shown.curves.map((curve) => curve.unit), [null, null, null, null, "cm", "cm", "Prozent"]);
 });
 
 test("the population by name", () => {
@@ -153,4 +154,11 @@ test("a census without a column of the curves or with a short row is unknown", (
   const without = { ...answer([YEAR_0]), columns: COLUMNS.filter((column) => column !== "inbreeding_e4") };
   assert.throws(() => curves({ ...without, rows: [YEAR_0.slice(0, -1)] }), UnknownAnswer);
   assert.throws(() => curves(answer([YEAR_0.slice(0, -1)])), UnknownAnswer);
+  const at = COLUMNS.indexOf("deaths.core:accident");
+  const noAccident = {
+    ...answer([]),
+    columns: COLUMNS.filter((_, i) => i !== at),
+    rows: [YEAR_0.filter((_, i) => i !== at)],
+  };
+  assert.throws(() => curves(noAccident), UnknownAnswer);
 });

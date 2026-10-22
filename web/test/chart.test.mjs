@@ -55,6 +55,14 @@ test("heights get an axis around their values", () => {
   closePoints(drawn.segments[0][0], [[48, 146], [448, 48]]);
 });
 
+test("tenths that need exactly five steps keep the step of a tenth", () => {
+  // 160.1 and 160.6 with one decimal: in tenths 1601 and 1606, step 1 needs 5 steps.
+  const drawn = chart([0, 1], [[160.1, 160.6]], false, 1);
+  assert.equal(drawn.yTicks.length, 6);
+  drawn.yTicks.forEach((tick, i) => close(tick.value, [160.1, 160.2, 160.3, 160.4, 160.5, 160.6][i]));
+  closePoints(drawn.segments[0][0], [[48, 172], [448, 12]]);
+});
+
 test("a small percent gets a step of hundredths", () => {
   // 0.03 with two decimals: step 0.01 needs 3 steps; 0 to 0.03.
   const drawn = chart([0, 1], [[0, 0.03]], true, 2);
