@@ -660,6 +660,47 @@ mod tests {
         assert_eq!(row.age25, [mean(1, 1703), mean(1, 1800)]);
     }
 
+    /// The newborns' inbreeding by hand: sims 1 and 2 are unrelated founders, sims 3 and 4
+    /// their children, so φ(3, 4) = ½(φ(1, 4) + φ(2, 4)) = ½(¼ + ¼) = ¼.
+    /// - year 3: sim 5 of 3 and 4, `F` = ¼, 2500.
+    /// - sim 6 of 1 and 2 (`F` = 0) is born in the first second of year 4: in year 4 only
+    ///   (the year is half-open), else year 3 would give 1250.
+    #[test]
+    fn the_newborns_of_a_year_are_those_born_in_it() {
+        let data = crate::data::testing::data();
+        let at = |year: i64, secs: i64| SimTime::from_secs(year_start(year).as_secs() + secs);
+        let of = |mother: u64, father: u64| {
+            Some(Parents {
+                mother: sim(mother),
+                father: sim(father),
+                conception: 0,
+            })
+        };
+        let mut domain = DomainState::new();
+        let people = [
+            (1, at(-40, 0), Sex::Female, None),
+            (2, at(-40, 0), Sex::Male, None),
+            (3, at(-20, 0), Sex::Female, of(1, 2)),
+            (4, at(-19, 0), Sex::Male, of(1, 2)),
+            (5, at(3, 100), Sex::Female, of(3, 4)),
+            (6, at(4, 0), Sex::Male, of(1, 2)),
+        ];
+        for (n, born, sex, parents) in people {
+            let person = Sim {
+                sex,
+                parents,
+                ..living(n, born)
+            };
+            domain.keys.insert(person.lineage_key, sim(n));
+            domain.sims.insert(sim(n), person);
+        }
+        assert_eq!(
+            inheritance(&domain, &data, at(4, -1), &[]).inbreeding_e4,
+            2500
+        );
+        assert_eq!(inheritance(&domain, &data, at(5, -1), &[]).inbreeding_e4, 0);
+    }
+
     /// The mean of the addendum by hand: one division, then half away from zero.
     #[test]
     fn a_mean_rounds_half_away_from_zero() {
