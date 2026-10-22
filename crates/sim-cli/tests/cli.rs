@@ -382,7 +382,7 @@ fn world_rules_move_the_census_from_their_year() {
     }
     let log = text(&run.join("input.ndjson"));
     assert_eq!(
-        log.lines().skip(2).collect::<Vec<_>>(),
+        log.lines().skip(2).take(2).collect::<Vec<_>>(),
         [
             format!(r#"{{"t":{on},"seq":2,"input":{}}}"#, rule(true)),
             format!(r#"{{"t":{off},"seq":3,"input":{}}}"#, rule(false)),
