@@ -11,7 +11,9 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::{LocusAlleles, Sex};
 use sim_core::ids::SimId;
-use sim_core::input::{ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start};
+use sim_core::input::{
+    ForkOverride, Founder, Input, InputRejected, RejectCode, SetWorldParam, Start,
+};
 use sim_core::log::LogEntry;
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::time::SimTime;
@@ -525,7 +527,9 @@ fn a_rejected_world_rule_changes_nothing() {
         ParamChange::HereditaryDiseases(true),
         ParamChange::NutritionYear(fed(5, 0.7)),
     ] {
-        let rejected = world.submit(set_param(change)).expect_err("before the start");
+        let rejected = world
+            .submit(set_param(change))
+            .expect_err("before the start");
         assert_eq!(rejected.code, RejectCode::NotStarted, "{change:?}");
     }
     assert_eq!(fingerprint(&world), before);
@@ -534,9 +538,18 @@ fn a_rejected_world_rule_changes_nothing() {
     world.take_log();
     let before = fingerprint(&world);
     for (change, code) in [
-        (ParamChange::NutritionYear(fed(5, 0.7)), RejectCode::ParamNotSettable),
-        (ParamChange::NutritionYear(fed(5, 1.0)), RejectCode::ParamNotSettable),
-        (ParamChange::HereditaryDiseases(false), RejectCode::ParamUnchanged),
+        (
+            ParamChange::NutritionYear(fed(5, 0.7)),
+            RejectCode::ParamNotSettable,
+        ),
+        (
+            ParamChange::NutritionYear(fed(5, 1.0)),
+            RejectCode::ParamNotSettable,
+        ),
+        (
+            ParamChange::HereditaryDiseases(false),
+            RejectCode::ParamUnchanged,
+        ),
     ] {
         let rejected = world.submit(set_param(change)).expect_err("rejected");
         assert_eq!(rejected, InputRejected { code }, "{change:?}");

@@ -281,7 +281,9 @@ fn a_world_rule_acts_like_an_override() {
     assert_eq!(by_rule.world.state_hash(), by_override.world.state_hash());
     let deaths = by_rule.deaths();
     assert!(
-        deaths.iter().any(|(_, cause)| cause == "test:dummy_disease"),
+        deaths
+            .iter()
+            .any(|(_, cause)| cause == "test:dummy_disease"),
         "{deaths:?}"
     );
 }

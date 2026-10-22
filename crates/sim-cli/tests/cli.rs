@@ -342,11 +342,27 @@ fn world_rules_move_the_census_from_their_year() {
     fs::write(&scenario, TEN_YEARS).expect("writes the scenario");
     let (run, twin) = (dir.join("run"), dir.join("twin"));
     let end = (10 * Y - 1).to_string();
-    let twin_args = ["run", "--scenario", arg(&scenario), "--out", arg(&twin), "--until", &end];
+    let twin_args = [
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&twin),
+        "--until",
+        &end,
+    ];
     must(&twin_args);
     let (on, off) = (2 * Y + Y / 2 - 1, 6 * Y + Y / 2 - 1);
     let first = on.to_string();
-    must(&["run", "--scenario", arg(&scenario), "--out", arg(&run), "--until", &first]);
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&run),
+        "--until",
+        &first,
+    ]);
     let rule = |value: bool| {
         format!(r#"{{"set_world_param":{{"change":{{"core:hereditary_diseases":{value}}}}}}}"#)
     };
@@ -354,7 +370,14 @@ fn world_rules_move_the_census_from_their_year() {
         let inputs = dir.join(format!("rule_{value}.json"));
         fs::write(&inputs, format!("[{}]", rule(value))).expect("writes the inputs");
         must(&[
-            "run", "--resume", "--out", arg(&run), "--input", arg(&inputs), "--until", &until,
+            "run",
+            "--resume",
+            "--out",
+            arg(&run),
+            "--input",
+            arg(&inputs),
+            "--until",
+            &until,
         ]);
     }
     let log = text(&run.join("input.ndjson"));
@@ -369,13 +392,15 @@ fn world_rules_move_the_census_from_their_year() {
         r#""t":{},"subjects":[{{"sim":3}}],"causes":[{{"input":2}}],"payload":{{"core:disease_onset":{{"disease":"core:disease_ar","since_year":-1,"age_years":0}}}}"#,
         on + 1
     )));
-    let (ours, theirs) = (text(&run.join("census.csv")), text(&twin.join("census.csv")));
+    let (ours, theirs) = (
+        text(&run.join("census.csv")),
+        text(&twin.join("census.csv")),
+    );
     let header: Vec<&str> = ours.lines().next().expect("a header").split(',').collect();
     assert_eq!(theirs.lines().next(), ours.lines().next());
     let switched = ["diseases_on", "affected.core:disease_ar"];
     for (row, (our, their)) in ours.lines().zip(theirs.lines()).skip(1).enumerate() {
-        for ((name, value), twin_value) in header.iter().zip(our.split(',')).zip(their.split(','))
-        {
+        for ((name, value), twin_value) in header.iter().zip(our.split(',')).zip(their.split(',')) {
             let expected = match (switched.contains(name), row) {
                 (true, 2..=5) => "1",
                 (true, _) => "0",
