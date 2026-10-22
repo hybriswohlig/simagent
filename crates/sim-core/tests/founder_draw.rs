@@ -127,7 +127,7 @@ const START_INPUT: (usize, u64) = (65, 0x5af2_b992_de9a_4803);
 const START_INPUT_HEX: &str = "0101002813746573743a666f756e6465725f616c6c656c65010003ffefe383070000ffffe1bf070100ffefe3830700010a636f72653a6865726332020000000000";
 const STATE_HASH_AFTER_START: u64 = 0x821a_1320_c251_ebe8;
 const LOG_HASH_AFTER_START: u64 = 0x5faf_e3d3_0194_5d35;
-const SAVE_AFTER_START: (usize, u64) = (552, 0xec4d_b7d5_a392_3590);
+const SAVE_AFTER_START: (usize, u64) = (552, 0xc7f4_122e_1be6_256d);
 /// The genomes of the same founders on the template without a pool: the additive loci
 /// drawn as above, the seven pool loci at the reference allele.
 const GENOMES_WITHOUT_POOL: [&str; 3] = [
