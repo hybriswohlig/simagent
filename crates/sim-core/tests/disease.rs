@@ -288,6 +288,49 @@ fn a_world_rule_acts_like_an_override() {
     );
 }
 
+/// The load checks each exposure against the switch history it folds from the input log
+/// (ADR-0006 section 5): a world rule acts from the second after its stamp, like an
+/// override block (ADR-0023 section 2). Saves after a rule that turned the switch on and
+/// after one that turned it off, both mid-year, load to themselves and run on as the run
+/// that was never saved: the same deaths and year hashes.
+#[test]
+fn a_save_after_world_rules_loads_and_runs_on() {
+    let end = 9 * Y - 1;
+    let mut whole = Run::new(sick(false));
+    whole.set(Y / 2, true);
+    whole.set(Y + Y / 3, false);
+    whole.set(2 * Y + 7, true);
+    whole.advance(end);
+    for (rules, stop) in [
+        (&[(Y / 2, true)][..], Y),
+        (&[(Y / 2, true), (Y + Y / 3, false)][..], 2 * Y),
+    ] {
+        let mut part = Run::new(sick(false));
+        for &(at, on) in rules {
+            part.set(at, on);
+        }
+        part.advance(stop);
+        let bytes = part.save();
+        let (loaded, years) = World::load(&bytes, sick_data()).expect("loads");
+        assert_eq!(loaded.save(&years).expect("saves"), bytes, "stop {stop}");
+        let mut rest = Run {
+            world: loaded,
+            out: YearOut {
+                census: part.out.census.clone(),
+                year_hashes: years,
+                trace: Vec::new(),
+            },
+            log: part.log,
+        };
+        for &(at, on) in &[(Y + Y / 3, false), (2 * Y + 7, true)][rules.len() - 1..] {
+            rest.set(at, on);
+        }
+        rest.advance(end);
+        assert_eq!(rest.out.year_hashes, whole.out.year_hashes, "stop {stop}");
+        assert_eq!(rest.deaths(), whole.deaths(), "stop {stop}");
+    }
+}
+
 /// Senescence and accident keep their plans when the switch flips: on the data with the
 /// repository's diseases he has `core:disease_ar`, whose death the override (entry 6, at
 /// the start of year 1) plans and which comes first (`tools/state_reference.py`).
