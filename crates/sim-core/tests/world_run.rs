@@ -23,7 +23,9 @@ use sim_core::input::{Founder, Input, RejectCode, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::params::WorldParams;
 use sim_core::time::{AdvanceOutcome, EventClass, SimDuration, SimTime, YEAR, year_start};
-use sim_core::world::{CensusRow, EventPayload, PopulationCensus, World, YearOut};
+use sim_core::world::{
+    CensusRow, EventPayload, HeightMean, InheritanceCensus, PopulationCensus, World, YearOut,
+};
 
 const Y: i64 = 31_449_600;
 const _: () = assert!(Y == YEAR.as_secs());
@@ -102,6 +104,19 @@ fn unmoved() -> PopulationCensus {
     }
 }
 
+/// The switch off, the six diseases of the repository's data and nobody affected, no body
+/// measured (the test data has no body traits), nobody born (ADR-0021, addendum
+/// 2026-10-21).
+fn unaffected() -> InheritanceCensus {
+    InheritanceCensus {
+        diseases_on: false,
+        affected: vec![0; 6],
+        adults: [HeightMean::default(); 2],
+        age25: [HeightMean::default(); 2],
+        inbreeding_e4: 0,
+    }
+}
+
 fn expected_census() -> Vec<CensusRow> {
     (0..10)
         .map(|year| CensusRow {
@@ -110,6 +125,7 @@ fn expected_census() -> Vec<CensusRow> {
             lived_secs: 94_348_800,
             body: BodyCensus::default(),
             population: unmoved(),
+            inheritance: unaffected(),
         })
         .collect()
 }
@@ -297,6 +313,7 @@ fn an_empty_world_runs_only_year_ends() {
             lived_secs: 0,
             body: BodyCensus::default(),
             population: unmoved(),
+            inheritance: unaffected(),
         })
         .collect();
     assert_eq!(out.census, rows);
@@ -330,6 +347,7 @@ fn founders_show_in_the_first_census() {
                 lived_secs: count * 31_449_600,
                 body: BodyCensus::default(),
                 population: unmoved(),
+                inheritance: unaffected(),
             }]
         );
     }

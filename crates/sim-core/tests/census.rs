@@ -47,7 +47,7 @@ use sim_core::presentation::names::{first_name_index, surname_index};
 use sim_core::rng::{Draws, WorldSeed};
 use sim_core::time::{SimDuration, SimTime};
 use sim_core::trace::{TraceFilter, TracePayload};
-use sim_core::world::{World, YearOut};
+use sim_core::world::{HeightMean, World, YearOut};
 
 const CENSUS: &str = include_str!("../../../tests/golden/census/census.json");
 const BODIES: &str = include_str!("../../../tests/golden/census/bodies.json");
@@ -371,6 +371,15 @@ fn the_census_counts_the_bodies_as_the_reference() {
             expected["death_causes"],
             "{name}: causes of death"
         );
+        let diseases: Vec<&str> = (world.data().diseases().iter())
+            .map(|disease| disease.code.as_str())
+            .collect();
+        assert_eq!(
+            serde_json::to_value(&diseases).expect("json"),
+            expected["diseases"],
+            "{name}: diseases"
+        );
+        let means = |pair: &[HeightMean; 2]| pair.map(|mean| [mean.count, mean.mm]);
         let rows: Vec<Value> = out
             .census
             .iter()
@@ -386,6 +395,11 @@ fn the_census_counts_the_bodies_as_the_reference() {
                     "arrivals": row.population.arrivals,
                     "emigrations": row.population.emigrations,
                     "deaths": row.population.deaths,
+                    "diseases_on": u8::from(row.inheritance.diseases_on),
+                    "affected": row.inheritance.affected,
+                    "adults": means(&row.inheritance.adults),
+                    "age25": means(&row.inheritance.age25),
+                    "inbreeding_e4": row.inheritance.inbreeding_e4,
                 })
             })
             .collect();

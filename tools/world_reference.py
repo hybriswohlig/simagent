@@ -643,8 +643,11 @@ FOUNDER_ALLELE = 28
 # births, arrivals, emigrations, deaths per cause; tools/census_reference.py): the census is
 # output, neither state nor save field, but the output changes: core 44, the projection stays
 # 18.
+# The inheritance columns of the yearly census (the same addendum: the switch, the affected
+# per disease, the mean heights of the adults and of those aged 25, the newborns' mean
+# inbreeding; tools/census_reference.py): output only, core 45, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 44
+CORE_VERSION = 45
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

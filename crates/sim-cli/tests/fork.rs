@@ -345,15 +345,15 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     let parent = parent(&dir);
     let out = dir.join("out");
     let log = parent.join("input.ndjson");
-    replace_in(&log, r#""core_version":44"#, r#""core_version":45"#);
+    replace_in(&log, r#""core_version":45"#, r#""core_version":46"#);
     assert_eq!(
         fork(&parent, "5", &out),
         Err(
-            "error: fork_foreign_core_version: the parent run is of core version 45, this is 44"
+            "error: fork_foreign_core_version: the parent run is of core version 46, this is 45"
                 .to_owned()
         )
     );
-    replace_in(&log, r#""core_version":45"#, r#""core_version":44"#);
+    replace_in(&log, r#""core_version":46"#, r#""core_version":45"#);
     replace_in(&log, "b1f5c0054302363d", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
@@ -418,7 +418,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     // run it lies in: version, data hash, seed and the hash of its log.
     let foreign = "error: manifest_invalid: the manifest of the parent names another core version, data hash or world seed than its run";
     for (from, to) in [
-        (r#""core_version":44"#, r#""core_version":45"#),
+        (r#""core_version":45"#, r#""core_version":46"#),
         (
             r#""data_hash":"b1f5c0054302363d""#,
             r#""data_hash":"c3f04a38869c20d7""#,
@@ -726,11 +726,45 @@ fn fork_point_hash_equals_parent() {
         ours_lines[24]
     );
     // The census reads the living and their bodies, which the override does not change:
-    // it is that of the parent.
-    assert_eq!(
-        text(&out.join("census.csv")),
-        text(&parent.join("census.csv"))
-    );
+    // it is that of the parent, except that from year 5 on the switch is on and sim 3 (two
+    // copies of `core:disease_ar`, onset 0, alive to the end: the living are the parent's)
+    // is affected (ADR-0021, addendum 2026-10-21).
+    let our_census = text(&out.join("census.csv"));
+    let their_census = text(&parent.join("census.csv"));
+    let header: Vec<&str> = our_census
+        .lines()
+        .next()
+        .expect("a header")
+        .split(',')
+        .collect();
+    assert_eq!(their_census.lines().next(), our_census.lines().next());
+    let switched = ["diseases_on", "affected.core:disease_ar"];
+    assert!(switched.iter().all(|name| header.contains(name)));
+    for (row, (our, their)) in our_census
+        .lines()
+        .zip(their_census.lines())
+        .skip(1)
+        .enumerate()
+    {
+        let (our, their): (Vec<&str>, Vec<&str>) =
+            (our.split(',').collect(), their.split(',').collect());
+        for ((name, value), parent_value) in header.iter().zip(&our).zip(&their) {
+            let expected = if row >= 5 && switched.contains(name) {
+                "1"
+            } else {
+                parent_value
+            };
+            assert_eq!((name, *value), (name, expected), "year {row}");
+        }
+        let column = |name: &str| header.iter().position(|h| *h == name).expect("a column");
+        // Nobody is born: the three founders are all the living, so sim 3 is the only one
+        // with two copies.
+        assert_eq!(their[column("living")], "3", "year {row}");
+        if row >= 5 {
+            assert!(switched.iter().all(|name| their[column(name)] == "0"));
+        }
+    }
+    assert_eq!(our_census.lines().count(), their_census.lines().count());
 
     // The fork replays from its own input log, with its own manifest.
     let replayed = dir.join("replayed");

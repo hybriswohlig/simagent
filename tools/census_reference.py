@@ -40,6 +40,29 @@ domain event of year `k`; `World.advance(t)` runs that second fully):
   Each row is checked against the year's entries of the log (`LogPopulation`: `core:birth`,
   `core:arrived` not caused by the input `Start`, `core:emigrated`, `core:death` per cause),
   and at the end of a fixture `N` against `World.made_by_start`.
+- `diseases_on`, `affected`, `adults`, `age25` and `inbreeding_e4` (the same addendum,
+  "Mittelwerte, genau", "Schalter" and "Erbe"; Grok R1 to R3 and S1; core 45), after the
+  population columns, integers (`inheritance`); each fixture names the data's diseases in
+  their order (`diseases` in census.json):
+  - `diseases_on`: 1 if the switch of the hereditary diseases is on at `t` (`World.switch_at`,
+    after every input acting by `t`), else 0;
+  - `affected`: per disease of the data in its order the living whose genetics card says
+    "affected" at `t`: the switch on and `as_years(t − born)` at least the onset of an
+    affliction of that disease; all 0 with the switch off. Checked against the card's lines
+    (`golden_reference.disease_rows`);
+  - `adults`, `age25`: `[[count, mm], [count, mm]]`, women then men: the living whose body
+    the census evaluates (none if the body data fail) with at least 25, and with exactly 25,
+    full years at `t` (`⌊(t − born) / YEAR⌋`), their count and the mean of the body's
+    `height_cm` (the contract value, as the card shows it) times 10;
+  - `inbreeding_e4`: over the `births` of the year (living and archived) the mean of `F · 10
+    000`, `F = φ(mother, father)` of the two parent lineage keys up to the great-grandparents
+    of both (`wr.kinship_by_keys` with `World.kin_of`: town, archive and pool; checked by
+    Wright's path counting), 0 without a birth;
+  - a mean (`mean_rounded`): each value scaled, added one after the other in ascending SimId
+    in binary64, divided once by the count, rounded once half away from zero; 0 for no one.
+  Every fixture starts with the switch on and has no input after `Start`, so `diseases_on`
+  is 1 in every row, and no birth in them has related parents (`inbreeding_e4` 0 throughout);
+  `--inbreeding-check` runs the rule on "kin_deep", whose cousins give it values.
 
 One evaluation (note sections 1 and 3.1), for the living sim `s` at `t`:
 
@@ -106,6 +129,8 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        ... census_reference.py --pigment-check [--out DIR]   (pigment_check.json: the cases of
        `census_body_check` on altered data, and one living person of (c) evaluated on the
        pre-run data and on data with both loci present and both counts forced to 0)
+       ... census_reference.py --inbreeding-check   (`inbreeding_e4` of the run "kin_deep" of
+       tools/state_reference.py against its values by hand)
 """
 
 import copy
@@ -114,6 +139,7 @@ import math
 import struct
 import sys
 import time
+from fractions import Fraction
 from pathlib import Path
 
 import arrival_reference
@@ -404,20 +430,23 @@ def census_row(evaluator: Evaluator, year: int, margins=None) -> tuple:
     row = {"year": year, "living": len(world.sims), "lived_secs": lived_secs(world, year), "body_evaluated": 0, "clamped": [0] * len(CLAMPED_KEYS), "curve_clamped": 0}
     row.update(population(world, year, death_causes(world.data)))
     held = []
-    if not evaluator.body.accepted:
-        return row, held
-    for sim in sorted(world.sims):
-        evaluation = evaluator.evaluate(sim, t)
-        if margins is not None:
-            margins.add(year, evaluation)
-        row["body_evaluated"] += 1
-        for index, key in enumerate(CLAMPED_KEYS):
-            row["clamped"][index] += evaluation["params"][key][1]
-        if evaluation["curve"]["clamped"]:
-            row["curve_clamped"] += 1
-            z = evaluation["parts"]["z"]
-            held.append([sim, hexed(evaluation["parts"]["key"]), bits(z["z_h"]), bits(z["z_p"])])
-    assert row["body_evaluated"] == row["living"]
+    # (sim, sex, full years at `t`, the body's `height_cm`) of every evaluated living sim, by SimId.
+    heights = []
+    if evaluator.body.accepted:
+        for sim in sorted(world.sims):
+            evaluation = evaluator.evaluate(sim, t)
+            if margins is not None:
+                margins.add(year, evaluation)
+            row["body_evaluated"] += 1
+            for index, key in enumerate(CLAMPED_KEYS):
+                row["clamped"][index] += evaluation["params"][key][1]
+            if evaluation["curve"]["clamped"]:
+                row["curve_clamped"] += 1
+                z = evaluation["parts"]["z"]
+                held.append([sim, hexed(evaluation["parts"]["key"]), bits(z["z_h"]), bits(z["z_p"])])
+            heights.append((sim, evaluation["parts"]["sex"], evaluation["age"] // YEAR, evaluation["params"]["height_cm"][0]))
+        assert row["body_evaluated"] == row["living"]
+    row.update(inheritance(world, year, heights, row["births"]))
     return row, held
 
 
@@ -478,6 +507,198 @@ def population(world: wr.World, year: int, causes: list) -> dict:
         else:
             deaths[causes.index(world.cause_code(cause))] += 1
     return {"births": births, "arrivals": arrivals, "emigrations": emigrations, "deaths": deaths}
+
+
+# ---------------------------------------------------------------------------------------
+# The inheritance columns (ADR-0021 section 3, addendum of 2026-10-21, "Allgemein",
+# "Mittelwerte, genau", "Reihenfolge", "Schalter" and "Erbe"; Grok R1 to R3 and S1)
+
+ADULT_YEARS = 25
+
+
+def mean_rounded(values: list) -> int:
+    """The mean of the addendum ("Mittelwerte, genau"): the scaled values added one after the
+    other in the given order (ascending SimId) in binary64, not `math.fsum`; the sum divided
+    once by the count; `m` (never negative) rounded once: `n = ⌊m⌋`, `n + 1` if `m − n ≥ 0.5`
+    (half away from zero measured on the binary64 `m`; not `round`, which rounds half to
+    even). No value: 0."""
+    if not values:
+        return 0
+    total = 0.0
+    for value in values:
+        total += value
+    m = total / float(len(values))
+    assert m >= 0.0
+    n = math.floor(m)
+    return n + 1 if m - n >= 0.5 else n
+
+
+# The rounding by hand: one exact half (1652.5 → 1653), 312.5 → 313 (not 312 as `round` gives),
+# 625 / 3 → 208, 78.125 → 78, the largest binary64 below 0.5 → 0, nothing → 0.
+assert mean_rounded([1652.0, 1653.0]) == 1653 and mean_rounded([625.0, 0.0]) == 313 and round(312.5) == 312
+assert mean_rounded([625.0, 0.0, 0.0]) == 208 and mean_rounded([156.25, 0.0]) == 78
+assert mean_rounded([0.5]) == 1 and mean_rounded([math.nextafter(0.5, 0.0)]) == 0 and mean_rounded([]) == 0
+
+
+def affected_counts(world: wr.World, t: int) -> tuple:
+    """(`diseases_on`, `affected`) at `t`: the switch of the hereditary diseases at `t`
+    (`World.switch_at`, after every input acting by `t`) as 1 or 0; per disease of the data in
+    its order the living sims whose genetics card says "affected" (the card's rule): the switch
+    on and the age `as_years(t − born)` at least the onset of an affliction of that disease.
+    With the switch off every count is 0."""
+    on = world.switch_at(t)
+    order = {disease.code: index for index, disease in enumerate(world.data.diseases)}
+    affected = [0] * len(order)
+    if on:
+        for sim in sorted(world.sims):
+            born, afflictions = world.sims[sim][0], world.sims[sim][4]
+            x = as_years(t - born)
+            for affliction in afflictions:
+                if x >= affliction.onset:
+                    affected[order[affliction.disease.code]] += 1
+    return int(on), affected
+
+
+def card_affected(world: wr.World, t: int) -> list:
+    """The same counts read from the disease lines of the genetics card of every living sim at
+    `t` (`golden_reference.disease_rows`): a check of `affected_counts`, not a definition."""
+    import golden_reference
+
+    order = {disease.code: index for index, disease in enumerate(world.data.diseases)}
+    counts = [0] * len(order)
+    for card in golden_reference.disease_rows(world, t, chosen=list(world.sims)):
+        for line in card["diseases"]:
+            if line["status"]["kind"] == "affected":
+                counts[order[line["disease"]]] += 1
+    return counts
+
+
+def inbreeding_by_paths(world: wr.World, mother: int, father: int, depth=wr.KINSHIP_DEPTH) -> Fraction:
+    """`φ(mother, father)` of two lineage keys by Wright's path counting (an independent check
+    of `wr.kinship_by_keys`, as `state_reference.kinship_by_paths` checks it on SimIds): the set
+    `S` of the two and their ancestors up to `depth` generations through `World.kin_of` (town,
+    archive and pool records), the edges from a key to its parents in `S`; the sum over the
+    common ancestors `A` and the pairs of paths that meet only in `A` of `(1/2)^(n1 + n2 + 1) ·
+    (1 + F_A)`, `F_A` the same within `S` (0 unless both its parents are in `S`)."""
+    parents_of = {}
+
+    def parents(key) -> list:
+        if key not in parents_of:
+            parents_of[key] = [parent for parent in world.kin_of(key)[1:] if parent is not None]
+        return parents_of[key]
+
+    def ancestors(key) -> set:
+        found, frontier = set(), {key}
+        for _ in range(depth):
+            frontier = {parent for person in frontier for parent in parents(person)}
+            found |= frontier
+        return found
+
+    s = {mother, father} | ancestors(mother) | ancestors(father)
+
+    def inside(key) -> list:
+        return [parent for parent in parents(key) if parent in s]
+
+    def up(key) -> list:
+        paths, stack = [], [(key,)]
+        while stack:
+            path = stack.pop()
+            paths.append(path)
+            stack.extend(path + (parent,) for parent in inside(path[-1]))
+        return paths
+
+    inbreeding = {}
+
+    def big_f(key) -> Fraction:
+        if key not in inbreeding:
+            known = inside(key)
+            inbreeding[key] = phi(*known) if len(known) == 2 else Fraction(0)
+        return inbreeding[key]
+
+    def phi(a, b) -> Fraction:
+        if a == b:
+            return (1 + big_f(a)) / 2
+        total = Fraction(0)
+        for first in up(a):
+            for second in up(b):
+                if first[-1] == second[-1] and set(first) & set(second) == {first[-1]}:
+                    total += Fraction(1, 2 ** (len(first) + len(second) - 1)) * (1 + big_f(first[-1]))
+        return total
+
+    return phi(mother, father)
+
+
+def newborn_inbreeding(world: wr.World, sim: int) -> Fraction:
+    """`F = φ(mother, father)` of a sim born in the town: the kinship of its biological
+    parents' lineage keys (`World.biological_keys`: its parents' keys for a child of two town
+    parents, its PoolOrigin keys for the child of a pregnancy from the pool, the father in the
+    town or never come) up to the great-grandparents of both (`wr.kinship_by_keys` with
+    `World.kin_of`, the kinship percent's calculation), checked by path counting. Exact."""
+    mother, father = world.biological_keys(sim)
+    assert mother is not None and father is not None, f"sim {sim} is born in the town without both parent keys"
+    value = wr.kinship_by_keys(mother, father, world.kin_of)[0]
+    assert value == inbreeding_by_paths(world, mother, father), sim
+    if not world.is_pool_person(sim):
+        # A child of two town parents: the market's φ of their SimIds is the same.
+        parents = world.sims[sim][7] if sim in world.sims else world.archive[sim][9]
+        assert world.kinship(parents[0], parents[1]) == value, sim
+    return value
+
+
+def inheritance(world: wr.World, year: int, heights: list, births: int) -> dict:
+    """The inheritance columns of the row of `year` (the world advanced to its year end `t`),
+    after the population columns:
+
+    - `diseases_on`, `affected` (`affected_counts`, checked against the card's lines);
+    - `adults` and `age25`, each `[[count, mm], [count, mm]]` for women then men: the
+      evaluated living (`heights`, every living sim if the body data pass, else none) with at
+      least 25 and with exactly 25 full years at `t` (`⌊(t − born) / YEAR⌋`), the count and the
+      mean (`mean_rounded`) of their `height_cm` times 10 in ascending SimId;
+    - `inbreeding_e4`: over the persons born in the town in the year (`births`, living and
+      archived, ascending SimId) the mean of `F · 10 000` (`newborn_inbreeding`, `F` as f64,
+      exact), 0 without a birth."""
+    t = year_end(year)
+    on, affected = affected_counts(world, t)
+    assert affected == card_affected(world, t), (year, affected)
+    out = {"diseases_on": on, "affected": affected}
+    for name, member in (("adults", lambda years: years >= ADULT_YEARS), ("age25", lambda years: years == ADULT_YEARS)):
+        cells = []
+        for sex in (FEMALE, MALE):
+            values = [height * 10.0 for _, of, years, height in heights if of == sex and member(years)]
+            cells.append([len(values), mean_rounded(values)])
+        out[name] = cells
+    start, end = year * YEAR, (year + 1) * YEAR
+    values = []
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        if born_in_town(world, sim) and start <= world.born_of(sim) < end:
+            f = newborn_inbreeding(world, sim)
+            value = float(f)
+            assert Fraction(value) == f
+            values.append(value * 10_000.0)
+    assert len(values) == births, (year, len(values), births)
+    out["inbreeding_e4"] = mean_rounded(values)
+    return out
+
+
+def inbreeding_check() -> list:
+    """`--inbreeding-check`: `inbreeding_e4` per year of the run "kin_deep" of
+    tools/state_reference.py (its world at its end: nobody dies or leaves there, and `F` of a
+    birth is fixed by the pedigree at the birth), against the values by hand from its pedigree
+    (first cousins 1/16, second cousins 1/64): year 1 one birth 0, year 2 two births 0, year 4
+    no birth 0, year 38 three births 625 / 3 → 208, year 39 two births 312.5 → 313, year 59
+    two births 156.25 / 2 → 78."""
+    import state_reference
+
+    world = state_reference.KINDEEP
+    by_year = {}
+    for sim in sorted(set(world.sims) | set(world.archive)):
+        if born_in_town(world, sim):
+            by_year.setdefault(world.born_of(sim) // YEAR, []).append(float(newborn_inbreeding(world, sim)) * 10_000.0)
+    rows = {year: (len(values), mean_rounded(values)) for year, values in sorted(by_year.items())}
+    by_hand = {1: (1, 0), 2: (2, 0), 4: (0, 0), 38: (3, 208), 39: (2, 313), 59: (2, 78)}
+    for year, expected in by_hand.items():
+        assert rows.get(year, (0, 0)) == expected, (year, rows.get(year), expected)
+    return [f"inbreeding_kin_deep year {year} births {n} inbreeding_e4 {mean} values {by_year[year]}" for year, (n, mean) in rows.items()]
 
 
 class LogPopulation:
@@ -873,6 +1094,7 @@ def run_fixture(name: str, world: wr.World, body: BodyCensusData, years: int, sn
         "year_hashes": [hexed(value) for value in world.year_hashes],
         "log_hash": hexed(world.log_hash()),
         "death_causes": causes,
+        "diseases": [disease.code for disease in world.data.diseases],
         "rows": rows,
         "curve_clamped_sims": held,
         "margins": margins.json(),
@@ -1224,7 +1446,7 @@ def text_rows(name: str, record: dict) -> list:
     lines = [
         f"census_{name}_config data_hash {record['data_hash']} body_data {record['body_data']} start_input_hash {record['start_input_hash']}"
         f" log_hash {record['log_hash']} until {record['scenario']['until']} nutrition {record['scenario']['start']['world_params']['nutrition']}",
-        f"census_{name}_population start_persons {record['start_persons']} death_causes {','.join(record['death_causes'])}",
+        f"census_{name}_population start_persons {record['start_persons']} death_causes {','.join(record['death_causes'])} diseases {','.join(record['diseases'])}",
     ]
     causes = record["death_causes"]
 
@@ -1232,11 +1454,21 @@ def text_rows(name: str, record: dict) -> list:
         deaths = " ".join(f"deaths.{code}={counts['deaths'][i]}" for i, code in enumerate(causes))
         return f"births {counts['births']} arrivals {counts['arrivals']} emigrations {counts['emigrations']} {deaths}"
 
+    def inheritance_text(row: dict) -> str:
+        affected = " ".join(f"affected.{code}={row['affected'][i]}" for i, code in enumerate(record["diseases"]))
+        # The names of the CLI's header (ADR-0021, addendum: `adults_female`, `adult_height_mm_female`, ...).
+        cells = " ".join(
+            f"{group}_{sex} {row[group][s][0]} {mean}_height_mm_{sex} {row[group][s][1]}"
+            for group, mean in (("adults", "adult"), ("age25", "age25"))
+            for s, sex in enumerate(("female", "male"))
+        )
+        return f"diseases_on {row['diseases_on']} {affected} {cells} inbreeding_e4 {row['inbreeding_e4']}"
+
     for row in record["rows"]:
         counts = " ".join(f"{key}={row['clamped'][i]}" for i, key in enumerate(CLAMPED_KEYS))
         lines.append(
             f"census_{name}_row year {row['year']} living {row['living']} lived_secs {row['lived_secs']} body_evaluated {row['body_evaluated']} {counts} curve_clamped {row['curve_clamped']}"
-            f" {population_text(row)}"
+            f" {population_text(row)} {inheritance_text(row)}"
         )
     totals = [sum(row["clamped"][i] for row in record["rows"]) for i in range(len(CLAMPED_KEYS))]
     population_totals = {key: sum(row[key] for row in record["rows"]) for key in ("births", "arrivals", "emigrations")}
@@ -1527,6 +1759,10 @@ def main(argv) -> int:
         print(f"pigment_twin moved {sorted(document['negative_twin_counts_2']['moved'])}")
         for entry in document["timing_fixture_c_not_a_pin"]:
             print(f"pigment_timing {entry}")
+        return 0
+    if "--inbreeding-check" in argv:
+        for row in inbreeding_check():
+            print(row)
         return 0
     if "--records" in argv:
         out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
