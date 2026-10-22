@@ -729,7 +729,9 @@ fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
         from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| match input {
             Input::Start(start) => start.world_seed,
-            Input::ForkOverride(_) | Input::ArrangePartnership(_) => panic!("a start"),
+            Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => {
+                panic!("a start")
+            }
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
