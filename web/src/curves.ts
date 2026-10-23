@@ -38,6 +38,11 @@ const CAUSES: { readonly [code: string]: string } = {
   "core:accident": TEXT.curve_accident,
 };
 
+/** The name of a cause of death: age, accident or the name of the disease (Grok R4). */
+export function causeName(code: string): string {
+  return CAUSES[code] ?? diseaseName(code);
+}
+
 function curve(
   title: string,
   decimals: 0 | 1 | 2,
@@ -118,7 +123,7 @@ export function curves(answer: CensusAnswer): Curves {
         [TEXT.curve_arrivals, column("arrivals")],
         [TEXT.curve_emigrations, column("emigrations")],
       ]),
-      curve(TEXT.curve_deaths, 0, true, byCode("deaths.", (code) => CAUSES[code] ?? diseaseName(code)), note),
+      curve(TEXT.curve_deaths, 0, true, byCode("deaths.", causeName), note),
       curve(TEXT.curve_affected, 0, true, byCode("affected.", diseaseName), note),
       curve(TEXT.curve_adults, 1, false, height("adults", "adult_height_mm")),
       curve(TEXT.curve_age25, 1, false, height("age25", "age25_height_mm")),

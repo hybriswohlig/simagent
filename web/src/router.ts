@@ -6,6 +6,7 @@ export type Route =
   | { page: "run"; run: string }
   | { page: "person"; run: string; sim: string }
   | { page: "tree"; run: string; sim: string }
+  | { page: "diff"; a: string; b: string }
   | { page: "not_found"; hash: string };
 
 /** A run is a directory name: letters, digits, `.`, `_` and `-`, not starting with `.`. */
@@ -43,6 +44,9 @@ export function parse(hash: string): Route {
   if (person && parts.length === 6 && tree === "tree") {
     return { page: "tree", run, sim };
   }
+  if (known && persons === "diff" && sim !== undefined && RUN.test(sim) && parts.length === 5) {
+    return { page: "diff", a: run, b: sim };
+  }
   return { page: "not_found", hash };
 }
 
@@ -61,6 +65,8 @@ export function format(route: Route): string {
       return `#/runs/${route.run}/persons/${route.sim}`;
     case "tree":
       return `#/runs/${route.run}/persons/${route.sim}/tree`;
+    case "diff":
+      return `#/runs/${route.a}/diff/${route.b}`;
     case "not_found":
       return route.hash;
   }

@@ -2,7 +2,8 @@
 // opens the run page of a fresh run of the gate scenario at the end of year 28, finds the
 // seven curves, triggers a hunger year (its line, for year 29, comes at once), steps one
 // year, turns the hereditary diseases on (off in the scenario; its line and the button's new
-// label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11).
+// label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
+// and opens the comparison of the run with itself (no life differs).
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -100,10 +101,16 @@ if (browser !== undefined) {
         [`#/runs/${run}/persons/8`, before],
       ),
     );
+    await step("the comparison with itself", page.goto(`${url}#/runs/${run}/diff/${run}`));
+    await step(
+      "its heading",
+      page.getByRole("heading", { level: 1, name: `Vergleich: ${run} und ${run}` }).waitFor(),
+    );
+    await step("no life differs", page.getByText("Die beiden Läufe unterscheiden sich in keinem Leben.").waitFor());
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, and the comparison with itself");
   } catch (error) {
     fail(error.message);
   } finally {
