@@ -20,6 +20,11 @@ export type Layout = {
 /** Horizontal distance of two people in a row, vertical distance of two rows. */
 const STEP_X = 90;
 const STEP_Y = 80;
+/** Offsets under a circle's centre of the first name and of the mark below it. */
+export const NAME_DY = 32;
+export const MARK_DY = 44;
+/** Room below the last row, so that the descenders of the mark stay in the drawing. */
+const BELOW = MARK_DY + 6 - STEP_Y / 2;
 
 export function layout(glass: Hourglass): Layout {
   const all: (readonly Person[])[] = [...glass.up].reverse();
@@ -49,5 +54,5 @@ export function layout(glass: Hourglass): Layout {
       }
     }
   }
-  return { nodes, edges, width, height: rows.length * STEP_Y };
+  return { nodes, edges, width, height: rows.length * STEP_Y + BELOW };
 }

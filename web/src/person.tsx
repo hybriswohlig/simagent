@@ -14,7 +14,7 @@ import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.j
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
-import { layout } from "./render/tree.js";
+import { layout, MARK_DY, NAME_DY } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
 import { currentPartner, hourglass, nodeMark, parentsOf, type Hourglass } from "./tree.js";
@@ -123,11 +123,11 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
             {node.person.sim}
           </text>
-          <text x={node.x} y={node.y} dy="32" text-anchor="middle" font-size="11">
+          <text x={node.x} y={node.y} dy={NAME_DY} text-anchor="middle" font-size="11">
             {node.person.first_name}
           </text>
           {nodeMark(node.person).shown === null ? null : (
-            <text x={node.x} y={node.y} dy="44" text-anchor="middle" font-size="10">
+            <text x={node.x} y={node.y} dy={MARK_DY} text-anchor="middle" font-size="10">
               {nodeMark(node.person).shown}
             </text>
           )}
