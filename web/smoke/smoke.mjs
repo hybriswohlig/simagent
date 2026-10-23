@@ -3,8 +3,9 @@
 // seven curves, triggers a hunger year (its line, for year 29, comes at once), steps one
 // year, turns the hereditary diseases on (off in the scenario; its line and the button's new
 // label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
-// opens the comparison of the run with itself (no life differs), then forks the run from
-// its year with the hereditary diseases off and lands on the comparison with the fork; last
+// opens the comparison of the run with itself (no life differs), goes back to the run page
+// and finds the hunger year's line again (the chronicle kept), then forks the run from its
+// year with the hereditary diseases off and lands on the comparison with the fork; last
 // it pins the family of sim 13 and finds it on the run page.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
@@ -111,6 +112,10 @@ if (browser !== undefined) {
     await step("no life differs", page.getByText("Die beiden Läufe unterscheiden sich in keinem Leben.").waitFor());
     await step("the years of both", page.getByText(`${run} steht im Jahr 29, ${run} im Jahr 29.`).waitFor());
     await step("back to the run", page.goto(`${url}#/runs/${run}`));
+    await step(
+      "the chronicle kept",
+      page.getByText("Jahr 29, 1. Monat, 1. Tag: Ein Hungerjahr kommt: Jahr 29.").waitFor(),
+    );
     await step("the fork's name", page.getByRole("textbox", { name: "Name der Gabel" }).fill("gabel"));
     await step("the diseases off", page.getByLabel("Erbkrankheiten in der Gabel").selectOption("off"));
     await step("fork", page.getByRole("button", { name: "Gabel anlegen" }).click());
@@ -132,7 +137,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself and with a fork, and a pinned family");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, and a pinned family");
   } catch (error) {
     fail(error.message);
   } finally {
