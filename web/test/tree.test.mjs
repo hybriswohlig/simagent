@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { layout } from "../dist/render/tree.js";
+import { layout, MARK_DY } from "../dist/render/tree.js";
 import { hourglass } from "../dist/tree.js";
 
 /** A person of the pedigree format with only the fields the tree reads set by hand. */
@@ -141,8 +141,20 @@ test("empty generations above and below take no room", () => {
   // 14 is alone: one row.
   const alone = layout(hourglass(PEDIGREE, 14));
   assert.equal(alone.nodes.length, 1);
-  assert.equal(alone.height, 80);
+  // One row of 80 and 10 below it for the mark under the name.
+  assert.equal(alone.height, 90);
   assert.ok(parentsOnly.height > alone.height);
+});
+
+// The review of F6: the mark under the name of the last row ("†" or "weggezogen") lay below
+// the edge of the drawing and was cut off; its baseline stays 6 px above the edge, room for
+// the descenders of a 10 px font.
+test("the mark under the lowest name fits in the drawing", () => {
+  for (const sim of [7, 9, 14]) {
+    const { nodes, height } = layout(hourglass(PEDIGREE, sim));
+    const lowest = Math.max(...nodes.map((n) => n.y));
+    assert.ok(lowest + MARK_DY + 6 <= height, `sim ${sim}`);
+  }
 });
 
 // The playtest before the fun test (F1): an arrival whose parents came from the pool too has
