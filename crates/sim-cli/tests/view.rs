@@ -1966,20 +1966,24 @@ fn a_fork_that_fails_after_it_began_leaves_nothing() {
 }
 
 /// Astra's review of G2: a name whose lock another process holds is refused with
-/// `run_locked`, and what that process makes there stays.
+/// `run_locked` and nothing is made there; a name with content before the request is
+/// `run_exists`, and the content stays.
 #[test]
 fn a_fork_into_a_run_another_writes_touches_nothing() {
     let (runs, web, _) = writable_fixture("fork_taken");
+    let server = start(&runs, &web);
+    let fork_into = |name: &str| {
+        let body = format!(r#"{{"run":"{name}","from_year":2,"changes":[]}}"#);
+        let (status, _, answer) = post(server.port, "/api/runs/town/fork", &body);
+        (status, code(&answer))
+    };
     let taken = runs.join("taken");
     let held = RunLock::acquire(&taken).expect("the lock");
-    let server = start(&runs, &web);
-    let (status, _, answer) = post(
-        server.port,
-        "/api/runs/town/fork",
-        r#"{"run":"taken","from_year":2,"changes":[]}"#,
-    );
-    assert_eq!((status, code(&answer).as_str()), (409, "run_locked"));
-    write(&taken.join("theirs"), b"kept");
+    assert_eq!(fork_into("taken"), (409, "run_locked".to_owned()));
+    assert!(!taken.exists());
     drop(held);
-    assert_eq!(fs::read(taken.join("theirs")).expect("reads"), b"kept");
+    let theirs = runs.join("theirs");
+    write(&theirs.join("file"), b"kept");
+    assert_eq!(fork_into("theirs"), (409, "run_exists".to_owned()));
+    assert_eq!(fs::read(theirs.join("file")).expect("reads"), b"kept");
 }
