@@ -193,31 +193,29 @@ def main(argv) -> int:
         cells = means(group)
         assert [cell[:2] for cell in cells] == rows[row_y]["age25"], (run, cells)
         print(f"(c) {run} row {row_y} age25 {rows[row_y]['age25']} unrounded mm (women, men) {[cell[2] for cell in cells]}")
+        print(f"(c) {run} row {row_y} adults {rows[row_y]['adults']}")
     for run in SHOCKS:
         drops = [a[2] - b[2] for a, b in zip(means(people["twin"]), means(people[run]))]
         print(f"(c) {run} drop of the unrounded means in mm (women, men) {drops}")
     for index, (sim, sex, born, f, alive, measured, height, theta) in enumerate(people["twin"]):
-        losses, flags = [], []
+        losses = []
         for run in SHOCKS:
             other = people[run][index]
             assert other[:6] == (sim, sex, born, f, alive, measured), (run, other)
             hand = hand_loss(run, f)
-            assert 4.0 - f <= max(5.0, theta - 2.0)
             loss = height - other[6] if measured else None
+            assert not measured or abs(loss - hand) <= 1e-9, (sim, run, loss, hand)
             losses.append(f"{run} loss {loss!r} hand {hand!r}")
-            if measured and abs(loss - hand) > 1e-9:
-                flags.append(f"MISMATCH {run}")
         label = "female" if sex == FEMALE else "male"
-        print(f"(d) sim {sim} {label} born {born} f {f!r} theta_i {theta!r} alive {alive} measured {measured} twin height_cm {height!r} {'; '.join(losses)} {' '.join(flags) or 'ok'}")
+        print(f"(d) sim {sim} {label} born {born} f {f!r} theta_i {theta!r} alive {alive} measured {measured} twin height_cm {height!r} {'; '.join(losses)}")
     for run in SHOCKS:
         _, rows, persons, _ = runs[run]
         differ = [(k, name) for k in range(row_y + 1) for name, value in columns(rows[k], twin.data).items() if value != columns(twin_rows[k], twin.data)[name]]
         same_persons = persons == twin_persons[: row_y + 1]
         print(f"(e) {run} differing (row, column) {differ}")
-        print(
-            f"(e) {run} only height means differ {all(name in HEIGHT_MEANS for _, name in differ)}; rows 0..={y} equal in full"
-            f" {all(k > y for k, _ in differ)}; first differing row {min((k for k, _ in differ), default=None)}; same persons in every row {same_persons}"
-        )
+        assert all(name in HEIGHT_MEANS for _, name in differ), (run, differ)
+        assert all(k > y for k, _ in differ) and same_persons, (run, differ)
+        print(f"(e) {run} only height means differ, rows 0..={y} equal in full, same persons in every row; first differing row {min((k for k, _ in differ), default=None)}")
     return 0
 
 
