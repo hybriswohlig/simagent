@@ -212,6 +212,56 @@ export type InputAnswer = {
   readonly seq: number;
 };
 
+/** `POST /api/runs/{run}/fork`: the name of the fork made beside the run. */
+export type ForkedAnswer = {
+  readonly format: "simagent.view.forked";
+  readonly version: number;
+  readonly run: string;
+};
+
+/** `GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, each second with its date. */
+export type DiffAnswer = {
+  readonly format: "simagent.view.diff";
+  readonly version: number;
+  readonly a: string;
+  readonly b: string;
+  readonly a_only: string[];
+  readonly b_only: string[];
+  readonly changed: DiffChange[];
+};
+
+/** A lineage key whose life differs between the runs: the fields that differ, in the order of the life, and the life in each. */
+export type DiffChange = {
+  readonly lineage_key: string;
+  readonly differs: string[];
+  readonly a: DiffLife;
+  readonly b: DiffLife;
+};
+
+/** What a run says of a person, by keys alone. */
+export type DiffLife = {
+  readonly born: DatedSecond;
+  readonly died: DatedSecond | null;
+  readonly cause_of_death: string | null;
+  readonly emigrated: DatedSecond | null;
+  readonly partnerships: DiffBond[];
+  readonly children: number;
+};
+
+/** A partnership of a person, the other by lineage key. */
+export type DiffBond = {
+  readonly partner: string;
+  readonly formed: DatedSecond;
+  readonly ended: DatedSecond | null;
+  readonly ended_by: "death" | "separation" | "emigration" | null;
+};
+
+/** A second of a comparison with its date from the core. */
+export type DatedSecond = {
+  readonly t: number;
+  readonly date: CalendarDate;
+};
+
 /** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands. */
 export type WorldAnswer = {
   readonly format: "simagent.view.world";

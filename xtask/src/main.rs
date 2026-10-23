@@ -491,6 +491,12 @@ fn server_answers(
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
     answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
     answers.push(("WorldAnswer", get(port, "/api/runs/town/world")?));
+    // A fork with an override, so that the comparison shows its every shape: the town has
+    // the switch on, the fork has it off from year 10.
+    let off =
+        Some(r#"{"run":"fork_off","from_year":10,"changes":[{"core:hereditary_diseases":false}]}"#);
+    answers.push(("ForkedAnswer", ask(port, "/api/runs/town/fork", off, 200)?));
+    answers.push(("DiffAnswer", get(port, "/api/runs/town/diff/fork_off")?));
     // A page of the log with a next page, and an empty one without.
     answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
     let none = "/api/runs/town/events?from=-5&to=-1";
