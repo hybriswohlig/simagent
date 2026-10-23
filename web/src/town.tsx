@@ -8,7 +8,7 @@ import { ForkForm, type Writes } from "./forkform.js";
 import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
-import { Chronicle } from "./lines.js";
+import { Chronicle, SCROLLED } from "./lines.js";
 import { enteredBy, READS, type Read, windows } from "./log.js";
 import { TreeView, usePedigree } from "./person.js";
 import { browserStorage, pinnedKey } from "./pin.js";
@@ -308,6 +308,7 @@ function Town({
       </p>
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
       {inputRefused === null ? null : <p role="alert">{inputRefused}</p>}
+      <PinnedFamily run={run} pedigree={kept} />
       <Chronicle
         run={run}
         items={chronicle.items}
@@ -316,10 +317,11 @@ function Town({
         names={names}
       />
       <CurvesView run={run} at={String(listedAt)} />
-      <PinnedFamily run={run} pedigree={kept} />
+      <ForkForm run={run} year={clock.date.year} writes={writes} />
+      <CompareForm run={run} others={others} />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
-      <ul>
+      <ul style={SCROLLED} tabIndex={0} aria-label={TEXT.living}>
         {living.map((person) => (
           <li key={person.sim}>
             <a href={format({ page: "person", run, sim: String(person.sim) })}>
@@ -329,8 +331,6 @@ function Town({
           </li>
         ))}
       </ul>
-      <ForkForm run={run} year={clock.date.year} writes={writes} />
-      <CompareForm run={run} others={others} />
     </section>
   );
 }

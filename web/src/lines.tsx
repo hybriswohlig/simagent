@@ -24,6 +24,10 @@ function ChronicleLine({ run, item, names }: { run: string; item: EventItem; nam
   );
 }
 
+/** A long list in a box of its own height that scrolls, so the page stays short (finding F4
+ * of the playtest); focusable, so that a keyboard scrolls it too. */
+export const SCROLLED = { maxHeight: "24em", overflowY: "auto" } as const;
+
 /** A chronicle: its lines, newest first, and why a part of the log could not be read, with a
  * way to read it again. */
 export function Chronicle({
@@ -50,7 +54,7 @@ export function Chronicle({
           </button>
         </p>
       )}
-      <ol>
+      <ol style={SCROLLED} tabIndex={0} aria-label={TEXT.chronicle}>
         {items.map((item) => (
           <ChronicleLine key={item.entry.id} run={run} item={item} names={names} />
         ))}
