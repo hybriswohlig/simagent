@@ -35,7 +35,10 @@ pub(crate) fn persons_in(history: &[InputRecord]) -> u64 {
     (history.iter())
         .find_map(|record| match &record.input {
             Input::Start(start) => Some(persons(start)),
-            Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => None,
+            Input::ForkOverride(_)
+            | Input::ArrangePartnership(_)
+            | Input::SetWorldParam(_)
+            | Input::TriggerShock(_) => None,
         })
         .unwrap_or(0)
 }

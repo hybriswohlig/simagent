@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::Value;
-use sim_core::data::{Calibrated, Data, Definitions, Unit};
+use sim_core::data::{Calibrated, Data, Definitions, ShockKind, ShockTemplate, Unit};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 
@@ -16,6 +16,7 @@ const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json"
 const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
 const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
+const SHOCKS: &str = include_str!("../../../data/shocks.json");
 
 /// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
 /// ADR-0008 section 1).
@@ -23,11 +24,48 @@ const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];
 const LOCUS_TEXT: [&str; 1] = ["description"];
 
 /// The checked definitions of the base game, with the pool of the pre-run and its
-/// frequencies (ADR-0020 sections 4 and 5).
+/// frequencies (ADR-0020 sections 4 and 5) and the shock templates (ADR-0023 section 3).
 pub fn core_data() -> Result<Data, CliError> {
     let definitions = definitions_from(DEMOGRAPHY, CALIBRATION, GENOME_MAP)?;
+    let shocks = shocks_from(SHOCKS)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
+        .and_then(|data| data.with_shocks(shocks))
         .map_err(|error| rejected(&error.to_string()))
+}
+
+/// The shock templates of `shocks.json` (ADR-0023 section 3): the file's format and
+/// version, each template with its text (`source`) removed; the core checks the values.
+pub fn shocks_from(text: &str) -> Result<Vec<ShockTemplate>, CliError> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Entry {
+        id: DataId,
+        kind: ShockKind,
+        years: u32,
+        index: FiniteF64,
+        #[serde(rename = "source")]
+        _source: String,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct File {
+        format: String,
+        version: u32,
+        shocks: Vec<Entry>,
+    }
+    let file: File =
+        serde_json::from_str(text).map_err(|error| rejected(&format!("shocks.json: {error}")))?;
+    if (file.format.as_str(), file.version) != ("simagent.shocks", 1) {
+        return Err(rejected("shocks.json: not simagent.shocks version 1"));
+    }
+    Ok((file.shocks.into_iter())
+        .map(|entry| ShockTemplate {
+            id: entry.id,
+            kind: entry.kind,
+            years: entry.years,
+            index: entry.index,
+        })
+        .collect())
 }
 
 /// The frequencies of the pool's loci (`pool/pool_frequencies.json`): per locus a value of
@@ -239,7 +277,7 @@ mod tests {
     fn the_base_game_loads() {
         // The data hash of the built-in data, map 4 with the pool and its frequencies,
         // from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0xb1f5_c005_4302_363d);
+        assert_eq!(core_data().expect("data").hash(), 0x63e4_b3ea_3dcc_1fe6);
     }
 
     /// The pool's frequencies are read like calibration values: the unit `fraction`, the three

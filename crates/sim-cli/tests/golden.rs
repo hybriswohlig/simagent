@@ -27,7 +27,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0xb1f5_c005_4302_363d;
+const DATA_HASH: u64 = 0x63e4_b3ea_3dcc_1fe6;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -83,7 +83,7 @@ fn whole_run() -> Run {
 
 /// The year of the fork point of the golden fork, and the fork: the dummy run with the
 /// override "hereditary diseases on", submitted with the stamp `T_5 - 1 s` (ADR-0001
-/// section 6).
+/// section 6), and a hunger of one year at the same stamp, which hits year 5 (ADR-0023).
 const FORK_YEAR: usize = 5;
 
 fn fork_run() -> Run {
@@ -97,6 +97,13 @@ fn fork_run() -> Run {
         .submit(Input::ForkOverride(block))
         .expect("accepted");
     assert_eq!(stamp.t, fork_stamp);
+    // A hunger of one year at the same stamp (ADR-0023, addendum before S1b): year 5.
+    let shock = sim_core::input::TriggerShock {
+        shock: sim_core::data_id::DataId::new("core:hunger_one_year").expect("valid"),
+    };
+    part.world
+        .submit(Input::TriggerShock(shock))
+        .expect("accepted");
     run_to(part.world, part.out, part.log, scenario().until)
 }
 
@@ -241,8 +248,9 @@ fn golden_fork_matches() {
     // fibrosis on the repository's data, ADR-0017 section 3) for second 1 506 119 448, at
     // about 78; she dies of senescence in year 26 first (second 836 172 484, at 56.6), as
     // in the run (tools/golden_reference.py). After it come the onsets of sims 1 and 3,
-    // reached at their birth and never reported while the switch was off.
-    assert_eq!(fork.log.len(), whole_run().log.len() + 3);
+    // reached at their birth and never reported while the switch was off, then the shock's
+    // `core:shock_triggered` and its one `core:param_changed` for year 5.
+    assert_eq!(fork.log.len(), whole_run().log.len() + 5);
 }
 
 /// The pedigrees of the golden run and of its fork after thirty years are the goldens
@@ -485,10 +493,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Emigrated { .. } => "core:emigrated",
         LogPayload::Arrived { .. } => "core:arrived",
         LogPayload::DiseaseOnset { .. } => "core:disease_onset",
+        LogPayload::ShockTriggered { .. } => "core:shock_triggered",
     }
 }
 
-const LOG_KINDS: [&str; 15] = [
+const LOG_KINDS: [&str; 16] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -504,6 +513,7 @@ const LOG_KINDS: [&str; 15] = [
     "core:emigrated",
     "core:arrived",
     "core:disease_onset",
+    "core:shock_triggered",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -524,7 +534,8 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
 /// appears at least once. The scenarios are the dummy run, its fork at year 5 and the
-/// arrival; only the arrival has a pool, so only it has immigrants.
+/// arrival; only the arrival has a pool, so only it has immigrants, and only the fork has
+/// a shock (ADR-0023, addendum before S1b).
 #[test]
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
@@ -535,10 +546,11 @@ fn golden_scenarios_cover_every_kind() {
             "event disease_onset",
             "log core:param_changed",
             "log core:arrived",
-            "log core:disease_onset"
+            "log core:disease_onset",
+            "log core:shock_triggered"
         ],
-        "the dummy run has no override and no pool, its switch is off, and its only \
-         disease begins at birth"
+        "the dummy run has no override, no shock and no pool, its switch is off, and its \
+         only disease begins at birth"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -586,7 +598,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 15);
+    assert_eq!(logs.len(), 16);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -656,7 +668,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:moved",
             "log core:emigrated",
             "log core:arrived",
-            "log core:disease_onset"
+            "log core:disease_onset",
+            "log core:shock_triggered"
         ]
     );
 }

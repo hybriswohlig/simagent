@@ -172,7 +172,7 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
                 ParamChange::HereditaryDiseases(on) => Vec::from([(acts(record.t), on)]),
                 ParamChange::NutritionYear(_) => Vec::new(),
             },
-            Input::ArrangePartnership(_) => Vec::new(),
+            Input::ArrangePartnership(_) | Input::TriggerShock(_) => Vec::new(),
         })
         .collect()
 }
@@ -182,7 +182,10 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
 fn by_start(history: &[InputRecord]) -> u64 {
     let start = (history.iter()).find_map(|record| match &record.input {
         Input::Start(start) => Some(start),
-        Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => None,
+        Input::ForkOverride(_)
+        | Input::ArrangePartnership(_)
+        | Input::SetWorldParam(_)
+        | Input::TriggerShock(_) => None,
     });
     super::start::persons(start.unwrap_or_else(|| panic!("invariant onset.no_start")))
 }

@@ -20,7 +20,7 @@ use crate::kinship::{Kin, KinshipCache};
 use crate::lineage::GenomeKey;
 use crate::lineage::{LineageIndex, LineageKey};
 use crate::log::PlanRef;
-use crate::params::WorldParams;
+use crate::params::{NutritionYear, ParamChange, WorldParams};
 use crate::pool::PoolPerson;
 use crate::rng::{Draws, WorldSeed};
 use crate::state::conception;
@@ -884,10 +884,31 @@ fn input_log_consistent(
                 switch.push((record.t.as_secs() + 1, after.hereditary_diseases));
                 started = Some((after, start));
             }
+            // A shock passes the check of the input against the parameters at its place in
+            // the log and sets the years of its template (ADR-0023 section 3); the switch
+            // stays.
+            (Input::TriggerShock(shock), Some((before, start))) => {
+                if state::params::shock_rejection(data, &before, record.t, &shock.shock).is_some() {
+                    return None;
+                }
+                let template = data.shock(&shock.shock)?;
+                let next = record.t.checked_add(SimDuration::from_secs(1))?;
+                let (first, last) = state::params::shock_years(next, template.years);
+                let after = (first..=last).fold(before, |params, year| {
+                    params.with(ParamChange::NutritionYear(NutritionYear {
+                        year,
+                        index: template.index,
+                    }))
+                });
+                started = Some((after, start));
+            }
             // A second `Start`, or another input before the first.
             (Input::Start(_), Some(_))
             | (
-                Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_),
+                Input::ForkOverride(_)
+                | Input::ArrangePartnership(_)
+                | Input::SetWorldParam(_)
+                | Input::TriggerShock(_),
                 None,
             ) => return None,
         }

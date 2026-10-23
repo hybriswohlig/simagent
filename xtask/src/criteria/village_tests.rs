@@ -234,7 +234,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xb1f5_c005_4302_363d);
+    assert_eq!(data.hash(), 0x63e4_b3ea_3dcc_1fe6);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the
@@ -266,7 +266,7 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     assert_eq!(text.len(), 70_871);
     let masked = masked(&text);
     assert_eq!(masked.len(), 61_001);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0x3067_df58_4e21_a5e7);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0xf741_c735_06ba_5cba);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);
@@ -552,4 +552,30 @@ fn the_command_names_its_directory() {
     let args = ["--out".to_owned(), "x".to_owned()];
     let error = command(&nowhere, &args).expect_err("no data");
     assert!(error.contains("demography.json"), "{error}");
+}
+
+/// ADR-0023 section 3: the shock templates are read as strictly as sim-cli reads them, the
+/// fields of the file and of each template exactly (`deny_unknown_fields`).
+#[test]
+fn the_shocks_file_is_read_strictly() {
+    let dir = std::env::temp_dir().join(format!("xtask-shocks-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("data")).expect("a directory");
+    let read = |text: &str| {
+        std::fs::write(dir.join("data/shocks.json"), text).expect("written");
+        shocks(&dir)
+    };
+    let entry =
+        r#"{"id":"core:hunger_one_year","kind":"hunger","years":1,"index":0.7,"source":"G8"}"#;
+    let file =
+        |shocks: &str| format!(r#"{{"format":"simagent.shocks","version":1,"shocks":[{shocks}]}}"#);
+    assert_eq!(read(&file(entry)).map(|templates| templates.len()), Ok(1));
+    for bad in [
+        file(&entry.replace(r#","source":"G8""#, "")),
+        file(&entry.replace(r#""years":1"#, r#""years":1,"duration":3"#)),
+        file(&entry.replace(r#""source":"G8""#, r#""source":3"#)),
+        file(entry).replace(r#""version":1"#, r#""version":1,"note":"x""#),
+    ] {
+        assert!(read(&bad).is_err(), "{bad}");
+    }
+    std::fs::remove_dir_all(&dir).expect("removed");
 }

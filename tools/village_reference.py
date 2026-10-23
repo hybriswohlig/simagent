@@ -242,8 +242,13 @@ def rejection_rows(data: wr.Data) -> list:
         ("decision_capacity_zero_before_pool", data, changed(n_start=79), 0),
     ]
     rows = [f"village_reject_candidates women {women_count} men {men_count} (largest even n_start {2 * min(women_count, men_count)})"]
-    # The reject code list (tests/golden/log_codes.txt) by number: the three after 27.
-    rows += [f"village_reject_code {code} {wr.REJECT_NAMES[code]}" for code in sorted(wr.REJECT_NAMES) if code >= wr.START_POOL_AND_FOUNDERS]
+    # The reject code list (tests/golden/log_codes.txt) by number: the codes of the pool start,
+    # the village's three after 27 (the world rules after them are not codes of `Start`).
+    rows += [
+        f"village_reject_code {code} {wr.REJECT_NAMES[code]}"
+        for code in sorted(wr.REJECT_NAMES)
+        if wr.START_POOL_AND_FOUNDERS <= code <= wr.START_POOL_VILLAGE_CANDIDATES
+    ]
     for name, case_data, pool, capacity in cases:
         code = wr.start_rejection([], [], case_data, CAPACITY if capacity is None else capacity, pool, seed)
         assert code is not None, name

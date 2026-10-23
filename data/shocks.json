@@ -1,0 +1,20 @@
+{
+  "format": "simagent.shocks",
+  "version": 1,
+  "shocks": [
+    {
+      "id": "core:hunger_one_year",
+      "kind": "hunger",
+      "years": 1,
+      "index": 0.7,
+      "source": "Grok G8 (ADR-0021 section 5, ADR-0023 section 3): the next calendar year, index 0.7, one year"
+    },
+    {
+      "id": "core:hunger_three_years",
+      "kind": "hunger",
+      "years": 3,
+      "index": 0.7,
+      "source": "Grok G8 (ADR-0021 section 5, ADR-0023 section 3): the next calendar year, index 0.7, three years in a row"
+    }
+  ]
+}

@@ -190,6 +190,9 @@ fn check(
             state::partnership::check_arrange(domain, data, closed_through, pair)
         }
         Input::SetWorldParam(rule) => state::params::check_set(domain, closed_through, rule),
+        Input::TriggerShock(shock) => {
+            state::params::check_shock(domain, data, closed_through, shock)
+        }
     }
 }
 
@@ -228,6 +231,9 @@ impl WorldState {
             }
             Input::SetWorldParam(rule) => {
                 state::params::apply_set(&mut self.domain, &self.data, rule, history, &mut ctx);
+            }
+            Input::TriggerShock(shock) => {
+                state::params::apply_shock(&mut self.domain, &self.data, shock, &mut ctx);
             }
         }
     }
@@ -571,6 +577,10 @@ mod tests {
                 woman: sim(2),
                 man: sim(1),
             }),
+            // Before the look at the template: these data have none.
+            Input::TriggerShock(crate::input::TriggerShock {
+                shock: DataId::new("core:hunger_one_year").expect("valid"),
+            }),
         ] {
             let rejected = world.submit(input).expect_err("rejected");
             assert_eq!(rejected.code, RejectCode::EndOfTime);
@@ -590,6 +600,62 @@ mod tests {
             crate::state::params::set_rejection(switch, &params, last),
             Some(RejectCode::EndOfTime)
         );
+        let one_year = DataId::new("core:hunger_one_year").expect("valid");
+        assert_eq!(
+            crate::state::params::shock_rejection(&world.state.data, &params, last, &one_year),
+            Some(RejectCode::EndOfTime)
+        );
+    }
+
+    /// ADR-0023 section 3: every year of a shock is checked before the first change. In
+    /// year 999 997 (the last but two of time) a shock of three years would set 999 998,
+    /// 999 999 and 1 000 000, the last past the end: `nutrition_out_of_range`, and nothing
+    /// changes; one of one year sets 999 998.
+    #[test]
+    fn a_shock_past_the_end_of_time_changes_nothing() {
+        let hunger = |id, years| crate::data::ShockTemplate {
+            id: DataId::new(id).expect("valid"),
+            kind: crate::data::ShockKind::Hunger,
+            years,
+            index: crate::finite::FiniteF64::try_new(0.7).expect("finite"),
+        };
+        let data = testing::data()
+            .with_shocks(alloc::vec![
+                hunger("core:hunger_one_year", 1),
+                hunger("core:hunger_three_years", 3),
+            ])
+            .expect("checked");
+        let mut world = World::new(data);
+        world.submit(start(&[-5, -1])).expect("accepted");
+        world.take_log();
+        world.sched = Scheduler::restore(SchedulerSnapshot {
+            closed_through: crate::time::year_start(999_998)
+                - crate::time::SimDuration::from_secs(1_000),
+            next_seq: world.sched.snapshot().next_seq,
+            entries: Vec::new(),
+        })
+        .expect("valid snapshot");
+        let shock = |id| {
+            Input::TriggerShock(crate::input::TriggerShock {
+                shock: DataId::new(id).expect("valid"),
+            })
+        };
+        let rejected = world
+            .submit(shock("core:hunger_three_years"))
+            .expect_err("rejected");
+        assert_eq!(rejected.code, RejectCode::NutritionOutOfRange);
+        assert_eq!(world.inputs.records.len(), 1);
+        assert!(world.take_log().is_empty());
+        assert_eq!(
+            world.state.world_params().map(|p| p.nutrition.len()),
+            Some(0)
+        );
+        world
+            .submit(shock("core:hunger_one_year"))
+            .expect("accepted");
+        let years = (world.state.world_params())
+            .map(|p| p.nutrition.iter().map(|y| y.year).collect::<Vec<_>>());
+        assert_eq!(years, Some(alloc::vec![999_998]));
     }
 
     /// ADR-0004 section 1: looking up an unknown ID in the core is an invariant break.

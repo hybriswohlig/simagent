@@ -118,6 +118,12 @@ fn sample_arrange() -> Input {
     })
 }
 
+fn sample_shock() -> Input {
+    Input::TriggerShock(sim_core::input::TriggerShock {
+        shock: data_id("core:hunger_one_year"),
+    })
+}
+
 fn sample_rule() -> Input {
     Input::SetWorldParam(sim_core::input::SetWorldParam {
         change: sim_core::params::ParamChange::HereditaryDiseases(false),
@@ -131,13 +137,15 @@ fn all_inputs() -> Vec<Input> {
         sample_override(),
         sample_arrange(),
         sample_rule(),
+        sample_shock(),
     ];
     for input in &inputs {
         match input {
             Input::Start(_)
             | Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
-            | Input::SetWorldParam(_) => {}
+            | Input::SetWorldParam(_)
+            | Input::TriggerShock(_) => {}
         }
     }
     inputs
@@ -729,9 +737,10 @@ fn formats_roundtrip_rejects_malformed_hex() {
     let with_seed = |seed: &str| {
         from_json::<Input>(&INPUT_JSON.replace("00000000000000ff", seed)).map(|input| match input {
             Input::Start(start) => start.world_seed,
-            Input::ForkOverride(_) | Input::ArrangePartnership(_) | Input::SetWorldParam(_) => {
-                panic!("a start")
-            }
+            Input::ForkOverride(_)
+            | Input::ArrangePartnership(_)
+            | Input::SetWorldParam(_)
+            | Input::TriggerShock(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -951,6 +960,11 @@ fn all_payloads() -> Vec<LogPayload> {
             since_year: -10,
             age_years: 30,
         },
+        LogPayload::ShockTriggered {
+            shock: data_id("core:hunger_three_years"),
+            first_year: 4,
+            last_year: 6,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -969,7 +983,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Arrived { .. }
             | LogPayload::Moved { .. }
             | LogPayload::Emigrated { .. }
-            | LogPayload::DiseaseOnset { .. } => {}
+            | LogPayload::DiseaseOnset { .. }
+            | LogPayload::ShockTriggered { .. } => {}
         }
     }
     payloads
@@ -1011,6 +1026,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::EndOfTime,
         RejectCode::ParamNotSettable,
         RejectCode::ParamUnchanged,
+        RejectCode::ShockUnknown,
+        RejectCode::ShockOverlaps,
     ];
     for code in &codes {
         match code {
@@ -1047,7 +1064,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::StartPoolVillageCandidates
             | RejectCode::EndOfTime
             | RejectCode::ParamNotSettable
-            | RejectCode::ParamUnchanged => {}
+            | RejectCode::ParamUnchanged
+            | RejectCode::ShockUnknown
+            | RejectCode::ShockOverlaps => {}
         }
     }
     codes

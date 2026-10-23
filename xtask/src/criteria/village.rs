@@ -97,8 +97,55 @@ pub fn repository_data(root: &Path) -> Result<Data> {
         frequencies.insert(DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?, q);
     }
     let frequencies = crate::pool_file::finite(frequencies)?;
+    let shocks = shocks(root)?;
     Data::with_pool(definitions, &pool, frequencies)
+        .and_then(|data| data.with_shocks(shocks))
         .map_err(|e| format!("the repository's data: {e}"))
+}
+
+/// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
+/// (ADR-0023 section 3); the core checks the values.
+fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
+    let path = root.join("data/shocks.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: Value =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    // The fields of the file and of each template, exactly (`deny_unknown_fields`, as
+    // sim-cli reads them). A key given twice keeps its last value here; sim-cli refuses
+    // it, and its test `the_base_game_loads` reads this same file in the gate.
+    let exactly = |value: &Value, keys: &[&str]| {
+        value.as_object().is_some_and(|object| {
+            object.len() == keys.len() && keys.iter().all(|key| object.contains_key(*key))
+        })
+    };
+    if !exactly(&file, &["format", "version", "shocks"])
+        || file["format"] != "simagent.shocks"
+        || file["version"] != 1
+    {
+        return Err(format!("{}: not simagent.shocks version 1", path.display()));
+    }
+    let entries = file["shocks"].as_array().ok_or("shocks: no list")?;
+    entries
+        .iter()
+        .map(|entry| {
+            let field = |name: &str| format!("shocks: an entry without its {name}");
+            if !exactly(entry, &["id", "kind", "years", "index", "source"]) {
+                return Err(field("fields id, kind, years, index and source alone"));
+            }
+            if entry["kind"] != "hunger" || !entry["source"].is_string() {
+                return Err(field("kind hunger and its source"));
+            }
+            let id = entry["id"].as_str().ok_or_else(|| field("id"))?;
+            let years = entry["years"].as_u64().ok_or_else(|| field("years"))?;
+            let index = entry["index"].as_f64().ok_or_else(|| field("index"))?;
+            Ok(sim_core::data::ShockTemplate {
+                id: DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?,
+                kind: sim_core::data::ShockKind::Hunger,
+                years: u32::try_from(years).map_err(|_| field("years"))?,
+                index: sim_core::finite::FiniteF64::try_new(index).map_err(|_| field("index"))?,
+            })
+        })
+        .collect()
 }
 
 /// One village at one end: its block as the report writes it (with the export's hash), and

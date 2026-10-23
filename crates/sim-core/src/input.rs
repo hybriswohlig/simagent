@@ -26,6 +26,8 @@ pub enum Input {
     /// Sets one world parameter at a stop of the run (ADR-0023 section 2); in phase 1
     /// only the switch of the hereditary diseases.
     SetWorldParam(SetWorldParam),
+    /// Triggers a shock from its template in the data (ADR-0023 section 3).
+    TriggerShock(TriggerShock),
 }
 
 /// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
@@ -146,6 +148,13 @@ pub struct ArrangePartnership {
 #[serde(deny_unknown_fields)]
 pub struct SetWorldParam {
     pub change: ParamChange,
+}
+
+/// A shock by the id of its template (ADR-0023 section 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerShock {
+    pub shock: DataId,
 }
 
 /// World parameters with their new values, applied in list order. A block is never
@@ -289,6 +298,11 @@ pub enum RejectCode {
     ParamNotSettable,
     /// A world rule that sets the value the parameter has (ADR-0023 section 2).
     ParamUnchanged,
+    /// A shock whose template the data do not hold (ADR-0023 section 3).
+    ShockUnknown,
+    /// A shock over a year that already has a hunger, an index below 1 (ADR-0023
+    /// section 3).
+    ShockOverlaps,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
