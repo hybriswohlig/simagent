@@ -5,12 +5,14 @@ import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
-import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Pedigree, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle } from "./lines.js";
 import { enteredBy, windows } from "./log.js";
-import { usePedigree } from "./person.js";
+import { TreeView, usePedigree } from "./person.js";
+import { browserStorage, pinnedKey } from "./pin.js";
+import { hourglass } from "./tree.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
@@ -37,6 +39,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [listedAt, setListedAt] = useState(closed);
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
+  const [kept, setKept] = useState<Pedigree | null>(null);
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
   // A window of the log, and the entries of an input, that could not be read.
   const [windowFailed, setWindowFailed] = useState(false);
@@ -182,6 +185,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     if (pedigree.state === "ready") {
       setLiving(pedigree.value.persons.filter((person) => person.died === null && person.emigrated === null));
       setNames(namesOf(pedigree.value));
+      setKept(pedigree.value);
     }
   }, [pedigree]);
   // The interventions wait for a standing clock: no step on its way, not playing.
@@ -258,6 +262,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         names={names}
       />
       <CurvesView run={run} at={String(listedAt)} />
+      <PinnedFamily run={run} pedigree={kept} />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
       <ul>
@@ -272,6 +277,26 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       </ul>
       <ForkForm run={run} year={clock.date.year} writes={writes} />
     </section>
+  );
+}
+
+/** The family pinned to this run page (ADR-0021 section 6, Grok A3, A4): the hourglass of its
+ * person in the last pedigree that came, or why it is not there. */
+function PinnedFamily({ run, pedigree }: { run: string; pedigree: Pedigree | null }) {
+  const key = pinnedKey(browserStorage(), run);
+  if (key === null || pedigree === null) {
+    return null;
+  }
+  const person = pedigree.persons.find((each) => each.lineage_key === key);
+  const glass = person === undefined ? null : hourglass(pedigree, person.sim);
+  if (glass === null) {
+    return <p>{TEXT.pinned_missing}</p>;
+  }
+  return (
+    <>
+      <h2>{TEXT.pinned_family.replace("{name}", fullName(glass.center))}</h2>
+      <TreeView run={run} glass={glass} />
+    </>
   );
 }
 

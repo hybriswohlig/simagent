@@ -48,6 +48,10 @@ export const TEXT = {
   play: "Abspielen",
   pause: "Anhalten",
   steps: "Zeit",
+  pin_family: "Familie anheften",
+  unpin_family: "Nicht mehr anheften",
+  pinned_family: "Angeheftete Familie: {name}",
+  pinned_missing: "Die angeheftete Person gibt es in diesem Lauf nicht.",
   fork: "Gabel",
   fork_note:
     "Eine Gabel rechnet diesen Lauf ab dem Anfang des gewählten Jahres neu. Eingaben dieses Laufs ab diesem Jahr fallen in der Gabel weg.",
