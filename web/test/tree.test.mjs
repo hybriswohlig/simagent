@@ -205,3 +205,30 @@ test("parents from the pool by their keys", async () => {
     ],
   );
 });
+
+// The playtest before the fun test (F6, Grok round 31): the dead and those who moved away are
+// marked in the tree, shown short and spoken in full; a person's partner is the one of its
+// partnership that has not ended.
+test("the dead and those who moved away are marked", async () => {
+  const { nodeMark } = await import("../dist/tree.js");
+  const named = (fields) => ({ ...person(1, "female", null, null), first_name: "Pia", surname: "Heller", ...fields });
+  assert.deepEqual(nodeMark(named({})), { shown: null, spoken: "Pia Heller" });
+  assert.deepEqual(nodeMark(named({ died: 100 })), { shown: "†", spoken: "Pia Heller, gestorben" });
+  assert.deepEqual(nodeMark(named({ emigrated: 100 })), { shown: "weggezogen", spoken: "Pia Heller, weggezogen" });
+});
+
+test("the partner is the one of the partnership that has not ended", async () => {
+  const { currentPartner } = await import("../dist/tree.js");
+  const couple = (partnership, woman, man, ended) => ({
+    partnership, woman, man, formed: 0, ended, ended_by: ended === null ? null : "separation", kinship: 0,
+  });
+  const pedigree = {
+    ...PEDIGREE,
+    partnerships: [couple(1, 7, 6, 50), couple(2, 7, 8, null), couple(3, 10, 2, null)],
+  };
+  const of = (sim) => currentPartner(pedigree, pedigree.persons.find((p) => p.sim === sim))?.sim;
+  assert.equal(of(7), 8);
+  assert.equal(of(8), 7);
+  assert.equal(of(6), undefined);
+  assert.equal(of(14), undefined);
+});
