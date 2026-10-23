@@ -688,13 +688,11 @@ fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
 }
 
 /// Takes away the directory a failed fork made, under its lock: all of it but a repro
-/// package of the core (ADR-0016), which moves to `kept` beside the runs. If it cannot
-/// move there, the directory stays with it.
+/// package of the core (ADR-0016), which is kept as `kept` beside the runs. A hard link
+/// never replaces what is there: if it cannot be made, the directory stays with it.
 fn discard(dir: &Path, kept: &Path) {
     let repro = dir.join(crate::repro::REPRO);
-    if repro.symlink_metadata().is_ok()
-        && (kept.symlink_metadata().is_ok() || std::fs::rename(&repro, kept).is_err())
-    {
+    if repro.symlink_metadata().is_ok() && std::fs::hard_link(&repro, kept).is_err() {
         return;
     }
     let _ = std::fs::remove_dir_all(dir);
@@ -991,6 +989,46 @@ fn after_accept(failures: u32, accepted: bool) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Astra's review of G2: a failed fork's directory goes, its repro package is kept
+    /// beside the runs without replacing anything there; where it cannot be, the directory
+    /// stays with it.
+    #[test]
+    fn a_failed_fork_goes_but_its_repro_package() {
+        let base = std::env::temp_dir().join(format!("simagent-discard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let made = |name: &str, repro: bool| {
+            let dir = base.join(name);
+            std::fs::create_dir_all(&dir).expect("makes");
+            std::fs::write(dir.join("events.ndjson"), b"{}\n").expect("writes");
+            if repro {
+                std::fs::write(dir.join(crate::repro::REPRO), name.as_bytes()).expect("writes");
+            }
+            dir
+        };
+        let plain = made("plain", false);
+        discard(&plain, &base.join("plain.repro.json"));
+        assert!(!plain.exists() && !base.join("plain.repro.json").exists());
+        let failed = made("failed", true);
+        discard(&failed, &base.join("failed.repro.json"));
+        assert_eq!(
+            std::fs::read(base.join("failed.repro.json")).expect("kept"),
+            b"failed"
+        );
+        assert!(!failed.exists());
+        let taken = made("taken", true);
+        std::fs::write(base.join("taken.repro.json"), b"theirs").expect("writes");
+        discard(&taken, &base.join("taken.repro.json"));
+        assert_eq!(
+            std::fs::read(base.join("taken.repro.json")).expect("theirs"),
+            b"theirs"
+        );
+        assert_eq!(
+            std::fs::read(taken.join(crate::repro::REPRO)).expect("kept"),
+            b"taken"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn ten_failures_to_accept_in_a_row_end_the_server() {
