@@ -1931,3 +1931,55 @@ fn strip_dates(value: &mut Value) {
         _ => {}
     }
 }
+
+/// Astra's review of G2: a fork that fails after it has made its directory leaves nothing
+/// of it. The parent's manifest names another hash of year 0, so the fork diverges before
+/// its fork point: a failure of the parent, not of the request (500).
+#[test]
+fn a_fork_that_fails_after_it_began_leaves_nothing() {
+    let (runs, web, _) = writable_fixture("fork_failed");
+    let manifest = runs.join("town").join("manifest.json");
+    let text = fs::read_to_string(&manifest).expect("reads");
+    let year_0 = text
+        .split(r#"{"year":0,"hash":""#)
+        .nth(1)
+        .and_then(|rest| rest.get(..16))
+        .expect("the hash of year 0")
+        .to_owned();
+    let other = if year_0.starts_with('0') { "1" } else { "0" };
+    write(
+        &manifest,
+        text.replacen(&year_0, &format!("{other}{}", &year_0[1..]), 1)
+            .as_bytes(),
+    );
+    let server = start(&runs, &web);
+    let (status, _, answer) = post(
+        server.port,
+        "/api/runs/town/fork",
+        r#"{"run":"diverged","from_year":2,"changes":[]}"#,
+    );
+    assert_eq!(
+        (status, code(&answer).as_str()),
+        (500, "fork_diverged_before_fork_point")
+    );
+    assert!(!runs.join("diverged").exists());
+}
+
+/// Astra's review of G2: a name whose lock another process holds is refused with
+/// `run_locked`, and what that process makes there stays.
+#[test]
+fn a_fork_into_a_run_another_writes_touches_nothing() {
+    let (runs, web, _) = writable_fixture("fork_taken");
+    let taken = runs.join("taken");
+    let held = RunLock::acquire(&taken).expect("the lock");
+    let server = start(&runs, &web);
+    let (status, _, answer) = post(
+        server.port,
+        "/api/runs/town/fork",
+        r#"{"run":"taken","from_year":2,"changes":[]}"#,
+    );
+    assert_eq!((status, code(&answer).as_str()), (409, "run_locked"));
+    write(&taken.join("theirs"), b"kept");
+    drop(held);
+    assert_eq!(fs::read(taken.join("theirs")).expect("reads"), b"kept");
+}
