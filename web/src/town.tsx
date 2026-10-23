@@ -33,7 +33,52 @@ const STEPS: readonly (readonly [Step, keyof typeof TEXT])[] = [
 ];
 
 /** The clock of a run and its living, moved by the server one step at a time. */
-function Town({ run, closed, date }: { run: string; closed: number; date: CalendarDate }) {
+/** Opening the comparison of this run with another of the list (Grok W5). */
+function CompareForm({ run, others }: { run: string; others: readonly string[] }) {
+  const [other, setOther] = useState("");
+  if (others.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <h2>{TEXT.compare}</h2>
+      <p>
+        <label>
+          {TEXT.compare_with}{" "}
+          <select value={other} onChange={(event) => setOther(event.currentTarget.value)}>
+            <option value="" />
+            {others.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>{" "}
+        <button
+          type="button"
+          disabled={other === ""}
+          onClick={() => {
+            location.hash = format({ page: "diff", a: run, b: other });
+          }}
+        >
+          {TEXT.compare_open}
+        </button>
+      </p>
+    </>
+  );
+}
+
+function Town({
+  run,
+  closed,
+  date,
+  others,
+}: {
+  run: string;
+  closed: number;
+  date: CalendarDate;
+  others: readonly string[];
+}) {
   const [clock, setClock] = useState<Clock>(() => standing(closed, date));
   const [chosen, setChosen] = useState<Step>("days28");
   const [listedAt, setListedAt] = useState(closed);
@@ -211,6 +256,9 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   };
   return (
     <section>
+      <p>
+        <a href={format({ page: "runs" })}>{TEXT.back}</a>
+      </p>
       <h1>{`${TEXT.run} ${run}`}</h1>
       <p>{dateText(clock.date)}</p>
       <p role="group" aria-label={TEXT.steps}>
@@ -276,6 +324,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
         ))}
       </ul>
       <ForkForm run={run} year={clock.date.year} writes={writes} />
+      <CompareForm run={run} others={others} />
     </section>
   );
 }
@@ -313,5 +362,8 @@ export function RunPage({ run }: { run: string }) {
   if (entry.manifest === undefined || entry.date === undefined) {
     return <p>{entry.error === "run_failed" ? TEXT.refused_run_failed : TEXT.run_no_manifest}</p>;
   }
-  return <Town key={run} run={run} closed={entry.manifest.closed_through} date={entry.date} />;
+  const others = runs.value.runs
+    .filter((candidate) => candidate.run !== run && candidate.manifest !== undefined)
+    .map((candidate) => candidate.run);
+  return <Town key={run} run={run} closed={entry.manifest.closed_through} date={entry.date} others={others} />;
 }

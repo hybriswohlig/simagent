@@ -89,3 +89,27 @@ export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): Dif
     })),
   };
 }
+
+/** A piece of the sentence of the years: text, or a run to link to. */
+export type YearPart = string | { run: string };
+
+/** Where the two runs stand (Grok W3): the sentence with each run as a link. */
+export function years(a: string, x: number, b: string, y: number): YearPart[] {
+  const values: { readonly [slot: string]: YearPart } = { "{a}": { run: a }, "{b}": { run: b }, "{x}": String(x), "{y}": String(y) };
+  const parts: YearPart[] = [];
+  for (const piece of TEXT.diff_years.split(/(\{[abxy]\})/)) {
+    const part = values[piece] ?? piece;
+    const last = parts.at(-1);
+    if (typeof part === "string" && typeof last === "string") {
+      parts[parts.length - 1] = last + part;
+    } else if (part !== "") {
+      parts.push(part);
+    }
+  }
+  return parts;
+}
+
+/** Why runs in different years differ so much (Grok W4), or nothing in the same year. */
+export function yearsNote(x: number, y: number): string | null {
+  return x === y ? null : TEXT.diff_years_differ;
+}

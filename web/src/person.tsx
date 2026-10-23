@@ -323,6 +323,9 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
   return (
     <section>
+      <p>
+        <a href={format({ page: "run", run })}>{TEXT.to_run.replace("{run}", run)}</a>
+      </p>
       <h1>{fullName(person)}</h1>
       {reloadFailed}
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
