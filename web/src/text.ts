@@ -184,6 +184,7 @@ export const TEXT = {
   retry: "Erneut laden",
   and: "und",
   curves: "Kurven",
+  curves_later: "Die Kurven beginnen, wenn das erste Jahr vorbei ist.",
   curve_moves: "Geburten, Zuzüge und Wegzüge",
   curve_births: "Geburten",
   curve_arrivals: "Zuzüge",

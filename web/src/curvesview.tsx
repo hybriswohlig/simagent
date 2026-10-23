@@ -120,7 +120,8 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
 
 /** The curves of the run (ADR-0021, addendum 2026-10-21): the pictures side by side, each with
  * its values as a folded table (a year without a point an empty cell); the last curves that
- * came stay while the next load, so playing does not flicker. */
+ * came stay while the next load, so playing does not flicker; while no year is complete, a
+ * sentence says when they begin. */
 export function CurvesView({ run, at }: { run: string; at: string }) {
   const loaded = useCurves(run, at);
   const [shown, setShown] = useState<Curves | null>(null);
@@ -133,6 +134,7 @@ export function CurvesView({ run, at }: { run: string; at: string }) {
     <>
       <h2>{TEXT.curves}</h2>
       {loaded.state === "failed" ? <p>{TEXT[loaded.text]}</p> : null}
+      {shown !== null && shown.years.length === 0 ? <p>{TEXT.curves_later}</p> : null}
       {shown === null || shown.years.length === 0 ? null : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
           {shown.curves.map((curve) => (
