@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { readLog, windows } from "../dist/log.js";
+import { enteredBy, readLog, windows } from "../dist/log.js";
 
 const EVENTS = { format: "simagent.view.events", version: 2 };
 const DATE = { year: 0, day_of_year: 0, month: 0, day_of_month: 0, week: 0, weekday: 0, season: 0, second_of_day: 0 };
@@ -84,4 +84,16 @@ test("a window that ends where the last one ended asks for nothing", async () =>
   const [first, again] = await Promise.all([read(20), read(20)]);
   assert.deepEqual([first.length, again.length], [1, 0]);
   assert.deepEqual(asked, ["/api/runs/town/events?from=10&to=20"]);
+});
+
+// The addendum to ADR-0023 before S2: an input stamped `t` acts in the second after it
+// (ADR-0004), so its entries are those of `t + 1`, read at once.
+test("the entries of an input are read from the second it acts in", async () => {
+  const asked = serve([{ events: [item(101)], next: null }]);
+  const items = await enteredBy("town", 100);
+  assert.deepEqual(
+    items.map((i) => i.entry.id),
+    [101],
+  );
+  assert.deepEqual(asked, ["/api/runs/town/events?from=101&to=101"]);
 });

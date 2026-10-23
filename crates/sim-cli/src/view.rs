@@ -236,6 +236,7 @@ impl Server {
                 None => Response::error(400, "bad_query"),
             },
             ["api", "runs", run, "census"] => self.read(run, census),
+            ["api", "runs", run, "world"] => self.read(run, world),
             ["api", "runs", run, "events"] => {
                 let query = request.query.as_deref().unwrap_or("");
                 self.read(run, |dir| events(dir, query))
@@ -598,6 +599,14 @@ fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
     match crate::person_answer(dir, id, other) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => unknown(),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.
+fn world(dir: &Path) -> Response {
+    match crate::world_answer(dir) {
+        Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Err(error) => Response::error(500, error.code),
     }
 }

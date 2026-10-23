@@ -17,6 +17,13 @@ export async function readLog(run: string, filter: string): Promise<EventItem[]>
   return items;
 }
 
+/** The entries an input accepted with the stamp `stamp` wrote: those of the second after it,
+ * in which it acts (ADR-0004; the addendum to ADR-0023 before S2). */
+export function enteredBy(run: string, stamp: number): Promise<EventItem[]> {
+  const second = stamp + 1;
+  return readLog(run, `from=${second}&to=${second}`);
+}
+
 /**
  * The log of a run page window by window: each call reads the entries from the second the
  * last read that came through ended at (at first `start`) up to `until`, its own end, and

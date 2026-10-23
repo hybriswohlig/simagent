@@ -330,6 +330,15 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "WorldAnswer",
+            doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.world"])),
+                field("version", Integer),
+                field("hereditary_diseases", Bool),
+            ],
+        },
+        Named {
             name: "ErrorAnswer",
             doc: "A refusal of the server: its code, and the core's code of a rejected input.",
             fields: vec![

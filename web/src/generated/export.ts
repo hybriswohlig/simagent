@@ -212,6 +212,13 @@ export type InputAnswer = {
   readonly seq: number;
 };
 
+/** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands. */
+export type WorldAnswer = {
+  readonly format: "simagent.view.world";
+  readonly version: number;
+  readonly hereditary_diseases: boolean;
+};
+
 /** A refusal of the server: its code, and the core's code of a rejected input. */
 export type ErrorAnswer = {
   readonly format: "simagent.view.error";

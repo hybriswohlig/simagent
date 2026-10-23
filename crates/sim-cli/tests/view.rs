@@ -1264,6 +1264,39 @@ fn an_input_over_http_is_resume_with_input() {
     .expect("the log replays to the run");
 }
 
+/// ADR-0023 section 6 and its addendum before S2: `GET /api/runs/{run}/world` names where
+/// the switch of the hereditary diseases stands after the last input, off as the scenario
+/// starts it and on at once after a world rule over `…/input` (the clock still stands); a
+/// shock leaves it. A run the list does not know is `unknown_run`.
+#[test]
+fn the_world_answer_names_the_switch() {
+    let (runs, web, _) = writable_fixture("world");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let world = || {
+        let (status, _, body) = get(port, "/api/runs/town/world");
+        (status, json_of(&body))
+    };
+    let standing = |on: bool| json!({"format": "simagent.view.world", "version": 1, "hereditary_diseases": on});
+    assert_eq!(world(), (200, standing(false)));
+    for (input, on) in [
+        (
+            r#"{"trigger_shock":{"shock":"core:hunger_one_year"}}"#,
+            false,
+        ),
+        (
+            r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#,
+            true,
+        ),
+    ] {
+        let (status, _, body) = post(port, "/api/runs/town/input", input);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+        assert_eq!(world(), (200, standing(on)), "{input}");
+    }
+    let (status, _, body) = get(port, "/api/runs/elsewhere/world");
+    assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));
+}
+
 /// A run another process writes is not opened; a run the server opened is the server's
 /// until it ends (ADR-0021 section 1).
 #[test]

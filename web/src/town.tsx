@@ -4,17 +4,19 @@ import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
-import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { Chronicle, dateText } from "./lines.js";
-import { windows } from "./log.js";
+import { enteredBy, windows } from "./log.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
-import { failureCode, refusalText } from "./refusals.js";
+import { failureCode, inputFailureText, refusalText } from "./refusals.js";
+import { HUNGERS, diseasesOn, shockInput, switchInput, switchLabel } from "./shocks.js";
 import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
+const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
@@ -34,11 +36,24 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
-  const [chronicleFailed, setChronicleFailed] = useState(false);
+  // A window of the log, and the entries of an input, that could not be read.
+  const [windowFailed, setWindowFailed] = useState(false);
+  const [enteredFailed, setEnteredFailed] = useState(false);
   const [retries, setRetries] = useState(0);
+  const [diseases, setDiseases] = useState<boolean | null>(null);
+  const [sending, setSending] = useState(false);
+  const [inputRefused, setInputRefused] = useState<string | null>(null);
   const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
+  // An input on its way (the addendum to ADR-0023 before S2): no step starts and no other
+  // input goes until it is answered, so it acts at the stop the page shows.
+  const writing = useRef(false);
+  // The stamp of an accepted input whose entries could not be read yet; read again with the
+  // chronicle (a window past the stop reads them too).
+  const unread = useRef<number | null>(null);
+  // The last read of the switch asked for: only its answer counts.
+  const switchReads = useRef(0);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -73,19 +88,91 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
-  // After each step (and when asked again after a failure), the log from the last stop that
-  // was read on.
-  useEffect(() => {
-    read
-      .current(clock.closed)
-      .then((items) => {
+  // The entries of the input stamped `stamp` into the chronicle; kept to read again if they
+  // do not come.
+  // (Every input of one stop acts in the same second, so a read of it reads them all.)
+  const enteredAt = (stamp: number) =>
+    enteredBy(run, stamp).then(
+      (items) => {
+        if (unread.current === stamp) {
+          unread.current = null;
+        }
         if (live.current) {
           setChronicle((kept) => added(kept, items));
-          setChronicleFailed(false);
+          setEnteredFailed(unread.current !== null);
+        }
+      },
+      () => {
+        unread.current = stamp;
+        if (live.current) {
+          setEnteredFailed(true);
+        }
+      },
+    );
+  // Where the switch stands, by the last read asked for; unknown, and so without its button,
+  // while it cannot be read.
+  const readSwitch = () => {
+    const asked = ++switchReads.current;
+    const last = () => live.current && asked === switchReads.current;
+    return diseasesOn(run).then(
+      (on) => last() && setDiseases(on),
+      () => last() && setDiseases(null),
+    );
+  };
+  // After each step (and when asked again after a failure), the log from the last stop that
+  // was read on; the entries of an input that did not come are read on their own while no
+  // window reaches past its stop.
+  useEffect(() => {
+    const until = clock.closed;
+    const stamp = unread.current;
+    if (stamp !== null && until <= stamp) {
+      void enteredAt(stamp);
+    }
+    read
+      .current(until)
+      .then((items) => {
+        if (!live.current) {
+          return;
+        }
+        setChronicle((kept) => added(kept, items));
+        setWindowFailed(false);
+        if (unread.current !== null && until > unread.current) {
+          unread.current = null;
+          setEnteredFailed(false);
         }
       })
-      .catch(() => live.current && setChronicleFailed(true));
+      .catch(() => live.current && setWindowFailed(true));
   }, [clock.closed, retries]);
+  // Where the switch stands, read when the page opens, after each step and when asked again;
+  // a refused input is no longer news then.
+  useEffect(() => {
+    setInputRefused(null);
+    void readSwitch();
+  }, [listedAt, retries]);
+  // An input at the standing clock (ADR-0023 section 6 and its addendum before S2): its
+  // entries in the chronicle at once and the switch read again, each on its own.
+  const send = (input: unknown) => {
+    if (writing.current || latest.current.busy || latest.current.playing !== null) {
+      return;
+    }
+    writing.current = true;
+    setSending(true);
+    setInputRefused(null);
+    postJson(`/api/runs/${run}/input`, input, INPUT)
+      .then(
+        (json) => {
+          const answer = json as unknown as InputAnswer;
+          return Promise.all([enteredAt(answer.t), readSwitch()]);
+        },
+        (error: unknown) => live.current && setInputRefused(inputFailureText(error)),
+      )
+      .finally(() => {
+        writing.current = false;
+        if (live.current) {
+          setSending(false);
+        }
+      });
+  };
   // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
   useEffect(() => {
@@ -94,6 +181,8 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       setNames(namesOf(pedigree.value));
     }
   }, [pedigree]);
+  // The interventions wait for a standing clock: no step on its way, not playing.
+  const standingStill = clock.busy || clock.playing !== null || sending;
   return (
     <section>
       <h1>{`${TEXT.run} ${run}`}</h1>
@@ -103,8 +192,11 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           <button
             type="button"
             key={step}
-            disabled={clock.busy}
+            disabled={clock.busy || sending}
             onClick={() => {
+              if (writing.current) {
+                return;
+              }
               setChosen(step);
               apply(press(latest.current, step));
             }}
@@ -113,7 +205,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </button>
         ))}
         {clock.playing === null ? (
-          <button type="button" onClick={() => apply(play(latest.current, chosen))}>
+          <button type="button" disabled={sending} onClick={() => writing.current || apply(play(latest.current, chosen))}>
             {TEXT.play}
           </button>
         ) : (
@@ -122,11 +214,24 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </button>
         )}
       </p>
+      <p role="group" aria-label={TEXT.interventions}>
+        {HUNGERS.map(([shock, label]) => (
+          <button type="button" key={shock} disabled={standingStill} onClick={() => send(shockInput(shock))}>
+            {label}
+          </button>
+        ))}
+        {diseases === null ? null : (
+          <button type="button" disabled={standingStill} onClick={() => send(switchInput(diseases))}>
+            {switchLabel(diseases)}
+          </button>
+        )}
+      </p>
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
+      {inputRefused === null ? null : <p role="alert">{inputRefused}</p>}
       <Chronicle
         run={run}
         items={chronicle}
-        failed={chronicleFailed ? TEXT.chronicle_failed : null}
+        failed={windowFailed || enteredFailed ? TEXT.chronicle_failed : null}
         retry={() => setRetries((n) => n + 1)}
         names={names}
       />
