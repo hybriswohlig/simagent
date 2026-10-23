@@ -447,7 +447,9 @@ impl Server {
     /// `POST /api/runs/{run}/fork` (the addendum of ADR-0021 section 2, G2): the fork of
     /// `run` made like `simagent fork` into a new run of the list, its name free as for
     /// `POST /api/runs`. A run the server holds open is closed first, which lets its lock
-    /// go; its files are whole since its last write. A directory the failed fork made goes.
+    /// go; its files are whole since its last write. The fork's directory is the request's
+    /// only under its lock and only if it is still absent there; the lock is held through
+    /// the fork and, if it fails, through taking away what it made.
     fn fork(&mut self, parent: &str, body: &[u8]) -> Response {
         let Some(fork) = std::str::from_utf8(body)
             .ok()
@@ -464,24 +466,38 @@ impl Server {
         if dir.symlink_metadata().is_ok() {
             return Response::error(409, "run_exists");
         }
+        let lock = match RunLock::acquire(&dir) {
+            Ok(lock) => lock,
+            Err(error) => return failure(&error),
+        };
+        if dir.symlink_metadata().is_ok() {
+            return Response::error(409, "run_exists");
+        }
         self.open.remove(parent);
-        match crate::fork_with(&parent_dir, fork.from_year, fork.changes, &dir) {
+        let made = crate::fork_into(&parent_dir, fork.from_year, fork.changes, &dir);
+        if made.is_err() {
+            discard(&dir, &self.runs.join(format!("{}.repro.json", fork.run)));
+        }
+        drop(lock);
+        match made {
             Ok(()) => {
                 self.failed.remove(&fork.run);
                 let body = json!({"format": "simagent.view.forked", "version": 1, "run": fork.run});
                 Response::new(200, JSON, format!("{body}\n").into_bytes())
             }
             Err(error) => {
-                if dir.symlink_metadata().is_ok() {
-                    // It was not there before this request: what is there the fork made.
-                    let _ = std::fs::remove_dir_all(&dir);
-                }
                 let mut body =
                     json!({"format": "simagent.view.error", "version": 1, "code": error.code});
                 if error.code == "override_rejected" {
                     body["reason"] = json!(error.detail);
                 }
-                let status = if error.code == "io" { 500 } else { 409 };
+                // A conflict with the request; anything else is a failure of the parent or
+                // of the server.
+                let conflict = matches!(
+                    error.code,
+                    "fork_point_out_of_range" | "override_rejected" | "run_locked"
+                );
+                let status = if conflict { 409 } else { 500 };
                 Response::new(status, JSON, format!("{body}\n").into_bytes())
             }
         }
@@ -669,6 +685,19 @@ fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
         Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),
     }
+}
+
+/// Takes away the directory a failed fork made, under its lock: all of it but a repro
+/// package of the core (ADR-0016), which moves to `kept` beside the runs. If it cannot
+/// move there, the directory stays with it.
+fn discard(dir: &Path, kept: &Path) {
+    let repro = dir.join(crate::repro::REPRO);
+    if repro.symlink_metadata().is_ok()
+        && (kept.symlink_metadata().is_ok() || std::fs::rename(&repro, kept).is_err())
+    {
+        return;
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// `GET /api/runs/{a}/diff/{b}` (the addendum of ADR-0021 section 2, G2): the comparison
