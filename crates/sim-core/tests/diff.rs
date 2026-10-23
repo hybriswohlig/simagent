@@ -209,3 +209,105 @@ fn a_child_of_a_pool_pregnancy_counts_for_its_parents_keys() {
         )
     );
 }
+
+/// Astra's review of G1: a different birth and emigration; the partnerships of a person
+/// come out by the second they formed, then by the partner's key, whatever their order in
+/// the pedigree; a parent by sim goes before the key of a pool origin, which counts only
+/// where the sim is missing.
+#[test]
+fn each_field_and_each_order_by_hand() {
+    let mut child = person(5, 5, Sex::Female, 30, None);
+    child.mother = Some(sim(1));
+    child.pool = Some(FromPool {
+        genome_key: serde_json::from_value(serde_json::json!("0000000000000005")).expect("a key"),
+        born_pool: None,
+        arrived: at(30),
+        arrival_year: 0,
+        mother_key: Some(key(9)),
+        father_key: Some(key(4)),
+        social_parent_keys: Vec::new(),
+    });
+    let mut emigrant = person(2, 2, Sex::Male, -100, None);
+    emigrant.emigrated = Some(at(70));
+    let others = || {
+        vec![
+            person(3, 3, Sex::Male, -90, None),
+            person(4, 4, Sex::Male, -80, None),
+            person(9, 9, Sex::Female, -95, None),
+        ]
+    };
+    let a = pedigree(
+        [
+            vec![person(1, 1, Sex::Female, -100, None), emigrant],
+            others(),
+            vec![child],
+        ]
+        .concat(),
+        vec![
+            couple(1, 1, 4, 20, None),
+            couple(2, 1, 3, 10, Some((15, End::Separation))),
+            couple(3, 1, 2, 10, Some((12, End::Separation))),
+        ],
+    );
+    let b = pedigree(
+        [
+            vec![
+                person(1, 1, Sex::Female, -101, None),
+                person(2, 2, Sex::Male, -100, None),
+            ],
+            others(),
+        ]
+        .concat(),
+        vec![
+            couple(1, 1, 2, 10, Some((12, End::Separation))),
+            couple(2, 1, 4, 20, None),
+            couple(3, 1, 3, 10, Some((15, End::Separation))),
+        ],
+    );
+    let bond = |partner: u64, formed: i64, ended: &str| {
+        format!(r#"{{"partner":"{partner:016x}","formed":{formed},{ended}}}"#)
+    };
+    let (open, at_12, at_15) = (
+        r#""ended":null,"ended_by":null"#,
+        r#""ended":12,"ended_by":"separation""#,
+        r#""ended":15,"ended_by":"separation""#,
+    );
+    let hers = format!(
+        "[{},{},{}]",
+        bond(2, 10, at_12),
+        bond(3, 10, at_15),
+        bond(4, 20, open)
+    );
+    let life = |born: i64, emigrated: &str, partnerships: &str, children: u32| {
+        format!(
+            r#"{{"born":{born},"died":null,"cause_of_death":null,"emigrated":{emigrated},"partnerships":{partnerships},"children":{children}}}"#
+        )
+    };
+    let changed = |n: u64, differs: &str, a: String, b: String| {
+        format!(r#"{{"lineage_key":"{n:016x}","differs":[{differs}],"a":{a},"b":{b}}}"#)
+    };
+    let his = format!("[{}]", bond(1, 10, at_12));
+    let theirs = format!("[{}]", bond(1, 20, open));
+    let expected = format!(
+        r#"{{"format_version":1,"a_only":["0000000000000005"],"b_only":[],"changed":[{},{},{}]}}"#,
+        changed(
+            1,
+            r#""born","children""#,
+            life(-100, "null", &hers, 1),
+            life(-101, "null", &hers, 0)
+        ),
+        changed(
+            2,
+            r#""emigrated""#,
+            life(-100, "70", &his, 0),
+            life(-100, "null", &his, 0)
+        ),
+        changed(
+            4,
+            r#""children""#,
+            life(-80, "null", &theirs, 1),
+            life(-80, "null", &theirs, 0)
+        ),
+    );
+    assert_eq!(text(&a, &b), expected);
+}
