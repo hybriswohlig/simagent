@@ -3,7 +3,8 @@
 // seven curves, triggers a hunger year (its line, for year 29, comes at once), steps one
 // year, turns the hereditary diseases on (off in the scenario; its line and the button's new
 // label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
-// and opens the comparison of the run with itself (no life differs).
+// opens the comparison of the run with itself (no life differs), then forks the run from
+// its year with the hereditary diseases off and lands on the comparison with the fork.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -107,10 +108,21 @@ if (browser !== undefined) {
       page.getByRole("heading", { level: 1, name: `Vergleich: ${run} und ${run}` }).waitFor(),
     );
     await step("no life differs", page.getByText("Die beiden Läufe unterscheiden sich in keinem Leben.").waitFor());
+    await step("back to the run", page.goto(`${url}#/runs/${run}`));
+    await step("the fork's name", page.getByRole("textbox", { name: "Name der Gabel" }).fill("gabel"));
+    await step("the diseases off", page.getByLabel("Erbkrankheiten in der Gabel").selectOption("off"));
+    await step("fork", page.getByRole("button", { name: "Gabel anlegen" }).click());
+    await step(
+      "the comparison with the fork",
+      page.getByRole("heading", { level: 1, name: `Vergleich: ${run} und gabel` }).waitFor(),
+    );
+    if ((await page.getByRole("alert").count()) > 0) {
+      throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
+    }
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, and the comparison with itself");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself and with a fork");
   } catch (error) {
     fail(error.message);
   } finally {
