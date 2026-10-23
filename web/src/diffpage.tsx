@@ -1,12 +1,13 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { diffView, type Otherwise, type Who } from "./diff.js";
+import { diffView, years, yearsNote, type Otherwise, type Who } from "./diff.js";
 import type { DiffAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { namesByKey } from "./names.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
+import { useRuns } from "./runs.js";
 import { TEXT } from "./text.js";
 
 const DIFF = { format: "simagent.view.diff", version: 1 } as const;
@@ -94,7 +95,15 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
   const diff = useDiff(a, b);
   const one = usePedigree(a);
   const other = usePedigree(b);
-  const title = <h1>{TEXT.diff_title.replace("{a}", a).replace("{b}", b)}</h1>;
+  const runs = useRuns(`${a}/${b}`);
+  const title = (
+    <>
+      <p>
+        <a href={format({ page: "runs" })}>{TEXT.back}</a>
+      </p>
+      <h1>{TEXT.diff_title.replace("{a}", a).replace("{b}", b)}</h1>
+    </>
+  );
   const failed = [diff, one, other].find((loaded) => loaded.state === "failed");
   if (failed?.state === "failed") {
     return (
@@ -114,9 +123,27 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
   }
   const view = diffView(diff.value, { a: namesByKey(one.value), b: namesByKey(other.value) });
   const none = view.aOnly.length === 0 && view.bOnly.length === 0 && view.changed.length === 0;
+  const yearOf = (run: string) =>
+    runs.state === "ready" ? runs.value.runs.find((entry) => entry.run === run)?.date?.year : undefined;
+  const [x, y] = [yearOf(a), yearOf(b)];
+  const note = x === undefined || y === undefined ? null : yearsNote(x, y);
   return (
     <section>
       {title}
+      {x === undefined || y === undefined ? null : (
+        <p>
+          {years(a, x, b, y).map((part, i) =>
+            typeof part === "string" ? (
+              part
+            ) : (
+              <a key={i} href={format({ page: "run", run: part.run })}>
+                {part.run}
+              </a>
+            ),
+          )}
+        </p>
+      )}
+      {note === null ? null : <p>{note}</p>}
       {none ? <p>{TEXT.diff_none}</p> : null}
       <Only run={a} who={view.aOnly} />
       <Only run={b} who={view.bOnly} />

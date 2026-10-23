@@ -141,3 +141,20 @@ test("each column names and links from its own run", () => {
   const [only] = diffView(answer, { a: new Map(), b: both.b }).changed;
   assert.deepEqual([only.name, only.a, only.b], ["Karl Wolf", null, 21]);
 });
+
+// The playtest before the fun test (F3): the comparison page says where each run stands, and
+// that runs in different years differ in everything after the earlier year (Grok round 30).
+test("the years of the runs, and a note when they differ", async () => {
+  const { years, yearsNote } = await import("../dist/diff.js");
+  assert.deepEqual(years("town", 50, "gabel", 79), [
+    { run: "town" },
+    " steht im Jahr 50, ",
+    { run: "gabel" },
+    " im Jahr 79.",
+  ]);
+  assert.equal(
+    yearsNote(50, 79),
+    "Die Läufe stehen in verschiedenen Jahren: Was nach dem früheren Jahr geschah, zählt hier als Unterschied.",
+  );
+  assert.equal(yearsNote(79, 79), null);
+});
