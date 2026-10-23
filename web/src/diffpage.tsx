@@ -59,8 +59,8 @@ function Life({ a, b, life }: { a: string; b: string; life: Otherwise }) {
   const lines = (texts: string[]) => texts.map((text, i) => <div key={i}>{text}</div>);
   return (
     <article>
-      <h3>{life.name}</h3>
-      <table>
+      <h3 id={`life-${life.key}`}>{life.name}</h3>
+      <table aria-labelledby={`life-${life.key}`}>
         <thead>
           <tr>
             <td />
