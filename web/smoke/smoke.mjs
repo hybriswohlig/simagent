@@ -1,8 +1,10 @@
 // The browser smoke test of the gate (ADR-0021 section 4 and its acceptance): Chromium headless
 // opens the run page of a fresh run of the gate scenario at the end of year 28, finds the
-// seven curves, steps one year, opens sim 13 and clicks its mother, sim 8, in the pedigree
-// (P11). Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the
-// page, in its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
+// seven curves, triggers a hunger year (its line, for year 29, comes at once), steps one
+// year, turns the hereditary diseases on (off in the scenario; its line and the button's new
+// label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11).
+// Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
+// its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
 
 const [url, run] = process.argv.slice(2);
@@ -60,6 +62,12 @@ if (browser !== undefined) {
     if (figures !== 7) {
       throw new Error(`seven curves: ${figures} pictures`);
     }
+    const interventions = page.getByRole("group", { name: "Eingriffe" });
+    await step("a hunger year", interventions.getByRole("button", { name: "Ein Hungerjahr" }).click());
+    await step(
+      "its line in the chronicle",
+      page.getByText("Jahr 29, 1. Monat, 1. Tag: Ein Hungerjahr kommt: Jahr 29.").waitFor(),
+    );
     const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr" });
     await step("step one year", year.click());
     await step("the date of year 29", dated(29));
@@ -67,6 +75,13 @@ if (browser !== undefined) {
       const buttons = [...document.querySelectorAll('[aria-label="Zeit"] button')];
       return buttons.length > 0 && buttons.every((button) => !button.disabled);
     }));
+    const on = interventions.getByRole("button", { name: "Erbkrankheiten anschalten" });
+    await step("turn the hereditary diseases on", on.click());
+    await step("its line", page.getByText("Die Erbkrankheiten sind von nun an angeschaltet.").waitFor());
+    await step(
+      "the switch's new label",
+      interventions.getByRole("button", { name: "Erbkrankheiten ausschalten" }).waitFor(),
+    );
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
@@ -88,7 +103,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29, sim 13, then its mother sim 8");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8");
   } catch (error) {
     fail(error.message);
   } finally {
