@@ -4,17 +4,19 @@ import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
-import type { AdvanceAnswer, CalendarDate, EventItem, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { Chronicle, dateText } from "./lines.js";
-import { windows } from "./log.js";
+import { enteredBy, windows } from "./log.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
-import { failureCode, refusalText } from "./refusals.js";
+import { failureCode, inputFailureText, refusalText } from "./refusals.js";
+import { HUNGERS, diseasesOn, shockInput, switchInput, switchLabel } from "./shocks.js";
 import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
+const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
@@ -36,6 +38,9 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
   const [chronicleFailed, setChronicleFailed] = useState(false);
   const [retries, setRetries] = useState(0);
+  const [diseases, setDiseases] = useState<boolean | null>(null);
+  const [sending, setSending] = useState(false);
+  const [inputRefused, setInputRefused] = useState<string | null>(null);
   const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
@@ -86,6 +91,34 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       })
       .catch(() => live.current && setChronicleFailed(true));
   }, [clock.closed, retries]);
+  // Where the switch stands, read when the page opens and after each step; a refused input
+  // is no longer news after a step.
+  useEffect(() => {
+    setInputRefused(null);
+    diseasesOn(run)
+      .then((on) => live.current && setDiseases(on))
+      .catch(() => live.current && setDiseases(null));
+  }, [listedAt]);
+  // An input at the stop (ADR-0023 section 6 and its addendum before S2): its entries in the
+  // chronicle at once, and the switch read again.
+  const send = (input: unknown) => {
+    setSending(true);
+    setInputRefused(null);
+    postJson(`/api/runs/${run}/input`, input, INPUT)
+      .then(
+        async (json) => {
+          const answer = json as unknown as InputAnswer;
+          const [items, on] = await Promise.all([enteredBy(run, answer.t), diseasesOn(run)]);
+          if (live.current) {
+            setChronicle((kept) => added(kept, items));
+            setDiseases(on);
+          }
+        },
+        (error: unknown) => live.current && setInputRefused(inputFailureText(error)),
+      )
+      .catch(() => live.current && setChronicleFailed(true))
+      .finally(() => live.current && setSending(false));
+  };
   // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
   useEffect(() => {
@@ -122,7 +155,20 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </button>
         )}
       </p>
+      <p role="group" aria-label={TEXT.interventions}>
+        {HUNGERS.map(([shock, label]) => (
+          <button type="button" key={shock} disabled={clock.busy || sending} onClick={() => send(shockInput(shock))}>
+            {label}
+          </button>
+        ))}
+        {diseases === null ? null : (
+          <button type="button" disabled={clock.busy || sending} onClick={() => send(switchInput(diseases))}>
+            {switchLabel(diseases)}
+          </button>
+        )}
+      </p>
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
+      {inputRefused === null ? null : <p role="alert">{inputRefused}</p>}
       <Chronicle
         run={run}
         items={chronicle}

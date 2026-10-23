@@ -1,8 +1,7 @@
-import { onsetTemplate } from "./carddiseases.js";
-import { payloadCode, segments } from "./chronicle.js";
+import { segments, template } from "./chronicle.js";
 import type { CalendarDate, EventItem } from "./generated/export.js";
 import { format } from "./router.js";
-import { CODES, DAYS, MONTHS, TEXT } from "./text.js";
+import { DAYS, MONTHS, TEXT } from "./text.js";
 
 /** The date as the core gives it, its units named by the texts. */
 export function dateText(date: CalendarDate): string {
@@ -12,16 +11,11 @@ export function dateText(date: CalendarDate): string {
 /** A line of the chronicle: its date and the template of its code with the persons it is
  * about, each a link to their page. */
 function ChronicleLine({ run, item, names }: { run: string; item: EventItem; names: ReadonlyMap<number, string> }) {
-  const code = payloadCode(item) ?? "";
-  const template =
-    code === "core:disease_onset"
-      ? (onsetTemplate(item.entry.payload[code], item.date.year) ?? TEXT.unknown)
-      : (CODES[`payload ${code}`] ?? "");
   const sims = item.entry.subjects.map((subject) => subject.sim);
   return (
     <li>
       {`${dateText(item.date)}: `}
-      {segments(template, sims, ` ${TEXT.and} `, ", ").map((segment, i) =>
+      {segments(template(item), sims, ` ${TEXT.and} `, ", ").map((segment, i) =>
         typeof segment === "number" ? (
           <a key={i} href={format({ page: "person", run, sim: String(segment) })}>
             {names.get(segment) ?? `${TEXT.person} ${segment}`}
