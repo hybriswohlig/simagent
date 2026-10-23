@@ -4,7 +4,8 @@
 // year, turns the hereditary diseases on (off in the scenario; its line and the button's new
 // label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), then forks the run from
-// its year with the hereditary diseases off and lands on the comparison with the fork.
+// its year with the hereditary diseases off and lands on the comparison with the fork; last
+// it pins the family of sim 13 and finds it on the run page.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -119,10 +120,18 @@ if (browser !== undefined) {
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
+    await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
+    await step("pin its family", page.getByRole("button", { name: "Familie anheften" }).click());
+    await step("pinned", page.getByRole("button", { name: "Nicht mehr anheften" }).waitFor());
+    await step("back to the run with the family", page.goto(`${url}#/runs/${run}`));
+    await step(
+      "the pinned family",
+      page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
+    );
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself and with a fork");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself and with a fork, and a pinned family");
   } catch (error) {
     fail(error.message);
   } finally {

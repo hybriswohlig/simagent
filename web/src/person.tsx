@@ -11,6 +11,7 @@ import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
 import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
+import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
@@ -92,7 +93,7 @@ function Name({ run, person }: { run: string; person: Person | undefined }) {
 }
 
 /** The hourglass as a drawing; each person a link that centres the tree on them (P11). */
-function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
+export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   const { nodes, edges, width, height } = layout(glass);
   const at = new Map(nodes.map((node) => [node.person.sim, node]));
   return (
@@ -270,6 +271,32 @@ function PairForm({
 
 /** A person of a run: who they are related to, the tree around them, pairing, and their
  * chronicle. */
+/** Pinning this person's family to the run page, or taking it off again (ADR-0021 section 6,
+ * Grok A1, A2); without a storage in the browser there is no button. */
+function PinButton({ run, person }: { run: string; person: Person }) {
+  const storage = browserStorage();
+  const [pinned, setPinned] = useState(() => pinnedKey(storage, run));
+  if (storage === null) {
+    return null;
+  }
+  const here = pinned === person.lineage_key;
+  const toggle = () => {
+    if (here) {
+      unpin(storage, run);
+    } else {
+      pin(storage, run, person.lineage_key);
+    }
+    setPinned(pinnedKey(storage, run));
+  };
+  return (
+    <p>
+      <button type="button" onClick={toggle}>
+        {here ? TEXT.unpin_family : TEXT.pin_family}
+      </button>
+    </p>
+  );
+}
+
 export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const [changed, setChanged] = useState(0);
   const loaded = usePedigree(run, String(changed));
@@ -323,6 +350,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <Name run={run} person={parent(person.father)} />
       </p>
       <TreeView run={run} glass={glass} />
+      <PinButton key={`${run}/${sim}`} run={run} person={person} />
       <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} />
       <PairForm
         key={`${run}/${sim}`}
