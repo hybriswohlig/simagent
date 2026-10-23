@@ -48,3 +48,28 @@ export function windows(run: string, start: number): (until: number) => Promise<
     return read;
   };
 }
+
+/** What a run page read of its run's log: the second it read up to, and its chronicle. */
+export type Read = { readonly through: number; readonly items: readonly EventItem[] };
+
+/**
+ * What the run pages of a tab read, per run, so that a page opened again shows its chronicle
+ * again and reads on from where it ended; held while the tab lives, no input (ADR-0021
+ * section 2). A read past where the run stands is of another run of that name and is not
+ * recalled.
+ */
+export function reads() {
+  const held = new Map<string, Read>();
+  return {
+    recall(run: string, closed: number): Read {
+      const read = held.get(run);
+      return read !== undefined && read.through <= closed ? read : { through: closed, items: [] };
+    },
+    hold(run: string, read: Read): void {
+      held.set(run, read);
+    },
+  };
+}
+
+/** The reads of this tab's run pages. */
+export const READS = reads();

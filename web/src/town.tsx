@@ -9,7 +9,7 @@ import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Pedigree, Per
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle } from "./lines.js";
-import { enteredBy, windows } from "./log.js";
+import { enteredBy, READS, windows } from "./log.js";
 import { TreeView, usePedigree } from "./person.js";
 import { browserStorage, pinnedKey } from "./pin.js";
 import { hourglass } from "./tree.js";
@@ -85,7 +85,9 @@ function Town({
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [kept, setKept] = useState<Pedigree | null>(null);
-  const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
+  // What this tab read of the run before, if the page was open already (finding F5).
+  const [recalled] = useState(() => READS.recall(run, closed));
+  const [chronicle, setChronicle] = useState<readonly EventItem[]>(recalled.items);
   // A window of the log, and the entries of an input, that could not be read.
   const [windowFailed, setWindowFailed] = useState(false);
   const [enteredFailed, setEnteredFailed] = useState(false);
@@ -94,7 +96,9 @@ function Town({
   const [sending, setSending] = useState(false);
   const [inputRefused, setInputRefused] = useState<string | null>(null);
   const [forking, setForking] = useState(false);
-  const read = useRef(windows(run, closed));
+  const read = useRef(windows(run, recalled.through));
+  // The second the log was read up to.
+  const through = useRef(recalled.through);
   const latest = useRef(clock);
   const live = useRef(true);
   // An input on its way (the addendum to ADR-0023 before S2): no step starts and no other
@@ -185,6 +189,7 @@ function Town({
         if (!live.current) {
           return;
         }
+        through.current = until;
         setChronicle((kept) => added(kept, items));
         setWindowFailed(false);
         if (unread.current !== null && until > unread.current) {
@@ -194,6 +199,8 @@ function Town({
       })
       .catch(() => live.current && setWindowFailed(true));
   }, [clock.closed, retries]);
+  // What the page read, held for when it opens again.
+  useEffect(() => READS.hold(run, { through: through.current, items: chronicle }), [chronicle]);
   // Where the switch stands, read when the page opens, after each step and when asked again;
   // a refused input is no longer news then.
   useEffect(() => {
