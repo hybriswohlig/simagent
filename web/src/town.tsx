@@ -36,7 +36,9 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
-  const [chronicleFailed, setChronicleFailed] = useState(false);
+  // A window of the log, and the entries of an input, that could not be read.
+  const [windowFailed, setWindowFailed] = useState(false);
+  const [enteredFailed, setEnteredFailed] = useState(false);
   const [retries, setRetries] = useState(0);
   const [diseases, setDiseases] = useState<boolean | null>(null);
   const [sending, setSending] = useState(false);
@@ -50,6 +52,8 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   // The stamp of an accepted input whose entries could not be read yet; read again with the
   // chronicle (a window past the stop reads them too).
   const unread = useRef<number | null>(null);
+  // The last read of the switch asked for: only its answer counts.
+  const switchReads = useRef(0);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -86,39 +90,58 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   }, [clock]);
   // The entries of the input stamped `stamp` into the chronicle; kept to read again if they
   // do not come.
+  // (Every input of one stop acts in the same second, so a read of it reads them all.)
   const enteredAt = (stamp: number) =>
     enteredBy(run, stamp).then(
-      (items) => live.current && setChronicle((kept) => added(kept, items)),
+      (items) => {
+        if (unread.current === stamp) {
+          unread.current = null;
+        }
+        if (live.current) {
+          setChronicle((kept) => added(kept, items));
+          setEnteredFailed(unread.current !== null);
+        }
+      },
       () => {
         unread.current = stamp;
         if (live.current) {
-          setChronicleFailed(true);
+          setEnteredFailed(true);
         }
       },
     );
-  // Where the switch stands; unknown, and so without its button, while it cannot be read.
-  const readSwitch = () =>
-    diseasesOn(run).then(
-      (on) => live.current && setDiseases(on),
-      () => live.current && setDiseases(null),
+  // Where the switch stands, by the last read asked for; unknown, and so without its button,
+  // while it cannot be read.
+  const readSwitch = () => {
+    const asked = ++switchReads.current;
+    const last = () => live.current && asked === switchReads.current;
+    return diseasesOn(run).then(
+      (on) => last() && setDiseases(on),
+      () => last() && setDiseases(null),
     );
+  };
   // After each step (and when asked again after a failure), the log from the last stop that
-  // was read on, and the entries of an input that did not come.
+  // was read on; the entries of an input that did not come are read on their own while no
+  // window reaches past its stop.
   useEffect(() => {
+    const until = clock.closed;
     const stamp = unread.current;
-    unread.current = null;
-    if (stamp !== null) {
+    if (stamp !== null && until <= stamp) {
       void enteredAt(stamp);
     }
     read
-      .current(clock.closed)
+      .current(until)
       .then((items) => {
-        if (live.current) {
-          setChronicle((kept) => added(kept, items));
-          setChronicleFailed(unread.current !== null);
+        if (!live.current) {
+          return;
+        }
+        setChronicle((kept) => added(kept, items));
+        setWindowFailed(false);
+        if (unread.current !== null && until > unread.current) {
+          unread.current = null;
+          setEnteredFailed(false);
         }
       })
-      .catch(() => live.current && setChronicleFailed(true));
+      .catch(() => live.current && setWindowFailed(true));
   }, [clock.closed, retries]);
   // Where the switch stands, read when the page opens, after each step and when asked again;
   // a refused input is no longer news then.
@@ -208,7 +231,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       <Chronicle
         run={run}
         items={chronicle}
-        failed={chronicleFailed ? TEXT.chronicle_failed : null}
+        failed={windowFailed || enteredFailed ? TEXT.chronicle_failed : null}
         retry={() => setRetries((n) => n + 1)}
         names={names}
       />
