@@ -1589,12 +1589,12 @@ fn template() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/scenarios/stadt.json")
 }
 
-/// Founding a town is `run --scenario <template> --until -1` (ADR-0021 section 2): the run
-/// stands before its first second, every file byte for byte; a given seed replaces the
-/// template's. A name in use, a bad name, an unknown template or a bad seed make nothing; the
+/// Founding a town is `run --scenario <template> --until 0` (ADR-0021 section 2): the run
+/// stands in its first second, with its founders, every file byte for byte; a given seed
+/// replaces the template's. A name in use, a bad name, an unknown template or a bad seed make nothing; the
 /// new run is the server's until it ends.
 #[test]
-fn founding_a_town_is_the_template_before_its_start() {
+fn founding_a_town_is_the_template_in_its_first_second() {
     let (runs, web) = fixture("found");
     let base = runs.parent().expect("a parent").to_path_buf();
     let server = start(&runs, &web);
@@ -1614,7 +1614,7 @@ fn founding_a_town_is_the_template_before_its_start() {
             "--out".as_ref(),
             out.as_os_str(),
             "--until".as_ref(),
-            "-1".as_ref(),
+            "0".as_ref(),
         ])
         .expect("runs")
     };

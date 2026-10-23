@@ -6,7 +6,8 @@
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
 // year with the hereditary diseases off and lands on the comparison with the fork; last
-// it pins the family of sim 13 and finds it on the run page.
+// it pins the family of sim 13 and finds it on the run page, and founds a town, which stands
+// in its first second with its founders and says when its curves begin.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -135,10 +136,17 @@ if (browser !== undefined) {
       "the pinned family",
       page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
     );
+    await step("the list of runs", page.goto(`${url}#/`));
+    await step("a new town's name", page.getByRole("textbox", { name: "Name des Laufs" }).fill("neu"));
+    await step("found it", page.getByRole("button", { name: "Neue Stadt gründen" }).click());
+    await step("its page", page.getByRole("heading", { level: 1, name: "Lauf neu" }).waitFor());
+    await step("its first second", dated(0));
+    await step("its founders", page.locator('a[href^="#/runs/neu/persons/"]').first().waitFor());
+    await step("no curves yet", page.getByText("Die Kurven beginnen, wenn das erste Jahr vorbei ist.").waitFor());
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, and a pinned family");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family, and a new town in its first second");
   } catch (error) {
     fail(error.message);
   } finally {
