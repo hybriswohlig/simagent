@@ -1034,3 +1034,39 @@ fn a_diff_with_a_run_that_does_not_load_is_refused() {
     let refused = diff_of(&parent, &broken).expect_err("refused");
     assert!(refused.starts_with("error: save_rejected"), "{refused}");
 }
+
+/// ADR-0021's acceptance with its addendum of 2026-10-23: `tests/scenarios/diff_switch.json`
+/// and its fork with the hereditary diseases on from year 5, where the switch brings three
+/// deaths of `core:disease_ar` before the end. The comparison is the line
+/// `tools/diff_reference.py` writes (`tests/golden/diff_switch.json`); the other way round
+/// the sides swap.
+#[test]
+fn the_diff_of_the_switch_is_the_references() {
+    let dir = scratch("diff_switch");
+    let scenario =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/diff_switch.json");
+    let parent = dir.join("parent");
+    assert_eq!(
+        simagent(&["run", "--scenario", arg(&scenario), "--out", arg(&parent)]),
+        Ok(())
+    );
+    let out = dir.join("fork");
+    let block = override_file(&dir, SWITCH_ON);
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+    let expected = include_str!("../../../tests/golden/diff_switch.json");
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(expected));
+    let forward: Value = serde_json::from_str(expected).expect("json");
+    let back: Value =
+        serde_json::from_str(&diff_of(&out, &parent).expect("compares")).expect("json");
+    assert_eq!(
+        (&back["a_only"], &back["b_only"]),
+        (&forward["b_only"], &forward["a_only"])
+    );
+    let sides = |value: &Value, side: &str| -> Vec<Value> {
+        (value["changed"].as_array().expect("a list").iter())
+            .map(|entry| entry[side].clone())
+            .collect()
+    };
+    assert_eq!(sides(&back, "a"), sides(&forward, "b"));
+    assert_eq!(sides(&back, "b"), sides(&forward, "a"));
+}
