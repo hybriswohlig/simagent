@@ -65,18 +65,14 @@ export function template(item: EventItem): string {
   return CODES[`payload ${code}`] ?? "";
 }
 
-/** The chronicle after a page of the log: the followed entries of the page that are newer
- * than the newest kept, with the kept, at most `KEPT`, the newest. The newest second comes
- * first; the entries of one second keep the core's order, cause before consequence (also
- * across pages). */
+/** The chronicle after a page of the log: the followed entries of the page it does not
+ * keep yet, with the kept, at most `KEPT`, the newest. Pages may come in any order (a
+ * window and the entries of an input read beside it). The newest second comes first; the
+ * entries of one second keep the core's order, cause before consequence (also across
+ * pages). */
 export function added(kept: readonly EventItem[], page: readonly EventItem[]): EventItem[] {
-  const newest = kept.reduce<number | undefined>(
-    (max, item) => (max === undefined || item.entry.id > max ? item.entry.id : max),
-    undefined,
-  );
-  const fresh = page.filter(
-    (item) => (newest === undefined || item.entry.id > newest) && followed(item),
-  );
+  const known = new Set(kept.map((item) => item.entry.id));
+  const fresh = page.filter((item) => !known.has(item.entry.id) && followed(item));
   return [...fresh, ...kept]
     .sort((a, b) => b.entry.id - a.entry.id)
     .slice(0, KEPT)

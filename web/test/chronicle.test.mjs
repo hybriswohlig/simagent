@@ -94,6 +94,17 @@ test("a second split over two pages keeps the core's order", () => {
   );
 });
 
+// Astra's review of S2: the entries of an input, read beside a window, may come before the
+// window's older ones; those still come in.
+test("a page of older entries that comes later still adds them", () => {
+  const kept = added([], [during(9, 20, "core:shock_triggered", 1)]);
+  const next = added(kept, [during(7, 18, "core:birth", 3), during(8, 19, "core:death", 4)]);
+  assert.deepEqual(
+    next.map((i) => i.entry.id),
+    [9, 8, 7],
+  );
+});
+
 test("the chronicle keeps at most its limit, the newest", () => {
   const page = Array.from({ length: KEPT + 5 }, (_, i) => item(i + 1, "core:birth"));
   const kept = added([], page);
