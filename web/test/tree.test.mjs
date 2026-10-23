@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { layout } from "../dist/render/tree.js";
+import { layout, MARK_DY } from "../dist/render/tree.js";
 import { hourglass } from "../dist/tree.js";
 
 /** A person of the pedigree format with only the fields the tree reads set by hand. */
@@ -141,8 +141,20 @@ test("empty generations above and below take no room", () => {
   // 14 is alone: one row.
   const alone = layout(hourglass(PEDIGREE, 14));
   assert.equal(alone.nodes.length, 1);
-  assert.equal(alone.height, 80);
+  // One row of 80 and 10 below it for the mark under the name.
+  assert.equal(alone.height, 90);
   assert.ok(parentsOnly.height > alone.height);
+});
+
+// The review of F6: the mark under the name of the last row ("†" or "weggezogen") lay below
+// the edge of the drawing and was cut off; its baseline stays 6 px above the edge, room for
+// the descenders of a 10 px font.
+test("the mark under the lowest name fits in the drawing", () => {
+  for (const sim of [7, 9, 14]) {
+    const { nodes, height } = layout(hourglass(PEDIGREE, sim));
+    const lowest = Math.max(...nodes.map((n) => n.y));
+    assert.ok(lowest + MARK_DY + 6 <= height, `sim ${sim}`);
+  }
 });
 
 // The playtest before the fun test (F1): an arrival whose parents came from the pool too has
@@ -204,4 +216,31 @@ test("parents from the pool by their keys", async () => {
       [23, 25],
     ],
   );
+});
+
+// The playtest before the fun test (F6, Grok round 31): the dead and those who moved away are
+// marked in the tree, shown short and spoken in full; a person's partner is the one of its
+// partnership that has not ended.
+test("the dead and those who moved away are marked", async () => {
+  const { nodeMark } = await import("../dist/tree.js");
+  const named = (fields) => ({ ...person(1, "female", null, null), first_name: "Pia", surname: "Heller", ...fields });
+  assert.deepEqual(nodeMark(named({})), { shown: null, spoken: "Pia Heller" });
+  assert.deepEqual(nodeMark(named({ died: 100 })), { shown: "†", spoken: "Pia Heller, gestorben" });
+  assert.deepEqual(nodeMark(named({ emigrated: 100 })), { shown: "weggezogen", spoken: "Pia Heller, weggezogen" });
+});
+
+test("the partner is the one of the partnership that has not ended", async () => {
+  const { currentPartner } = await import("../dist/tree.js");
+  const couple = (partnership, woman, man, ended) => ({
+    partnership, woman, man, formed: 0, ended, ended_by: ended === null ? null : "separation", kinship: 0,
+  });
+  const pedigree = {
+    ...PEDIGREE,
+    partnerships: [couple(1, 7, 6, 50), couple(2, 7, 8, null), couple(3, 10, 2, null)],
+  };
+  const of = (sim) => currentPartner(pedigree, pedigree.persons.find((p) => p.sim === sim))?.sim;
+  assert.equal(of(7), 8);
+  assert.equal(of(8), 7);
+  assert.equal(of(6), undefined);
+  assert.equal(of(14), undefined);
 });

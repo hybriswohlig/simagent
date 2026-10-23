@@ -1,4 +1,28 @@
 import type { Pedigree, Person } from "./generated/export.js";
+import { fullName } from "./names.js";
+import { TEXT } from "./text.js";
+
+/** How the tree marks a person who died or moved away (Grok round 31, T1 and T2): short in
+ * its node, in full for a screen reader; nothing for the living. */
+export function nodeMark(person: Person): { shown: string | null; spoken: string } {
+  const name = fullName(person);
+  if (person.died !== null) {
+    return { shown: TEXT.tree_dead_mark, spoken: `${name}, ${TEXT.tree_dead}` };
+  }
+  if (person.emigrated !== null) {
+    return { shown: TEXT.tree_away, spoken: `${name}, ${TEXT.tree_away}` };
+  }
+  return { shown: null, spoken: name };
+}
+
+/** The partner of `person` in a partnership that has not ended, if any (Grok T3). */
+export function currentPartner(pedigree: Pedigree, person: Person): Person | undefined {
+  const bond = pedigree.partnerships.find(
+    (couple) => couple.ended === null && (couple.woman === person.sim || couple.man === person.sim),
+  );
+  const other = bond === undefined ? undefined : bond.woman === person.sim ? bond.man : bond.woman;
+  return other === undefined ? undefined : pedigree.persons.find((each) => each.sim === other);
+}
 
 /**
  * The people around one person in the pedigree (P11): its biological parents up to the
