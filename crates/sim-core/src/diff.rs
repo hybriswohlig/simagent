@@ -58,8 +58,9 @@ pub struct Life {
     pub emigrated: Option<SimTime>,
     /// By the second they formed, then by the partner's key.
     pub partnerships: Vec<Bond>,
-    /// The persons of the pedigree whose mother or father the person is.
-    pub children: u32,
+    /// The persons of the pedigree whose mother or father the person is; at most the number
+    /// of persons, so the count never saturates.
+    pub children: u64,
 }
 
 /// A partnership of a person, the other by key.
@@ -127,7 +128,7 @@ fn lives(pedigree: &Pedigree) -> BTreeMap<LineageKey, Life> {
             .copied()
             .unwrap_or_else(|| panic!("invariant diff.sim_of_the_pedigree"))
     };
-    let mut children: BTreeMap<LineageKey, u32> = BTreeMap::new();
+    let mut children: BTreeMap<LineageKey, u64> = BTreeMap::new();
     for person in &pedigree.persons {
         let pool = person.pool.as_ref();
         let mother = (person.mother.map(key)).or(pool.and_then(|from| from.mother_key));
