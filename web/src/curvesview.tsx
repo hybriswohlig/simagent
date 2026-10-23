@@ -134,7 +134,7 @@ export function CurvesView({ run, at }: { run: string; at: string }) {
     <>
       <h2>{TEXT.curves}</h2>
       {loaded.state === "failed" ? <p>{TEXT[loaded.text]}</p> : null}
-      {shown !== null && shown.years.length === 0 ? <p>{TEXT.curves_later}</p> : null}
+      {loaded.state !== "failed" && shown !== null && shown.years.length === 0 ? <p>{TEXT.curves_later}</p> : null}
       {shown === null || shown.years.length === 0 ? null : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
           {shown.curves.map((curve) => (
