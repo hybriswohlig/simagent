@@ -430,13 +430,14 @@ fn world_rules_move_the_census_from_their_year() {
 /// ADR-0023 section 5, the lever of the hunger, from `tools/hunger_lever_reference.py`:
 /// `tests/scenarios/fork_no_density.json` (no pool) on the repository's data, ending with
 /// row 25 (the end of its replay), as a twin and with a shock at a stop in year 0.
-/// `core:hunger_one_year` stamped inside
-/// year 0 and `core:hunger_three_years` stamped at its last second both start in year 1.
-/// Cohort 0 (4 women, 1 man in row 25, no clamp) is between 0 and 2 years old all through
-/// year 1: one hunger year takes 5 cm · (1 − 0.7) = 1.5 cm from each, so its means at 25
-/// drop by exactly 15 mm; three years take 3.0 + 0.75 · f cm (f the part of year 0 before
-/// the birth), here 37 and 36 mm. Nothing but the body reads the hunger: every other cell
-/// of row 25 and every cell of the rows before it are the twin's.
+/// `core:hunger_one_year` stamped inside year 0 and `core:hunger_three_years` stamped at
+/// its last second both start in year 1. Cohort 0 (4 women, 1 man in row 25, no clamp) is
+/// between 0 and 2 years old all through year 1: one hunger year takes 5 cm · (1 − 0.7) =
+/// 1.5 cm from each, so its means at 25 drop by exactly 15 mm, and those of all adults by
+/// 15 mm times the cohort's share (4 of 20 women, 1 of 15 men); three years take 3.0 +
+/// 0.75 · f cm (f the part of year 0 before the birth), here 37 and 36 mm at 25. Nothing
+/// but the body reads the hunger: every other cell of row 25 and every cell of the rows
+/// before it are the twin's.
 #[test]
 fn a_hunger_takes_its_loss_from_the_heights_at_25_of_the_cohort_before_it() {
     let dir = scratch("hunger_lever");
@@ -540,6 +541,10 @@ fn a_hunger_takes_its_loss_from_the_heights_at_25_of_the_cohort_before_it() {
         let names = [
             "arrivals",
             "clamped_height_cm",
+            "adults_female",
+            "adult_height_mm_female",
+            "adults_male",
+            "adult_height_mm_male",
             "age25_female",
             "age25_height_mm_female",
             "age25_male",
@@ -552,10 +557,23 @@ fn a_hunger_takes_its_loss_from_the_heights_at_25_of_the_cohort_before_it() {
             })
             .collect()
     };
-    assert_eq!(row_25(&theirs), ["0", "0", "4", "1708", "1", "1763"]);
+    let twin_25 = [
+        "0", "0", "20", "1675", "15", "1797", "4", "1708", "1", "1763",
+    ];
+    assert_eq!(row_25(&theirs), twin_25);
     for (run, at_25) in [
-        (&one, ["0", "0", "4", "1693", "1", "1748"]),
-        (&three, ["0", "0", "4", "1671", "1", "1727"]),
+        (
+            &one,
+            [
+                "0", "0", "20", "1672", "15", "1796", "4", "1693", "1", "1748",
+            ],
+        ),
+        (
+            &three,
+            [
+                "0", "0", "20", "1668", "15", "1795", "4", "1671", "1", "1727",
+            ],
+        ),
     ] {
         let ours = text(&run.join("census.csv"));
         assert_eq!(ours.lines().count(), 27);
