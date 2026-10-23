@@ -4,6 +4,7 @@ import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
+import { ForkForm, type Writes } from "./forkform.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
@@ -44,6 +45,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const [diseases, setDiseases] = useState<boolean | null>(null);
   const [sending, setSending] = useState(false);
   const [inputRefused, setInputRefused] = useState<string | null>(null);
+  const [forking, setForking] = useState(false);
   const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
@@ -183,7 +185,26 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     }
   }, [pedigree]);
   // The interventions wait for a standing clock: no step on its way, not playing.
-  const standingStill = clock.busy || clock.playing !== null || sending;
+  const standingStill = clock.busy || clock.playing !== null || sending || forking;
+  // A fork takes the run's writes as an input does (the addendum G2 of ADR-0021 section 2):
+  // it starts only at a standing clock, and no step, play or input goes while it is computed.
+  const writes: Writes = {
+    idle: !standingStill,
+    begin: () => {
+      if (writing.current || latest.current.busy || latest.current.playing !== null) {
+        return false;
+      }
+      writing.current = true;
+      setForking(true);
+      return true;
+    },
+    end: () => {
+      writing.current = false;
+      if (live.current) {
+        setForking(false);
+      }
+    },
+  };
   return (
     <section>
       <h1>{`${TEXT.run} ${run}`}</h1>
@@ -193,7 +214,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           <button
             type="button"
             key={step}
-            disabled={clock.busy || sending}
+            disabled={clock.busy || sending || forking}
             onClick={() => {
               if (writing.current) {
                 return;
@@ -206,7 +227,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </button>
         ))}
         {clock.playing === null ? (
-          <button type="button" disabled={sending} onClick={() => writing.current || apply(play(latest.current, chosen))}>
+          <button type="button" disabled={sending || forking} onClick={() => writing.current || apply(play(latest.current, chosen))}>
             {TEXT.play}
           </button>
         ) : (
@@ -249,6 +270,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </li>
         ))}
       </ul>
+      <ForkForm run={run} year={clock.date.year} writes={writes} />
     </section>
   );
 }
