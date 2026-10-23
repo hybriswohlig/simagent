@@ -1680,15 +1680,15 @@ fn founding_a_town_is_the_template_in_its_first_second() {
     for name in ["x1", "x2", "x3", "x4", "x5", "a"] {
         assert!(!runs.join(name).exists(), "{name}");
     }
-    // Listed, standing before its first second (the last second of year -1, ADR-0002).
+    // Listed, standing in its first second (the first second of year 0, ADR-0002).
     let list = json_of(&get(port, "/api/runs").2);
     let entry = (list["runs"].as_array().expect("runs"))
         .iter()
         .find(|entry| entry["run"] == "neu")
         .cloned()
         .expect("listed");
-    assert_eq!(entry["date"], date(-1));
-    assert_eq!(entry["date"]["year"], -1);
+    assert_eq!(entry["date"], date(0));
+    assert_eq!(entry["date"]["year"], 0);
     // The server holds it.
     let refused = resume_until(&runs.join("neu"), Y - 1, None).expect_err("the server's");
     assert_eq!(first_code(&refused), "run_locked");
