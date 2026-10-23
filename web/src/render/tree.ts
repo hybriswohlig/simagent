@@ -20,6 +20,11 @@ export type Layout = {
 /** Horizontal distance of two people in a row, vertical distance of two rows. */
 const STEP_X = 90;
 const STEP_Y = 80;
+/** Offsets under a circle's centre of the first name and of the mark below it. */
+export const NAME_DY = 32;
+export const MARK_DY = 44;
+/** Room below the last row, so that the descenders of the mark stay in the drawing. */
+const BELOW = MARK_DY + 6 - STEP_Y / 2;
 
 export function layout(glass: Hourglass): Layout {
   const all: (readonly Person[])[] = [...glass.up].reverse();
@@ -40,14 +45,14 @@ export function layout(glass: Hourglass): Layout {
   const at = new Map(nodes.map((node) => [node.person.sim, node]));
   const edges: Edge[] = [];
   for (const node of nodes) {
-    for (const parent of [node.person.mother, node.person.father]) {
-      const from = parent === null ? undefined : at.get(parent);
+    for (const [parent, child] of glass.links) {
+      const from = child === node.person.sim ? at.get(parent) : undefined;
       // Only links that go up: a parent cut off by the limit of the rows is not drawn
       // beside or below its child.
-      if (parent !== null && from !== undefined && from.y < node.y) {
-        edges.push({ from: parent, to: node.person.sim });
+      if (from !== undefined && from.y < node.y) {
+        edges.push({ from: parent, to: child });
       }
     }
   }
-  return { nodes, edges, width, height: rows.length * STEP_Y };
+  return { nodes, edges, width, height: rows.length * STEP_Y + BELOW };
 }

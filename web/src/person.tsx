@@ -14,10 +14,10 @@ import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.j
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
-import { layout } from "./render/tree.js";
+import { layout, MARK_DY, NAME_DY } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
-import { hourglass, type Hourglass } from "./tree.js";
+import { currentPartner, hourglass, nodeMark, parentsOf, type Hourglass } from "./tree.js";
 
 /** The format of `pedigree.json` this viewer reads (`simagent export`). */
 const PEDIGREE_FORMAT = 5;
@@ -110,7 +110,7 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           key={node.person.sim}
           href={personHref(run, node.person.sim)}
           data-sim={node.person.sim}
-          aria-label={fullName(node.person)}
+          aria-label={nodeMark(node.person).spoken}
         >
           <circle
             cx={node.x}
@@ -123,9 +123,14 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
             {node.person.sim}
           </text>
-          <text x={node.x} y={node.y} dy="32" text-anchor="middle" font-size="11">
+          <text x={node.x} y={node.y} dy={NAME_DY} text-anchor="middle" font-size="11">
             {node.person.first_name}
           </text>
+          {nodeMark(node.person).shown === null ? null : (
+            <text x={node.x} y={node.y} dy={MARK_DY} text-anchor="middle" font-size="10">
+              {nodeMark(node.person).shown}
+            </text>
+          )}
         </a>
       ))}
     </svg>
@@ -325,8 +330,8 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     return toRun(TEXT.unknown_person);
   }
   const person = glass.center;
-  const bySim = new Map(pedigree.persons.map((p) => [p.sim, p]));
-  const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
+  const [mother, father] = parentsOf(pedigree, person);
+  const partner = currentPartner(pedigree, person);
   return (
     <section>
       <p>
@@ -355,9 +360,14 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <p>{TEXT.loading}</p>
       )}
       <p>
-        {TEXT.mother} <Name run={run} person={parent(person.mother)} /> · {TEXT.father}{" "}
-        <Name run={run} person={parent(person.father)} />
+        {TEXT.mother} <Name run={run} person={mother} /> · {TEXT.father}{" "}
+        <Name run={run} person={father} />
       </p>
+      {partner === undefined ? null : (
+        <p>
+          {partner.sex === "female" ? TEXT.partner_female : TEXT.partner_male} <Name run={run} person={partner} />
+        </p>
+      )}
       <TreeView run={run} glass={glass} />
       <PinButton key={`${run}/${sim}`} run={run} person={person} />
       <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} />
