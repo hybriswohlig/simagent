@@ -352,15 +352,21 @@ function PinnedFamily({ run, pedigree }: { run: string; pedigree: Pedigree | nul
 /** A run's page: its clock and its living, from where the run list says it stands. */
 export function RunPage({ run }: { run: string }) {
   const runs = useRuns(run);
+  // A run page that cannot be shown still leads back to the list.
+  const back = (text: string) => (
+    <p>
+      {text} <a href={format({ page: "runs" })}>{TEXT.back}</a>
+    </p>
+  );
   if (runs.state !== "ready") {
-    return <p>{runs.state === "loading" ? TEXT.loading : TEXT[runs.text]}</p>;
+    return back(runs.state === "loading" ? TEXT.loading : TEXT[runs.text]);
   }
   const entry = runs.value.runs.find((candidate) => candidate.run === run);
   if (entry === undefined) {
-    return <p>{TEXT.not_found}</p>;
+    return back(TEXT.not_found);
   }
   if (entry.manifest === undefined || entry.date === undefined) {
-    return <p>{entry.error === "run_failed" ? TEXT.refused_run_failed : TEXT.run_no_manifest}</p>;
+    return back(entry.error === "run_failed" ? TEXT.refused_run_failed : TEXT.run_no_manifest);
   }
   const others = runs.value.runs
     .filter((candidate) => candidate.run !== run && candidate.manifest !== undefined)

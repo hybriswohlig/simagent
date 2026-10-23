@@ -309,14 +309,20 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
   }
   const kept = last.current?.run === run ? last.current.pedigree : null;
   const pedigree = loaded.state === "ready" ? loaded.value : kept;
+  // A person page that cannot be shown still leads to its run.
+  const toRun = (text: string) => (
+    <p>
+      {text} <a href={format({ page: "run", run })}>{TEXT.to_run.replace("{run}", run)}</a>
+    </p>
+  );
   if (pedigree === null) {
-    return <p>{loaded.state === "failed" ? TEXT[loaded.text] : TEXT.loading}</p>;
+    return toRun(loaded.state === "failed" ? TEXT[loaded.text] : TEXT.loading);
   }
   // A reload that failed leaves the last pedigree on the page, with why.
   const reloadFailed = loaded.state === "failed" ? <p role="alert">{TEXT[loaded.text]}</p> : null;
   const glass = hourglass(pedigree, Number(sim));
   if (glass === null) {
-    return <p>{TEXT.unknown_person}</p>;
+    return toRun(TEXT.unknown_person);
   }
   const person = glass.center;
   const bySim = new Map(pedigree.persons.map((p) => [p.sim, p]));
