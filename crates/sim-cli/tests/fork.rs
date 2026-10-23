@@ -994,3 +994,79 @@ fn the_events_before_the_fork_point_are_those_of_the_parent() {
     tamper_with_the_birthday_of(&before, 4);
     assert!(fork_with(&before, "5", &block, &dir.join("before_override")).is_err());
 }
+
+/// `simagent diff A B`: the comparison of two runs, a line of JSON on stdout; else the
+/// first line of stderr.
+fn diff_of(a: &Path, b: &Path) -> Result<String, String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["diff", arg(a), arg(b)])
+        .output()
+        .expect("runs simagent");
+    if output.status.success() {
+        return Ok(String::from_utf8(output.stdout).expect("UTF-8"));
+    }
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8");
+    Err(stderr.lines().next().unwrap_or("").to_owned())
+}
+
+/// ADR-0021 section 3, its acceptance and its addendum of 2026-10-23: a fork without an
+/// override is its parent, so the comparison is empty, either way round.
+#[test]
+fn a_fork_without_override_differs_in_nothing() {
+    let dir = scratch("diff_empty");
+    let parent = parent(&dir);
+    let out = dir.join("fork");
+    assert_eq!(fork(&parent, "5", &out), Ok(()));
+    let empty = "{\"format_version\":1,\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
+    assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
+}
+
+/// A run whose save does not load is refused with the code of the load (a save of other
+/// data or another core does not load either, ADR-0003 1.4).
+#[test]
+fn a_diff_with_a_run_that_does_not_load_is_refused() {
+    let dir = scratch("diff_broken");
+    let parent = parent(&dir);
+    let broken = dir.join("broken");
+    fs::create_dir_all(&broken).expect("creates the directory");
+    fs::write(broken.join("state.save"), b"SIMAGENT").expect("writes");
+    let refused = diff_of(&parent, &broken).expect_err("refused");
+    assert!(refused.starts_with("error: save_rejected"), "{refused}");
+}
+
+/// ADR-0021's acceptance with its addendum of 2026-10-23: `tests/scenarios/diff_switch.json`
+/// and its fork with the hereditary diseases on from year 5, where the switch brings three
+/// deaths of `core:disease_ar` before the end. The comparison is the line
+/// `tools/diff_reference.py` writes (`tests/golden/diff_switch.json`); the other way round
+/// the sides swap.
+#[test]
+fn the_diff_of_the_switch_is_the_references() {
+    let dir = scratch("diff_switch");
+    let scenario =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/diff_switch.json");
+    let parent = dir.join("parent");
+    assert_eq!(
+        simagent(&["run", "--scenario", arg(&scenario), "--out", arg(&parent)]),
+        Ok(())
+    );
+    let out = dir.join("fork");
+    let block = override_file(&dir, SWITCH_ON);
+    assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+    let expected = include_str!("../../../tests/golden/diff_switch.json");
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(expected));
+    let forward: Value = serde_json::from_str(expected).expect("json");
+    let back: Value =
+        serde_json::from_str(&diff_of(&out, &parent).expect("compares")).expect("json");
+    assert_eq!(
+        (&back["a_only"], &back["b_only"]),
+        (&forward["b_only"], &forward["a_only"])
+    );
+    let sides = |value: &Value, side: &str| -> Vec<Value> {
+        (value["changed"].as_array().expect("a list").iter())
+            .map(|entry| entry[side].clone())
+            .collect()
+    };
+    assert_eq!(sides(&back, "a"), sides(&forward, "b"));
+    assert_eq!(sides(&back, "b"), sides(&forward, "a"));
+}

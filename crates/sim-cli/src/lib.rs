@@ -97,6 +97,10 @@ fn command() -> Command {
                 .required(true)
                 .allow_hyphen_values(true),
         );
+    let diff = Command::new("diff")
+        .about("Prints the comparison of two runs by lineage key (ADR-0021 section 3)")
+        .arg(Arg::new("a").value_name("RUN_DIR").required(true))
+        .arg(Arg::new("b").value_name("RUN_DIR").required(true));
     let measure = Command::new("measure")
         .about("Prints the genic spread of each trait and the mean dose of each additive locus over the living of a run (ADR-0020 section 3)")
         .arg(Arg::new("run").value_name("RUN_DIR").required(true));
@@ -112,6 +116,7 @@ fn command() -> Command {
         .subcommand(fork)
         .subcommand(export)
         .subcommand(kinship)
+        .subcommand(diff)
         .subcommand(measure)
         .subcommand(view)
         .subcommand(
@@ -151,6 +156,11 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
         Some(("kinship", kinship)) => {
             let text = |name: &str| kinship.get_one::<String>(name).map_or("", String::as_str);
             return kinship_of(Path::new(text("run")), text("a"), text("b"));
+        }
+        Some(("diff", diff)) => {
+            let dir =
+                |name: &str| Path::new(diff.get_one::<String>(name).map_or("", String::as_str));
+            return diff_of(dir("a"), dir("b"));
         }
         Some(("view", view)) => {
             let text = |name: &str| view.get_one::<String>(name).map(String::as_str);
@@ -288,6 +298,14 @@ fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {
         .kinship(sim(a)?, sim(b)?)
         .ok_or_else(|| unknown(&format!("{a} or {b}")))?;
     println!("{}", files::json(&phi));
+    Ok(())
+}
+
+/// Prints the comparison of the runs in `a` and `b`, from their saves (ADR-0021 section 3
+/// and its addendum of 2026-10-23): one line of JSON.
+fn diff_of(a: &Path, b: &Path) -> Result<(), CliError> {
+    let (a, b) = (load_world(a)?.pedigree(), load_world(b)?.pedigree());
+    println!("{}", files::json(&sim_core::diff::diff(&a, &b)));
     Ok(())
 }
 
