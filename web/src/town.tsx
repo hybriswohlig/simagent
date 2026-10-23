@@ -44,6 +44,12 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
   const read = useRef(windows(run, closed));
   const latest = useRef(clock);
   const live = useRef(true);
+  // An input on its way (the addendum to ADR-0023 before S2): no step starts and no other
+  // input goes until it is answered, so it acts at the stop the page shows.
+  const writing = useRef(false);
+  // The stamp of an accepted input whose entries could not be read yet; read again with the
+  // chronicle (a window past the stop reads them too).
+  const unread = useRef<number | null>(null);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -78,46 +84,71 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
     const timer = setTimeout(() => apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
+  // The entries of the input stamped `stamp` into the chronicle; kept to read again if they
+  // do not come.
+  const enteredAt = (stamp: number) =>
+    enteredBy(run, stamp).then(
+      (items) => live.current && setChronicle((kept) => added(kept, items)),
+      () => {
+        unread.current = stamp;
+        if (live.current) {
+          setChronicleFailed(true);
+        }
+      },
+    );
+  // Where the switch stands; unknown, and so without its button, while it cannot be read.
+  const readSwitch = () =>
+    diseasesOn(run).then(
+      (on) => live.current && setDiseases(on),
+      () => live.current && setDiseases(null),
+    );
   // After each step (and when asked again after a failure), the log from the last stop that
-  // was read on.
+  // was read on, and the entries of an input that did not come.
   useEffect(() => {
+    const stamp = unread.current;
+    unread.current = null;
+    if (stamp !== null) {
+      void enteredAt(stamp);
+    }
     read
       .current(clock.closed)
       .then((items) => {
         if (live.current) {
           setChronicle((kept) => added(kept, items));
-          setChronicleFailed(false);
+          setChronicleFailed(unread.current !== null);
         }
       })
       .catch(() => live.current && setChronicleFailed(true));
   }, [clock.closed, retries]);
-  // Where the switch stands, read when the page opens and after each step; a refused input
-  // is no longer news after a step.
+  // Where the switch stands, read when the page opens, after each step and when asked again;
+  // a refused input is no longer news then.
   useEffect(() => {
     setInputRefused(null);
-    diseasesOn(run)
-      .then((on) => live.current && setDiseases(on))
-      .catch(() => live.current && setDiseases(null));
-  }, [listedAt]);
-  // An input at the stop (ADR-0023 section 6 and its addendum before S2): its entries in the
-  // chronicle at once, and the switch read again.
+    void readSwitch();
+  }, [listedAt, retries]);
+  // An input at the standing clock (ADR-0023 section 6 and its addendum before S2): its
+  // entries in the chronicle at once and the switch read again, each on its own.
   const send = (input: unknown) => {
+    if (writing.current || latest.current.busy || latest.current.playing !== null) {
+      return;
+    }
+    writing.current = true;
     setSending(true);
     setInputRefused(null);
     postJson(`/api/runs/${run}/input`, input, INPUT)
       .then(
-        async (json) => {
+        (json) => {
           const answer = json as unknown as InputAnswer;
-          const [items, on] = await Promise.all([enteredBy(run, answer.t), diseasesOn(run)]);
-          if (live.current) {
-            setChronicle((kept) => added(kept, items));
-            setDiseases(on);
-          }
+          return Promise.all([enteredAt(answer.t), readSwitch()]);
         },
         (error: unknown) => live.current && setInputRefused(inputFailureText(error)),
       )
-      .catch(() => live.current && setChronicleFailed(true))
-      .finally(() => live.current && setSending(false));
+      .finally(() => {
+        writing.current = false;
+        if (live.current) {
+          setSending(false);
+        }
+      });
   };
   // The living of the last pedigree that came, kept while the next one loads.
   const pedigree = usePedigree(run, String(listedAt));
@@ -127,6 +158,8 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       setNames(namesOf(pedigree.value));
     }
   }, [pedigree]);
+  // The interventions wait for a standing clock: no step on its way, not playing.
+  const standingStill = clock.busy || clock.playing !== null || sending;
   return (
     <section>
       <h1>{`${TEXT.run} ${run}`}</h1>
@@ -136,8 +169,11 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           <button
             type="button"
             key={step}
-            disabled={clock.busy}
+            disabled={clock.busy || sending}
             onClick={() => {
+              if (writing.current) {
+                return;
+              }
               setChosen(step);
               apply(press(latest.current, step));
             }}
@@ -146,7 +182,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </button>
         ))}
         {clock.playing === null ? (
-          <button type="button" onClick={() => apply(play(latest.current, chosen))}>
+          <button type="button" disabled={sending} onClick={() => writing.current || apply(play(latest.current, chosen))}>
             {TEXT.play}
           </button>
         ) : (
@@ -157,12 +193,12 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
       </p>
       <p role="group" aria-label={TEXT.interventions}>
         {HUNGERS.map(([shock, label]) => (
-          <button type="button" key={shock} disabled={clock.busy || sending} onClick={() => send(shockInput(shock))}>
+          <button type="button" key={shock} disabled={standingStill} onClick={() => send(shockInput(shock))}>
             {label}
           </button>
         ))}
         {diseases === null ? null : (
-          <button type="button" disabled={clock.busy || sending} onClick={() => send(switchInput(diseases))}>
+          <button type="button" disabled={standingStill} onClick={() => send(switchInput(diseases))}>
             {switchLabel(diseases)}
           </button>
         )}
