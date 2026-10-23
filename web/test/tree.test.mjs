@@ -144,3 +144,48 @@ test("empty generations above and below take no room", () => {
   assert.equal(alone.height, 80);
   assert.ok(parentsOnly.height > alone.height);
 });
+
+// The playtest before the fun test (F1): an arrival whose parents came from the pool too has
+// no town parents by sim, only the keys of its pool origin; where a person of the pedigree
+// has such a key, that person is its parent, in the hourglass and as mother or father.
+test("parents from the pool by their keys", async () => {
+  const { parentsOf } = await import("../dist/tree.js");
+  const arrival = (sim, sex, mother_key, father_key) => ({
+    ...person(sim, sex, null, null),
+    pool: {
+      genome_key: String(sim),
+      born_pool: 1,
+      arrived: 0,
+      arrival_year: 0,
+      mother_key,
+      father_key,
+      social_parent_keys: [],
+    },
+  });
+  const pedigree = {
+    format_version: 4,
+    persons: [
+      arrival(21, "female", null, null),
+      arrival(22, "male", null, null),
+      arrival(23, "female", "21", "22"),
+      arrival(24, "male", "21", "99"),
+      person(25, "female", 23, null),
+    ],
+    partnerships: [],
+    households: [],
+  };
+  const [mother, father] = parentsOf(pedigree, pedigree.persons[2]);
+  assert.deepEqual([mother?.sim, father?.sim], [21, 22]);
+  // A key that names nobody of the pedigree is no parent here.
+  const [his, none] = parentsOf(pedigree, pedigree.persons[3]);
+  assert.deepEqual([his?.sim, none], [21, undefined]);
+  const glass = hourglass(pedigree, 23);
+  assert.deepEqual(
+    glass.up.map((row) => row.map((p) => p.sim)),
+    [[21, 22], [], []],
+  );
+  assert.deepEqual(
+    hourglass(pedigree, 21).down.map((row) => row.map((p) => p.sim)),
+    [[23, 24], [25]],
+  );
+});
