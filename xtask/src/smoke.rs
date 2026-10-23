@@ -2,7 +2,7 @@
 //! of the gate scenario made by the release binary of this commit up to the end of year 28,
 //! `simagent view` over it with `web/dist`, and `web/smoke/smoke.mjs` driving Chromium
 //! headless through it (run page, curves, a hunger, one year, the switch, a person, a
-//! parent in the pedigree). A canary first: the same drive against a copy of the page whose
+//! parent in the pedigree, the comparison of the run with itself). A canary first: the same drive against a copy of the page whose
 //! `main.js` throws must fail. The browser comes from `cargo xtask browser`, which installs
 //! the Chromium headless shell of the pinned `playwright-core`; the gate itself downloads
 //! nothing.
