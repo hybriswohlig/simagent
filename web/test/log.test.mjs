@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { enteredBy, readLog, windows } from "../dist/log.js";
+import { enteredBy, readLog, reads, windows } from "../dist/log.js";
 
 const EVENTS = { format: "simagent.view.events", version: 2 };
 const DATE = { year: 0, day_of_year: 0, month: 0, day_of_month: 0, week: 0, weekday: 0, season: 0, second_of_day: 0 };
@@ -96,4 +96,21 @@ test("the entries of an input are read from the second it acts in", async () => 
     [101],
   );
   assert.deepEqual(asked, ["/api/runs/town/events?from=101&to=101"]);
+});
+
+// The playtest before the fun test (F5): a run page opened again, after a person's page,
+// showed an empty chronicle, as it read the log only from where the run stood. The run pages
+// of a tab hold what they read per run; a page opened again shows it and reads on from
+// where it ended.
+test("a run page opened again recalls what it read and reads on from its end", () => {
+  const held = reads();
+  assert.deepEqual(held.recall("town", 50), { through: 50, items: [] });
+  held.hold("town", { through: 60, items: [item(7)] });
+  assert.deepEqual(held.recall("town", 60), { through: 60, items: [item(7)] });
+  // The run went on meanwhile: the page reads the gap from 60.
+  assert.deepEqual(held.recall("town", 90), { through: 60, items: [item(7)] });
+  // Each run its own.
+  assert.deepEqual(held.recall("gabel", 60), { through: 60, items: [] });
+  // A read past where the run stands is of another run of that name: nothing of it.
+  assert.deepEqual(held.recall("town", 59), { through: 59, items: [] });
 });

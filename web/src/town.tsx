@@ -5,11 +5,11 @@ import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
-import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Pedigree, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle } from "./lines.js";
-import { enteredBy, windows } from "./log.js";
+import { enteredBy, READS, type Read, windows } from "./log.js";
 import { TreeView, usePedigree } from "./person.js";
 import { browserStorage, pinnedKey } from "./pin.js";
 import { hourglass } from "./tree.js";
@@ -85,7 +85,9 @@ function Town({
   const [living, setLiving] = useState<readonly Person[]>([]);
   const [names, setNames] = useState<ReadonlyMap<number, string>>(new Map());
   const [kept, setKept] = useState<Pedigree | null>(null);
-  const [chronicle, setChronicle] = useState<readonly EventItem[]>([]);
+  // The chronicle and the second the log was read up to, held together; at first what this
+  // tab read of the run before, if the page was open already (finding F5).
+  const [chronicle, setChronicle] = useState<Read>(() => READS.recall(run, closed));
   // A window of the log, and the entries of an input, that could not be read.
   const [windowFailed, setWindowFailed] = useState(false);
   const [enteredFailed, setEnteredFailed] = useState(false);
@@ -94,15 +96,17 @@ function Town({
   const [sending, setSending] = useState(false);
   const [inputRefused, setInputRefused] = useState<string | null>(null);
   const [forking, setForking] = useState(false);
-  const read = useRef(windows(run, closed));
+  const read = useRef(windows(run, chronicle.through));
   const latest = useRef(clock);
   const live = useRef(true);
   // An input on its way (the addendum to ADR-0023 before S2): no step starts and no other
   // input goes until it is answered, so it acts at the stop the page shows.
   const writing = useRef(false);
   // The stamp of an accepted input whose entries could not be read yet; read again with the
-  // chronicle (a window past the stop reads them too).
-  const unread = useRef<number | null>(null);
+  // chronicle (a window past the stop reads them too). At first the page's stop: an input
+  // there may act before the next step, and a page left before its entries came did not
+  // keep them.
+  const unread = useRef<number | null>(closed);
   // The last read of the switch asked for: only its answer counts.
   const switchReads = useRef(0);
   useEffect(() => {
@@ -149,7 +153,7 @@ function Town({
           unread.current = null;
         }
         if (live.current) {
-          setChronicle((kept) => added(kept, items));
+          setChronicle((kept) => ({ through: kept.through, items: added(kept.items, items) }));
           setEnteredFailed(unread.current !== null);
         }
       },
@@ -185,7 +189,7 @@ function Town({
         if (!live.current) {
           return;
         }
-        setChronicle((kept) => added(kept, items));
+        setChronicle((kept) => ({ through: until, items: added(kept.items, items) }));
         setWindowFailed(false);
         if (unread.current !== null && until > unread.current) {
           unread.current = null;
@@ -194,6 +198,8 @@ function Town({
       })
       .catch(() => live.current && setWindowFailed(true));
   }, [clock.closed, retries]);
+  // What the page read, held for when it opens again.
+  useEffect(() => READS.hold(run, chronicle), [chronicle]);
   // Where the switch stands, read when the page opens, after each step and when asked again;
   // a refused input is no longer news then.
   useEffect(() => {
@@ -304,7 +310,7 @@ function Town({
       {inputRefused === null ? null : <p role="alert">{inputRefused}</p>}
       <Chronicle
         run={run}
-        items={chronicle}
+        items={chronicle.items}
         failed={windowFailed || enteredFailed ? TEXT.chronicle_failed : null}
         retry={() => setRetries((n) => n + 1)}
         names={names}

@@ -308,8 +308,8 @@ impl Server {
         })
     }
 
-    /// `POST /api/runs`: a new run from a template, made like `run --scenario <template>
-    /// --until -1` (it stands before its first second) and kept open by the server. The name
+    /// `POST /api/runs`: a new run from a template, made like `run --scenario <template>`
+    /// (the template's end: the town stands in its first second) and kept open by the server. The name
     /// must be free in the runs directory; a seed may replace the template's.
     fn create(&mut self, body: &[u8]) -> Response {
         let found = std::str::from_utf8(body)
@@ -355,9 +355,9 @@ impl Server {
         };
         // From here on the directory is this server's: a failure marks it failed.
         let made = (|| {
-            // The template ends before its start: the run stands there, as `run --scenario`
-            // leaves it.
+            // The run stands at the template's end, as `run --scenario` leaves it.
             let mut session = crate::begin(&dir, &scenario, scenario.until)?;
+            session.advance(scenario.until)?;
             session.checkpoint(&scenario)?;
             Ok::<_, CliError>(session)
         })();
