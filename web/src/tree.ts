@@ -16,6 +16,22 @@ export type Hourglass = {
   readonly down: readonly (readonly Person[])[];
 };
 
+/** How a pedigree names a person's mother and father: by sim, else by the key its pool origin
+ * names (an arrival whose parents came too, a child of a pool pregnancy); `undefined` where
+ * neither names a person of the pedigree (the playtest's F1). */
+function parentLookup(pedigree: Pedigree): (person: Person) => [Person | undefined, Person | undefined] {
+  const bySim = new Map(pedigree.persons.map((person) => [person.sim, person]));
+  const byKey = new Map(pedigree.persons.map((person) => [person.lineage_key, person]));
+  const one = (sim: number | null, key: string | null | undefined) =>
+    sim !== null ? bySim.get(sim) : key === null || key === undefined ? undefined : byKey.get(key);
+  return (person) => [one(person.mother, person.pool?.mother_key), one(person.father, person.pool?.father_key)];
+}
+
+/** The mother and the father of `person` in `pedigree`, as far as it names them. */
+export function parentsOf(pedigree: Pedigree, person: Person): [Person | undefined, Person | undefined] {
+  return parentLookup(pedigree)(person);
+}
+
 /** The hourglass of `sim`, or `null` if the pedigree has no such person. */
 export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Hourglass | null {
   const bySim = new Map(pedigree.persons.map((person) => [person.sim, person]));
@@ -24,13 +40,9 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
   if (center === undefined) {
     return null;
   }
-  const parentsOf = (person: Person) =>
-    [person.mother, person.father].flatMap((id) => {
-      const parent = id === null ? undefined : bySim.get(id);
-      return parent === undefined ? [] : [parent];
-    });
-  const childrenOf = (person: Person) =>
-    pedigree.persons.filter((child) => child.mother === person.sim || child.father === person.sim);
+  const lookup = parentLookup(pedigree);
+  const parents = (person: Person) => lookup(person).filter((parent): parent is Person => parent !== undefined);
+  const childrenOf = (person: Person) => pedigree.persons.filter((child) => parents(child).includes(person));
   // The deepest generation of each person reached within `count` steps, then the rows.
   const levels = (count: number, next: (person: Person) => Person[]) => {
     const deepest = new Map<number, number>();
@@ -51,7 +63,7 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
     }
     return rows.map((row) => row.sort((a, b) => (order.get(a.sim) ?? 0) - (order.get(b.sim) ?? 0)));
   };
-  const above = levels(up, parentsOf);
+  const above = levels(up, parents);
   const below = levels(down, childrenOf);
   const drawnAbove = new Set(above.flat().map((person) => person.sim));
   return {

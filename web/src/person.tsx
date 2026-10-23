@@ -17,7 +17,7 @@ import { Portrait } from "./portrait.js";
 import { layout } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
-import { hourglass, type Hourglass } from "./tree.js";
+import { hourglass, parentsOf, type Hourglass } from "./tree.js";
 
 /** The format of `pedigree.json` this viewer reads (`simagent export`). */
 const PEDIGREE_FORMAT = 5;
@@ -325,8 +325,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
     return toRun(TEXT.unknown_person);
   }
   const person = glass.center;
-  const bySim = new Map(pedigree.persons.map((p) => [p.sim, p]));
-  const parent = (id: number | null) => (id === null ? undefined : bySim.get(id));
+  const [mother, father] = parentsOf(pedigree, person);
   return (
     <section>
       <p>
@@ -355,8 +354,8 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         <p>{TEXT.loading}</p>
       )}
       <p>
-        {TEXT.mother} <Name run={run} person={parent(person.mother)} /> · {TEXT.father}{" "}
-        <Name run={run} person={parent(person.father)} />
+        {TEXT.mother} <Name run={run} person={mother} /> · {TEXT.father}{" "}
+        <Name run={run} person={father} />
       </p>
       <TreeView run={run} glass={glass} />
       <PinButton key={`${run}/${sim}`} run={run} person={person} />
