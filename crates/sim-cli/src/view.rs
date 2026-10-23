@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sim_core::input::Input;
+use sim_core::params::ParamChange;
 use sim_core::time::{DAY, SimTime, calendar};
 
 use crate::error::CliError;
@@ -67,6 +68,16 @@ struct Advance {
 /// town first (section 6).
 const TEMPLATES: [(&str, &str); 1] =
     [("stadt", include_str!("../../../data/scenarios/stadt.json"))];
+
+/// The body of `POST /api/runs/{run}/fork` (the addendum of ADR-0021 section 2, G2): the
+/// name of the fork, its year and its override, as `simagent fork` takes them.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Fork {
+    run: String,
+    from_year: i64,
+    changes: Vec<ParamChange>,
+}
 
 /// The body of `POST /api/runs`.
 #[derive(Serialize, Deserialize)]
@@ -199,7 +210,7 @@ impl Server {
         let segments: Vec<&str> = request.path.split('/').skip(1).collect();
         let allowed = match segments.as_slice() {
             ["api", "runs"] => "GET, POST",
-            ["api", "runs", _, "advance" | "input"] => "POST",
+            ["api", "runs", _, "advance" | "input" | "fork"] => "POST",
             _ => "GET",
         };
         if !allowed.split(", ").any(|method| method == request.method) {
@@ -237,6 +248,10 @@ impl Server {
             },
             ["api", "runs", run, "census"] => self.read(run, census),
             ["api", "runs", run, "world"] => self.read(run, world),
+            ["api", "runs", a, "diff", b] => {
+                self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
+            }
+            ["api", "runs", run, "fork"] => self.fork(run, &request.body),
             ["api", "runs", run, "events"] => {
                 let query = request.query.as_deref().unwrap_or("");
                 self.read(run, |dir| events(dir, query))
@@ -429,13 +444,66 @@ impl Server {
         Response::new(200, JSON, format!("{body}\n").into_bytes())
     }
 
+    /// `POST /api/runs/{run}/fork` (the addendum of ADR-0021 section 2, G2): the fork of
+    /// `run` made like `simagent fork` into a new run of the list, its name free as for
+    /// `POST /api/runs`. A run the server holds open is closed first, which lets its lock
+    /// go; its files are whole since its last write. A directory the failed fork made goes.
+    fn fork(&mut self, parent: &str, body: &[u8]) -> Response {
+        let Some(fork) = std::str::from_utf8(body)
+            .ok()
+            .and_then(files::parse_strict::<Fork>)
+            .filter(|fork| run_name(&fork.run))
+        else {
+            return Response::error(400, "body_invalid");
+        };
+        let parent_dir = match self.listed(parent) {
+            Ok(dir) => dir,
+            Err(refused) => return refused,
+        };
+        let dir = self.runs.join(&fork.run);
+        if dir.symlink_metadata().is_ok() {
+            return Response::error(409, "run_exists");
+        }
+        self.open.remove(parent);
+        match crate::fork_with(&parent_dir, fork.from_year, fork.changes, &dir) {
+            Ok(()) => {
+                self.failed.remove(&fork.run);
+                let body = json!({"format": "simagent.view.forked", "version": 1, "run": fork.run});
+                Response::new(200, JSON, format!("{body}\n").into_bytes())
+            }
+            Err(error) => {
+                if dir.symlink_metadata().is_ok() {
+                    // It was not there before this request: what is there the fork made.
+                    let _ = std::fs::remove_dir_all(&dir);
+                }
+                let mut body =
+                    json!({"format": "simagent.view.error", "version": 1, "code": error.code});
+                if error.code == "override_rejected" {
+                    body["reason"] = json!(error.detail);
+                }
+                let status = if error.code == "io" { 500 } else { 409 };
+                Response::new(status, JSON, format!("{body}\n").into_bytes())
+            }
+        }
+    }
+
+    /// The directory of `run` if it is one of the list exactly, else the refusal.
+    fn listed(&self, run: &str) -> Result<PathBuf, Response> {
+        match self.run_names() {
+            None => Err(Response::error(500, "runs_unreadable")),
+            Some(names) if !names.iter().any(|n| n == run) => {
+                Err(Response::error(404, "unknown_run"))
+            }
+            Some(_) if self.failed.contains(run) => Err(Response::error(500, "run_failed")),
+            Some(_) => Ok(self.runs.join(run)),
+        }
+    }
+
     /// The answer of `read` on the directory of `run`, if it is one of the list exactly.
     fn read(&self, run: &str, read: impl FnOnce(&Path) -> Response) -> Response {
-        match self.run_names() {
-            None => Response::error(500, "runs_unreadable"),
-            Some(names) if !names.iter().any(|n| n == run) => Response::error(404, "unknown_run"),
-            Some(_) if self.failed.contains(run) => Response::error(500, "run_failed"),
-            Some(_) => read(&self.runs.join(run)),
+        match self.listed(run) {
+            Ok(dir) => read(&dir),
+            Err(refused) => refused,
         }
     }
 
@@ -601,6 +669,56 @@ fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
         Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),
     }
+}
+
+/// `GET /api/runs/{a}/diff/{b}` (the addendum of ADR-0021 section 2, G2): the comparison
+/// of the core, as `simagent diff` prints it, with the names of the runs and each second
+/// with its date.
+fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
+    let compared = (|| -> Result<Value, CliError> {
+        let (one, other) = (
+            crate::load_world(one)?.pedigree(),
+            crate::load_world(other)?.pedigree(),
+        );
+        serde_json::to_value(sim_core::diff::diff(&one, &other))
+            .map_err(|error| CliError::new("io", error.to_string()))
+    })();
+    let compared = match compared {
+        Ok(compared) => compared,
+        Err(error) => return Response::error(500, error.code),
+    };
+    let body = json!({
+        "format": "simagent.view.diff",
+        "version": 1,
+        "a": a,
+        "b": b,
+        "a_only": compared["a_only"],
+        "b_only": compared["b_only"],
+        "changed": dated(compared["changed"].clone()),
+    });
+    Response::new(200, JSON, format!("{body}\n").into_bytes())
+}
+
+/// The changed lives of a comparison with each second as `{"t", "date"}`.
+fn dated(mut changed: Value) -> Value {
+    let moment = |value: &mut Value| {
+        if let Some(t) = value.as_i64() {
+            *value = json!({"t": t, "date": date(SimTime::from_secs(t))});
+        }
+    };
+    for entry in changed.as_array_mut().into_iter().flatten() {
+        for side in ["a", "b"] {
+            let life = &mut entry[side];
+            for field in ["born", "died", "emigrated"] {
+                moment(&mut life[field]);
+            }
+            for bond in life["partnerships"].as_array_mut().into_iter().flatten() {
+                moment(&mut bond["formed"]);
+                moment(&mut bond["ended"]);
+            }
+        }
+    }
+    changed
 }
 
 /// `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.
