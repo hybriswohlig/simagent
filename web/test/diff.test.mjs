@@ -101,3 +101,43 @@ test("the other fields and an emigration", () => {
     { label: "Partnerschaften", a: ["mit Lena Berg, ab Jahr 4, 1. Monat, 1. Tag bis Jahr 9, 2. Monat, 2. Tag, durch Wegzug"], b: ["keine"] },
   ]);
 });
+
+// Astra's review of G3a: each column names and links from its own run; a person named only
+// in `b` is named from there.
+test("each column names and links from its own run", () => {
+  const ROSA = "00000000000000cc";
+  const answer = {
+    ...ANSWER,
+    a_only: [],
+    b_only: [],
+    changed: [
+      {
+        lineage_key: SON,
+        differs: ["partnerships"],
+        a: life({ partnerships: [{ partner: HIS, formed: at(1, 2, 0, 0), ended: null, ended_by: null }] }),
+        b: life({ partnerships: [{ partner: ROSA, formed: at(1, 2, 0, 0), ended: null, ended_by: null }] }),
+      },
+    ],
+  };
+  const both = {
+    a: named([[SON, "Karl Wolf", 7], [HIS, "Lena Berg", 9]]),
+    b: named([[SON, "Karl Wolf", 21], [ROSA, "Rosa Lang", 22]]),
+  };
+  assert.deepEqual(diffView(answer, both).changed, [
+    {
+      key: SON,
+      name: "Karl Wolf",
+      a: 7,
+      b: 21,
+      rows: [
+        {
+          label: "Partnerschaften",
+          a: ["mit Lena Berg, ab Jahr 2, 1. Monat, 1. Tag"],
+          b: ["mit Rosa Lang, ab Jahr 2, 1. Monat, 1. Tag"],
+        },
+      ],
+    },
+  ]);
+  const [only] = diffView(answer, { a: new Map(), b: both.b }).changed;
+  assert.deepEqual([only.name, only.a, only.b], ["Karl Wolf", null, 21]);
+});
