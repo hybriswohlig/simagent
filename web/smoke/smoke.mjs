@@ -136,6 +136,25 @@ if (browser !== undefined) {
       "the pinned family",
       page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
     );
+    // A short run page: the pinned family above the chronicle, which scrolls in its own box,
+    // like the living.
+    const short = await page.evaluate(() => {
+      const headings = [...document.querySelectorAll("h2")].map((h) => h.textContent ?? "");
+      const pinned = headings.findIndex((text) => text.startsWith("Angeheftete Familie: "));
+      const scrolls = (list) => {
+        const found = document.querySelector(list);
+        return found !== null && getComputedStyle(found).overflowY === "auto";
+      };
+      return (
+        pinned >= 0 &&
+        pinned < headings.indexOf("Chronik") &&
+        scrolls('ol[aria-label="Chronik"]') &&
+        scrolls('ul[aria-label="Lebende"]')
+      );
+    });
+    if (!short) {
+      throw new Error("the run page: the pinned family not above a chronicle and living that scroll");
+    }
     await step("the list of runs", page.goto(`${url}#/`));
     await step("a new town's name", page.getByRole("textbox", { name: "Name des Laufs" }).fill("neu"));
     await step("found it", page.getByRole("button", { name: "Neue Stadt gründen" }).click());
@@ -146,7 +165,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family, and a new town in its first second");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, and a new town in its first second");
   } catch (error) {
     fail(error.message);
   } finally {
