@@ -188,11 +188,13 @@ test("parents from the pool by their keys", async () => {
     hourglass(pedigree, 21).down.map((row) => row.map((p) => p.sim)),
     [[23, 24], [25]],
   );
-  // Astra's review: the drawing links them too, not only the rows.
+  // Astra's review: the drawing links them too, not only the rows (and 23 to its child 25
+  // by sim, below it).
   const edges = layout(glass).edges.map((edge) => [edge.from, edge.to]);
   assert.deepEqual(edges, [
     [21, 23],
     [22, 23],
+    [23, 25],
   ]);
   assert.deepEqual(
     layout(hourglass(pedigree, 21)).edges.map((edge) => [edge.from, edge.to]),

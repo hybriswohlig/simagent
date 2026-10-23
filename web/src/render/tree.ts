@@ -40,12 +40,12 @@ export function layout(glass: Hourglass): Layout {
   const at = new Map(nodes.map((node) => [node.person.sim, node]));
   const edges: Edge[] = [];
   for (const node of nodes) {
-    for (const parent of [node.person.mother, node.person.father]) {
-      const from = parent === null ? undefined : at.get(parent);
+    for (const [parent, child] of glass.links) {
+      const from = child === node.person.sim ? at.get(parent) : undefined;
       // Only links that go up: a parent cut off by the limit of the rows is not drawn
       // beside or below its child.
-      if (parent !== null && from !== undefined && from.y < node.y) {
-        edges.push({ from: parent, to: node.person.sim });
+      if (from !== undefined && from.y < node.y) {
+        edges.push({ from: parent, to: child });
       }
     }
   }

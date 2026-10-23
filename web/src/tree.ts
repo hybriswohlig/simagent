@@ -14,6 +14,8 @@ export type Hourglass = {
   readonly up: readonly (readonly Person[])[];
   /** `down[0]` the children, `down[1]` the grandchildren. */
   readonly down: readonly (readonly Person[])[];
+  /** Each parent and child of the hourglass, by sim, its parent by sim or by pool key. */
+  readonly links: readonly (readonly [number, number])[];
 };
 
 /** How a pedigree names a person's mother and father: by sim, else by the key its pool origin
@@ -66,10 +68,14 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
   const above = levels(up, parents);
   const below = levels(down, childrenOf);
   const drawnAbove = new Set(above.flat().map((person) => person.sim));
-  return {
-    center,
-    up: above,
-    // A person above and below at once (only in an impossible pedigree) stays above.
-    down: below.map((row) => row.filter((person) => !drawnAbove.has(person.sim))),
-  };
+  // A person above and below at once (only in an impossible pedigree) stays above.
+  const lower = below.map((row) => row.filter((person) => !drawnAbove.has(person.sim)));
+  const drawn = [center, ...above.flat(), ...lower.flat()];
+  const inGlass = new Set(drawn.map((person) => person.sim));
+  const links = drawn.flatMap((child) =>
+    parents(child)
+      .filter((parent) => inGlass.has(parent.sim))
+      .map((parent) => [parent.sim, child.sim] as const),
+  );
+  return { center, up: above, down: lower, links };
 }
