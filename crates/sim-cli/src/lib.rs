@@ -211,6 +211,18 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
     Ok(world)
 }
 
+/// Where the switch of the hereditary diseases of the run in `dir` stands after its last
+/// input, as `simagent view` sends it (ADR-0023 section 6 and its addendum before S2).
+pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
+    let params = (load_world(dir)?.state().world_params())
+        .ok_or_else(|| CliError::new("save_rejected", "the world of the save has not started"))?;
+    Ok(serde_json::json!({
+        "format": "simagent.view.world",
+        "version": 1,
+        "hereditary_diseases": params.hereditary_diseases,
+    }))
+}
+
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
 /// (ADR-0021 section 3), with the contract version of its body values, the partners a
 /// pairing would be accepted with now and its genetics card (section 5), and with `to` what

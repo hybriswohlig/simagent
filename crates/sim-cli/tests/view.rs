@@ -1277,12 +1277,13 @@ fn the_world_answer_names_the_switch() {
         let (status, _, body) = get(port, "/api/runs/town/world");
         (status, json_of(&body))
     };
-    let standing = |on: bool| {
-        json!({"format": "simagent.view.world", "version": 1, "hereditary_diseases": on})
-    };
+    let standing = |on: bool| json!({"format": "simagent.view.world", "version": 1, "hereditary_diseases": on});
     assert_eq!(world(), (200, standing(false)));
     for (input, on) in [
-        (r#"{"trigger_shock":{"shock":"core:hunger_one_year"}}"#, false),
+        (
+            r#"{"trigger_shock":{"shock":"core:hunger_one_year"}}"#,
+            false,
+        ),
         (
             r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#,
             true,
