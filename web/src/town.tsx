@@ -4,6 +4,7 @@ import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
+import { ForkForm } from "./forkform.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
@@ -249,6 +250,7 @@ function Town({ run, closed, date }: { run: string; closed: number; date: Calend
           </li>
         ))}
       </ul>
+      <ForkForm run={run} year={clock.date.year} />
     </section>
   );
 }
