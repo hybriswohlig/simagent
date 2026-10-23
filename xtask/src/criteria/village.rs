@@ -111,7 +111,8 @@ fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
     let file: Value =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     // The fields of the file and of each template, exactly (`deny_unknown_fields`, as
-    // sim-cli reads them).
+    // sim-cli reads them). A key given twice keeps its last value here; sim-cli refuses
+    // it, and its test `the_base_game_loads` reads this same file in the gate.
     let exactly = |value: &Value, keys: &[&str]| {
         value.as_object().is_some_and(|object| {
             object.len() == keys.len() && keys.iter().all(|key| object.contains_key(*key))
