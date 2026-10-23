@@ -994,3 +994,43 @@ fn the_events_before_the_fork_point_are_those_of_the_parent() {
     tamper_with_the_birthday_of(&before, 4);
     assert!(fork_with(&before, "5", &block, &dir.join("before_override")).is_err());
 }
+
+/// `simagent diff A B`: the comparison of two runs, a line of JSON on stdout; else the
+/// first line of stderr.
+fn diff_of(a: &Path, b: &Path) -> Result<String, String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["diff", arg(a), arg(b)])
+        .output()
+        .expect("runs simagent");
+    if output.status.success() {
+        return Ok(String::from_utf8(output.stdout).expect("UTF-8"));
+    }
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8");
+    Err(stderr.lines().next().unwrap_or("").to_owned())
+}
+
+/// ADR-0021 section 3, its acceptance and its addendum of 2026-10-23: a fork without an
+/// override is its parent, so the comparison is empty, either way round.
+#[test]
+fn a_fork_without_override_differs_in_nothing() {
+    let dir = scratch("diff_empty");
+    let parent = parent(&dir);
+    let out = dir.join("fork");
+    assert_eq!(fork(&parent, "5", &out), Ok(()));
+    let empty = "{\"format_version\":1,\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
+    assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
+}
+
+/// A run whose save does not load is refused with the code of the load (a save of other
+/// data or another core does not load either, ADR-0003 1.4).
+#[test]
+fn a_diff_with_a_run_that_does_not_load_is_refused() {
+    let dir = scratch("diff_broken");
+    let parent = parent(&dir);
+    let broken = dir.join("broken");
+    fs::create_dir_all(&broken).expect("creates the directory");
+    fs::write(broken.join("state.save"), b"SIMAGENT").expect("writes");
+    let refused = diff_of(&parent, &broken).expect_err("refused");
+    assert!(refused.starts_with("error: save_rejected"), "{refused}");
+}
