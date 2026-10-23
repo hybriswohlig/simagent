@@ -5,7 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { onsetTemplate } from "../dist/carddiseases.js";
-import { KEPT, added, payloadCode, segments } from "../dist/chronicle.js";
+import { KEPT, added, payloadCode, segments, template } from "../dist/chronicle.js";
+import { CODES } from "../dist/text.js";
 
 const DATE = {
   year: 1,
@@ -163,4 +164,53 @@ test("an onset of another shape has no template", () => {
   assert.equal(onsetTemplate(null, 3), null);
   assert.equal(onsetTemplate({ disease: "core:disease_ar", since_year: 3 }, 3), null);
   assert.equal(onsetTemplate({ disease: 4, since_year: 3, age_years: 0 }, 3), null);
+});
+
+/** An entry of the second `id` with `payload` and `causes`, about nobody. */
+function about(id, payload, causes) {
+  return { entry: { id, t: id, subjects: [], causes, payload }, date: DATE };
+}
+const shock = (id, shock, first_year, last_year) =>
+  about(id, { "core:shock_triggered": { shock, first_year, last_year } }, [{ input: 2 }]);
+const changed = (id, change, causes) => about(id, { "core:param_changed": { change } }, causes);
+const hunger = (year) => ({ "core:nutrition_year": { year, index: 0.7 } });
+const diseases = (on) => ({ "core:hereditary_diseases": on });
+
+// ADR-0023 "Texte" (Grok rounds 23 and 26) and the addendum before S2: the sentence of a
+// shock's template with the years of its entry, the generic one for a template the page does
+// not know; the sentence of the switch's new state. Written by hand from Grok's wording.
+test("a shock names the years of its entry", () => {
+  assert.equal(template(shock(1, "core:hunger_one_year", 29, 29)), "Ein Hungerjahr kommt: Jahr 29.");
+  assert.equal(template(shock(1, "core:hunger_three_years", 29, 31)), "Drei Hungerjahre kommen: Jahre 29 bis 31.");
+  assert.equal(template(shock(1, "core:hunger_three_years", -2, 0)), "Drei Hungerjahre kommen: Jahre -2 bis 0.");
+  assert.equal(template(shock(1, "mod:flood", 3, 4)), "Ein Schock kommt.");
+  assert.equal(template(about(1, { "core:shock_triggered": { shock: "core:hunger_one_year" } }, [])), "Ein Schock kommt.");
+});
+
+test("the switch says how it stands from now on", () => {
+  assert.equal(template(changed(1, diseases(false), [{ input: 2 }])), "Die Erbkrankheiten sind von nun an ausgeschaltet.");
+  assert.equal(template(changed(1, diseases(true), [{ input: 2 }])), "Die Erbkrankheiten sind von nun an angeschaltet.");
+  assert.equal(template(changed(1, hunger(3), [{ input: 2 }])), "Eine Weltregel ändert sich.");
+});
+
+test("every other entry keeps the template of its code", () => {
+  assert.equal(template(item(1, "core:birth")), CODES["payload core:birth"]);
+  const onset = about(1, { "core:disease_onset": { disease: "core:disease_ar", since_year: 1, age_years: 0 } }, []);
+  assert.equal(template(onset), "{0} erkrankt an Zäher Atem");
+});
+
+// Grok round 27: the years a shock sets stand in its sentence, not each on its own line; a
+// hunger year of a fork's override (caused by the input) keeps its line.
+test("the chronicle follows a shock, not the years it sets", () => {
+  const page = [
+    shock(7, "core:hunger_three_years", 1, 3),
+    changed(8, hunger(1), [{ event: 7 }]),
+    changed(9, hunger(2), [{ event: 7 }]),
+    changed(10, hunger(5), [{ input: 3 }]),
+    changed(11, diseases(true), [{ input: 4 }]),
+  ];
+  assert.deepEqual(
+    added([], page).map((i) => i.entry.id),
+    [11, 10, 7],
+  );
 });
