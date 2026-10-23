@@ -427,6 +427,181 @@ fn world_rules_move_the_census_from_their_year() {
     assert_same_run(&run, &replayed);
 }
 
+/// ADR-0023 section 5, the lever of the hunger, from `tools/hunger_lever_reference.py`:
+/// `tests/scenarios/fork_no_density.json` (no pool) on the repository's data, ending with
+/// row 25 (the end of its replay), as a twin and with a shock at a stop in year 0.
+/// `core:hunger_one_year` stamped inside year 0 and `core:hunger_three_years` stamped at
+/// its last second both start in year 1. Cohort 0 (4 women, 1 man in row 25, no clamp) is
+/// between 0 and 2 years old all through year 1: one hunger year takes 5 cm · (1 − 0.7) =
+/// 1.5 cm from each, so its means at 25 drop by exactly 15 mm, and those of all adults by
+/// 15 mm times the cohort's share (4 of 20 women, 1 of 15 men); three years take 3.0 +
+/// 0.75 · f cm (f the part of year 0 before the birth), here 37 and 36 mm at 25. Nothing
+/// but the body reads the hunger: every other cell of row 25 and every cell of the rows
+/// before it are the twin's.
+#[test]
+fn a_hunger_takes_its_loss_from_the_heights_at_25_of_the_cohort_before_it() {
+    let dir = scratch("hunger_lever");
+    let end = (26 * Y - 1).to_string();
+    let scenario = dir.join("fork_no_density.scenario.json");
+    let file =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/fork_no_density.json");
+    let sixty_years = r#""until": 1886975999"#;
+    assert!(text(&file).contains(sixty_years));
+    let to_row_25 = text(&file).replace(sixty_years, &format!(r#""until": {end}"#));
+    fs::write(&scenario, to_row_25).expect("writes the scenario");
+    let twin = dir.join("twin");
+    must(&[
+        "run",
+        "--scenario",
+        arg(&scenario),
+        "--out",
+        arg(&twin),
+        "--until",
+        &end,
+    ]);
+    let shocked = |name: &str, shock: &str, stamp: i64| {
+        let (out, inputs) = (dir.join(name), dir.join(format!("{name}.json")));
+        let first = stamp.to_string();
+        must(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(&out),
+            "--until",
+            &first,
+        ]);
+        let input = format!(r#"{{"trigger_shock":{{"shock":"{shock}"}}}}"#);
+        fs::write(&inputs, format!("[{input}]")).expect("writes the inputs");
+        must(&[
+            "run",
+            "--resume",
+            "--out",
+            arg(&out),
+            "--input",
+            arg(&inputs),
+            "--until",
+            &end,
+        ]);
+        let log = text(&out.join("input.ndjson"));
+        assert_eq!(
+            log.lines().nth(2),
+            Some(format!(r#"{{"t":{stamp},"seq":2,"input":{input}}}"#).as_str())
+        );
+        out
+    };
+    let one = shocked("one", "core:hunger_one_year", Y / 2 - 1);
+    let three = shocked("three", "core:hunger_three_years", Y - 1);
+    let shock_entries = |run: &Path| -> Vec<String> {
+        let kinds = [
+            r#""payload":{"core:shock_triggered""#,
+            r#""payload":{"core:param_changed""#,
+        ];
+        (text(&run.join("events.ndjson")).lines())
+            .filter(|line| kinds.iter().any(|kind| line.contains(kind)))
+            .map(str::to_owned)
+            .collect()
+    };
+    let changed = |id: u32, t: i64, by: u32, year: i64| {
+        format!(
+            r#"{{"id":{id},"t":{t},"subjects":[],"causes":[{{"event":{by}}}],"payload":{{"core:param_changed":{{"change":{{"core:nutrition_year":{{"year":{year},"index":0.7}}}}}}}}}}"#
+        )
+    };
+    assert_eq!(
+        shock_entries(&one),
+        [
+            r#"{"id":100,"t":15724800,"subjects":[],"causes":[{"input":2}],"payload":{"core:shock_triggered":{"shock":"core:hunger_one_year","first_year":1,"last_year":1}}}"#.to_owned(),
+            changed(101, 15_724_800, 100, 1),
+        ]
+    );
+    assert_eq!(
+        shock_entries(&three),
+        [
+            r#"{"id":150,"t":31449600,"subjects":[],"causes":[{"input":2}],"payload":{"core:shock_triggered":{"shock":"core:hunger_three_years","first_year":1,"last_year":3}}}"#.to_owned(),
+            changed(151, 31_449_600, 150, 1),
+            changed(152, 31_449_600, 150, 2),
+            changed(153, 31_449_600, 150, 3),
+        ]
+    );
+    let theirs = text(&twin.join("census.csv"));
+    let header: Vec<&str> = theirs
+        .lines()
+        .next()
+        .expect("a header")
+        .split(',')
+        .collect();
+    let heights = [
+        "adult_height_mm_female",
+        "adult_height_mm_male",
+        "age25_height_mm_female",
+        "age25_height_mm_male",
+    ];
+    let row_25 = |census: &str| -> Vec<String> {
+        let row: Vec<&str> = census.lines().nth(26).expect("row 25").split(',').collect();
+        let names = [
+            "arrivals",
+            "clamped_height_cm",
+            "adults_female",
+            "adult_height_mm_female",
+            "adults_male",
+            "adult_height_mm_male",
+            "age25_female",
+            "age25_height_mm_female",
+            "age25_male",
+            "age25_height_mm_male",
+        ];
+        (names.iter())
+            .map(|name| {
+                let column = header.iter().position(|h| h == name).expect("a column");
+                row[column].to_owned()
+            })
+            .collect()
+    };
+    let twin_25 = [
+        "0", "0", "20", "1675", "15", "1797", "4", "1708", "1", "1763",
+    ];
+    assert_eq!(row_25(&theirs), twin_25);
+    for (run, at_25) in [
+        (
+            &one,
+            [
+                "0", "0", "20", "1672", "15", "1796", "4", "1693", "1", "1748",
+            ],
+        ),
+        (
+            &three,
+            [
+                "0", "0", "20", "1668", "15", "1795", "4", "1671", "1", "1727",
+            ],
+        ),
+    ] {
+        let ours = text(&run.join("census.csv"));
+        assert_eq!(ours.lines().count(), 27);
+        assert_eq!(ours.lines().next(), theirs.lines().next());
+        for (row, (our, their)) in ours.lines().zip(theirs.lines()).skip(1).enumerate() {
+            for ((name, value), twin_value) in
+                header.iter().zip(our.split(',')).zip(their.split(','))
+            {
+                if row != 25 || !heights.contains(name) {
+                    assert_eq!((name, value), (name, twin_value), "year {row}");
+                }
+            }
+        }
+        assert_eq!(row_25(&ours), at_25);
+    }
+    let replayed = dir.join("replayed");
+    must(&[
+        "run",
+        "--replay",
+        arg(&one.join("input.ndjson")),
+        "--manifest",
+        arg(&one.join("manifest.json")),
+        "--out",
+        arg(&replayed),
+    ]);
+    assert_same_run(&one, &replayed);
+}
+
 /// An input at a stop that the core rejects ends with its code and changes nothing in
 /// the run directory; so does a file that is no list of inputs.
 #[test]
