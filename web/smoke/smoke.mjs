@@ -109,6 +109,7 @@ if (browser !== undefined) {
       page.getByRole("heading", { level: 1, name: `Vergleich: ${run} und ${run}` }).waitFor(),
     );
     await step("no life differs", page.getByText("Die beiden Läufe unterscheiden sich in keinem Leben.").waitFor());
+    await step("the years of both", page.getByText(`${run} steht im Jahr 29, ${run} im Jahr 29.`).waitFor());
     await step("back to the run", page.goto(`${url}#/runs/${run}`));
     await step("the fork's name", page.getByRole("textbox", { name: "Name der Gabel" }).fill("gabel"));
     await step("the diseases off", page.getByLabel("Erbkrankheiten in der Gabel").selectOption("off"));
