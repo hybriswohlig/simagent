@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { postJson } from "./api.js";
 import { forkBody, forkFailureText, FORKED, type Choice } from "./fork.js";
@@ -11,28 +11,51 @@ const CHOICES: readonly (readonly [Choice, keyof typeof TEXT])[] = [
   ["off", "fork_diseases_off"],
 ];
 
+/** How the run page lets a fork go: whether its clock stands with no write on its way,
+ * taking the run's writes for the fork (false if another is on its way) and giving them
+ * back. */
+export type Writes = { idle: boolean; begin: () => boolean; end: () => void };
+
 /** Forking the run from a year up to the one it stands in (ADR-0021 section 2 and its
  * addendum G2, texts Grok round 28); on success the page goes to the comparison of the run
- * with its fork. */
-export function ForkForm({ run, year }: { run: string; year: number }) {
+ * with its fork. The year follows the run's until it is chosen; while the fork is computed
+ * the run takes no other write. */
+export function ForkForm({ run, year, writes }: { run: string; year: number; writes: Writes }) {
   const [name, setName] = useState("");
-  const [from, setFrom] = useState(String(year));
+  const [chosen, setChosen] = useState<string | null>(null);
   const [choice, setChoice] = useState<Choice>("same");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
+  const from = chosen ?? String(year);
   const fromYear = Number(from);
   const valid = runName(name) && Number.isInteger(fromYear) && fromYear >= 1 && fromYear <= year;
   const send = () => {
+    if (!writes.begin()) {
+      return;
+    }
     setBusy(true);
     setFailed(null);
     postJson(`/api/runs/${run}/fork`, forkBody(name, fromYear, choice), FORKED)
       .then(() => {
-        location.hash = format({ page: "diff", a: run, b: name });
+        // Only from the page that asked: a fork that ends after the player left goes nowhere.
+        if (shown.current) {
+          location.hash = format({ page: "diff", a: run, b: name });
+        }
       })
       .catch((error: unknown) => {
-        setBusy(false);
-        setFailed(forkFailureText(error));
-      });
+        if (shown.current) {
+          setBusy(false);
+          setFailed(forkFailureText(error));
+        }
+      })
+      .finally(writes.end);
   };
   return (
     <>
@@ -55,7 +78,7 @@ export function ForkForm({ run, year }: { run: string; year: number }) {
             max={year}
             value={from}
             disabled={busy}
-            onInput={(event) => setFrom(event.currentTarget.value)}
+            onInput={(event) => setChosen(event.currentTarget.value)}
           />
         </label>{" "}
         <label>
@@ -68,7 +91,7 @@ export function ForkForm({ run, year }: { run: string; year: number }) {
             ))}
           </select>
         </label>{" "}
-        <button type="button" disabled={busy || !valid} onClick={send}>
+        <button type="button" disabled={busy || !valid || !writes.idle} onClick={send}>
           {TEXT.fork_make}
         </button>
       </p>
