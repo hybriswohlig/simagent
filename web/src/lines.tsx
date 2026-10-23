@@ -1,12 +1,8 @@
 import { segments, template } from "./chronicle.js";
-import type { CalendarDate, EventItem } from "./generated/export.js";
+import { dateText } from "./dates.js";
+import type { EventItem } from "./generated/export.js";
 import { format } from "./router.js";
-import { DAYS, MONTHS, TEXT } from "./text.js";
-
-/** The date as the core gives it, its units named by the texts. */
-export function dateText(date: CalendarDate): string {
-  return `${TEXT.year} ${date.year}, ${MONTHS[date.month] ?? ""}, ${DAYS[date.day_of_month] ?? ""}`;
-}
+import { TEXT } from "./text.js";
 
 /** A line of the chronicle: its date and the template of its code with the persons it is
  * about, each a link to their page. */

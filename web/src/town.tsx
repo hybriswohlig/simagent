@@ -6,7 +6,8 @@ import { answered, pause, play, press, refused, standing, tick, type Clock, type
 import { CurvesView } from "./curvesview.js";
 import type { AdvanceAnswer, CalendarDate, EventItem, InputAnswer, Person } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
-import { Chronicle, dateText } from "./lines.js";
+import { dateText } from "./dates.js";
+import { Chronicle } from "./lines.js";
 import { enteredBy, windows } from "./log.js";
 import { usePedigree } from "./person.js";
 import { format } from "./router.js";
