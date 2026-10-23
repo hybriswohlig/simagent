@@ -116,6 +116,7 @@ if (browser !== undefined) {
       "the chronicle kept",
       page.getByText("Jahr 29, 1. Monat, 1. Tag: Ein Hungerjahr kommt: Jahr 29.").waitFor(),
     );
+    await step("with the switch's line", page.getByText("Die Erbkrankheiten sind von nun an angeschaltet.").waitFor());
     await step("the fork's name", page.getByRole("textbox", { name: "Name der Gabel" }).fill("gabel"));
     await step("the diseases off", page.getByLabel("Erbkrankheiten in der Gabel").selectOption("off"));
     await step("fork", page.getByRole("button", { name: "Gabel anlegen" }).click());
