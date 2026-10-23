@@ -490,6 +490,7 @@ fn server_answers(
     answers.push(("CreatedAnswer", ask(port, "/api/runs", found, 200)?));
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
     answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
+    answers.push(("WorldAnswer", get(port, "/api/runs/town/world")?));
     // A page of the log with a next page, and an empty one without.
     answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
     let none = "/api/runs/town/events?from=-5&to=-1";
