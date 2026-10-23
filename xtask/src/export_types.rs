@@ -330,6 +330,68 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "ForkedAnswer",
+            doc: "`POST /api/runs/{run}/fork`: the name of the fork made beside the run.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.forked"])),
+                field("version", Integer),
+                field("run", Text),
+            ],
+        },
+        Named {
+            name: "DiffAnswer",
+            doc: "`GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, each second with its date.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.diff"])),
+                field("version", Integer),
+                field("a", Text),
+                field("b", Text),
+                field("a_only", list(Text)),
+                field("b_only", list(Text)),
+                field("changed", list(Ref("DiffChange"))),
+            ],
+        },
+        Named {
+            name: "DiffChange",
+            doc: "A lineage key whose life differs between the runs: the fields that differ, in the order of the life, and the life in each.",
+            fields: vec![
+                field("lineage_key", Text),
+                field("differs", list(Text)),
+                field("a", Ref("DiffLife")),
+                field("b", Ref("DiffLife")),
+            ],
+        },
+        Named {
+            name: "DiffLife",
+            doc: "What a run says of a person, by keys alone.",
+            fields: vec![
+                field("born", Ref("DatedSecond")),
+                field("died", nullable(Ref("DatedSecond"))),
+                field("cause_of_death", nullable(Text)),
+                field("emigrated", nullable(Ref("DatedSecond"))),
+                field("partnerships", list(Ref("DiffBond"))),
+                field("children", Integer),
+            ],
+        },
+        Named {
+            name: "DiffBond",
+            doc: "A partnership of a person, the other by lineage key.",
+            fields: vec![
+                field("partner", Text),
+                field("formed", Ref("DatedSecond")),
+                field("ended", nullable(Ref("DatedSecond"))),
+                field(
+                    "ended_by",
+                    nullable(Kind::Literal(&["death", "separation", "emigration"])),
+                ),
+            ],
+        },
+        Named {
+            name: "DatedSecond",
+            doc: "A second of a comparison with its date from the core.",
+            fields: vec![field("t", Integer), field("date", Ref("CalendarDate"))],
+        },
+        Named {
             name: "WorldAnswer",
             doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.",
             fields: vec![

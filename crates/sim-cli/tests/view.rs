@@ -1723,3 +1723,267 @@ fn a_name_founded_again_is_read_again() {
     assert_eq!(post(port, "/api/runs", found).0, 200);
     assert_eq!(get(port, "/api/runs/neu").0, 200, "read again");
 }
+
+/// The stdout of a call of the binary that must succeed.
+fn stdout_of(args: &[&std::ffi::OsStr]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(args)
+        .output()
+        .expect("runs simagent");
+    assert!(output.status.success(), "{args:?}");
+    String::from_utf8(output.stdout).expect("UTF-8")
+}
+
+/// The override "hereditary diseases on" as the file of `simagent fork --override`.
+fn switch_on(base: &Path) -> PathBuf {
+    let file = base.join("switch_on.json");
+    write(&file, br#"[{"core:hereditary_diseases":true}]"#);
+    file
+}
+
+/// ADR-0021 section 2 and its addendum (G2): `POST /api/runs/{run}/fork` makes beside the
+/// parent the fork the command line makes, also of a run the server holds open after a
+/// step; the parent is written on afterwards.
+#[test]
+fn a_fork_over_http_is_the_fork_of_the_command_line() {
+    let (runs, web, twin) = writable_fixture("fork_http");
+    let base = runs.parent().expect("a parent").to_path_buf();
+    let server = start(&runs, &web);
+    let port = server.port;
+    let (status, _, _) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200);
+    resume_until(&twin, 5 * Y - 1, None).expect("the twin steps the same year");
+    assert!(contents(&runs.join("town")) == contents(&twin), "the step");
+    let body = r#"{"run":"fork","from_year":2,"changes":[{"core:hereditary_diseases":true}]}"#;
+    let (status, _, answer) = post(port, "/api/runs/town/fork", body);
+    assert_eq!(
+        (status, json_of(&answer)),
+        (
+            200,
+            json!({"format": "simagent.view.forked", "version": 1, "run": "fork"})
+        )
+    );
+    let twin_fork = base.join("twin_fork");
+    let block = switch_on(&base);
+    simagent(&[
+        "fork".as_ref(),
+        twin.as_os_str(),
+        "--from-year".as_ref(),
+        "2".as_ref(),
+        "--override".as_ref(),
+        block.as_os_str(),
+        "--out".as_ref(),
+        twin_fork.as_os_str(),
+    ])
+    .expect("forks");
+    assert!(
+        contents(&runs.join("fork")) == contents(&twin_fork),
+        "the fork"
+    );
+    let (_, _, list) = get(port, "/api/runs");
+    let listed: Vec<Value> = (json_of(&list)["runs"].as_array().expect("runs").iter())
+        .map(|entry| entry["run"].clone())
+        .collect();
+    assert!(listed.contains(&json!("fork")), "{listed:?}");
+    let (status, _, _) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200, "the parent is written on");
+}
+
+/// The addendum (G2): a fork that cannot be is refused with the code of the command line
+/// (and the core's code of a rejected override), and leaves no directory behind.
+#[test]
+fn a_fork_that_cannot_be_is_refused() {
+    let (runs, web, _) = writable_fixture("fork_refused");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let fork = |body: &str| {
+        let (status, _, answer) = post(port, "/api/runs/town/fork", body);
+        (status, json_of(&answer))
+    };
+    let (status, answer) = fork(r#"{"run":"early","from_year":0,"changes":[]}"#);
+    assert_eq!(
+        (status, &answer["code"]),
+        (409, &json!("fork_point_out_of_range"))
+    );
+    assert!(!runs.join("early").exists());
+    let twice = r#"{"run":"twice","from_year":2,"changes":[{"core:hereditary_diseases":true},{"core:hereditary_diseases":false}]}"#;
+    let (status, answer) = fork(twice);
+    assert_eq!(
+        (status, &answer["code"], &answer["reason"]),
+        (
+            409,
+            &json!("override_rejected"),
+            &json!("override_param_twice")
+        )
+    );
+    assert!(!runs.join("twice").exists());
+    let (status, answer) = fork(r#"{"run":"town","from_year":2,"changes":[]}"#);
+    assert_eq!((status, &answer["code"]), (409, &json!("run_exists")));
+    for body in [
+        r#"{"run":"x","from_year":2}"#,
+        r#"{"run":".x","from_year":2,"changes":[]}"#,
+        r#"{"run":"x","from_year":"2","changes":[]}"#,
+        r#"{"run":"x","from_year":2,"changes":[],"y":0}"#,
+        "[]",
+    ] {
+        let (status, answer) = fork(body);
+        assert_eq!(
+            (status, &answer["code"]),
+            (400, &json!("body_invalid")),
+            "{body}"
+        );
+    }
+    let (status, _, answer) = post(
+        port,
+        "/api/runs/elsewhere/fork",
+        r#"{"run":"x","from_year":2,"changes":[]}"#,
+    );
+    assert_eq!((status, code(&answer).as_str()), (404, "unknown_run"));
+}
+
+/// The addendum (G2): `GET /api/runs/{a}/diff/{b}` is the line of `simagent diff` with the
+/// names of the runs and each second with its date. On `tests/scenarios/diff_switch.json`
+/// and its fork with the hereditary diseases on from year 5 that line is the reference's
+/// (`tests/golden/diff_switch.json`). The death of key `5e51a4f2e3aba5e9` at 485 900 217 is,
+/// by hand after ADR-0002 (`YEAR` 31 449 600 s, 28-day months, 7-day weeks, 91-day
+/// seasons): year 15, day 163 of the year with 73 017 s into it, month 5, day 23 of it,
+/// week 23, weekday 2, season 1.
+#[test]
+fn the_diff_over_http_is_the_diff_of_the_command_line() {
+    let (runs, web) = fixture("diff_http");
+    let base = runs.parent().expect("a parent").to_path_buf();
+    let scenario =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/diff_switch.json");
+    let (parent, fork) = (runs.join("parent"), runs.join("fork"));
+    simagent(&[
+        "run".as_ref(),
+        "--scenario".as_ref(),
+        scenario.as_os_str(),
+        "--out".as_ref(),
+        parent.as_os_str(),
+    ])
+    .expect("runs");
+    let block = switch_on(&base);
+    simagent(&[
+        "fork".as_ref(),
+        parent.as_os_str(),
+        "--from-year".as_ref(),
+        "5".as_ref(),
+        "--override".as_ref(),
+        block.as_os_str(),
+        "--out".as_ref(),
+        fork.as_os_str(),
+    ])
+    .expect("forks");
+    let line = stdout_of(&["diff".as_ref(), parent.as_os_str(), fork.as_os_str()]);
+    assert_eq!(line, include_str!("../../../tests/golden/diff_switch.json"));
+    let server = start(&runs, &web);
+    let port = server.port;
+    let (status, _, body) = get(port, "/api/runs/parent/diff/fork");
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let answer = json_of(&body);
+    let died = &answer["changed"][1]["b"]["died"];
+    assert_eq!(
+        answer["changed"][1]["lineage_key"],
+        json!("5e51a4f2e3aba5e9")
+    );
+    assert_eq!(
+        died,
+        &json!({"t": 485_900_217, "date": {"year": 15, "day_of_year": 163, "month": 5, "day_of_month": 23, "week": 23, "weekday": 2, "season": 1, "second_of_day": 73_017}})
+    );
+    // Without the dates and with the format of the command line it is that line.
+    let mut seconds = answer.clone();
+    strip_dates(&mut seconds);
+    let mut expected: Value = serde_json::from_str(&line).expect("json");
+    expected["format_version"] = json!(null);
+    seconds["format_version"] = json!(null);
+    for (field, value) in [
+        ("format", json!("simagent.view.diff")),
+        ("version", json!(1)),
+        ("a", json!("parent")),
+        ("b", json!("fork")),
+    ] {
+        assert_eq!(seconds[field], value, "{field}");
+        expected[field] = value;
+    }
+    assert_eq!(seconds, expected);
+    let (status, _, body) = get(port, "/api/runs/parent/diff/parent");
+    let same = json_of(&body);
+    assert_eq!(
+        (status, &same["a_only"], &same["b_only"], &same["changed"]),
+        (200, &json!([]), &json!([]), &json!([]))
+    );
+    let (status, _, body) = get(port, "/api/runs/parent/diff/elsewhere");
+    assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));
+}
+
+/// Each `{"t", "date"}` of a comparison over HTTP back to its second.
+fn strip_dates(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if map.len() == 2 && map.contains_key("t") && map.contains_key("date") {
+                *value = map["t"].clone();
+                return;
+            }
+            map.values_mut().for_each(strip_dates);
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_dates),
+        _ => {}
+    }
+}
+
+/// Astra's review of G2: a fork that fails after it has made its directory leaves nothing
+/// of it. The parent's manifest names another hash of year 0, so the fork diverges before
+/// its fork point: a failure of the parent, not of the request (500).
+#[test]
+fn a_fork_that_fails_after_it_began_leaves_nothing() {
+    let (runs, web, _) = writable_fixture("fork_failed");
+    let manifest = runs.join("town").join("manifest.json");
+    let text = fs::read_to_string(&manifest).expect("reads");
+    let year_0 = text
+        .split(r#"{"year":0,"hash":""#)
+        .nth(1)
+        .and_then(|rest| rest.get(..16))
+        .expect("the hash of year 0")
+        .to_owned();
+    let other = if year_0.starts_with('0') { "1" } else { "0" };
+    write(
+        &manifest,
+        text.replacen(&year_0, &format!("{other}{}", &year_0[1..]), 1)
+            .as_bytes(),
+    );
+    let server = start(&runs, &web);
+    let (status, _, answer) = post(
+        server.port,
+        "/api/runs/town/fork",
+        r#"{"run":"diverged","from_year":2,"changes":[]}"#,
+    );
+    assert_eq!(
+        (status, code(&answer).as_str()),
+        (500, "fork_diverged_before_fork_point")
+    );
+    assert!(!runs.join("diverged").exists());
+}
+
+/// Astra's review of G2: a name whose lock another process holds is refused with
+/// `run_locked` and nothing is made there; a name with content before the request is
+/// `run_exists`, and the content stays.
+#[test]
+fn a_fork_into_a_run_another_writes_touches_nothing() {
+    let (runs, web, _) = writable_fixture("fork_taken");
+    let server = start(&runs, &web);
+    let fork_into = |name: &str| {
+        let body = format!(r#"{{"run":"{name}","from_year":2,"changes":[]}}"#);
+        let (status, _, answer) = post(server.port, "/api/runs/town/fork", &body);
+        (status, code(&answer))
+    };
+    let taken = runs.join("taken");
+    let held = RunLock::acquire(&taken).expect("the lock");
+    assert_eq!(fork_into("taken"), (409, "run_locked".to_owned()));
+    assert!(!taken.exists());
+    drop(held);
+    let theirs = runs.join("theirs");
+    write(&theirs.join("file"), b"kept");
+    assert_eq!(fork_into("theirs"), (409, "run_exists".to_owned()));
+    assert_eq!(fs::read(theirs.join("file")).expect("reads"), b"kept");
+}

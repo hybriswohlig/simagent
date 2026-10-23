@@ -581,23 +581,14 @@ fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliErro
     session.finish(&scenario)
 }
 
-/// ADR-0001 section 6: a fork is a new run from t0 with the resolved scenario and the
-/// seed of the parent. The inputs of the parent with a stamp before `T_X - 1 s` are
-/// taken over; the year hashes 0 to X - 1 must equal those in the manifest of the
-/// parent, and so must the events before the fork point; the run goes on to the end of
-/// the parent. An override is submitted at `T_X - 1 s`. Without it and without dropped
-/// inputs the fork is exactly the parent.
+/// `simagent fork`: the override block of the file, a list of world parameters with their
+/// new values (an empty list is no override and gives no input), then [`fork_with`].
 fn fork_run(
     parent: &Path,
     from_year: i64,
     override_file: Option<&Path>,
     out: &Path,
 ) -> Result<(), CliError> {
-    // The fork reads its parent and writes its own directory: both may not be in use.
-    let _parent = lock::RunLock::acquire(parent)?;
-    let _lock = lock::RunLock::acquire(out)?;
-    // The override block: a list of world parameters with their new values. An empty
-    // list is no override and gives no input.
     let changes: Vec<ParamChange> = match override_file {
         Some(file) => files::parse_strict(files::read_text(file)?.trim_end()).ok_or_else(|| {
             CliError::new(
@@ -607,6 +598,35 @@ fn fork_run(
         })?,
         None => Vec::new(),
     };
+    fork_with(parent, from_year, changes, out)
+}
+
+/// [`fork_into`] under the lock of `out`: the fork writes its own directory, which may not
+/// be in use.
+pub fn fork_with(
+    parent: &Path,
+    from_year: i64,
+    changes: Vec<ParamChange>,
+    out: &Path,
+) -> Result<(), CliError> {
+    let _lock = lock::RunLock::acquire(out)?;
+    fork_into(parent, from_year, changes, out)
+}
+
+/// ADR-0001 section 6: a fork is a new run from t0 with the resolved scenario and the
+/// seed of the parent. The inputs of the parent with a stamp before `T_X - 1 s` are
+/// taken over; the year hashes 0 to X - 1 must equal those in the manifest of the
+/// parent, and so must the events before the fork point; the run goes on to the end of
+/// the parent. The override `changes` is submitted at `T_X - 1 s`. Without it and without
+/// dropped inputs the fork is exactly the parent. The caller holds the lock of `out`.
+pub fn fork_into(
+    parent: &Path,
+    from_year: i64,
+    changes: Vec<ParamChange>,
+    out: &Path,
+) -> Result<(), CliError> {
+    // The fork reads its parent: it may not be in use.
+    let _parent = lock::RunLock::acquire(parent)?;
     // What the core would reject at the fork point is refused before anything is written.
     let block = ForkOverride { changes };
     if let Some(code) = block.rejection().filter(|_| !block.changes.is_empty()) {
