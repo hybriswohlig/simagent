@@ -75,6 +75,9 @@ fn scenario_hashes(bytes: &[u8]) -> Option<(BTreeMap<i64, String>, String)> {
     Some((years, log_hash))
 }
 
+/// The JSON goldens that only view runs: their form may change without a new core version.
+const VIEWS: [&str; 1] = ["tests/golden/diff_switch.json"];
+
 /// True if an existing result of the golden `path` differs between `base` and `head`.
 fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
     if base == head {
@@ -90,11 +93,11 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
                         .iter()
                         .any(|(year, hash)| head_years.get(year) != Some(hash))
             }
-            // A scenario golden that lost its hashes.
-            (Some(_), None) => true,
-            // ADR-0003 6.4 names only the year and log hashes of the JSON goldens: one
-            // without them (a comparison, a pedigree, a census) shows no result of its own.
-            (None, _) => false,
+            // A golden that only views runs shows no result of its own (the comparison of
+            // two pedigrees, ADR-0021 addendum of 2026-10-23: no new core version). Any other
+            // JSON golden counts with any change: some hold hashes in other layouts (a census,
+            // a pre-run), and a scenario golden may lose its hashes.
+            _ => !VIEWS.contains(&path),
         };
     }
     if path.ends_with(".csv") || path.ends_with(".txt") {
@@ -111,8 +114,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
 
 /// The goldens of `base` whose existing results differ in `head`: a year hash or the
 /// log hash of a scenario golden, the bytes of a golden save, an existing line of a
-/// known-answer file or a code list. New files, new lines, comment lines and JSON goldens
-/// without hashes are no change.
+/// known-answer file or a code list, any byte of another JSON golden but a view of runs
+/// (`VIEWS`). New files, new lines and comment lines are no change.
 pub fn changed_results(base: &Results, head: &Results) -> Vec<String> {
     base.goldens
         .iter()
@@ -323,12 +326,12 @@ mod tests {
         );
     }
 
-    /// ADR-0003 6.4 names the year and log hashes of `tests/golden/*.json`: a JSON golden
-    /// without them (a comparison, a pedigree, a census of a run) shows no result of its own,
-    /// so a change of its form is no result change. A scenario golden that loses its hashes
-    /// still counts.
+    /// The comparison of two runs only views them (ADR-0021, addendum of 2026-10-23): a
+    /// change of its form is no result change. Any other JSON golden still counts, also one
+    /// with its hashes in another layout (review finding: a census holds them nested), and a
+    /// scenario golden that loses its hashes.
     #[test]
-    fn a_json_golden_without_hashes_is_no_result() {
+    fn only_the_comparison_golden_changes_without_a_result() {
         let comparison = "tests/golden/diff_switch.json";
         let before = with(|r| {
             r.goldens.insert(
@@ -353,6 +356,20 @@ mod tests {
         assert_eq!(
             changed_results(&base(), &lost),
             vec!["tests/golden/dummy.json".to_string()]
+        );
+        let census = "tests/golden/census/census.json";
+        let nested = |hash: &str| {
+            with(|r| {
+                r.goldens.insert(
+                    census.to_string(),
+                    format!(r#"{{"fixtures":{{"run":{{"year_hashes":["{hash}"]}}}}}}"#)
+                        .into_bytes(),
+                );
+            })
+        };
+        assert_eq!(
+            changed_results(&nested("00000000000000a0"), &nested("00000000000000b0")),
+            vec![census.to_string()]
         );
     }
 
