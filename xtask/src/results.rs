@@ -81,16 +81,21 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
         return false;
     }
     if path.ends_with(".json") {
-        // A scenario golden: its year hashes and its log hash. A longer run changes the
-        // log hash and so counts; a new year alone never occurs.
-        if let (Some((base_years, base_log)), Some((head_years, head_log))) =
-            (scenario_hashes(base), scenario_hashes(head))
-        {
-            return base_log != head_log
-                || base_years
-                    .iter()
-                    .any(|(year, hash)| head_years.get(year) != Some(hash));
-        }
+        return match (scenario_hashes(base), scenario_hashes(head)) {
+            // A scenario golden: its year hashes and its log hash. A longer run changes the
+            // log hash and so counts; a new year alone never occurs.
+            (Some((base_years, base_log)), Some((head_years, head_log))) => {
+                base_log != head_log
+                    || base_years
+                        .iter()
+                        .any(|(year, hash)| head_years.get(year) != Some(hash))
+            }
+            // A scenario golden that lost its hashes.
+            (Some(_), None) => true,
+            // ADR-0003 6.4 names only the year and log hashes of the JSON goldens: one
+            // without them (a comparison, a pedigree, a census) shows no result of its own.
+            (None, _) => false,
+        };
     }
     if path.ends_with(".csv") || path.ends_with(".txt") {
         // Known answers and code lists: lines may be added, existing lines must stay.
@@ -106,8 +111,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
 
 /// The goldens of `base` whose existing results differ in `head`: a year hash or the
 /// log hash of a scenario golden, the bytes of a golden save, an existing line of a
-/// known-answer file or a code list. New files, new lines and comment lines are no
-/// change.
+/// known-answer file or a code list. New files, new lines, comment lines and JSON goldens
+/// without hashes are no change.
 pub fn changed_results(base: &Results, head: &Results) -> Vec<String> {
     base.goldens
         .iter()
