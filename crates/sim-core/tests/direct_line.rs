@@ -13,7 +13,13 @@ use sim_core::time::SimTime;
 
 /// Name, class of the order (0 the pool run, 1 the town), second of birth, mother, father
 /// (`None` for one not known).
-type Person = (&'static str, u8, i64, Option<&'static str>, Option<&'static str>);
+type Person = (
+    &'static str,
+    u8,
+    i64,
+    Option<&'static str>,
+    Option<&'static str>,
+);
 
 /// Parents come before their children. `a0` to `a6` are one line of seven generations,
 /// `m1` to `m5` the partners who marry into it; `u1` is a brother of `a1`, `h1` a half
@@ -96,7 +102,9 @@ impl Tree {
 #[test]
 fn every_ancestor_of_seven_generations_is_in_direct_line() {
     let tree = Tree::new();
-    for ancestor in ["a0", "b0", "a1", "m1", "a2", "m2", "a3", "m3", "a4", "m4", "a5", "m5"] {
+    for ancestor in [
+        "a0", "b0", "a1", "m1", "a2", "m2", "a3", "m3", "a4", "m4", "a5", "m5",
+    ] {
         assert!(tree.line(ancestor, "a6"), "{ancestor} and a6");
     }
     // And every pair within the line.
