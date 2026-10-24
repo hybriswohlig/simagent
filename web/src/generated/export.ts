@@ -122,6 +122,21 @@ export type Age = {
   readonly age_years: number;
 };
 
+/** `GET /api/sheet`: the sheet of portraits, per founder of its scenario its variant, its sex and its bodies without environment at the ages of the sheet. */
+export type SheetAnswer = {
+  readonly format: "simagent.view.sheet";
+  readonly version: number;
+  readonly contract_version: string;
+  readonly rows: SheetRow[];
+};
+
+/** A founder of the sheet: its variant, its sex and its bodies at the ages it reached. */
+export type SheetRow = {
+  readonly variant: "early" | "base" | "late" | "red" | "light_iris";
+  readonly sex: "female" | "male";
+  readonly at_ages: Shown[];
+};
+
 /** The core's genetics card of the person at its second shown: per trait the percentile and the parts, the height lines, per disease the copies and the status, the lines of skipped pigment copies. The variant parts (parts, copies, status, a skipped line's copy sources) are objects keyed by `kind`, a skipped line an object of `locus`, `mother_copy` and `father_copy`; the web checks their keys. */
 export type GeneticsCard = {
   readonly traits: TraitCard[];

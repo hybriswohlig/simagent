@@ -221,6 +221,67 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
     Ok(world)
 }
 
+/// The scenario of the sheet of portraits (ADR-0021 G10 and its addendum of 2026-10-24),
+/// written by `tools/sheet_reference.py`.
+const SHEET: &str = include_str!("../../../data/scenarios/bogen.json");
+
+/// The variant of each pair of the sheet's founders, a woman, then a man, in the scenario's
+/// order (Grok's round 37, B8).
+const SHEET_VARIANTS: [&str; 5] = ["early", "base", "late", "red", "light_iris"];
+
+/// The sheet of portraits as `simagent view` sends it (ADR-0021 G10): its scenario run in
+/// memory to its end, and per founder its variant, its sex and its bodies without
+/// environment at the ages of the sheet (Grok's round 37, B7 b).
+pub fn sheet_answer() -> Result<serde_json::Value, CliError> {
+    let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
+    let scenario = resolve(scenario_file(SHEET)?, data::core_data)?;
+    if before_the_start(scenario.until) {
+        return Err(invalid("the sheet's scenario ends before its start"));
+    }
+    let founders = scenario.start.founders.clone();
+    // Each variant names a woman and a man, in this order: a founder more or less would go
+    // without its name.
+    if founders.len() != 2 * SHEET_VARIANTS.len() {
+        return Err(invalid(
+            "the sheet's scenario has not two founders per variant",
+        ));
+    }
+    let mut world = World::new(data::core_data()?);
+    world
+        .submit(Input::Start(scenario.start))
+        .map_err(|rejected| CliError::new("input_rejected", format!("{:?}", rejected.code)))?;
+    world.advance_until(
+        &mut sim_core::world::YearOut::default(),
+        scenario.until,
+        &mut |_| false,
+    );
+    let json = |value: serde_json::Result<serde_json::Value>| {
+        value.map_err(|e| CliError::new("io", e.to_string()))
+    };
+    let mut rows = Vec::new();
+    for ((founder, number), variant) in founders
+        .iter()
+        .zip(1_u64..)
+        .zip(SHEET_VARIANTS.iter().flat_map(|variant| [variant, variant]))
+    {
+        let sim = SimId::try_from(number).map_err(|_| CliError::new("io", "a sim id"))?;
+        let view = world
+            .neutral_person_view(sim)
+            .ok_or_else(|| CliError::new("io", "a founder of the sheet without a view"))?;
+        rows.push(serde_json::json!({
+            "variant": variant,
+            "sex": json(serde_json::to_value(founder.sex))?,
+            "at_ages": json(serde_json::to_value(&view.at_ages))?,
+        }));
+    }
+    Ok(serde_json::json!({
+        "format": "simagent.view.sheet",
+        "version": 1,
+        "contract_version": sim_core::body_contract::CONTRACT_VERSION,
+        "rows": rows,
+    }))
+}
+
 /// Where the switch of the hereditary diseases of the run in `dir` stands after its last
 /// input, as `simagent view` sends it (ADR-0023 section 6 and its addendum before S2).
 pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {

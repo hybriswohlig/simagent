@@ -252,6 +252,7 @@ impl Server {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
             }
             ["api", "runs", run, "fork"] => self.fork(run, &request.body),
+            ["api", "sheet"] => sheet(),
             ["api", "runs", run, "events"] => {
                 let query = request.query.as_deref().unwrap_or("");
                 self.read(run, |dir| events(dir, query))
@@ -746,6 +747,14 @@ fn dated(mut changed: Value) -> Value {
         }
     }
     changed
+}
+
+/// `GET /api/sheet`: the sheet of portraits (ADR-0021 G10).
+fn sheet() -> Response {
+    match crate::sheet_answer() {
+        Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Err(error) => Response::error(500, error.code),
+    }
 }
 
 /// `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.

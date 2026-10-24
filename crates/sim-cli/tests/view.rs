@@ -2008,3 +2008,58 @@ fn a_fork_into_a_run_another_writes_touches_nothing() {
     assert_eq!(fork_into("theirs"), (409, "run_exists".to_owned()));
     assert_eq!(fs::read(theirs.join("file")).expect("reads"), b"kept");
 }
+
+/// `GET /api/sheet` (ADR-0021 G10 and its addendum of 2026-10-24): the sheet's scenario run in
+/// memory, a row per founder in the order of Grok's round 37 (B8: early, base, late, red,
+/// light iris, each a woman, then a man), each with the seven ages of the sheet and the
+/// bodies without environment that the core gives a run of the same scenario.
+#[test]
+fn the_sheet_is_the_scenarios_founders_without_environment() {
+    let (runs, web) = fixture("sheet");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/scenarios/bogen.json");
+    let run = runs.join("bogen");
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
+        .args(["--out".as_ref(), run.as_os_str()])
+        .stdout(Stdio::null())
+        .status()
+        .expect("runs");
+    assert!(status.success());
+    let save = fs::read(run.join("state.save")).expect("the save");
+    let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
+        .expect("loads");
+    let server = start(&runs, &web);
+    let (status, head, body) = get(server.port, "/api/sheet");
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    let answer = json_of(&body);
+    assert_eq!(answer["format"], "simagent.view.sheet");
+    assert_eq!(answer["version"], 1);
+    assert_eq!(
+        answer["contract_version"],
+        sim_core::body_contract::CONTRACT_VERSION
+    );
+    let rows = answer["rows"].as_array().expect("rows");
+    let variants = ["early", "base", "late", "red", "light_iris"];
+    assert_eq!(rows.len(), 10);
+    for (n, row) in rows.iter().enumerate() {
+        assert_eq!(row["variant"], variants[n / 2], "row {n}");
+        assert_eq!(
+            row["sex"],
+            if n % 2 == 0 { "female" } else { "male" },
+            "row {n}"
+        );
+        let sim =
+            sim_core::ids::SimId::try_from(u64::try_from(n + 1).expect("small")).expect("an id");
+        let view = world.neutral_person_view(sim).expect("a view");
+        assert_eq!(
+            row["at_ages"],
+            serde_json::to_value(&view.at_ages).expect("JSON"),
+            "row {n}"
+        );
+        let ages: Vec<i64> = (row["at_ages"].as_array().expect("ages").iter())
+            .map(|shown| shown["at"]["age_years"].as_i64().expect("an age"))
+            .collect();
+        assert_eq!(ages, [2, 8, 12, 16, 25, 40, 60], "row {n}");
+    }
+}
