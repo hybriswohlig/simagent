@@ -67,16 +67,13 @@ export function template(item: EventItem): string {
 
 /** The chronicle after a page of the log: the followed entries of the page it does not
  * keep yet, with the kept, at most `KEPT`, the newest. Pages may come in any order (a
- * window and the entries of an input read beside it). The newest second comes first; the
- * entries of one second keep the core's order, cause before consequence (also across
- * pages). */
+ * window and the entries of an input read beside it). Newest first, also within one second
+ * (Grok's R1): the log writes an entry after every entry of an earlier second, so the
+ * larger id is the newer, and the last input of a stop stands on top of its second. */
 export function added(kept: readonly EventItem[], page: readonly EventItem[]): EventItem[] {
   const known = new Set(kept.map((item) => item.entry.id));
   const fresh = page.filter((item) => !known.has(item.entry.id) && followed(item));
-  return [...fresh, ...kept]
-    .sort((a, b) => b.entry.id - a.entry.id)
-    .slice(0, KEPT)
-    .sort((a, b) => b.entry.t - a.entry.t || a.entry.id - b.entry.id);
+  return [...fresh, ...kept].sort((a, b) => b.entry.id - a.entry.id).slice(0, KEPT);
 }
 
 /** A piece of a chronicle line: text, a person by sim, or `null` for a role nobody fills. */
