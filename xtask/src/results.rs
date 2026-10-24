@@ -318,6 +318,39 @@ mod tests {
         );
     }
 
+    /// ADR-0003 6.4 names the year and log hashes of `tests/golden/*.json`: a JSON golden
+    /// without them (a comparison, a pedigree, a census of a run) shows no result of its own,
+    /// so a change of its form is no result change. A scenario golden that loses its hashes
+    /// still counts.
+    #[test]
+    fn a_json_golden_without_hashes_is_no_result() {
+        let comparison = "tests/golden/diff_switch.json";
+        let before = with(|r| {
+            r.goldens.insert(
+                comparison.to_string(),
+                br#"{"format_version":1,"changed":[]}"#.to_vec(),
+            );
+        });
+        let after = with(|r| {
+            r.goldens.insert(
+                comparison.to_string(),
+                br#"{"format_version":2,"changed":[{"diseases":[]}]}"#.to_vec(),
+            );
+        });
+        assert_eq!(changed_results(&before, &after), Vec::<String>::new());
+        assert_eq!(violations(&before, &after), Vec::<String>::new());
+        let lost = with(|r| {
+            r.goldens.insert(
+                "tests/golden/dummy.json".to_string(),
+                br#"{"core_version":1}"#.to_vec(),
+            );
+        });
+        assert_eq!(
+            changed_results(&base(), &lost),
+            vec!["tests/golden/dummy.json".to_string()]
+        );
+    }
+
     /// ADR-0003 6.4 and K8: a changed golden needs exactly base + 1. A scenario that
     /// runs longer keeps its year hashes, but its log hash is the hash of a longer log:
     /// that is a changed log hash and counts (review finding: a new year never comes
