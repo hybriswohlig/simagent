@@ -67,6 +67,7 @@ reject 32 param_not_settable
 reject 33 param_unchanged
 reject 34 shock_unknown
 reject 35 shock_overlaps
+reject 36 partners_in_direct_line
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

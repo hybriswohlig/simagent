@@ -141,7 +141,8 @@ enough). "kin_deep" (new: a designed pedigree of five generations, founders and
 with one parent in the set of the query, and `F` of a child of first cousins (1/16) and of
 second cousins (now 0); "kin_line" (new: a line of women who die at 25, with two test
 diseases) an orphan whose only adult relative is beyond the depth and goes to a foster
-household, and a choice of the market that the depth decides. Both print each query's set,
+household, and a choice of the market that the depth decides (since core 48 the direct line
+decides it, below). Both print each query's set,
 the pairs its recursion visited and the value over every ancestor, and check the recursion
 against Wright's path counting on every pair.
 
@@ -164,6 +165,17 @@ on; "accident_wins" gets his and that of sim 5 (dummy twice, born while the swit
 two further on. The other overrides that set the switch on find every onset reported (the
 switch on at the start, so the creation wrote it), the rest set it off. Every save changes in
 its header byte.
+
+Relatives in direct line (ADR-0018 section 8, addendum of 2026-10-24; Grok, round 33, P1; core
+48): one an ancestor of the other by mother and father at any depth, never a couple, whatever
+`φ`. `ArrangePartnership` gets `partners_in_direct_line` after the market age and before `φ`;
+the market skips such a man as one with `φ ≥ 1/8` (`world_reference.direct_line_by_keys`,
+each answer checked against `direct_line_by_definition`). Of the runs here only "kin_line"
+changes: in the round of month 1109 the orphan's great-great-great-grandfather, `φ` 0 by the
+depth, is skipped as her ancestor and she chooses the unrelated man of his age, whom she would
+not have chosen without the direct line. "market" holds the new rejection (the first
+`ArrangePartnership` at a month end that the rule rejects, a grandmother and her grandson of
+`φ` 1/8: the new code before `φ`). Every save changes in its header byte.
 
 Scenario "tiny": Start with world_seed 0xff, founder tag `test:tiny`, the switch of the
 hereditary diseases off and one founder born
@@ -2012,6 +2024,41 @@ for _record in MARKET.rounds:
             assert variant(4, varint(21), varint(MARKET.key_of(_choice["woman"])), varint(_record["n"])) in _line
 
 
+def first_in_direct_line(data: world_reference.Data) -> tuple:
+    """The first `ArrangePartnership` of the forty years of "market" that the direct line
+    rejects (ADR-0018 section 8): at each month end (the second before a round), in order,
+    the first pair of a living woman and a living man (by SimId) whose arrangement stamped
+    then gets `partners_in_direct_line`. Returns (the stamp, woman, man, φ, the copy of the
+    world at the stamp); the input on the copy changes nothing."""
+    world = market_world(data)
+    for n in range(1, MARKET_YEARS * 13 + 1):
+        world.advance(n * MONTH - 1)
+        women = [sim for sim in sorted(world.sims) if world.sex_of(sim) == FEMALE]
+        men = [sim for sim in sorted(world.sims) if world.sex_of(sim) == MALE]
+        for woman in women:
+            for man in men:
+                if world.arrange_rejection(woman, man) == world_reference.PARTNERS_IN_DIRECT_LINE:
+                    return world.closed, woman, man, world.kinship(woman, man), world
+    raise AssertionError("no arrangement in direct line in forty years")
+
+
+# The rejection of relatives in direct line: the code comes after the market age and before
+# `φ`, so a pair in direct line with `φ ≥ 1/8` gets it and not `partners_too_closely_related`.
+MARKET_LINE_STAMP, MARKET_LINE_WOMAN, MARKET_LINE_MAN, MARKET_LINE_PHI, _line_world = first_in_direct_line(MARKET_DATA)
+assert _line_world.log == MARKET.log[: len(_line_world.log)] and _line_world.closed < MARKET_END
+_before = (len(_line_world.log), len(_line_world.inputs), _line_world.save())
+MARKET_LINE_REJECTED = _line_world.try_arrange(MARKET_LINE_WOMAN, MARKET_LINE_MAN)
+assert MARKET_LINE_REJECTED == world_reference.PARTNERS_IN_DIRECT_LINE
+assert (len(_line_world.log), len(_line_world.inputs), _line_world.save()) == _before
+assert _line_world.in_direct_line(MARKET_LINE_WOMAN, MARKET_LINE_MAN) and MARKET_LINE_PHI >= Fraction(1, 8)
+assert all(_line_world.open_partnership(sim) is None for sim in (MARKET_LINE_WOMAN, MARKET_LINE_MAN))
+MARKET_LINE_GENERATIONS = next(
+    depth
+    for depth in range(1, 40)
+    if MARKET_LINE_WOMAN in _line_world.pedigree.ancestors(MARKET_LINE_MAN, depth) or MARKET_LINE_MAN in _line_world.pedigree.ancestors(MARKET_LINE_WOMAN, depth)
+)
+
+
 # The load checks of the market can fail (ADR-0018 section 7: one rejected state per
 # invariant): each broken copy of the end of the run fails `check_market`.
 def broken_market_states() -> list:
@@ -2255,6 +2302,11 @@ def market_story(world: world_reference.World) -> list:
     rows.append(
         f"market_reject partners_too_closely_related: ArrangePartnership(woman {MARKET_SISTER}, man {MARKET_BROTHER})"
         f" stamped {MARKET_SIBLING_ROUND - 1}, phi {world.kinship(MARKET_SISTER, MARKET_BROTHER)}: code {MARKET_SIBLINGS_REJECTED}"
+    )
+    rows.append(
+        f"market_reject partners_in_direct_line: ArrangePartnership(woman {MARKET_LINE_WOMAN}, man {MARKET_LINE_MAN}) stamped"
+        f" {MARKET_LINE_STAMP} (the first such pair at a month end), {MARKET_LINE_GENERATIONS} generations apart, both single and"
+        f" of age, phi {MARKET_LINE_PHI}: code {MARKET_LINE_REJECTED} (before phi)"
     )
     return rows
 
@@ -5045,11 +5097,15 @@ def measure_rows(name: str, records: list, save_names: dict) -> list:
 #   relative alive then is M0, her great-great-great-grandfather (depth 5: `φ` 0, 1/64 over
 #   all ancestors): she goes to a foster household (Q0, the only woman of 18 or more in an
 #   open partnership), not to M0. At 16 she searches (with `ρ · s_f`, a draw in round
-#   1109): the single men of 16 or more are M0 and U, of equal age; M0 is not penalized
-#   (`φ` 0), and she chooses him, where his penalty over all ancestors (`16 · ln(10) / 64`)
-#   would have made her choose U. The tag is the first of `test:kinline1` to
-#   `test:kinline200` whose run has the line of daughters, the placement and the choice
-#   where the depth decides.
+#   1109): the single men of 16 or more are M0 and U, of equal age. M0 is not penalized
+#   (`φ` 0), and without the direct line she would choose him, where his penalty over all
+#   ancestors (`16 · ln(10) / 64`) would have made her choose U; but he is her ancestor in
+#   direct line (ADR-0018 section 8, core 48), so the walk skips him whatever `φ`, U is her
+#   only candidate and she chooses him: the direct line overrides the `φ` 0 of the depth.
+#   The tag is the first of `test:kinline1` to `test:kinline200` whose run has the line of
+#   daughters, the placement where the depth decides and the choice where the direct line
+#   decides (without it she would choose M0, over all ancestors U; the same design as
+#   before core 48, when she chose M0).
 
 
 KINSHIP_DEPTH = world_reference.KINSHIP_DEPTH
@@ -5392,25 +5448,51 @@ def full_relatives(world: world_reference.World, representative: int, now: int) 
     return sorted(((phi, sim) for phi, sim in found if phi > 0), key=lambda row: (-row[0], world.key_of(row[1])))
 
 
-def full_choice(world: world_reference.World, choice: dict) -> tuple:
-    """The choice of a searcher over every ancestor (the rule before H2), from the same
-    walk, the same draws and the same other terms: the kept list (`φ < 1/8`, at most `k`, in
-    the walk's order; None if the walk stopped before the list would be full) and the man
-    with the largest utility. Returns (kept as (man, φ, U), chosen)."""
-    weight, limit = world_reference.kinship_weight(world.data), Fraction(world.data.kinship_limit)
-    rows = {man: (phi, u) for man, _, phi, _, u in choice["candidates"]}
+def walked_utility(world: world_reference.World, record: dict, choice: dict, man: int, phi: Fraction) -> float:
+    """The utility a man of the walk of `choice` (in the round `record`) has for her with the
+    kinship `phi`: the terms of the round (the gap, the similarity of the living at the
+    round's second, the draw PAIRING_NOISE), as `World._choose` takes them; the man still
+    alive at the clock of `world`."""
+    woman, t, n = choice["woman"], record["t"], record["n"]
+    assert man in world.sims and woman in world.sims
+    gap = world_reference.as_years(t - world.born_of(man)) - world_reference.as_years(t - world.born_of(woman))
+    g = world_reference.noise_of(world.seed, world.key_of(woman), n, world.key_of(man))
+    similarity = [(weight, z_her - z_his) for (weight, z_her), (_, z_his) in zip(world.phenotypes(woman, t), world.phenotypes(man, t))]
+    return world_reference.utility_of(world_reference.penalties(gap, float(phi), world.data, similarity), g)
+
+
+def other_choice(world: world_reference.World, record: dict, choice: dict, kinship, line: bool) -> tuple:
+    """The choice of a searcher under another rule, from the same walk, the same draws and
+    the same other terms: `kinship(man)` the `φ` of the rule, `line` whether it skips the
+    relatives in direct line. The kept list (at most `k`, in the walk's order; None if the
+    walk stopped before the list would be full) and the man with the largest utility.
+    Returns (kept as (man, φ, U), chosen)."""
+    limit = Fraction(world.data.kinship_limit)
     kept = []
     for man, _, _ in choice["walked"]:
-        full = world.kinship_query(choice["woman"], man, None)[0]
-        if full < limit:
-            if man not in rows:
-                return None, None
-            phi, u = rows[man]
-            kept.append((man, full, (u + weight * phi) - weight * float(full)))
+        phi = kinship(man)
+        if phi < limit and not (line and man in choice["line"]):
+            kept.append((man, phi, walked_utility(world, record, choice, man, phi)))
         if len(kept) == world.data.market_candidates:
             break
+    else:
+        # The list is not full; the walk of the round stopped before the last man.
+        if len(choice["walked"]) < len(record["men"]):
+            return None, None
     best = max(kept, key=lambda row: row[2])[0] if kept else None
     return kept, best
+
+
+def full_choice(world: world_reference.World, record: dict, choice: dict) -> tuple:
+    """The choice of a searcher over every ancestor and without the direct line (the rule
+    before H2 and before core 48)."""
+    return other_choice(world, record, choice, lambda man: world.kinship_query(choice["woman"], man, None)[0], False)
+
+
+def line_free_choice(world: world_reference.World, record: dict, choice: dict) -> tuple:
+    """The choice of a searcher without the direct line (the rule before core 48, `φ` with
+    the depth)."""
+    return other_choice(world, record, choice, lambda man: world.kinship(choice["woman"], man), False)
 
 
 def kinline_design(tag: str):
@@ -5451,9 +5533,10 @@ def kinline_design(tag: str):
     full = full_relatives(world, x, placement["t"])
     if placement["stage"] != "foster" or [sim for _, sim in full] != [KINLINE_M0]:
         return None, "the placement does not depend on the depth"
-    kept, best = full_choice(world, choice)
-    if choice["chosen"] != KINLINE_M0 or best != KINLINE_U:
-        return None, "the choice does not depend on the depth"
+    _, free = line_free_choice(world, record, choice)
+    _, best = full_choice(world, record, choice)
+    if KINLINE_M0 not in choice["line"] or choice["chosen"] != KINLINE_U or free != KINLINE_M0 or best != KINLINE_U:
+        return None, "the choice does not depend on the direct line"
     return line, inputs, placement, (record, choice)
 
 
@@ -5483,32 +5566,50 @@ assert KINLINE_PLACEMENT["trigger"] == "death of the carer" and KINLINE_PLACEMEN
 assert KINLINE_PLACEMENT["carer"] == KINLINE_Q0 and KINLINE_PLACEMENT["added"] == {KINLINE_X: [KINLINE_Q0, KINLINE_Q1]}
 KINLINE_FULL_RELATIVES = full_relatives(KINLINE, KINLINE_X, KINLINE_PLACED_AT)
 assert KINLINE_FULL_RELATIVES == [(Fraction(1, 64), KINLINE_M0)]
-# The choice: M0 and U kept, both `φ` 0; she chooses M0; over every ancestor M0's penalty is
-# `16 · ln(10) / 64` and she would choose U.
-assert [man for man, *_ in KINLINE_CHOICE["candidates"]] in ([KINLINE_M0, KINLINE_U], [KINLINE_U, KINLINE_M0])
-assert all(phi == 0.0 for _, _, phi, _, _ in KINLINE_CHOICE["candidates"]) and KINLINE_CHOICE["chosen"] == KINLINE_M0
-KINLINE_FULL_KEPT, KINLINE_FULL_CHOSEN = full_choice(KINLINE, KINLINE_CHOICE)
+# The choice (ADR-0018 section 8): M0 and U walked, both `φ` 0; M0 is her ancestor in direct
+# line and skipped, so U is her only candidate and she chooses him. Without the direct line
+# both are kept and she chooses M0 (the story before core 48); over every ancestor M0's
+# penalty is `16 · ln(10) / 64` and she would choose U.
+assert KINLINE_CHOICE["walked"] in ([(KINLINE_M0, 0, True), (KINLINE_U, 0, False)], [(KINLINE_U, 0, False), (KINLINE_M0, 0, True)])
+assert KINLINE_CHOICE["line"] == [KINLINE_M0]
+assert [man for man, *_ in KINLINE_CHOICE["candidates"]] == [KINLINE_U] and KINLINE_CHOICE["chosen"] == KINLINE_U
+assert KINLINE_CHOICE["outcome"] == "paired"
+# The rule as it runs, from the walk alone: the same list and the same choice.
+_kept, _chosen = other_choice(KINLINE, KINLINE_ROUND, KINLINE_CHOICE, lambda man: KINLINE.kinship(KINLINE_X, man), True)
+assert [(man, u) for man, _, u in _kept] == [(man, u) for man, _, _, _, u in KINLINE_CHOICE["candidates"]] and _chosen == KINLINE_U
+KINLINE_FREE_KEPT, KINLINE_FREE_CHOSEN = line_free_choice(KINLINE, KINLINE_ROUND, KINLINE_CHOICE)
+assert KINLINE_FREE_CHOSEN == KINLINE_M0
+KINLINE_FULL_KEPT, KINLINE_FULL_CHOSEN = full_choice(KINLINE, KINLINE_ROUND, KINLINE_CHOICE)
 assert KINLINE_FULL_CHOSEN == KINLINE_U
 _x, _l = KINLINE_X, KINLINE_LINE
+# The direct line by hand on the line of daughters (P0, P1 to P4, X; M0 to M4 their
+# fathers), both orders: X and each woman above her and each father of the line are in
+# direct line, at any depth; X and U, X and Q0, M0 and M1 (founders) are not.
+for _a, _b, _in_line in [
+    (_x, KINLINE_M0, True), (_x, KINLINE_P0, True), (_x, _l[1], True), (_x, _l[4], True), (_x, KINLINE_M1, True),
+    (_x, KINLINE_M4, True), (_l[2], KINLINE_M0, True), (_l[1], KINLINE_M2, False), (_x, KINLINE_U, False),
+    (_x, KINLINE_Q0, False), (KINLINE_M0, KINLINE_M1, False), (KINLINE_P0, KINLINE_M0, False),
+]:
+    assert KINLINE.in_direct_line(_a, _b) == _in_line and KINLINE.in_direct_line(_b, _a) == _in_line, (_a, _b)
 KINLINE_CHILD = next((sim for sim in children_of(KINLINE, _x)), None)
-assert KINLINE_CHILD is not None and set(parents_of(KINLINE, KINLINE_CHILD)[:2]) == {_x, KINLINE_M0}
+assert KINLINE_CHILD is not None and set(parents_of(KINLINE, KINLINE_CHILD)[:2]) == {_x, KINLINE_U}
 _save = "kin_line_save_end"
 KINLINE_CASES = [
     depth_case(KINLINE, "kin_line", _save, relation, a, b, Fraction(by_hand), Fraction(full))
     for relation, a, b, by_hand, full in [
-        ("great_great_great_grandfather_married", _x, KINLINE_M0, "0", "1/64"),
+        ("great_great_great_grandfather_in_direct_line", _x, KINLINE_M0, "0", "1/64"),
         ("great_great_great_grandmother", _x, KINLINE_P0, "0", "1/64"),
         ("great_great_grandfather_one_parent_in_S", _x, KINLINE_M1, "1/32", "1/32"),
         ("great_great_grandmother_one_parent_in_S", _x, _l[1], "1/32", "1/32"),
         ("great_grandfather", _x, KINLINE_M2, "1/16", "1/16"),
-        ("unrelated", _x, KINLINE_U, "0", "0"),
-        ("itself_child_of_great_great_great_grandfather", KINLINE_CHILD, KINLINE_CHILD, "1/2", "65/128"),
+        ("unrelated_her_partner", _x, KINLINE_U, "0", "0"),
+        ("itself_child_of_unrelated_parents", KINLINE_CHILD, KINLINE_CHILD, "1/2", "1/2"),
     ]
 ]
 KINLINE_BOUNDS = depth_bounds(KINLINE)
 KINLINE_PEDIGREE = KINLINE.pedigree_json()
 _kinships = {(p["woman"], p["man"]): p["kinship"] for p in KINLINE.pedigree_view()["partnerships"]}
-assert _kinships[(_x, KINLINE_M0)] == 0.0
+assert _kinships[(_x, KINLINE_U)] == 0.0 and (_x, KINLINE_M0) not in _kinships
 
 
 # A synthetic pedigree (no world: SimIds in birth order with their parents) for a unit test
@@ -6127,7 +6228,7 @@ if __name__ == "__main__":
         for _number, (_woman, _man, _formed, _ended) in sorted(_world.partnerships.items()):
             print(f"{_name}_partnership {_number} woman {_woman} man {_man} formed {_formed} (year {_formed / YEAR:.4f}) ended {split_ended(_ended)} phi {_world.kinship(_woman, _man)}")
     print(f"kin_deep_names {KINDEEP_NAMES}")
-    print(f"kin_line_names P0..P4 and X {KINLINE_LINE} M0..M4 {[KINLINE_M0, KINLINE_M1, KINLINE_M2, KINLINE_M3, KINLINE_M4]} U {KINLINE_U} Q0 {KINLINE_Q0} Q1 {KINLINE_Q1} child of X and M0 {KINLINE_CHILD}")
+    print(f"kin_line_names P0..P4 and X {KINLINE_LINE} M0..M4 {[KINLINE_M0, KINLINE_M1, KINLINE_M2, KINLINE_M3, KINLINE_M4]} U {KINLINE_U} Q0 {KINLINE_Q0} Q1 {KINLINE_Q1} child of X and U {KINLINE_CHILD}")
     # The orphan rule where the depth decides: the placement as it runs, and its first stage
     # over every ancestor.
     print(f"kin_line_placement {placement_row(KINLINE, KINLINE_PLACEMENT)}")
@@ -6135,15 +6236,20 @@ if __name__ == "__main__":
         f"kin_line_placement_all_ancestors relatives (sim, phi) {[(sim, str(phi)) for phi, sim in KINLINE_FULL_RELATIVES]}:"
         f" the rule before H2 would place X with {KINLINE_FULL_RELATIVES[0][1]} (stage relative), not in the foster household of {KINLINE_PLACEMENT['carer']}"
     )
-    # The market where the depth decides: the choice as it runs, and over every ancestor.
+    # The market where the direct line decides (ADR-0018 section 8): the choice as it runs,
+    # without the direct line (the rule before core 48), and over every ancestor.
     _c = KINLINE_CHOICE
     print(
         f"kin_line_round n {KINLINE_ROUND['n']} t {KINLINE_ROUND['t']} (year {KINLINE_ROUND['t'] / YEAR:.4f}) woman {_c['woman']} (age {(KINLINE_ROUND['t'] - KINLINE.born_of(_c['woman'])) / YEAR:.4f})"
-        f" men {KINLINE_ROUND['men']} walked (man, phi, skipped) {[(man, str(phi), skipped) for man, phi, skipped in _c['walked']]}"
+        f" men {KINLINE_ROUND['men']} walked (man, phi, skipped) {[(man, str(phi), skipped) for man, phi, skipped in _c['walked']]} in direct line {_c['line']}"
     )
     for _man, _gap, _phi, _g, _u in _c["candidates"]:
         print(f"kin_line_round_candidate man {_man} gap {_gap!r} phi {_phi!r} G {_g!r} U {_u!r} bits {data_reference.f64_bits(_u)}")
     print(f"kin_line_round_chosen {_c['chosen']} outcome {_c['outcome']} partnership {_c.get('partnership')} entry {_c.get('entry')}")
+    print(
+        f"kin_line_round_without_direct_line kept (man, phi, U) {[(man, str(phi), u) for man, phi, u in KINLINE_FREE_KEPT]}"
+        f" would choose {KINLINE_FREE_CHOSEN} (M0, not penalized: the story before core 48)"
+    )
     print(
         f"kin_line_round_all_ancestors kept (man, phi, U) {[(man, str(phi), u) for man, phi, u in KINLINE_FULL_KEPT]}"
         f" would choose {KINLINE_FULL_CHOSEN} (penalty of M0 {world_reference.kinship_weight(KINLINE_DATA) / 64!r})"

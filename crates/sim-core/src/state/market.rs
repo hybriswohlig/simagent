@@ -14,7 +14,7 @@ use crate::data::Data;
 use crate::data_id::Code;
 use crate::genome::Sex;
 use crate::ids::SimId;
-use crate::kinship::{Kin, KinshipCache};
+use crate::kinship::{self, Kin, KinshipCache};
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
@@ -182,6 +182,13 @@ pub(crate) fn phi_with(
     cache.phi(kx, ky, |key| kin_of(domain, data, key))
 }
 
+/// Whether two persons of the town are in direct line, over their lineage keys and the same
+/// parents as φ (ADR-0018 section 8).
+pub(crate) fn direct_line(domain: &DomainState, data: &Data, x: SimId, y: SimId) -> bool {
+    let (kx, ky) = (domain.key_of(x), domain.key_of(y));
+    kinship::in_direct_line(kx, ky, |key| kin_of(domain, data, key))
+}
+
 /// A round of the market at the month start `now` (11.2, ADR-0018 section 1).
 pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     let now = ctx.now();
@@ -229,7 +236,8 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
     let limit = usize::try_from(market.candidates).unwrap_or(usize::MAX);
     for her_key in order {
         let woman = searching[&her_key];
-        // 4. Her candidates: the men by rank, relatives at or above the limit skipped.
+        // 4. Her candidates: the men by rank, relatives at or above the limit and in direct
+        // line skipped (ADR-0018 section 8).
         let ranked = draws.ranked(
             tags::PAIRING_RANK,
             SubjectKey::from(her_key),
@@ -243,7 +251,7 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             }
             let man = men[&his_key];
             let kinship = phi(domain, data, woman, man);
-            if kinship >= market.kinship_limit {
+            if kinship >= market.kinship_limit || direct_line(domain, data, woman, man) {
                 continue;
             }
             candidates.push((man, his_key, kinship));
