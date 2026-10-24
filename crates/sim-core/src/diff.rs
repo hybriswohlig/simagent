@@ -1,4 +1,4 @@
-//! The fork comparison (ADR-0021 section 3 and its addendum of 2026-10-23): two pedigrees
+//! The fork comparison (ADR-0021 section 3 and its addenda of 2026-10-23 and 2026-10-24): two pedigrees
 //! compared by lineage key, never by sim or partnership (ADR-0001 section 6). Per key in
 //! both the fields of a life where they differ, and the keys of only one. A read of two
 //! views; it changes no result.
@@ -12,10 +12,12 @@ use crate::data_id::Code;
 use crate::ids::SimId;
 use crate::lineage::LineageKey;
 use crate::pedigree::{End, Pedigree};
+use crate::state::onset;
 use crate::time::SimTime;
 
-/// The version of the form of the comparison.
-pub const DIFF_FORMAT: u32 = 1;
+/// The version of the form of the comparison: 2 with the diseases that show (ADR-0021,
+/// addendum of 2026-10-24).
+pub const DIFF_FORMAT: u32 = 2;
 
 /// Two runs compared, `a` and `b` in the order given: the keys of only one, by key, and
 /// each key in both whose lives differ, by key.
@@ -47,6 +49,7 @@ pub enum Field {
     Emigrated,
     Partnerships,
     Children,
+    Diseases,
 }
 
 /// What a run says of a person, by keys alone.
@@ -61,6 +64,18 @@ pub struct Life {
     /// The persons of the pedigree whose mother or father the person is; at most the number
     /// of persons, so the count never saturates.
     pub children: u64,
+    /// The hereditary diseases that show at the pedigree's second, in the order of the data
+    /// (Grok's round 34, E1): a disease that rests is the same in both runs.
+    pub diseases: Vec<Onset>,
+}
+
+/// A disease that shows, with the calendar year and the whole years of its onset as the
+/// card reads them (ADR-0017 section 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Onset {
+    pub disease: Code,
+    pub year: i64,
+    pub age_years: i64,
 }
 
 /// A partnership of a person, the other by key.
@@ -110,6 +125,7 @@ fn differing(a: &Life, b: &Life) -> Vec<Field> {
         (Field::Emigrated, a.emigrated != b.emigrated),
         (Field::Partnerships, a.partnerships != b.partnerships),
         (Field::Children, a.children != b.children),
+        (Field::Diseases, a.diseases != b.diseases),
     ]
     .into_iter()
     .filter_map(|(field, differs)| differs.then_some(field))
@@ -161,6 +177,17 @@ fn lives(pedigree: &Pedigree) -> BTreeMap<LineageKey, Life> {
                 emigrated: person.emigrated,
                 partnerships,
                 children: children.get(&person.lineage_key).copied().unwrap_or(0),
+                diseases: (person.diseases.iter())
+                    .filter(|shown| shown.affected)
+                    .map(|shown| {
+                        let (year, age_years) = onset::since(person.born, shown.onset);
+                        Onset {
+                            disease: shown.disease.clone(),
+                            year,
+                            age_years,
+                        }
+                    })
+                    .collect(),
             };
             (person.lineage_key, life)
         })

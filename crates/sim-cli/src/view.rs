@@ -716,7 +716,7 @@ fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
     };
     let body = json!({
         "format": "simagent.view.diff",
-        "version": 1,
+        "version": 2,
         "a": a,
         "b": b,
         "a_only": compared["a_only"],

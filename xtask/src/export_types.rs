@@ -377,6 +377,16 @@ pub fn descriptor() -> Vec<Named> {
                 field("emigrated", nullable(Ref("DatedSecond"))),
                 field("partnerships", list(Ref("DiffBond"))),
                 field("children", Integer),
+                field("diseases", list(Ref("DiffOnset"))),
+            ],
+        },
+        Named {
+            name: "DiffOnset",
+            doc: "A hereditary disease that shows, with the calendar year and the whole years of its onset from the core.",
+            fields: vec![
+                field("disease", Text),
+                field("year", Integer),
+                field("age_years", Integer),
             ],
         },
         Named {

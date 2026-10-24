@@ -1,6 +1,7 @@
+import { atAge, diseaseName } from "./carddiseases.js";
 import { causeName } from "./curves.js";
 import { dateText } from "./dates.js";
-import type { DatedSecond, DiffAnswer, DiffBond, DiffLife } from "./generated/export.js";
+import type { DatedSecond, DiffAnswer, DiffBond, DiffLife, DiffOnset } from "./generated/export.js";
 import type { Named } from "./names.js";
 import { TEXT } from "./text.js";
 
@@ -42,6 +43,15 @@ function bond(bond: DiffBond, names: Names): string {
   return `${start}${until}${how}`;
 }
 
+/** A disease that shows, in the words of card and chronicle (Grok round 34, E3). */
+function onset(shown: DiffOnset): string {
+  const template = shown.age_years === 0 ? TEXT.diff_disease_from_birth : TEXT.diff_disease_since;
+  return template
+    .replace("{disease}", diseaseName(shown.disease))
+    .replace("{year}", String(shown.year))
+    .replace("{age}", atAge(shown.age_years));
+}
+
 /** The label and the lines of a field of a life, by the field's name in `differs`. */
 function field(name: string, life: DiffLife, names: Names): [string, string[]] {
   switch (name) {
@@ -60,6 +70,8 @@ function field(name: string, life: DiffLife, names: Names): [string, string[]] {
       ];
     case "children":
       return [TEXT.diff_children, [String(life.children)]];
+    case "diseases":
+      return [TEXT.diff_diseases, life.diseases.length === 0 ? [TEXT.diff_no_disease] : life.diseases.map(onset)];
     default:
       return [name, []];
   }

@@ -333,14 +333,20 @@ fn a_disease_that_shows_on_one_side_only_differs() {
     let late = || shown("core:disease_ad_late", 0.0, true);
     let a = pedigree(
         vec![
-            with(person(1, 1, Sex::Female, -100, None), vec![shown("core:disease_ar", 34.5, true)]),
+            with(
+                person(1, 1, Sex::Female, -100, None),
+                vec![shown("core:disease_ar", 34.5, true)],
+            ),
             with(person(2, 2, Sex::Male, -100, None), vec![late()]),
         ],
         Vec::new(),
     );
     let b = pedigree(
         vec![
-            with(person(1, 1, Sex::Female, -100, None), vec![shown("core:disease_ar", 34.5, false)]),
+            with(
+                person(1, 1, Sex::Female, -100, None),
+                vec![shown("core:disease_ar", 34.5, false)],
+            ),
             with(person(2, 2, Sex::Male, -100, None), vec![late()]),
         ],
         Vec::new(),
