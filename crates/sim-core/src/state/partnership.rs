@@ -62,7 +62,8 @@ fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<
 }
 
 /// Why two living sims of the right sexes and without a partnership cannot be paired now,
-/// if at all: one under the market age, then too closely related (ADR-0018 section 1).
+/// if at all: one under the market age, then in direct line, then too closely related
+/// (ADR-0018 sections 1 and 8).
 pub(crate) fn kin_or_age_rejection(
     domain: &DomainState,
     data: &Data,
@@ -78,6 +79,9 @@ pub(crate) fn kin_or_age_rejection(
     });
     if young {
         return Some(RejectCode::PartnerTooYoung);
+    }
+    if market::direct_line(domain, data, woman, man) {
+        return Some(RejectCode::PartnersInDirectLine);
     }
     let limit = data.demography().market.kinship_limit;
     let phi = market::phi_with(&mut KinshipCache::new(), domain, data, woman, man);

@@ -319,6 +319,31 @@ pub fn relation<K: Ord + Copy>(x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> Opti
     })
 }
 
+/// Whether one of `x` and `y` is an ancestor of the other by mother and father, at any
+/// depth (ADR-0018 section 8, Grok's round 33): relatives in direct line are never a
+/// couple, whatever φ, and φ ends at the depth of a query. The walk goes up from the
+/// younger of the two (the greater `(order, key)`) and follows only persons younger than
+/// the older one, since every parent comes strictly before its child; for two of nearly the
+/// same age it ends after one step. A person is not in direct line with itself.
+pub fn in_direct_line<K: Ord + Copy>(x: K, y: K, lookup: impl Fn(K) -> Kin<K>) -> bool {
+    let (at_x, at_y) = ((lookup(x).order, x), (lookup(y).order, y));
+    let (younger, older) = if at_x > at_y { (x, at_y) } else { (y, at_x) };
+    let mut seen = BTreeSet::new();
+    let mut waiting = Vec::from([younger]);
+    while let Some(person) = waiting.pop() {
+        let kin = lookup(person);
+        for parent in [kin.mother, kin.father].into_iter().flatten() {
+            if parent == older.1 {
+                return true;
+            }
+            if (lookup(parent).order, parent) > older && seen.insert(parent) {
+                waiting.push(parent);
+            }
+        }
+    }
+    false
+}
+
 /// φ of `x` and `y` with a memory of its own for this one query.
 ///
 /// # Panics

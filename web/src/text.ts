@@ -326,6 +326,7 @@ export const CODES: { readonly [code: string]: string } = {
   "reject param_unchanged": "Die Erbkrankheiten stehen schon so.",
   "reject shock_unknown": "Diesen Schock kennt dieser Lauf nicht.",
   "reject shock_overlaps": "Für diese Jahre ist schon ein Hunger gesetzt.",
+  "reject partners_in_direct_line": "Die beiden sind in gerader Linie verwandt.",
   "save log_not_taken": "Das Protokoll wurde vor dem Speichern nicht abgeholt.",
   "save year_hashes_mismatch": "Die Jahresprüfsummen passen nicht zum Stand.",
   "load bad_magic": "Das ist keine Speicherdatei.",

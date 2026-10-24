@@ -303,6 +303,9 @@ pub enum RejectCode {
     /// A shock over a year that already has a hunger, an index below 1 (ADR-0023
     /// section 3).
     ShockOverlaps,
+    /// A woman and a man of whom one is an ancestor of the other, at any depth (ADR-0018
+    /// section 8).
+    PartnersInDirectLine,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
