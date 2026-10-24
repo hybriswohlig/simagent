@@ -113,6 +113,13 @@ export type PersonAnswer = {
   readonly partner_candidates: number[];
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
+  readonly ages: Age[];
+};
+
+/** A living person's age in whole years at the last closed second. */
+export type Age = {
+  readonly sim: number;
+  readonly age_years: number;
 };
 
 /** The core's genetics card of the person at its second shown: per trait the percentile and the parts, the height lines, per disease the copies and the status, the lines of skipped pigment copies. The variant parts (parts, copies, status, a skipped line's copy sources) are objects keyed by `kind`, a skipped line an object of `locus`, `mother_copy` and `father_copy`; the web checks their keys. */

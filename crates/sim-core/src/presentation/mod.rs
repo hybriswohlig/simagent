@@ -30,6 +30,14 @@ pub struct Moment {
     pub calendar_year: i64,
 }
 
+/// A living person's age in whole years at the last closed second, as a person page lists
+/// it (Grok's round 33, P3 and P4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Age {
+    pub sim: SimId,
+    pub age_years: i64,
+}
+
 /// A body at a second of a person's life.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Shown {
@@ -59,6 +67,18 @@ pub struct PersonView {
     pub at_ages: Vec<Shown>,
 }
 
+/// The age in whole years at `now` of a life that began at `born`, as a moment counts it.
+///
+/// # Panics
+///
+/// Invariant `presentation.born_after_now` for a birth after `now`: the living are born at
+/// or before the last closed second.
+fn whole_years(born: SimTime, now: SimTime) -> i64 {
+    moment(born, now)
+        .unwrap_or_else(|| panic!("invariant presentation.born_after_now"))
+        .age_years
+}
+
 /// The second `t` of a life that began at `born`: its age in whole years and its calendar
 /// year; `None` before the birth.
 fn moment(born: SimTime, t: SimTime) -> Option<Moment> {
@@ -71,6 +91,17 @@ fn moment(born: SimTime, t: SimTime) -> Option<Moment> {
 }
 
 impl World {
+    /// The living in id order, each with its age in whole years at the last closed second.
+    pub fn ages(&self) -> Vec<Age> {
+        let now = self.closed_through();
+        (self.state().domain().sims.iter())
+            .map(|(&sim, person)| Age {
+                sim,
+                age_years: whole_years(person.born, now),
+            })
+            .collect()
+    }
+
     /// The presentation state of `sim`, living or archived; `None` for an unknown sim or
     /// data without the body. "Now" is the last closed second of the world.
     pub fn person_view(&self, sim: SimId) -> Option<PersonView> {
