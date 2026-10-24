@@ -75,22 +75,30 @@ fn scenario_hashes(bytes: &[u8]) -> Option<(BTreeMap<i64, String>, String)> {
     Some((years, log_hash))
 }
 
+/// The JSON goldens that only view runs: their form may change without a new core version.
+const VIEWS: [&str; 1] = ["tests/golden/diff_switch.json"];
+
 /// True if an existing result of the golden `path` differs between `base` and `head`.
 fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
     if base == head {
         return false;
     }
     if path.ends_with(".json") {
-        // A scenario golden: its year hashes and its log hash. A longer run changes the
-        // log hash and so counts; a new year alone never occurs.
-        if let (Some((base_years, base_log)), Some((head_years, head_log))) =
-            (scenario_hashes(base), scenario_hashes(head))
-        {
-            return base_log != head_log
-                || base_years
-                    .iter()
-                    .any(|(year, hash)| head_years.get(year) != Some(hash));
-        }
+        return match (scenario_hashes(base), scenario_hashes(head)) {
+            // A scenario golden: its year hashes and its log hash. A longer run changes the
+            // log hash and so counts; a new year alone never occurs.
+            (Some((base_years, base_log)), Some((head_years, head_log))) => {
+                base_log != head_log
+                    || base_years
+                        .iter()
+                        .any(|(year, hash)| head_years.get(year) != Some(hash))
+            }
+            // A golden that only views runs shows no result of its own (the comparison of
+            // two pedigrees, ADR-0021 addendum of 2026-10-23: no new core version). Any other
+            // JSON golden counts with any change: some hold hashes in other layouts (a census,
+            // a pre-run), and a scenario golden may lose its hashes.
+            _ => !VIEWS.contains(&path),
+        };
     }
     if path.ends_with(".csv") || path.ends_with(".txt") {
         // Known answers and code lists: lines may be added, existing lines must stay.
@@ -106,8 +114,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
 
 /// The goldens of `base` whose existing results differ in `head`: a year hash or the
 /// log hash of a scenario golden, the bytes of a golden save, an existing line of a
-/// known-answer file or a code list. New files, new lines and comment lines are no
-/// change.
+/// known-answer file or a code list, any byte of another JSON golden but a view of runs
+/// (`VIEWS`). New files, new lines and comment lines are no change.
 pub fn changed_results(base: &Results, head: &Results) -> Vec<String> {
     base.goldens
         .iter()
@@ -315,6 +323,53 @@ mod tests {
             violations(&base(), &bumped),
             Vec::<String>::new(),
             "a result change outside the goldens"
+        );
+    }
+
+    /// The comparison of two runs only views them (ADR-0021, addendum of 2026-10-23): a
+    /// change of its form is no result change. Any other JSON golden still counts, also one
+    /// with its hashes in another layout (review finding: a census holds them nested), and a
+    /// scenario golden that loses its hashes.
+    #[test]
+    fn only_the_comparison_golden_changes_without_a_result() {
+        let comparison = "tests/golden/diff_switch.json";
+        let before = with(|r| {
+            r.goldens.insert(
+                comparison.to_string(),
+                br#"{"format_version":1,"changed":[]}"#.to_vec(),
+            );
+        });
+        let after = with(|r| {
+            r.goldens.insert(
+                comparison.to_string(),
+                br#"{"format_version":2,"changed":[{"diseases":[]}]}"#.to_vec(),
+            );
+        });
+        assert_eq!(changed_results(&before, &after), Vec::<String>::new());
+        assert_eq!(violations(&before, &after), Vec::<String>::new());
+        let lost = with(|r| {
+            r.goldens.insert(
+                "tests/golden/dummy.json".to_string(),
+                br#"{"core_version":1}"#.to_vec(),
+            );
+        });
+        assert_eq!(
+            changed_results(&base(), &lost),
+            vec!["tests/golden/dummy.json".to_string()]
+        );
+        let census = "tests/golden/census/census.json";
+        let nested = |hash: &str| {
+            with(|r| {
+                r.goldens.insert(
+                    census.to_string(),
+                    format!(r#"{{"fixtures":{{"run":{{"year_hashes":["{hash}"]}}}}}}"#)
+                        .into_bytes(),
+                );
+            })
+        };
+        assert_eq!(
+            changed_results(&nested("00000000000000a0"), &nested("00000000000000b0")),
+            vec![census.to_string()]
         );
     }
 

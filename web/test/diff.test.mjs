@@ -10,7 +10,7 @@ import { diffView } from "../dist/diff.js";
 
 const date = (year, month, day_of_month) => ({ year, day_of_year: 0, month, day_of_month, week: 0, weekday: 0, season: 0, second_of_day: 0 });
 const at = (t, year, month, day) => ({ t, date: date(year, month, day) });
-const life = (fields) => ({ born: at(0, 0, 0, 0), died: null, cause_of_death: null, emigrated: null, partnerships: [], children: 0, ...fields });
+const life = (fields) => ({ born: at(0, 0, 0, 0), died: null, cause_of_death: null, emigrated: null, partnerships: [], children: 0, diseases: [], ...fields });
 const named = (entries) => new Map(entries.map(([key, name, sim]) => [key, { name, sim }]));
 
 const SON = "5e51a4f2e3aba5e9";
@@ -18,7 +18,7 @@ const HIS = "830458f975a6df91";
 const HER = "935f6cce0d166101";
 const ANSWER = {
   format: "simagent.view.diff",
-  version: 1,
+  version: 2,
   a: "town",
   b: "gabel",
   a_only: ["a4a0b110a6920c3e"],
@@ -157,4 +157,43 @@ test("the years of the runs, and a note when they differ", async () => {
     "Die Läufe stehen in verschiedenen Jahren: Was nach dem früheren Jahr geschah, zählt hier als Unterschied.",
   );
   assert.equal(yearsNote(79, 79), null);
+});
+
+// Grok's round 34 (E2, E3): the row "Erbkrankheiten", each disease that shows on its own line
+// with the year and the age of its onset as card and chronicle say them ("mit 1 Jahr"), at 0
+// years "seit der Geburt"; without one "keine".
+test("the hereditary diseases of a life", () => {
+  const answer = {
+    ...ANSWER,
+    a_only: [],
+    b_only: [],
+    changed: [
+      {
+        lineage_key: SON,
+        differs: ["diseases"],
+        a: life({
+          diseases: [
+            { disease: "core:disease_ar", year: 34, age_years: 34 },
+            { disease: "core:disease_ad_late", year: 12, age_years: 1 },
+          ],
+        }),
+        b: life({ diseases: [{ disease: "core:disease_ar", year: -1, age_years: 0 }] }),
+      },
+      { lineage_key: HIS, differs: ["diseases"], a: life({}), b: life({ diseases: [{ disease: "core:disease_xr", year: 40, age_years: 2 }] }) },
+    ],
+  };
+  const view = diffView(answer, { a: new Map(), b: new Map() });
+  assert.deepEqual(
+    view.changed.map((entry) => entry.rows),
+    [
+      [
+        {
+          label: "Erbkrankheiten",
+          a: ["Zäher Atem, seit Jahr 34, mit 34 Jahren", "Später Verfall, seit Jahr 12, mit 1 Jahr"],
+          b: ["Zäher Atem, seit der Geburt"],
+        },
+      ],
+      [{ label: "Erbkrankheiten", a: ["keine"], b: ["Schwere Blutung, seit Jahr 40, mit 2 Jahren"] }],
+    ],
+  );
 });

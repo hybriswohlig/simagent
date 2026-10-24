@@ -253,6 +253,14 @@ export type DiffLife = {
   readonly emigrated: DatedSecond | null;
   readonly partnerships: DiffBond[];
   readonly children: number;
+  readonly diseases: DiffOnset[];
+};
+
+/** A hereditary disease that shows, with the calendar year and the whole years of its onset from the core. */
+export type DiffOnset = {
+  readonly disease: string;
+  readonly year: number;
+  readonly age_years: number;
 };
 
 /** A partnership of a person, the other by lineage key. */

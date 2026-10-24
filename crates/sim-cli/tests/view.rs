@@ -1920,7 +1920,7 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     seconds["format_version"] = json!(null);
     for (field, value) in [
         ("format", json!("simagent.view.diff")),
-        ("version", json!(1)),
+        ("version", json!(2)),
         ("a", json!("parent")),
         ("b", json!("fork")),
     ] {

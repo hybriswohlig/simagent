@@ -75,7 +75,7 @@ export function copiesLines(value: unknown): string[] | null {
 }
 
 /** "mit N Jahren", with one year "mit 1 Jahr" (Grok P1). */
-function atAge(years: number): string {
+export function atAge(years: number): string {
   return `${TEXT.card_at} ${years} ${years === 1 ? TEXT.card_year_at : TEXT.card_years_at}`;
 }
 

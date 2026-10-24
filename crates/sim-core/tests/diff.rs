@@ -8,8 +8,8 @@ use sim_core::diff::diff;
 use sim_core::genome::Sex;
 use sim_core::ids::{HouseholdId, PartnershipId, SimId};
 use sim_core::lineage::LineageKey;
-use sim_core::pedigree::{Couple, End, FromPool, Pedigree, Person};
-use sim_core::time::SimTime;
+use sim_core::pedigree::{Couple, End, FromPool, Pedigree, Person, Shown};
+use sim_core::time::{MAX_ABS_SECS, SimTime};
 
 fn key(n: u64) -> LineageKey {
     serde_json::from_value(serde_json::json!(format!("{n:016x}"))).expect("a key")
@@ -120,19 +120,19 @@ const BOND_B: &str = r#"{"partner":"0000000000000002","formed":0,"ended":30,"end
 fn a_life_differs_in_its_death_its_partnerships_and_its_children() {
     let (a, b) = two_runs();
     let expected = [
-        r#"{"format_version":1,"a_only":["0000000000000004"],"b_only":["0000000000000005"],"changed":["#,
+        r#"{"format_version":2,"a_only":["0000000000000004"],"b_only":["0000000000000005"],"changed":["#,
         // Key 1: she dies earlier of another cause, the pair ends then, one child fewer.
         r#"{"lineage_key":"0000000000000001","differs":["died","cause_of_death","partnerships","children"],"#,
-        &format!(r#""a":{{"born":-100,"died":50,"cause_of_death":"core:senescence","emigrated":null,"partnerships":[{BOND_A}],"children":2}},"#),
-        &format!(r#""b":{{"born":-100,"died":30,"cause_of_death":"core:disease_ar","emigrated":null,"partnerships":[{BOND_B}],"children":1}}}},"#),
+        &format!(r#""a":{{"born":-100,"died":50,"cause_of_death":"core:senescence","emigrated":null,"partnerships":[{BOND_A}],"children":2,"diseases":[]}},"#),
+        &format!(r#""b":{{"born":-100,"died":30,"cause_of_death":"core:disease_ar","emigrated":null,"partnerships":[{BOND_B}],"children":1,"diseases":[]}}}},"#),
         // Key 2: the first pair ends earlier and a second follows; still two children.
         r#"{"lineage_key":"0000000000000002","differs":["partnerships"],"#,
-        r#""a":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000001","formed":0,"ended":50,"ended_by":"death"}],"children":2},"#,
-        r#""b":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000001","formed":0,"ended":30,"ended_by":"death"},{"partner":"0000000000000006","formed":40,"ended":null,"ended_by":null}],"children":2}},"#,
+        r#""a":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000001","formed":0,"ended":50,"ended_by":"death"}],"children":2,"diseases":[]},"#,
+        r#""b":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000001","formed":0,"ended":30,"ended_by":"death"},{"partner":"0000000000000006","formed":40,"ended":null,"ended_by":null}],"children":2,"diseases":[]}},"#,
         // Key 6: a pair and a child in `b` only. Key 3 is the same in both.
         r#"{"lineage_key":"0000000000000006","differs":["partnerships","children"],"#,
-        r#""a":{"born":-90,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0},"#,
-        r#""b":{"born":-90,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000002","formed":40,"ended":null,"ended_by":null}],"children":1}}"#,
+        r#""a":{"born":-90,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[]},"#,
+        r#""b":{"born":-90,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[{"partner":"0000000000000002","formed":40,"ended":null,"ended_by":null}],"children":1,"diseases":[]}}"#,
         "]}",
     ]
     .concat();
@@ -161,7 +161,7 @@ fn equal_pedigrees_differ_in_nothing() {
     let (a, _) = two_runs();
     assert_eq!(
         text(&a, &a),
-        r#"{"format_version":1,"a_only":[],"b_only":[],"changed":[]}"#
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":[]}"#
     );
 }
 
@@ -189,7 +189,7 @@ fn a_child_of_a_pool_pregnancy_counts_for_its_parents_keys() {
     let b = pedigree(parents(), Vec::new());
     let life = |born: i64, children: u32| {
         format!(
-            r#"{{"born":{born},"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":{children}}}"#
+            r#"{{"born":{born},"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":{children},"diseases":[]}}"#
         )
     };
     let entry = |n: u64| {
@@ -203,7 +203,7 @@ fn a_child_of_a_pool_pregnancy_counts_for_its_parents_keys() {
     assert_eq!(
         text(&a, &b),
         format!(
-            r#"{{"format_version":1,"a_only":["0000000000000009"],"b_only":[],"changed":[{},{}]}}"#,
+            r#"{{"format_version":2,"a_only":["0000000000000009"],"b_only":[],"changed":[{},{}]}}"#,
             entry(1),
             entry(2)
         )
@@ -280,7 +280,7 @@ fn each_field_and_each_order_by_hand() {
     );
     let life = |born: i64, emigrated: &str, partnerships: &str, children: u32| {
         format!(
-            r#"{{"born":{born},"died":null,"cause_of_death":null,"emigrated":{emigrated},"partnerships":{partnerships},"children":{children}}}"#
+            r#"{{"born":{born},"died":null,"cause_of_death":null,"emigrated":{emigrated},"partnerships":{partnerships},"children":{children},"diseases":[]}}"#
         )
     };
     let changed = |n: u64, differs: &str, a: String, b: String| {
@@ -289,7 +289,7 @@ fn each_field_and_each_order_by_hand() {
     let his = format!("[{}]", bond(1, 10, at_12));
     let theirs = format!("[{}]", bond(1, 20, open));
     let expected = format!(
-        r#"{{"format_version":1,"a_only":["0000000000000005"],"b_only":[],"changed":[{},{},{}]}}"#,
+        r#"{{"format_version":2,"a_only":["0000000000000005"],"b_only":[],"changed":[{},{},{}]}}"#,
         changed(
             1,
             r#""born","children""#,
@@ -310,4 +310,114 @@ fn each_field_and_each_order_by_hand() {
         ),
     );
     assert_eq!(text(&a, &b), expected);
+}
+
+/// Grok's round 34, E1 (ADR-0021, addendum of 2026-10-24): a disease that shows
+/// (`affected`) is part of a life with the calendar year and the whole years of its onset, as
+/// the card reads them: `B = born + ⌈onset · YEAR⌉`, the year of `B`, `⌊onset⌋` (ADR-0017
+/// section 3). Key 1, born at −100 s, shows core:disease_ar with onset 34.5 in `a` and rests
+/// in `b`: 34.5 years are 1 085 011 200 s, so `B` = 1 085 011 100, in year 34 (which begins at
+/// 34 · 31 449 600 = 1 069 286 400 s), and ⌊34.5⌋ = 34. Key 2 shows core:disease_ad_late with
+/// onset 0 in both (year −1, the year of its birth at −100 s, and 0 years): no difference.
+#[test]
+fn a_disease_that_shows_on_one_side_only_differs() {
+    let shown = |disease: &str, onset: f64, affected: bool| Shown {
+        disease: Code::new(disease).expect("a code"),
+        onset,
+        affected,
+    };
+    let with = |mut person: Person, diseases: Vec<Shown>| {
+        person.diseases = diseases;
+        person
+    };
+    let late = || shown("core:disease_ad_late", 0.0, true);
+    let a = pedigree(
+        vec![
+            with(
+                person(1, 1, Sex::Female, -100, None),
+                vec![shown("core:disease_ar", 34.5, true)],
+            ),
+            with(person(2, 2, Sex::Male, -100, None), vec![late()]),
+        ],
+        Vec::new(),
+    );
+    let b = pedigree(
+        vec![
+            with(
+                person(1, 1, Sex::Female, -100, None),
+                vec![shown("core:disease_ar", 34.5, false)],
+            ),
+            with(person(2, 2, Sex::Male, -100, None), vec![late()]),
+        ],
+        Vec::new(),
+    );
+    let expected = [
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":["#,
+        r#"{"lineage_key":"0000000000000001","differs":["diseases"],"#,
+        r#""a":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[{"disease":"core:disease_ar","year":34,"age_years":34}]},"#,
+        r#""b":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[]}}"#,
+        "]}",
+    ]
+    .concat();
+    assert_eq!(text(&a, &b), expected);
+}
+
+/// Astra's review of the diseases in the comparison: the diseases come in the order of the
+/// pedigree (that of the data), not by code, and one that rests between them is left out.
+/// Key 1, born at −100 s, shows core:disease_xr with onset 40 (`B` = −100 + 40 · 31 449 600 =
+/// 1 257 983 900 s, in year 39, which ends at 1 257 983 999; 40 whole years), rests in
+/// core:disease_mt and shows core:disease_ar with onset 0 (`B` = −100 s, year −1, 0 years);
+/// in `b` all three rest.
+#[test]
+fn the_diseases_keep_the_order_of_the_data() {
+    let shown = |disease: &str, onset: f64, affected: bool| Shown {
+        disease: Code::new(disease).expect("a code"),
+        onset,
+        affected,
+    };
+    let three = |on: bool| {
+        let mut person = person(1, 1, Sex::Female, -100, None);
+        person.diseases = vec![
+            shown("core:disease_xr", 40.0, on),
+            shown("core:disease_mt", 12.0, false),
+            shown("core:disease_ar", 0.0, on),
+        ];
+        pedigree(vec![person], Vec::new())
+    };
+    let expected = [
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":["#,
+        r#"{"lineage_key":"0000000000000001","differs":["diseases"],"#,
+        r#""a":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[{"disease":"core:disease_xr","year":39,"age_years":40},{"disease":"core:disease_ar","year":-1,"age_years":0}]},"#,
+        r#""b":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[]}}"#,
+        "]}",
+    ]
+    .concat();
+    assert_eq!(text(&three(true), &three(false)), expected);
+}
+
+/// Astra's review: at the last second of the clock a disease can count as reached by its
+/// age in years while its onset second, rounded up, lies one second beyond the clock: 31 s
+/// as years and back are 31.000000000000004 s, so `⌈onset · YEAR⌉` is 32. Such an onset never
+/// comes (ADR-0002), and the comparison does not list it instead of failing.
+#[test]
+fn an_onset_beyond_the_clock_is_not_listed() {
+    let mut late = person(1, 1, Sex::Female, MAX_ABS_SECS - 31, None);
+    late.diseases = vec![Shown {
+        disease: Code::new("core:disease_ar").expect("a code"),
+        onset: 31.0 / 31_449_600.0,
+        affected: true,
+    }];
+    let resting = {
+        let mut person = late.clone();
+        person.diseases[0].affected = false;
+        person
+    };
+    let (a, b) = (
+        pedigree(vec![late], Vec::new()),
+        pedigree(vec![resting], Vec::new()),
+    );
+    assert_eq!(
+        text(&a, &b),
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":[]}"#
+    );
 }

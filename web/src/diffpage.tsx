@@ -10,7 +10,7 @@ import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { TEXT } from "./text.js";
 
-const DIFF = { format: "simagent.view.diff", version: 1 } as const;
+const DIFF = { format: "simagent.view.diff", version: 2 } as const;
 
 /** The comparison of two runs from the server; only an answer for these two counts. */
 function useDiff(a: string, b: string): Loaded<DiffAnswer> {
