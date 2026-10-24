@@ -15,17 +15,17 @@ use sim_core::world::{World, YearOut};
 
 const Y: i64 = 31_449_600;
 
-/// Every locus of the repository's map with one copy of each allele for a woman: two copies
-/// on the autosomes and the X, one on the mt.
-fn same_genes() -> Vec<LocusAlleles> {
+/// Every locus of the repository's map with one copy of each allele: two copies on the
+/// autosomes, two on a woman's X and one on a man's, one on the mt.
+fn same_genes(sex: Sex) -> Vec<LocusAlleles> {
     let map: serde_json::Value =
         serde_json::from_str(include_str!("../../../data/genetics/genome_map.json"))
             .expect("the map");
     (map["loci"].as_array().expect("loci").iter())
         .map(|locus| {
             let id = locus["id"].as_str().expect("an id");
-            let copies = match locus["chromosome"].as_str().expect("a chromosome") {
-                "mt" => vec![0],
+            let copies = match (locus["chromosome"].as_str().expect("a chromosome"), sex) {
+                ("mt", _) | ("x", Sex::Male) => vec![0],
                 _ => vec![0, 1],
             };
             LocusAlleles {
@@ -36,13 +36,17 @@ fn same_genes() -> Vec<LocusAlleles> {
         .collect()
 }
 
-/// Two women of 30 with the same genes, founders 0 and 1 of one tag: two lineage keys, so
-/// two draws of each environment.
+/// Two persons of the sex and the age with the same genes, founders 0 and 1 of one tag: two
+/// lineage keys, so two draws of each environment.
 fn twins_by_genes() -> World {
+    pair(Sex::Female, 30)
+}
+
+fn pair(sex: Sex, years: i64) -> World {
     let woman = || Founder {
-        born: SimTime::from_secs(-30 * Y),
-        sex: Sex::Female,
-        alleles: same_genes(),
+        born: SimTime::from_secs(-years * Y),
+        sex,
+        alleles: same_genes(sex),
     };
     let mut world = World::new(common::repository_data());
     world
@@ -89,4 +93,17 @@ fn the_same_genes_give_the_same_neutral_body_and_two_with_the_environment() {
     assert_eq!(a.born, plain.born);
     assert_eq!(a.ended, plain.ended);
     assert_eq!(a.shown.at, plain.shown.at);
+}
+
+/// Astra's review: the same for two men of 61, at every age of the sheet, 60 included.
+#[test]
+fn two_men_of_the_same_genes_have_the_same_neutral_bodies_at_every_age() {
+    let world = pair(Sex::Male, 61);
+    let view =
+        |n: u64| (world.neutral_person_view(SimId::try_from(n).expect("an id"))).expect("a view");
+    let (a, b) = (view(1), view(2));
+    let ages: Vec<i64> = a.at_ages.iter().map(|shown| shown.at.age_years).collect();
+    assert_eq!(ages, [2, 8, 12, 16, 25, 40, 60]);
+    assert_eq!(a.at_ages, b.at_ages);
+    assert_eq!(a.shown.body, b.shown.body);
 }

@@ -427,3 +427,38 @@ fn the_neutral_environment_is_the_genetic_part_alone() {
         }
     }
 }
+
+/// Astra's review of the neutral environment: where the heritability moves with the age
+/// (`test:cog`, `h²` from 0.5 to 0.75), the neutral phenotype follows it: `√h² · G` with the
+/// `h²` of each age, written out as section 4 with both environments 0.
+#[test]
+fn the_neutral_environment_follows_the_moving_weights() {
+    let data = moving();
+    let draws = Draws::new(WorldSeed::new(0x5eed_0000_0000_0044));
+    let alleles = [LocusAlleles {
+        locus: id("test:k"),
+        copies: vec![1, 1],
+    }];
+    let genome = Genome::with_alleles(Sex::Female, &alleles, &data).expect("fits");
+    let g = genome
+        .genetic_value(&id("test:cog"), &data)
+        .expect("a trait");
+    for (age, x) in [
+        (SimDuration::from_secs(0), 0.0),
+        (YEAR * 12, 12.0),
+        (YEAR * 30, 30.0),
+    ] {
+        let z = phenotype(
+            sim_core::phenotype::Environment::neutral(&draws),
+            &data,
+            &genome,
+            founder(7),
+            None,
+            &id("test:cog"),
+            age,
+        )
+        .expect("a phenotype");
+        let expected = by_hand([0.5, 0.25, 0.75, 0.05], x, g, 0.0, 0.0);
+        assert_eq!(z.to_bits(), expected.to_bits(), "at {x}");
+    }
+}
