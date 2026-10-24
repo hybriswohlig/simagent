@@ -440,6 +440,8 @@ fn server_answers(
         answers.push(("PersonAnswer", get(port, &path)?));
         sims.push(sim);
     }
+    // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
+    answers.push(("SheetAnswer", get(port, "/api/sheet")?));
     // A kinship without a foster word (the living person to the dead one), and one with:
     // the descriptor marks a nullable field only when it holds a value, so the null case is
     // checked here.
