@@ -1017,7 +1017,7 @@ fn a_fork_without_override_differs_in_nothing() {
     let parent = parent(&dir);
     let out = dir.join("fork");
     assert_eq!(fork(&parent, "5", &out), Ok(()));
-    let empty = "{\"format_version\":1,\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
+    let empty = "{\"format_version\":2,\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
     assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
     assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
 }
