@@ -1,6 +1,6 @@
-// The chronicle of a run page keeps the entries a player follows, the newest second first
-// and one second in the core's order (Grok's Q1), each once, at most a fixed number (ADR-0021
-// section 2: the log in the order of the file).
+// The chronicle of a run page keeps the entries a player follows, newest first, also within
+// one second (Grok's R1, reversing the core's order of Q1 for the page), each once, at most a
+// fixed number (ADR-0021 section 2: the log in the order of the file).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -63,11 +63,11 @@ function during(id, t, code, sim) {
   return { entry: { id, t, subjects: [{ sim }], causes: [], payload: { [code]: {} } }, date: DATE };
 }
 
-// Grok's Q1: at a year start a family arrives with a disease already begun (sim 100), and a
-// resident's planned onset comes in the same second (sim 1). The core writes the arrival, its
-// onset, then the resident's; the chronicle shows the newest second first and one second in
-// the core's order, cause before consequence.
-test("one second keeps the core's order, cause before consequence", () => {
+// Grok's Q1 and R1: at a year start a family arrives with a disease already begun (sim 100),
+// and a resident's planned onset comes in the same second (sim 1). The core writes the
+// arrival, its onset, then the resident's; the chronicle shows them newest first, the
+// resident's onset on top, the arrival below its consequence.
+test("one second shows its newest entry first", () => {
   const page = [
     during(1, 5, "core:birth", 7),
     during(2, 9, "core:arrived", 100),
@@ -76,11 +76,11 @@ test("one second keeps the core's order, cause before consequence", () => {
   ];
   assert.deepEqual(
     added([], page).map((i) => i.entry.id),
-    [2, 3, 4, 1],
+    [4, 3, 2, 1],
   );
 });
 
-test("a second split over two pages keeps the core's order", () => {
+test("a second split over two pages is newest first too", () => {
   const kept = added([], [during(1, 5, "core:birth", 7), during(2, 9, "core:arrived", 100)]);
   const next = added(kept, [
     during(2, 9, "core:arrived", 100),
@@ -90,7 +90,25 @@ test("a second split over two pages keeps the core's order", () => {
   ]);
   assert.deepEqual(
     next.map((i) => i.entry.id),
-    [5, 2, 3, 4, 1],
+    [5, 4, 3, 2, 1],
+  );
+});
+
+// The playtest (N2, F11): inputs at one stop act in the next second in the order they came.
+// A hunger after a pairing stands above the pairing's lines, and the switch turned off and on
+// again shows "on" on top, the state it has.
+test("the last input of a second stands on top of it", () => {
+  const page = [
+    during(20, 60, "core:partnered", 5),
+    during(21, 60, "core:household_formed", 5),
+    during(22, 60, "core:moved", 5),
+    during(23, 60, "core:shock_triggered", 0),
+    during(24, 61, "core:param_changed", 0),
+    during(25, 61, "core:param_changed", 0),
+  ];
+  assert.deepEqual(
+    added([], page).map((i) => i.entry.id),
+    [25, 24, 23, 22, 21, 20],
   );
 });
 
