@@ -233,7 +233,8 @@ pub struct DiseaseCard {
 
 /// The genetics card of a person: the traits of [`card_traits`] the map has, the height
 /// lines where the data have the growth traits, the diseases of the data, with whether the
-/// switch of the hereditary diseases was off at the second shown (M1), and the lines
+/// switch of the hereditary diseases was off at the second shown (M1; for the living as it
+/// stands from the next second, with an input at the stop, Grok's round 36), and the lines
 /// "übersprungen".
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct GeneticsCard {
@@ -417,7 +418,14 @@ impl World {
                 .get(&sim)
                 .map(|gone| gone.afflictions.as_slice())
         })?;
-        let switch_on = crate::pedigree::switch_at(self.input_log(), at);
+        // A living person's card reads the switch as it stands from the next second, with an
+        // input at the stop, as the run page's button does (Grok's round 36, S1); the rest
+        // of the card stays at `at`. An input is never stamped at the clock's last second.
+        let living = domain.sims.contains_key(&sim);
+        let next = (at.checked_add(SimDuration::from_secs(1)))
+            .filter(|_| living)
+            .unwrap_or(at);
+        let switch_on = crate::pedigree::switch_at(self.input_log(), next);
         let seeds = domain.seeds(data, sim);
         let individual = Draws::new(WorldSeed::new(seeds.individual));
         let shared = Draws::new(WorldSeed::new(seeds.shared));

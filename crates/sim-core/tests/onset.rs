@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::{LocusAlleles, Sex};
+use sim_core::ids::SimId;
 use sim_core::input::{Couple, ForkOverride, Founder, Input, PoolStart, SetWorldParam, Start};
 use sim_core::log::LogEntry;
 use sim_core::params::{ParamChange, WorldParams};
@@ -644,6 +645,57 @@ fn a_world_rule_turning_the_switch_on_writes_a_reached_onset() {
     run.fork(true);
     run.advance(60 * Y);
     assert_eq!(onsets(&run.entries()).len(), 1, "never again");
+}
+
+/// Grok's round 36, S1: the card of a living person reads the switch as it stands from the
+/// next second, with an input at the stop, while the rest of the card stays at the last
+/// closed second. A founder of 40 with the late disease (onset 30, `B` in year −10) is
+/// affected with the switch on; a world rule turning it off at the stop makes the card say
+/// "off" and the disease resting before any step, and on again makes it affected again.
+#[test]
+fn the_card_reads_the_switch_from_the_next_second() {
+    let mut run = Run::new(started(
+        data(1e-9, false),
+        true,
+        vec![founder(-40 * Y, Sex::Female, false, true)],
+        Vec::new(),
+    ));
+    run.advance(5 * Y + 999);
+    let late = |run: &Run| {
+        let card = run
+            .world
+            .genetics_card(SimId::try_from(1).expect("an id"))
+            .expect("a card");
+        let status = (card.diseases.iter())
+            .find(|line| line.disease.as_str() == LATE)
+            .expect("the late disease")
+            .status;
+        (card.diseases_off, status)
+    };
+    let affected = DiseaseStatus::Affected {
+        year: -10,
+        age_years: 30,
+    };
+    assert_eq!(late(&run), (false, affected));
+    run.set(false);
+    assert_eq!(late(&run), (true, DiseaseStatus::Resting));
+    run.set(true);
+    assert_eq!(late(&run), (false, affected));
+    run.set(false);
+    run.advance(6 * Y);
+    assert_eq!(late(&run), (true, DiseaseStatus::Resting));
+    // A fork override at the stop acts on the card the same way; the pedigree stays at the
+    // closed second, where the switch is still off and the disease does not show.
+    run.fork(true);
+    assert_eq!(late(&run), (false, affected));
+    let pedigree = run.world.pedigree();
+    let person = (pedigree.persons.iter())
+        .find(|person| person.sim.get() == 1)
+        .expect("the founder");
+    let shown = (person.diseases.iter())
+        .find(|shown| shown.disease.as_str() == LATE)
+        .expect("the late disease");
+    assert!(!shown.affected);
 }
 
 /// "On, off, on" with one stamp writes the onset only at the first "on": the second finds
