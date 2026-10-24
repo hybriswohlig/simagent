@@ -22,7 +22,9 @@ tools/world_reference.py on the repository's data as the CLI runs them
   pedigree's order (that of the data), each `{disease, year, age_years}`: its code, the
   calendar year of `B = born + ⌈onset · YEAR⌉` (`wr.onset_second`) and `⌊onset⌋`, the numbers
   of the card and of the entry `core:disease_onset` (ADR-0017 section 3). A disease that
-  rests is the same in both runs and no part of a life.
+  rests is the same in both runs and no part of a life; nor is one whose `B` lies beyond the
+  clock (`wr.MAX_ABS_SECS`: reached by its years at the clock's last second, rounded past it),
+  as such an onset never comes (ADR-0002).
 
 The comparison, format 2: `{"format_version":2,"a_only":[…],"b_only":[…],"changed":[{"lineage_key",
 "differs","a","b"}]}`, compact as serde_json writes it (`wr.json_text`). `a_only` and `b_only`
@@ -132,7 +134,7 @@ def lives(view: dict) -> dict:
             "diseases": [
                 {"disease": shown["disease"], "year": wr.onset_second(person["born"], shown["onset"]) // wr.YEAR, "age_years": math.floor(shown["onset"])}
                 for shown in person["diseases"]
-                if shown["affected"]
+                if shown["affected"] and wr.onset_second(person["born"], shown["onset"]) <= wr.MAX_ABS_SECS
             ],
         }
     return out

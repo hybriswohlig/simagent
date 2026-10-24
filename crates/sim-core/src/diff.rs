@@ -65,7 +65,8 @@ pub struct Life {
     /// of persons, so the count never saturates.
     pub children: u64,
     /// The hereditary diseases that show at the pedigree's second, in the order of the data
-    /// (Grok's round 34, E1): a disease that rests is the same in both runs.
+    /// (Grok's round 34, E1), whose onset second lies within the clock: a disease that rests
+    /// is the same in both runs.
     pub diseases: Vec<Onset>,
 }
 
@@ -179,6 +180,9 @@ fn lives(pedigree: &Pedigree) -> BTreeMap<LineageKey, Life> {
                 children: children.get(&person.lineage_key).copied().unwrap_or(0),
                 diseases: (person.diseases.iter())
                     .filter(|shown| shown.affected)
+                    // An onset second beyond the clock (reached by the years at its last
+                    // second, rounded up past it) never comes (ADR-0002).
+                    .filter(|shown| onset::onset_second(person.born, shown.onset).is_some())
                     .map(|shown| {
                         let (year, age_years) = onset::since(person.born, shown.onset);
                         Onset {
