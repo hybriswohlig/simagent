@@ -684,6 +684,18 @@ fn the_card_reads_the_switch_from_the_next_second() {
     run.set(false);
     run.advance(6 * Y);
     assert_eq!(late(&run), (true, DiseaseStatus::Resting));
+    // A fork override at the stop acts on the card the same way; the pedigree stays at the
+    // closed second, where the switch is still off and the disease does not show.
+    run.fork(true);
+    assert_eq!(late(&run), (false, affected));
+    let pedigree = run.world.pedigree();
+    let person = (pedigree.persons.iter())
+        .find(|person| person.sim.get() == 1)
+        .expect("the founder");
+    let shown = (person.diseases.iter())
+        .find(|shown| shown.disease.as_str() == LATE)
+        .expect("the late disease");
+    assert!(!shown.affected);
 }
 
 /// "On, off, on" with one stamp writes the onset only at the first "on": the second finds
