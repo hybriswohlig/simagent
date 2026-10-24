@@ -419,6 +419,10 @@ SAMPLE_LEFT_BY_DEATH = variant(0, varint(0x0123456789ABCDEF))
 SAMPLE_LEFT_BY_EMIGRATION = variant(1)
 REJECTED_CAPACITY_ZERO = variant(23)
 
+# The reject code of relatives in direct line (ADR-0018 section 8, addendum of 2026-10-24):
+# PartnersInDirectLine (36), the last of the list, after ShockOverlaps (35).
+REJECTED_PARTNERS_IN_DIRECT_LINE = variant(36)
+
 # SimDuration at its lower bound, -1 000 000 years of 364 days.
 MIN_DURATION = signed(-1_000_000 * 364 * 86_400)
 
@@ -488,5 +492,6 @@ if __name__ == "__main__":
         ("sample_left_by_death", SAMPLE_LEFT_BY_DEATH),
         ("sample_left_by_emigration", SAMPLE_LEFT_BY_EMIGRATION),
         ("rejected_capacity_zero", REJECTED_CAPACITY_ZERO),
+        ("rejected_partners_in_direct_line", REJECTED_PARTNERS_IN_DIRECT_LINE),
     ]:
         print(f"{name} {data.hex()}")

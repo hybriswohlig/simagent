@@ -160,7 +160,8 @@ What the model knows:
   between two living sims, unless it is rejected (`arrange_rejection`, in this order:
   `unknown_sim`, `sim_not_alive`, `partners_of_wrong_sex`, `already_partnered`, each for
   both, then `partner_too_young` (either under 16 in the second the input acts, the stamp
-  plus one) and `partners_too_closely_related` (`φ ≥ 1/8`); a rejected input changes
+  plus one), `partners_in_direct_line` (one an ancestor of the other, below "The direct
+  line") and `partners_too_closely_related` (`φ ≥ 1/8`); a rejected input changes
   nothing and takes no sequence number). Each gets the next PartnershipId and one entry
   `core:partnered` (subjects the woman and the man; cause the input). A death ends the open partnership
   of the sim: it keeps the second of the death and the reason `Death`
@@ -189,7 +190,8 @@ What the model knows:
   YEAR`), `s_f = min(1, c · exp(((−0.5) · z) · z))`, `z = (a − m) / w`, `a` her age in
   years (`search_chance`); the searchers in the order of `(rank(MARKET_ORDER = 20,
   WORLD, n, her key), her key)`; each in turn walks the men by `(rank(PAIRING_RANK = 5,
-  her key, n, his key), his key)`, skipping `φ ≥ 1/8`, until `k` are kept; the utility
+  her key, n, his key), his key)`, skipping a relative in direct line (below) and `φ ≥
+  1/8`, until `k` are kept; the utility
   `U = ((−(w_a · (d · d))) − (K · φ)) + G` with `d = Δa − μ_a`, `Δa` his age minus hers,
   `K = 16 · ln(odds)`, `G = gumbel` of (PAIRING_NOISE = 21, her key, `n`, his key); the
   largest `U` wins, a tie the earlier in the list; if he has no open partnership now the
@@ -202,6 +204,22 @@ What the model knows:
   search draw keeps `DRAW_MARGIN` from its chance and the best utility `UTILITY_MARGIN`
   from every other, so the pinned libm of the core makes the same choices.
   `market=False` (a switch of this reference only) plans no round: the null twin.
+- The direct line (ADR-0018 section 8, addendum of 2026-10-24; Grok, round 33, P1; core 48):
+  two persons are in direct line iff one is an ancestor of the other by mother and father
+  edges at any depth, through persons of the town, persons of the pool and records of the
+  pool alike (the edges of `kin_of`, those of `φ`); social and foster parents are no
+  edges. Such relatives are never a couple, whatever `φ` (beyond the depth of `φ` too):
+  `ArrangePartnership` is rejected with `partners_in_direct_line` (36, the last reject
+  code) after the market age and before `φ`, so a parent and child or a grandparent and
+  grandchild get this code and not `partners_too_closely_related`; the market skips such a
+  man as one with `φ ≥ 1/8`, he takes none of her `k` places. The check
+  (`direct_line_by_keys`) walks up from the younger of the two (the greater `(order, key)`,
+  as in `kinship_by_keys`) by mother and father and does not follow a person who is not
+  younger than the older one (every parent is strictly older than its child); no draw, no
+  state, no cache. Every answer is checked against `direct_line_by_definition` (every
+  ancestor of each at any depth, without the bound). The load checks are unchanged
+  (`check_market`): the partnerships an arrival brings from the pool stand as they are;
+  `_partner` asserts the rule for every pairing of the town.
 - Similarity (genetics specification 11.2, design note of the similarity): the calibration
   (format 7) names `cognition_trait` and `height_trait`, each a trait of the map with
   phenotype weights or none. For a named trait the utility gets its term before the age
@@ -659,8 +677,12 @@ FOUNDER_ALLELE = 28
 # The inheritance columns of the yearly census (the same addendum: the switch, the affected
 # per disease, the mean heights of the adults and of those aged 25, the newborns' mean
 # inbreeding; tools/census_reference.py): output only, core 45, the projection stays 18.
+# Relatives in direct line are never a couple (ADR-0018 section 8, addendum of 2026-10-24): a
+# market that skips such a relative chooses from other twelve and an arrangement that was
+# accepted is rejected, a new rule without a new field: core 48 (ADR-0003 6.4), the projection
+# stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 47
+CORE_VERSION = 48
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -745,6 +767,9 @@ PARTNER_TOO_YOUNG, PARTNERS_TOO_CLOSELY_RELATED = 21, 22
 # begun, a template the data do not know, a year that already has a hunger.
 NOT_STARTED, NUTRITION_OUT_OF_RANGE, NUTRITION_YEAR_PAST = 4, 19, 20
 END_OF_TIME, SHOCK_UNKNOWN, SHOCK_OVERLAPS = 31, 34, 35
+# Relatives in direct line (ADR-0018 section 8): the code of `ArrangePartnership`, at the end
+# of the list (after shock_overlaps, 35).
+PARTNERS_IN_DIRECT_LINE = 36
 # `TriggerShock { shock }` (ADR-0023 section 3): input variant 4 (after SetWorldParam, 3), the
 # log payload `core:shock_triggered { shock, first_year, last_year }` (after
 # core:disease_onset, 14: the template's ID as a string, then two i64).
@@ -774,6 +799,7 @@ REJECT_NAMES = {
     UNKNOWN_FOUNDER: "unknown_founder",
     PARTNER_TOO_YOUNG: "partner_too_young",
     PARTNERS_TOO_CLOSELY_RELATED: "partners_too_closely_related",
+    PARTNERS_IN_DIRECT_LINE: "partners_in_direct_line",
 }
 # EndedBy (design note of the separation, section 2): the variant index after the time;
 # Emigration appended (design note of the emigration, section 5).
@@ -3091,8 +3117,10 @@ class World:
         assert self.sims[woman][2] == FEMALE and self.sims[man][2] == MALE
         assert self.partner_of(woman) is None and self.open_partnership(man) is None
         # Partnerships never begin below the market age, never between close kin (design
-        # note of the market, section 4; ADR-0018 section 5).
+        # note of the market, section 4; ADR-0018 section 5), never in direct line, whatever
+        # `φ` (ADR-0018 section 8).
         assert all(now - self.sims[sim][0] >= self.data.market_age * YEAR for sim in (woman, man))
+        assert not self.in_direct_line(woman, man)
         assert self.kinship(woman, man) < Fraction(self.data.kinship_limit)
         number_ = self.next_partnership_id
         self.next_partnership_id += 1
@@ -3570,6 +3598,17 @@ class World:
             self.kinships[pair] = kinship_by_keys(kx, ky, self.kin_of)[0]
         return self.kinships[pair]
 
+    def in_direct_line(self, x: int, y: int) -> bool:
+        """Whether one of two persons, living or archived, is an ancestor of the other by
+        mother and father edges at any depth (ADR-0018 section 8): `direct_line_by_keys` over
+        their lineage keys with `kin_of` (persons of the town, persons of the pool and records
+        of the pool alike; social and foster parents are no edges), checked against
+        `direct_line_by_definition`. Nothing is held: no cache, no state."""
+        kx, ky = self.key_of(x), self.key_of(y)
+        found = direct_line_by_keys(kx, ky, self.kin_of)
+        assert found == direct_line_by_definition(kx, ky, self.kin_of), (x, y)
+        return found
+
     def kin_of(self, key: int) -> tuple:
         """`(order, mother, father)` of a lineage key (design note of the arrival, section 7):
         an arrival (living or archived) `(0, born_pool)` with its PoolOrigin keys; a pool child
@@ -3657,8 +3696,9 @@ class World:
         """A round at `now` (design note of the market, section 3), `n = now / MONTH`: the
         single men in the market age, held for the round; the single women in it who
         search (MARKET_SEARCH); their order (MARKET_ORDER); per searcher in turn her
-        candidates (PAIRING_RANK, skipping `φ ≥ 1/8`, up to `k`), the utility and the
-        choice; a pairing if the chosen man has no open partnership now."""
+        candidates (PAIRING_RANK, skipping a relative in direct line and `φ ≥ 1/8`, up to
+        `k`), the utility and the choice; a pairing if the chosen man has no open
+        partnership now."""
         data = self.data
         n = now // MONTH
         assert now == n * MONTH and n >= 1
@@ -3694,21 +3734,26 @@ class World:
 
     def _choose(self, woman: int, men: list, now: int, n: int, plan: bytes) -> dict:
         """Her candidates, the utilities and her choice (design note of the market, section
-        3, steps 4 to 6); the record of it."""
+        3, steps 4 to 6); the record of it. A man of the walk is skipped if he is her
+        relative in direct line (ADR-0018 section 8; `line` lists them, whatever their `φ`)
+        or if `φ ≥ 1/8`; a skipped man takes none of the `k` places."""
         data = self.data
         her_key, her_born = self.key_of(woman), self.sims[woman][0]
         by_key = {self.key_of(man): man for man in men}
-        walked, kept = [], []
+        walked, kept, line = [], [], []
         for key in ranked(self.seed, PAIRING_RANK, her_key, n, list(by_key)):
             if len(kept) == data.market_candidates:
                 break
             man = by_key[key]
             phi = self.kinship(woman, man)
-            skipped = phi >= Fraction(data.kinship_limit)
+            direct = self.in_direct_line(woman, man)
+            if direct:
+                line.append(man)
+            skipped = direct or phi >= Fraction(data.kinship_limit)
             walked.append((man, phi, skipped))
             if not skipped:
                 kept.append(man)
-        record = {"woman": woman, "walked": walked, "candidates": [], "chosen": None, "outcome": "no candidate", "terms": []}
+        record = {"woman": woman, "walked": walked, "line": line, "candidates": [], "chosen": None, "outcome": "no candidate", "terms": []}
         if not kept:
             return record
         # Her phenotypes once (design note of the similarity, section 2), each candidate's
@@ -3753,7 +3798,8 @@ class World:
         (ADR-0004 section 4; design note of the market, section 4): the existing checks in
         their order, each for both (unknown, not alive, the sexes, already partnered), then
         `PartnerTooYoung` (either under the market age in the second the input acts, the
-        stamp plus one), then `PartnersTooCloselyRelated` (`φ ≥ 1/8`)."""
+        stamp plus one), then `PartnersInDirectLine` (one an ancestor of the other, at any
+        depth; ADR-0018 section 8), then `PartnersTooCloselyRelated` (`φ ≥ 1/8`)."""
         acts = self.closed + 1
         pair = (woman, man)
         if any(sim not in self.sims and sim not in self.archive for sim in pair):
@@ -3766,6 +3812,8 @@ class World:
             return ALREADY_PARTNERED
         if any(acts - self.sims[sim][0] < self.data.market_age * YEAR for sim in pair):
             return PARTNER_TOO_YOUNG
+        if self.in_direct_line(woman, man):
+            return PARTNERS_IN_DIRECT_LINE
         if self.kinship(woman, man) >= Fraction(self.data.kinship_limit):
             return PARTNERS_TOO_CLOSELY_RELATED
         return None
@@ -4883,6 +4931,54 @@ def kinship_by_keys(x, y, kin, depth=KINSHIP_DEPTH) -> tuple:
 
     value = rec(x, y)
     return value, s, set(memo)
+
+
+def direct_line_by_keys(x, y, kin) -> bool:
+    """Whether `x` and `y` (two different keys) are relatives in direct line, one an
+    ancestor of the other by mother and father edges at any depth (ADR-0018 section 8,
+    "Prüfung"), generic in its key as `kinship_by_keys` (`kin(key)` gives `(order, mother,
+    father)`): from the younger of the two (the greater `(order, key)`) up by mother and
+    father; a person who is not younger than the older one is not followed, since each of
+    its parents is strictly older than it (`parent_not_older`, asserted on the way). Two
+    persons of a small age gap end after one step. No draw, nothing held."""
+    assert x != y
+    looked = {}
+
+    def entry(key):
+        if key not in looked:
+            looked[key] = kin(key)
+        return looked[key]
+
+    young, old = (x, y) if (entry(x)[0], x) > (entry(y)[0], y) else (y, x)
+    bound = (entry(old)[0], old)
+    frontier, seen = [young], {young}
+    while frontier:
+        person = frontier.pop()
+        for parent in entry(person)[1:]:
+            if parent is None or parent in seen:
+                continue
+            assert entry(parent)[0] < entry(person)[0], "parent_not_older"
+            if parent == old:
+                return True
+            seen.add(parent)
+            if (entry(parent)[0], parent) > bound:
+                frontier.append(parent)
+    return False
+
+
+def direct_line_by_definition(x, y, kin) -> bool:
+    """The definition of the direct line without the bound of the walk (ADR-0018 section 8):
+    every ancestor of `x` and of `y` by mother and father at any depth; one is among the
+    other's. The independent check of `direct_line_by_keys`."""
+
+    def ancestors(key) -> set:
+        found, frontier = set(), {key}
+        while frontier:
+            frontier = {parent for person in frontier for parent in kin(person)[1:] if parent is not None} - found
+            found |= frontier
+        return found
+
+    return y in ancestors(x) or x in ancestors(y)
 
 
 def first_birthday(born: int, now: int) -> int:
@@ -6080,7 +6176,10 @@ if __name__ == "__main__":
         f"event kind market_round {MARKET_ROUND_KIND} class {GENERAL} subject world {WORLD_SUBJECT}"
         f" payload {MARKET_ROUND_PAYLOAD.hex()} period {MONTH}"
     )
-    print(f"reject partner_too_young {PARTNER_TOO_YOUNG} partners_too_closely_related {PARTNERS_TOO_CLOSELY_RELATED}")
+    print(
+        f"reject partner_too_young {PARTNER_TOO_YOUNG} partners_too_closely_related {PARTNERS_TOO_CLOSELY_RELATED}"
+        f" partners_in_direct_line {PARTNERS_IN_DIRECT_LINE}"
+    )
     for name, data in (("map3", MAP3), ("fork", FORK_DATA)):
         print(
             f"market_{name} age {data.market_age} c {data.market_height!r} m {data.market_center!r}"
