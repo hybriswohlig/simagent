@@ -923,7 +923,7 @@ fn a_person_is_the_cores_presentation_state() {
         let mut expected = serde_json::to_value(&view).expect("JSON");
         let fields = expected.as_object_mut().expect("an object");
         fields.insert("format".into(), "simagent.view.person".into());
-        fields.insert("version".into(), 1.into());
+        fields.insert("version".into(), 2.into());
         fields.insert(
             "contract_version".into(),
             sim_core::body_contract::CONTRACT_VERSION.into(),
@@ -935,6 +935,10 @@ fn a_person_is_the_cores_presentation_state() {
         fields.insert("partner_candidates".into(), partners.into());
         let card = world.genetics_card(id).expect("a card");
         fields.insert("card".into(), serde_json::to_value(card).expect("JSON"));
+        fields.insert(
+            "ages".into(),
+            serde_json::to_value(world.ages()).expect("JSON"),
+        );
         assert_eq!(json_of(&body), expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -991,6 +995,23 @@ fn a_person_with_its_kinship_to_another() {
     assert_eq!(partners(8), json!([4]));
     assert_eq!(partners(4), json!([8]));
     assert_eq!(partners(13), json!([]));
+    // The ages of the living at the run's last second 943 487 999, in whole years of
+    // 31 449 600 seconds, by hand from the births of the golden pedigree (Grok's round 33, P3
+    // and P4): 2 born −794 880 000, 4 −628 992 000, 8 41 126 400, 10 101 606 400, 12
+    // 203 212 800, 13 662 860 800.
+    let answer = json_of(&get(server.port, "/api/runs/dummy/persons/13").2);
+    assert_eq!(answer["version"], 2);
+    assert_eq!(
+        answer["ages"],
+        json!([
+            {"sim": 2, "age_years": 55},
+            {"sim": 4, "age_years": 49},
+            {"sim": 8, "age_years": 28},
+            {"sim": 10, "age_years": 26},
+            {"sim": 12, "age_years": 23},
+            {"sim": 13, "age_years": 8}
+        ])
+    );
     // Without a query the answer stays as it was.
     let (_, _, plain) = get(server.port, "/api/runs/dummy/persons/13");
     let plain = json_of(&plain);
