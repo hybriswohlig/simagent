@@ -55,23 +55,24 @@ fn the_scenario_follows_the_decisions_by_hand() {
             loci, order,
             "founder {n} names every locus in the map's order"
         );
-        // B1, B5, B6: the base of every variant.
-        assert_eq!(named(founder, "core:growth_01"), &serde_json::json!([0, 1]));
-        assert_eq!(
-            named(founder, "core:disease_liability_03"),
-            &serde_json::json!([0, 0])
-        );
-        assert_eq!(
-            named(founder, "core:disease_ar"),
-            &serde_json::json!([0, 0])
-        );
-        assert_eq!(named(founder, "core:disease_mt"), &serde_json::json!([0]));
-        let x = if sex == "female" {
-            serde_json::json!([0, 0])
-        } else {
-            serde_json::json!([0])
-        };
-        assert_eq!(named(founder, "core:disease_xr"), &x);
+        // B1, B5, B6, every locus but those of B2 to B4: an additive autosomal locus but the
+        // liability loci one copy of each allele, every other one the reference allele, one
+        // copy on the mt and on a man's X.
+        for locus in map["loci"].as_array().expect("loci") {
+            let id = locus["id"].as_str().expect("an id");
+            if id.starts_with("core:puberty_") || id == "core:mc1r" || id == "core:herc2" {
+                continue;
+            }
+            let additive = locus["action"].get("additive").is_some();
+            let expected = match (locus["chromosome"].as_str().expect("a chromosome"), sex) {
+                ("mt", _) | ("x", "male") => serde_json::json!([0]),
+                ("autosome", _) if additive && !id.starts_with("core:disease_liability_") => {
+                    serde_json::json!([0, 1])
+                }
+                _ => serde_json::json!([0, 0]),
+            };
+            assert_eq!(named(founder, id), &expected, "founder {n} {id}");
+        }
     }
     // B2 to B4 and B8: early, base, late, red, light iris.
     let variant = |n: usize| &founders[n];
@@ -142,5 +143,6 @@ fn the_run_shows_every_founder_at_the_seven_ages() {
             .collect();
         assert_eq!(ages, [2, 8, 12, 16, 25, 40, 60], "founder {n}");
         assert_eq!(view.shown.at.age_years, 61, "founder {n}");
+        assert!(view.ended.is_none(), "founder {n} lives at the second 0");
     }
 }
