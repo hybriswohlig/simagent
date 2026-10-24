@@ -1028,6 +1028,7 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::ParamUnchanged,
         RejectCode::ShockUnknown,
         RejectCode::ShockOverlaps,
+        RejectCode::PartnersInDirectLine,
     ];
     for code in &codes {
         match code {
@@ -1066,7 +1067,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::ParamNotSettable
             | RejectCode::ParamUnchanged
             | RejectCode::ShockUnknown
-            | RejectCode::ShockOverlaps => {}
+            | RejectCode::ShockOverlaps
+            | RejectCode::PartnersInDirectLine => {}
         }
     }
     codes

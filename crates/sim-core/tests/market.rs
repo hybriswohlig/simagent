@@ -299,6 +299,27 @@ fn an_arrangement_needs_the_market_age_and_no_close_kin() {
     );
 }
 
+/// Relatives in direct line are never paired (ADR-0018 section 8, Grok's round 33, P1): the
+/// check comes after the market age and before φ, so a woman and her grandson (φ = 1/8)
+/// get their own code. Founder 1 and her grandson 31 are both single and of age at second
+/// 1 214 438 399, the first such pair of the scenario's forty years in its reference
+/// (`tools/world_reference.py`, the market world of `tools/state_reference.py`).
+#[test]
+fn an_arrangement_in_direct_line_is_rejected() {
+    let mut run = Run::market();
+    run.advance(1_214_438_399);
+    let arranged = Input::ArrangePartnership(ArrangePartnership {
+        woman: sim(1),
+        man: sim(31),
+    });
+    assert_eq!(
+        run.world.submit(arranged).err(),
+        Some(InputRejected {
+            code: RejectCode::PartnersInDirectLine
+        })
+    );
+}
+
 /// Saving and loading between rounds changes nothing: the kinship cache starts empty after
 /// a load (ADR-0018 section 2) and every φ comes out the same.
 #[test]
