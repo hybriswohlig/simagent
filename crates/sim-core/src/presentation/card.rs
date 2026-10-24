@@ -276,6 +276,7 @@ impl World {
         let environment = Environment {
             individual: &individual,
             shared: &shared,
+            neutral: false,
         };
         let parts = phenotype_parts(
             environment,
@@ -432,6 +433,7 @@ impl World {
         let environment = Environment {
             individual: &individual,
             shared: &shared,
+            neutral: false,
         };
         let lines = (data.diseases().iter())
             .filter_map(|disease| {

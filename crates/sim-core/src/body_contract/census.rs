@@ -44,7 +44,7 @@ pub(crate) fn count(
     };
     for sim in domain.sims.keys() {
         let nutrition = nutrition_of(domain, *sim, world);
-        let inputs = inputs_of(domain, data, &body, *sim, t, &nutrition)
+        let inputs = inputs_of(domain, data, &body, (*sim, t), &nutrition, false)
             .unwrap_or_else(|| panic!("invariant census.body_inputs"));
         let evaluation = body_params(&body, &inputs);
         measured(*sim, evaluation.params.get(BodyParamKey::HeightCm));

@@ -64,15 +64,16 @@ fn bio_age(data: &Data, sex: Sex, genome: &crate::genome::Genome, age: SimDurati
 }
 
 /// The mapping's inputs of a sim at `t`, living or archived (the archive keeps its birth,
-/// sex, genome and key), with the nutrition years `nutrition` (see `nutrition_of`); `None`
-/// for an unknown sim or a `t` before its birth.
+/// sex, genome and key), with the nutrition years `nutrition` (see `nutrition_of`), without
+/// environment if `neutral` (the sheet of portraits); `None` for an unknown sim or a `t`
+/// before its birth.
 pub(crate) fn inputs_of<'a>(
     domain: &DomainState,
     data: &Data,
     body: &BodyData<'_>,
-    sim: SimId,
-    t: SimTime,
+    (sim, t): (SimId, SimTime),
     nutrition: &'a [NutritionYear],
+    neutral: bool,
 ) -> Option<BodyInputs<'a>> {
     let (born, sex, genome, key) = match domain.sims.get(&sim) {
         Some(person) => (person.born, person.sex, &person.genome, person.lineage_key),
@@ -91,6 +92,7 @@ pub(crate) fn inputs_of<'a>(
         Environment {
             individual: &individual,
             shared: &shared,
+            neutral,
         },
         genome,
         key,
@@ -107,6 +109,16 @@ impl WorldState {
     /// body data in the data, for an unknown sim or before its birth. One entry for the
     /// census, the tests and the presentation state of step 12.
     pub fn body_at(&self, sim: SimId, t: SimTime) -> Option<BodyEvaluation> {
+        self.body_with(sim, t, false)
+    }
+
+    /// The body of a sim at `t` without environment, `C = 0` and `E = 0` (the sheet of
+    /// portraits, ADR-0021 G10, Grok's round 37, B7 b); otherwise as `body_at`.
+    pub fn neutral_body_at(&self, sim: SimId, t: SimTime) -> Option<BodyEvaluation> {
+        self.body_with(sim, t, true)
+    }
+
+    fn body_with(&self, sim: SimId, t: SimTime, neutral: bool) -> Option<BodyEvaluation> {
         let data = self.data();
         let body = BodyData::new(data).ok()?;
         let domain = self.domain();
@@ -115,7 +127,7 @@ impl WorldState {
             .as_ref()
             .map_or(&[][..], |params| params.nutrition.as_slice());
         let nutrition = nutrition_of(domain, sim, world);
-        let inputs = inputs_of(domain, data, &body, sim, t, &nutrition)?;
+        let inputs = inputs_of(domain, data, &body, (sim, t), &nutrition, neutral)?;
         Some(body_params(&body, &inputs))
     }
 }

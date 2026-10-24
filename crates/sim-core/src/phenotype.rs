@@ -16,6 +16,10 @@ use crate::time::SimDuration;
 pub struct Environment<'a> {
     pub individual: &'a Draws,
     pub shared: &'a Draws,
+    /// The sheet of portraits (ADR-0021 G10, Grok's round 37, B7 b): `C = 0` and `E = 0`,
+    /// so the same genes in two persons give the same phenotype. A way of the presentation
+    /// only; every run draws both environments.
+    pub neutral: bool,
 }
 
 impl<'a> Environment<'a> {
@@ -24,6 +28,17 @@ impl<'a> Environment<'a> {
         Environment {
             individual: draws,
             shared: draws,
+            neutral: false,
+        }
+    }
+
+    /// No environment: `C = 0` and `E = 0` (the sheet of portraits); the draws are never
+    /// read.
+    pub const fn neutral(draws: &'a Draws) -> Environment<'a> {
+        Environment {
+            individual: draws,
+            shared: draws,
+            neutral: true,
         }
     }
 }
@@ -124,8 +139,14 @@ pub fn phenotype_parts(
     let h2 = h2_child + (h2_adult - h2_child) * s;
     let c2 = c2_child + (c2_adult - c2_child) * s;
     let e2 = (1.0 - h2) - c2;
-    let c = shared_environment(environment.shared, t, own, parents);
-    let e = individual_environment(environment.individual, t, own);
+    let (c, e) = if environment.neutral {
+        (0.0, 0.0)
+    } else {
+        (
+            shared_environment(environment.shared, t, own, parents),
+            individual_environment(environment.individual, t, own),
+        )
+    };
     let root_h2 = sim_math::sqrt(held(h2));
     Some(PhenotypeParts {
         root_h2,

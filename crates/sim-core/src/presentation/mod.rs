@@ -101,6 +101,17 @@ impl World {
     /// The presentation state of `sim`, living or archived; `None` for an unknown sim or
     /// data without the body. "Now" is the last closed second of the world.
     pub fn person_view(&self, sim: SimId) -> Option<PersonView> {
+        self.view_with(sim, false)
+    }
+
+    /// The presentation state of `sim` with its bodies without environment, `C = 0` and
+    /// `E = 0`, so the same genes give the same bodies (the sheet of portraits, ADR-0021 G10,
+    /// Grok's round 37, B7 b); otherwise as `person_view`.
+    pub fn neutral_person_view(&self, sim: SimId) -> Option<PersonView> {
+        self.view_with(sim, true)
+    }
+
+    fn view_with(&self, sim: SimId, neutral: bool) -> Option<PersonView> {
         let domain = self.state().domain();
         let (born, end) = match domain.sims.get(&sim) {
             Some(person) => (person.born, None),
@@ -115,7 +126,13 @@ impl World {
         };
         let last = end.map_or_else(|| self.closed_through(), |(left, _)| left);
         let shown_at = |t: SimTime| -> Option<Shown> {
-            let body = self.state().body_at(sim, t)?.params;
+            let state = self.state();
+            let body = if neutral {
+                state.neutral_body_at(sim, t)
+            } else {
+                state.body_at(sim, t)
+            }?
+            .params;
             Some(Shown {
                 at: moment(born, t)?,
                 body,

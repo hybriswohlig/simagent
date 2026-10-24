@@ -93,6 +93,7 @@ pub(crate) fn afflictions(
                     crate::phenotype::Environment {
                         individual: &individual,
                         shared: &shared,
+                        neutral: false,
                     },
                     data,
                     genome,
