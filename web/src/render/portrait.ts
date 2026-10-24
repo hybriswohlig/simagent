@@ -11,28 +11,38 @@ import { gridColor, mixColor, rampColor } from "./color.js";
 /** One shape of the bust, drawn in this order. */
 export type Shape =
   | { kind: "ellipse"; part: Part; cx: number; cy: number; rx: number; ry: number; fill: string; opacity: number }
-  | { kind: "path"; part: Part; d: string; fill: string; opacity: number }
+  | { kind: "path"; part: Part; d: string; fill: string; stroke: string; width: number; opacity: number }
   | { kind: "line"; part: Part; x1: number; y1: number; x2: number; y2: number; stroke: string; width: number; opacity: number };
 
 export type Part =
   | "torso"
+  | "breast"
   | "neck"
   | "head"
   | "hair"
   | "rim"
   | "sclera"
   | "iris"
+  | "pupil"
   | "brow"
   | "freckle"
+  | "spot"
   | "wrinkle"
+  | "laxity"
   | "beard"
   | "moustache"
   | "mouth";
 
 /** The grey that hair turns to with `hair_grey_fraction` 1. */
 const GREY = "#c4c4c4";
-/** The colour freckles lean to from the skin. */
+/** The colour freckles and age spots lean to from the skin. */
 const FRECKLE = "#6b3a1f";
+/** The pupil. */
+const PUPIL = "#1a1410";
+/** Places of age spots on forehead and cheeks, relative to the head (Grok's round 39, R2). */
+const SPOT_PLACES: readonly (readonly [number, number])[] = [
+  [-0.2, -0.46], [0.16, -0.38], [-0.46, 0.2], [0.48, 0.14], [-0.3, 0.36], [0.28, 0.42],
+];
 /** Places of freckles over nose and cheeks, relative to the head (x and y in -1 to 1). */
 const FRECKLE_PLACES: readonly (readonly [number, number])[] = [
   [-0.42, 0.18], [0.42, 0.18], [-0.3, 0.24], [0.3, 0.24], [-0.52, 0.28], [0.52, 0.28],
@@ -70,23 +80,32 @@ export function bust(params: BodyParams): Shape[] {
   const cy = 18 + ry;
   const chin = cy + ry;
 
-  // The torso: shoulders by their width, muscle and fat, narrower before the body matures.
+  // The torso: shoulders by their width, muscle and fat, narrower before the body matures,
+  // broader with the androgenic development (Grok's round 39, R2).
+  const androgenic = v("androgenic_development");
   const half =
-    32 * (1 + 0.05 * v("shoulder_width_z") + 0.03 * v("muscle_z") + 0.03 * v("body_fat_z")) * (0.7 + 0.3 * body);
+    32 *
+    (1 + 0.05 * v("shoulder_width_z") + 0.03 * v("muscle_z") + 0.03 * v("body_fat_z")) *
+    (0.7 + 0.3 * body) *
+    (1 + 0.12 * androgenic);
   const top = Math.min(chin + 8, 104);
   const chest = 6 * v("breast_development");
   const torso = `M ${50 - half} 120 Q ${50 - half} ${top} 50 ${top} Q ${50 + half} ${top} ${50 + half} 120 Z`;
   const bustLine = `M ${50 - half * 0.55} ${top + 12} q ${half * 0.275} ${chest} ${half * 0.55} 0 q ${half * 0.275} ${chest} ${half * 0.55} 0`;
 
   const shapes: Shape[] = [
-    { kind: "path", part: "torso", d: torso, fill: skin, opacity: 1 },
+    { kind: "path", part: "torso", d: torso, fill: skin, stroke: "none", width: 0, opacity: 1 },
     {
-      kind: "ellipse", part: "neck", cx, cy: (chin + top) / 2, rx: rx * 0.42, ry: (top - chin) / 2 + 3,
-      fill: skin, opacity: 1,
+      kind: "ellipse", part: "neck", cx, cy: (chin + top) / 2, rx: rx * 0.42 * (1 + 0.15 * androgenic),
+      ry: (top - chin) / 2 + 3, fill: skin, opacity: 1,
     },
   ];
+  // The breast as a line in the skin's tone, as strong as its development.
   if (chest > 0) {
-    shapes.push({ kind: "path", part: "torso", d: bustLine, fill: "none", opacity: 0.1 * chest });
+    shapes.push({
+      kind: "path", part: "breast", d: bustLine, fill: "none", stroke: mixColor(skin, "#5a2a2a", 0.55), width: 1,
+      opacity: v("breast_development"),
+    });
   }
   shapes.push({ kind: "ellipse", part: "head", cx, cy, rx, ry, fill: skin, opacity: 1 });
 
@@ -117,7 +136,8 @@ export function bust(params: BodyParams): Shape[] {
   for (const side of [-1, 1]) {
     const x = cx + side * rx * 0.38;
     shapes.push({ kind: "ellipse", part: "sclera", cx: x, cy: eyeY, rx: 3.4, ry: 2.2, fill: "#f4f1ec", opacity: 1 });
-    shapes.push({ kind: "ellipse", part: "iris", cx: x, cy: eyeY, rx: 1.6, ry: 1.6, fill: iris, opacity: 1 });
+    shapes.push({ kind: "ellipse", part: "iris", cx: x, cy: eyeY, rx: 2.2, ry: 2.2, fill: iris, opacity: 1 });
+    shapes.push({ kind: "ellipse", part: "pupil", cx: x, cy: eyeY, rx: 0.8, ry: 0.8, fill: PUPIL, opacity: 1 });
     shapes.push({
       kind: "line", part: "brow", x1: x - 3.6, y1: eyeY - 4.6, x2: x + 3.6, y2: eyeY - 5.2,
       stroke: hair, width: 1.3, opacity: v("eyebrow_density"),
@@ -131,20 +151,46 @@ export function bust(params: BodyParams): Shape[] {
 
   // Freckles over nose and cheeks, as many of the places as the density says.
   const freckles = Math.round(v("freckle_density") * FRECKLE_PLACES.length);
-  const freckle = mixColor(skin, FRECKLE, 0.45);
+  const freckle = mixColor(skin, FRECKLE, 0.7);
   for (const [fx, fy] of FRECKLE_PLACES.slice(0, freckles)) {
-    shapes.push({ kind: "ellipse", part: "freckle", cx: cx + fx * rx, cy: cy + fy * ry, rx: 0.6, ry: 0.6, fill: freckle, opacity: 0.8 });
+    shapes.push({ kind: "ellipse", part: "freckle", cx: cx + fx * rx, cy: cy + fy * ry, rx: 1.1, ry: 1.1, fill: freckle, opacity: 0.9 });
   }
 
-  // Wrinkles across the forehead.
+  // Age spots on forehead and cheeks, as strong as their value.
+  const spots = v("age_spots");
+  if (spots > 0) {
+    const spot = mixColor(skin, FRECKLE, 0.6);
+    for (const [sx, sy] of SPOT_PLACES) {
+      shapes.push({ kind: "ellipse", part: "spot", cx: cx + sx * rx, cy: cy + sy * ry, rx: 2, ry: 2, fill: spot, opacity: spots });
+    }
+  }
+
+  // The lines of age (Grok's round 39, R2): three across the forehead, two crow's feet at
+  // each eye's outer corner, a fold from each side of the nose to the mouth, all as strong
+  // as the wrinkles; a line under the chin and one down each cheek as strong as the laxity.
+  const line = mixColor(skin, "#000000", 0.35);
+  const stroke = (part: Part, opacity: number) => (x1: number, y1: number, x2: number, y2: number): Shape => ({
+    kind: "line", part, x1, y1, x2, y2, stroke: line, width: 0.7, opacity,
+  });
   const wrinkles = v("face_wrinkles");
   if (wrinkles > 0) {
-    for (const row of [0, 1]) {
-      const y = cy - ry * (0.5 - 0.1 * row);
-      shapes.push({
-        kind: "line", part: "wrinkle", x1: cx - rx * 0.4, y1: y, x2: cx + rx * 0.4, y2: y,
-        stroke: mixColor(skin, "#000000", 0.35), width: 0.5, opacity: wrinkles,
-      });
+    const wrinkle = stroke("wrinkle", wrinkles);
+    for (const at of [0.56, 0.46, 0.36]) {
+      shapes.push(wrinkle(cx - rx * 0.4, cy - ry * at, cx + rx * 0.4, cy - ry * at));
+    }
+    for (const side of [-1, 1]) {
+      const corner = cx + side * (rx * 0.38 + 3.6);
+      shapes.push(wrinkle(corner, eyeY - 0.6, corner + side * 2.4, eyeY - 1.8));
+      shapes.push(wrinkle(corner, eyeY + 0.6, corner + side * 2.4, eyeY + 1.8));
+      shapes.push(wrinkle(cx + side * rx * 0.14, cy + ry * 0.22, cx + side * rx * 0.3, cy + ry * 0.46));
+    }
+  }
+  const laxity = v("skin_laxity");
+  if (laxity > 0) {
+    const sag = stroke("laxity", laxity);
+    shapes.push(sag(cx - rx * 0.34, chin + 2, cx + rx * 0.34, chin + 2));
+    for (const side of [-1, 1]) {
+      shapes.push(sag(cx + side * rx * 0.58, cy + ry * 0.25, cx + side * rx * 0.4, cy + ry * 0.62));
     }
   }
 
@@ -156,7 +202,7 @@ export function bust(params: BodyParams): Shape[] {
     const wide = rx * (0.3 + 0.55 * coverage);
     const top = cy + ry * (0.62 - 0.42 * coverage);
     const jaw = `M ${cx - wide} ${top} Q ${cx} ${chin + ry * 0.3} ${cx + wide} ${top} Q ${cx} ${chin - ry * 0.1} ${cx - wide} ${top} Z`;
-    shapes.push({ kind: "path", part: "beard", d: jaw, fill: hair, opacity: beard });
+    shapes.push({ kind: "path", part: "beard", d: jaw, fill: hair, stroke: "none", width: 0, opacity: beard });
     shapes.push({
       kind: "ellipse", part: "moustache", cx, cy: mouthY - 2, rx: rx * 0.3, ry: 1.2, fill: hair, opacity: beard,
     });
