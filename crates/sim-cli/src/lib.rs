@@ -221,8 +221,6 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
     Ok(world)
 }
 
-/// Where the switch of the hereditary diseases of the run in `dir` stands after its last
-/// input, as `simagent view` sends it (ADR-0023 section 6 and its addendum before S2).
 /// The scenario of the sheet of portraits (ADR-0021 G10 and its addendum of 2026-10-24),
 /// written by `tools/sheet_reference.py`.
 const SHEET: &str = include_str!("../../../data/scenarios/bogen.json");
@@ -235,9 +233,20 @@ const SHEET_VARIANTS: [&str; 5] = ["early", "base", "late", "red", "light_iris"]
 /// memory to its end, and per founder its variant, its sex and its bodies without
 /// environment at the ages of the sheet (Grok's round 37, B7 b).
 pub fn sheet_answer() -> Result<serde_json::Value, CliError> {
+    let invalid = |detail: &str| CliError::new("scenario_invalid", detail);
     let scenario = resolve(scenario_file(SHEET)?, data::core_data)?;
-    let mut world = World::new(data::core_data()?);
+    if before_the_start(scenario.until) {
+        return Err(invalid("the sheet's scenario ends before its start"));
+    }
     let founders = scenario.start.founders.clone();
+    // Each variant names a woman and a man, in this order: a founder more or less would go
+    // without its name.
+    if founders.len() != 2 * SHEET_VARIANTS.len() {
+        return Err(invalid(
+            "the sheet's scenario has not two founders per variant",
+        ));
+    }
+    let mut world = World::new(data::core_data()?);
     world
         .submit(Input::Start(scenario.start))
         .map_err(|rejected| CliError::new("input_rejected", format!("{:?}", rejected.code)))?;
@@ -273,6 +282,8 @@ pub fn sheet_answer() -> Result<serde_json::Value, CliError> {
     }))
 }
 
+/// Where the switch of the hereditary diseases of the run in `dir` stands after its last
+/// input, as `simagent view` sends it (ADR-0023 section 6 and its addendum before S2).
 pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
     let params = (load_world(dir)?.state().world_params())
         .ok_or_else(|| CliError::new("save_rejected", "the world of the save has not started"))?;
