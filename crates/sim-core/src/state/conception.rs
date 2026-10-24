@@ -79,6 +79,7 @@ impl Person<'_> {
             phenotype::Environment {
                 individual: &individual,
                 shared: &shared,
+                neutral: false,
             },
             data,
             self.genome,

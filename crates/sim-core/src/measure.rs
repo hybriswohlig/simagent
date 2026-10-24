@@ -137,6 +137,7 @@ impl WorldState {
             Environment {
                 individual: &individual,
                 shared: &shared,
+                neutral: false,
             },
             data,
             genome,

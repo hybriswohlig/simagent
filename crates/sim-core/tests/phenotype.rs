@@ -389,3 +389,41 @@ fn the_sex_difference_reads_the_calibration() {
         assert!((after - (1.2 * z + 0.93)).abs() < 1e-12, "{z}");
     }
 }
+
+/// The neutral environment of the sheet of portraits (ADR-0021 G10, Grok's round 37, B7 b):
+/// `C = 0` and `E = 0`, so `z = √h² · G` at every age, written out as section 4 with both
+/// environments 0; its parts carry no environment.
+#[test]
+fn the_neutral_environment_is_the_genetic_part_alone() {
+    let data = fixture();
+    let draws = Draws::new(WorldSeed::new(0x5eed_0000_0000_0042));
+    let genome = woman(&data);
+    let (mother, father, own) = (founder(1), founder(2), founder(3));
+    let parents = Some(Parents { mother, father });
+    let g = |t: &str| genome.genetic_value(&id(t), &data).expect("a trait");
+    for (age, x) in [
+        (YEAR * 12, 12.0),
+        (SimDuration::from_secs(0), 0.0),
+        (YEAR * 30, 30.0),
+    ] {
+        for (t, weights) in [("test:mood", MOOD), ("test:face", FACE)] {
+            let parts = sim_core::phenotype::phenotype_parts(
+                sim_core::phenotype::Environment::neutral(&draws),
+                &data,
+                &genome,
+                own,
+                parents,
+                &id(t),
+                age,
+            )
+            .expect("a phenotype");
+            assert_eq!(parts.shared.to_bits(), 0.0_f64.to_bits(), "{t} at {x}");
+            assert_eq!(parts.individual.to_bits(), 0.0_f64.to_bits(), "{t} at {x}");
+            assert_eq!(
+                parts.z().to_bits(),
+                by_hand(weights, x, g(t), 0.0, 0.0).to_bits(),
+                "{t} at {x}"
+            );
+        }
+    }
+}
