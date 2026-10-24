@@ -38,10 +38,11 @@ test("the defaults show head, hair, eyes and brows, no beard, freckles or wrinkl
     one(shapes, part);
   }
   assert.equal(parts(shapes, "iris").length, 2);
+  assert.equal(parts(shapes, "pupil").length, 2);
   assert.equal(parts(shapes, "sclera").length, 2);
   assert.equal(parts(shapes, "brow").length, 2);
   assert.equal(parts(shapes, "rim").length, 2);
-  for (const part of ["beard", "moustache", "freckle", "wrinkle"]) {
+  for (const part of ["beard", "moustache", "freckle", "wrinkle", "spot", "laxity"]) {
     assert.equal(parts(shapes, part).length, 0, part);
   }
 });
@@ -82,7 +83,49 @@ test("hair thins and goes with balding, beard and freckles come with their value
   assert.equal(parts(beard({ beard_density: 0, beard_coverage: 1 }), "beard").length, 0);
   assert.equal(parts(bust(params({ freckle_density: 1 })), "freckle").length, 24);
   assert.equal(parts(bust(params({ freckle_density: 0.5 })), "freckle").length, 12);
-  assert.equal(parts(bust(params({ face_wrinkles: 0.6 })), "wrinkle").length, 2);
+  assert.equal(parts(bust(params({ face_wrinkles: 0.6 })), "wrinkle").length, 9);
+});
+
+// Grok's round 39, R2 (after the review of the sheet, G10d): freckles of radius 1.1, the skin
+// mixed 0.7 toward their colour, opacity 0.9; an iris of radius 2.2 with a pupil of 0.8; three
+// forehead lines, two crow's feet at each eye and a fold at each side of the nose, of width
+// 0.7 and as strong as the wrinkles; a chin line and two cheek lines as strong as the
+// laxity; six age spots of radius 2 as strong as their value; the breast a line in the
+// skin's tone as strong as its development; shoulders up to 12 % broader and the neck up to
+// 15 % thicker with the androgenic development.
+test("the cues of the sheet's review are drawn as Grok set them", () => {
+  const set = { skin_eumelanin: 0.3, skin_pheomelanin: 0.3 };
+  const skin = gridColor(MELANIN_TO_SRGB.skin, 0.3, 0.3);
+  const freckled = parts(bust(params({ ...set, freckle_density: 1 })), "freckle");
+  assert.deepEqual(
+    [freckled[0].rx, freckled[0].fill, freckled[0].opacity],
+    [1.1, mixColor(skin, "#6b3a1f", 0.7), 0.9],
+  );
+  const eyes = bust(params(set));
+  assert.deepEqual(parts(eyes, "iris").map((iris) => iris.rx), [2.2, 2.2]);
+  const pupils = parts(eyes, "pupil");
+  assert.deepEqual(pupils.map((pupil) => [pupil.rx, pupil.fill]), [[0.8, "#1a1410"], [0.8, "#1a1410"]]);
+  // Each pupil is drawn over its iris.
+  assert.ok(eyes.indexOf(pupils[0]) > eyes.indexOf(parts(eyes, "iris")[0]));
+  const aged = bust(params({ ...set, face_wrinkles: 0.6, skin_laxity: 0.4, age_spots: 0.5 }));
+  for (const wrinkle of parts(aged, "wrinkle")) {
+    assert.deepEqual([wrinkle.width, wrinkle.opacity, wrinkle.stroke], [0.7, 0.6, mixColor(skin, "#000000", 0.35)]);
+  }
+  const lax = parts(aged, "laxity");
+  assert.deepEqual(lax.map((line) => line.opacity), [0.4, 0.4, 0.4]);
+  const spots = parts(aged, "spot");
+  assert.deepEqual(spots.map((spot) => spot.rx), [2, 2, 2, 2, 2, 2]);
+  assert.deepEqual([spots[0].opacity, spots[0].fill], [0.5, mixColor(skin, "#6b3a1f", 0.6)]);
+  const breast = one(bust(params({ ...set, breast_development: 0.4 })), "breast");
+  assert.deepEqual(
+    [breast.stroke, breast.width, breast.opacity, breast.fill],
+    [mixColor(skin, "#5a2a2a", 0.55), 1, 0.4, "none"],
+  );
+  assert.equal(parts(bust(params({ ...set, breast_development: 0 })), "breast").length, 0);
+  const half = (androgenic) => 50 - Number(parts(bust(params({ androgenic_development: androgenic })), "torso")[0].d.split(" ")[1]);
+  const neck = (androgenic) => one(bust(params({ androgenic_development: androgenic })), "neck").rx;
+  assert.ok(Math.abs(half(1) / half(0) - 1.12) < 1e-12);
+  assert.ok(Math.abs(neck(1) / neck(0) - 1.15) < 1e-12);
 });
 
 test("a value outside its range is held to it, a missing one takes the default", () => {
