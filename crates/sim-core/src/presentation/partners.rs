@@ -26,7 +26,10 @@ impl World {
             return Vec::new();
         };
         let now = self.closed_through();
-        let own = whole_years(person.born, now);
+        // One born after the last closed second is under the market age: nobody to offer.
+        let Some(own) = whole_years(person.born, now) else {
+            return Vec::new();
+        };
         let mut found: Vec<(i64, SimId)> = (domain.sims.iter())
             .filter(|(_, other)| other.sex != person.sex)
             .filter(|&(&other, _)| {
@@ -37,7 +40,7 @@ impl World {
                 let pair = ArrangePartnership { woman, man };
                 check_arrange(domain, state.data(), now, &pair).is_ok()
             })
-            .map(|(&other, them)| ((whole_years(them.born, now) - own).abs(), other))
+            .filter_map(|(&other, them)| Some(((whole_years(them.born, now)? - own).abs(), other)))
             .collect();
         found.sort_unstable();
         found.into_iter().map(|(_, other)| other).collect()

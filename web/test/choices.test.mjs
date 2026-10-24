@@ -72,6 +72,8 @@ test("the name key reads umlauts and ß as their base letters and keeps the rest
   assert.equal(nameKey("Jürgen Großmann"), "Jurgen Grosmann");
   assert.equal(nameKey("ÜBER äöü ẞ"), "UBER aou S");
   assert.equal(nameKey("Olaf Christ"), "Olaf Christ");
+  // The dots as a combining mark after the letter.
+  assert.equal(nameKey("O\u0308mer Bauer"), "Omer Bauer");
 });
 
 test("the kinship list: the living by name first, then the others, without the person", () => {

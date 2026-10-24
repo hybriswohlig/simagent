@@ -376,6 +376,51 @@ fn offers_come_nearest_in_age_first_with_the_ages_of_the_living() {
     );
 }
 
+/// Ties and fractions of the order (Grok's round 33, P3), by hand: at the first second a
+/// single man of 30 years (sim 1) and single women of 28 (sim 2) and 32 (sim 3), two years
+/// apart on either side; of 31 years and 354 days (sim 4: 31 completed, one apart, though
+/// 1.97 years in seconds); of 28 years and 300 days (sim 5: 28 completed, two apart, though
+/// 1.18 years in seconds); and one whose 29th birthday is the next, open second (sim 6: 28
+/// completed). By completed years: 4, then 2, 3, 5 and 6 by id.
+#[test]
+fn offers_tie_by_id_and_count_completed_years() {
+    const DAY: i64 = 86_400;
+    let founder = |born: i64, sex: Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let mut world = World::new(market_data(1.0));
+    world
+        .submit(Input::Start(Start {
+            world_seed: 0xff,
+            founder_tag: DataId::new("test:offers").expect("valid"),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+                nutrition: Vec::new(),
+            },
+            founders: vec![
+                founder(-30 * Y, Sex::Male),
+                founder(-28 * Y, Sex::Female),
+                founder(-32 * Y, Sex::Female),
+                founder(-31 * Y - 354 * DAY, Sex::Female),
+                founder(-28 * Y - 300 * DAY, Sex::Female),
+                founder(-29 * Y + 1, Sex::Female),
+            ],
+            couples: Vec::new(),
+            capacity: None,
+            pool: None,
+        }))
+        .expect("accepted");
+    world.advance_until(&mut YearOut::default(), SimTime::from_secs(0), &mut |_| {
+        false
+    });
+    let offered: Vec<u64> = (world.partner_candidates(sim(1)).iter())
+        .map(|partner| partner.get())
+        .collect();
+    assert_eq!(offered, [4, 2, 3, 5, 6]);
+}
+
 /// Saving and loading between rounds changes nothing: the kinship cache starts empty after
 /// a load (ADR-0018 section 2) and every φ comes out the same.
 #[test]

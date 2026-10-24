@@ -10,10 +10,11 @@ export function agesOf(ages: readonly Age[]): ReadonlyMap<number, number> {
 
 const BASE: Readonly<Record<string, string>> = { Ä: "A", Ö: "O", Ü: "U", ẞ: "S", ä: "a", ö: "o", ü: "u", ß: "s" };
 
-/** The key a name sorts by (DIN 5007-1, Grok's round 33, P4): Ä, Ö, Ü and ß as A, O, U and S;
+/** The key a name sorts by (DIN 5007-1, Grok's round 33, P4): Ä, Ö, Ü and ß as A, O, U and S,
+ * also where a name writes the dots as a combining mark (the key is taken of its NFC form);
  * the name shown keeps its letters. */
 export function nameKey(name: string): string {
-  return name.replace(/[ÄÖÜẞäöüß]/g, (letter) => BASE[letter] ?? letter);
+  return name.normalize("NFC").replace(/[ÄÖÜẞäöüß]/g, (letter) => BASE[letter] ?? letter);
 }
 
 /** A person offered as a partner: the name and the age (Grok's round 33, P3). */
