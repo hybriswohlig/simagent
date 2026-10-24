@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""The fork comparison `simagent diff` (ADR-0021 section 3, "Gabelvergleich", and its addendum
-of 2026-10-23, "das Format des Gabelvergleichs"; ADR-0001 section 6 with "Grenze": comparisons
+"""The fork comparison `simagent diff` (ADR-0021 section 3, "Gabelvergleich", and its addenda
+of 2026-10-23, "das Format des Gabelvergleichs", and 2026-10-24, "Erkrankungen im Vergleich";
+ADR-0001 section 6 with "Grenze": comparisons
 never go by SimId), written from the ADRs, independent of the Rust code. The runs come from
 tools/world_reference.py on the repository's data as the CLI runs them
 (`golden_reference.make_world` on `wr.REPOSITORY`).
@@ -16,9 +17,14 @@ tools/world_reference.py on the repository's data as the CLI runs them
   person. Each parent is the SimId `mother` / `father`; where that is null, the key
   `pool.mother_key` / `pool.father_key` of a person with a pool origin (a child of a pool
   pregnancy, and also an arrival whose pool parents are in the town). A key that names nobody
-  of the pedigree counts for nobody.
+  of the pedigree counts for nobody;
+- `diseases`: the hereditary diseases of the pedigree's person that show (`affected`), in the
+  pedigree's order (that of the data), each `{disease, year, age_years}`: its code, the
+  calendar year of `B = born + ⌈onset · YEAR⌉` (`wr.onset_second`) and `⌊onset⌋`, the numbers
+  of the card and of the entry `core:disease_onset` (ADR-0017 section 3). A disease that
+  rests is the same in both runs and no part of a life.
 
-The comparison, format 1: `{"format_version":1,"a_only":[…],"b_only":[…],"changed":[{"lineage_key",
+The comparison, format 2: `{"format_version":2,"a_only":[…],"b_only":[…],"changed":[{"lineage_key",
 "differs","a","b"}]}`, compact as serde_json writes it (`wr.json_text`). `a_only` and `b_only`
 are the keys of one pedigree only, `changed` the keys of both whose lives differ, each
 ascending by key (16 lowercase hex digits, so the string order is the u64 order); `differs`
@@ -81,8 +87,8 @@ from world_reference import YEAR
 SCENARIO = gr.SCENARIOS / "diff_switch.json"
 # The fork year: the override acts at T_X = X · YEAR.
 FORK_YEAR = 5
-FORMAT_VERSION = 1
-LIFE_FIELDS = ("born", "died", "cause_of_death", "emigrated", "partnerships", "children")
+FORMAT_VERSION = 2
+LIFE_FIELDS = ("born", "died", "cause_of_death", "emigrated", "partnerships", "children", "diseases")
 DISEASE = "core:disease_ar"
 
 
@@ -123,12 +129,17 @@ def lives(view: dict) -> dict:
             "emigrated": person["emigrated"],
             "partnerships": sorted(partnerships[key], key=lambda item: (item["formed"], key_value(item["partner"]))),
             "children": children[key],
+            "diseases": [
+                {"disease": shown["disease"], "year": wr.onset_second(person["born"], shown["onset"]) // wr.YEAR, "age_years": math.floor(shown["onset"])}
+                for shown in person["diseases"]
+                if shown["affected"]
+            ],
         }
     return out
 
 
 def diff(a: dict, b: dict) -> dict:
-    """The comparison of the pedigrees `a` and `b`, format 1, keys in the order of the format."""
+    """The comparison of the pedigrees `a` and `b`, format 2, keys in the order of the format."""
     lives_a, lives_b = lives(a), lives(b)
     changed = []
     for key in sorted(set(lives_a) & set(lives_b), key=key_value):
