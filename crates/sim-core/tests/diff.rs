@@ -9,7 +9,7 @@ use sim_core::genome::Sex;
 use sim_core::ids::{HouseholdId, PartnershipId, SimId};
 use sim_core::lineage::LineageKey;
 use sim_core::pedigree::{Couple, End, FromPool, Pedigree, Person, Shown};
-use sim_core::time::SimTime;
+use sim_core::time::{MAX_ABS_SECS, SimTime};
 
 fn key(n: u64) -> LineageKey {
     serde_json::from_value(serde_json::json!(format!("{n:016x}"))).expect("a key")
@@ -360,4 +360,64 @@ fn a_disease_that_shows_on_one_side_only_differs() {
     ]
     .concat();
     assert_eq!(text(&a, &b), expected);
+}
+
+/// Astra's review of the diseases in the comparison: the diseases come in the order of the
+/// pedigree (that of the data), not by code, and one that rests between them is left out.
+/// Key 1, born at −100 s, shows core:disease_xr with onset 40 (`B` = −100 + 40 · 31 449 600 =
+/// 1 257 983 900 s, in year 39, which ends at 1 257 983 999; 40 whole years), rests in
+/// core:disease_mt and shows core:disease_ar with onset 0 (`B` = −100 s, year −1, 0 years);
+/// in `b` all three rest.
+#[test]
+fn the_diseases_keep_the_order_of_the_data() {
+    let shown = |disease: &str, onset: f64, affected: bool| Shown {
+        disease: Code::new(disease).expect("a code"),
+        onset,
+        affected,
+    };
+    let three = |on: bool| {
+        let mut person = person(1, 1, Sex::Female, -100, None);
+        person.diseases = vec![
+            shown("core:disease_xr", 40.0, on),
+            shown("core:disease_mt", 12.0, false),
+            shown("core:disease_ar", 0.0, on),
+        ];
+        pedigree(vec![person], Vec::new())
+    };
+    let expected = [
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":["#,
+        r#"{"lineage_key":"0000000000000001","differs":["diseases"],"#,
+        r#""a":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[{"disease":"core:disease_xr","year":39,"age_years":40},{"disease":"core:disease_ar","year":-1,"age_years":0}]},"#,
+        r#""b":{"born":-100,"died":null,"cause_of_death":null,"emigrated":null,"partnerships":[],"children":0,"diseases":[]}}"#,
+        "]}",
+    ]
+    .concat();
+    assert_eq!(text(&three(true), &three(false)), expected);
+}
+
+/// Astra's review: at the last second of the clock a disease can count as reached by its
+/// age in years while its onset second, rounded up, lies one second beyond the clock: 31 s
+/// as years and back are 31.000000000000004 s, so `⌈onset · YEAR⌉` is 32. Such an onset never
+/// comes (ADR-0002), and the comparison does not list it instead of failing.
+#[test]
+fn an_onset_beyond_the_clock_is_not_listed() {
+    let mut late = person(1, 1, Sex::Female, MAX_ABS_SECS - 31, None);
+    late.diseases = vec![Shown {
+        disease: Code::new("core:disease_ar").expect("a code"),
+        onset: 31.0 / 31_449_600.0,
+        affected: true,
+    }];
+    let resting = {
+        let mut person = late.clone();
+        person.diseases[0].affected = false;
+        person
+    };
+    let (a, b) = (
+        pedigree(vec![late], Vec::new()),
+        pedigree(vec![resting], Vec::new()),
+    );
+    assert_eq!(
+        text(&a, &b),
+        r#"{"format_version":2,"a_only":[],"b_only":[],"changed":[]}"#
+    );
 }
