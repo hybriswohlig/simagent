@@ -235,7 +235,8 @@ pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
 
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
 /// (ADR-0021 section 3), with the contract version of its body values, the partners a
-/// pairing would be accepted with now and its genetics card (section 5), and with `to` what
+/// pairing would be accepted with now (nearest in age first), the ages of the living (Grok's
+/// round 33, P3 and P4) and its genetics card (section 5), and with `to` what
 /// that sim is to the person (its
 /// kinship word, its foster word and `r` in percent, all from the core); `None` for a sim
 /// the run does not know.
@@ -250,7 +251,7 @@ pub fn person_answer(
     };
     let mut answer = serde_json::json!({
         "format": "simagent.view.person",
-        "version": 1,
+        "version": 2,
         "contract_version": sim_core::body_contract::CONTRACT_VERSION,
     });
     let json = |value: serde_json::Result<serde_json::Value>| {
@@ -264,6 +265,7 @@ pub fn person_answer(
         .map(|partner| partner.get())
         .collect();
     answer["partner_candidates"] = partners.into();
+    answer["ages"] = json(serde_json::to_value(world.ages()))?;
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;
     }

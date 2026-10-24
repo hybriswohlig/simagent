@@ -186,3 +186,17 @@ fn an_unknown_parent_adds_no_edge() {
     assert!(!tree.line("stranger", "only_mother"));
     assert!(!tree.line("k", "only_mother"));
 }
+
+/// A person is not in direct line with itself, and two persons of the same order (born in
+/// one second and one class, like twins) are not ancestors of each other: every parent comes
+/// strictly before its child.
+#[test]
+fn a_person_with_itself_and_two_of_one_order() {
+    let tree = Tree::new();
+    for name in ["a0", "a6", "p_gm", "k"] {
+        assert!(!tree.line(name, name), "{name} with itself");
+    }
+    // Founders of one second, and the two pool persons of one second.
+    assert!(!tree.line("a0", "b0"));
+    assert!(!tree.line("p_gm", "p_gf"));
+}

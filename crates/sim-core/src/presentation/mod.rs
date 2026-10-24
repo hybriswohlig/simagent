@@ -30,6 +30,14 @@ pub struct Moment {
     pub calendar_year: i64,
 }
 
+/// A living person's age in whole years at the last closed second, as a person page lists
+/// it (Grok's round 33, P3 and P4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Age {
+    pub sim: SimId,
+    pub age_years: i64,
+}
+
 /// A body at a second of a person's life.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Shown {
@@ -59,6 +67,13 @@ pub struct PersonView {
     pub at_ages: Vec<Shown>,
 }
 
+/// The age in whole years at `now` of a life that began at `born`, as a moment counts it;
+/// `None` for a birth after `now` (a pool member born in the pool's frozen second comes to
+/// the town at its first second, before a world that stands before it has closed one).
+fn whole_years(born: SimTime, now: SimTime) -> Option<i64> {
+    moment(born, now).map(|moment| moment.age_years)
+}
+
 /// The second `t` of a life that began at `born`: its age in whole years and its calendar
 /// year; `None` before the birth.
 fn moment(born: SimTime, t: SimTime) -> Option<Moment> {
@@ -71,6 +86,18 @@ fn moment(born: SimTime, t: SimTime) -> Option<Moment> {
 }
 
 impl World {
+    /// The living in id order, each with its age in whole years at the last closed second;
+    /// one born after it has no age yet and is left out.
+    pub fn ages(&self) -> Vec<Age> {
+        let now = self.closed_through();
+        (self.state().domain().sims.iter())
+            .filter_map(|(&sim, person)| {
+                let age_years = whole_years(person.born, now)?;
+                Some(Age { sim, age_years })
+            })
+            .collect()
+    }
+
     /// The presentation state of `sim`, living or archived; `None` for an unknown sim or
     /// data without the body. "Now" is the last closed second of the world.
     pub fn person_view(&self, sim: SimId) -> Option<PersonView> {
@@ -133,5 +160,18 @@ mod tests {
         assert_eq!(pair(at(-30 * y, 0)), Some((30, 0)));
         assert_eq!(pair(at(-30 * y, -1)), Some((29, -1)));
         assert_eq!(pair(at(0, -1)), None);
+    }
+
+    /// The whole years of a list of the living: those of a moment, and none for a birth
+    /// after the second asked.
+    #[test]
+    fn whole_years_are_those_of_a_moment_and_none_before_the_birth() {
+        let y = YEAR.as_secs();
+        let years =
+            |born: i64, now: i64| whole_years(SimTime::from_secs(born), SimTime::from_secs(now));
+        assert_eq!(years(-30 * y, 0), Some(30));
+        assert_eq!(years(-30 * y + 1, 0), Some(29));
+        assert_eq!(years(-1, -1), Some(0));
+        assert_eq!(years(0, -1), None);
     }
 }

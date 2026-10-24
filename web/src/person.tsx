@@ -6,6 +6,7 @@ import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
+import { agesOf, kinChoices, offerLabel } from "./choices.js";
 import { kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
@@ -48,7 +49,7 @@ function usePersonView(run: string, sim: string): Loaded<PersonAnswer> {
   useEffect(() => {
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 1 })
+    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 2 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
@@ -167,7 +168,17 @@ function PersonChronicle({ run, sim, names }: { run: string; sim: string; names:
 /** What another person of the run is to this one (ADR-0021 section 3): the core's kinship
  * word, foster word and `r`, for a person chosen from the pedigree. Only the answer for the
  * chosen person counts. */
-function KinForm({ run, sim, pedigree }: { run: string; sim: string; pedigree: Pedigree }) {
+function KinForm({
+  run,
+  sim,
+  pedigree,
+  ages,
+}: {
+  run: string;
+  sim: string;
+  pedigree: Pedigree;
+  ages: ReadonlyMap<number, number>;
+}) {
   const [other, setOther] = useState("");
   const key = `${run}/${sim}?to=${other}`;
   const [loaded, setLoaded] = useState<Loaded<PersonAnswer>>({ state: "loading", key });
@@ -177,7 +188,7 @@ function KinForm({ run, sim, pedigree }: { run: string; sim: string; pedigree: P
     }
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 1 })
+    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 2 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
@@ -186,16 +197,16 @@ function KinForm({ run, sim, pedigree }: { run: string; sim: string; pedigree: P
   }, [key]);
   const shown = current(loaded, key);
   const kinship = shown.state === "ready" ? shown.value.kinship : undefined;
-  const others = pedigree.persons.filter((person) => String(person.sim) !== sim);
+  const others = kinChoices(pedigree, ages, Number(sim));
   return (
     <>
       <h2>{TEXT.kin_with}</h2>
       <p>
         <select aria-label={TEXT.kin_with} value={other} onChange={(event) => setOther(event.currentTarget.value)}>
           <option value="">{TEXT.pair_with}</option>
-          {others.map((person) => (
-            <option key={person.sim} value={String(person.sim)}>
-              {fullName(person)}
+          {others.map((choice) => (
+            <option key={choice.sim} value={String(choice.sim)}>
+              {choice.label}
             </option>
           ))}
         </select>{" "}
@@ -220,12 +231,14 @@ function PairForm({
   pedigree,
   person,
   offered,
+  ages,
   paired,
 }: {
   run: string;
   pedigree: Pedigree;
   person: Person;
   offered: readonly number[];
+  ages: ReadonlyMap<number, number>;
   paired: () => void;
 }) {
   const options = candidates(pedigree, offered);
@@ -261,7 +274,7 @@ function PairForm({
           <option value="">{TEXT.pair_with}</option>
           {options.map((candidate) => (
             <option key={candidate.sim} value={String(candidate.sim)}>
-              {fullName(candidate)}
+              {offerLabel(candidate, ages)}
             </option>
           ))}
         </select>{" "}
@@ -332,6 +345,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const person = glass.center;
   const [mother, father] = parentsOf(pedigree, person);
   const partner = currentPartner(pedigree, person);
+  const ages = agesOf(view.state === "ready" ? view.value.ages : []);
   return (
     <section>
       <p>
@@ -370,13 +384,14 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
       )}
       <TreeView run={run} glass={glass} />
       <PinButton key={`${run}/${sim}`} run={run} person={person} />
-      <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} />
+      <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} ages={ages} />
       <PairForm
         key={`${run}/${sim}`}
         run={run}
         pedigree={pedigree}
         person={person}
         offered={view.state === "ready" ? view.value.partner_candidates : []}
+        ages={ages}
         paired={() => setChanged((n) => n + 1)}
       />
       <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />

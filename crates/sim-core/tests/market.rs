@@ -320,6 +320,107 @@ fn an_arrangement_in_direct_line_is_rejected() {
     );
 }
 
+/// The market age comes before the direct line (ADR-0018 section 8): a mother and her son
+/// under 16, both single, get `PartnerTooYoung`. Founder 8 and her son 20 at second
+/// 183 859 199, by the reference (`tools/world_reference.py`, the first such pair).
+#[test]
+fn an_arrangement_too_young_and_in_direct_line_is_too_young() {
+    let mut run = Run::market();
+    run.advance(183_859_199);
+    let arranged = Input::ArrangePartnership(ArrangePartnership {
+        woman: sim(8),
+        man: sim(20),
+    });
+    assert_eq!(
+        run.world.submit(arranged).err(),
+        Some(InputRejected {
+            code: RejectCode::PartnerTooYoung
+        })
+    );
+}
+
+/// The partners offered to a person come nearest in age first (Grok's round 33, P3): by the
+/// difference of their whole years at the last closed second, then the smaller id. At the
+/// first second the single founders are, by hand from `market_start`, the women 7 (20 years)
+/// and 8 (21) and the men 9 (25) and 10 (40): by id the man of 40 would get 7 first, by age
+/// he gets 8 (19 years apart, 7 is 20). The ages of the living are their whole years then.
+#[test]
+fn offers_come_nearest_in_age_first_with_the_ages_of_the_living() {
+    let mut run = Run::market();
+    run.advance(0);
+    let offered = |n: u64| -> Vec<u64> {
+        let list = run.world.partner_candidates(sim(n));
+        list.iter().map(|partner| partner.get()).collect()
+    };
+    assert_eq!(offered(10), [8, 7]);
+    assert_eq!(offered(9), [8, 7]);
+    assert_eq!(offered(7), [9, 10]);
+    assert_eq!(offered(8), [9, 10]);
+    let ages: Vec<(u64, i64)> = (run.world.ages().iter())
+        .map(|age| (age.sim.get(), age.age_years))
+        .collect();
+    assert_eq!(
+        ages,
+        [
+            (1, 20),
+            (2, 24),
+            (3, 21),
+            (4, 25),
+            (5, 22),
+            (6, 23),
+            (7, 20),
+            (8, 21),
+            (9, 25),
+            (10, 40)
+        ]
+    );
+}
+
+/// Ties and fractions of the order (Grok's round 33, P3), by hand: at the first second a
+/// single man of 30 years (sim 1) and single women of 28 (sim 2) and 32 (sim 3), two years
+/// apart on either side; of 31 years and 354 days (sim 4: 31 completed, one apart, though
+/// 1.97 years in seconds); of 28 years and 300 days (sim 5: 28 completed, two apart, though
+/// 1.18 years in seconds); and one whose 29th birthday is the next, open second (sim 6: 28
+/// completed). By completed years: 4, then 2, 3, 5 and 6 by id.
+#[test]
+fn offers_tie_by_id_and_count_completed_years() {
+    const DAY: i64 = 86_400;
+    let founder = |born: i64, sex: Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let mut world = World::new(market_data(1.0));
+    world
+        .submit(Input::Start(Start {
+            world_seed: 0xff,
+            founder_tag: DataId::new("test:offers").expect("valid"),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+                nutrition: Vec::new(),
+            },
+            founders: vec![
+                founder(-30 * Y, Sex::Male),
+                founder(-28 * Y, Sex::Female),
+                founder(-32 * Y, Sex::Female),
+                founder(-31 * Y - 354 * DAY, Sex::Female),
+                founder(-28 * Y - 300 * DAY, Sex::Female),
+                founder(-29 * Y + 1, Sex::Female),
+            ],
+            couples: Vec::new(),
+            capacity: None,
+            pool: None,
+        }))
+        .expect("accepted");
+    world.advance_until(&mut YearOut::default(), SimTime::from_secs(0), &mut |_| {
+        false
+    });
+    let offered: Vec<u64> = (world.partner_candidates(sim(1)).iter())
+        .map(|partner| partner.get())
+        .collect();
+    assert_eq!(offered, [4, 2, 3, 5, 6]);
+}
+
 /// Saving and loading between rounds changes nothing: the kinship cache starts empty after
 /// a load (ADR-0018 section 2) and every φ comes out the same.
 #[test]

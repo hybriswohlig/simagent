@@ -209,7 +209,13 @@ pub fn descriptor() -> Vec<Named> {
                 field("partner_candidates", list(Integer)),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
+                field("ages", list(Ref("Age"))),
             ],
+        },
+        Named {
+            name: "Age",
+            doc: "A living person's age in whole years at the last closed second.",
+            fields: vec![field("sim", Integer), field("age_years", Integer)],
         },
         Named {
             name: "GeneticsCard",
