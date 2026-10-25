@@ -218,6 +218,28 @@ pub fn descriptor() -> Vec<Named> {
             fields: vec![field("sim", Integer), field("age_years", Integer)],
         },
         Named {
+            name: "SheetAnswer",
+            doc: "`GET /api/sheet`: the sheet of portraits, per founder of its scenario its variant, its sex and its bodies without environment at the ages of the sheet.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.sheet"])),
+                field("version", Integer),
+                field("contract_version", Text),
+                field("rows", list(Ref("SheetRow"))),
+            ],
+        },
+        Named {
+            name: "SheetRow",
+            doc: "A founder of the sheet: its variant, its sex and its bodies at the ages it reached.",
+            fields: vec![
+                field(
+                    "variant",
+                    Kind::Literal(&["early", "base", "late", "red", "light_iris"]),
+                ),
+                field("sex", Kind::Literal(&["female", "male"])),
+                field("at_ages", list(Ref("Shown"))),
+            ],
+        },
+        Named {
             name: "GeneticsCard",
             doc: "The core's genetics card of the person at its second shown: per trait the percentile and the parts, the height lines, per disease the copies and the status, the lines of skipped pigment copies. The variant parts (parts, copies, status, a skipped line's copy sources) are objects keyed by `kind`, a skipped line an object of `locus`, `mother_copy` and `father_copy`; the web checks their keys.",
             fields: vec![

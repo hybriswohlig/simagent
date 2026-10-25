@@ -1,0 +1,36 @@
+import type { BodyParams } from "./generated/body.js";
+import type { SheetAnswer } from "./generated/export.js";
+import { TEXT } from "./text.js";
+
+/** A row of the sheet: its label and a portrait per age the core gives. */
+export type SheetRow = { label: string; cells: { age: number; title: string; body: BodyParams }[] };
+
+const VARIANTS: Readonly<Record<string, string>> = {
+  early: TEXT.sheet_early,
+  base: TEXT.sheet_base,
+  late: TEXT.sheet_late,
+  red: TEXT.sheet_red,
+  light_iris: TEXT.sheet_light_iris,
+};
+
+/** The column of an age: "2 Jahre" (Grok's round 38, T5). */
+export function yearsText(age: number): string {
+  return TEXT.sheet_years.replace("{n}", String(age));
+}
+
+/** The rows of the sheet of portraits (ADR-0021 G10; texts Grok's round 38): each founder
+ * in the order of the answer, "{variant}, weiblich" or "männlich", its bodies at the ages it
+ * reached; every value from the answer. */
+export function sheetRows(answer: SheetAnswer): SheetRow[] {
+  return answer.rows.map((row) => {
+    const label = `${VARIANTS[row.variant] ?? row.variant}, ${row.sex === "female" ? TEXT.female : TEXT.male}`;
+    return {
+      label,
+      cells: row.at_ages.map((shown) => ({
+        age: shown.at.age_years,
+        title: `${label}, ${yearsText(shown.at.age_years)}`,
+        body: shown.body,
+      })),
+    };
+  });
+}

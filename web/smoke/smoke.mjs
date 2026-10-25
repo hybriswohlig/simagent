@@ -6,8 +6,9 @@
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
 // year with the hereditary diseases off and lands on the comparison with the fork; last
-// it pins the family of sim 13 and finds it on the run page, and founds a town, which stands
-// in its first second with its founders and says when its curves begin.
+// it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
+// (ten rows of seven), and founds a town, which stands in its first second with its founders
+// and says when its curves begin.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -155,6 +156,13 @@ if (browser !== undefined) {
     if (!short) {
       throw new Error("the run page: the pinned family not above a chronicle and living that scroll");
     }
+    await step("the sheet of portraits", page.goto(`${url}#/portraits`));
+    await step("its heading", page.getByRole("heading", { level: 1, name: "Bogen der Passbilder" }).waitFor());
+    await step("its last portrait", page.getByRole("img", { name: "Helle Iris, männlich, 60 Jahre" }).waitFor());
+    const portraits = await page.locator("table svg[role=img]").count();
+    if (portraits !== 70) {
+      throw new Error(`the sheet: ${portraits} portraits, not ten rows of seven`);
+    }
     await step("the list of runs", page.goto(`${url}#/`));
     await step("a new town's name", page.getByRole("textbox", { name: "Name des Laufs" }).fill("neu"));
     await step("found it", page.getByRole("button", { name: "Neue Stadt gründen" }).click());
@@ -165,7 +173,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, and a new town in its first second");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, and a new town in its first second");
   } catch (error) {
     fail(error.message);
   } finally {
