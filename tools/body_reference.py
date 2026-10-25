@@ -20,8 +20,13 @@ hash is asserted to be that of the file before this change (`MAP3_DATA_HASH`); t
 changed as the note says (`fixture_map4`): `core:height` renamed `core:growth` in the
 trait, its loads and its phenotype row; `core:brow` and `core:beard_coverage` removed with
 their loci and rows. Nothing else changes (the locus keeps its ID `core:height_locus` and
-its place, every other locus its place, `map_version` stays 2, the texts stay). The files
-are JSON with an indent of two as the old ones (`json.dumps`).
+its place, every other locus its place, `map_version` stays 2, the texts stay), whose data
+hash is asserted to be that of the file before red hair (`MAP4_DATA_HASH`); then red hair
+(`fixture_round39`; Grok round 39, R1 c; ADR-0015 section 1, addendum of 2026-10-24;
+specification 10.4): the entries `core:body_mc1r_hair_eu` (0.08, was 0.30) and
+`core:body_mc1r_hair_pheo` (1, was 0.80) as the repository's calibration holds them, value
+and texts, nothing else. Only the hair of a person with two MC1R copies changes (asserted per
+pinned person). The files are JSON with an indent of two as the old ones (`json.dumps`).
 
 The mapping (`body_params`), each formula of 10 with the numbers of the calibration
 (`core:body_*`, ADR-0015 section 1), left to right as written, `exp` correctly rounded
@@ -91,6 +96,16 @@ CONTRACT = ROOT / "contracts" / "body.json"
 # The data hash of tests/golden/data_body before this change (names of map 3): the
 # fixture as `fixture_map3` builds it must give exactly this.
 MAP3_DATA_HASH = 0x8DD9852B584C748F
+# The data hash of tests/golden/data_body with the names of map 4 before red hair (round 39):
+# the fixture as `fixture_map4` builds it must give exactly this.
+MAP4_DATA_HASH = 0x3DC6CA65E8E12DF3
+# Red hair (Grok round 39, R1 c; ADR-0015 section 1, addendum of 2026-10-24; specification
+# 10.4): at two MC1R copies hair eumelanin times 0.08 (was 0.30) and hair pheomelanin 1 (was
+# 0.80); the skin stays (0.55 and 0.45). The test map takes both entries from the
+# repository's calibration, which must hold these values.
+RED_HAIR = {"core:body_mc1r_hair_eu": 0.08, "core:body_mc1r_hair_pheo": 1}
+RED_HAIR_BEFORE = {"core:body_mc1r_hair_eu": 0.3, "core:body_mc1r_hair_pheo": 0.8}
+REPOSITORY_CALIBRATION = ROOT / "data" / "calibration" / "genetics.json"
 
 FACES = [f"core:face_{n:02d}" for n in range(1, 13)]
 # The traits the mapping reads with the names of map 3, in the order of the loci of the
@@ -276,6 +291,20 @@ def fixture_map4(map3: tuple, rename_locus: bool = False) -> tuple:
         row["trait"] = RENAMED.get(row["trait"], row["trait"])
         rows.append(row)
     calibration["traits"] = sorted(rows, key=lambda row: row["trait"])
+    return calibration, genome_map
+
+
+def fixture_round39(map4: tuple) -> tuple:
+    """The test map of map 4 with the values of red hair (`RED_HAIR`, Grok round 39, R1 c;
+    ADR-0015 section 1, addendum of 2026-10-24; specification 10.4): the two entries of the
+    calibration as the repository's calibration holds them (value and texts), every other
+    entry and the genome map unchanged."""
+    calibration, genome_map = copy.deepcopy(map4[0]), copy.deepcopy(map4[1])
+    repository = json.loads(REPOSITORY_CALIBRATION.read_text())["values"]
+    for key, value in RED_HAIR.items():
+        assert key in calibration["values"], key
+        assert repository[key]["value"] == value, (key, repository[key]["value"])
+        calibration["values"][key] = copy.deepcopy(repository[key])
     return calibration, genome_map
 
 
@@ -669,6 +698,7 @@ def inputs_of(fixture: tuple, names: int, sex: bytes, genome: dict, key: int, pa
     return z, z_of, sum(copies_at(genome, loci["core:mc1r"])), sum(copies_at(genome, loci["core:herc2"]))
 
 
+RED_HAIR_KEYS = ("hair_eumelanin", "hair_pheomelanin")
 REASONS = {
     "height_cm": "z_h is the phenotype of core:growth, not core:height: same locus and G, other C and E (occasion str_key)",
     "eyebrow_density": "reads z of core:hair_density, not of core:brow",
@@ -683,10 +713,11 @@ def bits(value: float) -> str:
 def main(argv) -> int:
     map3 = fixture_map3()
     map4 = fixture_map4(map3)
+    red = fixture_round39(map4)
     alternative = fixture_map4(map3, rename_locus=True)
     files = {
-        FIXTURE / "calibration" / "genetics.json": text(map4[0]),
-        FIXTURE / "genetics" / "genome_map.json": text(map4[1]),
+        FIXTURE / "calibration" / "genetics.json": text(red[0]),
+        FIXTURE / "genetics" / "genome_map.json": text(red[1]),
     }
     if "--check" in argv:
         same = all(path.exists() and path.read_text() == content for path, content in files.items())
@@ -697,11 +728,13 @@ def main(argv) -> int:
         for path, content in files.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-    hash3, hash4, hash_alt = documents_hash(map3), documents_hash(map4), documents_hash(alternative)
+    hash3, hash4, hash_red, hash_alt = documents_hash(map3), documents_hash(map4), documents_hash(red), documents_hash(alternative)
     assert hash3 == MAP3_DATA_HASH, f"{hash3:016x}"
-    assert data_reference.data_hash(FIXTURE) == hash4
-    print(f"data_body_hash map4 {hash4:016x} (tests/golden/data_body, with the repository's demography)")
-    print(f"data_body_hash map3 {hash3:016x} (the fixture before this change, rebuilt by fixture_map3)")
+    assert hash4 == MAP4_DATA_HASH, f"{hash4:016x}"
+    assert data_reference.data_hash(FIXTURE) == hash_red
+    print(f"data_body_hash map4 {hash_red:016x} (tests/golden/data_body, with the repository's demography and red hair of round 39)")
+    print(f"data_body_hash map4_before_round39 {hash4:016x} (the fixture before red hair, rebuilt by fixture_map4)")
+    print(f"data_body_hash map3 {hash3:016x} (the fixture before the names of map 4, rebuilt by fixture_map3)")
     print(f"data_body_hash alternative_locus_renamed {hash_alt:016x} (rejected alternative: core:height_locus renamed core:growth_locus)")
     print(
         f"data_body_counts map4 traits {len(map4[1]['traits'])} loci {len(map4[1]['loci'])} rows {len(map4[0]['traits'])}"
@@ -714,11 +747,11 @@ def main(argv) -> int:
     print(f"data_body_str_key core:growth {str_key('core:growth'):016x} core:height {str_key('core:height'):016x}")
     # BodyData::new with the traits of map 4 (and, for comparison, of map 3).
     template = ROOT / "tests" / "golden" / "map4_template"
-    cases = [("data_body_map4", map4, BODY_TRAITS_MAP4), ("data_body_map3", map3, BODY_TRAITS_MAP4), ("data_body_map3_with_map3_names", map3, BODY_TRAITS_MAP3)]
+    cases = [("data_body_map4", red, BODY_TRAITS_MAP4), ("data_body_map3", map3, BODY_TRAITS_MAP4), ("data_body_map3_with_map3_names", map3, BODY_TRAITS_MAP3)]
     if template.exists():
         _, template_calibration, template_map = data_reference.documents(template)
         cases.append(("map4_template", (template_calibration, template_map), BODY_TRAITS_MAP4))
-    no_growth = copy.deepcopy(map4)
+    no_growth = copy.deepcopy(red)
     no_growth[0]["traits"] = [row for row in no_growth[0]["traits"] if row["trait"] != "core:growth"]
     cases.append(("data_body_map4_without_growth_row", no_growth, BODY_TRAITS_MAP4))
     for name, fixture, read in cases:
@@ -726,8 +759,13 @@ def main(argv) -> int:
         print(f"body_data {name} reading {'map4' if read is BODY_TRAITS_MAP4 else 'map3'} names: {'accepted' if reason is None else 'rejected ' + reason}")
     contract = json.loads(CONTRACT.read_text())["parameters"]
     assert len(contract) == 44
-    values = BodyValues(data_reference.strip(map4[0]))
-    assert BodyValues(data_reference.strip(map3[0])).v == values.v
+    values = BodyValues(data_reference.strip(red[0]))
+    values4 = BodyValues(data_reference.strip(map4[0]))
+    assert BodyValues(data_reference.strip(map3[0])).v == values4.v
+    # Red hair changes the two values and nothing else of the calibration.
+    assert {key for key in values.v if values.v[key] != values4.v[key]} == set(RED_HAIR)
+    assert all(values.v[key] == value and values4.v[key] == RED_HAIR_BEFORE[key] for key, value in RED_HAIR.items())
+    assert red[1] == map4[1] and {k: v for k, v in red[0].items() if k != "values"} == {k: v for k, v in map4[0].items() if k != "values"}
     for sex, name in ((FEMALE, "female"), (MALE, "male")):
         curve = values.curve[sex]
         print(f"body_curve {name} q {curve['q']!r} bits {bits(curve['q'])} c {curve['c']!r} bits {bits(curve['c'])} B {curve['b']!r} bits {bits(curve['b'])}")
@@ -735,6 +773,7 @@ def main(argv) -> int:
         print(line)
     loci3 = {locus["id"]: locus for locus in map3[1]["loci"]}
     changed_keys = set()
+    red_changed = set()
     for index, (name, sex, key, parents, age, delta, nutrition, mc1r, herc2) in enumerate(PERSONS):
         genome = genome_of(index, sex, mc1r, herc2, loci3)
         born = -age
@@ -742,12 +781,12 @@ def main(argv) -> int:
         b = bio_age(x, delta, values.bio_age_weight)
         nutrition = NUTRITION[nutrition] if isinstance(nutrition, str) else nutrition
         evaluations = []
-        for names, fixture in ((0, map3), (1, map4)):
+        for names, fixture, numbers in ((0, map3, values4), (1, map4, values4), (1, red, values)):
             z, z_of, n_mc1r, n_herc2 = inputs_of(fixture, names, sex, genome, key, parents)
             person = {"sex": sex, "age": age, "b": b, "born": born, "nutrition": nutrition, "z": z, "mc1r": n_mc1r, "herc2": n_herc2}
-            params, curve = body_params(values, contract, person)
+            params, curve = body_params(numbers, contract, person)
             evaluations.append((z, z_of, params, curve, n_mc1r, n_herc2))
-        z, z_of, params, curve, n_mc1r, n_herc2 = evaluations[1]
+        z, z_of, params, curve, n_mc1r, n_herc2 = evaluations[2]
         print(
             f"body_person {name} sex {'female' if sex == FEMALE else 'male'} key {key:#x} parents"
             f" {'none' if parents is None else ' '.join(f'{p:#x}' for p in parents)} age_seconds {age} born {born}"
@@ -766,19 +805,36 @@ def main(argv) -> int:
         for key_, (value, clamped) in params.items():
             print(f"body_param {name} {key_} {value!r} bits {bits(value)} clamped {str(clamped).lower()}")
         old_z, old_z_of, old_params, old_curve, _, _ = evaluations[0]
+        before_z, before_z_of, before_params, before_curve, _, _ = evaluations[1]
         for trait in ("core:height", "core:brow", "core:beard_coverage"):
             print(f"body_z_map3 {name} {trait} {old_z_of[trait]!r} bits {bits(old_z_of[trait])}")
         assert {t: v for t, v in old_z_of.items() if t in z_of} == {t: v for t, v in z_of.items() if t in old_z_of}
         assert old_curve["theta_i"] == curve["theta_i"]
+        assert before_z_of == z_of and before_curve == curve
         for key_ in params:
-            if bits(params[key_][0]) != bits(old_params[key_][0]) or params[key_][1] != old_params[key_][1]:
+            if bits(before_params[key_][0]) != bits(old_params[key_][0]) or before_params[key_][1] != old_params[key_][1]:
                 changed_keys.add(key_)
                 print(
                     f"body_change {name} {key_} map3 {old_params[key_][0]!r} bits {bits(old_params[key_][0])}"
-                    f" -> map4 {params[key_][0]!r} bits {bits(params[key_][0])}: {REASONS.get(key_, 'UNEXPECTED')}"
+                    f" -> map4 {before_params[key_][0]!r} bits {bits(before_params[key_][0])}: {REASONS.get(key_, 'UNEXPECTED')}"
                 )
+        # Red hair (round 39): only the hair of two MC1R copies changes.
+        for key_ in params:
+            if bits(params[key_][0]) != bits(before_params[key_][0]) or params[key_][1] != before_params[key_][1]:
+                assert n_mc1r == 2 and key_ in RED_HAIR_KEYS, (name, key_)
+                red_changed.add((name, key_))
+                print(
+                    f"body_change_round39 {name} {key_} before {before_params[key_][0]!r} bits {bits(before_params[key_][0])}"
+                    f" -> {params[key_][0]!r} bits {bits(params[key_][0])}: two MC1R copies (round 39, R1 c)"
+                )
+        if n_mc1r == 2:
+            assert {(name, key_) for key_ in RED_HAIR_KEYS} <= red_changed, name
     assert changed_keys <= set(REASONS), changed_keys
     print(f"body_change_summary parameters changed {sorted(changed_keys)}; the other {44 - len(changed_keys)} equal bit for bit for every person")
+    print(
+        f"body_change_round39_summary persons with two MC1R copies {sorted({name for name, _ in red_changed})}"
+        f" change {sorted({key_ for _, key_ in red_changed})}; every other parameter and person equal bit for bit"
+    )
     return 0
 
 
