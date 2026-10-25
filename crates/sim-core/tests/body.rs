@@ -266,7 +266,8 @@ fn pigment_follows_the_specification() {
             at(BodyParamKey::HairPheomelanin),
             l(m.pigment_hair_pheo_offset + m.pigment_hair_pheo_slope * 0.4)
         );
-        // Two copies of MC1R and HERC2.
+        // Two copies of MC1R and HERC2 (MC1R in hair since Grok's round 39, R1 c: × 0.08 and
+        // pheomelanin 1).
         let red = BodyInputs {
             mc1r: 2,
             herc2: 2,
@@ -274,10 +275,10 @@ fn pigment_follows_the_specification() {
         };
         let at = |key| value(&data, &red, key);
         assert_eq!(at(BodyParamKey::SkinEumelanin), l(eta_s) * 0.55);
-        assert_eq!(at(BodyParamKey::HairEumelanin), l(eta_h) * 0.30);
+        assert_eq!(at(BodyParamKey::HairEumelanin), l(eta_h) * 0.08);
         assert_eq!(at(BodyParamKey::IrisMelanin), l(eta_i) * 0.15);
         assert_eq!(at(BodyParamKey::SkinPheomelanin), 0.45);
-        assert_eq!(at(BodyParamKey::HairPheomelanin), 0.80);
+        assert_eq!(at(BodyParamKey::HairPheomelanin), 1.0);
         // One copy changes the colours not at all.
         let carrier = BodyInputs {
             mc1r: 1,

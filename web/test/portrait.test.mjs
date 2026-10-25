@@ -137,3 +137,45 @@ test("a value outside its range is held to it, a missing one takes the default",
   delete missing.beard_density;
   assert.deepEqual(bust(missing), bust(params({ head_size_z: 2, hair_curl: 0.7 })));
 });
+
+// Grok's round 39, R1 c: the red corner of the hair table (no eumelanin, all pheomelanin) is
+// #ee5a28, and red hair of two MC1R copies reads as red.
+test("the red corner of the hair table", () => {
+  assert.equal(gridColor(MELANIN_TO_SRGB.hair, 0, 1), "#ee5a28");
+});
+
+// Astra's review of the cues: the places Grok set in R2, relative to the head.
+test("the cues stand where Grok set them", () => {
+  const shapes = bust(params({ face_wrinkles: 0.6, skin_laxity: 0.4, age_spots: 0.5, breast_development: 0.4 }));
+  const head = one(shapes, "head");
+  const { cx, cy, rx, ry } = head;
+  const chin = cy + ry;
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const spots = parts(shapes, "spot");
+  const places = [[-0.2, -0.46], [0.16, -0.38], [-0.46, 0.2], [0.48, 0.14], [-0.3, 0.36], [0.28, 0.42]];
+  places.forEach(([x, y], i) => {
+    assert.ok(near(spots[i].cx, cx + x * rx) && near(spots[i].cy, cy + y * ry), `spot ${i}`);
+  });
+  const wrinkles = parts(shapes, "wrinkle");
+  [0.56, 0.46, 0.36].forEach((at, i) => {
+    const line = wrinkles[i];
+    assert.ok(near(line.y1, cy - ry * at) && near(line.y2, cy - ry * at), `forehead ${i}`);
+    assert.ok(near(line.x1, cx - rx * 0.4) && near(line.x2, cx + rx * 0.4), `forehead ${i}`);
+  });
+  const folds = wrinkles.filter((line) => near(line.y1, cy + ry * 0.22));
+  assert.equal(folds.length, 2);
+  for (const fold of folds) {
+    const side = Math.sign(fold.x1 - cx);
+    assert.ok(near(fold.x1, cx + side * rx * 0.14) && near(fold.x2, cx + side * rx * 0.3) && near(fold.y2, cy + ry * 0.46));
+  }
+  const [chinLine, ...cheeks] = parts(shapes, "laxity");
+  assert.ok(near(chinLine.y1, chin + 2) && near(chinLine.x1, cx - rx * 0.34) && near(chinLine.x2, cx + rx * 0.34));
+  for (const cheek of cheeks) {
+    const side = Math.sign(cheek.x1 - cx);
+    assert.ok(near(cheek.x1, cx + side * rx * 0.58) && near(cheek.y1, cy + ry * 0.25));
+    assert.ok(near(cheek.x2, cx + side * rx * 0.4) && near(cheek.y2, cy + ry * 0.62));
+  }
+  // The breast's depth is 6 · breast_development.
+  const breast = one(shapes, "breast");
+  assert.ok(breast.d.split(" ").includes(String(6 * 0.4)));
+});
