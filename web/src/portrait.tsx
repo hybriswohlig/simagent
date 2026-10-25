@@ -21,7 +21,8 @@ function Drawn({ shape }: { shape: Shape }) {
         <path
           d={shape.d}
           fill={shape.fill}
-          stroke={shape.fill === "none" ? "#000000" : "none"}
+          stroke={shape.stroke}
+          stroke-width={shape.width}
           opacity={shape.opacity}
           data-part={shape.part}
         />
