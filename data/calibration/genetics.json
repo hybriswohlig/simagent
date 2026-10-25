@@ -415,10 +415,10 @@
       "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin (ADR-0015)"
     },
     "core:body_mc1r_hair_eu": {
-      "value": 0.3,
+      "value": 0.08,
       "unit": "fraction",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-24 (ADR-0011, round 39; was 0.3 since 2026-10-08)",
+      "as_of": "2026-10-24",
       "note": "docs/genetik-spezifikation.md 10.4: hair_eumelanin times this at two copies (ADR-0015)"
     },
     "core:body_mc1r_skin_eu": {
@@ -429,10 +429,10 @@
       "note": "docs/genetik-spezifikation.md 10.4: skin_eumelanin times this at two copies (ADR-0015)"
     },
     "core:body_mc1r_hair_pheo": {
-      "value": 0.8,
+      "value": 1,
       "unit": "fraction",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-24 (ADR-0011, round 39; was 0.8 since 2026-10-08)",
+      "as_of": "2026-10-24",
       "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin at two copies (ADR-0015)"
     },
     "core:body_mc1r_skin_pheo": {
