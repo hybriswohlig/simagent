@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":5,"core_version":48,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":49,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":5,"core_version":48,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":49,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -913,12 +913,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":48"#, r#""core_version":49"#);
+    replace_in(&log, r#""core_version":49"#, r#""core_version":50"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 49, this is 48"
+        "error: replay_foreign_core_version: the input log is of core version 50, this is 49"
     );
-    replace_in(&log, r#""core_version":49"#, r#""core_version":48"#);
+    replace_in(&log, r#""core_version":50"#, r#""core_version":49"#);
     replace_in(&log, "63e4b3ea3dcc1fe6", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -1466,8 +1466,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 48, "the core version in the header of the save");
-    bytes[9] = 49;
+    assert_eq!(bytes[9], 49, "the core version in the header of the save");
+    bytes[9] = 50;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),
