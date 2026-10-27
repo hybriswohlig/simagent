@@ -2063,3 +2063,79 @@ fn the_sheet_is_the_scenarios_founders_without_environment() {
         assert_eq!(ages, [2, 8, 12, 16, 25, 40, 60], "row {n}");
     }
 }
+
+/// A run a process left between two stops (a year of events and census written, its input
+/// log open, manifest and save of the last stop) goes back to that stop when the server
+/// starts, which says so on its error output; the run then goes on like any other
+/// (ADR-0021 section 2, addendum 2026-10-27).
+#[test]
+fn the_server_brings_an_interrupted_run_back_to_its_last_stop() {
+    let (runs, web, twin) = writable_fixture("recover");
+    let town = runs.join("town");
+    let stopped = contents(&town);
+    let lines = |dir: &Path, file: &str| {
+        let text = fs::read_to_string(dir.join(file)).expect("read");
+        text.lines().count()
+    };
+    let (events, census) = (lines(&town, "events.ndjson"), lines(&town, "census.csv"));
+    // The twin runs the year the interrupted step ran: its events and census are the step's.
+    resume_until(&twin, 5 * Y - 1, None).expect("the twin runs a year");
+    for file in ["events.ndjson", "census.csv"] {
+        fs::copy(twin.join(file), town.join(file)).expect("copied");
+    }
+    let log = fs::read_to_string(town.join("input.ndjson")).expect("read");
+    let (open, _end) = log.trim_end().rsplit_once('\n').expect("an end line");
+    fs::write(town.join("input.ndjson"), format!("{open}\n")).expect("written");
+    let (cut_events, cut_rows) = (
+        lines(&twin, "events.ndjson") - events,
+        lines(&twin, "census.csv") - census,
+    );
+    assert!(cut_events > 0 && cut_rows == 1, "the step wrote a year");
+    // A run another process holds is its own: the server starts and leaves it.
+    let damaged = contents(&town);
+    {
+        let _held = Holder::hold(&lock_path(&town).expect("a path"));
+        let _server = start(&runs, &web);
+        assert!(contents(&town) == damaged, "a held run is left");
+    }
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .arg("view")
+        .arg(&runs)
+        .args(["--port", "0", "--web"])
+        .arg(&web)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("starts");
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().expect("its output"))
+        .read_line(&mut line)
+        .expect("its address");
+    let port: u16 = line
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix("/\n"))
+        .and_then(|port| port.parse().ok())
+        .unwrap_or_else(|| panic!("the address line: {line:?}"));
+    assert!(contents(&town) == stopped, "back at its last stop");
+    let (status, _, body) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert!(contents(&town) == contents(&twin), "the year again");
+    let _ = child.kill();
+    let _ = child.wait();
+    let mut said = String::new();
+    child
+        .stderr
+        .take()
+        .expect("its error output")
+        .read_to_string(&mut said)
+        .expect("text");
+    let closed = 4 * Y - 1;
+    let year = calendar(SimTime::from_secs(closed)).year;
+    assert_eq!(
+        said,
+        format!(
+            "view: run town went back to its last stop at {closed} (year {year}): cut {cut_events} events, {cut_rows} census rows, 0 inputs\n"
+        )
+    );
+}

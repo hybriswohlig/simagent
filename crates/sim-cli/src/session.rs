@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use sim_core::body_contract::CLAMPED_KEYS;
+use sim_core::canonical::YearHash;
 use sim_core::data::Data;
 use sim_core::input::{Input, InputRecord, InputStamp};
 use sim_core::log::{LogEntry, LogHasher};
@@ -152,6 +153,15 @@ fn record_line(record: &InputRecord) -> String {
     files::json(record) + "\n"
 }
 
+/// The input log of `world` while it is open: the header and its records, no end line.
+fn open_log(world: &World) -> String {
+    let mut log = files::json(&header(world.data().hash())) + "\n";
+    for record in world.input_log() {
+        log.push_str(&record_line(record));
+    }
+    log
+}
+
 impl Session {
     /// A new run in a directory that does not exist yet or is empty. The first input
     /// is applied at the stamp `first_t` before anything is written: a rejected scenario
@@ -200,11 +210,10 @@ impl Session {
             fork,
             stopped: false,
         };
-        let mut log = files::json(&header(session.world.data().hash())) + "\n";
-        for record in session.world.input_log() {
-            log.push_str(&record_line(record));
-        }
-        files::write(&session.path(files::INPUT_LOG), log.as_bytes())?;
+        files::write(
+            &session.path(files::INPUT_LOG),
+            open_log(&session.world).as_bytes(),
+        )?;
         files::write(
             &session.path(files::CENSUS),
             (census_header(session.world.data()) + "\n").as_bytes(),
@@ -225,11 +234,7 @@ impl Session {
         // A run that was interrupted while it wrote has lines in its files that the
         // save does not know. The manifest of the last orderly end tells them apart.
         let manifest = files::read_manifest(&files::read_text(&dir.join(files::MANIFEST))?)?;
-        let describes_the_save = manifest.closed_through == world.closed_through()
-            && manifest.year_hashes == year_hashes
-            && manifest.core_version == CORE_VERSION
-            && manifest.data_hash == world.data().hash();
-        if !describes_the_save {
+        if !describes_the_save(&manifest, &world, &year_hashes) {
             return Err(inconsistent(
                 "manifest.json does not describe the save".to_owned(),
             ));
@@ -255,23 +260,14 @@ impl Session {
                 year_hashes.len()
             )));
         }
-        // Each row whole: as many integers as the header has columns, and the line end
-        // after the last; a row cut off in its last cell keeps the count of lines.
+        // Each row whole, and the line end after the last; a row cut off in its last cell
+        // keeps the count of lines.
         let columns = census_header(world.data()).split(',').count();
-        let whole = |row: &str| {
-            let cells: Vec<&str> = row.split(',').collect();
-            cells.len() == columns && cells.iter().all(|cell| cell.parse::<i64>().is_ok())
-        };
+        let whole = |row: &str| whole_row(row, columns);
         if !census.ends_with('\n') || !census.lines().skip(1).all(whole) {
             return Err(inconsistent("census.csv has a row cut off".to_owned()));
         }
-        let scenario: Option<Scenario> =
-            files::parse_strict(files::read_text(&dir.join(files::SCENARIO))?.trim_end());
-        let fits = scenario.is_some_and(|scenario| {
-            scenario.format_version == files::FORMAT_VERSION
-                && scenario.start.world_seed == manifest.world_seed
-        });
-        if !fits {
+        if !scenario_of_the_run(dir, &manifest)? {
             return Err(inconsistent(
                 "scenario.resolved.json is not the scenario of this run".to_owned(),
             ));
@@ -298,11 +294,10 @@ impl Session {
     /// The input log of an orderly run ends with `{"end":t}`. Before a resumed run
     /// writes anything else, the log is open again: header and records, no end line.
     fn reopen_input_log(&self) -> Result<(), CliError> {
-        let mut log = files::json(&header(self.world.data().hash())) + "\n";
-        for record in self.world.input_log() {
-            log.push_str(&record_line(record));
-        }
-        files::write(&self.path(files::INPUT_LOG), log.as_bytes())
+        files::write(
+            &self.path(files::INPUT_LOG),
+            open_log(&self.world).as_bytes(),
+        )
     }
 
     /// Applies inputs at the stop of a resumed run and records them. All of them are
@@ -643,6 +638,158 @@ fn input_log_matches(dir: &Path, world: &World) -> Result<(), CliError> {
         return Err(inconsistent("does not end at the last second"));
     }
     Ok(())
+}
+
+/// The manifest of the last orderly end describes the save: its last second, its year
+/// hashes, this core and its data.
+fn describes_the_save(manifest: &Manifest, world: &World, year_hashes: &[YearHash]) -> bool {
+    manifest.closed_through == world.closed_through()
+        && manifest.year_hashes == year_hashes
+        && manifest.core_version == CORE_VERSION
+        && manifest.data_hash == world.data().hash()
+}
+
+/// `scenario.resolved.json` is the scenario of this format and of the manifest's world.
+fn scenario_of_the_run(dir: &Path, manifest: &Manifest) -> Result<bool, CliError> {
+    let scenario: Option<Scenario> =
+        files::parse_strict(files::read_text(&dir.join(files::SCENARIO))?.trim_end());
+    Ok(scenario.is_some_and(|scenario| {
+        scenario.format_version == files::FORMAT_VERSION
+            && scenario.start.world_seed == manifest.world_seed
+    }))
+}
+
+/// A whole census row: as many integers as the header has columns.
+fn whole_row(row: &str, columns: usize) -> bool {
+    let cells: Vec<&str> = row.split(',').collect();
+    cells.len() == columns && cells.iter().all(|cell| cell.parse::<i64>().is_ok())
+}
+
+/// What the recovery cut after the last stop of a run: the stop's last closed second, the
+/// lines of `events.ndjson` and `census.csv` after it (a last line cut off counts) and the
+/// inputs written after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Recovered {
+    pub closed_through: SimTime,
+    pub events: usize,
+    pub census: usize,
+    pub inputs: usize,
+}
+
+/// A run a process left between two stops goes back to its last stop (ADR-0021 section 2,
+/// addendum 2026-10-27); the caller holds its lock. A run that opens is left alone. The stop
+/// is witnessed by the manifest that describes the save, the events up to its log hash, the
+/// census rows of the save's years and the save's inputs; what stands after it is cut, and
+/// the input log is written as the stop wrote it. Any other damage is refused with the
+/// open's code, nothing written.
+pub fn recover(dir: &Path) -> Result<Option<Recovered>, CliError> {
+    let refused = match Session::resume(dir) {
+        Ok(_) => return Ok(None),
+        Err(refused) => refused,
+    };
+    let Some(stop) = witnessed_stop(dir) else {
+        return Err(refused);
+    };
+    files::truncate(&dir.join(files::EVENTS), stop.events_kept)?;
+    files::truncate(&dir.join(files::CENSUS), stop.census_kept)?;
+    files::replace(&dir.join(files::INPUT_LOG), stop.input_log.as_bytes())?;
+    // The directory is the stop again; an open that still refuses it is reported.
+    Session::resume(dir)?;
+    Ok(Some(stop.recovered))
+}
+
+/// The last stop a run directory witnesses and where its files end.
+struct Stop {
+    recovered: Recovered,
+    events_kept: usize,
+    census_kept: usize,
+    /// The input log as the stop wrote it.
+    input_log: String,
+}
+
+/// The stop of `dir`, if every part of it is whole.
+fn witnessed_stop(dir: &Path) -> Option<Stop> {
+    let bytes = files::read(&dir.join(files::SAVE)).ok()?;
+    let (world, year_hashes) = World::load(&bytes, crate::data::core_data().ok()?).ok()?;
+    let manifest =
+        files::read_manifest(&files::read_text(&dir.join(files::MANIFEST)).ok()?).ok()?;
+    if !describes_the_save(&manifest, &world, &year_hashes)
+        || !scenario_of_the_run(dir, &manifest).ok()?
+    {
+        return None;
+    }
+    // The events: whole entries up to the first whose log hash is the manifest's.
+    let events = files::read(&dir.join(files::EVENTS)).ok()?;
+    let mut hasher = LogHasher::new();
+    let mut events_kept = 0;
+    while hasher.digest() != manifest.log_hash {
+        let end = events_kept + events[events_kept..].iter().position(|b| *b == b'\n')?;
+        let line = std::str::from_utf8(&events[events_kept..end]).ok()?;
+        let entry: LogEntry = files::parse_strict(line)?;
+        hasher.update(core::slice::from_ref(&entry));
+        events_kept = end + 1;
+    }
+    // The census: this version's header and a whole row for each year of the save.
+    let census = files::read(&dir.join(files::CENSUS)).ok()?;
+    let header = census_header(world.data());
+    let columns = header.split(',').count();
+    let mut census_kept = 0;
+    for row in 0..=year_hashes.len() {
+        let end = census_kept + census[census_kept..].iter().position(|b| *b == b'\n')?;
+        let line = std::str::from_utf8(&census[census_kept..end]).ok()?;
+        if !(if row == 0 {
+            line == header
+        } else {
+            whole_row(line, columns)
+        }) {
+            return None;
+        }
+        census_kept = end + 1;
+    }
+    // The input log: the save's, or a beginning of it cut off while it was opened again.
+    let open = open_log(&world);
+    let log = files::read(&dir.join(files::INPUT_LOG)).ok()?;
+    let end = LogEnd {
+        end: world.closed_through(),
+    };
+    let inputs = match log.strip_prefix(open.as_bytes()) {
+        Some(after) => {
+            let lines: Vec<&str> = (after.split(|b| *b == b'\n'))
+                .filter_map(|line| std::str::from_utf8(line).ok())
+                .collect();
+            let inputs = (lines.iter())
+                .filter(|line| files::parse_strict::<InputRecord>(line).is_some())
+                .count();
+            // Inputs the save lacks, then the end line of its own second: a stop of those
+            // inputs was being written, and the manifest, which names no input, may be
+            // already that stop's. Nothing tells the two apart.
+            let ended_here = (lines.iter())
+                .any(|line| files::parse_strict::<LogEnd>(line).is_some_and(|e| e.end == end.end));
+            if inputs > 0 && ended_here {
+                return None;
+            }
+            inputs
+        }
+        None if open.as_bytes().starts_with(&log) => 0,
+        None => return None,
+    };
+    Some(Stop {
+        recovered: Recovered {
+            closed_through: world.closed_through(),
+            events: lines_in(&events[events_kept..]),
+            census: lines_in(&census[census_kept..]),
+            inputs,
+        },
+        events_kept,
+        census_kept,
+        input_log: open + &files::json(&end) + "\n",
+    })
+}
+
+/// The lines of `bytes`; a last line without its line end counts.
+fn lines_in(bytes: &[u8]) -> usize {
+    let ends = bytes.iter().filter(|b| **b == b'\n').count();
+    ends + usize::from(bytes.last().is_some_and(|b| *b != b'\n'))
 }
 
 /// The header of `census.csv` (ADR-0004 section 8): the three columns of every run, then

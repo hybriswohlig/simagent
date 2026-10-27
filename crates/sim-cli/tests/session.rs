@@ -1,10 +1,12 @@
 //! The run directory under the server's way of writing (ADR-0021 sections 1 and 2): the
-//! lock of a run, stops the run goes on from, and a crash between two files reported on
-//! the next open, never a silently wrong run.
+//! lock of a run, stops the run goes on from, a crash between two files reported on the
+//! next open, never a silently wrong run, and a run left between two stops back at its
+//! last one on the server's start.
 
 mod common;
 
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -14,7 +16,7 @@ use serde_json::Value;
 use sim_cli::error::CliError;
 use sim_cli::files::{self, Scenario};
 use sim_cli::lock::{RunLock, lock_path};
-use sim_cli::session::Session;
+use sim_cli::session::{self, Recovered, Session};
 use sim_core::ids::SimId;
 use sim_core::input::{ArrangePartnership, Input};
 use sim_core::time::SimTime;
@@ -356,7 +358,7 @@ fn a_rejected_input_writes_nothing() {
 
 /// A damage to a run directory: its name, the damage, the code of the command line, the
 /// code of `Session::resume` (the server's open).
-type Case<'a> = (&'a str, &'a dyn Fn(&Path), &'a str, &'a str);
+type Case = (&'static str, fn(&Path), &'static str, &'static str);
 
 fn cut(dir: &Path, file: &str, keep: impl FnOnce(usize) -> usize) {
     let bytes = fs::read(dir.join(file)).expect("read");
@@ -378,16 +380,14 @@ fn remove(dir: &Path, file: &str) {
     fs::remove_file(dir.join(file)).expect("removed");
 }
 
-/// A crash between two of the files: each case, as the next open reports it.
-#[test]
-fn an_interrupted_write_is_reported_on_the_next_open() {
-    let base = scratch("crash");
-    let cases: [Case; 23] = [
+/// A crash between two of the files, each case.
+fn damages() -> [Case; 23] {
+    [
         (
             // The ten-year scenario has its one input in its start record: an extra
             // record repeats it, which no save holds twice.
             "input written, save old",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
                 let mut lines: Vec<&str> = text.lines().collect();
                 let end = lines.pop().expect("an end line");
@@ -401,7 +401,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "input log without its end",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
                 let mut lines: Vec<&str> = text.lines().collect();
                 lines.pop();
@@ -412,7 +412,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "input log with its header only",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
                 let header = text.lines().next().expect("a header");
                 fs::write(dir.join(files::INPUT_LOG), format!("{header}\n")).expect("written");
@@ -422,7 +422,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "input log of another core",
-            &|dir| {
+            |dir| {
                 header_field(dir, "core_version", |v| {
                     (v.as_u64().expect("a number") + 1).into()
                 })
@@ -432,31 +432,31 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "input log of other data",
-            &|dir| header_field(dir, "data_hash", |_| "0000000000000000".into()),
+            |dir| header_field(dir, "data_hash", |_| "0000000000000000".into()),
             "run_dir_inconsistent",
             "run_dir_inconsistent",
         ),
         (
             "input log missing",
-            &|dir| remove(dir, files::INPUT_LOG),
+            |dir| remove(dir, files::INPUT_LOG),
             "io",
             "io",
         ),
         (
             "manifest cut off",
-            &|dir| cut(dir, files::MANIFEST, |n| n / 2),
+            |dir| cut(dir, files::MANIFEST, |n| n / 2),
             "manifest_invalid",
             "manifest_invalid",
         ),
         (
             "manifest missing",
-            &|dir| remove(dir, files::MANIFEST),
+            |dir| remove(dir, files::MANIFEST),
             "io",
             "io",
         ),
         (
             "manifest new, save old",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::MANIFEST)).expect("read");
                 let later = text.replacen("\"closed_through\":", "\"closed_through\":1", 1);
                 fs::write(dir.join(files::MANIFEST), later).expect("written");
@@ -466,14 +466,14 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "save cut off",
-            &|dir| cut(dir, files::SAVE, |n| n / 2),
+            |dir| cut(dir, files::SAVE, |n| n / 2),
             "save_rejected",
             "save_rejected",
         ),
-        ("save missing", &|dir| remove(dir, files::SAVE), "io", "io"),
+        ("save missing", |dir| remove(dir, files::SAVE), "io", "io"),
         (
             "events written, manifest old",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::EVENTS)).expect("read");
                 let last = text.lines().last().expect("an entry").to_owned();
                 files::append(&dir.join(files::EVENTS), &format!("{last}\n")).expect("appended");
@@ -483,7 +483,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "events without their last entry",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::EVENTS)).expect("read");
                 let mut lines: Vec<&str> = text.lines().collect();
                 lines.pop();
@@ -494,33 +494,33 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "events cut off in a line",
-            &|dir| cut(dir, files::EVENTS, |n| n - 3),
+            |dir| cut(dir, files::EVENTS, |n| n - 3),
             "events_invalid",
             "events_invalid",
         ),
         (
             // The last entry whole but its line end missing: the next entry would join it.
             "events cut off before the last line end",
-            &|dir| cut(dir, files::EVENTS, |n| n - 1),
+            |dir| cut(dir, files::EVENTS, |n| n - 1),
             "events_invalid",
             "events_invalid",
         ),
         (
             "events missing",
-            &|dir| remove(dir, files::EVENTS),
+            |dir| remove(dir, files::EVENTS),
             "io",
             "io",
         ),
         (
             // The command line reads the scenario first.
             "scenario cut off",
-            &|dir| cut(dir, files::SCENARIO, |n| n / 2),
+            |dir| cut(dir, files::SCENARIO, |n| n / 2),
             "scenario_invalid",
             "run_dir_inconsistent",
         ),
         (
             "scenario of another world",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::SCENARIO)).expect("read");
                 let other = text.replacen(
                     "\"world_seed\":\"0000000000000001\"",
@@ -535,19 +535,19 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "scenario missing",
-            &|dir| remove(dir, files::SCENARIO),
+            |dir| remove(dir, files::SCENARIO),
             "io",
             "io",
         ),
         (
             "census row cut off",
-            &|dir| cut(dir, files::CENSUS, |n| n - 2),
+            |dir| cut(dir, files::CENSUS, |n| n - 2),
             "run_dir_inconsistent",
             "run_dir_inconsistent",
         ),
         (
             "census row without its last cell",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::CENSUS)).expect("read");
                 let shorter: Vec<&str> = (text.lines())
                     .map(|line| line.rsplit_once(',').map_or(line, |(kept, _)| kept))
@@ -561,7 +561,7 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "census cell no number",
-            &|dir| {
+            |dir| {
                 let text = fs::read_to_string(dir.join(files::CENSUS)).expect("read");
                 let (kept, _) = text.trim_end().rsplit_once(',').expect("a cell");
                 fs::write(dir.join(files::CENSUS), format!("{kept},x\n")).expect("written");
@@ -571,12 +571,18 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
         ),
         (
             "census missing",
-            &|dir| remove(dir, files::CENSUS),
+            |dir| remove(dir, files::CENSUS),
             "io",
             "io",
         ),
-    ];
-    for (i, (case, damage, by_cli, by_session)) in cases.into_iter().enumerate() {
+    ]
+}
+
+/// A crash between two of the files: each case, as the next open reports it.
+#[test]
+fn an_interrupted_write_is_reported_on_the_next_open() {
+    let base = scratch("crash");
+    for (i, (case, damage, by_cli, by_session)) in damages().into_iter().enumerate() {
         let dir = three_years(&base, &format!("case{i}"));
         damage(&dir);
         let damaged = (FILES.iter())
@@ -591,5 +597,224 @@ fn an_interrupted_write_is_reported_on_the_next_open() {
             .map(|file| fs::read(dir.join(file)).ok())
             .collect::<Vec<_>>();
         assert!(after == damaged, "{case}: the open wrote");
+    }
+}
+
+/// What a step writes before its stop, by the real session: an input at the stop, if any,
+/// then the clock one year on; the process ends before the stop.
+fn interrupted_step(dir: &Path, input: Option<Input>) {
+    let session = Session::resume(dir).expect("resumes");
+    let mut session = match input {
+        Some(input) => session.submit_at_stop(vec![input]).expect("accepted"),
+        None => session,
+    };
+    session.reopen().expect("reopens");
+    session
+        .advance(SimTime::from_secs(5 * Y - 1))
+        .expect("advances");
+}
+
+/// The lines of `file` after its first `kept` bytes; a last line without its line end
+/// counts.
+fn lines_after(dir: &Path, file: &str, kept: usize) -> usize {
+    let bytes = fs::read(dir.join(file)).expect("read");
+    let rest = &bytes[kept.min(bytes.len())..];
+    let ends = rest.iter().filter(|b| **b == b'\n').count();
+    ends + usize::from(rest.last().is_some_and(|b| *b != b'\n'))
+}
+
+/// A run that a process left between two stops goes back to its last stop on the server's
+/// start (ADR-0021 section 2, addendum 2026-10-27): every file as the stop wrote it, the
+/// lines after it counted, and the run goes on.
+#[test]
+fn an_interrupted_step_goes_back_to_its_last_stop() {
+    let base = scratch("recover");
+    // A case: its name, what the interrupted step left, the inputs after the stop.
+    type Step = (&'static str, fn(&Path), usize);
+    let steps: [Step; 8] = [
+        (
+            "a year without its stop",
+            |dir| interrupted_step(dir, None),
+            0,
+        ),
+        (
+            "an input and a year",
+            |dir| interrupted_step(dir, Some(pair(1, 2))),
+            1,
+        ),
+        (
+            "events cut off in a line",
+            |dir| {
+                interrupted_step(dir, None);
+                cut(dir, files::EVENTS, |n| n - 3);
+            },
+            0,
+        ),
+        (
+            "a census row cut off",
+            |dir| {
+                interrupted_step(dir, None);
+                cut(dir, files::CENSUS, |n| n - 2);
+            },
+            0,
+        ),
+        (
+            "the end line written, the manifest old",
+            |dir| {
+                interrupted_step(dir, None);
+                let end = files::LogEnd {
+                    end: SimTime::from_secs(5 * Y - 1),
+                };
+                files::append(&dir.join(files::INPUT_LOG), &(files::json(&end) + "\n"))
+                    .expect("appended");
+            },
+            0,
+        ),
+        (
+            // The input log written anew when the step opened it, cut off in its last
+            // record; the step wrote nothing else.
+            "the input log cut off while it was opened",
+            |dir| {
+                let text = fs::read_to_string(dir.join(files::INPUT_LOG)).expect("read");
+                let (open, _end) = text.trim_end().rsplit_once('\n').expect("an end line");
+                fs::write(dir.join(files::INPUT_LOG), &open[..open.len() - 4]).expect("written");
+            },
+            0,
+        ),
+        (
+            // A recovery cut off itself, after it cut the events back to the stop.
+            "a recovery cut off after the events",
+            |dir| {
+                let events = fs::read(dir.join(files::EVENTS)).expect("read").len();
+                interrupted_step(dir, None);
+                files::truncate(&dir.join(files::EVENTS), events).expect("cut");
+            },
+            0,
+        ),
+        (
+            "a recovery cut off after the events and the census",
+            |dir| {
+                let size = |file: &str| fs::read(dir.join(file)).expect("read").len();
+                let (events, census) = (size(files::EVENTS), size(files::CENSUS));
+                interrupted_step(dir, Some(pair(1, 2)));
+                files::truncate(&dir.join(files::EVENTS), events).expect("cut");
+                files::truncate(&dir.join(files::CENSUS), census).expect("cut");
+            },
+            1,
+        ),
+    ];
+    for (i, (case, step, inputs)) in steps.into_iter().enumerate() {
+        let dir = three_years(&base, &format!("case{i}"));
+        let stopped = contents(&dir);
+        let size = |file: &str| fs::read(dir.join(file)).expect("read").len();
+        let (events_at_stop, census_at_stop) = (size(files::EVENTS), size(files::CENSUS));
+        step(&dir);
+        assert!(contents(&dir) != stopped, "{case}: the step wrote nothing");
+        let expected = Recovered {
+            closed_through: SimTime::from_secs(4 * Y - 1),
+            events: lines_after(&dir, files::EVENTS, events_at_stop),
+            census: lines_after(&dir, files::CENSUS, census_at_stop),
+            inputs,
+        };
+        let recovered = session::recover(&dir).expect(case);
+        assert_eq!(recovered, Some(expected), "{case}");
+        assert!(contents(&dir) == stopped, "{case}: not the last stop");
+        resume_to(&dir, 6 * Y - 1).expect(case);
+    }
+}
+
+/// Only what a step leaves after the last stop is cut: a damage to what the stop wrote is
+/// refused with the code of the open, the files as they were; the three damages that leave
+/// the stop whole go back to it. An input the save lacks before an end line of the save's
+/// second may be a stop the manifest already tells: refused.
+#[test]
+fn only_what_a_step_leaves_is_cut() {
+    let base = scratch("recover-damages");
+    let whole = [
+        "input log without its end",
+        "input log with its header only",
+        "events written, manifest old",
+    ];
+    for (i, (case, damage, _, by_session)) in damages().into_iter().enumerate() {
+        let dir = three_years(&base, &format!("case{i}"));
+        let stopped = contents(&dir);
+        damage(&dir);
+        let damaged = (FILES.iter())
+            .map(|file| fs::read(dir.join(file)).ok())
+            .collect::<Vec<_>>();
+        // A file written anew, even with the same bytes, is another file.
+        let input_log = || {
+            fs::metadata(dir.join(files::INPUT_LOG))
+                .ok()
+                .map(|m| m.ino())
+        };
+        let input_log_before = input_log();
+        let recovered = session::recover(&dir);
+        if whole.contains(&case) {
+            let recovered = recovered.expect(case).expect(case);
+            assert_eq!(recovered.closed_through, SimTime::from_secs(4 * Y - 1));
+            assert!(contents(&dir) == stopped, "{case}: not the last stop");
+        } else {
+            let refused = recovered.expect_err(case);
+            assert_eq!(refused.code, by_session, "{case}: {}", refused.detail);
+            let after = (FILES.iter())
+                .map(|file| fs::read(dir.join(file)).ok())
+                .collect::<Vec<_>>();
+            assert!(after == damaged, "{case}: the recovery wrote");
+            assert_eq!(
+                input_log(),
+                input_log_before,
+                "{case}: the input log written anew"
+            );
+        }
+    }
+}
+
+/// A run at its stop is no case for the recovery: nothing is written.
+#[test]
+fn a_run_at_its_stop_is_left_alone() {
+    let base = scratch("recover-whole");
+    let dir = three_years(&base, "run");
+    let stopped = contents(&dir);
+    assert_eq!(session::recover(&dir).expect("opens"), None);
+    assert!(contents(&dir) == stopped, "the recovery wrote");
+}
+
+/// A stop of inputs alone stays in the second of the stop before it, and its manifest names
+/// no input: cut off between its files, after its end line or after its manifest, the
+/// directory cannot tell the new manifest from the old one. The recovery refuses both,
+/// nothing written.
+#[test]
+fn a_stop_of_inputs_cut_between_its_files_is_refused() {
+    let base = scratch("recover-same-second");
+    for (i, manifest_new) in [false, true].into_iter().enumerate() {
+        let dir = three_years(&base, &format!("case{i}"));
+        let read = |file: &str| fs::read(dir.join(file)).expect("read");
+        let (manifest, save) = (read(files::MANIFEST), read(files::SAVE));
+        let scenario: Scenario = files::parse_strict(
+            String::from_utf8(read(files::SCENARIO))
+                .expect("text")
+                .trim_end(),
+        )
+        .expect("a scenario");
+        {
+            let session = Session::resume(&dir).expect("resumes");
+            let mut session = session.submit_at_stop(vec![pair(1, 2)]).expect("accepted");
+            session.checkpoint(&scenario).expect("stops");
+        }
+        assert!(
+            read(files::MANIFEST) != manifest,
+            "the input's stop has its own manifest"
+        );
+        assert!(read(files::SAVE) != save, "and its own save");
+        // Cut off before the save: the old save, and before the manifest the old manifest.
+        fs::write(dir.join(files::SAVE), &save).expect("written");
+        if !manifest_new {
+            fs::write(dir.join(files::MANIFEST), &manifest).expect("written");
+        }
+        let damaged = contents(&dir);
+        let refused = session::recover(&dir).expect_err("refused");
+        assert_eq!(refused.code, "run_dir_inconsistent", "{}", refused.detail);
+        assert!(contents(&dir) == damaged, "the recovery wrote");
     }
 }

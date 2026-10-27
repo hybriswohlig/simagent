@@ -961,6 +961,26 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         open: BTreeMap::new(),
         failed: BTreeSet::new(),
     };
+    // A run a process left between two stops goes back to its last stop before the first
+    // request (ADR-0021 section 2, addendum 2026-10-27); a run another process holds stays
+    // its, and a run that does not go back is reported by the open as before.
+    for name in server.run_names().unwrap_or_default() {
+        let dir = runs.join(&name);
+        let Ok(_lock) = RunLock::acquire(&dir) else {
+            continue;
+        };
+        if let Ok(Some(cut)) = session::recover(&dir) {
+            let t = cut.closed_through;
+            eprintln!(
+                "view: run {name} went back to its last stop at {} (year {}): cut {} events, {} census rows, {} inputs",
+                t.as_secs(),
+                calendar(t).year,
+                cut.events,
+                cut.census,
+                cut.inputs
+            );
+        }
+    }
     let mut out = std::io::stdout();
     writeln!(out, "http://127.0.0.1:{port}/")
         .and_then(|()| out.flush())
