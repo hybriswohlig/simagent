@@ -313,8 +313,8 @@ fn repository_record() -> Record {
 #[test]
 fn the_repository_pool_meets_the_clamp_rate() {
     let record = repository_record();
-    assert_eq!(record.pool_hash, 0xac11_f329_cd5d_a77a);
-    assert_eq!(record.data_hash, 0xe96b_e897_ae69_84a0);
+    assert_eq!(record.pool_hash, 0xe570_ac9d_4945_806b);
+    assert_eq!(record.data_hash, 0xfd60_67b4_3622_23da);
     assert_eq!(
         years_of(&record.rows),
         (740..=749).rev().collect::<Vec<i64>>()

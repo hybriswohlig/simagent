@@ -231,7 +231,7 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 21] = [
         0x3ff8000000000000,
     ),
 ];
-const START_INPUT_HASH: u64 = 0xeafe6ce05fe1ffa7;
+const START_INPUT_HASH: u64 = 0x977f13add5d435bc;
 const BASE_STATE: u64 = 0x56ed15fc3f8da0e7;
 const BASE_LOG: u64 = 0x2f0ea8ac47b08d5c;
 const FORK_STATE: u64 = 0x7a116a035bbf0f4d;

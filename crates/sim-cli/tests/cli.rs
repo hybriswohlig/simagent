@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":5,"core_version":49,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":49,"data_hash":"8e6aa8bdadae3765","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":5,"core_version":49,"data_hash":"63e4b3ea3dcc1fe6","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":49,"data_hash":"8e6aa8bdadae3765","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"b42c32b1197db934"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e540230e6bfb0eea3fdacf2631201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f80af8684a8a82be0849480e4ee92801b8480d68680bcf482c0018f8a80dced80b8aa34c095ce80a8b9b8902686c0d6808084d68a200000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b4f2f6cb91d68c96b401"
+        "53494d4147454e540231e5eeb8edda97aab58e011201ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f80af8684a8a82be0849480e4ee92801b8480d68680bcf482c0018f8a80dced80b8aa34c095ce80a8b9b8902686c0d6808084d68a200000000000000000010000000000000101000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b4f2f6cb91d68c96b401"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -919,10 +919,10 @@ fn replay_rejects_foreign_core_version() {
         "error: replay_foreign_core_version: the input log is of core version 50, this is 49"
     );
     replace_in(&log, r#""core_version":50"#, r#""core_version":49"#);
-    replace_in(&log, "63e4b3ea3dcc1fe6", "c3f04a38869c20d7");
+    replace_in(&log, "8e6aa8bdadae3765", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is 63e4b3ea3dcc1fe6"
+        "error: replay_foreign_data_hash: the input log has data hash c3f04a38869c20d7, this is 8e6aa8bdadae3765"
     );
     assert!(!out.exists(), "a rejected replay writes nothing");
 }
