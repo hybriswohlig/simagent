@@ -726,7 +726,7 @@ fn only_what_a_step_leaves_is_cut() {
             assert_eq!(recovered.closed_through, SimTime::from_secs(4 * Y - 1));
             assert!(contents(&dir) == stopped, "{case}: not the last stop");
         } else {
-            let refused = recovered.err().expect(case);
+            let refused = recovered.expect_err(case);
             assert_eq!(refused.code, by_session, "{case}: {}", refused.detail);
             let after = (FILES.iter())
                 .map(|file| fs::read(dir.join(file)).ok())

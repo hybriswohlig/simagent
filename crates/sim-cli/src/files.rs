@@ -188,6 +188,16 @@ pub fn replace(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     fs::rename(fresh, path).map_err(|error| CliError::io(path, &error))
 }
 
+/// Cuts the file at `path` to its first `len` bytes.
+pub fn truncate(path: &Path, len: usize) -> Result<(), CliError> {
+    let len = u64::try_from(len).map_err(|_| CliError::new("io", "a length beyond u64"))?;
+    OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_len(len))
+        .map_err(|error| CliError::io(path, &error))
+}
+
 pub fn append(path: &Path, text: &str) -> Result<(), CliError> {
     OpenOptions::new()
         .create(true)
