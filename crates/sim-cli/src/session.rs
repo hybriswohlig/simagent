@@ -749,16 +749,29 @@ fn witnessed_stop(dir: &Path) -> Option<Stop> {
     // The input log: the save's, or a beginning of it cut off while it was opened again.
     let open = open_log(&world);
     let log = files::read(&dir.join(files::INPUT_LOG)).ok()?;
-    let inputs = match log.strip_prefix(open.as_bytes()) {
-        Some(after) => (after.split(|b| *b == b'\n'))
-            .filter_map(|line| std::str::from_utf8(line).ok())
-            .filter(|line| files::parse_strict::<InputRecord>(line).is_some())
-            .count(),
-        None if open.as_bytes().starts_with(&log) => 0,
-        None => return None,
-    };
     let end = LogEnd {
         end: world.closed_through(),
+    };
+    let inputs = match log.strip_prefix(open.as_bytes()) {
+        Some(after) => {
+            let lines: Vec<&str> = (after.split(|b| *b == b'\n'))
+                .filter_map(|line| std::str::from_utf8(line).ok())
+                .collect();
+            let inputs = (lines.iter())
+                .filter(|line| files::parse_strict::<InputRecord>(line).is_some())
+                .count();
+            // Inputs the save lacks, then the end line of its own second: a stop of those
+            // inputs was being written, and the manifest, which names no input, may be
+            // already that stop's. Nothing tells the two apart.
+            let ended_here = (lines.iter())
+                .any(|line| files::parse_strict::<LogEnd>(line).is_some_and(|e| e.end == end.end));
+            if inputs > 0 && ended_here {
+                return None;
+            }
+            inputs
+        }
+        None if open.as_bytes().starts_with(&log) => 0,
+        None => return None,
     };
     Some(Stop {
         recovered: Recovered {

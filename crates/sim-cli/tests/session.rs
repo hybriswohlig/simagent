@@ -6,6 +6,7 @@
 mod common;
 
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -630,7 +631,7 @@ fn an_interrupted_step_goes_back_to_its_last_stop() {
     let base = scratch("recover");
     // A case: its name, what the interrupted step left, the inputs after the stop.
     type Step = (&'static str, fn(&Path), usize);
-    let steps: [Step; 6] = [
+    let steps: [Step; 8] = [
         (
             "a year without its stop",
             |dir| interrupted_step(dir, None),
@@ -680,6 +681,27 @@ fn an_interrupted_step_goes_back_to_its_last_stop() {
             },
             0,
         ),
+        (
+            // A recovery cut off itself, after it cut the events back to the stop.
+            "a recovery cut off after the events",
+            |dir| {
+                let events = fs::read(dir.join(files::EVENTS)).expect("read").len();
+                interrupted_step(dir, None);
+                files::truncate(&dir.join(files::EVENTS), events).expect("cut");
+            },
+            0,
+        ),
+        (
+            "a recovery cut off after the events and the census",
+            |dir| {
+                let size = |file: &str| fs::read(dir.join(file)).expect("read").len();
+                let (events, census) = (size(files::EVENTS), size(files::CENSUS));
+                interrupted_step(dir, Some(pair(1, 2)));
+                files::truncate(&dir.join(files::EVENTS), events).expect("cut");
+                files::truncate(&dir.join(files::CENSUS), census).expect("cut");
+            },
+            1,
+        ),
     ];
     for (i, (case, step, inputs)) in steps.into_iter().enumerate() {
         let dir = three_years(&base, &format!("case{i}"));
@@ -702,13 +724,13 @@ fn an_interrupted_step_goes_back_to_its_last_stop() {
 }
 
 /// Only what a step leaves after the last stop is cut: a damage to what the stop wrote is
-/// refused with the code of the open, the files as they were; the four damages that leave
-/// the stop whole go back to it.
+/// refused with the code of the open, the files as they were; the three damages that leave
+/// the stop whole go back to it. An input the save lacks before an end line of the save's
+/// second may be a stop the manifest already tells: refused.
 #[test]
 fn only_what_a_step_leaves_is_cut() {
     let base = scratch("recover-damages");
     let whole = [
-        "input written, save old",
         "input log without its end",
         "input log with its header only",
         "events written, manifest old",
@@ -720,6 +742,13 @@ fn only_what_a_step_leaves_is_cut() {
         let damaged = (FILES.iter())
             .map(|file| fs::read(dir.join(file)).ok())
             .collect::<Vec<_>>();
+        // A file written anew, even with the same bytes, is another file.
+        let input_log = || {
+            fs::metadata(dir.join(files::INPUT_LOG))
+                .ok()
+                .map(|m| m.ino())
+        };
+        let input_log_before = input_log();
         let recovered = session::recover(&dir);
         if whole.contains(&case) {
             let recovered = recovered.expect(case).expect(case);
@@ -732,6 +761,11 @@ fn only_what_a_step_leaves_is_cut() {
                 .map(|file| fs::read(dir.join(file)).ok())
                 .collect::<Vec<_>>();
             assert!(after == damaged, "{case}: the recovery wrote");
+            assert_eq!(
+                input_log(),
+                input_log_before,
+                "{case}: the input log written anew"
+            );
         }
     }
 }
@@ -744,4 +778,43 @@ fn a_run_at_its_stop_is_left_alone() {
     let stopped = contents(&dir);
     assert_eq!(session::recover(&dir).expect("opens"), None);
     assert!(contents(&dir) == stopped, "the recovery wrote");
+}
+
+/// A stop of inputs alone stays in the second of the stop before it, and its manifest names
+/// no input: cut off between its files, after its end line or after its manifest, the
+/// directory cannot tell the new manifest from the old one. The recovery refuses both,
+/// nothing written.
+#[test]
+fn a_stop_of_inputs_cut_between_its_files_is_refused() {
+    let base = scratch("recover-same-second");
+    for (i, manifest_new) in [false, true].into_iter().enumerate() {
+        let dir = three_years(&base, &format!("case{i}"));
+        let read = |file: &str| fs::read(dir.join(file)).expect("read");
+        let (manifest, save) = (read(files::MANIFEST), read(files::SAVE));
+        let scenario: Scenario = files::parse_strict(
+            String::from_utf8(read(files::SCENARIO))
+                .expect("text")
+                .trim_end(),
+        )
+        .expect("a scenario");
+        {
+            let session = Session::resume(&dir).expect("resumes");
+            let mut session = session.submit_at_stop(vec![pair(1, 2)]).expect("accepted");
+            session.checkpoint(&scenario).expect("stops");
+        }
+        assert!(
+            read(files::MANIFEST) != manifest,
+            "the input's stop has its own manifest"
+        );
+        assert!(read(files::SAVE) != save, "and its own save");
+        // Cut off before the save: the old save, and before the manifest the old manifest.
+        fs::write(dir.join(files::SAVE), &save).expect("written");
+        if !manifest_new {
+            fs::write(dir.join(files::MANIFEST), &manifest).expect("written");
+        }
+        let damaged = contents(&dir);
+        let refused = session::recover(&dir).expect_err("refused");
+        assert_eq!(refused.code, "run_dir_inconsistent", "{}", refused.detail);
+        assert!(contents(&dir) == damaged, "the recovery wrote");
+    }
 }

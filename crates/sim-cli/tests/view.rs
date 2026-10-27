@@ -2091,6 +2091,13 @@ fn the_server_brings_an_interrupted_run_back_to_its_last_stop() {
         lines(&twin, "census.csv") - census,
     );
     assert!(cut_events > 0 && cut_rows == 1, "the step wrote a year");
+    // A run another process holds is its own: the server starts and leaves it.
+    let damaged = contents(&town);
+    {
+        let _held = Holder::hold(&lock_path(&town).expect("a path"));
+        let _server = start(&runs, &web);
+        assert!(contents(&town) == damaged, "a held run is left");
+    }
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_simagent"))
         .arg("view")
