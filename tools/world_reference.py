@@ -681,8 +681,11 @@ FOUNDER_ALLELE = 28
 # market that skips such a relative chooses from other twelve and an arrangement that was
 # accepted is rejected, a new rule without a new field: core 48 (ADR-0003 6.4), the projection
 # stays 18.
+# Red hair (ADR-0015 section 1, addendum of 2026-10-24; Grok, round 39, R1 c): two MC1R
+# copies give hair eumelanin times 0.08 (was 0.30) and pheomelanin 1 (was 0.80). New data,
+# a new data hash and new bodies: core 49 (ADR-0003 6.4), the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 48
+CORE_VERSION = 49
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

@@ -6,10 +6,10 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 /// The version of the contract these types come from.
-pub const CONTRACT_VERSION: &str = "0.1.0";
+pub const CONTRACT_VERSION: &str = "0.1.1";
 
 /// `stable_hash64` over the bytes of `contracts/body.json`.
-pub const SOURCE_HASH: u64 = 0xf2263b9d6af3103d;
+pub const SOURCE_HASH: u64 = 0x8832819242b0c331;
 
 /// A parameter of the body contract, in the order of the contract file. The variants
 /// have no stable numbers and no order: both would be positional.

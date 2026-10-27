@@ -1577,11 +1577,18 @@ mod tests {
         );
         assert_eq!(snapshot(&repo)[1..], committed[1..]);
         assert!(!export.exists(), "a refused codegen wrote the export types");
-        // Written by hand, the hash and the types pass checks 2 and 4, not check 3.
+        // Written by hand, the hash and the types pass checks 2 and 4, not check 3. Only the
+        // entry of the current version changes; the base's older entries stay.
         let hash = sim_core::hash::stable_hash64(changed.as_bytes());
         let version = contract::version(&changed).expect("a version");
-        rewrite(&repo, BODY_HASHES_FILE, |_| {
-            format!("{{\"{version}\": \"{hash:016x}\"}}\n")
+        rewrite(&repo, BODY_HASHES_FILE, |text| {
+            let mut hashes: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(text).expect("the hashes of the base");
+            hashes.insert(version.to_string(), format!("{hash:016x}").into());
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&hashes).expect("the hashes")
+            )
         });
         let types = generated_types(&repo, &changed).expect("types");
         rewrite(&repo, codegen::GENERATED_FILE, |_| types.clone());
