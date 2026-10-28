@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { UnknownAnswer } from "../dist/api.js";
-import { HUNGERS, diseasesOn, shockInput, switchInput, switchLabel } from "../dist/shocks.js";
+import { HUNGERS, shockInput, switchInput, switchLabel, world } from "../dist/shocks.js";
 
 test("a hunger button sends its template", () => {
   assert.deepEqual(
@@ -30,19 +30,21 @@ test("the switch button turns the switch the other way and says so", () => {
   assert.equal(switchLabel(true), "Erbkrankheiten ausschalten");
 });
 
-test("where the switch stands comes from the run's world", async () => {
+test("the switch, the hunger years and what a fork keeps come from the run's world", async () => {
   const asked = [];
-  const answers = [
-    { format: "simagent.view.world", version: 1, hereditary_diseases: true },
-    { format: "simagent.view.world", version: 1, hereditary_diseases: false },
-    { format: "simagent.view.world", version: 2, hereditary_diseases: true },
-  ];
+  const answer = {
+    format: "simagent.view.world",
+    version: 2,
+    hereditary_diseases: true,
+    hunger_years: [5, 6, 7],
+    fork_keeps_diseases: [false, true],
+  };
+  const answers = [answer, { ...answer, version: 1 }];
   globalThis.fetch = async (path) => {
     asked.push(path);
     return new Response(JSON.stringify(answers.shift()), { status: 200 });
   };
-  assert.equal(await diseasesOn("town"), true);
-  assert.equal(await diseasesOn("town"), false);
-  await assert.rejects(diseasesOn("town"), UnknownAnswer);
-  assert.deepEqual(asked, ["/api/runs/town/world", "/api/runs/town/world", "/api/runs/town/world"]);
+  assert.deepEqual(await world("town"), answer);
+  await assert.rejects(world("town"), UnknownAnswer);
+  assert.deepEqual(asked, ["/api/runs/town/world", "/api/runs/town/world"]);
 });

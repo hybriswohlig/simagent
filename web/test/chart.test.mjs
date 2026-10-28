@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { chart } from "../dist/render/chart.js";
+import { bands, chart } from "../dist/render/chart.js";
 
 /** Equal up to binary64 noise of the arithmetic. */
 function close(actual, expected) {
@@ -106,4 +106,19 @@ test("no year draws nothing", () => {
   assert.deepEqual(drawn.xTicks, []);
   assert.deepEqual(drawn.segments, [[]]);
   assert.deepEqual(drawn.dots, [[]]);
+});
+
+test("the marked years are bands from half a year before to half a year after", () => {
+  // Years 0 to 4 on the plot from 48 to 448: 100 per year.
+  const years = [0, 1, 2, 3, 4];
+  assert.deepEqual(bands(years, [1, 2]), [{ x1: 98, x2: 298 }]);
+  assert.deepEqual(bands(years, [1, 3]), [{ x1: 98, x2: 198 }, { x1: 298, x2: 398 }]);
+  // At the edges cut to the plot; outside it nothing.
+  assert.deepEqual(bands(years, [0]), [{ x1: 48, x2: 98 }]);
+  assert.deepEqual(bands(years, [4, 5, 6]), [{ x1: 398, x2: 448 }]);
+  assert.deepEqual(bands(years, [-1, 7]), []);
+  assert.deepEqual(bands(years, []), []);
+  // One year shown fills the plot.
+  assert.deepEqual(bands([5], [5]), [{ x1: 48, x2: 448 }]);
+  assert.deepEqual(bands([], [5]), []);
 });
