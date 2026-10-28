@@ -1352,6 +1352,27 @@ fn the_world_answer_names_the_switch_the_hunger_and_what_a_fork_keeps() {
         send("fork", &body);
         assert_eq!(world(&fork)["hereditary_diseases"], json!(kept), "{fork}");
     }
+    // A fork's own override counts like any input: from year 6 it turns the switch off, gives
+    // year 8 the index 1 (no hunger) and year 9 the index 0.5; a year on, a fork from 7 keeps
+    // the override's switch.
+    let changes = r#"[{"core:hereditary_diseases":false},{"core:nutrition_year":{"year":8,"index":1.0}},{"core:nutrition_year":{"year":9,"index":0.5}}]"#;
+    send(
+        "fork",
+        &format!(r#"{{"run":"fork-of","from_year":6,"changes":{changes}}}"#),
+    );
+    for step in ["year", "days28"] {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/fork-of/advance", &body);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    }
+    assert_eq!(
+        world("fork-of"),
+        standing(
+            false,
+            json!([5, 6, 7, 9]),
+            json!([false, false, false, false, true, true, false])
+        )
+    );
     let (status, _, body) = get(port, "/api/runs/elsewhere/world");
     assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));
 }
