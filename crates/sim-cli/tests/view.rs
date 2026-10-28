@@ -1373,6 +1373,23 @@ fn the_world_answer_names_the_switch_the_hunger_and_what_a_fork_keeps() {
             json!([false, false, false, false, true, true, false])
         )
     );
+    // And a fork of that fork from 7 stands where the override left the switch.
+    let (status, _, answer) = post(
+        port,
+        "/api/runs/fork-of/fork",
+        r#"{"run":"fork-of-7","from_year":7,"changes":[]}"#,
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(world("fork-of-7")["hereditary_diseases"], json!(false));
+    // A start with the switch on (the fun-test town): a fork from year 1 keeps it on.
+    let (status, _, answer) = post(port, "/api/runs", r#"{"template":"stadt","run":"stadt"}"#);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    for step in ["year", "days28"] {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/stadt/advance", &body);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    }
+    assert_eq!(world("stadt"), standing(true, json!([]), json!([true])));
     let (status, _, body) = get(port, "/api/runs/elsewhere/world");
     assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));
 }

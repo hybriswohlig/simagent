@@ -94,6 +94,8 @@ function Town({
   const [retries, setRetries] = useState(0);
   const [world, setWorld] = useState<WorldAnswer | null>(null);
   const diseases = world === null ? null : world.hereditary_diseases;
+  // The hunger years last read: those of a run only grow, so a read that fails keeps them.
+  const [hunger, setHunger] = useState<readonly number[]>([]);
   const [sending, setSending] = useState(false);
   const [inputRefused, setInputRefused] = useState<string | null>(null);
   const [forking, setForking] = useState(false);
@@ -171,7 +173,12 @@ function Town({
     const asked = ++worldReads.current;
     const last = () => live.current && asked === worldReads.current;
     return readWorldOf(run).then(
-      (answer) => last() && setWorld(answer),
+      (answer) => {
+        if (last()) {
+          setWorld(answer);
+          setHunger(answer.hunger_years);
+        }
+      },
       () => last() && setWorld(null),
     );
   };
@@ -317,7 +324,7 @@ function Town({
         retry={() => setRetries((n) => n + 1)}
         names={names}
       />
-      <CurvesView run={run} at={String(listedAt)} hunger={world === null ? [] : world.hunger_years} />
+      <CurvesView run={run} at={String(listedAt)} hunger={hunger} />
       <ForkForm
         run={run}
         year={clock.date.year}
