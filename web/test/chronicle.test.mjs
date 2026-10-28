@@ -164,28 +164,28 @@ test("the chronicle follows the onset of a disease", () => {
   );
 });
 
-test("an onset in its own year is the short form", () => {
+test("an onset in its own year is the short form, the name in the dative after „an“ (Grok round 41, V3)", () => {
   const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
-  assert.equal(onsetTemplate(onset("core:disease_ar", 12, 0), 12), "{0} erkrankt an Zäher Atem");
-  assert.equal(onsetTemplate(onset("core:disease_ad_late", 40, 45), 40), "{0} erkrankt an Später Verfall");
-  assert.equal(onsetTemplate(onset("core:disease_mt", -3, 21), -3), "{0} erkrankt an Mütterliches Augenlicht");
+  assert.equal(onsetTemplate(onset("core:disease_ar", 12, 0), 12), "{0} erkrankt an Zähem Atem");
+  assert.equal(onsetTemplate(onset("core:disease_ad_late", 40, 45), 40), "{0} erkrankt an Spätem Verfall");
+  assert.equal(onsetTemplate(onset("core:disease_mt", -3, 21), -3), "{0} erkrankt an Mütterlichem Augenlicht");
   assert.equal(onsetTemplate(onset("core:disease_new", 7, 30), 7), "{0} erkrankt an core:disease_new");
 });
 
-test("an onset written later is the late form", () => {
+test("an onset written later is the late form, the name in the dative too", () => {
   const onset = (disease, since_year, age_years) => ({ disease, since_year, age_years });
   assert.equal(
     onsetTemplate(onset("core:disease_ar", 12, 12), 20),
-    "{0} ist an Zäher Atem erkrankt, seit Jahr 12, mit 12 Jahren",
+    "{0} ist an Zähem Atem erkrankt, seit Jahr 12, mit 12 Jahren",
   );
-  assert.equal(onsetTemplate(onset("core:disease_xr", -10, 0), 4), "{0} ist an Schwere Blutung erkrankt, seit der Geburt");
+  assert.equal(onsetTemplate(onset("core:disease_xr", -10, 0), 4), "{0} ist an Schwerer Blutung erkrankt, seit der Geburt");
   assert.equal(
     onsetTemplate(onset("core:disease_liability", 5, 1), 9),
-    "{0} ist an Geteilte Schwere erkrankt, seit Jahr 5, mit 1 Jahr",
+    "{0} ist an Geteilter Schwere erkrankt, seit Jahr 5, mit 1 Jahr",
   );
   assert.equal(
     onsetTemplate(onset("core:disease_ad_partial", -10, 30), 0),
-    "{0} ist an Ungleicher Ausbruch erkrankt, seit Jahr -10, mit 30 Jahren",
+    "{0} ist an Ungleichem Ausbruch erkrankt, seit Jahr -10, mit 30 Jahren",
   );
 });
 
@@ -225,7 +225,7 @@ test("the switch says how it stands from now on", () => {
 test("every other entry keeps the template of its code", () => {
   assert.equal(template(item(1, "core:birth")), CODES["payload core:birth"]);
   const onset = about(1, { "core:disease_onset": { disease: "core:disease_ar", since_year: 1, age_years: 0 } }, []);
-  assert.equal(template(onset), "{0} erkrankt an Zäher Atem");
+  assert.equal(template(onset), "{0} erkrankt an Zähem Atem");
 });
 
 // Grok round 27: the years a shock sets stand in its sentence, not each on its own line; a

@@ -46,7 +46,7 @@ function CompareForm({ run, others }: { run: string; others: readonly string[] }
         <label>
           {TEXT.compare_with}{" "}
           <select value={other} onChange={(event) => setOther(event.currentTarget.value)}>
-            <option value="" />
+            <option value="">{TEXT.compare_pick}</option>
             {others.map((name) => (
               <option key={name} value={name}>
                 {name}

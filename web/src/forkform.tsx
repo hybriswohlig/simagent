@@ -18,9 +18,10 @@ export type Writes = { idle: boolean; begin: () => boolean; end: () => void };
 
 /** Forking the run from a year up to the one it stands in (ADR-0021 section 2 and its
  * addendum G2, texts Grok rounds 28 and 40); on success the page goes to the comparison of the
- * run with its fork. The year follows the run's until it is chosen, and the choice that keeps
- * the switch names where it stood before that year (`keeps`, from the server); while the fork
- * is computed the run takes no other write. */
+ * run with its fork. The year follows the run's, a typed one until the run steps on, and the
+ * choice that keeps the switch names where it stood before that year (`keeps`, from the
+ * server); before year 1 a sentence says why there is no fork; while the fork is computed the
+ * run takes no other write. */
 export function ForkForm({
   run,
   year,
@@ -44,6 +45,8 @@ export function ForkForm({
       shown.current = false;
     };
   }, []);
+  // A typed year holds until the run steps on; then the field follows the run again.
+  useEffect(() => setChosen(null), [year]);
   const from = chosen ?? String(year);
   const fromYear = Number(from);
   const valid = runName(name) && Number.isInteger(fromYear) && fromYear >= 1 && fromYear <= year;
@@ -68,6 +71,14 @@ export function ForkForm({
       })
       .finally(writes.end);
   };
+  if (year < 1) {
+    return (
+      <>
+        <h2>{TEXT.fork}</h2>
+        <p>{TEXT.fork_not_yet}</p>
+      </>
+    );
+  }
   return (
     <>
       <h2>{TEXT.fork}</h2>

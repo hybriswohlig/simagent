@@ -44,9 +44,14 @@ if (browser !== undefined) {
       errors.push(error.message);
       broke(new Error(`the page threw: ${error.message}`));
     });
+    // Once the smoke test asks for a refused pairing, the browser's line about its 409 is
+    // expected.
+    let refusalAsked = false;
     page.on("console", (message) => {
       // The server serves no icon; the browser's own request for it is no error of the page.
-      if (message.type() === "error" && !message.location().url.endsWith("/favicon.ico")) {
+      const where = message.location().url;
+      const refusal = refusalAsked && where.endsWith("/api/runs/neu/input") && message.text().includes("409");
+      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal) {
         errors.push(message.text());
       }
     });
@@ -74,9 +79,15 @@ if (browser !== undefined) {
       "its line in the chronicle",
       page.getByText("Jahr 29, 1. Monat, 1. Tag: Ein Hungerjahr kommt: Jahr 29.").waitFor(),
     );
+    const forkYear = page.getByRole("spinbutton", { name: "Ab Jahr" });
+    await step("a fork year typed", forkYear.fill("1"));
     const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr" });
     await step("step one year", year.click());
     await step("the date of year 29", dated(29));
+    await step(
+      "the fork year follows the run again",
+      page.waitForFunction(() => document.querySelector('input[type="number"]')?.value === "29"),
+    );
     await step("the steps free again", page.waitForFunction(() => {
       const buttons = [...document.querySelectorAll('[aria-label="Zeit"] button')];
       return buttons.length > 0 && buttons.every((button) => !button.disabled);
@@ -130,12 +141,20 @@ if (browser !== undefined) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
     await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
+    await step(
+      "the kinship's own placeholder",
+      page.getByLabel("Verwandtschaft mit").locator("option").first().filter({ hasText: /^Person wählen$/ }).waitFor({ state: "attached" }),
+    );
     await step("pin its family", page.getByRole("button", { name: "Familie anheften" }).click());
     await step("pinned", page.getByRole("button", { name: "Nicht mehr anheften" }).waitFor());
     await step("back to the run with the family", page.goto(`${url}#/runs/${run}`));
     await step(
       "the pinned family",
       page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
+    );
+    await step(
+      "the comparison's placeholder",
+      page.getByLabel("Vergleichen mit").locator("option").first().filter({ hasText: /^Lauf wählen$/ }).waitFor({ state: "attached" }),
     );
     // A short run page: the pinned family above the chronicle, which scrolls in its own box,
     // like the living.
@@ -170,10 +189,57 @@ if (browser !== undefined) {
     await step("its first second", dated(0));
     await step("its founders", page.locator('a[href^="#/runs/neu/persons/"]').first().waitFor());
     await step("no curves yet", page.getByText("Die Kurven beginnen, wenn das erste Jahr vorbei ist.").waitFor());
+    await step("no fork in year 0, and why", page.getByText("Eine Gabel beginnt frühestens in Jahr 1.").waitFor());
+    const forkControls =
+      (await page.getByRole("spinbutton", { name: "Ab Jahr" }).count()) +
+      (await page.getByRole("button", { name: "Gabel anlegen" }).count());
+    if (forkControls !== 0) {
+      throw new Error("year 0: the fork form still shows its controls");
+    }
+    // A pairing the core refuses: an offer of person A was paired elsewhere meanwhile (another
+    // tab); after the refusal A's offers are read again and that one is gone.
+    const api = (method, path, body) =>
+      page.evaluate(
+        async ([m, p, b]) => {
+          const init = { method: m, headers: { "Content-Type": "application/json" } };
+          const answer = await fetch(p, b === null ? init : { ...init, body: JSON.stringify(b) });
+          return answer.json();
+        },
+        [method, path, body ?? null],
+      );
+    const offers = async (sim) => (await api("GET", `/api/runs/neu/persons/${sim}`)).partner_candidates ?? [];
+    let pair = null;
+    for (let sim = 1; pair === null && sim <= 40; sim++) {
+      const mine = await offers(sim);
+      if (mine.length > 0) {
+        const other = (await offers(mine[0])).find((candidate) => candidate !== sim);
+        pair = other === undefined ? null : [sim, mine[0], other];
+      }
+    }
+    if (pair === null) {
+      throw new Error("the new town: no person with an offer that has another offer");
+    }
+    const [a, x, y] = pair;
+    await step("a person with offers", page.goto(`${url}#/runs/neu/persons/${a}`));
+    const choice = page.getByRole("combobox", { name: "Mit wem?" });
+    await step("the offer", choice.locator(`option[value="${x}"]`).waitFor({ state: "attached" }));
+    await step("chosen", choice.selectOption(String(x)));
+    const female = (await api("GET", `/api/runs/neu/persons/${x}`)).sex === "female";
+    const elsewhere = { arrange_partnership: female ? { woman: x, man: y } : { woman: y, man: x } };
+    if ((await api("POST", "/api/runs/neu/input", elsewhere)).format !== "simagent.view.input") {
+      throw new Error("the pairing elsewhere was refused");
+    }
+    refusalAsked = true;
+    await step("pair", page.getByRole("button", { name: "Paar stiften" }).click());
+    await step("the refusal", page.getByText("Eine der beiden Personen ist schon in einer Partnerschaft.").waitFor());
+    await step(
+      "the refused offer gone",
+      choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
+    );
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, and a new town in its first second");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, and a new town in its first second with a refused pairing");
   } catch (error) {
     fail(error.message);
   } finally {
