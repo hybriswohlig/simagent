@@ -241,21 +241,36 @@ export type ForkedAnswer = {
   readonly run: string;
 };
 
-/** `GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, each second with its date. */
+/** `GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, the hereditary diseases counted, each second with its date. */
 export type DiffAnswer = {
   readonly format: "simagent.view.diff";
   readonly version: number;
   readonly a: string;
   readonly b: string;
+  readonly summary: DiffCount[];
   readonly a_only: string[];
   readonly b_only: string[];
   readonly changed: DiffChange[];
 };
 
-/** A lineage key whose life differs between the runs: the fields that differ, in the order of the life, and the life in each. */
+/** A disease of the data in both runs: the living that show it and all who died of it. */
+export type DiffCount = {
+  readonly disease: string;
+  readonly a: DiffNumbers;
+  readonly b: DiffNumbers;
+};
+
+/** The living that show a disease, and all who died of it, in one run. */
+export type DiffNumbers = {
+  readonly affected: number;
+  readonly died: number;
+};
+
+/** A lineage key whose life differs between the runs: the fields that differ, in the order of the life, whether a hereditary disease is part of it, and the life in each. */
 export type DiffChange = {
   readonly lineage_key: string;
   readonly differs: string[];
+  readonly hereditary: boolean;
   readonly a: DiffLife;
   readonly b: DiffLife;
 };
@@ -271,11 +286,12 @@ export type DiffLife = {
   readonly diseases: DiffOnset[];
 };
 
-/** A hereditary disease that shows, with the calendar year and the whole years of its onset from the core. */
+/** A hereditary disease with its onset reached, with the calendar year and the whole years of its onset from the core, and whether it rests because the switch is off. */
 export type DiffOnset = {
   readonly disease: string;
   readonly year: number;
   readonly age_years: number;
+  readonly rests: boolean;
 };
 
 /** A partnership of a person, the other by lineage key. */

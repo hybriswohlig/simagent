@@ -1,6 +1,7 @@
-// The comparison page's rows (ADR-0021 section 3 and the addenda G1 to G3; texts Grok round
-// 28): the persons of one run only and, for each life that went otherwise, a row per field
-// that differs with the text of each run. The answer is written by hand after the golden
+// The comparison page's rows (ADR-0021 section 3 and the addenda G1 to G3 and of 2026-10-28;
+// texts Grok rounds 28, 34 and 41): the diseases counted per run, the persons of one run only
+// and, for each life that went otherwise, a row per field that differs with the text of each
+// run, those with a hereditary disease first. The answer is written by hand after the golden
 // comparison of the switch scenario (tests/golden/diff_switch.json), shortened; every
 // expected text by hand from Grok's wording.
 import { test } from "node:test";
@@ -18,21 +19,24 @@ const HIS = "830458f975a6df91";
 const HER = "935f6cce0d166101";
 const ANSWER = {
   format: "simagent.view.diff",
-  version: 2,
+  version: 3,
   a: "town",
   b: "gabel",
+  summary: [],
   a_only: ["a4a0b110a6920c3e"],
   b_only: ["f62d292b56475e6e"],
   changed: [
     {
       lineage_key: SON,
       differs: ["died", "cause_of_death", "partnerships", "children"],
+      hereditary: true,
       a: life({ born: at(29030400, 0, 11, 28), partnerships: [{ partner: HIS, formed: at(897523200, 28, 7, 0), ended: null, ended_by: null }], children: 2 }),
       b: life({ born: at(29030400, 0, 11, 28), died: at(485900217, 15, 5, 23), cause_of_death: "core:disease_ar" }),
     },
     {
       lineage_key: HER,
       differs: ["died", "cause_of_death", "partnerships"],
+      hereditary: false,
       a: life({ partnerships: [{ partner: SON, formed: at(174182400, 5, 7, 0), ended: at(855601366, 27, 2, 3), ended_by: "separation" }] }),
       b: life({ died: at(562966012, 17, 11, 9), cause_of_death: "core:senescence", partnerships: [{ partner: SON, formed: at(174182400, 5, 7, 0), ended: at(562966012, 17, 11, 9), ended_by: "death" }] }),
     },
@@ -173,13 +177,20 @@ test("the hereditary diseases of a life", () => {
         differs: ["diseases"],
         a: life({
           diseases: [
-            { disease: "core:disease_ar", year: 34, age_years: 34 },
-            { disease: "core:disease_ad_late", year: 12, age_years: 1 },
+            { disease: "core:disease_ar", year: 34, age_years: 34, rests: false },
+            { disease: "core:disease_ad_late", year: 12, age_years: 1, rests: false },
           ],
         }),
-        b: life({ diseases: [{ disease: "core:disease_ar", year: -1, age_years: 0 }] }),
+        b: life({ diseases: [{ disease: "core:disease_ar", year: -1, age_years: 0, rests: false }] }),
+        hereditary: true,
       },
-      { lineage_key: HIS, differs: ["diseases"], a: life({}), b: life({ diseases: [{ disease: "core:disease_xr", year: 40, age_years: 2 }] }) },
+      {
+        lineage_key: HIS,
+        differs: ["diseases"],
+        hereditary: true,
+        a: life({}),
+        b: life({ diseases: [{ disease: "core:disease_xr", year: 40, age_years: 2, rests: false }] }),
+      },
     ],
   };
   const view = diffView(answer, { a: new Map(), b: new Map() });
@@ -196,4 +207,61 @@ test("the hereditary diseases of a life", () => {
       [{ label: "Erbkrankheiten", a: ["keine"], b: ["Schwere Blutung, seit Jahr 40, mit 2 Jahren"] }],
     ],
   );
+});
+
+// Grok's round 41, V2: a disease whose onset is reached while the switch is off rests.
+test("a disease at rest is named as resting", () => {
+  const answer = {
+    ...ANSWER,
+    a_only: [],
+    b_only: [],
+    changed: [
+      {
+        lineage_key: HER,
+        differs: ["diseases"],
+        hereditary: true,
+        a: life({ diseases: [{ disease: "core:disease_liability", year: 33, age_years: 32, rests: false }] }),
+        b: life({ diseases: [{ disease: "core:disease_liability", year: 33, age_years: 32, rests: true }] }),
+      },
+    ],
+  };
+  const [her] = diffView(answer, { a: new Map(), b: new Map() }).changed;
+  assert.deepEqual(her.rows, [
+    { label: "Erbkrankheiten", a: ["Geteilte Schwere, seit Jahr 33, mit 32 Jahren"], b: ["Geteilte Schwere, Anlage, ruht"] },
+  ]);
+});
+
+// Grok's round 41, V1: the counts per disease and run, the name in the nominative, a code
+// without a name as the code.
+test("the hereditary diseases counted per run", () => {
+  const answer = {
+    ...ANSWER,
+    summary: [
+      { disease: "core:disease_ar", a: { affected: 1, died: 0 }, b: { affected: 0, died: 2 } },
+      { disease: "core:disease_new", a: { affected: 0, died: 0 }, b: { affected: 3, died: 1 } },
+    ],
+  };
+  assert.deepEqual(diffView(answer, NAMES).summary, [
+    { name: "Zäher Atem", a: "1 betroffen, 0 daran gestorben", b: "0 betroffen, 2 daran gestorben" },
+    { name: "core:disease_new", a: "0 betroffen, 0 daran gestorben", b: "3 betroffen, 1 daran gestorben" },
+  ]);
+  assert.deepEqual(diffView(ANSWER, NAMES).summary, []);
+});
+
+// Grok's round 41, V1: the lives with a hereditary disease first, each group in the order of
+// the answer; an empty group goes; the others alone keep the heading "Anders verlaufen".
+test("the lives with a hereditary disease first", () => {
+  const titles = (answer) => diffView(answer, NAMES).groups.map((group) => [group.title, group.lives.map((each) => each.key)]);
+  assert.deepEqual(titles(ANSWER), [
+    ["Mit einem Unterschied der Erbkrankheiten", [SON]],
+    ["Im Übrigen anders verlaufen", [HER]],
+  ]);
+  const [son, her] = ANSWER.changed;
+  assert.deepEqual(titles({ ...ANSWER, changed: [son] }), [["Mit einem Unterschied der Erbkrankheiten", [SON]]]);
+  assert.deepEqual(titles({ ...ANSWER, changed: [her] }), [["Anders verlaufen", [HER]]]);
+  assert.deepEqual(titles({ ...ANSWER, changed: [her, son] }), [
+    ["Mit einem Unterschied der Erbkrankheiten", [SON]],
+    ["Im Übrigen anders verlaufen", [HER]],
+  ]);
+  assert.deepEqual(titles({ ...ANSWER, changed: [] }), []);
 });

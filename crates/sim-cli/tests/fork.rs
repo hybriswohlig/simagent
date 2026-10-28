@@ -1009,15 +1009,17 @@ fn diff_of(a: &Path, b: &Path) -> Result<String, String> {
     Err(stderr.lines().next().unwrap_or("").to_owned())
 }
 
-/// ADR-0021 section 3, its acceptance and its addendum of 2026-10-23: a fork without an
-/// override is its parent, so the comparison is empty, either way round.
+/// ADR-0021 section 3, its acceptance and its addenda of 2026-10-23 and 2026-10-28: a fork
+/// without an override is its parent, so the comparison is empty, either way round; with the
+/// switch off all along nobody shows or dies of a disease, so nothing is counted either.
 #[test]
 fn a_fork_without_override_differs_in_nothing() {
     let dir = scratch("diff_empty");
     let parent = parent(&dir);
     let out = dir.join("fork");
     assert_eq!(fork(&parent, "5", &out), Ok(()));
-    let empty = "{\"format_version\":2,\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
+    let empty =
+        "{\"format_version\":3,\"summary\":[],\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
     assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
     assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
 }

@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """The fork comparison `simagent diff` (ADR-0021 section 3, "Gabelvergleich", and its addenda
-of 2026-10-23, "das Format des Gabelvergleichs", and 2026-10-24, "Erkrankungen im Vergleich";
-ADR-0001 section 6 with "Grenze": comparisons
+of 2026-10-23, "das Format des Gabelvergleichs", 2026-10-24, "Erkrankungen im Vergleich", and
+2026-10-28, "Erbkrankheiten im Vergleich"; ADR-0001 section 6 with "Grenze": comparisons
 never go by SimId), written from the ADRs, independent of the Rust code. The runs come from
 tools/world_reference.py on the repository's data as the CLI runs them
 (`golden_reference.make_world` on `wr.REPOSITORY`).
 
-`diff(a, b)` is a pure function of two pedigrees (`World.pedigree_view()`, the content of
-`pedigree.json` format 4). Per person, by lineage key, a life (`lives`):
+`diff(a, b, clock_a, clock_b, codes)` is a pure function of two pedigrees
+(`World.pedigree_view()`, the content of `pedigree.json` format 4), the clocks of their runs
+(`closed_through`, the run's last closed second, `World.closed`) and the codes of the data's
+diseases in the order of the data (`codes`, those of data/calibration/genetics.json). Per
+person, by lineage key, a life (`lives`):
 
 - `born`, `died`, `cause_of_death`, `emigrated`: the pedigree's values (seconds, the cause's
   data ID, null where the pedigree has null);
@@ -18,22 +21,33 @@ tools/world_reference.py on the repository's data as the CLI runs them
   `pool.mother_key` / `pool.father_key` of a person with a pool origin (a child of a pool
   pregnancy, and also an arrival whose pool parents are in the town). A key that names nobody
   of the pedigree counts for nobody;
-- `diseases`: the hereditary diseases of the pedigree's person that show (`affected`), in the
-  pedigree's order (that of the data), each `{disease, year, age_years}`: its code, the
-  calendar year of `B = born + ⌈onset · YEAR⌉` (`wr.onset_second`) and `⌊onset⌋`, the numbers
-  of the card and of the entry `core:disease_onset` (ADR-0017 section 3). A disease that
-  rests is the same in both runs and no part of a life; nor is one whose `B` lies beyond the
-  clock (`wr.MAX_ABS_SECS`: reached by its years at the clock's last second, rounded past it),
-  as such an onset never comes (ADR-0002).
+- `diseases`: the hereditary diseases of the pedigree's person whose onset is reached at the
+  pedigree's second `r`, in the pedigree's order (that of the data), each `{disease, year,
+  age_years, rests}`: its code, the calendar year of `B = born + ⌈onset · YEAR⌉`
+  (`wr.onset_second`) and `⌊onset⌋`, the numbers of the card and of the entry
+  `core:disease_onset` (ADR-0017 section 3), and whether it rests. One that shows (`affected`
+  of the pedigree) has `rests` false; one that rests has `rests` true: `affected` false and the
+  age `(r − born) / YEAR` (f64) at least the onset, so the switch is off at `r`. `r` is the
+  second the pedigree reads `affected` at: the clock of the run for the living (never before
+  second 0), the death for the dead, the emigration for the emigrated. An onset not reached at
+  `r` stays out, and so does one whose `B` lies beyond the clock (`wr.MAX_ABS_SECS`: reached
+  by its years at the clock's last second, rounded past it), as such an onset never comes
+  (ADR-0002).
 
-The comparison, format 2: `{"format_version":2,"a_only":[…],"b_only":[…],"changed":[{"lineage_key",
-"differs","a","b"}]}`, compact as serde_json writes it (`wr.json_text`). `a_only` and `b_only`
+The comparison, format 3: `{"format_version":3,"summary":[…],"a_only":[…],"b_only":[…],
+"changed":[{"lineage_key","differs","hereditary","a","b"}]}`, compact as serde_json writes it
+(`wr.json_text`). `summary` has, per disease of `codes` in their order, `{"disease",
+"a":{"affected","died"},"b":{"affected","died"}}`, a row only if one of the four numbers is
+above 0: `affected` the living of that run (`died` and `emigrated` null) whose life lists the
+disease as shown (`rests` false), `died` every person of its pedigree whose cause of death is
+the disease (in every year of the run; one who died is not affected). `a_only` and `b_only`
 are the keys of one pedigree only, `changed` the keys of both whose lives differ, each
 ascending by key (16 lowercase hex digits, so the string order is the u64 order); `differs`
-names the differing fields in the order of the life; `a` and `b` are the arguments in order,
-not parent and fork. No SimId and no partnership ID reaches the output. Runs on different
-data never meet here: `simagent diff` loads both saves with the program's data, and a save of
-other data does not load (`save_rejected`, ADR-0003 1.4).
+names the differing fields in the order of the life; `hereditary` is true iff `differs` holds
+`diseases` or either cause of death is one of `codes`; `a` and `b` are the arguments in
+order, not parent and fork. No SimId and no partnership ID reaches the output. Runs on
+different data never meet here: `simagent diff` loads both saves with the program's data, and
+a save of other data does not load (`save_rejected`, ADR-0003 1.4).
 
 The scenario tests/scenarios/diff_switch.json (format 5, founder tag `test:diff_switch`, seed
 1, no capacity, no pool, the switch of the hereditary diseases off at the start; until the last
@@ -43,8 +57,8 @@ acts from `T_5`), then to `until` (as `golden_reference.dummy_worlds`, without t
 fork `b0` without an override (to `T_5 − 1 s`, then to `until`). Checked: the year hashes 0
 to 4 and every log entry before `T_5` of `b` and `b0` are those of `a`, the year hash of 5
 differs in `b`, `b0` is `a` in full; every founder and every person conceived before `T_5` is
-in all three pedigrees; `diff(a, b0)` and `diff(b0, a)` are empty; `diff(b, a)` is `diff(a, b)`
-with the sides swapped.
+in all three pedigrees; `diff(a, b0)` and `diff(b0, a)` are empty, the summary too (below);
+`diff(b, a)` is `diff(a, b)` with the sides swapped, in `summary` as in `changed`.
 
 The design of the scenario (by hand, from the draws; `core:disease_ar` is recessive with
 penetrance 1, onset 0 and the step hazard 1/900 per year before 18, 0.014322… after). With the
@@ -68,6 +82,13 @@ only kills, the meiosis draws do not read the alleles), so they can be chosen af
   both carriers (his mother's maternal copy, his father's paternal copy); in `b` he dies at 21,
   in year 23.
 - Founder 3's partnership with founder 2 ends differently, so his `partnerships` differ.
+- In `a` and `b0` the switch is never on (ADR-0023: off is penetrance 0, the alleles stay):
+  nobody shows a disease or dies of one, so their numbers in the summary are 0 and `diff(a,
+  b0)` has no row; every onset a person reached rests. `core:disease_ar` has onset 0, so in
+  `a` each homozygous person lists it as resting, since birth (the year of `born`, age 0). In
+  `b` it shows where the pedigree's second is `T_5` or later (the clock, or a death from `T_5`
+  on, as for the three who die of it, so `b` counts 3 deaths) and rests at a death before
+  `T_5`, the same life as in `a`.
 
 Every disease death of `b` is checked against the closed form (`hand_death`): `T_5 +
 ceil((x − x0) · YEAR)` with `x0` the age at `T_5` and `x` the age where the budget is used up
@@ -77,6 +98,7 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python diff_reference.py [--write]  
 with --write the line of `diff(a, b)` goes to tests/golden/diff_switch.json)
 """
 
+import json
 import math
 import sys
 import time
@@ -89,9 +111,11 @@ from world_reference import YEAR
 SCENARIO = gr.SCENARIOS / "diff_switch.json"
 # The fork year: the override acts at T_X = X · YEAR.
 FORK_YEAR = 5
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 LIFE_FIELDS = ("born", "died", "cause_of_death", "emigrated", "partnerships", "children", "diseases")
 DISEASE = "core:disease_ar"
+# The data's diseases in their order, as the comparison takes them.
+GENETICS = wr.ROOT / "data" / "calibration" / "genetics.json"
 
 
 def key_value(key: str) -> int:
@@ -100,8 +124,28 @@ def key_value(key: str) -> int:
     return int(key, 16)
 
 
-def lives(view: dict) -> dict:
-    """The life of every person of a pedigree, by lineage key (in the order of the persons)."""
+def disease_entries(person: dict, clock: int) -> list:
+    """The `diseases` of a life: per affliction of the pedigree's person in its order, the one
+    that shows (`rests` false) or rests (`rests` true) at the pedigree's second `r`; a reached
+    onset whose `B` lies beyond the clock never comes."""
+    if person["died"] is not None:
+        r = person["died"]
+    elif person["emigrated"] is not None:
+        r = person["emigrated"]
+    else:
+        r = max(clock, 0)
+    out = []
+    for item in person["diseases"]:
+        b = wr.onset_second(person["born"], item["onset"])
+        rests = not item["affected"] and wr.as_years(r - person["born"]) >= item["onset"]
+        if (item["affected"] or rests) and b <= wr.MAX_ABS_SECS:
+            out.append({"disease": item["disease"], "year": b // wr.YEAR, "age_years": math.floor(item["onset"]), "rests": rests})
+    return out
+
+
+def lives(view: dict, clock: int) -> dict:
+    """The life of every person of a pedigree whose run's clock is `clock`, by lineage key (in
+    the order of the persons)."""
     persons = view["persons"]
     key_of = {person["sim"]: person["lineage_key"] for person in persons}
     assert len(set(key_of.values())) == len(key_of), "lineage_key_unique"
@@ -131,35 +175,57 @@ def lives(view: dict) -> dict:
             "emigrated": person["emigrated"],
             "partnerships": sorted(partnerships[key], key=lambda item: (item["formed"], key_value(item["partner"]))),
             "children": children[key],
-            "diseases": [
-                {"disease": shown["disease"], "year": wr.onset_second(person["born"], shown["onset"]) // wr.YEAR, "age_years": math.floor(shown["onset"])}
-                for shown in person["diseases"]
-                if shown["affected"] and wr.onset_second(person["born"], shown["onset"]) <= wr.MAX_ABS_SECS
-            ],
+            "diseases": disease_entries(person, clock),
         }
     return out
 
 
-def diff(a: dict, b: dict) -> dict:
-    """The comparison of the pedigrees `a` and `b`, format 2, keys in the order of the format."""
-    lives_a, lives_b = lives(a), lives(b)
+def counts(view: dict, lives_: dict, code: str) -> dict:
+    """The numbers of a disease in one run: the living whose life shows it, every person of the
+    pedigree who died of it."""
+    affected = sum(
+        1
+        for life in lives_.values()
+        if life["died"] is None and life["emigrated"] is None and any(item["disease"] == code and not item["rests"] for item in life["diseases"])
+    )
+    died = sum(1 for person in view["persons"] if person["cause_of_death"] == code)
+    return {"affected": affected, "died": died}
+
+
+def diff(a: dict, b: dict, clock_a: int, clock_b: int, codes: list) -> dict:
+    """The comparison of the pedigrees `a` and `b` of runs with the clocks `clock_a` and
+    `clock_b` on data with the diseases `codes` (in data order), format 3, keys in the order of
+    the format."""
+    lives_a, lives_b = lives(a, clock_a), lives(b, clock_b)
+    summary = []
+    for code in codes:
+        row = {"disease": code, "a": counts(a, lives_a, code), "b": counts(b, lives_b, code)}
+        if any(row[side][number] > 0 for side in ("a", "b") for number in ("affected", "died")):
+            summary.append(row)
     changed = []
     for key in sorted(set(lives_a) & set(lives_b), key=key_value):
         differs = [field for field in LIFE_FIELDS if lives_a[key][field] != lives_b[key][field]]
         if differs:
-            changed.append({"lineage_key": key, "differs": differs, "a": lives_a[key], "b": lives_b[key]})
+            hereditary = "diseases" in differs or lives_a[key]["cause_of_death"] in codes or lives_b[key]["cause_of_death"] in codes
+            changed.append({"lineage_key": key, "differs": differs, "hereditary": hereditary, "a": lives_a[key], "b": lives_b[key]})
     return {
         "format_version": FORMAT_VERSION,
+        "summary": summary,
         "a_only": sorted(set(lives_a) - set(lives_b), key=key_value),
         "b_only": sorted(set(lives_b) - set(lives_a), key=key_value),
         "changed": changed,
     }
 
 
+def codes_of(data: wr.Data) -> list:
+    """The codes of the data's diseases in the order of the data."""
+    return [disease.code for disease in data.diseases]
+
+
 def diff_runs(a: wr.World, b: wr.World) -> str:
     """The line `simagent diff` prints for two runs of the same data (without its newline)."""
     assert a.data.hash == b.data.hash, "a save of other data does not load"
-    return wr.json_text(diff(a.pedigree_view(), b.pedigree_view()))
+    return wr.json_text(diff(a.pedigree_view(), b.pedigree_view(), a.closed, b.closed, codes_of(a.data)))
 
 
 def runs(s: dict, data: wr.Data, x: int) -> dict:
@@ -226,10 +292,15 @@ def hand_death(person: dict, data: wr.Data, seed: int, x: int) -> int:
 
 def readable(d: dict) -> list:
     """What a comparison says, one row per key and field."""
-    rows = [f"a_only {key}" for key in d["a_only"]] + [f"b_only {key}" for key in d["b_only"]]
+    rows = [
+        f"summary {row['disease']}: a {row['a']['affected']} affected, {row['a']['died']} died; b {row['b']['affected']} affected, {row['b']['died']} died"
+        for row in d["summary"]
+    ]
+    rows += [f"a_only {key}" for key in d["a_only"]] + [f"b_only {key}" for key in d["b_only"]]
     for item in d["changed"]:
+        mark = " (hereditary)" if item["hereditary"] else ""
         for field in item["differs"]:
-            rows.append(f"changed {item['lineage_key']} {field}: a {wr.json_text(item['a'][field])} b {wr.json_text(item['b'][field])}")
+            rows.append(f"changed {item['lineage_key']}{mark} {field}: a {wr.json_text(item['a'][field])} b {wr.json_text(item['b'][field])}")
     return rows
 
 
@@ -258,12 +329,44 @@ def main(argv) -> int:
             hand = hand_death(person, data, s["seed"], FORK_YEAR)
             assert person["died"] == hand, (person["lineage_key"], person["died"], hand)
             print(f"death b {person['lineage_key']} {DISEASE} at {person['died']} (year {person['died'] // YEAR}, age {wr.as_years(person['died'] - person['born'])!r}) equals the closed form")
-    ab, ba, ab0 = diff(views["a"], views["b"]), diff(views["b"], views["a"]), diff(views["a"], views["b0"])
-    empty = {"format_version": FORMAT_VERSION, "a_only": [], "b_only": [], "changed": []}
-    assert ab0 == empty and diff(views["b0"], views["a"]) == empty
+    codes = codes_of(data)
+    assert codes == [entry["code"] for entry in json.loads(GENETICS.read_text())["diseases"]], "the diseases in the order of the data"
+    clocks = {name: world.closed for name, world in w.items()}
+    assert set(clocks.values()) == {s["until"]}, clocks
+    ab = diff(views["a"], views["b"], clocks["a"], clocks["b"], codes)
+    ba = diff(views["b"], views["a"], clocks["b"], clocks["a"], codes)
+    ab0 = diff(views["a"], views["b0"], clocks["a"], clocks["b0"], codes)
+    empty = {"format_version": FORMAT_VERSION, "summary": [], "a_only": [], "b_only": [], "changed": []}
+    assert ab0 == empty and diff(views["b0"], views["a"], clocks["b0"], clocks["a"], codes) == empty
+    assert ba["summary"] == [{"disease": row["disease"], "a": row["b"], "b": row["a"]} for row in ab["summary"]]
     assert ba["a_only"] == ab["b_only"] and ba["b_only"] == ab["a_only"]
-    assert ba["changed"] == [{"lineage_key": item["lineage_key"], "differs": item["differs"], "a": item["b"], "b": item["a"]} for item in ab["changed"]]
+    assert ba["changed"] == [
+        {"lineage_key": item["lineage_key"], "differs": item["differs"], "hereditary": item["hereditary"], "a": item["b"], "b": item["a"]}
+        for item in ab["changed"]
+    ]
     assert ab["a_only"] and ab["b_only"] and {"died", "cause_of_death", "partnerships", "children"} <= {f for item in ab["changed"] for f in item["differs"]}
+    # The design: the switch is never on in `a`, so nothing shows there and nobody dies of a
+    # disease; `core:disease_ar` (onset 0) rests in every homozygous person of `a` from birth.
+    lives_a, lives_b = lives(views["a"], clocks["a"]), lives(views["b"], clocks["b"])
+    assert all(row["a"] == {"affected": 0, "died": 0} for row in ab["summary"])
+    assert all(item["rests"] for life in lives_a.values() for item in life["diseases"])
+    for person in views["a"]["persons"]:
+        homozygous = [1, 1] in [allele["copies"] for allele in person["alleles"] if allele["locus"] == DISEASE]
+        own = [item for item in lives_a[person["lineage_key"]]["diseases"] if item["disease"] == DISEASE]
+        assert own == ([{"disease": DISEASE, "year": person["born"] // YEAR, "age_years": 0, "rests": True}] if homozygous else []), person["lineage_key"]
+    # In `b` it shows from `T_5` (at the clock, or at a death from `T_5`) and rests at a death
+    # before; the three disease deaths of the design are those of `core:disease_ar`.
+    t_x = FORK_YEAR * YEAR
+    for person in views["b"]["persons"]:
+        r = person["died"] if person["died"] is not None else clocks["b"]
+        for item in lives_b[person["lineage_key"]]["diseases"]:
+            if item["disease"] == DISEASE:
+                assert item["rests"] == (r < t_x), (person["lineage_key"], item, r)
+    dead = sorted(person["lineage_key"] for person in views["b"]["persons"] if person["cause_of_death"] == DISEASE)
+    assert len(dead) == 3 and {"935f6cce0d166101", "5e51a4f2e3aba5e9"} <= set(dead) and any(key.startswith("cbd12a") for key in dead), dead
+    (row,) = [row for row in ab["summary"] if row["disease"] == DISEASE]
+    assert row["b"]["died"] == 3
+    assert all(item["hereditary"] for item in ab["changed"] if item["lineage_key"] in dead)
     text = diff_runs(w["a"], w["b"])
     assert text == wr.json_text(ab) and " " not in text
     print(f"diff(a, b) {text}")
@@ -271,6 +374,10 @@ def main(argv) -> int:
     print(f"diff(a, b0) {diff_runs(w['a'], w['b0'])}")
     for row in readable(ab):
         print(f"readable diff(a, b) {row}")
+    resting = [(key, item["disease"]) for key, life in lives_b.items() for item in life["diseases"] if item["rests"]]
+    print(f"resting a {sum(len(life['diseases']) for life in lives_a.values())} entries; b {len(resting)} {resting}")
+    in_changed = [(item["lineage_key"], side) for item in ab["changed"] for side in ("a", "b") for entry in item[side]["diseases"] if entry["rests"]]
+    print(f"resting entries in changed: {len(in_changed)} {in_changed}")
     if "--write" in argv[1:]:
         GOLDEN.write_text(text + "\n")
         print(f"wrote {GOLDEN.relative_to(wr.ROOT)}")

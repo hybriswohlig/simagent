@@ -1996,7 +1996,7 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     seconds["format_version"] = json!(null);
     for (field, value) in [
         ("format", json!("simagent.view.diff")),
-        ("version", json!(2)),
+        ("version", json!(3)),
         ("a", json!("parent")),
         ("b", json!("fork")),
     ] {
@@ -2007,8 +2007,14 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     let (status, _, body) = get(port, "/api/runs/parent/diff/parent");
     let same = json_of(&body);
     assert_eq!(
-        (status, &same["a_only"], &same["b_only"], &same["changed"]),
-        (200, &json!([]), &json!([]), &json!([]))
+        (
+            status,
+            &same["summary"],
+            &same["a_only"],
+            &same["b_only"],
+            &same["changed"]
+        ),
+        (200, &json!([]), &json!([]), &json!([]), &json!([]))
     );
     let (status, _, body) = get(port, "/api/runs/parent/diff/elsewhere");
     assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));

@@ -1,7 +1,8 @@
+import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { diffView, years, yearsNote, type Otherwise, type Who } from "./diff.js";
+import { diffView, years, yearsNote, type Counted, type Otherwise, type Who } from "./diff.js";
 import type { DiffAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { namesByKey } from "./names.js";
@@ -10,7 +11,7 @@ import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { TEXT } from "./text.js";
 
-const DIFF = { format: "simagent.view.diff", version: 2 } as const;
+const DIFF = { format: "simagent.view.diff", version: 3 } as const;
 
 /** The comparison of two runs from the server; only an answer for these two counts. */
 function useDiff(a: string, b: string): Loaded<DiffAnswer> {
@@ -54,6 +55,43 @@ function Only({ run, who }: { run: string; who: readonly Who[] }) {
 
 /** The space around a cell of a life's table, its text at the top. */
 const CELL = { padding: "2px 16px 2px 0", verticalAlign: "top", textAlign: "left" } as const;
+
+/** The hereditary diseases counted per run (Grok round 41, V1): only when the core counted
+ * one; a column per run, each a link to its run. */
+function Summary({ a, b, rows }: { a: string; b: string; rows: readonly Counted[] }) {
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <h2>{TEXT.diff_diseases}</h2>
+      <p>{TEXT.diff_counted_note}</p>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" style={CELL} />
+            {[a, b].map((run) => (
+              <th scope="col" style={CELL} key={run}>
+                <a href={format({ page: "run", run })}>{run}</a>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.name}>
+              <th scope="row" style={CELL}>
+                {row.name}
+              </th>
+              <td style={CELL}>{row.a}</td>
+              <td style={CELL}>{row.b}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
 
 /** A life that went otherwise: its name and a row per field that differs, a column per run. */
 function Life({ a, b, life }: { a: string; b: string; life: Otherwise }) {
@@ -144,17 +182,18 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
         </p>
       )}
       {note === null ? null : <p>{note}</p>}
+      <Summary a={a} b={b} rows={view.summary} />
       {none ? <p>{TEXT.diff_none}</p> : null}
       <Only run={a} who={view.aOnly} />
       <Only run={b} who={view.bOnly} />
-      {view.changed.length === 0 ? null : (
-        <>
-          <h2>{TEXT.diff_changed}</h2>
-          {view.changed.map((life) => (
+      {view.groups.map((group) => (
+        <Fragment key={group.title}>
+          <h2>{group.title}</h2>
+          {group.lives.map((life) => (
             <Life key={life.key} a={a} b={b} life={life} />
           ))}
-        </>
-      )}
+        </Fragment>
+      ))}
     </section>
   );
 }

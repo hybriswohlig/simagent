@@ -414,9 +414,25 @@ fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {
 /// Prints the comparison of the runs in `a` and `b`, from their saves (ADR-0021 section 3
 /// and its addendum of 2026-10-23): one line of JSON.
 fn diff_of(a: &Path, b: &Path) -> Result<(), CliError> {
-    let (a, b) = (load_world(a)?.pedigree(), load_world(b)?.pedigree());
-    println!("{}", files::json(&sim_core::diff::diff(&a, &b)));
+    println!(
+        "{}",
+        files::json(&diff_of_worlds(&load_world(a)?, &load_world(b)?))
+    );
     Ok(())
+}
+
+/// The comparison of two runs (ADR-0021, addendum of 2026-10-28): their pedigrees at their
+/// clocks, with the diseases of the data; `simagent diff` and the server's route both take it.
+pub fn diff_of_worlds(a: &World, b: &World) -> sim_core::diff::Diff {
+    let diseases: Vec<sim_core::data_id::Code> = (a.data().diseases().iter())
+        .map(|disease| disease.code.clone().into())
+        .collect();
+    sim_core::diff::diff(
+        &a.pedigree(),
+        &b.pedigree(),
+        (a.closed_through(), b.closed_through()),
+        &diseases,
+    )
 }
 
 /// The line `simagent measure` prints: the form, the last closed second and the
