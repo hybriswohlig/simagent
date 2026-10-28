@@ -74,9 +74,15 @@ if (browser !== undefined) {
       "its line in the chronicle",
       page.getByText("Jahr 29, 1. Monat, 1. Tag: Ein Hungerjahr kommt: Jahr 29.").waitFor(),
     );
+    const forkYear = page.getByRole("spinbutton", { name: "Ab Jahr" });
+    await step("a fork year typed", forkYear.fill("1"));
     const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr" });
     await step("step one year", year.click());
     await step("the date of year 29", dated(29));
+    await step(
+      "the fork year follows the run again",
+      page.waitForFunction(() => document.querySelector('input[type="number"]')?.value === "29"),
+    );
     await step("the steps free again", page.waitForFunction(() => {
       const buttons = [...document.querySelectorAll('[aria-label="Zeit"] button')];
       return buttons.length > 0 && buttons.every((button) => !button.disabled);
@@ -130,12 +136,20 @@ if (browser !== undefined) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
     await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
+    await step(
+      "the kinship's own placeholder",
+      page.getByLabel("Verwandtschaft mit").locator("option").first().filter({ hasText: /^Person wählen$/ }).waitFor({ state: "attached" }),
+    );
     await step("pin its family", page.getByRole("button", { name: "Familie anheften" }).click());
     await step("pinned", page.getByRole("button", { name: "Nicht mehr anheften" }).waitFor());
     await step("back to the run with the family", page.goto(`${url}#/runs/${run}`));
     await step(
       "the pinned family",
       page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
+    );
+    await step(
+      "the comparison's placeholder",
+      page.getByLabel("Vergleichen mit").locator("option").first().filter({ hasText: /^Lauf wählen$/ }).waitFor({ state: "attached" }),
     );
     // A short run page: the pinned family above the chronicle, which scrolls in its own box,
     // like the living.
@@ -170,6 +184,7 @@ if (browser !== undefined) {
     await step("its first second", dated(0));
     await step("its founders", page.locator('a[href^="#/runs/neu/persons/"]').first().waitFor());
     await step("no curves yet", page.getByText("Die Kurven beginnen, wenn das erste Jahr vorbei ist.").waitFor());
+    await step("no fork in year 0, and why", page.getByText("Eine Gabel beginnt frühestens in Jahr 1.").waitFor());
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
