@@ -368,23 +368,39 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "DiffAnswer",
-            doc: "`GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, each second with its date.",
+            doc: "`GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, the hereditary diseases counted, each second with its date.",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.diff"])),
                 field("version", Integer),
                 field("a", Text),
                 field("b", Text),
+                field("summary", list(Ref("DiffCount"))),
                 field("a_only", list(Text)),
                 field("b_only", list(Text)),
                 field("changed", list(Ref("DiffChange"))),
             ],
         },
         Named {
+            name: "DiffCount",
+            doc: "A disease of the data in both runs: the living that show it and all who died of it.",
+            fields: vec![
+                field("disease", Text),
+                field("a", Ref("DiffNumbers")),
+                field("b", Ref("DiffNumbers")),
+            ],
+        },
+        Named {
+            name: "DiffNumbers",
+            doc: "The living that show a disease, and all who died of it, in one run.",
+            fields: vec![field("affected", Integer), field("died", Integer)],
+        },
+        Named {
             name: "DiffChange",
-            doc: "A lineage key whose life differs between the runs: the fields that differ, in the order of the life, and the life in each.",
+            doc: "A lineage key whose life differs between the runs: the fields that differ, in the order of the life, whether a hereditary disease is part of it, and the life in each.",
             fields: vec![
                 field("lineage_key", Text),
                 field("differs", list(Text)),
+                field("hereditary", Bool),
                 field("a", Ref("DiffLife")),
                 field("b", Ref("DiffLife")),
             ],
@@ -404,11 +420,12 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "DiffOnset",
-            doc: "A hereditary disease that shows, with the calendar year and the whole years of its onset from the core.",
+            doc: "A hereditary disease with its onset reached, with the calendar year and the whole years of its onset from the core, and whether it rests because the switch is off.",
             fields: vec![
                 field("disease", Text),
                 field("year", Integer),
                 field("age_years", Integer),
+                field("rests", Bool),
             ],
         },
         Named {

@@ -704,11 +704,8 @@ fn discard(dir: &Path, kept: &Path) {
 /// with its date.
 fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
     let compared = (|| -> Result<Value, CliError> {
-        let (one, other) = (
-            crate::load_world(one)?.pedigree(),
-            crate::load_world(other)?.pedigree(),
-        );
-        serde_json::to_value(sim_core::diff::diff(&one, &other))
+        let (one, other) = (crate::load_world(one)?, crate::load_world(other)?);
+        serde_json::to_value(crate::diff_of_worlds(&one, &other))
             .map_err(|error| CliError::new("io", error.to_string()))
     })();
     let compared = match compared {
@@ -717,9 +714,10 @@ fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
     };
     let body = json!({
         "format": "simagent.view.diff",
-        "version": 2,
+        "version": 3,
         "a": a,
         "b": b,
+        "summary": compared["summary"],
         "a_only": compared["a_only"],
         "b_only": compared["b_only"],
         "changed": dated(compared["changed"].clone()),

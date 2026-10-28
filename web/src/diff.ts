@@ -11,7 +11,11 @@ export type Who = { key: string; name: string; sim: number | null };
 export type Row = { label: string; a: string[]; b: string[] };
 /** A life that went otherwise: its name, its sim in each run and its rows. */
 export type Otherwise = { key: string; name: string; a: number | null; b: number | null; rows: Row[] };
-export type DiffView = { aOnly: Who[]; bOnly: Who[]; changed: Otherwise[] };
+/** A disease counted in both runs: its name and the cell of each run. */
+export type Counted = { name: string; a: string; b: string };
+/** The lives that went otherwise under one heading. */
+export type Group = { title: string; lives: Otherwise[] };
+export type DiffView = { summary: Counted[]; aOnly: Who[]; bOnly: Who[]; changed: Otherwise[]; groups: Group[] };
 
 type Names = ReadonlyMap<string, Named>;
 
@@ -43,8 +47,12 @@ function bond(bond: DiffBond, names: Names): string {
   return `${start}${until}${how}`;
 }
 
-/** A disease that shows, in the words of card and chronicle (Grok round 34, E3). */
+/** A disease that shows, in the words of card and chronicle (Grok round 34, E3), or one that
+ * rests (round 41, V2). */
 function onset(shown: DiffOnset): string {
+  if (shown.rests) {
+    return TEXT.diff_disease_rests.replace("{disease}", diseaseName(shown.disease));
+  }
   const template = shown.age_years === 0 ? TEXT.diff_disease_from_birth : TEXT.diff_disease_since;
   return template
     .replace("{disease}", diseaseName(shown.disease))
@@ -77,18 +85,21 @@ function field(name: string, life: DiffLife, names: Names): [string, string[]] {
   }
 }
 
+/** The cell of a disease counted in one run (Grok round 41, V1). */
+function counted(numbers: { affected: number; died: number }): string {
+  return TEXT.diff_counted.replace("{show}", String(numbers.affected)).replace("{dead}", String(numbers.died));
+}
+
 /**
  * The comparison of two runs as the page shows it (ADR-0021 section 3 and its addenda;
- * texts Grok round 28): the persons of one run only, named from that run, and each life that
- * went otherwise with a row per field that differs, in the order of the answer. Every value
- * is the answer's: the page computes nothing from them.
+ * texts Grok rounds 28, 34 and 41): the hereditary diseases counted per run, the persons of
+ * one run only, named from that run, and each life that went otherwise with a row per field
+ * that differs, in the order of the answer, and in groups: those the core marks hereditary
+ * first. Every value is the answer's: the page computes nothing from them.
  */
 export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): DiffView {
   const who = (run: Names) => (key: string): Who => ({ key, name: nameOf(key, run), sim: run.get(key)?.sim ?? null });
-  return {
-    aOnly: answer.a_only.map(who(names.a)),
-    bOnly: answer.b_only.map(who(names.b)),
-    changed: answer.changed.map((entry) => ({
+  const changed = answer.changed.map((entry) => ({
       key: entry.lineage_key,
       name: nameOf(entry.lineage_key, names.a, names.b),
       a: names.a.get(entry.lineage_key)?.sim ?? null,
@@ -98,7 +109,19 @@ export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): Dif
         const [, b] = field(name, entry.b, names.b);
         return { label, a, b };
       }),
-    })),
+    }));
+  const hereditary = changed.filter((_, i) => answer.changed[i]?.hereditary === true);
+  const others = changed.filter((_, i) => answer.changed[i]?.hereditary !== true);
+  const groups: Group[] = [
+    { title: TEXT.diff_changed_hereditary, lives: hereditary },
+    { title: hereditary.length === 0 ? TEXT.diff_changed : TEXT.diff_changed_others, lives: others },
+  ].filter((group) => group.lives.length > 0);
+  return {
+    summary: answer.summary.map((row) => ({ name: diseaseName(row.disease), a: counted(row.a), b: counted(row.b) })),
+    aOnly: answer.a_only.map(who(names.a)),
+    bOnly: answer.b_only.map(who(names.b)),
+    changed,
+    groups,
   };
 }
 
