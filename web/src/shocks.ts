@@ -2,7 +2,7 @@ import { getJson } from "./api.js";
 import type { WorldAnswer } from "./generated/export.js";
 import { TEXT } from "./text.js";
 
-const WORLD = { format: "simagent.view.world", version: 1 } as const;
+const WORLD = { format: "simagent.view.world", version: 2 } as const;
 
 /** The hunger buttons of the run page: the template each triggers and its label (ADR-0023
  * section 6 and "Texte"). */
@@ -26,9 +26,9 @@ export function switchLabel(on: boolean): string {
   return on ? TEXT.diseases_switch_off : TEXT.diseases_switch_on;
 }
 
-/** Whether the hereditary diseases of `run` are on after its last input (the addendum to
- * ADR-0023 before S2). */
-export async function diseasesOn(run: string): Promise<boolean> {
-  const answer = (await getJson(`/api/runs/${run}/world`, WORLD)) as unknown as WorldAnswer;
-  return answer.hereditary_diseases;
+/** The world of `run`: whether its hereditary diseases are on after its last input (the
+ * addendum to ADR-0023 before S2), its hunger years and the switch a fork from each year
+ * keeps (ADR-0021, addendum 2026-10-28). */
+export async function world(run: string): Promise<WorldAnswer> {
+  return (await getJson(`/api/runs/${run}/world`, WORLD)) as unknown as WorldAnswer;
 }

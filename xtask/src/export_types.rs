@@ -431,11 +431,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WorldAnswer",
-            doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.",
+            doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i.",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.world"])),
                 field("version", Integer),
                 field("hereditary_diseases", Bool),
+                field("hunger_years", list(Integer)),
+                field("fork_keeps_diseases", list(Bool)),
             ],
         },
         Named {

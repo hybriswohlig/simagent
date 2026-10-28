@@ -5,7 +5,7 @@ import { added } from "./chronicle.js";
 import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
-import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person, WorldAnswer } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle, SCROLLED } from "./lines.js";
@@ -16,7 +16,7 @@ import { hourglass } from "./tree.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
-import { HUNGERS, diseasesOn, shockInput, switchInput, switchLabel } from "./shocks.js";
+import { HUNGERS, shockInput, switchInput, switchLabel, world as readWorldOf } from "./shocks.js";
 import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
@@ -92,7 +92,10 @@ function Town({
   const [windowFailed, setWindowFailed] = useState(false);
   const [enteredFailed, setEnteredFailed] = useState(false);
   const [retries, setRetries] = useState(0);
-  const [diseases, setDiseases] = useState<boolean | null>(null);
+  const [world, setWorld] = useState<WorldAnswer | null>(null);
+  const diseases = world === null ? null : world.hereditary_diseases;
+  // The hunger years last read: those of a run only grow, so a read that fails keeps them.
+  const [hunger, setHunger] = useState<readonly number[]>([]);
   const [sending, setSending] = useState(false);
   const [inputRefused, setInputRefused] = useState<string | null>(null);
   const [forking, setForking] = useState(false);
@@ -107,8 +110,8 @@ function Town({
   // there may act before the next step, and a page left before its entries came did not
   // keep them.
   const unread = useRef<number | null>(closed);
-  // The last read of the switch asked for: only its answer counts.
-  const switchReads = useRef(0);
+  // The last read of the run's world asked for: only its answer counts.
+  const worldReads = useRef(0);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -164,14 +167,19 @@ function Town({
         }
       },
     );
-  // Where the switch stands, by the last read asked for; unknown, and so without its button,
-  // while it cannot be read.
-  const readSwitch = () => {
-    const asked = ++switchReads.current;
-    const last = () => live.current && asked === switchReads.current;
-    return diseasesOn(run).then(
-      (on) => last() && setDiseases(on),
-      () => last() && setDiseases(null),
+  // The run's world by the last read asked for: where the switch stands, the hunger years and
+  // what a fork keeps; unknown, and so without the switch's button, while it cannot be read.
+  const readWorld = () => {
+    const asked = ++worldReads.current;
+    const last = () => live.current && asked === worldReads.current;
+    return readWorldOf(run).then(
+      (answer) => {
+        if (last()) {
+          setWorld(answer);
+          setHunger(answer.hunger_years);
+        }
+      },
+      () => last() && setWorld(null),
     );
   };
   // After each step (and when asked again after a failure), the log from the last stop that
@@ -200,11 +208,11 @@ function Town({
   }, [clock.closed, retries]);
   // What the page read, held for when it opens again.
   useEffect(() => READS.hold(run, chronicle), [chronicle]);
-  // Where the switch stands, read when the page opens, after each step and when asked again;
+  // The run's world, read when the page opens, after each step and when asked again;
   // a refused input is no longer news then.
   useEffect(() => {
     setInputRefused(null);
-    void readSwitch();
+    void readWorld();
   }, [listedAt, retries]);
   // An input at the standing clock (ADR-0023 section 6 and its addendum before S2): its
   // entries in the chronicle at once and the switch read again, each on its own.
@@ -219,7 +227,7 @@ function Town({
       .then(
         (json) => {
           const answer = json as unknown as InputAnswer;
-          return Promise.all([enteredAt(answer.t), readSwitch()]);
+          return Promise.all([enteredAt(answer.t), readWorld()]);
         },
         (error: unknown) => live.current && setInputRefused(inputFailureText(error)),
       )
@@ -316,8 +324,13 @@ function Town({
         retry={() => setRetries((n) => n + 1)}
         names={names}
       />
-      <CurvesView run={run} at={String(listedAt)} />
-      <ForkForm run={run} year={clock.date.year} writes={writes} />
+      <CurvesView run={run} at={String(listedAt)} hunger={hunger} />
+      <ForkForm
+        run={run}
+        year={clock.date.year}
+        keeps={world === null ? [] : world.fork_keeps_diseases}
+        writes={writes}
+      />
       <CompareForm run={run} others={others} />
       <h2>{TEXT.living}</h2>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}

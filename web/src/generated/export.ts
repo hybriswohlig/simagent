@@ -292,11 +292,13 @@ export type DatedSecond = {
   readonly date: CalendarDate;
 };
 
-/** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands. */
+/** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i. */
 export type WorldAnswer = {
   readonly format: "simagent.view.world";
   readonly version: number;
   readonly hereditary_diseases: boolean;
+  readonly hunger_years: number[];
+  readonly fork_keeps_diseases: boolean[];
 };
 
 /** A refusal of the server: its code, and the core's code of a rejected input. */

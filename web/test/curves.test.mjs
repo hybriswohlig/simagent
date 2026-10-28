@@ -2,12 +2,13 @@
 // seven pictures in their order, the columns read by name, the lines named as on the card,
 // no point where nobody was counted, heights in cm with one decimal, the newborns' inbreeding
 // in percent with two, and the card's sentence above the affected and the deaths when the
-// switch is off at the end of the last year. Every expected value is written by hand.
+// switch is off at the end of the last year; the hunger years shown, with Grok's sentence
+// under the two pictures of the heights (round 40). Every expected value is written by hand.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { UnknownAnswer } from "../dist/api.js";
-import { curves } from "../dist/curves.js";
+import { curves, yearLabel } from "../dist/curves.js";
 
 const DISEASES = [
   "core:disease_ar",
@@ -59,7 +60,7 @@ function answer(rows) {
 const OFF = "Erbkrankheiten sind in diesem Lauf ausgeschaltet.";
 
 test("seven pictures in their order", () => {
-  const shown = curves(answer([YEAR_0, YEAR_1, YEAR_2]));
+  const shown = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []);
   assert.deepEqual(shown.years, [0, 1, 2]);
   assert.deepEqual(
     shown.curves.map((curve) => curve.title),
@@ -79,7 +80,7 @@ test("seven pictures in their order", () => {
 });
 
 test("the population by name", () => {
-  const [living, moves] = curves(answer([YEAR_0, YEAR_1, YEAR_2])).curves;
+  const [living, moves] = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []).curves;
   assert.deepEqual(living.lines, [{ name: "Lebende", values: [51, 55, 56], last: "56" }]);
   assert.deepEqual(moves.lines, [
     { name: "Geburten", values: [9, 0, 2], last: "2" },
@@ -89,7 +90,7 @@ test("the population by name", () => {
 });
 
 test("the deaths by cause and the affected by disease, named as on the card", () => {
-  const [, , deaths, affected] = curves(answer([YEAR_0, YEAR_1, YEAR_2])).curves;
+  const [, , deaths, affected] = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []).curves;
   assert.deepEqual(
     deaths.lines.map((line) => line.name),
     ["Alter", "Unfall", "Zäher Atem", "Später Verfall", "Ungleicher Ausbruch", "Schwere Blutung", "Geteilte Schwere", "core:disease_new"],
@@ -106,7 +107,7 @@ test("the deaths by cause and the affected by disease, named as on the card", ()
 });
 
 test("the heights in cm, without a point where nobody was counted", () => {
-  const [, , , , adults, age25] = curves(answer([YEAR_0, YEAR_1, YEAR_2])).curves;
+  const [, , , , adults, age25] = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []).curves;
   assert.deepEqual(adults.lines, [
     { name: "Frauen", values: [166, 166.1, 167.4], last: "167,4" },
     { name: "Männer", values: [177, 177.1, 177.2], last: "177,2" },
@@ -120,7 +121,7 @@ test("the heights in cm, without a point where nobody was counted", () => {
 });
 
 test("the newborns' inbreeding in percent, without a point in a year without births", () => {
-  const inbreeding = curves(answer([YEAR_0, YEAR_1, YEAR_2])).curves[6];
+  const inbreeding = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []).curves[6];
   assert.deepEqual(inbreeding.lines, [
     { name: "Mittlere Inzucht der Neugeborenen", values: [0, null, 0.78], last: "0,78 Prozent" },
   ]);
@@ -129,22 +130,22 @@ test("the newborns' inbreeding in percent, without a point in a year without bir
 });
 
 test("a last year without a point names nothing", () => {
-  const inbreeding = curves(answer([YEAR_0, YEAR_1])).curves[6];
+  const inbreeding = curves(answer([YEAR_0, YEAR_1]), []).curves[6];
   assert.deepEqual(inbreeding.lines[0].values, [0, null]);
   assert.equal(inbreeding.lines[0].last, null);
 });
 
 test("the sentence stands above the affected and the deaths when the last year ends off", () => {
-  const ended = curves(answer([YEAR_0, YEAR_1, YEAR_2]));
+  const ended = curves(answer([YEAR_0, YEAR_1, YEAR_2]), []);
   assert.equal(ended.off, true);
   assert.deepEqual(ended.curves.map((curve) => curve.note), [null, null, OFF, OFF, null, null, null]);
-  const back = curves(answer([YEAR_2, YEAR_1].map((cells, i) => [i, ...cells.slice(1)])));
+  const back = curves(answer([YEAR_2, YEAR_1].map((cells, i) => [i, ...cells.slice(1)])), []);
   assert.equal(back.off, false);
   assert.deepEqual(back.curves.map((curve) => curve.note), [null, null, null, null, null, null, null]);
 });
 
 test("no full year yet gives empty lines", () => {
-  const shown = curves(answer([]));
+  const shown = curves(answer([]), []);
   assert.deepEqual(shown.years, []);
   assert.equal(shown.off, false);
   assert.deepEqual(shown.curves[0].lines, [{ name: "Lebende", values: [], last: null }]);
@@ -152,13 +153,33 @@ test("no full year yet gives empty lines", () => {
 
 test("a census without a column of the curves or with a short row is unknown", () => {
   const without = { ...answer([YEAR_0]), columns: COLUMNS.filter((column) => column !== "inbreeding_e4") };
-  assert.throws(() => curves({ ...without, rows: [YEAR_0.slice(0, -1)] }), UnknownAnswer);
-  assert.throws(() => curves(answer([YEAR_0.slice(0, -1)])), UnknownAnswer);
+  assert.throws(() => curves({ ...without, rows: [YEAR_0.slice(0, -1)] }, []), UnknownAnswer);
+  assert.throws(() => curves(answer([YEAR_0.slice(0, -1)]), []), UnknownAnswer);
   const at = COLUMNS.indexOf("deaths.core:accident");
   const noAccident = {
     ...answer([]),
     columns: COLUMNS.filter((_, i) => i !== at),
     rows: [YEAR_0.filter((_, i) => i !== at)],
   };
-  assert.throws(() => curves(noAccident), UnknownAnswer);
+  assert.throws(() => curves(noAccident, []), UnknownAnswer);
+});
+
+const HUNGER =
+  "Die Zentimeter eines Hungerjahrs stehen auf der Karte eines Kindes, das es klein erlebt hat, in der mittleren Größe mit 25 erst, wenn diese Kinder 25 werden, und in der mittleren Größe der Erwachsenen kaum.";
+
+test("the hunger years in the picture, with the sentence under the heights only then", () => {
+  const shown = curves(answer([YEAR_0, YEAR_1, YEAR_2]), [1, 2, 5]);
+  assert.deepEqual(shown.hunger, [1, 2]);
+  assert.equal(shown.hungerLegend, "Hungerjahre");
+  assert.deepEqual(shown.curves.map((curve) => curve.after), [null, null, null, null, HUNGER, HUNGER, null]);
+  const later = curves(answer([YEAR_0, YEAR_1, YEAR_2]), [5, 6, 7]);
+  assert.deepEqual(later.hunger, []);
+  assert.equal(later.hungerLegend, null);
+  assert.deepEqual(later.curves.map((curve) => curve.after), [null, null, null, null, null, null, null]);
+});
+
+test("a hunger year is marked in the table of values", () => {
+  assert.equal(yearLabel(29, [29, 30]), "29 (Hungerjahr)");
+  assert.equal(yearLabel(28, [29, 30]), "28");
+  assert.equal(yearLabel(0, []), "0");
 });

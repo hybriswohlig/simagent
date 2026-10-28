@@ -1285,35 +1285,111 @@ fn an_input_over_http_is_resume_with_input() {
     .expect("the log replays to the run");
 }
 
-/// ADR-0023 section 6 and its addendum before S2: `GET /api/runs/{run}/world` names where
-/// the switch of the hereditary diseases stands after the last input, off as the scenario
-/// starts it and on at once after a world rule over `…/input` (the clock still stands); a
-/// shock leaves it. A run the list does not know is `unknown_run`.
+/// The run's world (ADR-0021, addendum 2026-10-28; Grok round 40): where the switch stands,
+/// the years whose nutrition index is below 1 (a hunger sets the calendar years from the
+/// first that begins after its stamp, ADR-0023 section 3), and for each year X from 1 to the
+/// clock's year the switch a fork from X keeps: the start's, changed by every input stamped
+/// before `T_X - 1 s` (the inputs `fork` takes over). Each of these is what a real fork from
+/// X without a change stands at.
 #[test]
-fn the_world_answer_names_the_switch() {
+fn the_world_answer_names_the_switch_the_hunger_and_what_a_fork_keeps() {
     let (runs, web, _) = writable_fixture("world");
     let server = start(&runs, &web);
     let port = server.port;
-    let world = || {
-        let (status, _, body) = get(port, "/api/runs/town/world");
-        (status, json_of(&body))
-    };
-    let standing = |on: bool| json!({"format": "simagent.view.world", "version": 1, "hereditary_diseases": on});
-    assert_eq!(world(), (200, standing(false)));
-    for (input, on) in [
-        (
-            r#"{"trigger_shock":{"shock":"core:hunger_one_year"}}"#,
-            false,
-        ),
-        (
-            r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#,
-            true,
-        ),
-    ] {
-        let (status, _, body) = post(port, "/api/runs/town/input", input);
+    let world = |run: &str| {
+        let (status, _, body) = get(port, &format!("/api/runs/{run}/world"));
         assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
-        assert_eq!(world(), (200, standing(on)), "{input}");
+        json_of(&body)
+    };
+    let send = |path: &str, body: &str| {
+        let (status, _, answer) = post(port, &format!("/api/runs/town/{path}"), body);
+        assert_eq!(status, 200, "{body}: {}", String::from_utf8_lossy(&answer));
+    };
+    let standing = |on: bool, hunger: Value, keeps: Value| {
+        json!({
+            "format": "simagent.view.world",
+            "version": 2,
+            "hereditary_diseases": on,
+            "hunger_years": hunger,
+            "fork_keeps_diseases": keeps,
+        })
+    };
+    // At the end of year 3, off since the start.
+    assert_eq!(
+        world("town"),
+        standing(false, json!([]), json!([false, false, false]))
+    );
+    // In year 4: on, and three years of hunger from year 5.
+    send("advance", r#"{"step":"days28"}"#);
+    send(
+        "input",
+        r#"{"set_world_param":{"change":{"core:hereditary_diseases":true}}}"#,
+    );
+    send(
+        "input",
+        r#"{"trigger_shock":{"shock":"core:hunger_three_years"}}"#,
+    );
+    assert_eq!(
+        world("town"),
+        standing(true, json!([5, 6, 7]), json!([false, false, false, false]))
+    );
+    // In year 6: off. A fork from 5 or 6 keeps the switch of year 4, not the one of year 6.
+    send("advance", r#"{"step":"year"}"#);
+    send("advance", r#"{"step":"year"}"#);
+    send("advance", r#"{"step":"days28"}"#);
+    send(
+        "input",
+        r#"{"set_world_param":{"change":{"core:hereditary_diseases":false}}}"#,
+    );
+    let keeps = [false, false, false, false, true, true];
+    assert_eq!(
+        world("town"),
+        standing(false, json!([5, 6, 7]), json!(keeps))
+    );
+    for (year, kept) in (1..).zip(keeps) {
+        let fork = format!("fork-{year}");
+        let body = format!(r#"{{"run":"{fork}","from_year":{year},"changes":[]}}"#);
+        send("fork", &body);
+        assert_eq!(world(&fork)["hereditary_diseases"], json!(kept), "{fork}");
     }
+    // A fork's own override counts like any input: from year 6 it turns the switch off, gives
+    // year 8 the index 1 (no hunger) and year 9 the index 0.5; a year on, a fork from 7 keeps
+    // the override's switch.
+    let changes = r#"[{"core:hereditary_diseases":false},{"core:nutrition_year":{"year":8,"index":1.0}},{"core:nutrition_year":{"year":9,"index":0.5}}]"#;
+    send(
+        "fork",
+        &format!(r#"{{"run":"fork-of","from_year":6,"changes":{changes}}}"#),
+    );
+    for step in ["year", "days28"] {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/fork-of/advance", &body);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    }
+    assert_eq!(
+        world("fork-of"),
+        standing(
+            false,
+            json!([5, 6, 7, 9]),
+            json!([false, false, false, false, true, true, false])
+        )
+    );
+    // And a fork of that fork from 7 stands where the override left the switch.
+    let (status, _, answer) = post(
+        port,
+        "/api/runs/fork-of/fork",
+        r#"{"run":"fork-of-7","from_year":7,"changes":[]}"#,
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(world("fork-of-7")["hereditary_diseases"], json!(false));
+    // A start with the switch on (the fun-test town): a fork from year 1 keeps it on.
+    let (status, _, answer) = post(port, "/api/runs", r#"{"template":"stadt","run":"stadt"}"#);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    for step in ["year", "days28"] {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/stadt/advance", &body);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    }
+    assert_eq!(world("stadt"), standing(true, json!([]), json!([true])));
     let (status, _, body) = get(port, "/api/runs/elsewhere/world");
     assert_eq!((status, code(&body).as_str()), (404, "unknown_run"));
 }

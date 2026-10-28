@@ -8,7 +8,8 @@ import { TEXT } from "./text.js";
 export type Line = { name: string; values: (number | null)[]; last: string | null };
 
 /** A picture: its title, whether its axis starts at zero, the decimals it shows, the unit of
- * its axis, its lines, the sentence above it, and how a value and a tick of its axis read. */
+ * its axis, its lines, the sentences above it and under its legend, and how a value and a
+ * tick of its axis read. */
 export type Curve = {
   title: string;
   fromZero: boolean;
@@ -16,11 +17,19 @@ export type Curve = {
   unit: string | null;
   lines: Line[];
   note: string | null;
+  after: string | null;
   label: (value: number) => string;
   tick: (value: number) => string;
 };
 
-export type Curves = { years: number[]; curves: Curve[]; off: boolean };
+/** The pictures over `years`, whether the switch ended the last year off, and the hunger
+ * years in the picture with the legend that names them while there are any (Grok round 40). */
+export type Curves = { years: number[]; curves: Curve[]; off: boolean; hunger: number[]; hungerLegend: string | null };
+
+/** A year in the table of values, with its mark if it was a hunger year (Grok round 40). */
+export function yearLabel(year: number, hunger: readonly number[]): string {
+  return hunger.includes(year) ? `${year} (${TEXT.curve_hunger_year})` : String(year);
+}
 
 function digits(min: number, max: number): Intl.NumberFormat {
   return new Intl.NumberFormat("de-DE", {
@@ -49,6 +58,7 @@ function curve(
   fromZero: boolean,
   lines: [string, (number | null)[]][],
   note: string | null = null,
+  after: string | null = null,
 ): Curve {
   const unit = [null, TEXT.card_cm, TEXT.percent][decimals] ?? null;
   const format = (value: number) => (DIGITS[decimals] as Intl.NumberFormat).format(value);
@@ -63,6 +73,7 @@ function curve(
       return { name, values, last: last === null ? null : label(last) };
     }),
     note,
+    after,
     label,
     tick: (value) => (TICKS[decimals] as Intl.NumberFormat).format(value),
   };
@@ -72,12 +83,14 @@ function curve(
  * The curves of a run from its census (ADR-0021, addendum 2026-10-21; Grok R1 to R4, S1).
  * The columns are read by name; a mean is shown in its unit (mm as cm, `e4` as percent) and
  * has no point where its count is 0. The card's sentence stands above the affected and the
- * deaths when the switch is off at the end of the last year.
+ * deaths when the switch is off at the end of the last year. Of the server's `hunger` years
+ * those in the picture are kept, and while there are any Grok's sentence stands under the
+ * legend of the two pictures of the heights (round 40).
  *
  * Throws `UnknownAnswer` for a census without a column of the curves (the deaths of age and
  * of accidents among them, which the addendum always has) or with a short row.
  */
-export function curves(answer: CensusAnswer): Curves {
+export function curves(answer: CensusAnswer, hunger: readonly number[]): Curves {
   const index = new Map(answer.columns.map((column, i) => [column, i]));
   const cells = (i: number) =>
     answer.rows.map((row) => {
@@ -113,9 +126,13 @@ export function curves(answer: CensusAnswer): Curves {
   const on = column("diseases_on");
   const off = on.length > 0 && on[on.length - 1] === 0;
   const note = off ? TEXT.card_diseases_off : null;
+  const shown = years.filter((year) => hunger.includes(year));
+  const after = shown.length > 0 ? TEXT.curve_hunger_note : null;
   return {
     years,
     off,
+    hunger: shown,
+    hungerLegend: shown.length > 0 ? TEXT.curve_hunger_years : null,
     curves: [
       curve(TEXT.living, 0, true, [[TEXT.living, column("living")]]),
       curve(TEXT.curve_moves, 0, true, [
@@ -125,8 +142,8 @@ export function curves(answer: CensusAnswer): Curves {
       ]),
       curve(TEXT.curve_deaths, 0, true, byCode("deaths.", causeName), note),
       curve(TEXT.curve_affected, 0, true, byCode("affected.", diseaseName), note),
-      curve(TEXT.curve_adults, 1, false, height("adults", "adult_height_mm")),
-      curve(TEXT.curve_age25, 1, false, height("age25", "age25_height_mm")),
+      curve(TEXT.curve_adults, 1, false, height("adults", "adult_height_mm"), null, after),
+      curve(TEXT.curve_age25, 1, false, height("age25", "age25_height_mm"), null, after),
       curve(TEXT.curve_inbreeding, 2, true, [[TEXT.curve_inbreeding, mean("births", "inbreeding_e4", 100)]]),
     ],
   };

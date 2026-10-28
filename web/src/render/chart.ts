@@ -85,6 +85,39 @@ function yearTicks(years: readonly number[], x: (year: number) => number): Tick[
   throw new Error("unreachable: the steps grow without end");
 }
 
+/** The x of a year on the plot of `years`: linear from the first to the last; one year in the
+ * middle. */
+function xScale(years: readonly number[]): (year: number) => number {
+  const first = years[0] ?? 0;
+  const span = (years[years.length - 1] ?? 0) - first;
+  return (year) => (span === 0 ? LEFT + PLOT_WIDTH / 2 : LEFT + (PLOT_WIDTH * (year - first)) / span);
+}
+
+/** A band behind the lines, from `x1` to `x2`. */
+export type Band = { x1: number; x2: number };
+
+/** The `marked` years among `years` as bands (Grok round 40): each run of marked years that
+ * follow each other, from halfway to the year before to halfway to the year after, cut to the
+ * plot; one year shown fills the plot. */
+export function bands(years: readonly number[], marked: readonly number[]): Band[] {
+  const shown = years.filter((year) => marked.includes(year));
+  if (shown.length > 0 && years.length === 1) {
+    return [{ x1: LEFT, x2: RIGHT }];
+  }
+  const x = xScale(years);
+  const cut = (year: number) => Math.min(RIGHT, Math.max(LEFT, x(year)));
+  const runs: [number, number][] = [];
+  for (const year of shown) {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && year === last[1] + 1) {
+      last[1] = year;
+    } else {
+      runs.push([year, year]);
+    }
+  }
+  return runs.map(([from, to]) => ({ x1: cut(from - 0.5), x2: cut(to + 0.5) }));
+}
+
 /** The curve of `lines` over `years` (one value or `null` per year and line, with at most
  * `decimals` decimals). */
 export function chart(
@@ -93,9 +126,7 @@ export function chart(
   fromZero: boolean,
   decimals: number,
 ): Chart {
-  const first = years[0] ?? 0;
-  const span = (years[years.length - 1] ?? 0) - first;
-  const x = (year: number) => (span === 0 ? LEFT + PLOT_WIDTH / 2 : LEFT + (PLOT_WIDTH * (year - first)) / span);
+  const x = xScale(years);
   const scale = 10 ** decimals;
   const unit = (value: number) => Math.round(value * scale);
   const shown = lines.flatMap((line) => line.filter((value): value is number => value !== null));
