@@ -14,6 +14,18 @@ export function forkBody(run: string, fromYear: number, choice: Choice) {
   return { run, from_year: fromYear, changes };
 }
 
+/** The label of the choice that keeps the switch (Grok round 40): with the switch a fork
+ * from the year `from` keeps, element `from − 1` of the server's `keeps`, while `from` is a
+ * whole year from 1 to the run's `year` the server named; else without it. */
+export function sameLabel(keeps: readonly boolean[], from: string, year: number): string {
+  const fromYear = Number(from);
+  const kept = Number.isInteger(fromYear) && fromYear >= 1 && fromYear <= year ? keeps[fromYear - 1] : undefined;
+  if (kept === undefined) {
+    return TEXT.fork_diseases_same;
+  }
+  return kept ? TEXT.fork_diseases_same_on : TEXT.fork_diseases_same_off;
+}
+
 /** The text of a refused fork (Grok G6): the core's reason of a rejected override, the
  * sentence of a known code, else the code after the general sentence. */
 export function forkFailureText(error: unknown): string {

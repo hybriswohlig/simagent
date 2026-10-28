@@ -1,22 +1,26 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { curves, type Curve, type Curves } from "./curves.js";
+import { curves, yearLabel, type Curve, type Curves } from "./curves.js";
 import type { CensusAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import { BOTTOM, chart, LEFT, lineColor, RIGHT, TOP, WIDTH } from "./render/chart.js";
+import { bands, BOTTOM, chart, LEFT, lineColor, RIGHT, TOP, WIDTH } from "./render/chart.js";
 import { TEXT } from "./text.js";
 
-/** The curves of a run from its census on the server; only an answer for this run (and this
- * `at`, which asks again when the run moved on) counts. */
-function useCurves(run: string, at: string): Loaded<Curves> {
-  const key = `${run}@${at}`;
+/** The colour of the hunger years behind the lines and in the legend. */
+const HUNGER_FILL = "#f2dfb8";
+
+/** The curves of a run from its census on the server, with its hunger years; only an answer
+ * for this run (and this `at`, which asks again when the run moved on, and these hunger years)
+ * counts. */
+function useCurves(run: string, at: string, hunger: readonly number[]): Loaded<Curves> {
+  const key = `${run}@${at}@${hunger.join(",")}`;
   const [loaded, setLoaded] = useState<Loaded<Curves>>({ state: "loading", key });
   useEffect(() => {
     let live = true;
     setLoaded({ state: "loading", key });
     getJson(`/api/runs/${run}/census`, { format: "simagent.view.census", version: 1 })
-      .then((json) => live && setLoaded({ state: "ready", key, value: curves(json as unknown as CensusAnswer) }))
+      .then((json) => live && setLoaded({ state: "ready", key, value: curves(json as unknown as CensusAnswer, hunger) }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
       live = false;
@@ -25,7 +29,7 @@ function useCurves(run: string, at: string): Loaded<Curves> {
   return current(loaded, key);
 }
 
-function Picture({ years, curve }: { years: number[]; curve: Curve }) {
+function Picture({ years, hunger, legend, curve }: { years: number[]; hunger: number[]; legend: string | null; curve: Curve }) {
   const drawn = chart(
     years,
     curve.lines.map((line) => line.values),
@@ -61,6 +65,9 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
             {String(tick.value)}
           </text>
         ))}
+        {bands(years, hunger).map((band) => (
+          <rect key={band.x1} x={band.x1} y={TOP} width={band.x2 - band.x1} height={BOTTOM - TOP} fill={HUNGER_FILL} />
+        ))}
         <line x1={LEFT} y1={TOP} x2={LEFT} y2={BOTTOM} stroke="#888888" />
         <line x1={LEFT} y1={BOTTOM} x2={RIGHT} y2={BOTTOM} stroke="#888888" />
         {drawn.segments.map((runs, line) =>
@@ -87,7 +94,14 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
             {line.last === null ? line.name : `${line.name} ${line.last}`}
           </li>
         ))}
+        {legend === null ? null : (
+          <li>
+            <span style={{ color: HUNGER_FILL }}>{"■ "}</span>
+            {legend}
+          </li>
+        )}
       </ul>
+      {curve.after === null ? null : <p>{curve.after}</p>}
       <details>
         <summary>{TEXT.curve_values}</summary>
         <table>
@@ -104,7 +118,7 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
           <tbody>
             {years.map((year, i) => (
               <tr key={year}>
-                <th scope="row">{String(year)}</th>
+                <th scope="row">{yearLabel(year, hunger)}</th>
                 {curve.lines.map((line) => {
                   const value = line.values[i] ?? null;
                   return <td key={line.name}>{value === null ? "" : curve.label(value)}</td>;
@@ -118,12 +132,12 @@ function Picture({ years, curve }: { years: number[]; curve: Curve }) {
   );
 }
 
-/** The curves of the run (ADR-0021, addendum 2026-10-21): the pictures side by side, each with
- * its values as a folded table (a year without a point an empty cell); the last curves that
- * came stay while the next load, so playing does not flicker; while no year is complete, a
- * sentence says when they begin. */
-export function CurvesView({ run, at }: { run: string; at: string }) {
-  const loaded = useCurves(run, at);
+/** The curves of the run (ADR-0021, addenda 2026-10-21 and 2026-10-28): the pictures side by
+ * side, each with its values as a folded table (a year without a point an empty cell) and the
+ * hunger years as bands behind the lines; the last curves that came stay while the next load,
+ * so playing does not flicker; while no year is complete, a sentence says when they begin. */
+export function CurvesView({ run, at, hunger }: { run: string; at: string; hunger: readonly number[] }) {
+  const loaded = useCurves(run, at, hunger);
   const [shown, setShown] = useState<Curves | null>(null);
   useEffect(() => {
     if (loaded.state === "ready") {
@@ -138,7 +152,7 @@ export function CurvesView({ run, at }: { run: string; at: string }) {
       {shown === null || shown.years.length === 0 ? null : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
           {shown.curves.map((curve) => (
-            <Picture key={curve.title} years={shown.years} curve={curve} />
+            <Picture key={curve.title} years={shown.years} hunger={shown.hunger} legend={shown.hungerLegend} curve={curve} />
           ))}
         </div>
       )}

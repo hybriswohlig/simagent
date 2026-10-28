@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { postJson } from "./api.js";
-import { forkBody, forkFailureText, FORKED, type Choice } from "./fork.js";
+import { forkBody, forkFailureText, FORKED, sameLabel, type Choice } from "./fork.js";
 import { format, runName } from "./router.js";
 import { TEXT } from "./text.js";
 
@@ -17,10 +17,21 @@ const CHOICES: readonly (readonly [Choice, keyof typeof TEXT])[] = [
 export type Writes = { idle: boolean; begin: () => boolean; end: () => void };
 
 /** Forking the run from a year up to the one it stands in (ADR-0021 section 2 and its
- * addendum G2, texts Grok round 28); on success the page goes to the comparison of the run
- * with its fork. The year follows the run's until it is chosen; while the fork is computed
- * the run takes no other write. */
-export function ForkForm({ run, year, writes }: { run: string; year: number; writes: Writes }) {
+ * addendum G2, texts Grok rounds 28 and 40); on success the page goes to the comparison of the
+ * run with its fork. The year follows the run's until it is chosen, and the choice that keeps
+ * the switch names where it stood before that year (`keeps`, from the server); while the fork
+ * is computed the run takes no other write. */
+export function ForkForm({
+  run,
+  year,
+  keeps,
+  writes,
+}: {
+  run: string;
+  year: number;
+  keeps: readonly boolean[];
+  writes: Writes;
+}) {
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
   const [choice, setChoice] = useState<Choice>("same");
@@ -86,7 +97,7 @@ export function ForkForm({ run, year, writes }: { run: string; year: number; wri
           <select value={choice} disabled={busy} onChange={(event) => setChoice(event.currentTarget.value as Choice)}>
             {CHOICES.map(([id, text]) => (
               <option key={id} value={id}>
-                {TEXT[text]}
+                {id === "same" ? sameLabel(keeps, from, year) : TEXT[text]}
               </option>
             ))}
           </select>

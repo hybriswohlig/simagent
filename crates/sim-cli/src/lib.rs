@@ -282,16 +282,63 @@ pub fn sheet_answer() -> Result<serde_json::Value, CliError> {
     }))
 }
 
-/// Where the switch of the hereditary diseases of the run in `dir` stands after its last
-/// input, as `simagent view` sends it (ADR-0023 section 6 and its addendum before S2).
+/// The world of the run in `dir` as `simagent view` sends it: where the switch of the
+/// hereditary diseases stands after its last input (ADR-0023 section 6 and its addendum
+/// before S2), the years whose nutrition index is below 1, and the switch a fork from each
+/// year keeps (ADR-0021, addendum 2026-10-28; Grok round 40).
 pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
-    let params = (load_world(dir)?.state().world_params())
+    let world = load_world(dir)?;
+    let params = (world.state().world_params())
         .ok_or_else(|| CliError::new("save_rejected", "the world of the save has not started"))?;
+    let hunger: Vec<i64> = (params.nutrition.iter())
+        .filter(|entry| entry.index.get() < 1.0)
+        .map(|entry| entry.year)
+        .collect();
     Ok(serde_json::json!({
         "format": "simagent.view.world",
-        "version": 1,
+        "version": 2,
         "hereditary_diseases": params.hereditary_diseases,
+        "hunger_years": hunger,
+        "fork_keeps_diseases": fork_keeps_diseases(&world),
     }))
+}
+
+/// For each year X from 1 to the year of the clock, the switch of the hereditary diseases a
+/// fork from X keeps: the start's, changed by every input `fork_into` takes over (stamped
+/// before `fork_stamp(X)`), in the order of the log.
+fn fork_keeps_diseases(world: &World) -> Vec<bool> {
+    let last_year = calendar(world.closed_through()).year;
+    (1..=last_year)
+        .map(|year| {
+            let stamp = fork_stamp(year);
+            let mut on = false;
+            for record in world.input_log().iter().filter(|record| record.t < stamp) {
+                match &record.input {
+                    Input::Start(start) => on = start.world_params.hereditary_diseases,
+                    Input::SetWorldParam(set) => {
+                        if let ParamChange::HereditaryDiseases(value) = set.change {
+                            on = value;
+                        }
+                    }
+                    Input::ForkOverride(block) => {
+                        for change in &block.changes {
+                            if let ParamChange::HereditaryDiseases(value) = *change {
+                                on = value;
+                            }
+                        }
+                    }
+                    Input::ArrangePartnership(_) | Input::TriggerShock(_) => {}
+                }
+            }
+            on
+        })
+        .collect()
+}
+
+/// The stamp of a fork from year X: its override acts at `T_X - 1 s`, and it takes over the
+/// inputs of its parent stamped before.
+fn fork_stamp(from_year: i64) -> SimTime {
+    year_start(from_year) - SimDuration::from_secs(1)
 }
 
 /// The presentation state of a person of the run in `dir` as `simagent view` sends it
@@ -769,7 +816,7 @@ pub fn fork_into(
         );
         return Err(CliError::new("manifest_invalid", detail));
     }
-    let fork_stamp = year_start(from_year) - SimDuration::from_secs(1);
+    let fork_stamp = fork_stamp(from_year);
     let (kept, dropped): (Vec<InputRecord>, Vec<InputRecord>) = records
         .into_iter()
         .partition(|record| record.t < fork_stamp);

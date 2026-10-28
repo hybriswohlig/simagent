@@ -63,6 +63,8 @@ export const TEXT = {
   fork_from: "Ab Jahr",
   fork_diseases: "Erbkrankheiten in der Gabel",
   fork_diseases_same: "wie bis zu diesem Jahr",
+  fork_diseases_same_on: "wie bis zu diesem Jahr (bis dahin angeschaltet)",
+  fork_diseases_same_off: "wie bis zu diesem Jahr (bis dahin ausgeschaltet)",
   fork_diseases_on: "angeschaltet",
   fork_diseases_off: "ausgeschaltet",
   fork_make: "Gabel anlegen",
@@ -207,6 +209,10 @@ export const TEXT = {
   curve_men: "Männer",
   curve_inbreeding: "Mittlere Inzucht der Neugeborenen",
   curve_values: "Werte",
+  curve_hunger_years: "Hungerjahre",
+  curve_hunger_year: "Hungerjahr",
+  curve_hunger_note:
+    "Die Zentimeter eines Hungerjahrs stehen auf der Karte eines Kindes, das es klein erlebt hat, in der mittleren Größe mit 25 erst, wenn diese Kinder 25 werden, und in der mittleren Größe der Erwachsenen kaum.",
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */
