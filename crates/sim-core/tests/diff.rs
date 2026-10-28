@@ -313,7 +313,9 @@ fn each_field_and_each_order_by_hand() {
         )
     };
     let changed = |n: u64, differs: &str, a: String, b: String| {
-        format!(r#"{{"lineage_key":"{n:016x}","differs":[{differs}],"hereditary":false,"a":{a},"b":{b}}}"#)
+        format!(
+            r#"{{"lineage_key":"{n:016x}","differs":[{differs}],"hereditary":false,"a":{a},"b":{b}}}"#
+        )
     };
     let his = format!("[{}]", bond(1, 10, at_12));
     let theirs = format!("[{}]", bond(1, 20, open));
@@ -478,7 +480,8 @@ fn with(mut person: Person, diseases: Vec<Shown>) -> Person {
 #[test]
 fn a_disease_at_rest_with_its_onset_reached_is_named() {
     let at_rest = || vec![shown("core:disease_ar", 34.5, false)];
-    let living = |n: u64, diseases: Vec<Shown>| with(person(n, n, Sex::Female, -100, None), diseases);
+    let living =
+        |n: u64, diseases: Vec<Shown>| with(person(n, n, Sex::Female, -100, None), diseases);
     let gone = |n: u64, secs: i64| {
         let person = living(n, at_rest());
         if n == 3 {
@@ -516,12 +519,19 @@ fn a_disease_at_rest_with_its_onset_reached_is_named() {
         )
     };
     let entry = |n: u64, differs: &str, a: String, b: String| {
-        format!(r#"{{"lineage_key":"{n:016x}","differs":[{differs}],"hereditary":true,"a":{a},"b":{b}}}"#)
+        format!(
+            r#"{{"lineage_key":"{n:016x}","differs":[{differs}],"hereditary":true,"a":{a},"b":{b}}}"#
+        )
     };
     let age = r#""core:senescence""#;
     let expected = format!(
         r#"{{"format_version":3,"summary":[{{"disease":"core:disease_ar","a":{{"affected":1,"died":0}},"b":{{"affected":0,"died":0}}}}],"a_only":[],"b_only":[],"changed":[{},{},{}]}}"#,
-        entry(1, r#""diseases""#, life("null", "null", "null", shows), life("null", "null", "null", rests)),
+        entry(
+            1,
+            r#""diseases""#,
+            life("null", "null", "null", shows),
+            life("null", "null", "null", rests)
+        ),
         entry(
             3,
             r#""died","diseases""#,
@@ -557,7 +567,11 @@ fn the_diseases_are_counted_per_run() {
     let a = pedigree(
         vec![
             p(1, vec![shown("core:disease_ar", 0.0, true)]),
-            died(p(2, vec![shown("core:disease_ar", 0.0, true)]), 50, "core:disease_ar"),
+            died(
+                p(2, vec![shown("core:disease_ar", 0.0, true)]),
+                50,
+                "core:disease_ar",
+            ),
             xr(),
             p(4, vec![shown("core:disease_new", 0.0, true)]),
             emigrant.clone(),
@@ -600,6 +614,11 @@ fn the_diseases_are_counted_per_run() {
     let key = |n: u64| format!("{n:016x}");
     assert_eq!(
         flags,
-        vec![(key(1), true), (key(2), true), (key(4), true), (key(7), false)]
+        vec![
+            (key(1), true),
+            (key(2), true),
+            (key(4), true),
+            (key(7), false)
+        ]
     );
 }
