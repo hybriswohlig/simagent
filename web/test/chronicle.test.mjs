@@ -225,7 +225,7 @@ test("the switch says how it stands from now on", () => {
 test("every other entry keeps the template of its code", () => {
   assert.equal(template(item(1, "core:birth")), CODES["payload core:birth"]);
   const onset = about(1, { "core:disease_onset": { disease: "core:disease_ar", since_year: 1, age_years: 0 } }, []);
-  assert.equal(template(onset), "{0} erkrankt an Zäher Atem");
+  assert.equal(template(onset), "{0} erkrankt an Zähem Atem");
 });
 
 // Grok round 27: the years a shock sets stand in its sentence, not each on its own line; a

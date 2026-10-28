@@ -3,31 +3,39 @@ import { CODES, TEXT } from "./text.js";
 
 type Open = { readonly [key: string]: unknown };
 
-/** The six hereditary diseases by their code: Grok's names and one-liners (G1). The card does
- * not name their models. */
-export const DISEASES: { readonly [code: string]: { readonly name: string; readonly line: string } } = {
+/** The six hereditary diseases by their code: Grok's names and one-liners (G1), and the name
+ * in the dative for the lines with "an" (round 41, V3). The card does not name their models. */
+export const DISEASES: {
+  readonly [code: string]: { readonly name: string; readonly dative: string; readonly line: string };
+} = {
   "core:disease_ar": {
     name: "Zäher Atem",
+    dative: "Zähem Atem",
     line: "Von Geburt an sind die Atemwege verlegt, Menschen mit nur einer Kopie bleiben gesund, und die meisten Kranken werden trotzdem alt.",
   },
   "core:disease_ad_late": {
     name: "Später Verfall",
+    dative: "Spätem Verfall",
     line: "Eine einzige Kopie reicht, im mittleren Leben zerfällt die Bewegung, und das Leben wird kürzer.",
   },
   "core:disease_ad_partial": {
     name: "Ungleicher Ausbruch",
+    dative: "Ungleichem Ausbruch",
     line: "Die Anlage bricht bei Frauen meist und bei Männern selten aus, erst spät, und verkürzt dann das Leben.",
   },
   "core:disease_xr": {
     name: "Schwere Blutung",
+    dative: "Schwerer Blutung",
     line: "Fast nur Söhne sind von Kindheit an betroffen, und Töchter mit einer Kopie bleiben gesund.",
   },
   "core:disease_mt": {
     name: "Mütterliches Augenlicht",
+    dative: "Mütterlichem Augenlicht",
     line: "Das Augenlicht kann im jungen Erwachsenenalter nachlassen, nur über die Mutter und öfter bei Söhnen, und niemand stirbt daran.",
   },
   "core:disease_liability": {
     name: "Geteilte Schwere",
+    dative: "Geteilter Schwere",
     line: "Viele kleine Anlagen wirken zusammen, die Krankheit beginnt im jungen Erwachsenenalter, und Geschwister trifft es viel häufiger als Fremde.",
   },
 };
@@ -35,6 +43,12 @@ export const DISEASES: { readonly [code: string]: { readonly name: string; reado
 /** The name of a disease, or its code for one this view does not know. */
 export function diseaseName(code: string): string {
   return DISEASES[code]?.name ?? code;
+}
+
+/** The name of a disease in the dative ("erkrankt an Zähem Atem"), or its code for one this
+ * view does not know. */
+export function diseaseDative(code: string): string {
+  return DISEASES[code]?.dative ?? code;
 }
 
 function carries(value: unknown): string | null {
@@ -81,8 +95,8 @@ export function atAge(years: number): string {
 
 /** The chronicle's template of an onset entry in the calendar year `year` (Grok P1, P2, P3):
  * in the year of the onset "{0} erkrankt an X", else "{0} ist an X erkrankt, seit Jahr Y, mit
- * A Jahren", or "seit der Geburt" at 0 whole years; X is the name uninflected. Null for a
- * payload of another shape. */
+ * A Jahren", or "seit der Geburt" at 0 whole years; X is the name in the dative (round 41,
+ * V3). Null for a payload of another shape. */
 export function onsetTemplate(payload: unknown, year: number): string | null {
   const onset = object(payload);
   const disease = onset?.disease;
@@ -94,7 +108,7 @@ export function onsetTemplate(payload: unknown, year: number): string | null {
   const late = age === 0 ? TEXT.onset_from_birth : TEXT.onset_late;
   const template = since === year ? (CODES["payload core:disease_onset"] ?? "") : late;
   return template
-    .replace("{disease}", diseaseName(disease))
+    .replace("{disease}", diseaseDative(disease))
     .replace("{year}", String(since))
     .replace("{age}", atAge(age));
 }

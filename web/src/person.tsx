@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { getJson, postJson } from "./api.js";
+import { getJson, postJson, Refused } from "./api.js";
 import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
@@ -43,8 +43,8 @@ export function usePedigree(run: string, at = ""): Loaded<Pedigree> {
 
 /** The presentation state of a person from the server; only an answer for this person
  * counts. */
-function usePersonView(run: string, sim: string): Loaded<PersonAnswer> {
-  const key = `${run}/${sim}`;
+function usePersonView(run: string, sim: string, at: string): Loaded<PersonAnswer> {
+  const key = `${run}/${sim}@${at}`;
   const [loaded, setLoaded] = useState<Loaded<PersonAnswer>>({ state: "loading", key });
   useEffect(() => {
     let live = true;
@@ -203,7 +203,7 @@ function KinForm({
       <h2>{TEXT.kin_with}</h2>
       <p>
         <select aria-label={TEXT.kin_with} value={other} onChange={(event) => setOther(event.currentTarget.value)}>
-          <option value="">{TEXT.pair_with}</option>
+          <option value="">{TEXT.kin_pick}</option>
           {others.map((choice) => (
             <option key={choice.sim} value={String(choice.sim)}>
               {choice.label}
@@ -225,21 +225,22 @@ function KinForm({
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
 /** Pairing a person with one of the partners the core offers (ADR-0021 section 6, "ein
- * Paar stiften"); the core judges age and kinship. */
+ * Paar stiften"); the core judges age and kinship. After each answer of the server, a
+ * rejection too, the page reads the person again (`answered`). */
 function PairForm({
   run,
   pedigree,
   person,
   offered,
   ages,
-  paired,
+  answered,
 }: {
   run: string;
   pedigree: Pedigree;
   person: Person;
   offered: readonly number[];
   ages: ReadonlyMap<number, number>;
-  paired: () => void;
+  answered: () => void;
 }) {
   const options = candidates(pedigree, offered);
   const [chosen, setChosen] = useState("");
@@ -262,9 +263,16 @@ function PairForm({
     postJson(`/api/runs/${run}/input`, input, INPUT)
       .then(() => {
         setPairing({ state: "paired" });
-        paired();
+        answered();
       })
-      .catch((error: unknown) => setPairing({ state: "failed", text: inputFailureText(error) }));
+      .catch((error: unknown) => {
+        setPairing({ state: "failed", text: inputFailureText(error) });
+        // A rejection is an answer of the core: the offers are read again, so one that no
+        // longer holds goes; a failure of the network changed nothing.
+        if (error instanceof Refused) {
+          answered();
+        }
+      });
   };
   return (
     <>
@@ -318,7 +326,16 @@ function PinButton({ run, person }: { run: string; person: Person }) {
 export function PersonPage({ run, sim }: { run: string; sim: string }) {
   const [changed, setChanged] = useState(0);
   const loaded = usePedigree(run, String(changed));
-  const view = usePersonView(run, sim);
+  const read = usePersonView(run, sim, String(changed));
+  // The last view of this person stays while a newer one loads after a pairing, so card and
+  // offers do not go away in between.
+  const lastView = useRef<{ person: string; value: PersonAnswer } | null>(null);
+  if (read.state === "ready") {
+    lastView.current = { person: `${run}/${sim}`, value: read.value };
+  }
+  const keptView = lastView.current?.person === `${run}/${sim}` ? lastView.current.value : null;
+  const view: Loaded<PersonAnswer> =
+    read.state === "loading" && keptView !== null ? { state: "ready", key: read.key, value: keptView } : read;
   // The last pedigree of this run stays while a newer one loads after a change, so the
   // page (and what pairing reports) does not go away in between.
   const last = useRef<{ run: string; pedigree: Pedigree } | null>(null);
@@ -392,7 +409,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
         person={person}
         offered={view.state === "ready" ? view.value.partner_candidates : []}
         ages={ages}
-        paired={() => setChanged((n) => n + 1)}
+        answered={() => setChanged((n) => n + 1)}
       />
       <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />
     </section>
