@@ -1131,6 +1131,49 @@ fn a_run_that_went_further_is_compared_at_the_earlier_second() {
     assert_eq!(tree(&dir), before);
 }
 
+/// The same addendum at its boundary: an input stamped at the earlier second belongs to the
+/// rebuilt run (`t <= T`). A pairing of sims 1 and 2 at the parent's last second stands in the
+/// pedigree of that second with its start a second later; a fork given it there and continued
+/// two years is compared as the same fork stopped there: both lives differ in their
+/// partnerships, from year 10 on.
+#[test]
+fn an_input_at_the_earlier_second_counts() {
+    let dir = scratch("diff_at_t");
+    let parent = parent(&dir);
+    let inputs = dir.join("pair.json");
+    fs::write(&inputs, r#"[{"arrange_partnership":{"woman":1,"man":2}}]"#).expect("writes");
+    let paired = |name: &str, until: i64| {
+        let out = dir.join(name);
+        assert_eq!(fork(&parent, "5", &out), Ok(()));
+        let until = until.to_string();
+        let args = [
+            "run",
+            "--resume",
+            "--out",
+            arg(&out),
+            "--input",
+            arg(&inputs),
+        ];
+        assert_eq!(
+            simagent(&[&args[..], &["--until", &until]].concat()),
+            Ok(())
+        );
+        out
+    };
+    let stopped = paired("stopped", 10 * Y - 1);
+    let further = paired("further", 12 * Y - 1);
+    let at_t = diff_of(&parent, &stopped).expect("compares");
+    assert_eq!(diff_of(&parent, &further).as_deref(), Ok(at_t.as_str()));
+    let compared: Value = serde_json::from_str(&at_t).expect("json");
+    let changed = compared["changed"].as_array().expect("a list");
+    assert_eq!(changed.len(), 2);
+    for entry in changed {
+        assert_eq!(entry["differs"], json!(["partnerships"]));
+        assert_eq!(entry["a"]["partnerships"], json!([]));
+        assert_eq!(entry["b"]["partnerships"][0]["formed"], json!(10 * Y));
+    }
+}
+
 /// The same addendum on the switch scenario: whichever of the two runs went two years
 /// further, flipping the switch a year after the other's end (on in the parent, off in the
 /// fork), the comparison is the reference's at the end of the other
