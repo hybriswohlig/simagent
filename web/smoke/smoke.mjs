@@ -47,11 +47,14 @@ if (browser !== undefined) {
     // Once the smoke test asks for a refused pairing, the browser's line about its 409 is
     // expected.
     let refusalAsked = false;
+    // While the smoke test cuts the server's answers off, the browser's lines about them too.
+    let silenced = false;
     page.on("console", (message) => {
       // The server serves no icon; the browser's own request for it is no error of the page.
       const where = message.location().url;
       const refusal = refusalAsked && where.endsWith("/api/runs/neu/input") && message.text().includes("409");
-      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal) {
+      const cut = silenced && message.text().includes("net::ERR_FAILED");
+      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut) {
         errors.push(message.text());
       }
     });
@@ -249,10 +252,28 @@ if (browser !== undefined) {
       "the refused offer gone",
       choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
     );
+    // The server falls silent (its answers cut off in the browser): first the chronicle after a
+    // step, then a step itself; once it answers again, "Erneut laden" ends the message that it
+    // does not answer (the third playtest).
+    await step("the new town again", page.goto(`${url}#/runs/neu`));
+    await step("its first second again", dated(0));
+    silenced = true;
+    await page.route(/\/api\/runs\/neu\/events\?/, (route) => route.abort());
+    const step28 = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage" });
+    await step("28 days without the chronicle", step28.click());
+    const again = page.getByRole("button", { name: "Erneut laden" });
+    await step("asked to load again", again.waitFor());
+    await page.route(/\/api\/runs\/neu\/(advance|world)$/, (route) => route.abort());
+    await step("a step without an answer", step28.click());
+    const silence = page.getByText("Der Server antwortet nicht.");
+    await step("the server's silence", silence.waitFor());
+    await page.unrouteAll();
+    await step("load again", again.click());
+    await step("the silence over", silence.waitFor({ state: "detached" }));
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, and a new town in its first second with a refused pairing");
+    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, a new town in its first second with a refused pairing, and the server's silence ended by loading again");
   } catch (error) {
     fail(error.message);
   } finally {
