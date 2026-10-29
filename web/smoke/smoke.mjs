@@ -5,8 +5,8 @@
 // label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
-// year with the hereditary diseases off and lands on the comparison with the fork; last
-// it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
+// year with the hereditary diseases off and lands on the comparison with the fork, steps
+// the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
@@ -140,6 +140,21 @@ if (browser !== undefined) {
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
+    // The fork 28 days further is compared at the run's second, recomputed up to it.
+    await step("the fork's page", page.goto(`${url}#/runs/gabel`));
+    await step("the fork's date", dated(29));
+    const days = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage" });
+    await step("the fork 28 days on", days.click());
+    await step("the fork a month later", page.waitForFunction(
+      () => document.querySelector("section > h1 + p")?.textContent?.includes("2. Monat") ?? false,
+    ));
+    await step("the comparison again", page.goto(`${url}#/runs/${run}/diff/gabel`));
+    await step(
+      "compared at the run's second",
+      page.getByText(
+        new RegExp(`^Verglichen wird zum Stand von ${run} \\(Jahr 29, 1\\. Monat, .*\\); gabel ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts\\.$`),
+      ).waitFor(),
+    );
     await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
     await step(
       "the kinship's own placeholder",

@@ -1974,6 +1974,28 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     .expect("forks");
     let line = stdout_of(&["diff".as_ref(), parent.as_os_str(), fork.as_os_str()]);
     assert_eq!(line, include_str!("../../../tests/golden/diff_switch.json"));
+    // The same fork, gone two years further (the addendum of 2026-10-29).
+    let further = runs.join("further");
+    simagent(&[
+        "fork".as_ref(),
+        parent.as_os_str(),
+        "--from-year".as_ref(),
+        "5".as_ref(),
+        "--override".as_ref(),
+        block.as_os_str(),
+        "--out".as_ref(),
+        further.as_os_str(),
+    ])
+    .expect("forks");
+    simagent(&[
+        "run".as_ref(),
+        "--resume".as_ref(),
+        "--out".as_ref(),
+        further.as_os_str(),
+        "--until".as_ref(),
+        (37 * 31_449_600 - 1).to_string().as_ref(),
+    ])
+    .expect("resumes");
     let server = start(&runs, &web);
     let port = server.port;
     let (status, _, body) = get(port, "/api/runs/parent/diff/fork");
@@ -1994,16 +2016,53 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     let mut expected: Value = serde_json::from_str(&line).expect("json");
     expected["format_version"] = json!(null);
     seconds["format_version"] = json!(null);
+    // Both runs stand at the end of the scenario, 35 years less a second: nothing is
+    // recomputed.
     for (field, value) in [
         ("format", json!("simagent.view.diff")),
-        ("version", json!(3)),
+        ("version", json!(4)),
         ("a", json!("parent")),
         ("b", json!("fork")),
+        ("at", json!(1_100_735_999)),
+        ("recomputed", json!(null)),
     ] {
         assert_eq!(seconds[field], value, "{field}");
         expected[field] = value;
     }
     assert_eq!(seconds, expected);
+    // The last second of year 34, by hand after ADR-0002: day 363 of the year with 86 399 s
+    // into it, month 12, day 27 of it, week 51, weekday 6, season 3.
+    assert_eq!(
+        answer["at"],
+        json!({"t": 1_100_735_999, "date": {"year": 34, "day_of_year": 363, "month": 12, "day_of_month": 27, "week": 51, "weekday": 6, "season": 3, "second_of_day": 86_399}})
+    );
+    // The fork gone further is compared at the parent's second, recomputed up to it: the
+    // same comparison, but for its name and that it was recomputed, either way round.
+    let (status, _, body) = get(port, "/api/runs/parent/diff/further");
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let mut later = json_of(&body);
+    assert_eq!(
+        (&later["at"], &later["recomputed"]),
+        (&answer["at"], &json!("further"))
+    );
+    later["b"] = json!("fork");
+    later["recomputed"] = json!(null);
+    assert_eq!(later, answer);
+    let (_, _, body) = get(port, "/api/runs/further/diff/parent");
+    let back = json_of(&body);
+    assert_eq!(
+        (&back["a"], &back["b"], &back["at"], &back["recomputed"]),
+        (
+            &json!("further"),
+            &json!("parent"),
+            &answer["at"],
+            &json!("further")
+        )
+    );
+    assert_eq!(
+        (&back["a_only"], &back["b_only"]),
+        (&answer["b_only"], &answer["a_only"])
+    );
     let (status, _, body) = get(port, "/api/runs/parent/diff/parent");
     let same = json_of(&body);
     assert_eq!(

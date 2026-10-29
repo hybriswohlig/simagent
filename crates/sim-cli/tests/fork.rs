@@ -1072,3 +1072,100 @@ fn the_diff_of_the_switch_is_the_references() {
     assert_eq!(sides(&back, "a"), sides(&forward, "b"));
     assert_eq!(sides(&back, "b"), sides(&forward, "a"));
 }
+
+/// The files of a run, to see that a comparison writes nothing.
+fn files_of(run: &Path) -> Vec<Vec<u8>> {
+    [
+        "manifest.json",
+        "input.ndjson",
+        "events.ndjson",
+        "census.csv",
+        "state.save",
+    ]
+    .map(|file| fs::read(run.join(file)).expect("reads"))
+    .to_vec()
+}
+
+/// ADR-0021, addendum of 2026-10-29 (Grok's round 42, D1): runs at different seconds are
+/// compared at the earlier one, the later rebuilt in memory from its own input log up to it.
+/// A fork without an override is its parent; continued four years, with the switch and a
+/// hunger set two years after the parent's end, it still differs from the parent in nothing,
+/// either way round, and the comparison leaves its files as they were.
+#[test]
+fn a_run_that_went_further_is_compared_at_the_earlier_second() {
+    let dir = scratch("diff_further");
+    let parent = parent(&dir);
+    let out = dir.join("fork");
+    assert_eq!(fork(&parent, "5", &out), Ok(()));
+    let resume = |until: i64, inputs: Option<&Path>| {
+        let until = until.to_string();
+        let mut args = vec!["run", "--resume", "--out", arg(&out), "--until", &until];
+        if let Some(inputs) = inputs {
+            args.extend(["--input", arg(inputs)]);
+        }
+        assert_eq!(simagent(&args), Ok(()));
+    };
+    resume(12 * Y - 1, None);
+    let inputs = dir.join("later.json");
+    fs::write(
+        &inputs,
+        r#"[{"set_world_param":{"change":{"core:hereditary_diseases":true}}},{"trigger_shock":{"shock":"core:hunger_one_year"}}]"#,
+    )
+    .expect("writes the inputs");
+    resume(14 * Y - 1, Some(&inputs));
+    let before = files_of(&out);
+    let empty =
+        "{\"format_version\":3,\"summary\":[],\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
+    assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
+    assert_eq!(files_of(&out), before);
+}
+
+/// The same addendum on the switch scenario: whichever of the two runs went two years
+/// further, flipping the switch a year after the other's end (on in the parent, off in the
+/// fork), the comparison is the reference's at the end of the other
+/// (`tests/golden/diff_switch.json`).
+#[test]
+fn the_diff_of_the_switch_holds_when_one_run_went_further() {
+    let dir = scratch("diff_switch_further");
+    let scenario =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/diff_switch.json");
+    let block = override_file(&dir, SWITCH_ON);
+    let runs = |name: &str| {
+        let parent = dir.join(name);
+        assert_eq!(
+            simagent(&["run", "--scenario", arg(&scenario), "--out", arg(&parent)]),
+            Ok(())
+        );
+        let out = dir.join(format!("{name}_fork"));
+        assert_eq!(fork_with(&parent, "5", &block, &out), Ok(()));
+        (parent, out)
+    };
+    let further = |run: &Path, on: bool| {
+        let (year, flip) = ((36 * Y - 1).to_string(), (37 * Y - 1).to_string());
+        assert_eq!(
+            simagent(&["run", "--resume", "--out", arg(run), "--until", &year]),
+            Ok(())
+        );
+        let inputs = dir.join(format!("flip_{on}.json"));
+        let change =
+            format!(r#"[{{"set_world_param":{{"change":{{"core:hereditary_diseases":{on}}}}}}}]"#);
+        fs::write(&inputs, change).expect("writes the input");
+        let args = [
+            "run",
+            "--resume",
+            "--out",
+            arg(run),
+            "--input",
+            arg(&inputs),
+        ];
+        assert_eq!(simagent(&[&args[..], &["--until", &flip]].concat()), Ok(()));
+    };
+    let expected = include_str!("../../../tests/golden/diff_switch.json");
+    let (parent, out) = runs("parent");
+    further(&out, false);
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(expected));
+    let (parent, out) = runs("other");
+    further(&parent, true);
+    assert_eq!(diff_of(&parent, &out).as_deref(), Ok(expected));
+}

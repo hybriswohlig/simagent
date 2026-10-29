@@ -146,21 +146,34 @@ test("each column names and links from its own run", () => {
   assert.deepEqual([only.name, only.a, only.b], ["Karl Wolf", null, 21]);
 });
 
-// The playtest before the fun test (F3): the comparison page says where each run stands, and
-// that runs in different years differ in everything after the earlier year (Grok round 30).
-test("the years of the runs, and a note when they differ", async () => {
-  const { years, yearsNote } = await import("../dist/diff.js");
+// The playtest before the fun test (F3): the comparison page says where each run stands
+// (Grok round 30, W3).
+test("the years of the runs", async () => {
+  const { years } = await import("../dist/diff.js");
   assert.deepEqual(years("town", 50, "gabel", 79), [
     { run: "town" },
     " steht im Jahr 50, ",
     { run: "gabel" },
     " im Jahr 79.",
   ]);
-  assert.equal(
-    yearsNote(50, 79),
-    "Die Läufe stehen in verschiedenen Jahren: Was nach dem früheren Jahr geschah, zählt hier als Unterschied.",
-  );
-  assert.equal(yearsNote(79, 79), null);
+});
+
+// Grok's round 42 (D2): runs at different seconds are compared at the earlier one, and the
+// page says so, with both runs as links and the date the server gives; nothing when nothing
+// was recomputed.
+test("the second of the comparison, when one run was recomputed", async () => {
+  const { comparedAt } = await import("../dist/diff.js");
+  const at = { t: 2_547_417_599, date: { year: 80, day_of_year: 363, month: 12, day_of_month: 27, week: 51, weekday: 6, season: 3, second_of_day: 86_399 } };
+  const sentence = [
+    "Verglichen wird zum Stand von ",
+    { run: "aus" },
+    " (Jahr 80, 13. Monat, 28. Tag); ",
+    { run: "an" },
+    " ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts.",
+  ];
+  assert.deepEqual(comparedAt({ a: "aus", b: "an", at, recomputed: "an" }), sentence);
+  assert.deepEqual(comparedAt({ a: "an", b: "aus", at, recomputed: "an" }), sentence);
+  assert.equal(comparedAt({ a: "aus", b: "an", at, recomputed: null }), null);
 });
 
 // Grok's round 34 (E2, E3): the row "Erbkrankheiten", each disease that shows on its own line
