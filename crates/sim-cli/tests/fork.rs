@@ -1073,52 +1073,62 @@ fn the_diff_of_the_switch_is_the_references() {
     assert_eq!(sides(&back, "b"), sides(&forward, "a"));
 }
 
-/// The files of a run, to see that a comparison writes nothing.
-fn files_of(run: &Path) -> Vec<Vec<u8>> {
-    [
-        "manifest.json",
-        "input.ndjson",
-        "events.ndjson",
-        "census.csv",
-        "state.save",
-    ]
-    .map(|file| fs::read(run.join(file)).expect("reads"))
-    .to_vec()
+/// Every file under `dir` with its bytes, in order: a comparison writes nothing.
+fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files = Vec::new();
+    let mut entries: Vec<PathBuf> = (fs::read_dir(dir).expect("reads the directory"))
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            files.extend(tree(&path));
+        } else {
+            let bytes = fs::read(&path).expect("reads");
+            files.push((path, bytes));
+        }
+    }
+    files
 }
 
 /// ADR-0021, addendum of 2026-10-29 (Grok's round 42, D1): runs at different seconds are
 /// compared at the earlier one, the later rebuilt in memory from its own input log up to it.
-/// A fork without an override is its parent; continued four years, with the switch and a
-/// hunger set two years after the parent's end, it still differs from the parent in nothing,
-/// either way round, and the comparison leaves its files as they were.
+/// A fork without an override is its parent; given the switch and a hunger at the parent's
+/// last second, which act from the next second on (ADR-0002), and continued four years, it
+/// still differs from the parent in nothing, either way round, and the comparison leaves
+/// the files of both runs as they were.
 #[test]
 fn a_run_that_went_further_is_compared_at_the_earlier_second() {
     let dir = scratch("diff_further");
     let parent = parent(&dir);
     let out = dir.join("fork");
     assert_eq!(fork(&parent, "5", &out), Ok(()));
-    let resume = |until: i64, inputs: Option<&Path>| {
-        let until = until.to_string();
-        let mut args = vec!["run", "--resume", "--out", arg(&out), "--until", &until];
-        if let Some(inputs) = inputs {
-            args.extend(["--input", arg(inputs)]);
-        }
-        assert_eq!(simagent(&args), Ok(()));
-    };
-    resume(12 * Y - 1, None);
     let inputs = dir.join("later.json");
     fs::write(
         &inputs,
         r#"[{"set_world_param":{"change":{"core:hereditary_diseases":true}}},{"trigger_shock":{"shock":"core:hunger_one_year"}}]"#,
     )
     .expect("writes the inputs");
-    resume(14 * Y - 1, Some(&inputs));
-    let before = files_of(&out);
+    let until = (14 * Y - 1).to_string();
+    assert_eq!(
+        simagent(&[
+            "run",
+            "--resume",
+            "--out",
+            arg(&out),
+            "--input",
+            arg(&inputs),
+            "--until",
+            &until
+        ]),
+        Ok(())
+    );
+    let before = tree(&dir);
     let empty =
         "{\"format_version\":3,\"summary\":[],\"a_only\":[],\"b_only\":[],\"changed\":[]}\n";
     assert_eq!(diff_of(&parent, &out).as_deref(), Ok(empty));
     assert_eq!(diff_of(&out, &parent).as_deref(), Ok(empty));
-    assert_eq!(files_of(&out), before);
+    assert_eq!(tree(&dir), before);
 }
 
 /// The same addendum on the switch scenario: whichever of the two runs went two years
