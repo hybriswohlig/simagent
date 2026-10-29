@@ -701,22 +701,30 @@ fn discard(dir: &Path, kept: &Path) {
 
 /// `GET /api/runs/{a}/diff/{b}` (the addendum of ADR-0021 section 2, G2): the comparison
 /// of the core, as `simagent diff` prints it, with the names of the runs and each second
-/// with its date.
+/// with its date; the second compared at and the run recomputed to it (the addendum of
+/// 2026-10-29).
 fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
-    let compared = (|| -> Result<Value, CliError> {
-        let (one, other) = (crate::load_world(one)?, crate::load_world(other)?);
-        serde_json::to_value(crate::diff_of_worlds(&one, &other))
-            .map_err(|error| CliError::new("io", error.to_string()))
+    let compared = (|| -> Result<(Value, SimTime, Option<crate::Side>), CliError> {
+        let worlds = crate::compared_worlds(one, other)?;
+        let compared = serde_json::to_value(crate::diff_of_worlds(&worlds.a, &worlds.b))
+            .map_err(|error| CliError::new("io", error.to_string()))?;
+        Ok((compared, worlds.at, worlds.recomputed))
     })();
-    let compared = match compared {
+    let (compared, at, recomputed) = match compared {
         Ok(compared) => compared,
         Err(error) => return Response::error(500, error.code),
     };
+    let recomputed = recomputed.map(|side| match side {
+        crate::Side::A => a,
+        crate::Side::B => b,
+    });
     let body = json!({
         "format": "simagent.view.diff",
-        "version": 3,
+        "version": 4,
         "a": a,
         "b": b,
+        "at": {"t": at.as_secs(), "date": date(at)},
+        "recomputed": recomputed,
         "summary": compared["summary"],
         "a_only": compared["a_only"],
         "b_only": compared["b_only"],

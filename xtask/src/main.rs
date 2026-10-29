@@ -499,6 +499,12 @@ fn server_answers(
         Some(r#"{"run":"fork_off","from_year":10,"changes":[{"core:hereditary_diseases":false}]}"#);
     answers.push(("ForkedAnswer", ask(port, "/api/runs/town/fork", off, 200)?));
     answers.push(("DiffAnswer", get(port, "/api/runs/town/diff/fork_off")?));
+    // The fork 28 days further: the comparison recomputes it to the town's second.
+    answers.push((
+        "AdvanceAnswer",
+        ask(port, "/api/runs/fork_off/advance", step, 200)?,
+    ));
+    answers.push(("DiffAnswer", get(port, "/api/runs/town/diff/fork_off")?));
     // A page of the log with a next page, and an empty one without.
     answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
     let none = "/api/runs/town/events?from=-5&to=-1";

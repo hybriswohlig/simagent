@@ -2,7 +2,7 @@ import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { diffView, years, yearsNote, type Counted, type Otherwise, type Who } from "./diff.js";
+import { comparedAt, diffView, years, type Counted, type Otherwise, type Who, type YearPart } from "./diff.js";
 import type { DiffAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { namesByKey } from "./names.js";
@@ -127,6 +127,23 @@ function Life({ a, b, life }: { a: string; b: string; life: Otherwise }) {
   );
 }
 
+/** A sentence with each run in it as a link to its page. */
+function Linked({ parts }: { parts: YearPart[] }) {
+  return (
+    <p>
+      {parts.map((part, i) =>
+        typeof part === "string" ? (
+          part
+        ) : (
+          <a key={i} href={format({ page: "run", run: part.run })}>
+            {part.run}
+          </a>
+        ),
+      )}
+    </p>
+  );
+}
+
 /** The page of two runs compared (ADR-0021 section 3 and its addenda): the persons of one
  * run only and the lives that went otherwise, named from each run's pedigree. */
 export function DiffPage({ a, b }: { a: string; b: string }) {
@@ -164,24 +181,12 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
   const yearOf = (run: string) =>
     runs.state === "ready" ? runs.value.runs.find((entry) => entry.run === run)?.date?.year : undefined;
   const [x, y] = [yearOf(a), yearOf(b)];
-  const note = x === undefined || y === undefined ? null : yearsNote(x, y);
+  const at = comparedAt(diff.value);
   return (
     <section>
       {title}
-      {x === undefined || y === undefined ? null : (
-        <p>
-          {years(a, x, b, y).map((part, i) =>
-            typeof part === "string" ? (
-              part
-            ) : (
-              <a key={i} href={format({ page: "run", run: part.run })}>
-                {part.run}
-              </a>
-            ),
-          )}
-        </p>
-      )}
-      {note === null ? null : <p>{note}</p>}
+      {x === undefined || y === undefined ? null : <Linked parts={years(a, x, b, y)} />}
+      {at === null ? null : <Linked parts={at} />}
       <Summary a={a} b={b} rows={view.summary} />
       {none ? <p>{TEXT.diff_none}</p> : null}
       <Only run={a} who={view.aOnly} />

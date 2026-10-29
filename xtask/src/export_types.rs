@@ -368,12 +368,14 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "DiffAnswer",
-            doc: "`GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, the hereditary diseases counted, each second with its date.",
+            doc: "`GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key at the earlier of their seconds, the later recomputed to it, the hereditary diseases counted, each second with its date.",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.diff"])),
                 field("version", Integer),
                 field("a", Text),
                 field("b", Text),
+                field("at", Ref("DatedSecond")),
+                field("recomputed", nullable(Text)),
                 field("summary", list(Ref("DiffCount"))),
                 field("a_only", list(Text)),
                 field("b_only", list(Text)),
