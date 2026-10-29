@@ -441,10 +441,10 @@ pub fn compared_worlds(a: &Path, b: &Path) -> Result<Compared, CliError> {
     let (mut one, mut other) = (load_world(a)?, load_world(b)?);
     let at = one.closed_through().min(other.closed_through());
     let recomputed = if one.closed_through() > at {
-        one = world_at(a, at)?;
+        one = world_at(&one, at)?;
         Some(Side::A)
     } else if other.closed_through() > at {
-        other = world_at(b, at)?;
+        other = world_at(&other, at)?;
         Some(Side::B)
     } else {
         None
@@ -457,26 +457,31 @@ pub fn compared_worlds(a: &Path, b: &Path) -> Result<Compared, CliError> {
     })
 }
 
-const COMPARED_RUN: Source = Source {
-    subject: "the input log of the run",
-    foreign_core_version: "run_dir_inconsistent",
-    foreign_data_hash: "run_dir_inconsistent",
-};
-
-/// The run in `dir` rebuilt in memory up to `t` from its own input log (ADR-0001): the
-/// start, each input stamped at or before `t` at its stamp, then on to `t`. Nothing is
-/// written.
-fn world_at(dir: &Path, t: SimTime) -> Result<World, CliError> {
-    let (records, _) = read_input_log(&dir.join(files::INPUT_LOG), &COMPARED_RUN)?;
+/// `world` rebuilt in memory up to `t` from its own input log, the one its save carries and
+/// its load checked (ADR-0001): the start, each input stamped at or before `t` at its
+/// stamp, then on to `t`. Nothing is written.
+fn world_at(world: &World, t: SimTime) -> Result<World, CliError> {
     let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
-    let mut world = World::new(data::core_data()?);
+    let records = world.input_log();
+    if !matches!(
+        records.first(),
+        Some(InputRecord {
+            input: Input::Start(_),
+            ..
+        })
+    ) {
+        return Err(inconsistent(
+            "the input log of the save has no start".to_owned(),
+        ));
+    }
+    let mut rebuilt = World::new(data::core_data()?);
     let mut out = sim_core::world::YearOut::default();
-    for record in records.into_iter().take_while(|record| record.t <= t) {
-        if record.t > world.closed_through() {
-            world.advance_until(&mut out, record.t, &mut |_| false);
+    for record in records.iter().take_while(|record| record.t <= t) {
+        if record.t > rebuilt.closed_through() {
+            rebuilt.advance_until(&mut out, record.t, &mut |_| false);
         }
         let seq = record.seq;
-        let stamp = world.submit(record.input).map_err(|rejected| {
+        let stamp = rebuilt.submit(record.input.clone()).map_err(|rejected| {
             let code = files::code(&rejected.code);
             inconsistent(format!("the input {} is rejected: {code}", seq.get()))
         })?;
@@ -485,10 +490,10 @@ fn world_at(dir: &Path, t: SimTime) -> Result<World, CliError> {
             return Err(inconsistent(detail));
         }
     }
-    if t > world.closed_through() {
-        world.advance_until(&mut out, t, &mut |_| false);
+    if t > rebuilt.closed_through() {
+        rebuilt.advance_until(&mut out, t, &mut |_| false);
     }
-    Ok(world)
+    Ok(rebuilt)
 }
 
 /// The comparison of two runs (ADR-0021, addenda of 2026-10-28 and 2026-10-29): their
