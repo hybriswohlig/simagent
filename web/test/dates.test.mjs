@@ -2,11 +2,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dateText } from "../dist/dates.js";
+import { bornText, captionYear, dateText } from "../dist/dates.js";
 
 test("a date reads its year, month and day, counted from one", () => {
   const date = (year, month, day_of_month) => ({ year, day_of_year: 0, month, day_of_month, week: 0, weekday: 0, season: 0, second_of_day: 0 });
   assert.equal(dateText(date(29, 0, 0)), "Jahr 29, 1. Monat, 1. Tag");
   assert.equal(dateText(date(15, 5, 23)), "Jahr 15, 6. Monat, 24. Tag");
   assert.equal(dateText(date(-3, 12, 27)), "Jahr -3, 13. Monat, 28. Tag");
+});
+
+// The second playtest: an arrival from the pool, born before the founding, read "geboren im
+// Jahr -21" and "mit 2 (-19)" under a portrait. A year before the founding is named so; from
+// year 0 on, the year as before.
+test("a year before the founding is named so", () => {
+  assert.equal(bornText(22), "geboren im Jahr 22");
+  assert.equal(bornText(0), "geboren im Jahr 0");
+  // Year -21 begins 21 years before the founding and ends 20 years before it: a birth in it
+  // is in the 21st year before the founding (Grok's wording).
+  assert.equal(bornText(-21), "geboren im 21. Jahr vor der Gründung");
+  assert.equal(bornText(-1), "geboren im Jahr vor der Gründung");
+  assert.equal(captionYear(4), "4");
+  assert.equal(captionYear(0), "0");
+  assert.equal(captionYear(-19), "vor der Gründung");
 });

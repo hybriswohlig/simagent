@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
-import { answered, heard, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
+import { answered, heard, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
-import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person, WorldAnswer } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, ForkInfo, InputAnswer, Pedigree, Person, WorldAnswer } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle, SCROLLED } from "./lines.js";
@@ -72,11 +72,13 @@ function Town({
   run,
   closed,
   date,
+  fork,
   others,
 }: {
   run: string;
   closed: number;
   date: CalendarDate;
+  fork: ForkInfo | undefined;
   others: readonly string[];
 }) {
   const [clock, setClock] = useState<Clock>(() => standing(closed, date));
@@ -278,6 +280,7 @@ function Town({
       </p>
       <h1>{`${TEXT.run} ${run}`}</h1>
       <p>{dateText(clock.date)}</p>
+      {fork === undefined ? null : <p>{TEXT.fork_origin.replace("{year}", String(fork.from_year))}</p>}
       <p role="group" aria-label={TEXT.steps}>
         {STEPS.map(([step, text]) => (
           <button
@@ -297,7 +300,7 @@ function Town({
         ))}
         {clock.playing === null ? (
           <button type="button" disabled={sending || forking} onClick={() => writing.current || apply(play(latest.current, chosen))}>
-            {TEXT.play}
+            {playText(chosen)}
           </button>
         ) : (
           <button type="button" onClick={() => apply(pause(latest.current))}>
@@ -326,6 +329,7 @@ function Town({
         failed={windowFailed || enteredFailed ? TEXT.chronicle_failed : null}
         retry={() => setRetries((n) => n + 1)}
         names={names}
+        empty={TEXT.chronicle_empty}
       />
       <CurvesView run={run} at={String(listedAt)} hunger={hunger} />
       <ForkForm
@@ -393,5 +397,14 @@ export function RunPage({ run }: { run: string }) {
   const others = runs.value.runs
     .filter((candidate) => candidate.run !== run && candidate.manifest !== undefined)
     .map((candidate) => candidate.run);
-  return <Town key={run} run={run} closed={entry.manifest.closed_through} date={entry.date} others={others} />;
+  return (
+    <Town
+      key={run}
+      run={run}
+      closed={entry.manifest.closed_through}
+      date={entry.date}
+      fork={entry.manifest.fork}
+      others={others}
+    />
+  );
 }

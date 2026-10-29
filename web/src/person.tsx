@@ -6,6 +6,7 @@ import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
+import { bornText, captionYear } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
 import { kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
@@ -65,7 +66,7 @@ function Life({ view }: { view: PersonAnswer }) {
   const end = view.ended === "death" ? TEXT.died_in : view.ended === "emigration" ? TEXT.emigrated_in : TEXT.now_in;
   return (
     <p>
-      {`${TEXT.born_in} ${view.born.calendar_year} · ${end} ${view.shown.at.calendar_year}, ${view.shown.at.age_years} ${TEXT.years}`}
+      {`${bornText(view.born.calendar_year)} · ${end} ${view.shown.at.calendar_year}, ${view.shown.at.age_years} ${TEXT.years}`}
     </p>
   );
 }
@@ -77,7 +78,7 @@ function Ages({ shown }: { shown: readonly Shown[] }) {
       {shown.map((at) => (
         <figure key={at.at.age_years}>
           <Portrait params={at.body} label={`${TEXT.at_age} ${at.at.age_years}`} />
-          <figcaption>{`${TEXT.at_age} ${at.at.age_years} (${at.at.calendar_year})`}</figcaption>
+          <figcaption>{`${TEXT.at_age} ${at.at.age_years} (${captionYear(at.at.calendar_year)})`}</figcaption>
         </figure>
       ))}
     </div>
@@ -93,43 +94,47 @@ function Name({ run, person }: { run: string; person: Person | undefined }) {
   return person === undefined ? <span>{TEXT.unknown}</span> : <a href={personHref(run, person.sim)}>{fullName(person)}</a>;
 }
 
-/** The hourglass as a drawing; each person a link that centres the tree on them (P11). */
+/** The hourglass as a drawing; each person a link that centres the tree on them (P11). A
+ * wide family scrolls sideways in its own box (the second playtest), focusable, so that a
+ * keyboard scrolls it too. */
 export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   const { nodes, edges, width, height } = layout(glass);
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={TEXT.tree}>
-      {edges.map((edge) => (
-        <line key={`${edge.from}-${edge.to}`} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="#888888" />
-      ))}
-      {nodes.map((node) => (
-        <a
-          key={node.person.sim}
-          href={personHref(run, node.person.sim)}
-          data-sim={node.person.sim}
-          aria-label={nodeMark(node.person).spoken}
-        >
-          <circle
-            cx={node.x}
-            cy={node.y}
-            r={RADIUS}
-            fill={node.person.sex === "female" ? "#f3d9e4" : "#d9e6f3"}
-            stroke={node.center ? "#000000" : "#888888"}
-            stroke-width={node.center ? 3 : 1}
-          />
-          <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
-            {node.person.sim}
-          </text>
-          <text x={node.x} y={node.y} dy={NAME_DY} text-anchor="middle" font-size="11">
-            {node.person.first_name}
-          </text>
-          {nodeMark(node.person).shown === null ? null : (
-            <text x={node.x} y={node.y} dy={MARK_DY} text-anchor="middle" font-size="10">
-              {nodeMark(node.person).shown}
+    <div style={{ overflowX: "auto", maxWidth: "100%" }} tabIndex={0}>
+      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={TEXT.tree}>
+        {edges.map((edge) => (
+          <line key={`${edge.from}-${edge.to}`} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="#888888" />
+        ))}
+        {nodes.map((node) => (
+          <a
+            key={node.person.sim}
+            href={personHref(run, node.person.sim)}
+            data-sim={node.person.sim}
+            aria-label={nodeMark(node.person).spoken}
+          >
+            <circle
+              cx={node.x}
+              cy={node.y}
+              r={RADIUS}
+              fill={node.person.sex === "female" ? "#f3d9e4" : "#d9e6f3"}
+              stroke={node.center ? "#000000" : "#888888"}
+              stroke-width={node.center ? 3 : 1}
+            />
+            <text x={node.x} y={node.y} text-anchor="middle" dominant-baseline="central">
+              {node.person.sim}
             </text>
-          )}
-        </a>
-      ))}
-    </svg>
+            <text x={node.x} y={node.y} dy={NAME_DY} text-anchor="middle" font-size="11">
+              {node.person.first_name}
+            </text>
+            {nodeMark(node.person).shown === null ? null : (
+              <text x={node.x} y={node.y} dy={MARK_DY} text-anchor="middle" font-size="10">
+                {nodeMark(node.person).shown}
+              </text>
+            )}
+          </a>
+        ))}
+      </svg>
+    </div>
   );
 }
 
