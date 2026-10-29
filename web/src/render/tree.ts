@@ -2,14 +2,22 @@
  * The layout of an hourglass (SVG geometry, which only `web/src/render/` may compute): one
  * row per generation, the great-grandparents at the top, the grandchildren at the bottom,
  * each row centred, without empty generations above and below; a line from each parent to
- * each of its children in the drawing.
+ * each of its children in the drawing, from below the parent's name to the child's circle.
  */
 
 import type { Person } from "../generated/export.js";
 import type { Hourglass } from "../tree.js";
 
 export type Placed = { readonly person: Person; readonly x: number; readonly y: number; readonly center: boolean };
-export type Edge = { readonly from: number; readonly to: number };
+/** A line from a parent to its child, and where it is drawn. */
+export type Edge = {
+  readonly from: number;
+  readonly to: number;
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+};
 export type Layout = {
   readonly nodes: readonly Placed[];
   readonly edges: readonly Edge[];
@@ -19,12 +27,17 @@ export type Layout = {
 
 /** Horizontal distance of two people in a row, vertical distance of two rows. */
 const STEP_X = 90;
-const STEP_Y = 80;
+const STEP_Y = 100;
+/** The radius of a person's circle. */
+export const RADIUS = 20;
 /** Offsets under a circle's centre of the first name and of the mark below it. */
 export const NAME_DY = 32;
 export const MARK_DY = 44;
+/** The bottom of a person's name and mark, under its circle's centre: the descenders of the
+ * mark's font end above it. */
+const LABELS = MARK_DY + 6;
 /** Room below the last row, so that the descenders of the mark stay in the drawing. */
-const BELOW = MARK_DY + 6 - STEP_Y / 2;
+const BELOW = LABELS - STEP_Y / 2;
 
 export function layout(glass: Hourglass): Layout {
   const all: (readonly Person[])[] = [...glass.up].reverse();
@@ -50,7 +63,9 @@ export function layout(glass: Hourglass): Layout {
       // Only links that go up: a parent cut off by the limit of the rows is not drawn
       // beside or below its child.
       if (from !== undefined && from.y < node.y) {
-        edges.push({ from: parent, to: child });
+        // Below the parent's name and mark to the top of the child's circle, so that a line
+        // runs through no one's circle, name or mark between two rows (the third playtest).
+        edges.push({ from: parent, to: child, x1: from.x, y1: from.y + LABELS, x2: node.x, y2: node.y - RADIUS });
       }
     }
   }

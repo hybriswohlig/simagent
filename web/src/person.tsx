@@ -15,7 +15,7 @@ import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.j
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
-import { layout, MARK_DY, NAME_DY } from "./render/tree.js";
+import { layout, MARK_DY, NAME_DY, RADIUS } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
 import { currentPartner, hourglass, nodeMark, parentsOf, type Hourglass } from "./tree.js";
@@ -96,16 +96,11 @@ function Name({ run, person }: { run: string; person: Person | undefined }) {
 /** The hourglass as a drawing; each person a link that centres the tree on them (P11). */
 export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   const { nodes, edges, width, height } = layout(glass);
-  const at = new Map(nodes.map((node) => [node.person.sim, node]));
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={TEXT.tree}>
-      {edges.map((edge) => {
-        const from = at.get(edge.from);
-        const to = at.get(edge.to);
-        return from && to ? (
-          <line key={`${edge.from}-${edge.to}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#888888" />
-        ) : null;
-      })}
+      {edges.map((edge) => (
+        <line key={`${edge.from}-${edge.to}`} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="#888888" />
+      ))}
       {nodes.map((node) => (
         <a
           key={node.person.sim}
@@ -116,7 +111,7 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
           <circle
             cx={node.x}
             cy={node.y}
-            r={20}
+            r={RADIUS}
             fill={node.person.sex === "female" ? "#f3d9e4" : "#d9e6f3"}
             stroke={node.center ? "#000000" : "#888888"}
             stroke-width={node.center ? 3 : 1}

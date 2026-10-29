@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { answered, pause, play, press, refused, standing, tick } from "../dist/clock.js";
+import { answered, heard, pause, play, press, refused, standing, tick } from "../dist/clock.js";
 
 const DATE = {
   year: 3,
@@ -72,6 +72,18 @@ test("a refusal ends playing and is shown until the next step", () => {
   [clock, asked] = press(clock, "year");
   assert.equal(asked, "year");
   assert.equal(clock.refused, null);
+});
+
+// The third playtest (K6): the server came back and the chronicle was read again, yet "Der
+// Server antwortet nicht." stayed. An answer of the server ends a refusal for no answer; a
+// refusal the server gave stays until the next step.
+test("an answer of the server ends a refusal for no answer, and no other", () => {
+  const [down] = refused(standing(10, DATE), "network");
+  assert.deepEqual(heard(down), { ...down, refused: null });
+  const [locked] = refused(standing(10, DATE), "run_locked");
+  assert.deepEqual(heard(locked), locked);
+  const [busy] = press(standing(10, DATE), "year");
+  assert.deepEqual(heard(busy), busy);
 });
 
 test("a step pressed while playing becomes the playing step", () => {
