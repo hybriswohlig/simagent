@@ -145,14 +145,12 @@ if (browser !== undefined) {
     await step("the fork's date", dated(29));
     const days = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage" });
     await step("the fork 28 days on", days.click());
-    await step("the fork a month later", page.waitForFunction(
-      () => document.querySelector("section > h1 + p")?.textContent?.includes("2. Monat") ?? false,
-    ));
+    await step("the fork in year 30", dated(30));
     await step("the comparison again", page.goto(`${url}#/runs/${run}/diff/gabel`));
     await step(
       "compared at the run's second",
       page.getByText(
-        new RegExp(`^Verglichen wird zum Stand von ${run} \\(Jahr 29, 1\\. Monat, .*\\); gabel ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts\\.$`),
+        new RegExp(`^Verglichen wird zum Stand von ${run} \\(Jahr 29, 13\\. Monat, 28\\. Tag\\); gabel ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts\\.$`),
       ).waitFor(),
     );
     await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
