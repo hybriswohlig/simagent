@@ -268,18 +268,23 @@ if (browser !== undefined) {
       "the refused offer gone",
       choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
     );
-    // The server falls silent (its answers cut off in the browser): first the chronicle after a
-    // step, then a step itself; once it answers again, "Erneut laden" ends the message that it
-    // does not answer (the third playtest).
+    // The server falls silent (its answers cut off in the browser): first the chronicle and the
+    // world after a step, then a step itself; once it answers again, "Erneut laden" ends the
+    // message that it does not answer (the third playtest). No read of the world answers in
+    // between, so none but the one asked again can end it.
+    const world = /\/api\/runs\/neu\/world$/;
+    const opened = page.waitForResponse(world);
     await step("the new town again", page.goto(`${url}#/runs/neu`));
     await step("its first second again", dated(0));
+    await step("its world read", opened);
     silenced = true;
     await page.route(/\/api\/runs\/neu\/events\?/, (route) => route.abort());
+    await page.route(world, (route) => route.abort());
     const step28 = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage", exact: true });
     await step("28 days without the chronicle", step28.click());
     const again = page.getByRole("button", { name: "Erneut laden" });
     await step("asked to load again", again.waitFor());
-    await page.route(/\/api\/runs\/neu\/(advance|world)$/, (route) => route.abort());
+    await page.route(/\/api\/runs\/neu\/advance$/, (route) => route.abort());
     await step("a step without an answer", step28.click());
     const silence = page.getByText("Der Server antwortet nicht.");
     await step("the server's silence", silence.waitFor());
