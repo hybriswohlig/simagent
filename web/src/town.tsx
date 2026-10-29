@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { postJson } from "./api.js";
 import { added } from "./chronicle.js";
-import { answered, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
+import { answered, heard, pause, play, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
 import type { AdvanceAnswer, CalendarDate, InputAnswer, Pedigree, Person, WorldAnswer } from "./generated/export.js";
@@ -169,6 +169,8 @@ function Town({
     );
   // The run's world by the last read asked for: where the switch stands, the hunger years and
   // what a fork keeps; unknown, and so without the switch's button, while it cannot be read.
+  // Each read asks the server (a window of the log read already does not), so its answer
+  // also ends a refusal for no answer (the third playtest, K6).
   const readWorld = () => {
     const asked = ++worldReads.current;
     const last = () => live.current && asked === worldReads.current;
@@ -177,6 +179,7 @@ function Town({
         if (last()) {
           setWorld(answer);
           setHunger(answer.hunger_years);
+          apply([heard(latest.current), null]);
         }
       },
       () => last() && setWorld(null),

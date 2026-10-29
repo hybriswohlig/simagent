@@ -65,3 +65,9 @@ export function tick(clock: Clock): Next {
 export function refused(clock: Clock, code: string): Next {
   return [{ ...clock, busy: false, playing: null, refused: code }, null];
 }
+
+/** The server answered a read: a refusal for no answer no longer holds; one the server gave
+ * stays until the next step. */
+export function heard(clock: Clock): Clock {
+  return clock.refused === "network" ? { ...clock, refused: null } : clock;
+}
