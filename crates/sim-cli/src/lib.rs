@@ -411,18 +411,94 @@ fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Prints the comparison of the runs in `a` and `b`, from their saves (ADR-0021 section 3
-/// and its addendum of 2026-10-23): one line of JSON.
+/// Prints the comparison of the runs in `a` and `b` at the earlier of their seconds
+/// (ADR-0021 section 3 and its addenda of 2026-10-23 and 2026-10-29): one line of JSON.
 fn diff_of(a: &Path, b: &Path) -> Result<(), CliError> {
-    println!(
-        "{}",
-        files::json(&diff_of_worlds(&load_world(a)?, &load_world(b)?))
-    );
+    let compared = compared_worlds(a, b)?;
+    println!("{}", files::json(&diff_of_worlds(&compared.a, &compared.b)));
     Ok(())
 }
 
-/// The comparison of two runs (ADR-0021, addendum of 2026-10-28): their pedigrees at their
-/// clocks, with the diseases of the data; `simagent diff` and the server's route both take it.
+/// Which of the two runs of a comparison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    A,
+    B,
+}
+
+/// Two runs as the comparison takes them (ADR-0021, addendum of 2026-10-29): both at `at`,
+/// the earlier of their seconds, and the one rebuilt to it, if any.
+pub struct Compared {
+    pub a: World,
+    pub b: World,
+    pub at: SimTime,
+    pub recomputed: Option<Side>,
+}
+
+/// The runs in `a` and `b` from their saves; the one at the later second is rebuilt in
+/// memory up to the earlier (Grok's round 42, D1). Runs at the same second stay as saved.
+pub fn compared_worlds(a: &Path, b: &Path) -> Result<Compared, CliError> {
+    let (mut one, mut other) = (load_world(a)?, load_world(b)?);
+    let at = one.closed_through().min(other.closed_through());
+    let recomputed = if one.closed_through() > at {
+        one = world_at(&one, at)?;
+        Some(Side::A)
+    } else if other.closed_through() > at {
+        other = world_at(&other, at)?;
+        Some(Side::B)
+    } else {
+        None
+    };
+    Ok(Compared {
+        a: one,
+        b: other,
+        at,
+        recomputed,
+    })
+}
+
+/// `world` rebuilt in memory up to `t` from its own input log, the one its save carries and
+/// its load checked (ADR-0001): the start, each input stamped at or before `t` at its
+/// stamp, then on to `t`. Nothing is written.
+fn world_at(world: &World, t: SimTime) -> Result<World, CliError> {
+    let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
+    let records = world.input_log();
+    if !matches!(
+        records.first(),
+        Some(InputRecord {
+            input: Input::Start(_),
+            ..
+        })
+    ) {
+        return Err(inconsistent(
+            "the input log of the save has no start".to_owned(),
+        ));
+    }
+    let mut rebuilt = World::new(data::core_data()?);
+    let mut out = sim_core::world::YearOut::default();
+    for record in records.iter().take_while(|record| record.t <= t) {
+        if record.t > rebuilt.closed_through() {
+            rebuilt.advance_until(&mut out, record.t, &mut |_| false);
+        }
+        let seq = record.seq;
+        let stamp = rebuilt.submit(record.input.clone()).map_err(|rejected| {
+            let code = files::code(&rejected.code);
+            inconsistent(format!("the input {} is rejected: {code}", seq.get()))
+        })?;
+        if stamp.t != record.t || stamp.seq != seq {
+            let detail = format!("the input {} is stamped otherwise", seq.get());
+            return Err(inconsistent(detail));
+        }
+    }
+    if t > rebuilt.closed_through() {
+        rebuilt.advance_until(&mut out, t, &mut |_| false);
+    }
+    Ok(rebuilt)
+}
+
+/// The comparison of two runs (ADR-0021, addenda of 2026-10-28 and 2026-10-29): their
+/// pedigrees at their clocks, which [`compared_worlds`] makes the same second, with the
+/// diseases of the data; `simagent diff` and the server's route both take it.
 pub fn diff_of_worlds(a: &World, b: &World) -> sim_core::diff::Diff {
     let diseases: Vec<sim_core::data_id::Code> = (a.data().diseases().iter())
         .map(|disease| disease.code.clone().into())

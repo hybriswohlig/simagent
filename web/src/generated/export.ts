@@ -241,12 +241,14 @@ export type ForkedAnswer = {
   readonly run: string;
 };
 
-/** `GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key, the hereditary diseases counted, each second with its date. */
+/** `GET /api/runs/{a}/diff/{b}`: two runs compared by lineage key at the earlier of their seconds, the later recomputed to it, the hereditary diseases counted, each second with its date. */
 export type DiffAnswer = {
   readonly format: "simagent.view.diff";
   readonly version: number;
   readonly a: string;
   readonly b: string;
+  readonly at: DatedSecond;
+  readonly recomputed: string | null;
   readonly summary: DiffCount[];
   readonly a_only: string[];
   readonly b_only: string[];

@@ -74,7 +74,8 @@ export const TEXT = {
   refused_fork_point_out_of_range: "In diesem Jahr kann keine Gabel beginnen.",
   to_run: "Zum Lauf {run}",
   diff_years: "{a} steht im Jahr {x}, {b} im Jahr {y}.",
-  diff_years_differ: "Die Läufe stehen in verschiedenen Jahren: Was nach dem früheren Jahr geschah, zählt hier als Unterschied.",
+  diff_compared_at:
+    "Verglichen wird zum Stand von {earlier} ({date}); {later} ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts.",
   compare: "Vergleich",
   compare_with: "Vergleichen mit",
   compare_pick: "Lauf wählen",

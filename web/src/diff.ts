@@ -125,14 +125,13 @@ export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): Dif
   };
 }
 
-/** A piece of the sentence of the years: text, or a run to link to. */
+/** A piece of a sentence of the page: text, or a run to link to. */
 export type YearPart = string | { run: string };
 
-/** Where the two runs stand (Grok W3): the sentence with each run as a link. */
-export function years(a: string, x: number, b: string, y: number): YearPart[] {
-  const values: { readonly [slot: string]: YearPart } = { "{a}": { run: a }, "{b}": { run: b }, "{x}": String(x), "{y}": String(y) };
+/** A template with its slots filled, each run a link of its own. */
+function linked(template: string, values: { readonly [slot: string]: YearPart }): YearPart[] {
   const parts: YearPart[] = [];
-  for (const piece of TEXT.diff_years.split(/(\{[abxy]\})/)) {
+  for (const piece of template.split(/(\{[a-z]+\})/)) {
     const part = values[piece] ?? piece;
     const last = parts.at(-1);
     if (typeof part === "string" && typeof last === "string") {
@@ -144,7 +143,22 @@ export function years(a: string, x: number, b: string, y: number): YearPart[] {
   return parts;
 }
 
-/** Why runs in different years differ so much (Grok W4), or nothing in the same year. */
-export function yearsNote(x: number, y: number): string | null {
-  return x === y ? null : TEXT.diff_years_differ;
+/** Where the two runs stand (Grok W3): the sentence with each run as a link. */
+export function years(a: string, x: number, b: string, y: number): YearPart[] {
+  return linked(TEXT.diff_years, { "{a}": { run: a }, "{b}": { run: b }, "{x}": String(x), "{y}": String(y) });
+}
+
+/** The second the runs are compared at, when one of them was recomputed to it (Grok round
+ * 42, D2), or nothing when both stood there already. */
+export function comparedAt(answer: Pick<DiffAnswer, "a" | "b" | "at" | "recomputed">): YearPart[] | null {
+  const later = answer.recomputed;
+  if (later === null) {
+    return null;
+  }
+  const earlier = later === answer.a ? answer.b : answer.a;
+  return linked(TEXT.diff_compared_at, {
+    "{earlier}": { run: earlier },
+    "{later}": { run: later },
+    "{date}": dateText(answer.at.date),
+  });
 }
