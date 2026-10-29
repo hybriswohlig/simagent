@@ -2,7 +2,7 @@ import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { comparedAt, diffView, years, type Counted, type Otherwise, type Who, type YearPart } from "./diff.js";
+import { comparedAt, diffView, home, years, type Counted, type Otherwise, type Who, type YearPart } from "./diff.js";
 import type { DiffAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { namesByKey } from "./names.js";
@@ -55,6 +55,20 @@ function Only({ run, who }: { run: string; who: readonly Who[] }) {
 
 /** The space around a cell of a life's table, its text at the top. */
 const CELL = { padding: "2px 16px 2px 0", verticalAlign: "top", textAlign: "left" } as const;
+/** Every table of the page as wide as the page, with the same columns (the third playtest,
+ * K8): the labels, then a column per run of half the rest each, at the same place in every
+ * table. */
+const TABLE = { tableLayout: "fixed", width: "100%" } as const;
+
+function Columns() {
+  return (
+    <colgroup>
+      <col style={{ width: "10em" }} />
+      <col />
+      <col />
+    </colgroup>
+  );
+}
 
 /** The hereditary diseases counted per run (Grok round 41, V1): only when the core counted
  * one; a column per run, each a link to its run. */
@@ -66,7 +80,8 @@ function Summary({ a, b, rows }: { a: string; b: string; rows: readonly Counted[
     <>
       <h2>{TEXT.diff_diseases}</h2>
       <p>{TEXT.diff_counted_note}</p>
-      <table>
+      <table style={TABLE}>
+        <Columns />
         <thead>
           <tr>
             <th scope="col" style={CELL} />
@@ -93,13 +108,18 @@ function Summary({ a, b, rows }: { a: string; b: string; rows: readonly Counted[
   );
 }
 
-/** A life that went otherwise: its name and a row per field that differs, a column per run. */
+/** A life that went otherwise: its name, a link to its page, and a row per field that
+ * differs, a column per run. */
 function Life({ a, b, life }: { a: string; b: string; life: Otherwise }) {
   const lines = (texts: string[]) => texts.map((text, i) => <div key={i}>{text}</div>);
+  const page = home(life, a, b);
   return (
     <article>
-      <h3 id={`life-${life.key}`}>{life.name}</h3>
-      <table aria-labelledby={`life-${life.key}`}>
+      <h3 id={`life-${life.key}`}>
+        <PersonLink run={page?.run ?? a} name={life.name} sim={page?.sim ?? null} />
+      </h3>
+      <table aria-labelledby={`life-${life.key}`} style={TABLE}>
+        <Columns />
         <thead>
           <tr>
             <td />

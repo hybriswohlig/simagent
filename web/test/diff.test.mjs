@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { diffView } from "../dist/diff.js";
+import { diffView, home } from "../dist/diff.js";
 
 const date = (year, month, day_of_month) => ({ year, day_of_year: 0, month, day_of_month, week: 0, weekday: 0, season: 0, second_of_day: 0 });
 const at = (t, year, month, day) => ({ t, date: date(year, month, day) });
@@ -144,6 +144,15 @@ test("each column names and links from its own run", () => {
   ]);
   const [only] = diffView(answer, { a: new Map(), b: both.b }).changed;
   assert.deepEqual([only.name, only.a, only.b], ["Karl Wolf", null, 21]);
+});
+
+// The third playtest (K8): the name over a life is a link too, to the person's page in the
+// run the comparison was opened from, else in the other.
+test("the name of a life leads to its page in the first run, else in the second", () => {
+  const life = { key: SON, name: "Karl Wolf", a: 7, b: 21, rows: [] };
+  assert.deepEqual(home(life, "town", "gabel"), { run: "town", sim: 7 });
+  assert.deepEqual(home({ ...life, a: null }, "town", "gabel"), { run: "gabel", sim: 21 });
+  assert.equal(home({ ...life, a: null, b: null }, "town", "gabel"), null);
 });
 
 // The playtest before the fun test (F3): the comparison page says where each run stands

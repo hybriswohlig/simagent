@@ -125,6 +125,15 @@ export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): Dif
   };
 }
 
+/** The page a life's name leads to (the third playtest, K8): its person in the first run,
+ * the one the comparison was opened from, else in the second; none where neither names it. */
+export function home(life: Otherwise, a: string, b: string): { run: string; sim: number } | null {
+  if (life.a !== null) {
+    return { run: a, sim: life.a };
+  }
+  return life.b === null ? null : { run: b, sim: life.b };
+}
+
 /** A piece of a sentence of the page: text, or a run to link to. */
 export type YearPart = string | { run: string };
 
