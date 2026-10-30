@@ -304,7 +304,8 @@ mod tests {
     #[test]
     fn an_onset_is_reached_only_in_its_second() {
         let last = crate::time::MAX_ABS_SECS;
-        let thirty_one = 31.0 / 31_449_600.0;
+        let year = sim_math::i64_to_f64_exact(YEAR.as_secs()).expect("exact");
+        let thirty_one = 31.0 / year;
         let late = SimTime::from_secs(last - 31);
         assert!(!reached(late, thirty_one, SimTime::from_secs(last)));
         let earlier = SimTime::from_secs(last - 40);
