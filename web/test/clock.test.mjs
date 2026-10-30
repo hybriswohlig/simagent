@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { answered, heard, pause, play, press, refused, standing, tick } from "../dist/clock.js";
+import { answered, heard, pause, play, playText, press, refused, standing, tick } from "../dist/clock.js";
 
 const DATE = {
   year: 3,
@@ -98,4 +98,11 @@ test("a step pressed while playing becomes the playing step", () => {
   assert.equal(asked, "decade");
   const [pressed] = press(standing(10, DATE), "year");
   assert.equal(pressed.playing, null, "pressing alone does not play");
+});
+
+// The second playtest: nothing said which step "Abspielen" plays. Its button names the step.
+test("the play button names the step it plays", () => {
+  assert.equal(playText("days28"), "Abspielen, je 28 Tage");
+  assert.equal(playText("year"), "Abspielen, je ein Jahr");
+  assert.equal(playText("decade"), "Abspielen, je zehn Jahre");
 });

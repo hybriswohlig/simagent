@@ -29,19 +29,21 @@ function ChronicleLine({ run, item, names }: { run: string; item: EventItem; nam
 export const SCROLLED = { maxHeight: "24em", overflowY: "auto" } as const;
 
 /** A chronicle: its lines, newest first, and why a part of the log could not be read, with a
- * way to read it again. */
+ * way to read it again; without a line, `empty` if given. */
 export function Chronicle({
   run,
   items,
   failed,
   retry,
   names,
+  empty,
 }: {
   run: string;
   items: readonly EventItem[];
   failed: string | null;
   retry: () => void;
   names: ReadonlyMap<number, string>;
+  empty?: string;
 }) {
   return (
     <>
@@ -54,6 +56,7 @@ export function Chronicle({
           </button>
         </p>
       )}
+      {items.length === 0 && failed === null && empty !== undefined ? <p>{empty}</p> : null}
       <ol style={SCROLLED} tabIndex={0} aria-label={TEXT.chronicle}>
         {items.map((item) => (
           <ChronicleLine key={item.entry.id} run={run} item={item} names={names} />

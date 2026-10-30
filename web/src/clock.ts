@@ -1,4 +1,5 @@
 import type { CalendarDate } from "./generated/export.js";
+import { TEXT } from "./text.js";
 
 /** The one step of a request to move the clock (ADR-0021 section 2). */
 export type Step = "days28" | "year" | "decade";
@@ -70,4 +71,9 @@ export function refused(clock: Clock, code: string): Next {
  * stays until the next step. */
 export function heard(clock: Clock): Clock {
   return clock.refused === "network" ? { ...clock, refused: null } : clock;
+}
+
+/** The label of the play button: the step it plays (the second playtest). */
+export function playText(step: Step): string {
+  return TEXT[`play_${step}`];
 }

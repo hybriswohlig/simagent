@@ -1,14 +1,15 @@
 // The browser smoke test of the gate (ADR-0021 section 4 and its acceptance): Chromium headless
 // opens the run page of a fresh run of the gate scenario at the end of year 28, finds the
-// seven curves, triggers a hunger year (its line, for year 29, comes at once), steps one
+// seven curves, the empty chronicle's hint and the step the play button plays, triggers a hunger year (its line, for year 29, comes at once), steps one
 // year, turns the hereditary diseases on (off in the scenario; its line and the button's new
 // label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
-// year with the hereditary diseases off and lands on the comparison with the fork, steps
-// the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
+// year with the hereditary diseases off and lands on the comparison with the fork, finds where
+// the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
-// and says when its curves begin.
+// and says when its curves begin; last the server falls silent and loading again ends the
+// message that it does not answer.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -47,11 +48,14 @@ if (browser !== undefined) {
     // Once the smoke test asks for a refused pairing, the browser's line about its 409 is
     // expected.
     let refusalAsked = false;
+    // While the smoke test cuts the server's answers off, the browser's lines about them too.
+    let silenced = false;
     page.on("console", (message) => {
       // The server serves no icon; the browser's own request for it is no error of the page.
       const where = message.location().url;
       const refusal = refusalAsked && where.endsWith("/api/runs/neu/input") && message.text().includes("409");
-      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal) {
+      const cut = silenced && message.text().includes("net::ERR_FAILED");
+      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut) {
         errors.push(message.text());
       }
     });
@@ -73,6 +77,11 @@ if (browser !== undefined) {
     if (figures !== 7) {
       throw new Error(`seven curves: ${figures} pictures`);
     }
+    await step(
+      "an empty chronicle says when it begins",
+      page.getByText("Die Chronik beginnt mit dem nächsten Schritt oder Eingriff.").waitFor(),
+    );
+    await step("playing 28 days at a time", page.getByRole("button", { name: "Abspielen, je 28 Tage" }).waitFor());
     const interventions = page.getByRole("group", { name: "Eingriffe" });
     await step("a hunger year", interventions.getByRole("button", { name: "Ein Hungerjahr" }).click());
     await step(
@@ -81,9 +90,10 @@ if (browser !== undefined) {
     );
     const forkYear = page.getByRole("spinbutton", { name: "Ab Jahr" });
     await step("a fork year typed", forkYear.fill("1"));
-    const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr" });
+    const year = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Ein Jahr", exact: true });
     await step("step one year", year.click());
     await step("the date of year 29", dated(29));
+    await step("playing a year at a time", page.getByRole("button", { name: "Abspielen, je ein Jahr" }).waitFor());
     await step(
       "the fork year follows the run again",
       page.waitForFunction(() => document.querySelector('input[type="number"]')?.value === "29"),
@@ -143,7 +153,11 @@ if (browser !== undefined) {
     // The fork 28 days further is compared at the run's second, recomputed up to it.
     await step("the fork's page", page.goto(`${url}#/runs/gabel`));
     await step("the fork's date", dated(29));
-    const days = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage" });
+    await step(
+      "where the fork begins",
+      page.getByText("Eine Gabel, neu gerechnet ab dem Anfang von Jahr 29.").waitFor(),
+    );
+    const days = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage", exact: true });
     await step("the fork 28 days on", days.click());
     await step("the fork in year 30", dated(30));
     await step("the comparison again", page.goto(`${url}#/runs/${run}/diff/gabel`));
@@ -178,15 +192,20 @@ if (browser !== undefined) {
         const found = document.querySelector(list);
         return found !== null && getComputedStyle(found).overflowY === "auto";
       };
+      // A wide family scrolls sideways in its own box.
+      const tree = document.querySelector('svg[aria-label="Stammbaum"]')?.parentElement;
       return (
         pinned >= 0 &&
         pinned < headings.indexOf("Chronik") &&
         scrolls('ol[aria-label="Chronik"]') &&
-        scrolls('ul[aria-label="Lebende"]')
+        scrolls('ul[aria-label="Lebende"]') &&
+        tree !== undefined &&
+        tree !== null &&
+        getComputedStyle(tree).overflowX === "auto"
       );
     });
     if (!short) {
-      throw new Error("the run page: the pinned family not above a chronicle and living that scroll");
+      throw new Error("the run page: the pinned family not above a chronicle and living that scroll, or not in a box that scrolls sideways");
     }
     await step("the sheet of portraits", page.goto(`${url}#/portraits`));
     await step("its heading", page.getByRole("heading", { level: 1, name: "Bogen der Passbilder" }).waitFor());
@@ -249,10 +268,33 @@ if (browser !== undefined) {
       "the refused offer gone",
       choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
     );
+    // The server falls silent (its answers cut off in the browser): first the chronicle and the
+    // world after a step, then a step itself; once it answers again, "Erneut laden" ends the
+    // message that it does not answer (the third playtest). No read of the world answers in
+    // between, so none but the one asked again can end it.
+    const world = /\/api\/runs\/neu\/world$/;
+    const opened = page.waitForResponse(world);
+    await step("the new town again", page.goto(`${url}#/runs/neu`));
+    await step("its first second again", dated(0));
+    await step("its world read", opened);
+    silenced = true;
+    await page.route(/\/api\/runs\/neu\/events\?/, (route) => route.abort());
+    await page.route(world, (route) => route.abort());
+    const step28 = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "28 Tage", exact: true });
+    await step("28 days without the chronicle", step28.click());
+    const again = page.getByRole("button", { name: "Erneut laden" });
+    await step("asked to load again", again.waitFor());
+    await page.route(/\/api\/runs\/neu\/advance$/, (route) => route.abort());
+    await step("a step without an answer", step28.click());
+    const silence = page.getByText("Der Server antwortet nicht.");
+    await step("the server's silence", silence.waitFor());
+    await page.unrouteAll();
+    await step("load again", again.click());
+    await step("the silence over", silence.waitFor({ state: "detached" }));
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, a pinned family above a chronicle that scrolls, the sheet of portraits, and a new town in its first second with a refused pairing");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits, a new town in its first second with a refused pairing, and the server's silence ended by loading again");
   } catch (error) {
     fail(error.message);
   } finally {
