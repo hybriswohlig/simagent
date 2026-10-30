@@ -462,10 +462,13 @@ fn pool_view<'a>(
     // `Start`, arriving in second 0 while the clock may still stand before it, then those
     // of each immigration whose second the clock has passed. Each arrives in the second of
     // its draw; a draw the pool could not fill stopped the run, so no save holds it.
+    // The candidates depend on the pool alone: found once for all the draws.
+    let candidates = crate::pool::Candidates::of(pool);
     let mut drawn: Vec<(usize, i64)> = if start.village {
         Vec::new()
     } else {
-        crate::pool::take_households(pool, seed, 0, &BTreeSet::new(), start.n_start)
+        candidates
+            .take(seed, 0, &BTreeSet::new(), start.n_start)
             .0
             .into_iter()
             .map(|index| (index, 0))
@@ -480,7 +483,7 @@ fn pool_view<'a>(
             if at >= now {
                 break;
             }
-            let (more, enough) = crate::pool::take_households(pool, seed, year, &taken, persons);
+            let (more, enough) = candidates.take(seed, year, &taken, persons);
             if !enough {
                 return None;
             }
