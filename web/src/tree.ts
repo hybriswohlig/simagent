@@ -29,8 +29,11 @@ export function currentPartner(pedigree: Pedigree, person: Person): Person | und
  * great-grandparents, its children down to the grandchildren. Each person appears once, in
  * the deepest generation that reaches it within the limit (in a family where cousins
  * married, a person can be a parent and a grandparent at once; the deeper row keeps every
- * parent above its children); each row is in the order of the pedigree. Only the pedigree's
- * links are followed; social parents are not biological ones and are left out.
+ * parent above its children). Each row stands in the order of its people's relatives in the
+ * row nearer the person, children under their parents and ancestors above their children, so
+ * that lines do not cross for the order of birth alone (the fourth playtest); among people
+ * of the same place in the order of the pedigree. Only the pedigree's links are followed;
+ * social parents are not biological ones and are left out.
  */
 export type Hourglass = {
   readonly center: Person;
@@ -69,8 +72,9 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
   const lookup = parentLookup(pedigree);
   const parents = (person: Person) => lookup(person).filter((parent): parent is Person => parent !== undefined);
   const childrenOf = (person: Person) => pedigree.persons.filter((child) => parents(child).includes(person));
-  // The deepest generation of each person reached within `count` steps, then the rows.
-  const levels = (count: number, next: (person: Person) => Person[]) => {
+  // The deepest generation of each person reached within `count` steps, then the rows, each
+  // in the order of the places its people's relatives (`back`) take in the row before it.
+  const levels = (count: number, next: (person: Person) => Person[], back: (person: Person) => Person[]) => {
     const deepest = new Map<number, number>();
     let level: Person[] = [center];
     for (let step = 1; step <= count; step += 1) {
@@ -87,10 +91,24 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
         rows[step - 1]?.push(person);
       }
     }
-    return rows.map((row) => row.sort((a, b) => (order.get(a.sim) ?? 0) - (order.get(b.sim) ?? 0)));
+    let before: readonly Person[] = [center];
+    return rows.map((row) => {
+      const place = new Map(before.map((person, at) => [person.sim, at]));
+      const first = (person: Person) =>
+        back(person).reduce((low, relative) => {
+          const at = place.get(relative.sim);
+          return at !== undefined && at < low ? at : low;
+        }, Number.POSITIVE_INFINITY);
+      const sorted = row
+        .map((person) => ({ person, first: first(person), order: order.get(person.sim) ?? 0 }))
+        .sort((a, b) => (a.first === b.first ? a.order - b.order : a.first < b.first ? -1 : 1))
+        .map((entry) => entry.person);
+      before = sorted;
+      return sorted;
+    });
   };
-  const above = levels(up, parents);
-  const below = levels(down, childrenOf);
+  const above = levels(up, parents, childrenOf);
+  const below = levels(down, childrenOf, parents);
   const drawnAbove = new Set(above.flat().map((person) => person.sim));
   // A person above and below at once (only in an impossible pedigree) stays above.
   const lower = below.map((row) => row.filter((person) => !drawnAbove.has(person.sim)));

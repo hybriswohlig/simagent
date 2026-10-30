@@ -53,6 +53,41 @@ test("the hourglass holds exactly the people its links reach", () => {
   assert.equal(hourglass(PEDIGREE, 99), null);
 });
 
+// The fourth playtest (P1): rows in the pedigree's order put a grandchild of the second child
+// before one of the first, and lines crossed. Each row stands in the order of its relatives
+// in the row nearer the centre: children under their parents, ancestors above their
+// children; the pedigree's order only among people of the same place.
+test("children stand under their parents and ancestors above their children", () => {
+  const family = {
+    ...PEDIGREE,
+    persons: [
+      person(20, "female", null, null), // the father's mother
+      person(21, "male", null, null), // the father's father
+      person(22, "female", null, null), // the mother's mother
+      person(23, "male", null, null), // the mother's father
+      person(24, "female", 22, 23), // the mother
+      person(25, "male", 20, 21), // the father
+      person(26, "female", 24, 25), // the centre
+      person(27, "male", null, null), // her partner
+      person(28, "female", 26, 27), // the first child
+      person(29, "male", 26, 27), // the second child
+      person(30, "female", null, 29), // the second child's daughter, born first
+      person(31, "male", 28, null), // the first child's son
+      person(32, "female", null, 29), // the second child's second daughter
+    ],
+  };
+  const glass = hourglass(family, 26);
+  assert.deepEqual(sims(glass.up), [[24, 25], [22, 23, 20, 21], []]);
+  assert.deepEqual(sims(glass.down), [[28, 29], [31, 30, 32]]);
+  // Between two rows no two lines cross.
+  const { edges } = layout(glass);
+  for (const a of edges) {
+    for (const b of edges.filter((other) => other.y1 === a.y1)) {
+      assert.ok((a.x1 - b.x1) * (a.x2 - b.x2) >= 0, `${a.from}-${a.to} crosses ${b.from}-${b.to}`);
+    }
+  }
+});
+
 test("dangling parents are skipped and social parents are not biological", () => {
   const odd = {
     ...PEDIGREE,
@@ -66,11 +101,12 @@ test("dangling parents are skipped and social parents are not biological", () =>
   assert.deepEqual(sims(hourglass(odd, 42).down), [[], []]);
 });
 
-test("every row is in the order of the pedigree", () => {
-  // Two children of 7 listed in the pedigree in the opposite order of their parents.
+test("a row follows its parents, not the order of the pedigree", () => {
+  // Two grandchildren of 7 listed in the pedigree in the opposite order of their parents
+  // (until the fourth playtest each row kept the pedigree's order, and their lines crossed).
   const late = { ...PEDIGREE, persons: [...PEDIGREE.persons, person(15, "male", 10, null)] };
   const reordered = { ...late, persons: [late.persons[14], ...late.persons.slice(0, 14)] };
-  assert.deepEqual(sims(hourglass(reordered, 7).down), [[9, 10], [15, 11]]);
+  assert.deepEqual(sims(hourglass(reordered, 7).down), [[9, 10], [11, 15]]);
 });
 
 test("a person reached twice is drawn once", () => {
