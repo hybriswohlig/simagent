@@ -29,8 +29,14 @@ export function currentPartner(pedigree: Pedigree, person: Person): Person | und
  * great-grandparents, its children down to the grandchildren. Each person appears once, in
  * the deepest generation that reaches it within the limit (in a family where cousins
  * married, a person can be a parent and a grandparent at once; the deeper row keeps every
- * parent above its children); each row is in the order of the pedigree. Only the pedigree's
- * links are followed; social parents are not biological ones and are left out.
+ * parent above its children). Each row stands in the order of its people's relatives in the
+ * row nearer the person, children under their parents and ancestors above their children, so
+ * that lines do not cross for the order of birth alone (the fourth playtest): by the first
+ * place of a person's relatives there, then by the last (Grok's review: of two ancestors of
+ * one child, the one with a second child further right stands right), then in the order of
+ * the pedigree. Where cousins married, lines can still cross: two who share both lines of
+ * grandparents cross in any order, and a line over two rows can cross the row between. Only the pedigree's links are followed;
+ * social parents are not biological ones and are left out.
  */
 export type Hourglass = {
   readonly center: Person;
@@ -69,8 +75,9 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
   const lookup = parentLookup(pedigree);
   const parents = (person: Person) => lookup(person).filter((parent): parent is Person => parent !== undefined);
   const childrenOf = (person: Person) => pedigree.persons.filter((child) => parents(child).includes(person));
-  // The deepest generation of each person reached within `count` steps, then the rows.
-  const levels = (count: number, next: (person: Person) => Person[]) => {
+  // The deepest generation of each person reached within `count` steps, then the rows, each
+  // in the order of the places its people's relatives (`back`) take in the row before it.
+  const levels = (count: number, next: (person: Person) => Person[], back: (person: Person) => Person[]) => {
     const deepest = new Map<number, number>();
     let level: Person[] = [center];
     for (let step = 1; step <= count; step += 1) {
@@ -87,10 +94,34 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
         rows[step - 1]?.push(person);
       }
     }
-    return rows.map((row) => row.sort((a, b) => (order.get(a.sim) ?? 0) - (order.get(b.sim) ?? 0)));
+    let before: readonly Person[] = [center];
+    return rows.map((row) => {
+      const place = new Map(before.map((person, at) => [person.sim, at]));
+      // The first and the last place of a person's relatives in the row before; none there
+      // puts it last.
+      const span = (person: Person): [number, number] => {
+        let low = Number.POSITIVE_INFINITY;
+        let high = Number.NEGATIVE_INFINITY;
+        for (const relative of back(person)) {
+          const at = place.get(relative.sim);
+          if (at !== undefined) {
+            low = at < low ? at : low;
+            high = at > high ? at : high;
+          }
+        }
+        return [low, high];
+      };
+      const compare = (x: number, y: number) => (x === y ? 0 : x < y ? -1 : 1);
+      const sorted = row
+        .map((person) => ({ person, span: span(person), order: order.get(person.sim) ?? 0 }))
+        .sort((a, b) => compare(a.span[0], b.span[0]) || compare(a.span[1], b.span[1]) || a.order - b.order)
+        .map((entry) => entry.person);
+      before = sorted;
+      return sorted;
+    });
   };
-  const above = levels(up, parents);
-  const below = levels(down, childrenOf);
+  const above = levels(up, parents, childrenOf);
+  const below = levels(down, childrenOf, parents);
   const drawnAbove = new Set(above.flat().map((person) => person.sim));
   // A person above and below at once (only in an impossible pedigree) stays above.
   const lower = below.map((row) => row.filter((person) => !drawnAbove.has(person.sim)));
