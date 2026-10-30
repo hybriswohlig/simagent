@@ -6,7 +6,7 @@
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
 // year with the hereditary diseases off and lands on the comparison with the fork, finds where
-// the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits
+// the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits with a height under each
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin; last the server falls silent and loading again ends the
 // message that it does not answer.
@@ -214,6 +214,25 @@ if (browser !== undefined) {
     if (portraits !== 70) {
       throw new Error(`the sheet: ${portraits} portraits, not ten rows of seven`);
     }
+    // Under each portrait its height in whole centimetres, seen and beneath it (K10 of the
+    // third playtest).
+    const heights = await page.locator("table td").evaluateAll((cells) =>
+      cells.map((cell) => {
+        const portrait = cell.querySelector("svg[role=img]");
+        const caption = cell.lastElementChild;
+        return (
+          portrait !== null &&
+          caption !== null &&
+          !caption.contains(portrait) &&
+          caption.checkVisibility() &&
+          /^[0-9]+ cm$/.test(caption.textContent ?? "") &&
+          caption.getBoundingClientRect().top >= portrait.getBoundingClientRect().bottom - 1
+        );
+      }),
+    );
+    if (heights.length !== 70 || heights.includes(false)) {
+      throw new Error("the sheet: not each portrait with its height in whole centimetres beneath");
+    }
     await step("the list of runs", page.goto(`${url}#/`));
     await step("a new town's name", page.getByRole("textbox", { name: "Name des Laufs" }).fill("neu"));
     await step("found it", page.getByRole("button", { name: "Neue Stadt gründen" }).click());
@@ -294,7 +313,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits, a new town in its first second with a refused pairing, and the server's silence ended by loading again");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again");
   } catch (error) {
     fail(error.message);
   } finally {

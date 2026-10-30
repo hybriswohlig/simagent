@@ -2,8 +2,8 @@ import type { BodyParams } from "./generated/body.js";
 import type { SheetAnswer } from "./generated/export.js";
 import { TEXT } from "./text.js";
 
-/** A row of the sheet: its label and a portrait per age the core gives. */
-export type SheetRow = { label: string; cells: { age: number; title: string; body: BodyParams }[] };
+/** A row of the sheet: its label and a portrait per age the core gives, with its height. */
+export type SheetRow = { label: string; cells: { age: number; title: string; height: string; body: BodyParams }[] };
 
 const VARIANTS: Readonly<Record<string, string>> = {
   early: TEXT.sheet_early,
@@ -18,6 +18,15 @@ export function yearsText(age: number): string {
   return TEXT.sheet_years.replace("{n}", String(age));
 }
 
+/** Whole centimetres, from a half up (the format's rounding, "halfExpand"). */
+const CENTIMETRES = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0, useGrouping: false });
+
+/** A height under a portrait: its whole centimetres (K10 of the third playtest, Grok's
+ * decision: maturity shows at 12 and 16 years above all in the height). */
+export function heightText(cm: number): string {
+  return TEXT.sheet_height.replace("{n}", CENTIMETRES.format(cm));
+}
+
 /** The rows of the sheet of portraits (ADR-0021 G10; texts Grok's round 38): each founder
  * in the order of the answer, "{variant}, weiblich" or "männlich", its bodies at the ages it
  * reached; every value from the answer. */
@@ -29,6 +38,7 @@ export function sheetRows(answer: SheetAnswer): SheetRow[] {
       cells: row.at_ages.map((shown) => ({
         age: shown.at.age_years,
         title: `${label}, ${yearsText(shown.at.age_years)}`,
+        height: heightText(shown.body.height_cm),
         body: shown.body,
       })),
     };

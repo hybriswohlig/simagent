@@ -34,6 +34,7 @@ export const TEXT = {
   sheet_red: "Rotes Haar",
   sheet_light_iris: "Helle Iris",
   sheet_years: "{n} Jahre",
+  sheet_height: "{n} cm",
   no_runs: "Noch keine Läufe in diesem Verzeichnis.",
   found: "Neue Stadt gründen",
   found_name: "Name des Laufs",
