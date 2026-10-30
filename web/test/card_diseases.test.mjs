@@ -47,6 +47,8 @@ test("the status words, by sex for a carrier", () => {
   assert.equal(statusWord({ kind: "affected", year: 12, age_years: 45 }, "male"), "betroffen seit Jahr 12, mit 45 Jahren");
   assert.equal(statusWord({ kind: "affected", year: -30, age_years: 0 }, "female"), "betroffen seit der Geburt");
   assert.equal(statusWord({ kind: "affected", year: 5, age_years: 1 }, "female"), "betroffen seit Jahr 5, mit 1 Jahr");
+  // An onset before the founding names its year as a date does (Grok's decision).
+  assert.equal(statusWord({ kind: "affected", year: -10, age_years: 30 }, "male"), "betroffen seit Jahr 10 vor der Gründung, mit 30 Jahren");
   assert.equal(statusWord({ kind: "other" }, "female"), null);
   assert.equal(statusWord(null, "female"), null);
 });

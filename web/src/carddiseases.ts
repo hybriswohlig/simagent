@@ -1,4 +1,5 @@
 import { object, type Sex } from "./card.js";
+import { yearName } from "./dates.js";
 import { CODES, TEXT } from "./text.js";
 
 type Open = { readonly [key: string]: unknown };
@@ -109,7 +110,7 @@ export function onsetTemplate(payload: unknown, year: number): string | null {
   const template = since === year ? (CODES["payload core:disease_onset"] ?? "") : late;
   return template
     .replace("{disease}", diseaseDative(disease))
-    .replace("{year}", String(since))
+    .replace("{year}", yearName(since))
     .replace("{age}", atAge(age));
 }
 
@@ -133,7 +134,7 @@ export function statusWord(value: unknown, sex: Sex): string | null {
       }
       return status.age_years === 0
         ? TEXT.card_affected_from_birth
-        : `${TEXT.card_affected_since} ${status.year}, ${atAge(status.age_years)}`;
+        : `${TEXT.card_affected_since} ${yearName(status.year)}, ${atAge(status.age_years)}`;
     default:
       return null;
   }

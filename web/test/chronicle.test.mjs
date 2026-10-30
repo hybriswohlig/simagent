@@ -185,7 +185,7 @@ test("an onset written later is the late form, the name in the dative too", () =
   );
   assert.equal(
     onsetTemplate(onset("core:disease_ad_partial", -10, 30), 0),
-    "{0} ist an Ungleichem Ausbruch erkrankt, seit Jahr -10, mit 30 Jahren",
+    "{0} ist an Ungleichem Ausbruch erkrankt, seit Jahr 10 vor der Gründung, mit 30 Jahren",
   );
 });
 

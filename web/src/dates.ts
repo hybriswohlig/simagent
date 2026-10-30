@@ -1,9 +1,15 @@
 import type { CalendarDate } from "./generated/export.js";
 import { DAYS, MONTHS, TEXT } from "./text.js";
 
+/** The name of a year: from the founding on its number, before it the year named like
+ * "21 v. Chr." (year -n "Jahr n vor der Gründung", Grok's cross-check). */
+export function yearName(year: number): string {
+  return year >= 0 ? `${TEXT.year} ${year}` : TEXT.year_before.replace("{n}", String(-year));
+}
+
 /** The date as the core gives it, its units named by the texts. */
 export function dateText(date: CalendarDate): string {
-  return `${TEXT.year} ${date.year}, ${MONTHS[date.month] ?? ""}, ${DAYS[date.day_of_month] ?? ""}`;
+  return `${yearName(date.year)}, ${MONTHS[date.month] ?? ""}, ${DAYS[date.day_of_month] ?? ""}`;
 }
 
 /** Where a life began: in a year from the founding on, else in which year before it (the
