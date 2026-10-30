@@ -309,6 +309,18 @@ test("the hereditary diseases counted per run", () => {
   assert.deepEqual(diffView(ANSWER, NAMES).summary, []);
 });
 
+// K1 of the fourth playtest (Grok's decision): the note says whom the summary counts, and when
+// the group of lives with a hereditary difference is there, a second sentence says that it
+// also names the dead and those who moved away. Written by hand from Grok's wording.
+test("the notes of the summary", () => {
+  const counted = "Gezählt werden die Lebenden, die in dieser Sekunde betroffen sind, und alle, die im Lauf an der Krankheit gestorben sind.";
+  const list =
+    "Die Liste „Mit einem Unterschied der Erbkrankheiten“ nennt auch Verstorbene, die nicht an der Krankheit gestorben sind, und Weggezogene, mit ihren Krankheiten bis zu ihrem Tod oder Wegzug.";
+  assert.deepEqual(diffView(ANSWER, NAMES).notes, [counted, list]);
+  const [, her] = ANSWER.changed;
+  assert.deepEqual(diffView({ ...ANSWER, changed: [her] }, NAMES).notes, [counted]);
+});
+
 // Grok's round 41, V1: the lives with a hereditary disease first, each group in the order of
 // the answer; an empty group goes; the others alone keep the heading "Anders verlaufen".
 test("the lives with a hereditary disease first", () => {

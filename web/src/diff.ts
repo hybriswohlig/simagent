@@ -15,7 +15,15 @@ export type Otherwise = { key: string; name: string; a: number | null; b: number
 export type Counted = { name: string; a: string; b: string };
 /** The lives that went otherwise under one heading. */
 export type Group = { title: string; lives: Otherwise[] };
-export type DiffView = { summary: Counted[]; aOnly: Who[]; bOnly: Who[]; changed: Otherwise[]; groups: Group[] };
+export type DiffView = {
+  summary: Counted[];
+  /** The sentences under the summary's heading. */
+  notes: string[];
+  aOnly: Who[];
+  bOnly: Who[];
+  changed: Otherwise[];
+  groups: Group[];
+};
 
 type Names = ReadonlyMap<string, Named>;
 
@@ -116,8 +124,12 @@ export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): Dif
     { title: TEXT.diff_changed_hereditary, lives: hereditary },
     { title: hereditary.length === 0 ? TEXT.diff_changed : TEXT.diff_changed_others, lives: others },
   ].filter((group) => group.lives.length > 0);
+  // Whom the summary counts; with the group of hereditary differences, that it names more
+  // (the fourth playtest's K1, Grok's decision).
+  const list = TEXT.diff_counted_list.replace("{list}", TEXT.diff_changed_hereditary);
   return {
     summary: answer.summary.map((row) => ({ name: diseaseName(row.disease), a: counted(row.a), b: counted(row.b) })),
+    notes: hereditary.length === 0 ? [TEXT.diff_counted_note] : [TEXT.diff_counted_note, list],
     aOnly: answer.a_only.map(who(names.a)),
     bOnly: answer.b_only.map(who(names.b)),
     changed,
