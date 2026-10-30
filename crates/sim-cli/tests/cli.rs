@@ -219,6 +219,68 @@ fn replay_from_input_log_matches_scenario_run() {
     assert_same_run(&original, &unchecked);
 }
 
+/// ADR-0004, addendum of 2026-10-30: a run's stop is the end line of its input log, not an
+/// input. A run stopped before its scenario's `until` (after four of its ten years, at the
+/// end of year 3) replays to that line, checked against the original's manifest, and writes
+/// it as its `until`; the original keeps its scenario's. Every other file is the same. A
+/// resume without a target runs the original on to its scenario's end and leaves the replay
+/// where it stands.
+#[test]
+fn a_run_stopped_early_replays_to_the_end_of_its_log() {
+    let dir = scratch("replay-early");
+    let file = dir.join("ten.scenario.json");
+    fs::write(&file, TEN_YEARS).expect("writes the scenario");
+    let original = dir.join("original");
+    let end_of_year_3 = "125798399";
+    must(&[
+        "run",
+        "--scenario",
+        arg(&file),
+        "--out",
+        arg(&original),
+        "--until",
+        end_of_year_3,
+    ]);
+    let replayed = dir.join("replayed");
+    must(&[
+        "run",
+        "--replay",
+        arg(&original.join("input.ndjson")),
+        "--manifest",
+        arg(&original.join("manifest.json")),
+        "--out",
+        arg(&replayed),
+    ]);
+    let json = |run: &Path, file: &str| -> Value {
+        serde_json::from_str(&text(&run.join(file))).expect("json")
+    };
+    let until = |run: &Path| json(run, "scenario.resolved.json")["until"].clone();
+    assert_eq!(until(&original), serde_json::json!(314_495_999));
+    assert_eq!(until(&replayed), serde_json::json!(125_798_399));
+    let without_until = |run: &Path| {
+        let mut scenario = json(run, "scenario.resolved.json");
+        scenario.as_object_mut().expect("an object").remove("until");
+        scenario
+    };
+    assert_eq!(without_until(&original), without_until(&replayed));
+    for file in FILES
+        .iter()
+        .filter(|file| **file != "scenario.resolved.json")
+    {
+        assert!(
+            fs::read(original.join(file)).expect("reads")
+                == fs::read(replayed.join(file)).expect("reads"),
+            "{file} differs"
+        );
+    }
+    let closed = |run: &Path| json(run, "manifest.json")["closed_through"].clone();
+    for run in [&original, &replayed] {
+        must(&["run", "--resume", "--out", arg(run)]);
+    }
+    assert_eq!(closed(&original), serde_json::json!(314_495_999));
+    assert_eq!(closed(&replayed), serde_json::json!(125_798_399));
+}
+
 /// Every `Input` variant as the command schema writes it. A new variant fails to
 /// compile here until it has a line.
 fn commands() -> Vec<(Input, &'static str)> {

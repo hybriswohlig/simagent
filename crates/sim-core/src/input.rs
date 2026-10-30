@@ -30,8 +30,9 @@ pub enum Input {
     TriggerShock(TriggerShock),
 }
 
-/// Further parts of the scenario (mod list, shocks, stop condition; ADR-0004 section 4)
-/// arrive as fields with their first reader.
+/// The start of a run (ADR-0004 section 4 and its addendum of 2026-10-30). The data's hash
+/// stands in the log's header, a shock is an input of its own, and a run's stop is the end
+/// line of its input log, no field here; a mod list arrives as a field with its first reader.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
