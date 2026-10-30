@@ -36,6 +36,10 @@ test("a height is its whole centimetres", () => {
   assert.equal(heightText(149.5), "150 cm");
   assert.equal(heightText(149.49), "149 cm");
   assert.equal(heightText(86), "86 cm");
+  // The contract's ends, and a value just below a half (Astra's review).
+  assert.equal(heightText(40), "40 cm");
+  assert.equal(heightText(230), "230 cm");
+  assert.equal(heightText(149.49999999999997), "149 cm");
 });
 
 test("each founder a row in the answer's order, with the names of the variants", () => {

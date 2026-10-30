@@ -214,9 +214,21 @@ if (browser !== undefined) {
     if (portraits !== 70) {
       throw new Error(`the sheet: ${portraits} portraits, not ten rows of seven`);
     }
-    // Under each portrait its height in whole centimetres (K10 of the third playtest).
+    // Under each portrait its height in whole centimetres, seen and beneath it (K10 of the
+    // third playtest).
     const heights = await page.locator("table td").evaluateAll((cells) =>
-      cells.map((cell) => cell.querySelector("svg[role=img]") !== null && /^[0-9]+ cm$/.test(cell.textContent ?? "")),
+      cells.map((cell) => {
+        const portrait = cell.querySelector("svg[role=img]");
+        const caption = cell.lastElementChild;
+        return (
+          portrait !== null &&
+          caption !== null &&
+          !caption.contains(portrait) &&
+          caption.checkVisibility() &&
+          /^[0-9]+ cm$/.test(caption.textContent ?? "") &&
+          caption.getBoundingClientRect().top >= portrait.getBoundingClientRect().bottom - 1
+        );
+      }),
     );
     if (heights.length !== 70 || heights.includes(false)) {
       throw new Error("the sheet: not each portrait with its height in whole centimetres beneath");
