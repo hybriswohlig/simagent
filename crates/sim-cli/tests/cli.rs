@@ -257,6 +257,12 @@ fn a_run_stopped_early_replays_to_the_end_of_its_log() {
     let until = |run: &Path| json(run, "scenario.resolved.json")["until"].clone();
     assert_eq!(until(&original), serde_json::json!(314_495_999));
     assert_eq!(until(&replayed), serde_json::json!(125_798_399));
+    let without_until = |run: &Path| {
+        let mut scenario = json(run, "scenario.resolved.json");
+        scenario.as_object_mut().expect("an object").remove("until");
+        scenario
+    };
+    assert_eq!(without_until(&original), without_until(&replayed));
     for file in FILES
         .iter()
         .filter(|file| **file != "scenario.resolved.json")
