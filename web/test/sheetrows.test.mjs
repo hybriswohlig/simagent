@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { sheetRows, yearsText } from "../dist/sheetrows.js";
+import { heightText, sheetRows, yearsText } from "../dist/sheetrows.js";
 
 const body = (height_cm) => ({ height_cm });
 const shown = (age_years, height_cm) => ({ at: { t: 0, age_years, calendar_year: 0 }, body: body(height_cm) });
@@ -28,6 +28,16 @@ test("an age is its years", () => {
   assert.equal(yearsText(60), "60 Jahre");
 });
 
+// K10 of the third playtest (Grok's decision): under each portrait its height from the
+// answer in whole centimetres, from a half up, so that maturity shows at 12 and 16 years.
+test("a height is its whole centimetres", () => {
+  assert.equal(heightText(162.017), "162 cm");
+  assert.equal(heightText(154.667), "155 cm");
+  assert.equal(heightText(149.5), "150 cm");
+  assert.equal(heightText(149.49), "149 cm");
+  assert.equal(heightText(86), "86 cm");
+});
+
 test("each founder a row in the answer's order, with the names of the variants", () => {
   const rows = sheetRows(ANSWER);
   assert.deepEqual(
@@ -41,8 +51,8 @@ test("each founder a row in the answer's order, with the names of the variants",
     ],
   );
   assert.deepEqual(rows[0].cells, [
-    { age: 2, title: "Frühe Reife, weiblich, 2 Jahre", body: body(86) },
-    { age: 60, title: "Frühe Reife, weiblich, 60 Jahre", body: body(162) },
+    { age: 2, title: "Frühe Reife, weiblich, 2 Jahre", height: "86 cm", body: body(86) },
+    { age: 60, title: "Frühe Reife, weiblich, 60 Jahre", height: "162 cm", body: body(162) },
   ]);
-  assert.deepEqual(rows[1].cells, [{ age: 2, title: "Gewöhnliche Reife, männlich, 2 Jahre", body: body(88) }]);
+  assert.deepEqual(rows[1].cells, [{ age: 2, title: "Gewöhnliche Reife, männlich, 2 Jahre", height: "88 cm", body: body(88) }]);
 });

@@ -9,6 +9,8 @@ import { sheetRows, yearsText } from "./sheetrows.js";
 import { TEXT } from "./text.js";
 
 const SHEET = { format: "simagent.view.sheet", version: 1 } as const;
+/** A portrait with its height centred beneath it. */
+const CELL = { textAlign: "center" } as const;
 
 /** The sheet of portraits (ADR-0021 G10): the core's bodies without environment of the same
  * genes in both sexes, a row per variant and sex, a column per age. */
@@ -53,8 +55,9 @@ export function Sheet() {
             <tr key={row.label}>
               <th scope="row">{row.label}</th>
               {row.cells.map((cell) => (
-                <td key={cell.age}>
+                <td key={cell.age} style={CELL}>
                   <Portrait params={cell.body} label={cell.title} />
+                  <div>{cell.height}</div>
                 </td>
               ))}
             </tr>
