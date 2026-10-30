@@ -602,6 +602,13 @@ fn assert_draws(scenario: &Scenario, years: u64, q: u64) {
         }
         assert_eq!(taken, scenario.used);
     }
+    // The edges, both ways (Astra's review): no person wanted takes none and has enough;
+    // with every household used, none is left and there are not enough.
+    let all: BTreeSet<usize> = (0..pool.households.len()).collect();
+    for take in takes {
+        assert_eq!(take(0, &BTreeSet::new(), 0), (Vec::new(), true));
+        assert_eq!(take(1, &all, 1), (Vec::new(), false));
+    }
 }
 
 // ---------------------------------------------------------------------------------------
