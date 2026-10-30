@@ -6,16 +6,19 @@
 
 mod http;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sim_core::input::Input;
 use sim_core::params::ParamChange;
 use sim_core::time::{DAY, SimTime, calendar};
+use sim_core::world::World;
 
 use crate::error::CliError;
 use crate::files::{self, Scenario};
@@ -39,6 +42,16 @@ struct Server {
     /// The runs whose write failed: their files may stand between two writes, so the
     /// server reads none of them until a write opens the run whole again.
     failed: BTreeSet<String>,
+    /// The world loaded last: the reads of a step (world, pedigree, a person) load it once
+    /// (the third playtest, K12).
+    loaded: RefCell<Option<Loaded>>,
+}
+
+/// A run's world with the directory and the bytes of the save it was loaded from.
+struct Loaded {
+    dir: PathBuf,
+    save: Vec<u8>,
+    world: Rc<World>,
 }
 
 /// A run the server writes (ADR-0021 section 1): opened as `run --resume` opens it, its
@@ -243,11 +256,11 @@ impl Server {
             ["api", "runs", run] => self.manifest(run),
             ["api", "runs", run, "pedigree"] => self.read(run, |dir| self.pedigree(dir)),
             ["api", "runs", run, "persons", sim] => match person_query(request.query.as_deref()) {
-                Some(to) => self.read(run, |dir| person(dir, sim, to)),
+                Some(to) => self.read(run, |dir| person(|| self.world_of(dir), sim, to)),
                 None => Response::error(400, "bad_query"),
             },
             ["api", "runs", run, "census"] => self.read(run, census),
-            ["api", "runs", run, "world"] => self.read(run, world),
+            ["api", "runs", run, "world"] => self.read(run, |dir| world(self.world_of(dir))),
             ["api", "runs", a, "diff", b] => {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
             }
@@ -524,9 +537,33 @@ impl Server {
         }
     }
 
+    /// The world of the run in `dir`: the one loaded last while it is this run's and its
+    /// save has the same bytes, else loaded from them. The world is the save's alone (the
+    /// core data are the program's), so both give the same answers.
+    fn world_of(&self, dir: &Path) -> Result<Rc<World>, CliError> {
+        let save = files::read(&dir.join(files::SAVE))?;
+        if let Some(loaded) = self.loaded.borrow().as_ref()
+            && loaded.dir == dir
+            && loaded.save == save
+        {
+            return Ok(Rc::clone(&loaded.world));
+        }
+        let world = Rc::new(crate::world_from_save(&save)?);
+        let world_kept = Rc::clone(&world);
+        *self.loaded.borrow_mut() = Some(Loaded {
+            dir: dir.to_path_buf(),
+            save,
+            world: world_kept,
+        });
+        Ok(world)
+    }
+
     /// `GET /api/runs/{run}/pedigree`: byte for byte what `simagent export` writes.
     fn pedigree(&self, dir: &Path) -> Response {
-        match crate::pedigree_text(dir) {
+        match self
+            .world_of(dir)
+            .and_then(|world| crate::pedigree_text(&world))
+        {
             Ok(text) => Response::new(200, JSON, text.into_bytes()),
             Err(error) => Response::error(500, error.code),
         }
@@ -671,7 +708,11 @@ fn sim_of(text: &str) -> Option<sim_core::ids::SimId> {
 
 /// `GET /api/runs/{run}/persons/{sim}`: the presentation state of the core for one person,
 /// with `?to=` also what the second sim is to it.
-fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
+fn person(
+    world: impl FnOnce() -> Result<Rc<World>, CliError>,
+    sim: &str,
+    to: Option<&str>,
+) -> Response {
     let unknown = || Response::error(404, "unknown_sim");
     let Some(id) = sim_of(sim) else {
         return unknown();
@@ -681,7 +722,7 @@ fn person(dir: &Path, sim: &str, to: Option<&str>) -> Response {
         Some(Some(other)) => Some(other),
         Some(None) => return unknown(),
     };
-    match crate::person_answer(dir, id, other) {
+    match world().and_then(|world| crate::person_answer(&world, id, other)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),
@@ -764,8 +805,8 @@ fn sheet() -> Response {
 }
 
 /// `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.
-fn world(dir: &Path) -> Response {
-    match crate::world_answer(dir) {
+fn world(world: Result<Rc<World>, CliError>) -> Response {
+    match world.and_then(|world| crate::world_answer(&world)) {
         Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Err(error) => Response::error(500, error.code),
     }
@@ -966,6 +1007,7 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         files: found,
         open: BTreeMap::new(),
         failed: BTreeSet::new(),
+        loaded: RefCell::new(None),
     };
     // A run a process left between two stops goes back to its last stop before the first
     // request (ADR-0021 section 2, addendum 2026-10-27); a run another process holds stays
@@ -1024,6 +1066,59 @@ fn after_accept(failures: u32, accepted: bool) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A founder in a world without a pool, for one or two years.
+    const TINY: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":62899199}"#;
+
+    /// K12 of the third playtest: the server keeps the world it loaded last, the same while
+    /// the run's save stays the same, and loads again once the save changed or another
+    /// run was loaded since.
+    #[test]
+    fn a_world_is_loaded_again_only_when_its_save_changes() {
+        let base = std::env::temp_dir().join(format!("simagent-loaded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("makes");
+        let scenario = base.join("tiny.json");
+        std::fs::write(&scenario, TINY).expect("writes");
+        for (name, until) in [("one", "31449599"), ("two", "62899199")] {
+            let args = ["simagent", "run", "--scenario"].map(std::ffi::OsString::from);
+            let out = base.join(name).into_os_string();
+            let rest = [
+                scenario.clone().into_os_string(),
+                "--out".into(),
+                out,
+                "--until".into(),
+                until.into(),
+            ];
+            crate::run_cli(args.into_iter().chain(rest)).expect("runs");
+        }
+        let server = Server {
+            runs: base.clone(),
+            port: 0,
+            files: BTreeMap::new(),
+            open: BTreeMap::new(),
+            failed: BTreeSet::new(),
+            loaded: RefCell::new(None),
+        };
+        let (one, two) = (base.join("one"), base.join("two"));
+        let at = |secs: i64| SimTime::from_secs(secs);
+        let first = server.world_of(&one).expect("loads");
+        assert_eq!(first.closed_through(), at(31_449_599));
+        assert!(Rc::ptr_eq(&first, &server.world_of(&one).expect("loads")));
+        assert_eq!(
+            server.world_of(&two).expect("loads").closed_through(),
+            at(62_899_199)
+        );
+        let again = server.world_of(&one).expect("loads");
+        assert!(!Rc::ptr_eq(&first, &again));
+        assert_eq!(again.closed_through(), at(31_449_599));
+        std::fs::copy(two.join(files::SAVE), one.join(files::SAVE)).expect("copies");
+        assert_eq!(
+            server.world_of(&one).expect("loads").closed_through(),
+            at(62_899_199)
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     /// Astra's review of G2: a failed fork's directory goes, its repro package is kept
     /// beside the runs without replacing anything there; where it cannot be, the directory
