@@ -71,15 +71,17 @@ function Columns() {
 }
 
 /** The hereditary diseases counted per run (Grok round 41, V1): only when the core counted
- * one; a column per run, each a link to its run. */
-function Summary({ a, b, rows }: { a: string; b: string; rows: readonly Counted[] }) {
+ * one; its notes under the heading, a column per run, each a link to its run. */
+function Summary({ a, b, rows, notes }: { a: string; b: string; rows: readonly Counted[]; notes: readonly string[] }) {
   if (rows.length === 0) {
     return null;
   }
   return (
     <>
       <h2>{TEXT.diff_diseases}</h2>
-      <p>{TEXT.diff_counted_note}</p>
+      {notes.map((note) => (
+        <p key={note}>{note}</p>
+      ))}
       <table style={TABLE}>
         <Columns />
         <thead>
@@ -207,7 +209,7 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
       {title}
       {x === undefined || y === undefined ? null : <Linked parts={years(a, x, b, y)} />}
       {at === null ? null : <Linked parts={at} />}
-      <Summary a={a} b={b} rows={view.summary} />
+      <Summary a={a} b={b} rows={view.summary} notes={view.notes} />
       {none ? <p>{TEXT.diff_none}</p> : null}
       <Only run={a} who={view.aOnly} />
       <Only run={b} who={view.bOnly} />

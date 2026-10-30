@@ -95,6 +95,8 @@ export const TEXT = {
   diff_counted: "{show} betroffen, {dead} daran gestorben",
   diff_counted_note:
     "Gezählt werden die Lebenden, die in dieser Sekunde betroffen sind, und alle, die im Lauf an der Krankheit gestorben sind.",
+  diff_counted_list:
+    "Die Liste „{list}“ nennt auch Verstorbene, die nicht an der Krankheit gestorben sind, und Weggezogene, mit ihren Krankheiten bis zu ihrem Tod oder Wegzug.",
   diff_none: "Die beiden Läufe unterscheiden sich in keinem Leben.",
   diff_born: "Geburt",
   diff_died: "Tod",
