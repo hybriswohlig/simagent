@@ -32,6 +32,13 @@ pub(crate) fn onset_second(born: SimTime, onset: f64) -> Option<SimTime> {
     born.checked_add(SimDuration::from_secs(secs))
 }
 
+/// Whether the onset at `onset` years of a person born at `born` has come at `at`: its age
+/// then reaches it, and its second lies in the clock. Beyond the clock's last second it
+/// never comes (ADR-0002), though the years, rounded, may reach it there.
+pub(crate) fn reached(born: SimTime, onset: f64, at: SimTime) -> bool {
+    crate::state::disease::age(born, at) >= onset && onset_second(born, onset).is_some()
+}
+
 /// The calendar year of the onset second and the onset in whole years, of an onset that
 /// has come.
 pub(crate) fn since(born: SimTime, onset: f64) -> (i64, i64) {
@@ -287,6 +294,27 @@ mod tests {
         assert_eq!(onset_second(born, 1e-7), Some(SimTime::from_secs(last)));
         // 2e-7 years is 6.28992 seconds: rounded up to 7, three beyond the last second.
         assert_eq!(onset_second(born, 2e-7), None);
+    }
+
+    /// Astra's review of the comparison: at the clock's last second a disease can count as
+    /// reached by its age in years while its onset second, rounded up, lies beyond the
+    /// clock: 31 s as years and back are 31.000000000000004 s, so `⌈onset · YEAR⌉` is 32.
+    /// Such an onset is not reached, it never comes (ADR-0002); one second earlier in life
+    /// it is, and an onset not yet come is not either.
+    #[test]
+    fn an_onset_is_reached_only_in_its_second() {
+        let last = crate::time::MAX_ABS_SECS;
+        let thirty_one = 31.0 / 31_449_600.0;
+        let late = SimTime::from_secs(last - 31);
+        assert!(!reached(late, thirty_one, SimTime::from_secs(last)));
+        let earlier = SimTime::from_secs(last - 40);
+        assert!(reached(earlier, thirty_one, SimTime::from_secs(last)));
+        assert!(!reached(earlier, thirty_one, SimTime::from_secs(last - 10)));
+        let y = YEAR.as_secs();
+        let born = SimTime::from_secs(-10 * y);
+        assert!(reached(born, 45.9, SimTime::from_secs(36 * y)));
+        assert!(!reached(born, 45.9, SimTime::from_secs(35 * y)));
+        assert!(reached(born, 0.0, born));
     }
 
     #[test]

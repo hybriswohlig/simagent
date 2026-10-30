@@ -5,7 +5,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{DomainState, LeftBy, Parents, PoolOrigin, death, disease, market, whole_years};
+use super::{DomainState, LeftBy, Parents, PoolOrigin, death, market, onset, whole_years};
 use crate::body_contract::BodyCensus;
 use crate::data::Data;
 use crate::data_id::{Code, str_key};
@@ -162,8 +162,9 @@ pub(crate) fn inheritance(
     let keys: Vec<u64> = data.diseases().iter().map(|d| str_key(&d.code)).collect();
     let mut affected = vec![0; keys.len()];
     for sim in domain.sims.values().filter(|_| diseases_on) {
-        let age = disease::age(sim.born, t);
-        for affliction in (sim.afflictions.iter()).filter(|a| age >= a.onset.get()) {
+        // The card's rule: an onset whose second lies beyond the clock never comes.
+        let reached = |years: f64| onset::reached(sim.born, years, t);
+        for affliction in (sim.afflictions.iter()).filter(|a| reached(a.onset.get())) {
             let at = (keys.iter())
                 .position(|key| *key == affliction.disease)
                 .unwrap_or_else(|| panic!("invariant census.disease"));

@@ -95,6 +95,21 @@ fn the_status_of_a_disease_by_hand() {
     }
 }
 
+/// At the clock's last second a disease whose onset second, rounded up, lies beyond the
+/// clock (31 s as years from 31 s before the end, Astra's case of the comparison) has not
+/// come and never comes (ADR-0002): "not yet", where the card failed before.
+#[test]
+fn an_onset_beyond_the_clock_is_not_yet() {
+    use sim_core::presentation::card::{DiseaseStatus, Found, disease_status};
+    use sim_core::time::{MAX_ABS_SECS, SimTime};
+    let born = SimTime::from_secs(MAX_ABS_SECS - 31);
+    let found = Found::Onset(31.0 / 31_449_600.0);
+    assert_eq!(
+        disease_status(found, true, born, SimTime::from_secs(MAX_ABS_SECS)),
+        DiseaseStatus::NotYet
+    );
+}
+
 /// Where a copy from a parent came from (Grok G7, L8), by hand: the parent's one copy on its
 /// mother's strand came from the person's grandmother, on its father's from the grandfather,
 /// from the pool if that grandparent is not in the run; a parent without a copy made it new.

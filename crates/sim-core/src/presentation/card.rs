@@ -149,14 +149,14 @@ pub enum DiseaseStatus {
 /// The status of what the genotype `found` at `at` for a person born at `born`, with the
 /// switch of the hereditary diseases `switch_on` then. Affected from the age `onset` on (as
 /// the pedigree says), since the calendar year of the second `born + ⌈onset · YEAR⌉`, at
-/// `⌊onset⌋` whole years.
+/// `⌊onset⌋` whole years; an onset whose second lies beyond the clock never comes.
 pub fn disease_status(found: Found, switch_on: bool, born: SimTime, at: SimTime) -> DiseaseStatus {
     match found {
         Found::Not => DiseaseStatus::NotAffected,
         Found::Carrier => DiseaseStatus::Carrier,
         Found::PenetranceFallen => DiseaseStatus::PenetranceFallen,
         Found::Onset(_) if !switch_on => DiseaseStatus::Resting,
-        Found::Onset(onset) if crate::state::disease::age(born, at) >= onset => {
+        Found::Onset(onset) if crate::state::onset::reached(born, onset, at) => {
             // The year and whole years the onset entry of the log carries.
             let (year, age_years) = crate::state::onset::since(born, onset);
             DiseaseStatus::Affected { year, age_years }

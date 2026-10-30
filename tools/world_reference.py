@@ -2367,6 +2367,14 @@ def onset_second(born: int, onset: float) -> int:
     return born + math.ceil(onset * YEAR)
 
 
+def onset_reached(born: int, onset: float, at: int) -> bool:
+    """Whether an onset has come at `at`: the age `as_years(at − born)` reaches it and `B`
+    lies in the clock (`MAX_ABS_SECS`). At the clock's last second the years may reach an
+    onset whose `B`, rounded up, lies beyond it; such an onset never comes (ADR-0002). The
+    rule of the card, the pedigree's `affected` and the census."""
+    return as_years(at - born) >= onset and onset_second(born, onset) <= MAX_ABS_SECS
+
+
 def onset_payload(sim: int, disease_key: int) -> bytes:
     """The queue payload `DiseaseOnset { sim, disease }` (variant 10): the SimId, then the
     `str_key` of the disease's code."""
@@ -4683,8 +4691,9 @@ class World:
         `social_parents` (the list of the state, in its order), `household` (the last one
         for the dead), `moved_out`, `carer` (null for the dead and anyone without one),
         `diseases` (per affliction in data order `{disease, onset, affected}`: `affected`
-        iff at `r` the age `(r − born) / 31 449 600` (f64) is at least the onset and the
-        switch is on at `r`; `r` is the later of the clock and 0 for the living, the second
+        iff at `r` the onset is reached (`onset_reached`: the age `(r − born) / 31 449 600`
+        (f64) at least the onset, its second in the clock) and the switch is on at `r`; `r`
+        is the later of the clock and 0 for the living, the second
         of the death for the dead). A partnership: `partnership`, `woman`, `man`, `formed`,
         `ended` (or null), `ended_by` ("death", "separation", "emigration" or null), `kinship` (`φ` of
         the two, f64). A household: `household`, `formed`, `ended` (or null)."""
@@ -4716,7 +4725,7 @@ class World:
                 {
                     "disease": affliction.disease.code,
                     "onset": affliction.onset,
-                    "affected": as_years(r - born) >= affliction.onset and switch,
+                    "affected": onset_reached(born, affliction.onset, r) and switch,
                 }
                 for affliction in afflictions
             ]
