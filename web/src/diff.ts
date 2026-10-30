@@ -1,6 +1,6 @@
 import { atAge, diseaseName } from "./carddiseases.js";
 import { causeName } from "./curves.js";
-import { dateText } from "./dates.js";
+import { dateText, yearName } from "./dates.js";
 import type { DatedSecond, DiffAnswer, DiffBond, DiffLife, DiffOnset } from "./generated/export.js";
 import type { Named } from "./names.js";
 import { TEXT } from "./text.js";
@@ -56,7 +56,7 @@ function onset(shown: DiffOnset): string {
   const template = shown.age_years === 0 ? TEXT.diff_disease_from_birth : TEXT.diff_disease_since;
   return template
     .replace("{disease}", diseaseName(shown.disease))
-    .replace("{year}", String(shown.year))
+    .replace("{year}", yearName(shown.year))
     .replace("{age}", atAge(shown.age_years));
 }
 

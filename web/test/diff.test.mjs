@@ -253,6 +253,45 @@ test("a disease at rest is named as resting", () => {
   ]);
 });
 
+// A couple of the pool paired before the founding, and an onset before it: each year named as
+// a date names it (Grok's cross-check and decision), "Jahr n vor der Gründung".
+test("a year before the founding is named in the comparison", () => {
+  const answer = {
+    ...ANSWER,
+    a_only: [],
+    b_only: [],
+    changed: [
+      {
+        lineage_key: HER,
+        differs: ["partnerships", "diseases"],
+        hereditary: true,
+        a: life({
+          partnerships: [{ partner: HIS, formed: at(-1, -5, 2, 1), ended: null, ended_by: null }],
+          diseases: [{ disease: "core:disease_liability", year: -10, age_years: 30, rests: false }],
+        }),
+        b: life({
+          partnerships: [{ partner: HIS, formed: at(-1, -5, 2, 1), ended: at(9, 40, 0, 0), ended_by: "separation" }],
+          diseases: [{ disease: "core:disease_liability", year: -10, age_years: 30, rests: true }],
+        }),
+      },
+    ],
+  };
+  const names = named([[HIS, "Hans Weber", 2]]);
+  const [her] = diffView(answer, { a: names, b: names }).changed;
+  assert.deepEqual(her.rows, [
+    {
+      label: "Partnerschaften",
+      a: ["mit Hans Weber, ab Jahr 5 vor der Gründung, 3. Monat, 2. Tag"],
+      b: ["mit Hans Weber, ab Jahr 5 vor der Gründung, 3. Monat, 2. Tag bis Jahr 40, 1. Monat, 1. Tag, durch Trennung"],
+    },
+    {
+      label: "Erbkrankheiten",
+      a: ["Geteilte Schwere, seit Jahr 10 vor der Gründung, mit 30 Jahren"],
+      b: ["Geteilte Schwere, Anlage, ruht"],
+    },
+  ]);
+});
+
 // Grok's round 41, V1: the counts per disease and run, the name in the nominative, a code
 // without a name as the code.
 test("the hereditary diseases counted per run", () => {
