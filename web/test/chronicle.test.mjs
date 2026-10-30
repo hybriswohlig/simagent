@@ -243,3 +243,71 @@ test("the chronicle follows a shock, not the years it sets", () => {
     [11, 10, 7],
   );
 });
+
+/** An entry of the second `t` about `sims` with `payload`, set off by `trigger` (its first
+ * cause) under `rule`, in the shape the core writes. */
+function at(id, t, sims, payload, trigger, rule) {
+  const causes = [trigger, { rule }];
+  return { entry: { id, t, subjects: sims.map((sim) => ({ sim })), causes, payload }, date: DATE };
+}
+const plan = (by) => ({ plan: { by, planned_at: 0 } });
+const birth = (id, t, child, mother, father) =>
+  at(id, t, [child, mother, father], { "core:birth": { lineage_key: "a" } }, plan(id), "core:gestation");
+const moved = (id, t, sim, household, trigger) => at(id, t, [sim], { "core:moved": { household } }, trigger, "core:household");
+const formed = (id, t, sims, household, trigger) =>
+  at(id, t, sims, { "core:household_formed": { household } }, trigger, "core:household");
+const ids = (items) => items.map((i) => i.entry.id);
+
+// The second playtest ("viele Umzugszeilen"): a move a line beside it says already is not
+// shown, the child's into its mother's household at its birth (set off by what set off the
+// birth) and a member's into a household formed in that second, whose line names it. A move
+// into a household that was there before (an orphan to its carer) says something of its own.
+test("a move a line beside it says already is not shown", () => {
+  const page = [
+    birth(1, 50, 9, 3, 4),
+    moved(2, 50, 9, 21, plan(1)),
+    at(3, 60, [5, 6], { "core:partnered": { partnership: 7 } }, plan(2), "core:partner_market"),
+    formed(4, 60, [5, 6], 22, { event: 3 }),
+    moved(5, 60, 5, 22, { event: 3 }),
+    moved(6, 60, 6, 22, { event: 3 }),
+    at(7, 70, [3], { "core:death": { cause: "core:senescence" } }, plan(3), "core:mortality"),
+    moved(8, 70, 9, 22, { event: 7 }),
+  ];
+  assert.deepEqual(ids(added([], page)), [8, 7, 4, 3, 1]);
+});
+
+test("a move in another second than its birth or its household's, or of another, stays", () => {
+  const page = [birth(1, 50, 9, 3, 4), formed(2, 50, [3], 21, plan(5)), moved(3, 51, 9, 21, plan(6)), moved(4, 50, 8, 23, plan(7))];
+  assert.deepEqual(ids(added([], page)), [4, 3, 2, 1]);
+});
+
+// Grok's cross-check: a child that moves again in the second of its birth for another
+// reason (an orphan placed after a death) and a founder child taken in at the start by a
+// household formed in that second, whose line names only the couple, keep their lines.
+test("a move set off otherwise, or by a household that does not name the mover, stays", () => {
+  const page = [
+    birth(1, 50, 9, 3, 4),
+    moved(2, 50, 9, 21, plan(1)),
+    at(3, 50, [3], { "core:death": { cause: "core:senescence" } }, plan(8), "core:mortality"),
+    moved(4, 50, 9, 30, { event: 3 }),
+    formed(5, 0, [6, 7], 31, { input: 1 }),
+    moved(6, 0, 8, 31, { input: 1 }),
+  ];
+  assert.deepEqual(ids(added([], page)), [6, 5, 4, 3, 1]);
+});
+
+test("a move goes also when its birth or its household comes in a later page", () => {
+  const kept = added([], [moved(2, 50, 9, 21, plan(1)), moved(5, 60, 5, 22, { event: 3 })]);
+  assert.deepEqual(ids(kept), [5, 2]);
+  assert.deepEqual(ids(added(kept, [birth(1, 50, 9, 3, 4), formed(4, 60, [5, 6], 22, { event: 3 })])), [4, 1]);
+});
+
+test("the limit counts the lines shown", () => {
+  const page = Array.from({ length: KEPT }, (_, i) => [
+    birth(2 * i + 1, i, 1000 + i, 3, 4),
+    moved(2 * i + 2, i, 1000 + i, 21, plan(2 * i + 1)),
+  ]).flat();
+  const kept = added([], page);
+  assert.equal(kept.length, KEPT);
+  assert.ok(kept.every((i) => payloadCode(i) === "core:birth"));
+});
