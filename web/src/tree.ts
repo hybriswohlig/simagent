@@ -31,8 +31,11 @@ export function currentPartner(pedigree: Pedigree, person: Person): Person | und
  * married, a person can be a parent and a grandparent at once; the deeper row keeps every
  * parent above its children). Each row stands in the order of its people's relatives in the
  * row nearer the person, children under their parents and ancestors above their children, so
- * that lines do not cross for the order of birth alone (the fourth playtest); among people
- * of the same place in the order of the pedigree. Only the pedigree's links are followed;
+ * that lines do not cross for the order of birth alone (the fourth playtest): by the first
+ * place of a person's relatives there, then by the last (Grok's review: of two ancestors of
+ * one child, the one with a second child further right stands right), then in the order of
+ * the pedigree. Where cousins married, lines can still cross: two who share both lines of
+ * grandparents cross in any order, and a line over two rows can cross the row between. Only the pedigree's links are followed;
  * social parents are not biological ones and are left out.
  */
 export type Hourglass = {
@@ -94,14 +97,24 @@ export function hourglass(pedigree: Pedigree, sim: number, up = 3, down = 2): Ho
     let before: readonly Person[] = [center];
     return rows.map((row) => {
       const place = new Map(before.map((person, at) => [person.sim, at]));
-      const first = (person: Person) =>
-        back(person).reduce((low, relative) => {
+      // The first and the last place of a person's relatives in the row before; none there
+      // puts it last.
+      const span = (person: Person): [number, number] => {
+        let low = Number.POSITIVE_INFINITY;
+        let high = Number.NEGATIVE_INFINITY;
+        for (const relative of back(person)) {
           const at = place.get(relative.sim);
-          return at !== undefined && at < low ? at : low;
-        }, Number.POSITIVE_INFINITY);
+          if (at !== undefined) {
+            low = at < low ? at : low;
+            high = at > high ? at : high;
+          }
+        }
+        return [low, high];
+      };
+      const compare = (x: number, y: number) => (x === y ? 0 : x < y ? -1 : 1);
       const sorted = row
-        .map((person) => ({ person, first: first(person), order: order.get(person.sim) ?? 0 }))
-        .sort((a, b) => (a.first === b.first ? a.order - b.order : a.first < b.first ? -1 : 1))
+        .map((person) => ({ person, span: span(person), order: order.get(person.sim) ?? 0 }))
+        .sort((a, b) => compare(a.span[0], b.span[0]) || compare(a.span[1], b.span[1]) || a.order - b.order)
         .map((entry) => entry.person);
       before = sorted;
       return sorted;
