@@ -417,35 +417,87 @@ impl Pool {
     }
 }
 
-/// The households of the pool in the order of the draw on `occasion` (ADR-0001 section 5,
-/// ADR-0020 section 5; design note of the arrival, section 3): ascending by `(rank,
-/// candidate)` with `POOL_RANK` and the subject `WORLD`, `candidate` the smallest lineage
-/// key of a member of 18 or more at `frozen_at`. Indices into `households`.
-pub fn ranked_households(pool: &Pool, world_seed: u64, occasion: u64) -> Vec<usize> {
-    let candidates: BTreeMap<LineageKey, usize> = pool
-        .households
-        .iter()
-        .enumerate()
-        .filter_map(|(index, household)| {
-            household
-                .members
-                .iter()
-                .filter(|member| adult(member.born, pool.frozen_at))
-                .map(|member| member.lineage_key)
-                .min()
-                .map(|candidate| (candidate, index))
-        })
-        .collect();
-    Draws::new(WorldSeed::new(world_seed))
-        .ranked(
+/// The candidates of the pool's draws (ADR-0020 section 5; design note of the arrival,
+/// section 3): per household with a member of 18 or more at `frozen_at`, the smallest
+/// lineage key of such a member, with the household's index. They depend on the pool
+/// alone, so the load of a save, which replays every draw, finds them once.
+pub struct Candidates<'a> {
+    pool: &'a Pool,
+    households: BTreeMap<LineageKey, usize>,
+}
+
+impl<'a> Candidates<'a> {
+    /// The candidates of `pool`.
+    pub fn of(pool: &'a Pool) -> Self {
+        let households = pool
+            .households
+            .iter()
+            .enumerate()
+            .filter_map(|(index, household)| {
+                household
+                    .members
+                    .iter()
+                    .filter(|member| adult(member.born, pool.frozen_at))
+                    .map(|member| member.lineage_key)
+                    .min()
+                    .map(|candidate| (candidate, index))
+            })
+            .collect();
+        Self { pool, households }
+    }
+
+    /// The candidates in the order of the draw on `occasion` (ADR-0001 section 5):
+    /// ascending by `(rank, candidate)` with `POOL_RANK` and the subject `WORLD`.
+    fn order(&self, world_seed: u64, occasion: u64) -> Vec<LineageKey> {
+        Draws::new(WorldSeed::new(world_seed)).ranked(
             tags::POOL_RANK,
             SubjectKey::WORLD,
             occasion,
-            candidates.keys().copied(),
+            self.households.keys().copied(),
         )
-        .into_iter()
-        .map(|candidate| candidates[&candidate])
-        .collect()
+    }
+
+    /// The households in the order of the draw on `occasion`. Indices into `households`.
+    pub fn ranked(&self, world_seed: u64, occasion: u64) -> Vec<usize> {
+        self.order(world_seed, occasion)
+            .into_iter()
+            .map(|candidate| self.households[&candidate])
+            .collect()
+    }
+
+    /// The households not in `used`, in the order of the draw on `occasion`, until their
+    /// members reach or exceed `persons`; the second value says whether they do (with too
+    /// few households left, all of them and `false`). Only the households it goes through
+    /// are looked up.
+    pub fn take(
+        &self,
+        world_seed: u64,
+        occasion: u64,
+        used: &BTreeSet<usize>,
+        persons: u64,
+    ) -> (Vec<usize>, bool) {
+        let mut taken = Vec::new();
+        let mut count = 0_u64;
+        for candidate in self.order(world_seed, occasion) {
+            if count >= persons {
+                break;
+            }
+            let index = self.households[&candidate];
+            if used.contains(&index) {
+                continue;
+            }
+            count = count.saturating_add(
+                u64::try_from(self.pool.households[index].members.len()).unwrap_or(u64::MAX),
+            );
+            taken.push(index);
+        }
+        (taken, count >= persons)
+    }
+}
+
+/// The households of the pool in the order of the draw on `occasion`: `Candidates::ranked`.
+pub fn ranked_households(pool: &Pool, world_seed: u64, occasion: u64) -> Vec<usize> {
+    Candidates::of(pool).ranked(world_seed, occasion)
 }
 
 /// The persons of a village (ADR-0020 section 8, G4; Grok V1 and V2): per sex the `per_sex`
@@ -502,9 +554,7 @@ pub fn village_households(
     Some(households)
 }
 
-/// The households not in `used`, in the order of the draw on `occasion`, until their
-/// members reach or exceed `persons`; the second value says whether they do (with too few
-/// households left, all of them and `false`).
+/// One draw of the pool on its own: `Candidates::take`.
 pub fn take_households(
     pool: &Pool,
     world_seed: u64,
@@ -512,21 +562,7 @@ pub fn take_households(
     used: &BTreeSet<usize>,
     persons: u64,
 ) -> (Vec<usize>, bool) {
-    let mut taken = Vec::new();
-    let mut count = 0_u64;
-    for index in ranked_households(pool, world_seed, occasion) {
-        if count >= persons {
-            break;
-        }
-        if used.contains(&index) {
-            continue;
-        }
-        count = count.saturating_add(
-            u64::try_from(pool.households[index].members.len()).unwrap_or(u64::MAX),
-        );
-        taken.push(index);
-    }
-    (taken, count >= persons)
+    Candidates::of(pool).take(world_seed, occasion, used, persons)
 }
 
 /// The genome keys of the children conceived in a run, read from its log (design note,

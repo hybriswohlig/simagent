@@ -48,7 +48,7 @@ use sim_core::input::{
 };
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
-use sim_core::pool::{Pool, ranked_households, take_households};
+use sim_core::pool::{Candidates, Pool, ranked_households, take_households};
 use sim_core::presentation::card::DiseaseStatus;
 use sim_core::time::SimTime;
 use sim_core::world::{HeightMean, LoadError, World, YearOut};
@@ -562,26 +562,53 @@ impl Run {
     }
 }
 
+/// A draw of the pool: the households not in `used` on an occasion until a number of
+/// persons, and whether they reach it.
+type Take<'a> = &'a dyn Fn(u64, &BTreeSet<usize>, u64) -> (Vec<usize>, bool);
+
 /// The households each draw takes, in order: `Start` until `n_start` persons, then each
-/// year's immigration one household (`q` = 1) or none.
+/// year's immigration one household (`q` = 1) or none. Each draw on its own, and the draws
+/// on candidates found once, as the load of a save replays them.
 fn assert_draws(scenario: &Scenario, years: u64, q: u64) {
     let data = (scenario.data)();
     let pool = data.pool().expect("a pool").pool();
+    let candidates = Candidates::of(pool);
     for (occasion, ranked) in scenario.draws {
-        let all = ranked_households(pool, scenario.seed, *occasion);
-        let order: Vec<usize> = all.into_iter().filter(|i| ranked.contains(i)).collect();
-        assert_eq!(order, *ranked, "occasion {occasion}");
+        let orders = [
+            ranked_households(pool, scenario.seed, *occasion),
+            candidates.ranked(scenario.seed, *occasion),
+        ];
+        for all in orders {
+            let order: Vec<usize> = all.into_iter().filter(|i| ranked.contains(i)).collect();
+            assert_eq!(order, *ranked, "occasion {occasion}");
+        }
     }
-    let mut used = BTreeSet::new();
-    let (mut taken, _) = take_households(pool, scenario.seed, 0, &used, scenario.n_start);
-    used.extend(taken.iter().copied());
-    for year in 0..years {
-        let (more, enough) = take_households(pool, scenario.seed, year, &used, q);
-        assert!(enough, "year {year}");
-        used.extend(more.iter().copied());
-        taken.extend(more);
+    let alone = |occasion, used: &BTreeSet<usize>, persons| {
+        take_households(pool, scenario.seed, occasion, used, persons)
+    };
+    let once = |occasion, used: &BTreeSet<usize>, persons| {
+        candidates.take(scenario.seed, occasion, used, persons)
+    };
+    let takes: [Take<'_>; 2] = [&alone, &once];
+    for take in takes {
+        let mut used = BTreeSet::new();
+        let (mut taken, _) = take(0, &used, scenario.n_start);
+        used.extend(taken.iter().copied());
+        for year in 0..years {
+            let (more, enough) = take(year, &used, q);
+            assert!(enough, "year {year}");
+            used.extend(more.iter().copied());
+            taken.extend(more);
+        }
+        assert_eq!(taken, scenario.used);
     }
-    assert_eq!(taken, scenario.used);
+    // The edges, both ways (Astra's review): no person wanted takes none and has enough;
+    // with every household used, none is left and there are not enough.
+    let all: BTreeSet<usize> = (0..pool.households.len()).collect();
+    for take in takes {
+        assert_eq!(take(0, &BTreeSet::new(), 0), (Vec::new(), true));
+        assert_eq!(take(1, &all, 1), (Vec::new(), false));
+    }
 }
 
 // ---------------------------------------------------------------------------------------
