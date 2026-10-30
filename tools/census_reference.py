@@ -47,8 +47,9 @@ domain event of year `k`; `World.advance(t)` runs that second fully):
   - `diseases_on`: 1 if the switch of the hereditary diseases is on at `t` (`World.switch_at`,
     after every input acting by `t`), else 0;
   - `affected`: per disease of the data in its order the living whose genetics card says
-    "affected" at `t`: the switch on and `as_years(t − born)` at least the onset of an
-    affliction of that disease; all 0 with the switch off. Checked against the card's lines
+    "affected" at `t`: the switch on and the onset of an affliction of that disease reached
+    (`wr.onset_reached`: `as_years(t − born)` at least the onset, its second in the clock);
+    all 0 with the switch off. Checked against the card's lines
     (`golden_reference.disease_rows`);
   - `adults`, `age25`: `[[count, mm], [count, mm]]`, women then men: the living whose body
     the census evaluates (none if the body data fail) with at least 25, and with exactly 25,
@@ -544,17 +545,16 @@ def affected_counts(world: wr.World, t: int) -> tuple:
     """(`diseases_on`, `affected`) at `t`: the switch of the hereditary diseases at `t`
     (`World.switch_at`, after every input acting by `t`) as 1 or 0; per disease of the data in
     its order the living sims whose genetics card says "affected" (the card's rule): the switch
-    on and the age `as_years(t − born)` at least the onset of an affliction of that disease.
-    With the switch off every count is 0."""
+    on and the onset of an affliction of that disease reached (`wr.onset_reached`). With the
+    switch off every count is 0."""
     on = world.switch_at(t)
     order = {disease.code: index for index, disease in enumerate(world.data.diseases)}
     affected = [0] * len(order)
     if on:
         for sim in sorted(world.sims):
             born, afflictions = world.sims[sim][0], world.sims[sim][4]
-            x = as_years(t - born)
             for affliction in afflictions:
-                if x >= affliction.onset:
+                if wr.onset_reached(born, affliction.onset, t):
                     affected[order[affliction.disease.code]] += 1
     return int(on), affected
 

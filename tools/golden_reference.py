@@ -399,9 +399,10 @@ def disease_rows(world: wr.World, now: int, chosen=None) -> list:
     the age 0 with the person's seeds (`percentile`). `status`: the genotype qualifies
     (`has_genotype`, or `L > T`) or not; not, a recessive locus with an allele 1 copy is
     `carrier`, else `not_affected`; qualifying without an affliction (its penetrance fell)
-    `penetrance_fallen`; with one, the switch off `resting`, the age `as_years(at − born)` at
-    least the onset `affected` with `year` the calendar year of `born + ⌈onset · YEAR⌉` and
-    `age_years` `⌊onset⌋`, else `not_yet`."""
+    `penetrance_fallen`; with one, the switch off `resting`, the onset reached
+    (`wr.onset_reached`: `as_years(at − born)` at least the onset, `born + ⌈onset · YEAR⌉` in
+    the clock) `affected` with `year` the calendar year of that second and `age_years`
+    `⌊onset⌋`, else `not_yet`."""
     everyone = sorted(set(world.sims) | set(world.archive))
     rows = []
     for sim in everyone if chosen is None else sorted(chosen):
@@ -443,7 +444,7 @@ def disease_rows(world: wr.World, now: int, chosen=None) -> list:
                 status = {"kind": "penetrance_fallen"}
             elif not switch:
                 status = {"kind": "resting"}
-            elif wr.as_years(at - born) >= affliction.onset:
+            elif wr.onset_reached(born, affliction.onset, at):
                 second = born + math.ceil(affliction.onset * float(YEAR))
                 status = {"kind": "affected", "year": second // YEAR, "age_years": math.floor(affliction.onset)}
             else:

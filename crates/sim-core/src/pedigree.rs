@@ -171,11 +171,10 @@ impl crate::world::World {
                 .iter()
                 .filter_map(|affliction| {
                     let onset = affliction.onset.get();
-                    let age = crate::state::disease::age(born, at);
                     Some(Shown {
                         disease: code(affliction.disease)?,
                         onset,
-                        affected: on && age >= onset,
+                        affected: on && crate::state::onset::reached(born, onset, at),
                     })
                 })
                 .collect()
