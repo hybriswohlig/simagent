@@ -200,23 +200,27 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> Result<(), CliError>
 /// core's view of the state; the CLI only writes it.
 fn export_run(dir: &Path) -> Result<(), CliError> {
     let _lock = lock::RunLock::acquire(dir)?;
-    files::replace(&dir.join(files::PEDIGREE), pedigree_text(dir)?.as_bytes())
+    let text = pedigree_text(&load_world(dir)?)?;
+    files::replace(&dir.join(files::PEDIGREE), text.as_bytes())
 }
 
-/// The pedigree of the run in `dir` as `simagent export` writes it and `simagent view`
-/// sends it: the core's view of the state in its save with each person's names (ADR-0021
+/// The pedigree of a run's world as `simagent export` writes it and `simagent view` sends
+/// it: the core's view of the state in its save with each person's names (ADR-0021
 /// section 3), one line of JSON.
-pub fn pedigree_text(dir: &Path) -> Result<String, CliError> {
-    let world = load_world(dir)?;
+pub fn pedigree_text(world: &World) -> Result<String, CliError> {
     let pedigree = world.pedigree();
     let lists = names::NameLists::load()?;
-    Ok(files::json(&names::export(&world, &pedigree, &lists)?) + "\n")
+    Ok(files::json(&names::export(world, &pedigree, &lists)?) + "\n")
 }
 
 /// The world of the run in `dir`, from its save.
 pub fn load_world(dir: &Path) -> Result<World, CliError> {
-    let bytes = files::read(&dir.join(files::SAVE))?;
-    let (world, _) = World::load(&bytes, data::core_data()?)
+    world_from_save(&files::read(&dir.join(files::SAVE))?)
+}
+
+/// The world a save's bytes hold.
+pub fn world_from_save(bytes: &[u8]) -> Result<World, CliError> {
+    let (world, _) = World::load(bytes, data::core_data()?)
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
     Ok(world)
 }
@@ -282,12 +286,11 @@ pub fn sheet_answer() -> Result<serde_json::Value, CliError> {
     }))
 }
 
-/// The world of the run in `dir` as `simagent view` sends it: where the switch of the
+/// A run's world as `simagent view` sends it: where the switch of the
 /// hereditary diseases stands after its last input (ADR-0023 section 6 and its addendum
 /// before S2), the years whose nutrition index is below 1, and the switch a fork from each
 /// year keeps (ADR-0021, addendum 2026-10-28; Grok round 40).
-pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
-    let world = load_world(dir)?;
+pub fn world_answer(world: &World) -> Result<serde_json::Value, CliError> {
     let params = (world.state().world_params())
         .ok_or_else(|| CliError::new("save_rejected", "the world of the save has not started"))?;
     let hunger: Vec<i64> = (params.nutrition.iter())
@@ -299,7 +302,7 @@ pub fn world_answer(dir: &Path) -> Result<serde_json::Value, CliError> {
         "version": 2,
         "hereditary_diseases": params.hereditary_diseases,
         "hunger_years": hunger,
-        "fork_keeps_diseases": fork_keeps_diseases(&world),
+        "fork_keeps_diseases": fork_keeps_diseases(world),
     }))
 }
 
@@ -341,7 +344,7 @@ fn fork_stamp(from_year: i64) -> SimTime {
     year_start(from_year) - SimDuration::from_secs(1)
 }
 
-/// The presentation state of a person of the run in `dir` as `simagent view` sends it
+/// The presentation state of a person of a run's world as `simagent view` sends it
 /// (ADR-0021 section 3), with the contract version of its body values, the partners a
 /// pairing would be accepted with now (nearest in age first), the ages of the living (Grok's
 /// round 33, P3 and P4) and its genetics card (section 5), and with `to` what
@@ -349,11 +352,10 @@ fn fork_stamp(from_year: i64) -> SimTime {
 /// kinship word, its foster word and `r` in percent, all from the core); `None` for a sim
 /// the run does not know.
 pub fn person_answer(
-    dir: &Path,
+    world: &World,
     sim: SimId,
     to: Option<SimId>,
 ) -> Result<Option<serde_json::Value>, CliError> {
-    let world = load_world(dir)?;
     let Some(view) = world.person_view(sim) else {
         return Ok(None);
     };
