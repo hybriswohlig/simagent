@@ -3,8 +3,9 @@
 // five curves with the affected and the inbreeding folded apart, the empty chronicle's hint and
 // the step the play button plays, triggers a hunger year (its line, for year 29, comes at once),
 // steps one year, unfolds the hereditary diseases and turns them on (off in the scenario; its
-// line, the fold's new state and the button's new label come at once), opens sim 13, whose card
-// folds its hereditary diseases, and clicks its mother, sim 8, in the pedigree (P11),
+// line, the fold's new state and the button's new label come at once), opens sim 13, which
+// stands at one age beside its parents, its mother sim 8 among them, and whose card folds its
+// hereditary diseases, and clicks its mother in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
 // year with the hereditary diseases off (unfolded in the form) and lands on the comparison with the fork, finds where
@@ -124,6 +125,11 @@ if (browser !== undefined) {
     }
     await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
+    await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Geschwister, alle mit \d+$/ }).waitFor());
+    await step(
+      "its mother among them",
+      page.locator("figcaption", { hasText: /^Mutter / }).locator(`a[href="#/runs/${run}/persons/8"]`).waitFor(),
+    );
     const mother = page.locator('svg[aria-label="Stammbaum"] a[data-sim="8"]');
     await step("its mother in the pedigree", mother.waitFor());
     const before = await page.locator("h1").textContent();
@@ -336,7 +342,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, sim 13 with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

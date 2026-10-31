@@ -51,7 +51,7 @@ export type Hourglass = {
 /** How a pedigree names a person's mother and father: by sim, else by the key its pool origin
  * names (an arrival whose parents came too, a child of a pool pregnancy); `undefined` where
  * neither names a person of the pedigree (the playtest's F1). */
-function parentLookup(pedigree: Pedigree): (person: Person) => [Person | undefined, Person | undefined] {
+export function parentLookup(pedigree: Pedigree): (person: Person) => [Person | undefined, Person | undefined] {
   const bySim = new Map(pedigree.persons.map((person) => [person.sim, person]));
   const byKey = new Map(pedigree.persons.map((person) => [person.lineage_key, person]));
   const one = (sim: number | null, key: string | null | undefined) =>

@@ -6,6 +6,7 @@ import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
+import { FamilyView } from "./familyview.js";
 import { bornText, captionYear } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
 import { kinshipText } from "./kin.js";
@@ -378,6 +379,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
           <Portrait params={view.value.shown.body} label={fullName(person)} />
           <Life view={view.value} />
           <Ages shown={view.value.at_ages} />
+          <FamilyView run={run} pedigree={pedigree} person={person} at={String(changed)} ages={view.value.at_ages} />
           <CardView
             card={view.value.card}
             sex={person.sex}
