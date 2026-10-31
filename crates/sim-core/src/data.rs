@@ -378,6 +378,7 @@ pub struct Genetics {
 pub struct BodyModel {
     pub pigment_skin_offset: f64,
     pub pigment_skin_slope: f64,
+    pub pigment_hair_offset: f64,
     pub pigment_hair_slope: f64,
     pub pigment_hair_residual: f64,
     pub pigment_hair_darkening: f64,
@@ -1050,6 +1051,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
     let body = BodyModel {
         pigment_skin_offset: signed("core:body_pigment_skin_offset", Unit::Logit, MAX_LOGIT)?,
         pigment_skin_slope: signed("core:body_pigment_skin_slope", Unit::Logit, MAX_LOGIT)?,
+        pigment_hair_offset: signed("core:body_pigment_hair_offset", Unit::Logit, MAX_LOGIT)?,
         pigment_hair_slope: signed("core:body_pigment_hair_slope", Unit::Logit, MAX_LOGIT)?,
         pigment_hair_residual: signed("core:body_pigment_hair_residual", Unit::Logit, MAX_LOGIT)?,
         pigment_hair_darkening: signed("core:body_pigment_hair_darkening", Unit::Logit, MAX_LOGIT)?,
@@ -1244,7 +1246,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         longevity_sigma_g: value("core:longevity_sigma_g", Unit::Logit, MAX_SIGMA_G)?,
         fertility: read_fertility(&calibration.fertility)?,
     };
-    if calibration.values.len() != 117 {
+    if calibration.values.len() != 118 {
         return Err(DataError::CalibrationUnknown);
     }
     Ok(genetics)
