@@ -355,6 +355,9 @@ function Town({
       />
       <CompareForm run={run} others={others} />
       <h2>{TEXT.living}</h2>
+      <p>
+        <a href={format({ page: "people", run })}>{TEXT.people}</a>
+      </p>
       {pedigree.state === "failed" ? <p>{TEXT[pedigree.text]}</p> : null}
       <ul style={SCROLLED} tabIndex={0} aria-label={TEXT.living}>
         {living.map((person) => (

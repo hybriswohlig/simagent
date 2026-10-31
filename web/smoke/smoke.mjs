@@ -3,7 +3,8 @@
 // five curves with the affected and the inbreeding folded apart, the empty chronicle's hint and
 // the step the play button plays, triggers a hunger year (its line, for year 29, comes at once),
 // steps one year, unfolds the hereditary diseases and turns them on (off in the scenario; its
-// line, the fold's new state and the button's new label come at once), opens sim 13, which
+// line, the fold's new state and the button's new label come at once), opens the people and
+// filters them for blond hair (the count changes), goes back, opens sim 13, which
 // stands at one age beside its parents, its mother sim 8 among them, and whose card folds its
 // hereditary diseases, and clicks its mother in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
@@ -123,6 +124,20 @@ if (browser !== undefined) {
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
+    await step("open the people", page.getByRole("link", { name: "Personen suchen" }).click());
+    const counted = page.getByRole("status").filter({ hasText: /^\d+ von \d+ Lebenden$/ });
+    await step("the people counted", counted.waitFor());
+    const all = await counted.textContent();
+    await step("filter for blond hair", page.getByRole("group", { name: "Haar" }).getByLabel("blond").check());
+    await step(
+      "the filter counts anew",
+      page.waitForFunction((before) => {
+        const shown = [...document.querySelectorAll("[role=status]")].map((e) => e.textContent);
+        const now = shown.find((text) => / von \d+ Lebenden$/.test(text ?? ""));
+        return now !== undefined && now !== before;
+      }, all),
+    );
+    await step("back to the run", page.goBack());
     await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
     await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Geschwister, alle mit \d+$/ }).waitFor());
@@ -342,7 +357,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

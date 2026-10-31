@@ -260,6 +260,7 @@ impl Server {
                 None => Response::error(400, "bad_query"),
             },
             ["api", "runs", run, "census"] => self.read(run, census),
+            ["api", "runs", run, "people"] => self.read(run, |dir| people(|| self.world_of(dir))),
             ["api", "runs", run, "world"] => self.read(run, |dir| world(self.world_of(dir))),
             ["api", "runs", a, "diff", b] => {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
@@ -590,7 +591,7 @@ impl Server {
 
 /// The core's calendar date of `t` (ADR-0002: every unit counted from 0; their names are
 /// texts of `web/`).
-fn date(t: SimTime) -> Value {
+pub(crate) fn date(t: SimTime) -> Value {
     let date = calendar(t);
     json!({
         "year": date.year,
@@ -725,6 +726,15 @@ fn person(
     match world().and_then(|world| crate::person_answer(&world, id, other)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => unknown(),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/people`: the living persons with their bodies now and their looks
+/// in words, from the core.
+fn people(world: impl FnOnce() -> Result<Rc<World>, CliError>) -> Response {
+    match world().and_then(|world| crate::people_answer(&world)) {
+        Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Err(error) => Response::error(500, error.code),
     }
 }

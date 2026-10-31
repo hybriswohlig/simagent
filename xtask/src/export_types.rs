@@ -207,9 +207,60 @@ pub fn descriptor() -> Vec<Named> {
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
                 field("partner_candidates", list(Integer)),
+                field("pregnancy", nullable(Ref("PregnancyShown"))),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),
+            ],
+        },
+        Named {
+            name: "PeopleAnswer",
+            doc: "`GET /api/runs/{run}/people`: the living persons for finding them, each with its body now and its looks in words.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.people"])),
+                field("version", Integer),
+                field("contract_version", Text),
+                field("people", list(Ref("PeopleEntry"))),
+            ],
+        },
+        Named {
+            name: "PregnancyShown",
+            doc: "A running pregnancy: the second it began and the second the birth is due, each with its date.",
+            fields: vec![
+                field("conceived", Ref("DatedSecond")),
+                field("due", Ref("DatedSecond")),
+            ],
+        },
+        Named {
+            name: "PeopleEntry",
+            doc: "A living person of the people answer: its sim, whether pregnant, its body now, its looks.",
+            fields: vec![
+                field("sim", Integer),
+                field("pregnant", Bool),
+                field("shown", Ref("Shown")),
+                field("looks", Ref("Looks")),
+            ],
+        },
+        Named {
+            name: "Looks",
+            doc: "A person's looks in words, from the core: the colours, curls and freckles of the body now, height and cognition in bands of the percentile.",
+            fields: vec![
+                field(
+                    "hair",
+                    Kind::Literal(&["blond", "light_brown", "dark_brown", "black", "red"]),
+                ),
+                field("eyes", Kind::Literal(&["blue", "green", "hazel", "brown"])),
+                field(
+                    "skin",
+                    Kind::Literal(&["very_light", "light", "beige", "tanned"]),
+                ),
+                field(
+                    "curls",
+                    Kind::Literal(&["straight", "wavy", "curly", "kinky"]),
+                ),
+                field("freckles", Kind::Literal(&["none", "few", "clear", "many"])),
+                field("height", Kind::Literal(BANDS)),
+                field("cognition", Kind::Literal(BANDS)),
             ],
         },
         Named {
@@ -529,6 +580,9 @@ pub fn descriptor() -> Vec<Named> {
         },
     ]
 }
+
+/// The bands of the percentile of height and cognition in the looks.
+const BANDS: &[&str] = &["low", "rather_low", "middle", "rather_high", "high"];
 
 /// The name of the body's type in the check.
 const BODY: &str = "BodyParams";

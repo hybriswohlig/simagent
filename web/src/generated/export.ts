@@ -111,9 +111,43 @@ export type PersonAnswer = {
   readonly shown: Shown;
   readonly at_ages: Shown[];
   readonly partner_candidates: number[];
+  readonly pregnancy: PregnancyShown | null;
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
   readonly ages: Age[];
+};
+
+/** `GET /api/runs/{run}/people`: the living persons for finding them, each with its body now and its looks in words. */
+export type PeopleAnswer = {
+  readonly format: "simagent.view.people";
+  readonly version: number;
+  readonly contract_version: string;
+  readonly people: PeopleEntry[];
+};
+
+/** A running pregnancy: the second it began and the second the birth is due, each with its date. */
+export type PregnancyShown = {
+  readonly conceived: DatedSecond;
+  readonly due: DatedSecond;
+};
+
+/** A living person of the people answer: its sim, whether pregnant, its body now, its looks. */
+export type PeopleEntry = {
+  readonly sim: number;
+  readonly pregnant: boolean;
+  readonly shown: Shown;
+  readonly looks: Looks;
+};
+
+/** A person's looks in words, from the core: the colours, curls and freckles of the body now, height and cognition in bands of the percentile. */
+export type Looks = {
+  readonly hair: "blond" | "light_brown" | "dark_brown" | "black" | "red";
+  readonly eyes: "blue" | "green" | "hazel" | "brown";
+  readonly skin: "very_light" | "light" | "beige" | "tanned";
+  readonly curls: "straight" | "wavy" | "curly" | "kinky";
+  readonly freckles: "none" | "few" | "clear" | "many";
+  readonly height: "low" | "rather_low" | "middle" | "rather_high" | "high";
+  readonly cognition: "low" | "rather_low" | "middle" | "rather_high" | "high";
 };
 
 /** A living person's age in whole years at the last closed second. */

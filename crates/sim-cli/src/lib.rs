@@ -375,6 +375,13 @@ pub fn person_answer(
         .map(|partner| partner.get())
         .collect();
     answer["partner_candidates"] = partners.into();
+    answer["pregnancy"] = match world.pregnancy(sim) {
+        Some(pregnancy) => serde_json::json!({
+            "conceived": dated(pregnancy.conceived),
+            "due": dated(pregnancy.due),
+        }),
+        None => serde_json::Value::Null,
+    };
     answer["ages"] = json(serde_json::to_value(world.ages()))?;
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;
@@ -390,6 +397,41 @@ pub fn person_answer(
         answer["kinship"] = kinship;
     }
     Ok(Some(answer))
+}
+
+/// A second with its date, as the server's answers carry dates.
+fn dated(t: SimTime) -> serde_json::Value {
+    serde_json::json!({"t": t.as_secs(), "date": view::date(t)})
+}
+
+/// The living persons of a run's world for finding them (the filter of the person list): in
+/// the order of the ages the person answer lists, each with its body now and its looks in
+/// words, all from the core.
+pub fn people_answer(world: &World) -> Result<serde_json::Value, CliError> {
+    let json = |value: serde_json::Result<serde_json::Value>| {
+        value.map_err(|e| CliError::new("io", e.to_string()))
+    };
+    let mut people = Vec::new();
+    for age in world.ages() {
+        let (Some(view), Some(looks)) = (world.person_view(age.sim), world.looks(age.sim)) else {
+            return Err(CliError::new(
+                "io",
+                format!("sim {} has no view", age.sim.get()),
+            ));
+        };
+        people.push(serde_json::json!({
+            "sim": age.sim.get(),
+            "pregnant": world.pregnancy(age.sim).is_some(),
+            "shown": json(serde_json::to_value(&view.shown))?,
+            "looks": json(serde_json::to_value(looks))?,
+        }));
+    }
+    Ok(serde_json::json!({
+        "format": "simagent.view.people",
+        "version": 1,
+        "contract_version": sim_core::body_contract::CONTRACT_VERSION,
+        "people": people,
+    }))
 }
 
 /// Prints φ of the persons `a` and `b` of the run in `dir`, from its save, as one JSON

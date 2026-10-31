@@ -6,6 +6,7 @@
 
 pub mod card;
 pub mod kin;
+pub mod looks;
 pub mod names;
 pub mod partners;
 
@@ -15,7 +16,7 @@ use serde::Serialize;
 
 use crate::body_contract::BodyParams;
 use crate::ids::SimId;
-use crate::state::LeftBy;
+use crate::state::{LeftBy, Slot};
 use crate::time::{SimTime, YEAR, calendar};
 use crate::world::World;
 
@@ -36,6 +37,14 @@ pub struct Moment {
 pub struct Age {
     pub sim: SimId,
     pub age_years: i64,
+}
+
+/// A running pregnancy as a person page shows it: the second it began and the second the
+/// birth is due.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Pregnancy {
+    pub conceived: SimTime,
+    pub due: SimTime,
 }
 
 /// A body at a second of a person's life.
@@ -102,6 +111,17 @@ impl World {
     /// data without the body. "Now" is the last closed second of the world.
     pub fn person_view(&self, sim: SimId) -> Option<PersonView> {
         self.view_with(sim, false)
+    }
+
+    /// The pregnancy `sim` carries now; `None` for anyone not pregnant.
+    pub fn pregnancy(&self, sim: SimId) -> Option<Pregnancy> {
+        let domain = self.state().domain();
+        let pregnancy = domain.pregnancies.get(&sim)?;
+        let birth = domain.pending.get(&(sim, Slot::Birth))?;
+        Some(Pregnancy {
+            conceived: pregnancy.conceived,
+            due: self.pending_time(*birth)?,
+        })
     }
 
     /// The presentation state of `sim` with its bodies without environment, `C = 0` and

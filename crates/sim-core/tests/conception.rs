@@ -23,10 +23,12 @@ mod common;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
+use sim_core::ids::SimId;
 use sim_core::input::{Couple, Founder, Input, InputRejected, RejectCode, Start};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
+use sim_core::presentation::Pregnancy;
 use sim_core::time::SimTime;
 use sim_core::world::{World, YearOut};
 
@@ -247,6 +249,31 @@ fn a_conception_fixes_the_child() {
         assert!(meiosis.contains(r#""causes":[{"event":20},{"rule":"core:meiosis"}]"#));
     }
     assert_eq!(run.save(), hex(CLAN_SAVE_AFTER_CONCEPTION));
+}
+
+/// What a person page shows of a pregnancy: from the conception in month 5 (the reference's
+/// entry above) until the birth ten months later (11.3, `core:pregnancy_length`), the second
+/// it began and the second the birth is due; nothing before and nothing after.
+#[test]
+fn a_pregnancy_shows_when_it_began_and_when_the_birth_is_due() {
+    let her = SimId::try_from(1).expect("an id");
+    let mut run = Run::new(clan());
+    run.advance(5 * MONTH - 1);
+    assert_eq!(run.world.pregnancy(her), None);
+    run.advance(5 * MONTH);
+    let shown = Some(Pregnancy {
+        conceived: SimTime::from_secs(5 * MONTH),
+        due: SimTime::from_secs(15 * MONTH),
+    });
+    assert_eq!(run.world.pregnancy(her), shown);
+    run.advance(15 * MONTH - 1);
+    assert_eq!(run.world.pregnancy(her), shown);
+    run.advance(15 * MONTH);
+    assert_eq!(run.world.pregnancy(her), None);
+    assert_eq!(
+        run.world.pregnancy(SimId::try_from(2).expect("an id")),
+        None
+    );
 }
 
 /// The first woman has a child in month 15 and conceives again and again: eight times by
