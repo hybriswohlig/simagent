@@ -372,7 +372,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && born_consistent(loaded, now, &rules, history.founders)
         && twins_complete(loaded, &rules)
         && sims_consistent(loaded, now, &rules)
-        && partnerships_consistent(loaded, now, &rules, &history.pairs)
+        && partnerships_consistent(loaded, now, &rules, (&history.pairs, &history.pair_seqs))
         && partnership_counts_consistent(loaded, &rules)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
@@ -812,9 +812,11 @@ struct InputHistory {
     switch: SwitchHistory,
     /// (woman, man, formed) of each partnership the inputs formed, in their order.
     pairs: Vec<(SimId, SimId, SimTime)>,
-    /// (woman, man, at) of each couple an input parted, in their order (ADR-0023, addendum
-    /// of 2026-10-31).
-    parted: Vec<(SimId, SimId, SimTime)>,
+    /// The sequence number of the input of each of `pairs`.
+    pair_seqs: Vec<u64>,
+    /// (woman, man, at, sequence number) of each couple an input parted, in their order
+    /// (ADR-0023, addendum of 2026-10-31).
+    parted: Vec<(SimId, SimId, SimTime, u64)>,
     /// How many founders `Start` names: the sims 1 to N.
     founders: u64,
     /// The soft capacity of `Start`.
@@ -838,6 +840,7 @@ fn input_log_consistent(
     let mut started: Option<(WorldParams, &Start)> = None;
     let mut switch = Vec::new();
     let mut pairs = Vec::new();
+    let mut pair_seqs = Vec::new();
     let mut parted = Vec::new();
     let mut last_stamp = None;
     for (record, position) in exceptions.input_log.iter().zip(1_u64..) {
@@ -864,6 +867,7 @@ fn input_log_consistent(
                 let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
                 for couple in &start.couples {
                     pairs.push((founder(couple.woman)?, founder(couple.man)?, SimTime::START));
+                    pair_seqs.push(position);
                 }
             }
             (Input::ForkOverride(block), Some((before, start))) => {
@@ -881,13 +885,14 @@ fn input_log_consistent(
             (Input::ArrangePartnership(pair), Some(kept)) => {
                 let formed = record.t.checked_add(SimDuration::from_secs(1))?;
                 pairs.push((pair.woman, pair.man, formed));
+                pair_seqs.push(position);
                 started = Some(kept);
             }
             // A parting acts in the next second; `partnerships_consistent` finds what it
             // ended.
             (Input::SeparatePartnership(pair), Some(kept)) => {
                 let at = record.t.checked_add(SimDuration::from_secs(1))?;
-                parted.push((pair.woman, pair.man, at));
+                parted.push((pair.woman, pair.man, at, position));
                 started = Some(kept);
             }
             // A world rule passes the check of the input against the parameters at its
@@ -935,6 +940,7 @@ fn input_log_consistent(
     (Some(params) == loaded.world_params).then_some(InputHistory {
         switch,
         pairs,
+        pair_seqs,
         parted,
         founders,
         capacity: start.capacity,
@@ -954,12 +960,12 @@ fn input_log_consistent(
 /// ends exactly one partnership (ADR-0023, addendum of 2026-10-31). Each of the two was
 /// free when it was formed: an earlier partnership of theirs had ended in an earlier
 /// second (a pairing acts before the events of its second), or a parting ended it in the
-/// same second.
+/// same second before the market's round or before the input that paired them anew.
 fn partnerships_consistent(
     loaded: &LoadedState,
     now: i64,
     rules: &Rules<'_>,
-    pairs: &[(SimId, SimId, SimTime)],
+    (pairs, pair_seqs): (&[(SimId, SimId, SimTime)], &[u64]),
 ) -> bool {
     let counted = u64::try_from(loaded.partnerships.len())
         .ok()
@@ -979,12 +985,13 @@ fn partnerships_consistent(
     let limit = rules.data.demography().market.kinship_limit;
     let mut kinship = KinshipCache::new();
     let keys = key_index(&loaded.sims, &loaded.archive);
-    let mut inputs = pairs.iter().peekable();
+    let mut inputs = pairs.iter().zip(pair_seqs).peekable();
     // The second of the previous partnership and whether the market formed it.
     let mut previous: Option<(SimTime, bool)> = None;
-    // Per sim the end of its latest partnership so far and whether a parting ended it
-    // (`None` while it is open); the partnerships come in the order they were formed.
-    let mut latest: BTreeMap<SimId, Option<(SimTime, bool)>> = BTreeMap::new();
+    // Per sim the end of its latest partnership so far and the sequence number of the
+    // parting that ended it, if one did (`None` while it is open); the partnerships come in
+    // the order they were formed.
+    let mut latest: BTreeMap<SimId, Option<(SimTime, Option<u64>)>> = BTreeMap::new();
     // Which partings have ended a partnership so far: each ends exactly one.
     let mut used = alloc::vec![false; rules.parted.len()];
     let all = loaded
@@ -996,10 +1003,11 @@ fn partnerships_consistent(
             // A partnership an arrival brought was formed in the pool; it came with the
             // household, in the second of the arrival (design note of the arrival, 9).
             let carried = rules.pool.carried.contains_key(id);
-            let by_input = !carried
-                && inputs
-                    .next_if(|pair| **pair == (woman, man, formed))
-                    .is_some();
+            let paired_by = (!carried)
+                .then(|| inputs.next_if(|(pair, _)| **pair == (woman, man, formed)))
+                .flatten()
+                .map(|(_, seq)| *seq);
+            let by_input = paired_by.is_some();
             let round = formed.as_secs() > 0 && formed.as_secs().rem_euclid(MONTH.as_secs()) == 0;
             let by_market = !carried && !by_input && round && formed.as_secs() < now;
             let created = if carried {
@@ -1038,13 +1046,13 @@ fn partnerships_consistent(
             };
             // The first parting of the two not yet used, in or after the second it formed.
             let parting = (rules.parted.iter().zip(&used).enumerate())
-                .find(|(_, ((her, him, at), done))| {
+                .find(|(_, ((her, him, at, _), done))| {
                     !**done && (*her, *him) == (woman, man) && *at >= formed
                 })
-                .map(|(index, ((_, _, at), _))| (index, *at))
-                .filter(|(_, at)| natural.is_none_or(|natural| *at <= natural.at));
+                .map(|(index, ((_, _, at, seq), _))| (index, *at, *seq))
+                .filter(|(_, at, _)| natural.is_none_or(|natural| *at <= natural.at));
             let ending = match parting {
-                Some((index, at)) => {
+                Some((index, at, _)) => {
                     used[index] = true;
                     Some(Ending {
                         at,
@@ -1055,7 +1063,7 @@ fn partnerships_consistent(
             };
             let ended = partnership
                 .ended
-                .map(|ending| (ending.at, parting.is_some()));
+                .map(|ending| (ending.at, parting.map(|(_, _, seq)| seq)));
             // Partners leave together: an emigration ending needs both archived by
             // emigration in that second, from one household (ADR-0020 section 6).
             let together = ending.is_none_or(|ending| {
@@ -1083,8 +1091,13 @@ fn partnerships_consistent(
                     .into_iter()
                     .all(|sim| match latest.insert(sim, ended) {
                         None => true,
-                        Some(earlier) => earlier
-                            .is_some_and(|(end, parted)| end < formed || (parted && end == formed)),
+                        Some(earlier) => earlier.is_some_and(|(end, parted_by)| {
+                            end < formed
+                                || (end == formed
+                                    && parted_by.is_some_and(|parting| {
+                                        by_market || paired_by.is_some_and(|seq| seq > parting)
+                                    }))
+                        }),
                     })
         });
     counted && all && inputs.next().is_none() && used.iter().all(|done| *done)
@@ -1451,8 +1464,8 @@ struct Rules<'a> {
     pool: &'a PoolView<'a>,
     /// (woman, man, formed) of each partnership an input formed.
     pairs: &'a [(SimId, SimId, SimTime)],
-    /// (woman, man, at) of each couple an input parted.
-    parted: &'a [(SimId, SimId, SimTime)],
+    /// (woman, man, at, sequence number) of each couple an input parted.
+    parted: &'a [(SimId, SimId, SimTime, u64)],
 }
 
 impl Rules<'_> {
@@ -1806,9 +1819,9 @@ fn conception_fits(
             && partnership.ended.is_none_or(|ended| {
                 ended.at > conceived
                     || (ended.at == conceived
-                        && !rules
-                            .parted
-                            .contains(&(parents.mother, parents.father, conceived)))
+                        && !(rules.parted.iter()).any(|(her, him, at, _)| {
+                            (*her, *him, *at) == (parents.mother, parents.father, conceived)
+                        }))
             }))
         .then_some((*id, partnership.formed))
     });

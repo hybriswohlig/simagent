@@ -321,8 +321,10 @@ if (browser !== undefined) {
       choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
     );
     // The cheat mode (ADR-0023, addendum of 2026-10-31): only when it is on does the page of a
-    // person with a partner offer to part them; parted, the partner and the button go, and the
-    // person's chronicle tells of it.
+    // person with a partner offer to part them, and it asks first. Parted elsewhere meanwhile
+    // (another tab), the page's parting is refused, and the reason stays when the reload takes
+    // partner and button away (review). Paired again, the page parts them: partner and button
+    // go, and the person's chronicle tells of it.
     await step("the paired person", page.goto(`${url}#/runs/neu/persons/${x}`));
     const partnerLine = page.getByText(female ? "Partner:" : "Partnerin:");
     await step("with a partner", partnerLine.waitFor());
@@ -331,12 +333,30 @@ if (browser !== undefined) {
       throw new Error("the cheat mode is off, yet the page offers to part the couple");
     }
     const cheat = page.getByRole("checkbox", { name: "Cheat-Modus" });
+    const yes = page.getByRole("button", { name: "Ja, trennen" });
     await step("the cheat mode on", cheat.check());
     await step("part them", part.click());
     await step("asked first", page.getByText("Wirklich trennen?").waitFor());
     await step("not yet", page.getByRole("button", { name: "Abbrechen" }).click());
     await step("part them again", part.click());
-    await step("yes", page.getByRole("button", { name: "Ja, trennen" }).click());
+    const couple = female ? { woman: x, man: y } : { woman: y, man: x };
+    if ((await api("POST", "/api/runs/neu/input", { separate_partnership: couple })).format !== "simagent.view.input") {
+      throw new Error("the parting elsewhere was refused");
+    }
+    await step("yes, too late", yes.click());
+    const notPartners = page.getByText("Die beiden sind kein Paar.");
+    await step("the refusal", notPartners.waitFor());
+    await step("the partner gone after the refusal", partnerLine.waitFor({ state: "detached" }));
+    if (!(await notPartners.isVisible())) {
+      throw new Error("the reload took the refusal away");
+    }
+    if ((await api("POST", "/api/runs/neu/input", { arrange_partnership: couple })).format !== "simagent.view.input") {
+      throw new Error("the second pairing elsewhere was refused");
+    }
+    await step("the page again", page.reload());
+    await step("with a partner again", partnerLine.waitFor());
+    await step("part them at last", part.click());
+    await step("yes", yes.click());
     await step("the partner gone", partnerLine.waitFor({ state: "detached" }));
     await step("the button gone", part.waitFor({ state: "detached" }));
     await step("the parting told", page.getByText("trennen sich").first().waitFor());

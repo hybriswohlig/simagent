@@ -281,28 +281,28 @@ type Kids =
 /** Pairing a person with one of the partners the core offers (ADR-0021 section 6, "ein
  * Paar stiften"); the core judges age and kinship. After each answer of the server, a
  * rejection too, the page reads the person again (`answered`). */
-/** What parting a couple reports: nothing yet, the question whether to, a request on its
- * way, or why not. */
-type Parting =
-  | { readonly state: "idle" }
-  | { readonly state: "asking" }
-  | { readonly state: "busy" }
-  | { readonly state: "failed"; readonly text: string };
+/** Where parting a couple stands: nothing yet, the question whether to, a request on its
+ * way. */
+type Parting = { readonly state: "idle" } | { readonly state: "asking" } | { readonly state: "busy" };
 
 /** In the cheat mode, the button that parts a person from their partner (ADR-0023, addendum
  * of 2026-10-31), marked as a cheat and asking once before it acts (Grok's second opinion:
  * one click changes the run). Once the core parted them the page reads the run again, and
- * with the partner the button goes; a rejection shows the core's reason. */
+ * with the partner the button goes. A rejection goes to `refused`, which the page shows
+ * outside the button: after another tab parted them, the reload takes the button away
+ * (review). */
 function SeparateButton({
   run,
   person,
   partner,
   answered,
+  refused,
 }: {
   run: string;
   person: Person;
   partner: Person;
   answered: () => void;
+  refused: (text: string | null) => void;
 }) {
   const [parting, setParting] = useState<Parting>({ state: "idle" });
   const input = separation(person, partner);
@@ -311,13 +311,15 @@ function SeparateButton({
   }
   const send = () => {
     setParting({ state: "busy" });
+    refused(null);
     postJson(`/api/runs/${run}/input`, input, INPUT)
       .then(() => {
         setParting({ state: "idle" });
         answered();
       })
       .catch((error: unknown) => {
-        setParting({ state: "failed", text: inputFailureText(error) });
+        setParting({ state: "idle" });
+        refused(inputFailureText(error));
         if (error instanceof Refused) {
           answered();
         }
@@ -341,7 +343,6 @@ function SeparateButton({
       <button type="button" onClick={() => setParting({ state: "asking" })}>
         {TEXT.separate}
       </button>
-      {parting.state === "failed" ? <span role="alert"> {parting.text}</span> : null}
     </p>
   );
 }
@@ -488,6 +489,8 @@ function PinButton({ run, person }: { run: string; person: Person }) {
 
 export function PersonPage({ run, sim, cheat }: { run: string; sim: string; cheat: boolean }) {
   const [changed, setChanged] = useState(0);
+  // Why a parting of this person was refused, kept beside the person it was for.
+  const [partingRefused, setPartingRefused] = useState<{ person: string; text: string } | null>(null);
   const loaded = usePedigree(run, String(changed));
   const read = usePersonView(run, sim, String(changed));
   // The last view of this person stays while a newer one loads after a pairing, so card and
@@ -571,7 +574,11 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
           person={person}
           partner={partner}
           answered={() => setChanged((n) => n + 1)}
+          refused={(text) => setPartingRefused(text === null ? null : { person: `${run}/${sim}`, text })}
         />
+      ) : null}
+      {partingRefused !== null && partingRefused.person === `${run}/${sim}` ? (
+        <p role="alert">{partingRefused.text}</p>
       ) : null}
       <TreeView run={run} glass={glass} />
       <PinButton key={`${run}/${sim}`} run={run} person={person} />

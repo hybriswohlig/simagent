@@ -455,7 +455,8 @@ fn separate_partnership_is_rejected_unless_they_are_a_couple() {
 /// founder couple in 1 001 by separation, with the input (sequence 2) as its only cause
 /// (ADR-0023, addendum of 2026-10-31). A pairing of hers stamped at the same second forms
 /// in that same 1 001, after the separation. The save of both loads, and the loaded world
-/// runs on as the world does.
+/// runs on as the world does; the same save with the two inputs swapped does not load (the
+/// pairing would find her paired: review).
 #[test]
 fn a_player_separation_ends_the_partnership_at_once() {
     let mut run = Run::new(partners());
@@ -492,7 +493,27 @@ fn a_player_separation_ends_the_partnership_at_once() {
     let pedigree = serde_json::to_value(run.world.pedigree()).expect("json");
     assert_eq!(pedigree["partnerships"][1]["formed"], 1_001);
     assert_eq!(pedigree["partnerships"][1]["man"], 3);
-    let (mut loaded, _) = World::load(&run.save(), partners_data()).expect("loads");
+    let save = run.save();
+    // The two records of the input log: stamp 1 000 (zigzag 2 000, varint d0 0f), the
+    // sequence, then the variant and the sims (`partnership_forms_are_pinned`).
+    let (parting, pairing) = (hex("d00f02050102"), hex("d00f03020103"));
+    let both = [parting.clone(), pairing.clone()].concat();
+    let at = (save.windows(both.len()))
+        .position(|window| window == both.as_slice())
+        .expect("the two inputs in the save");
+    let mut swapped = save.clone();
+    swapped[at..at + both.len()].copy_from_slice(
+        &[
+            hex("d00f02020103").as_slice(),
+            hex("d00f03050102").as_slice(),
+        ]
+        .concat(),
+    );
+    assert!(matches!(
+        World::load(&swapped, partners_data()),
+        Err(sim_core::world::LoadError::Inconsistent)
+    ));
+    let (mut loaded, _) = World::load(&save, partners_data()).expect("loads");
     assert_eq!(loaded.state_hash(), run.world.state_hash());
     run.advance(5 * Y - 1);
     let mut out = YearOut::default();
