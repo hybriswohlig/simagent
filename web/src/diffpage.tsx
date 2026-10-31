@@ -2,14 +2,27 @@ import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { getJson } from "./api.js";
-import { comparedAt, diffView, home, years, type Counted, type Otherwise, type Who, type YearPart } from "./diff.js";
-import type { DiffAnswer } from "./generated/export.js";
+import {
+  comparedAt,
+  diffView,
+  home,
+  livesDiffering,
+  pinnedFor,
+  years,
+  type Counted,
+  type Otherwise,
+  type Who,
+  type YearPart,
+} from "./diff.js";
+import type { DiffAnswer, Pedigree } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import { namesByKey } from "./names.js";
-import { usePedigree } from "./person.js";
+import { fullName, namesByKey } from "./names.js";
+import { TreeView, usePedigree } from "./person.js";
+import { browserStorage, pinnedKey } from "./pin.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { TEXT } from "./text.js";
+import { hourglass } from "./tree.js";
 
 const DIFF = { format: "simagent.view.diff", version: 4 } as const;
 
@@ -149,6 +162,47 @@ function Life({ a, b, life }: { a: string; b: string; life: Otherwise }) {
   );
 }
 
+/** The pinned family in both runs side by side (the backlog of the fun test: the family one
+ * follows, not hundreds of lives; Grok's second opinion), each its hourglass in that run, or
+ * why it is not there; the heading names the run the pin came from when only one pins it. */
+function PinnedSide({ a, b, one, other }: { a: string; b: string; one: Pedigree; other: Pedigree }) {
+  const storage = browserStorage();
+  const pinned = pinnedFor(pinnedKey(storage, a), pinnedKey(storage, b), a, b);
+  if (pinned === null) {
+    return <p>{TEXT.pinned_none}</p>;
+  }
+  const columns = [
+    { run: a, pedigree: one },
+    { run: b, pedigree: other },
+  ].map(({ run, pedigree }) => {
+    const person = pedigree.persons.find((each) => each.lineage_key === pinned.key);
+    return { run, glass: person === undefined ? null : hourglass(pedigree, person.sim) };
+  });
+  const center = columns.find((column) => column.glass !== null)?.glass?.center;
+  if (center === undefined) {
+    return <p>{TEXT.pinned_missing}</p>;
+  }
+  const heading =
+    pinned.from === null
+      ? TEXT.pinned_family.replace("{name}", fullName(center))
+      : TEXT.pinned_family_from.replace("{run}", pinned.from).replace("{name}", fullName(center));
+  return (
+    <>
+      <h2>{heading}</h2>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
+        {columns.map(({ run, glass }) => (
+          <div key={run} style={{ flex: "1 1 0", minWidth: "280px" }}>
+            <h3>
+              <a href={format({ page: "run", run })}>{run}</a>
+            </h3>
+            {glass === null ? <p>{TEXT.pinned_missing}</p> : <TreeView run={run} glass={glass} />}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /** A sentence with each run in it as a link to its page. */
 function Linked({ parts }: { parts: YearPart[] }) {
   return (
@@ -166,8 +220,9 @@ function Linked({ parts }: { parts: YearPart[] }) {
   );
 }
 
-/** The page of two runs compared (ADR-0021 section 3 and its addenda): the persons of one
- * run only and the lives that went otherwise, named from each run's pedigree. */
+/** The page of two runs compared (ADR-0021 section 3 and its addenda): the pinned family in
+ * both, the summary, then folded the persons of one run only and the lives that went
+ * otherwise, named from each run's pedigree. */
 export function DiffPage({ a, b }: { a: string; b: string }) {
   const diff = useDiff(a, b);
   const one = usePedigree(a);
@@ -209,18 +264,25 @@ export function DiffPage({ a, b }: { a: string; b: string }) {
       {title}
       {x === undefined || y === undefined ? null : <Linked parts={years(a, x, b, y)} />}
       {at === null ? null : <Linked parts={at} />}
+      <PinnedSide a={a} b={b} one={one.value} other={other.value} />
       <Summary a={a} b={b} rows={view.summary} notes={view.notes} />
-      {none ? <p>{TEXT.diff_none}</p> : null}
-      <Only run={a} who={view.aOnly} />
-      <Only run={b} who={view.bOnly} />
-      {view.groups.map((group) => (
-        <Fragment key={group.title}>
-          <h2>{group.title}</h2>
-          {group.lives.map((life) => (
-            <Life key={life.key} a={a} b={b} life={life} />
+      {none ? (
+        <p>{TEXT.diff_none}</p>
+      ) : (
+        <details>
+          <summary>{TEXT.diff_lives.replace("{n}", String(livesDiffering(view)))}</summary>
+          <Only run={a} who={view.aOnly} />
+          <Only run={b} who={view.bOnly} />
+          {view.groups.map((group) => (
+            <Fragment key={group.title}>
+              <h2>{group.title}</h2>
+              {group.lives.map((life) => (
+                <Life key={life.key} a={a} b={b} life={life} />
+              ))}
+            </Fragment>
           ))}
-        </Fragment>
-      ))}
+        </details>
+      )}
     </section>
   );
 }

@@ -105,6 +105,27 @@ function counted(numbers: { affected: number; died: number }): string {
  * that differs, in the order of the answer, and in groups: those the core marks hereditary
  * first. Every value is the answer's: the page computes nothing from them.
  */
+/** Whose pinned family the comparison of `a` and `b` shows (the backlog of the fun test, Grok's
+ * second opinion): the first run's pin, else the second's, by the person's lineage key; `from`
+ * names the run it came from unless both pin the same person. `null` when neither pins one. */
+export function pinnedFor(
+  pinA: string | null,
+  pinB: string | null,
+  a: string,
+  b: string,
+): { key: string; from: string | null } | null {
+  if (pinA !== null) {
+    return { key: pinA, from: pinA === pinB ? null : a };
+  }
+  return pinB === null ? null : { key: pinB, from: b };
+}
+
+/** How many lives the folded part of the comparison holds: the persons of one run only and
+ * the lives that went otherwise. */
+export function livesDiffering(view: DiffView): number {
+  return view.aOnly.length + view.bOnly.length + view.changed.length;
+}
+
 export function diffView(answer: DiffAnswer, names: { a: Names; b: Names }): DiffView {
   const who = (run: Names) => (key: string): Who => ({ key, name: nameOf(key, run), sim: run.get(key)?.sim ?? null });
   const changed = answer.changed.map((entry) => ({

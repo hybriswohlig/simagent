@@ -165,6 +165,10 @@ if (browser !== undefined) {
       page.getByRole("heading", { level: 1, name: `Vergleich: ${run} und ${run}` }).waitFor(),
     );
     await step("no life differs", page.getByText("Die beiden Läufe unterscheiden sich in keinem Leben.").waitFor());
+    await step(
+      "nothing pinned yet",
+      page.getByText("Hefte auf einer Personenseite eine Familie an, dann steht sie hier in beiden Läufen nebeneinander.").waitFor(),
+    );
     await step("the years of both", page.getByText(`${run} steht im Jahr 29, ${run} im Jahr 29.`).waitFor());
     await step("back to the run", page.goto(`${url}#/runs/${run}`));
     await step(
@@ -210,6 +214,30 @@ if (browser !== undefined) {
     await step("back to the run with the family", page.goto(`${url}#/runs/${run}`));
     await step(
       "the pinned family",
+      page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
+    );
+    // In the comparison with the fork, made before the pin, the family stands in both runs
+    // side by side, from the run that pinned it.
+    await step("the comparison with the family", page.goto(`${url}#/runs/${run}/diff/gabel`));
+    await step(
+      "the family from the run",
+      page.getByRole("heading", { level: 2, name: new RegExp(`^Angeheftete Familie aus ${run}: `) }).waitFor(),
+    );
+    await step(
+      "in both runs",
+      page.waitForFunction(() => document.querySelectorAll('svg[aria-label="Stammbaum"]').length === 2),
+    );
+    await step(
+      "the lives folded, or none",
+      page.waitForFunction(() =>
+        [...document.querySelectorAll("details > summary, p")].some((e) =>
+          /^(Alle Unterschiede in einzelnen Leben \(\d+\)|Die beiden Läufe unterscheiden sich in keinem Leben\.)$/.test(e.textContent ?? ""),
+        ),
+      ),
+    );
+    await step("back to the run with the family again", page.goto(`${url}#/runs/${run}`));
+    await step(
+      "the pinned family again",
       page.getByRole("heading", { level: 2, name: /^Angeheftete Familie: / }).waitFor(),
     );
     await step(
@@ -398,7 +426,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {
