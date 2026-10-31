@@ -31,7 +31,8 @@ export type Part =
   | "laxity"
   | "beard"
   | "moustache"
-  | "mouth";
+  | "mouth"
+  | "nose";
 
 /** The grey that hair turns to with `hair_grey_fraction` 1. */
 const GREY = "#c4c4c4";
@@ -78,7 +79,46 @@ export function bust(params: BodyParams): Shape[] {
   const rx = ry * (0.78 + 0.04 * face);
   const cx = 50;
   const cy = 18 + ry;
-  const chin = cy + ry;
+
+  // The twelve face axes (Grok's round 43, R2; 0 is the form before them): 01 the length,
+  // 02 the jaw, 03 the chin, 04 the cheeks, 05 the eyes, 06 their spacing, 07 the brows,
+  // 08 the nose's length, 09 its width, 10 the lips, 11 the mouth's width, 12 the forehead.
+  const f = (n: number) => v(`face_axis_${String(n).padStart(2, "0")}` as BodyParamKey);
+  const lower = 0.06 * ry * f(12);
+  const eyeY = cy - ry * 0.05 + lower;
+  const browUp = 0.06 * ry * f(7);
+  const browWidth = 1.3 * (1 + 0.15 * f(7));
+  const mouthY = cy + ry * 0.48 + lower;
+  const eye = 1 + 0.12 * f(5);
+  const eyeX = Math.max(rx * (0.38 + 0.04 * f(6)), 3.4 * eye + 0.6);
+  const mouthHalf = rx * 0.24 * (1 + 0.12 * f(11));
+  const jaw = 1 + 0.08 * f(2);
+  // The outline holds the features at every end of the axes: each end of a brow, each eye's
+  // sides and top, each corner of the mouth lies inside the ellipse of its half (the lower
+  // one as narrow as the jaw) scaled by 0.85; where it would not, the cheeks, the crown or
+  // the chin give way.
+  const held: [number, number][] = [];
+  for (const side of [-1, 1]) {
+    const x = side * eyeX;
+    held.push([x - 3.6, eyeY - 4.6 - browUp - browWidth / 2], [x + 3.6, eyeY - 5.2 - browUp - browWidth / 2]);
+    held.push([x - 3.4 * eye, eyeY], [x + 3.4 * eye, eyeY], [x, eyeY - 2.2 * eye]);
+    held.push([side * mouthHalf, mouthY]);
+  }
+  const narrow = (y: number) => (y > cy ? Math.min(1, jaw) : 1);
+  const rxCheek = Math.max(rx * (1 + 0.06 * f(4)), ...held.map(([x, y]) => Math.abs(x) / 0.8 / narrow(y)));
+  const tall = (above: boolean) =>
+    held
+      .filter(([, y]) => (y <= cy) === above)
+      .map(([x, y]) => Math.abs(y - cy) / Math.sqrt(0.85 - (Math.abs(x) / (rxCheek * narrow(y))) ** 2));
+  const ryTop = Math.max(ry * (1 + 0.07 * f(1)), ...tall(true));
+  const ryBottom = Math.max(ryTop + 0.08 * ry * f(3), ...tall(false));
+  const chin = cy + ryBottom;
+  const k = 0.5523;
+  const outline =
+    `M ${cx - rxCheek} ${cy} C ${cx - rxCheek} ${cy - k * ryTop} ${cx - k * rxCheek} ${cy - ryTop} ${cx} ${cy - ryTop} ` +
+    `C ${cx + k * rxCheek} ${cy - ryTop} ${cx + rxCheek} ${cy - k * ryTop} ${cx + rxCheek} ${cy} ` +
+    `C ${cx + rxCheek} ${cy + k * ryBottom} ${cx + k * rxCheek * jaw} ${chin} ${cx} ${chin} ` +
+    `C ${cx - k * rxCheek * jaw} ${chin} ${cx - rxCheek} ${cy + k * ryBottom} ${cx - rxCheek} ${cy} Z`;
 
   // The torso: shoulders by their width, muscle and fat, narrower before the body matures,
   // broader with the androgenic development (Grok's round 39, R2).
@@ -107,7 +147,7 @@ export function bust(params: BodyParams): Shape[] {
       opacity: v("breast_development"),
     });
   }
-  shapes.push({ kind: "ellipse", part: "head", cx, cy, rx, ry, fill: skin, opacity: 1 });
+  shapes.push({ kind: "path", part: "head", d: outline, fill: skin, stroke: "none", width: 0, opacity: 1 });
 
   // The hair: a rim at the sides, which stays at every stage of balding ("7 is bald except
   // for the rim of hair"), and a cap over the top that ends above the brows, thinner with
@@ -126,27 +166,33 @@ export function bust(params: BodyParams): Shape[] {
     const cover = 1 - stage / 7;
     const full = 1.04 + 0.14 * v("hair_curl");
     shapes.push({
-      kind: "ellipse", part: "hair", cx, cy: cy - ry * (0.78 + 0.22 * (1 - cover)),
+      kind: "ellipse", part: "hair", cx, cy: cy - ry * (0.78 + 0.22 * (1 - cover)) - 0.04 * ry * f(12),
       rx: rx * full * (0.55 + 0.45 * cover), ry: ry * 0.4 * cover, fill: hair, opacity: density,
     });
   }
 
-  // The eyes, the brows, the mouth.
-  const eyeY = cy - ry * 0.05;
+  // The eyes, the brows, the nose, the mouth; the eyes' inner edges stay 1.2 apart.
   for (const side of [-1, 1]) {
-    const x = cx + side * rx * 0.38;
-    shapes.push({ kind: "ellipse", part: "sclera", cx: x, cy: eyeY, rx: 3.4, ry: 2.2, fill: "#f4f1ec", opacity: 1 });
-    shapes.push({ kind: "ellipse", part: "iris", cx: x, cy: eyeY, rx: 2.2, ry: 2.2, fill: iris, opacity: 1 });
-    shapes.push({ kind: "ellipse", part: "pupil", cx: x, cy: eyeY, rx: 0.8, ry: 0.8, fill: PUPIL, opacity: 1 });
+    const x = cx + side * eyeX;
+    shapes.push({ kind: "ellipse", part: "sclera", cx: x, cy: eyeY, rx: 3.4 * eye, ry: 2.2 * eye, fill: "#f4f1ec", opacity: 1 });
+    shapes.push({ kind: "ellipse", part: "iris", cx: x, cy: eyeY, rx: 2.2 * eye, ry: 2.2 * eye, fill: iris, opacity: 1 });
+    shapes.push({ kind: "ellipse", part: "pupil", cx: x, cy: eyeY, rx: 0.8 * eye, ry: 0.8 * eye, fill: PUPIL, opacity: 1 });
     shapes.push({
-      kind: "line", part: "brow", x1: x - 3.6, y1: eyeY - 4.6, x2: x + 3.6, y2: eyeY - 5.2,
-      stroke: hair, width: 1.3, opacity: v("eyebrow_density"),
+      kind: "line", part: "brow", x1: x - 3.6, y1: eyeY - 4.6 - browUp, x2: x + 3.6, y2: eyeY - 5.2 - browUp,
+      stroke: hair, width: browWidth, opacity: v("eyebrow_density"),
     });
   }
-  const mouthY = cy + ry * 0.48;
+  const feature = mixColor(skin, "#5a2a2a", 0.5);
+  const noseTop = eyeY + 1.5;
+  const noseBase = noseTop + 0.22 * ry * (1 + 0.15 * f(8));
+  const noseHalf = 0.12 * rx * (1 + 0.2 * f(9));
   shapes.push({
-    kind: "line", part: "mouth", x1: cx - rx * 0.24, y1: mouthY, x2: cx + rx * 0.24, y2: mouthY,
-    stroke: mixColor(skin, "#5a2a2a", 0.5), width: 1.1, opacity: 1,
+    kind: "path", part: "nose", fill: "none", stroke: mixColor(skin, "#5a2a2a", 0.35), width: 0.7, opacity: 1,
+    d: `M ${cx} ${noseTop} L ${cx - noseHalf * 0.3} ${noseBase} M ${cx - noseHalf} ${noseBase} Q ${cx} ${noseBase + 1.2} ${cx + noseHalf} ${noseBase}`,
+  });
+  shapes.push({
+    kind: "line", part: "mouth", x1: cx - mouthHalf, y1: mouthY, x2: cx + mouthHalf, y2: mouthY,
+    stroke: feature, width: Math.max(0.3, 1.1 * (1 + 0.35 * f(10))), opacity: 1,
   });
 
   // Freckles over nose and cheeks, as many of the places as the density says.
@@ -179,7 +225,7 @@ export function bust(params: BodyParams): Shape[] {
       shapes.push(wrinkle(cx - rx * 0.4, cy - ry * at, cx + rx * 0.4, cy - ry * at));
     }
     for (const side of [-1, 1]) {
-      const corner = cx + side * (rx * 0.38 + 3.6);
+      const corner = cx + side * (eyeX + 3.4 * eye + 0.2);
       shapes.push(wrinkle(corner, eyeY - 0.6, corner + side * 2.4, eyeY - 1.8));
       shapes.push(wrinkle(corner, eyeY + 0.6, corner + side * 2.4, eyeY + 1.8));
       shapes.push(wrinkle(cx + side * rx * 0.14, cy + ry * 0.22, cx + side * rx * 0.3, cy + ry * 0.46));

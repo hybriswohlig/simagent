@@ -267,9 +267,23 @@ impl World {
     pub(super) fn parts_shown(&self, sim: SimId, t: &DataId) -> Option<(PhenotypeParts, i64)> {
         let state = self.state();
         let domain = state.domain();
-        let data = state.data();
-        let (born, at, genome, key) = facts(domain, self.closed_through(), sim)?;
+        let (born, at, _, _) = facts(domain, self.closed_through(), sim)?;
         let age = at.checked_since(born).filter(|age| age.as_secs() >= 0)?;
+        let parts = self.parts_at(sim, t, age)?;
+        Some((parts, age.as_secs().div_euclid(YEAR.as_secs())))
+    }
+
+    /// The terms of the phenotype of trait `t` of `sim` at the age `age`.
+    pub(super) fn parts_at(
+        &self,
+        sim: SimId,
+        t: &DataId,
+        age: SimDuration,
+    ) -> Option<PhenotypeParts> {
+        let state = self.state();
+        let domain = state.domain();
+        let data = state.data();
+        let (_, _, genome, key) = facts(domain, self.closed_through(), sim)?;
         let seeds = domain.seeds(data, sim);
         let individual = Draws::new(WorldSeed::new(seeds.individual));
         let shared = Draws::new(WorldSeed::new(seeds.shared));
@@ -278,7 +292,7 @@ impl World {
             shared: &shared,
             neutral: false,
         };
-        let parts = phenotype_parts(
+        phenotype_parts(
             environment,
             data,
             genome,
@@ -286,8 +300,7 @@ impl World {
             domain.parent_keys(sim),
             t,
             age,
-        )?;
-        Some((parts, age.as_secs().div_euclid(YEAR.as_secs())))
+        )
     }
 
     /// The genetics card of `sim`, living or archived; `None` for an unknown sim.

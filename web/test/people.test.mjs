@@ -16,12 +16,16 @@ function person(sim, sex) {
 }
 
 /** An entry of the people answer: its age now and its looks; the body is not read. */
-function entry(sim, age, looks, pregnant = false) {
+function entry(sim, age, looks, pregnant = false, traits = {}) {
   const plain = {
     hair: "light_brown", eyes: "blue", skin: "light", curls: "straight", freckles: "none",
     height: "middle", cognition: "middle",
   };
-  return { sim, pregnant, shown: { at: { t: 0, age_years: age, calendar_year: 0 }, body: {} }, looks: { ...plain, ...looks } };
+  const none = { cognition: 0, strength: 0, beauty: 0 };
+  return {
+    sim, pregnant, shown: { at: { t: 0, age_years: age, calendar_year: 0 }, body: {} },
+    looks: { ...plain, ...looks }, traits: { ...none, ...traits },
+  };
 }
 
 // 1 and 2 live together, 3 and 4 have separated, 5 never had a partner; 9 is not in the
@@ -36,8 +40,8 @@ const PEDIGREE = {
   households: [],
 };
 const ENTRIES = [
-  entry(1, 30, { hair: "blond", height: "high" }),
-  entry(2, 34, { hair: "dark_brown", cognition: "high" }),
+  entry(1, 30, { hair: "blond", height: "high" }, false, { beauty: 3 }),
+  entry(2, 34, { hair: "dark_brown", cognition: "high" }, false, { cognition: 3, strength: -1 }),
   entry(3, 22, { hair: "red", eyes: "green", freckles: "many" }),
   entry(4, 45, { hair: "blond", eyes: "brown" }),
   entry(5, 17, { skin: "beige", curls: "curly" }, true),
@@ -78,6 +82,13 @@ test("a choice of words keeps those words, an empty choice keeps all", () => {
   assert.deepEqual(sims({ ...NO_FILTER, freckles: new Set(["many"]) }), [3]);
   assert.deepEqual(sims({ ...NO_FILTER, height: new Set(["high"]) }), [1]);
   assert.deepEqual(sims({ ...NO_FILTER, cognition: new Set(["high", "rather_high"]) }), [2]);
+});
+
+test("a choice of steps keeps those steps, 0 is none, an empty choice keeps all", () => {
+  assert.deepEqual(sims({ ...NO_FILTER, beauty: new Set([3]) }), [1]);
+  assert.deepEqual(sims({ ...NO_FILTER, smart: new Set([3, 2]) }), [2]);
+  assert.deepEqual(sims({ ...NO_FILTER, strong: new Set([-1]) }), [2]);
+  assert.deepEqual(sims({ ...NO_FILTER, strong: new Set([0]) }), [1, 3, 4, 5]);
 });
 
 test("the filters hold together", () => {

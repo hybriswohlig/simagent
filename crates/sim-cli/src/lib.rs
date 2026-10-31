@@ -382,6 +382,7 @@ pub fn person_answer(
         }),
         None => serde_json::Value::Null,
     };
+    answer["traits"] = json(serde_json::to_value(world.traits(sim)))?;
     answer["ages"] = json(serde_json::to_value(world.ages()))?;
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;
@@ -424,6 +425,7 @@ pub fn people_answer(world: &World) -> Result<serde_json::Value, CliError> {
             "pregnant": world.pregnancy(age.sim).is_some(),
             "shown": json(serde_json::to_value(&view.shown))?,
             "looks": json(serde_json::to_value(looks))?,
+            "traits": json(serde_json::to_value(world.traits(age.sim)))?,
         }));
     }
     Ok(serde_json::json!({

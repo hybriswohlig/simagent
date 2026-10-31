@@ -48,14 +48,14 @@ test("the defaults show head, hair, eyes and brows, no beard, freckles or wrinkl
 });
 
 test("sizes follow their values", () => {
-  const head = (set) => one(bust(params(set)), "head");
-  assert.ok(head({ head_size_z: 2 }).ry > head({ head_size_z: -2 }).ry);
+  const head = (set) => extent(one(bust(params(set)), "head"));
+  assert.ok(height(head({ head_size_z: 2 })) > height(head({ head_size_z: -2 })));
   // A child's head is larger against its shoulders than an adult's.
   const ratio = (age) => {
     const shapes = bust(params({ body_form_age: age, face_form_age: age }));
     const torso = parts(shapes, "torso")[0].d.split(" ");
     const half = 50 - Number(torso[1]);
-    return one(shapes, "head").rx / half;
+    return width(extent(one(shapes, "head"))) / 2 / half;
   };
   assert.ok(ratio(5) > ratio(30));
   const half = (set) => 50 - Number(parts(bust(params(set)), "torso")[0].d.split(" ")[1]);
@@ -147,8 +147,9 @@ test("the red corner of the hair table", () => {
 // Astra's review of the cues: the places Grok set in R2, relative to the head.
 test("the cues stand where Grok set them", () => {
   const shapes = bust(params({ face_wrinkles: 0.6, skin_laxity: 0.4, age_spots: 0.5, breast_development: 0.4 }));
-  const head = one(shapes, "head");
-  const { cx, cy, rx, ry } = head;
+  // The frame of the default adult head (ry 17, rx 17 · 0.82, centre (50, 35)); the cues stand
+  // in it, whatever the face axes do.
+  const [cx, cy, rx, ry] = [50, 35, 17 * 0.82, 17];
   const chin = cy + ry;
   const near = (a, b) => Math.abs(a - b) < 1e-9;
   const spots = parts(shapes, "spot");
@@ -178,4 +179,148 @@ test("the cues stand where Grok set them", () => {
   // The breast's depth is 6 · breast_development.
   const breast = one(shapes, "breast");
   assert.ok(breast.d.split(" ").includes(String(6 * 0.4)));
+});
+
+/** The extent of a shape: an ellipse by its radii, a path by the points of its `d` (for
+ * comparisons only), a line by its ends. */
+function extent(shape) {
+  if (shape.kind === "ellipse") {
+    return { left: shape.cx - shape.rx, right: shape.cx + shape.rx, top: shape.cy - shape.ry, bottom: shape.cy + shape.ry };
+  }
+  if (shape.kind === "line") {
+    return { left: Math.min(shape.x1, shape.x2), right: Math.max(shape.x1, shape.x2), top: Math.min(shape.y1, shape.y2), bottom: Math.max(shape.y1, shape.y2) };
+  }
+  const numbers = shape.d.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+  const xs = numbers.filter((_, i) => i % 2 === 0);
+  const ys = numbers.filter((_, i) => i % 2 === 1);
+  return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+}
+
+const axis = (n, f) => bust(params({ [`face_axis_${String(n).padStart(2, "0")}`]: f }));
+const width = (e) => e.right - e.left;
+const height = (e) => e.bottom - e.top;
+
+test("each of the twelve face axes moves its feature the way Grok set it (round 43, R2)", () => {
+  const head = (n, f) => extent(one(axis(n, f), "head"));
+  // 01 the length, 03 the chin downwards, 04 the cheeks wider.
+  assert.ok(height(head(1, 2)) > height(head(1, -2)), "01 length");
+  assert.ok(head(3, 2).bottom > head(3, -2).bottom, "03 chin");
+  assert.ok(width(head(4, 2)) > width(head(4, -2)), "04 cheeks");
+  // 02 the jaw: wider low in the face, the top of the head the same.
+  const jaw = (f) => one(axis(2, f), "head").d;
+  assert.notEqual(jaw(2), jaw(-2), "02 jaw");
+  assert.equal(head(2, 2).top, head(2, -2).top, "02 jaw leaves the crown");
+  // 05 the eyes larger, 06 farther apart.
+  const sclera = (n, f) => parts(axis(n, f), "sclera");
+  assert.ok(sclera(5, 2)[0].rx > sclera(5, -2)[0].rx, "05 eyes");
+  const apart = (f) => Math.abs(sclera(6, f)[1].cx - sclera(6, f)[0].cx);
+  assert.ok(apart(2) > apart(-2), "06 spacing");
+  // 07 the brows higher and stronger.
+  const brow = (f) => parts(axis(7, f), "brow")[0];
+  assert.ok(brow(2).y1 < brow(-2).y1 && brow(2).width > brow(-2).width, "07 brows");
+  // 08 the nose longer, 09 wider.
+  const nose = (n, f) => extent(one(axis(n, f), "nose"));
+  assert.ok(height(nose(8, 2)) > height(nose(8, -2)), "08 nose length");
+  assert.ok(width(nose(9, 2)) > width(nose(9, -2)), "09 nose width");
+  // 10 the lips fuller, 11 the mouth wider.
+  const mouth = (n, f) => one(axis(n, f), "mouth");
+  assert.ok(mouth(10, 2).width > mouth(10, -2).width, "10 lips");
+  assert.ok(width(extent(mouth(11, 2))) > width(extent(mouth(11, -2))), "11 mouth");
+  // 12 the forehead higher: the features lower, the hairline higher.
+  assert.ok(parts(axis(12, 2), "sclera")[0].cy > parts(axis(12, -2), "sclera")[0].cy, "12 features");
+  assert.ok(one(axis(12, 2), "hair").cy < one(axis(12, -2), "hair").cy, "12 hairline");
+});
+
+test("at zero on every axis the face keeps today's form", () => {
+  // The default adult: ry 17, rx 17 · 0.82, centre (50, 35); eyes at ± 0.38 rx, 0.05 ry above
+  // the centre; the mouth 0.48 ry below it, half as wide as 0.24 rx, 1.1 thick.
+  const shapes = bust(params());
+  const [rx, ry, cx, cy] = [17 * 0.82, 17, 50, 35];
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const head = extent(one(shapes, "head"));
+  assert.ok(near(head.left, cx - rx) && near(head.right, cx + rx), "head width");
+  assert.ok(near(head.top, cy - ry) && near(head.bottom, cy + ry), "head height");
+  const eyes = parts(shapes, "sclera");
+  assert.ok(near(eyes[0].cx, cx - rx * 0.38) && near(eyes[1].cx, cx + rx * 0.38), "eyes");
+  assert.ok(near(eyes[0].cy, cy - ry * 0.05) && near(eyes[0].rx, 3.4), "eye height and size");
+  const mouth = one(shapes, "mouth");
+  assert.ok(near(mouth.y1, cy + ry * 0.48) && near(mouth.x1, cx - rx * 0.24) && near(mouth.width, 1.1), "mouth");
+});
+
+test("the eyes never touch: their inner edges stay 1.2 apart", () => {
+  const shapes = bust(params({ face_axis_05: 4, face_axis_06: -4 }));
+  const [left, right] = parts(shapes, "sclera");
+  assert.ok(right.cx - right.rx - (left.cx + left.rx) >= 1.2 - 1e-9);
+});
+
+test("a wider jaw puts the chin's two control points wider apart (02)", () => {
+  // The control points on the chin's row: the lowest y of the outline.
+  const chinRow = (f) => {
+    const d = one(axis(2, f), "head").d;
+    const numbers = d.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+    const points = [];
+    for (let i = 0; i + 1 < numbers.length; i += 2) {
+      points.push([numbers[i], numbers[i + 1]]);
+    }
+    const low = Math.max(...points.map(([, y]) => y));
+    const xs = points.filter(([, y]) => y === low).map(([x]) => x);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  assert.ok(chinRow(2) > chinRow(0) && chinRow(0) > chinRow(-2));
+});
+
+/** The outline of a path of cubic segments as a polygon, 40 points per segment. */
+function polygon(d) {
+  const numbers = d.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+  let [x, y] = numbers;
+  const points = [];
+  for (let i = 2; i + 5 < numbers.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = numbers.slice(i, i + 6);
+    for (let n = 0; n < 40; n += 1) {
+      const t = n / 40;
+      const u = 1 - t;
+      points.push([
+        u * u * u * x + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+        u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+      ]);
+    }
+    [x, y] = [x3, y3];
+  }
+  return points;
+}
+
+/** Whether `[px, py]` lies inside the polygon (even-odd rule). */
+function inside(points, [px, py]) {
+  let odd = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      odd = !odd;
+    }
+  }
+  return odd;
+}
+
+test("at the ends of every axis the head holds brows, eyes, nose and mouth", () => {
+  const ends = [-4, 4];
+  const axes = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12];
+  for (let pick = 0; pick < 1 << axes.length; pick += 1) {
+    const set = Object.fromEntries(axes.map((n, i) => [`face_axis_${String(n).padStart(2, "0")}`, ends[(pick >> i) & 1]]));
+    const shapes = bust(params(set));
+    const outline = polygon(one(shapes, "head").d);
+    const mouth = one(shapes, "mouth");
+    const label = JSON.stringify(set);
+    const held = [[mouth.x1, mouth.y1], [mouth.x2, mouth.y2]];
+    for (const brow of parts(shapes, "brow")) {
+      held.push([brow.x1, brow.y1 - brow.width / 2], [brow.x2, brow.y2 - brow.width / 2]);
+    }
+    for (const eye of parts(shapes, "sclera")) {
+      held.push([eye.cx - eye.rx, eye.cy], [eye.cx + eye.rx, eye.cy], [eye.cx, eye.cy - eye.ry]);
+    }
+    for (const point of held) {
+      assert.ok(inside(outline, point), `${point} outside: ${label}`);
+    }
+    assert.ok(extent(one(shapes, "nose")).bottom < mouth.y1, `nose above the mouth: ${label}`);
+  }
 });
