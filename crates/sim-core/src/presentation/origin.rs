@@ -141,10 +141,6 @@ pub fn beauty_source(mother: f64, father: f64) -> Source {
     }
 }
 
-fn id(text: &str) -> DataId {
-    DataId::new(text).unwrap_or_else(|_| panic!("invariant origin.trait_id"))
-}
-
 /// The gametes of trait `t` in the unit of the genetic part of `z` (the adult `√h²`).
 fn gametes(genome: &Genome, data: &Data, t: &DataId) -> Option<(f64, f64)> {
     let [_, _, h2_adult, _] = data.phenotype_weights(t)?;
@@ -204,7 +200,24 @@ impl World {
             (false, Some((a, b))) => source(a, b),
         };
         let clear = |pair: Option<(f64, f64)>| pair.is_some_and(|(a, b)| (a + b).abs() >= CLEAR);
-        let g = |t: &str| gametes(genome, data, &id(t));
+        let g = |t| {
+            let t = DataId::new(t).unwrap_or_else(|_| panic!("invariant origin.trait_id"));
+            gametes(genome, data, &t)
+        };
+        let face_names = [
+            "core:face_01",
+            "core:face_02",
+            "core:face_03",
+            "core:face_04",
+            "core:face_05",
+            "core:face_06",
+            "core:face_07",
+            "core:face_08",
+            "core:face_09",
+            "core:face_10",
+            "core:face_11",
+            "core:face_12",
+        ];
         let m = &data.genetics().body;
         let pigment = g("core:pigment");
         let hair = pigment
@@ -302,7 +315,7 @@ impl World {
             .collect();
         shown.sort_by(|(n1, f1), (n2, f2)| f2.abs().total_cmp(&f1.abs()).then(n1.cmp(n2)));
         for (n, f) in shown.into_iter().take(3) {
-            let face = g(&alloc::format!("core:face_{n:02}"));
+            let face = g(face_names[usize::from(n - 1)]);
             lines.push(OriginLine::Face {
                 axis: n,
                 up: f > 0.0,
@@ -327,8 +340,9 @@ impl World {
             } else if traits.beauty > 0 {
                 Source::Both
             } else {
-                let sums = (1..=12_u8)
-                    .map(|n| g(&alloc::format!("core:face_{n:02}")))
+                let sums = face_names
+                    .iter()
+                    .map(|&t| g(t))
                     .try_fold((0.0, 0.0), |(qm, qp), pair| {
                         pair.map(|(a, b)| (qm + a * a, qp + b * b))
                     });
