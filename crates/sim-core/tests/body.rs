@@ -251,7 +251,8 @@ fn pigment_follows_the_specification() {
         let inputs = person(Sex::Female, years, z);
         let at = |key| value(&data, &inputs, key);
         let eta_s = m.pigment_skin_offset + m.pigment_skin_slope * 0.4;
-        let eta_h = (m.pigment_hair_slope * 0.4 + m.pigment_hair_residual * -0.3)
+        let eta_h = ((m.pigment_hair_offset + m.pigment_hair_slope * 0.4)
+            + m.pigment_hair_residual * -0.3)
             - m.pigment_hair_darkening * (1.0 - s(m.pigment_hair_darkening_age, b));
         let eta_i = (m.pigment_iris_offset + m.pigment_iris_slope * 0.4)
             - m.pigment_iris_darkening * (1.0 - s(m.pigment_iris_darkening_age, b));
@@ -294,13 +295,27 @@ fn pigment_follows_the_specification() {
             l(eta_i) * 1.0
         );
     }
-    // The values the specification prints at z_pig = 0 for an adult: skin about 0.23,
-    // hair 0.50, iris about 0.62.
+    // The values the specification prints for the northern European profile at z_pig = 0
+    // for an adult: skin about 0.063, hair 0.31, its pheomelanin 0.25, iris 0.41; skin about
+    // 0.182 at z_pig = 2 and 0.020 at -2.
     let adult = person(Sex::Male, 30, BodyTraits::default());
     let at = |key| value(&data, &adult, key);
-    assert!((at(BodyParamKey::SkinEumelanin) - 0.23).abs() < 0.005);
-    assert_eq!(at(BodyParamKey::HairEumelanin), 0.5);
-    assert!((at(BodyParamKey::IrisMelanin) - 0.62).abs() < 0.005);
+    assert!((at(BodyParamKey::SkinEumelanin) - 0.063).abs() < 0.0005);
+    assert!((at(BodyParamKey::HairEumelanin) - 0.31).abs() < 0.005);
+    assert!((at(BodyParamKey::HairPheomelanin) - 0.25).abs() < 0.005);
+    assert!((at(BodyParamKey::IrisMelanin) - 0.41).abs() < 0.005);
+    for (z_pig, skin) in [(2.0, 0.182), (-2.0, 0.020)] {
+        let traits = BodyTraits {
+            pigment: z_pig,
+            ..BodyTraits::default()
+        };
+        let skin_at = value(
+            &data,
+            &person(Sex::Male, 30, traits),
+            BodyParamKey::SkinEumelanin,
+        );
+        assert!((skin_at - skin).abs() < 0.0005, "{z_pig}: {skin_at}");
+    }
 }
 
 /// 10.5: the development weights by sex around θ_i.

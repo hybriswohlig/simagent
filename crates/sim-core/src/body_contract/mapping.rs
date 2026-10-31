@@ -422,7 +422,8 @@ pub(crate) fn raw_body_values(
     // 10.4: pigment.
     let red = inputs.mc1r == 2;
     let eta_s = m.pigment_skin_offset + m.pigment_skin_slope * z.pigment;
-    let eta_h = (m.pigment_hair_slope * z.pigment + m.pigment_hair_residual * z.hair_darkness)
+    let eta_h = ((m.pigment_hair_offset + m.pigment_hair_slope * z.pigment)
+        + m.pigment_hair_residual * z.hair_darkness)
         - m.pigment_hair_darkening * (1.0 - rise(m.pigment_hair_darkening_age, b));
     let eta_i = (m.pigment_iris_offset + m.pigment_iris_slope * z.pigment)
         - m.pigment_iris_darkening * (1.0 - rise(m.pigment_iris_darkening_age, b));

@@ -330,6 +330,13 @@
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 10.4: eta_s (ADR-0015)"
     },
+    "core:body_pigment_hair_offset": {
+      "value": 0.0,
+      "unit": "logit",
+      "source": "test map: the hair logit without an offset, as before 2026-10-31",
+      "as_of": "2026-10-31",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
+    },
     "core:body_pigment_hair_slope": {
       "value": 1.2,
       "unit": "logit",

@@ -3,7 +3,7 @@
 
 use super::*;
 
-const PRERUN_DATA_HASH: u64 = 0xb17a_fdcd_2961_75ac;
+const PRERUN_DATA_HASH: u64 = 0x945b_7e9e_2838_0f2d;
 /// Per group (women first, ages ascending) the bits of its weight.
 const WEIGHTS: [u64; 86] = [
     0x3fdf_1fcb_83cc_6525,
@@ -731,8 +731,8 @@ const SMALL_GENERATION: (u64, u64, u64, u64, u64, u64) = (
     0x4009_1c71_c71c_71c7,
     0x400c_71c7_1c71_c71c,
 );
-const SMALL_NEXT_DATA_HASH: u64 = 0x27a6_d310_c620_f992;
-const SMALL_FROZEN_DATA_HASH: u64 = 0xf3a1_96cc_e740_4668;
+const SMALL_NEXT_DATA_HASH: u64 = 0xbc63_42f6_bca1_fba3;
+const SMALL_FROZEN_DATA_HASH: u64 = 0xfe78_f52d_b8bf_1e3c;
 /// A case of the stop rule: name, run, decision, reported, per trait (id, sigma in, sigma out, r bits).
 type StopCase = (
     &'static str,

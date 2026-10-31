@@ -317,31 +317,38 @@
       "note": "docs/genetik-spezifikation.md 5.3 (K5.3b); 5/1600, so 5 cm at bio_age 70 and 7.81 cm at 80 (ADR-0014)"
     },
     "core:body_pigment_skin_offset": {
-      "value": -1.2,
+      "value": -2.7,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was -1.2 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: eta_s = offset + slope * z_pig (ADR-0015)"
     },
     "core:body_pigment_skin_slope": {
-      "value": 1.15,
+      "value": 0.6,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was 1.15 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: eta_s (ADR-0015)"
     },
-    "core:body_pigment_hair_slope": {
-      "value": 1.2,
+    "core:body_pigment_hair_offset": {
+      "value": -0.8,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
-      "note": "docs/genetik-spezifikation.md 10.4: eta_h = slope * z_pig + residual * z_hair - darkening * (1 - S(0, age, b)) (ADR-0015)"
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; new, the hair logit had no offset before)",
+      "as_of": "2026-10-31",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015); the median of adult hair eumelanin about 0.31"
     },
-    "core:body_pigment_hair_residual": {
+    "core:body_pigment_hair_slope": {
       "value": 0.55,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was 1.2 since 2026-10-08)",
+      "as_of": "2026-10-31",
+      "note": "docs/genetik-spezifikation.md 10.4: eta_h = offset + slope * z_pig + residual * z_hair - darkening * (1 - S(0, age, b)) (ADR-0015)"
+    },
+    "core:body_pigment_hair_residual": {
+      "value": 0.9,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was 0.55 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
     },
     "core:body_pigment_hair_darkening": {
@@ -359,17 +366,17 @@
       "note": "docs/genetik-spezifikation.md 10.4: eta_h (ADR-0015)"
     },
     "core:body_pigment_iris_offset": {
-      "value": 0.5,
+      "value": -0.35,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was 0.5 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: eta_i = offset + slope * z_pig - darkening * (1 - S(0, age, b)) (ADR-0015)"
     },
     "core:body_pigment_iris_slope": {
-      "value": 1.5,
+      "value": 0.9,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was 1.5 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: eta_i (ADR-0015)"
     },
     "core:body_pigment_iris_darkening": {
@@ -401,17 +408,17 @@
       "note": "docs/genetik-spezifikation.md 10.4: skin_pheomelanin (ADR-0015)"
     },
     "core:body_pigment_hair_pheo_offset": {
-      "value": -2.0,
+      "value": -1.1,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was -2.0 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin = L(offset + slope * z_pig) (ADR-0015)"
     },
     "core:body_pigment_hair_pheo_slope": {
-      "value": -0.35,
+      "value": -0.25,
       "unit": "logit",
-      "source": "play value decided by Grok 4.7 on 2026-10-08 (ADR-0011)",
-      "as_of": "2026-10-08",
+      "source": "play value decided by Grok 4.7 on 2026-10-31 (ADR-0011, round 43, R1: the northern European profile of ADR-0020; was -0.35 since 2026-10-08)",
+      "as_of": "2026-10-31",
       "note": "docs/genetik-spezifikation.md 10.4: hair_pheomelanin (ADR-0015)"
     },
     "core:body_mc1r_hair_eu": {

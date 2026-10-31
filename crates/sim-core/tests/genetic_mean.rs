@@ -11,7 +11,7 @@ use sim_core::genome::{Genome, LocusAlleles, Sex};
 
 /// The template's data hash today (`tests/map4_template.rs`): a map without `mean_ref`
 /// keeps it.
-const TEMPLATE_DATA_HASH: u64 = 0x5ae3_d70c_71cf_063a;
+const TEMPLATE_DATA_HASH: u64 = 0x5934_8c2c_9b8d_5230;
 
 fn template_files() -> (Value, Value) {
     common::files_from(
