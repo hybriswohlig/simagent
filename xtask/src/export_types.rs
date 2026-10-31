@@ -207,6 +207,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("shown", Ref("Shown")),
                 field("at_ages", list(Ref("Shown"))),
                 field("partner_candidates", list(Integer)),
+                field("pregnancy", nullable(Ref("PregnancyShown"))),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),
@@ -223,10 +224,19 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "PregnancyShown",
+            doc: "A running pregnancy: the second it began and the second the birth is due, each with its date.",
+            fields: vec![
+                field("conceived", Ref("DatedSecond")),
+                field("due", Ref("DatedSecond")),
+            ],
+        },
+        Named {
             name: "PeopleEntry",
-            doc: "A living person of the people answer: its sim, its body now, its looks.",
+            doc: "A living person of the people answer: its sim, whether pregnant, its body now, its looks.",
             fields: vec![
                 field("sim", Integer),
+                field("pregnant", Bool),
                 field("shown", Ref("Shown")),
                 field("looks", Ref("Looks")),
             ],

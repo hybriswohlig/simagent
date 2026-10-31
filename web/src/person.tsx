@@ -7,7 +7,7 @@ import { current, failure, type Loaded } from "./loaded.js";
 import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
 import { FamilyView } from "./familyview.js";
-import { bornText, captionYear } from "./dates.js";
+import { bornText, captionYear, dateText } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
 import { kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
@@ -70,6 +70,12 @@ function Life({ view }: { view: PersonAnswer }) {
   return (
     <p>
       {`${bornText(view.born.calendar_year)} · ${end} ${view.shown.at.calendar_year}, ${view.shown.at.age_years} ${TEXT.years}`}
+      {view.pregnancy === null ? null : (
+        <>
+          <br />
+          {TEXT.pregnant_due.replace("{date}", dateText(view.pregnancy.due.date))}
+        </>
+      )}
     </p>
   );
 }

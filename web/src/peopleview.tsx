@@ -92,10 +92,16 @@ export function FilterForm({ filter, set, sexFixed }: { filter: Filter; set: (fi
             onInput={(e) => set({ ...filter, ageTo: age(e.currentTarget.value) })} />
         </label>{" "}
         {sexFixed ? null : (
-          <label>
-            <input type="checkbox" checked={filter.singleOnly} onChange={() => set({ ...filter, singleOnly: !filter.singleOnly })} />{" "}
-            {TEXT.filter_single}
-          </label>
+          <>
+            <label>
+              <input type="checkbox" checked={filter.singleOnly} onChange={() => set({ ...filter, singleOnly: !filter.singleOnly })} />{" "}
+              {TEXT.filter_single}
+            </label>{" "}
+            <label>
+              <input type="checkbox" checked={filter.pregnantOnly} onChange={() => set({ ...filter, pregnantOnly: !filter.pregnantOnly })} />{" "}
+              {TEXT.filter_pregnant}
+            </label>
+          </>
         )}
       </fieldset>
       {WORDS.map((word) => (
@@ -132,7 +138,7 @@ export function PeopleList({ run, people, action }: { run: string; people: reado
             <Portrait params={entry.shown.body} label={fullName(person)} width={90} />
             <figcaption>
               <a href={format({ page: "person", run, sim: String(person.sim) })}>{fullName(person)}</a>
-              {`, ${entry.shown.at.age_years} ${TEXT.years}`}
+              {`, ${entry.shown.at.age_years} ${TEXT.years}${entry.pregnant ? `, ${TEXT.pregnant}` : ""}`}
               <br />
               <small>{looksLine(entry.looks)}</small>
               {action === undefined ? null : <div>{action(person)}</div>}

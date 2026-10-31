@@ -16,12 +16,12 @@ function person(sim, sex) {
 }
 
 /** An entry of the people answer: its age now and its looks; the body is not read. */
-function entry(sim, age, looks) {
+function entry(sim, age, looks, pregnant = false) {
   const plain = {
     hair: "light_brown", eyes: "blue", skin: "light", curls: "straight", freckles: "none",
     height: "middle", cognition: "middle",
   };
-  return { sim, shown: { at: { t: 0, age_years: age, calendar_year: 0 }, body: {} }, looks: { ...plain, ...looks } };
+  return { sim, pregnant, shown: { at: { t: 0, age_years: age, calendar_year: 0 }, body: {} }, looks: { ...plain, ...looks } };
 }
 
 // 1 and 2 live together, 3 and 4 have separated, 5 never had a partner; 9 is not in the
@@ -40,7 +40,7 @@ const ENTRIES = [
   entry(2, 34, { hair: "dark_brown", cognition: "high" }),
   entry(3, 22, { hair: "red", eyes: "green", freckles: "many" }),
   entry(4, 45, { hair: "blond", eyes: "brown" }),
-  entry(5, 17, { skin: "beige", curls: "curly" }),
+  entry(5, 17, { skin: "beige", curls: "curly" }, true),
   entry(9, 20, {}),
 ];
 
@@ -61,6 +61,11 @@ test("the sex, the ages from and to, both bounds inside", () => {
 test("single means no open partnership; an ended one does not count", () => {
   assert.deepEqual([...partnered(PEDIGREE)].sort(), [1, 2]);
   assert.deepEqual(sims({ ...NO_FILTER, singleOnly: true }), [3, 4, 5]);
+});
+
+test("pregnant only keeps the women the core names pregnant", () => {
+  assert.deepEqual(sims({ ...NO_FILTER, pregnantOnly: true }), [5]);
+  assert.deepEqual(sims({ ...NO_FILTER, pregnantOnly: true, ageFrom: 18 }), []);
 });
 
 test("a choice of words keeps those words, an empty choice keeps all", () => {

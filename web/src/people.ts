@@ -2,15 +2,16 @@ import type { Looks, PeopleEntry, Pedigree, Person } from "./generated/export.js
 
 /**
  * The filter of the person list: the sex, the age in whole years from and to (both
- * inside), single only, and per word of the looks the words kept. An empty choice keeps
- * every word; `null` keeps every sex and every age. The words come from the core (`looks` of
- * the people answer); the filter only compares.
+ * inside), single only, pregnant only (as the core says), and per word of the looks the
+ * words kept. An empty choice keeps every word; `null` keeps every sex and every age. The
+ * words come from the core (`looks` of the people answer); the filter only compares.
  */
 export type Filter = {
   readonly sex: Person["sex"] | null;
   readonly ageFrom: number | null;
   readonly ageTo: number | null;
   readonly singleOnly: boolean;
+  readonly pregnantOnly: boolean;
   readonly hair: ReadonlySet<Looks["hair"]>;
   readonly eyes: ReadonlySet<Looks["eyes"]>;
   readonly skin: ReadonlySet<Looks["skin"]>;
@@ -28,6 +29,7 @@ export const NO_FILTER: Filter = {
   ageFrom: null,
   ageTo: null,
   singleOnly: false,
+  pregnantOnly: false,
   hair: new Set(),
   eyes: new Set(),
   skin: new Set(),
@@ -74,6 +76,7 @@ export function found(pedigree: Pedigree, entries: readonly PeopleEntry[], filte
       (filter.ageFrom === null || age >= filter.ageFrom) &&
       (filter.ageTo === null || age <= filter.ageTo) &&
       !taken.has(entry.sim) &&
+      (!filter.pregnantOnly || entry.pregnant) &&
       keeps(filter.hair, looks.hair) &&
       keeps(filter.eyes, looks.eyes) &&
       keeps(filter.skin, looks.skin) &&

@@ -939,7 +939,21 @@ fn a_person_is_the_cores_presentation_state() {
             "ages".into(),
             serde_json::to_value(world.ages()).expect("JSON"),
         );
-        assert_eq!(json_of(&body), expected, "{sim}");
+        // The pregnancy: the core's seconds, each with its date (checked as the other dates).
+        let shown = json_of(&body);
+        match world.pregnancy(id) {
+            None => assert!(shown["pregnancy"].is_null(), "{sim}"),
+            Some(pregnancy) => {
+                assert_eq!(
+                    shown["pregnancy"]["conceived"]["t"],
+                    pregnancy.conceived.as_secs()
+                );
+                assert_eq!(shown["pregnancy"]["due"]["t"], pregnancy.due.as_secs());
+                assert!(shown["pregnancy"]["due"]["date"]["year"].is_i64());
+            }
+        }
+        fields.insert("pregnancy".into(), shown["pregnancy"].clone());
+        assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
     let answer = json_of(&get(server.port, &format!("/api/runs/long/persons/{dead_sim}")).2);
@@ -1000,6 +1014,7 @@ fn the_people_are_the_living_with_their_looks() {
         );
         let looks = &person["looks"];
         assert_eq!(*looks, serde_json::to_value(world.looks(id)).expect("JSON"));
+        assert_eq!(person["pregnant"], world.pregnancy(id).is_some());
         let body = &person["shown"]["body"];
         if looks["hair"] != "red" {
             let hair = ["blond", "light_brown", "dark_brown", "black"];

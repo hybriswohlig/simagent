@@ -591,7 +591,7 @@ impl Server {
 
 /// The core's calendar date of `t` (ADR-0002: every unit counted from 0; their names are
 /// texts of `web/`).
-fn date(t: SimTime) -> Value {
+pub(crate) fn date(t: SimTime) -> Value {
     let date = calendar(t);
     json!({
         "year": date.year,

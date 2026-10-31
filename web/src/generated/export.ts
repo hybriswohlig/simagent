@@ -111,6 +111,7 @@ export type PersonAnswer = {
   readonly shown: Shown;
   readonly at_ages: Shown[];
   readonly partner_candidates: number[];
+  readonly pregnancy: PregnancyShown | null;
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
   readonly ages: Age[];
@@ -124,9 +125,16 @@ export type PeopleAnswer = {
   readonly people: PeopleEntry[];
 };
 
-/** A living person of the people answer: its sim, its body now, its looks. */
+/** A running pregnancy: the second it began and the second the birth is due, each with its date. */
+export type PregnancyShown = {
+  readonly conceived: DatedSecond;
+  readonly due: DatedSecond;
+};
+
+/** A living person of the people answer: its sim, whether pregnant, its body now, its looks. */
 export type PeopleEntry = {
   readonly sim: number;
+  readonly pregnant: boolean;
   readonly shown: Shown;
   readonly looks: Looks;
 };

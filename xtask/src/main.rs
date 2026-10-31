@@ -441,7 +441,15 @@ fn server_answers(
         sims.push(sim);
     }
     // The living persons of the town with their looks: a town of hundreds shows every word.
-    answers.push(("PeopleAnswer", get(port, "/api/runs/town/people")?));
+    let people = get(port, "/api/runs/town/people")?;
+    // A pregnant woman of the town, so the person answer shows a pregnancy.
+    let pregnant = (people["people"].as_array().into_iter().flatten())
+        .find(|p| p["pregnant"] == true)
+        .and_then(|p| p["sim"].as_u64())
+        .ok_or("the town has no pregnant woman")?;
+    answers.push(("PeopleAnswer", people));
+    let path = format!("/api/runs/town/persons/{pregnant}");
+    answers.push(("PersonAnswer", get(port, &path)?));
     // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
     answers.push(("SheetAnswer", get(port, "/api/sheet")?));
     // A kinship without a foster word (the living person to the dead one), and one with:
