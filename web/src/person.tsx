@@ -15,7 +15,7 @@ import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
 import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
 import { found, NO_FILTER, type Filter } from "./people.js";
-import { FilterForm, PeopleList, usePeople } from "./peopleview.js";
+import { FilterForm, PeopleList, traitsLine, usePeople } from "./peopleview.js";
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
@@ -70,6 +70,12 @@ function Life({ view }: { view: PersonAnswer }) {
   return (
     <p>
       {`${bornText(view.born.calendar_year)} · ${end} ${view.shown.at.calendar_year}, ${view.shown.at.age_years} ${TEXT.years}`}
+      {traitsLine(view.traits) === "" ? null : (
+        <>
+          <br />
+          <strong>{traitsLine(view.traits)}</strong>
+        </>
+      )}
       {view.pregnancy === null ? null : (
         <>
           <br />

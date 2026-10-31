@@ -953,6 +953,10 @@ fn a_person_is_the_cores_presentation_state() {
             }
         }
         fields.insert("pregnancy".into(), shown["pregnancy"].clone());
+        fields.insert(
+            "traits".into(),
+            serde_json::to_value(world.traits(id)).expect("JSON"),
+        );
         assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -1015,6 +1019,10 @@ fn the_people_are_the_living_with_their_looks() {
         let looks = &person["looks"];
         assert_eq!(*looks, serde_json::to_value(world.looks(id)).expect("JSON"));
         assert_eq!(person["pregnant"], world.pregnancy(id).is_some());
+        assert_eq!(
+            person["traits"],
+            serde_json::to_value(world.traits(id)).expect("JSON")
+        );
         let body = &person["shown"]["body"];
         if looks["hair"] != "red" {
             let hair = ["blond", "light_brown", "dark_brown", "black"];

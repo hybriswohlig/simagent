@@ -2,8 +2,8 @@ import type { Looks, PeopleEntry, Pedigree, Person } from "./generated/export.js
 
 /**
  * The filter of the person list: the sex, the age in whole years from and to (both
- * inside), single only, pregnant only (as the core says), and per word of the looks the
- * words kept. An empty choice keeps every word; `null` keeps every sex and every age. The
+ * inside), single only, pregnant only (as the core says), per word of the looks the
+ * words kept, and per trait the steps kept (0 is none). An empty choice keeps every word; `null` keeps every sex and every age. The
  * words come from the core (`looks` of the people answer); the filter only compares.
  */
 export type Filter = {
@@ -19,6 +19,9 @@ export type Filter = {
   readonly freckles: ReadonlySet<Looks["freckles"]>;
   readonly height: ReadonlySet<Looks["height"]>;
   readonly cognition: ReadonlySet<Looks["cognition"]>;
+  readonly smart: ReadonlySet<number>;
+  readonly strong: ReadonlySet<number>;
+  readonly beauty: ReadonlySet<number>;
 };
 
 /** The words of the looks a filter chooses among, in the order the page offers them. */
@@ -37,6 +40,9 @@ export const NO_FILTER: Filter = {
   freckles: new Set(),
   height: new Set(),
   cognition: new Set(),
+  smart: new Set(),
+  strong: new Set(),
+  beauty: new Set(),
 };
 
 /** The set with `value` taken out if it was in, put in otherwise. */
@@ -83,7 +89,10 @@ export function found(pedigree: Pedigree, entries: readonly PeopleEntry[], filte
       keeps(filter.curls, looks.curls) &&
       keeps(filter.freckles, looks.freckles) &&
       keeps(filter.height, looks.height) &&
-      keeps(filter.cognition, looks.cognition);
+      keeps(filter.cognition, looks.cognition) &&
+      keeps(filter.smart, entry.traits.cognition) &&
+      keeps(filter.strong, entry.traits.strength) &&
+      keeps(filter.beauty, entry.traits.beauty);
     return kept && person !== undefined ? [{ person, entry }] : [];
   });
 }

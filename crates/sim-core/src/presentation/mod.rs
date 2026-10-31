@@ -9,6 +9,7 @@ pub mod kin;
 pub mod looks;
 pub mod names;
 pub mod partners;
+pub mod traits;
 
 use alloc::vec::Vec;
 

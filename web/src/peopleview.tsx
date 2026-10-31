@@ -2,14 +2,14 @@ import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 
 import { getJson } from "./api.js";
-import type { Looks, PeopleAnswer, Pedigree, Person } from "./generated/export.js";
+import type { Looks, PeopleAnswer, Pedigree, Person, Traits } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName } from "./names.js";
 import { found, NO_FILTER, toggled, type Filter, type Found, type Word } from "./people.js";
 import { usePedigree } from "./person.js";
 import { Portrait } from "./portrait.js";
 import { format } from "./router.js";
-import { LOOK_WORDS, TEXT } from "./text.js";
+import { LOOK_WORDS, TEXT, TRAIT_WORDS } from "./text.js";
 
 /** The people of a run from the server; only an answer for this run (and this `at`) counts. */
 export function usePeople(run: string, at = ""): Loaded<PeopleAnswer> {
@@ -62,6 +62,44 @@ function Choice({ word, filter, set }: { word: Word; filter: Filter; set: (filte
   );
 }
 
+/** The traits a filter chooses among, with their labels. */
+type Step = "smart" | "strong" | "beauty";
+const STEPS: readonly [Step, string][] = [
+  ["smart", TEXT.trait_smart],
+  ["strong", TEXT.trait_strong],
+  ["beauty", TEXT.trait_beauty],
+];
+const ORDER = [3, 2, 1, 0, -1, -2, -3] as const;
+
+/** One trait's steps as boxes to tick; none ticked keeps every step. */
+function StepChoice({ step, label, filter, set }: { step: Step; label: string; filter: Filter; set: (filter: Filter) => void }) {
+  const chosen = filter[step];
+  return (
+    <fieldset>
+      <legend>{label}</legend>
+      {ORDER.map((n) => (
+        <label key={n} style={{ marginRight: "8px" }}>
+          <input type="checkbox" checked={chosen.has(n)} onChange={() => set({ ...filter, [step]: toggled(chosen, n) })} />{" "}
+          {TRAIT_WORDS[step][n]}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** The words of a person's traits that are not none, strongest kind first. */
+export function traitsLine(traits: Traits): string {
+  const steps: [Step, number][] = [
+    ["smart", traits.cognition],
+    ["strong", traits.strength],
+    ["beauty", traits.beauty],
+  ];
+  return steps
+    .filter(([, n]) => n !== 0)
+    .map(([step, n]) => TRAIT_WORDS[step][n as (typeof ORDER)[number]])
+    .join(" · ");
+}
+
 const age = (text: string): number | null => (text === "" || Number.isNaN(Number(text)) ? null : Number(text));
 
 /** The filter: the sex (unless a pairing fixes it), the ages, single only, the words. */
@@ -104,6 +142,9 @@ export function FilterForm({ filter, set, sexFixed }: { filter: Filter; set: (fi
           </>
         )}
       </fieldset>
+      {STEPS.map(([step, label]) => (
+        <StepChoice key={step} step={step} label={label} filter={filter} set={set} />
+      ))}
       {WORDS.map((word) => (
         <Choice key={word} word={word} filter={filter} set={set} />
       ))}
@@ -139,6 +180,12 @@ export function PeopleList({ run, people, action }: { run: string; people: reado
             <figcaption>
               <a href={format({ page: "person", run, sim: String(person.sim) })}>{fullName(person)}</a>
               {`, ${entry.shown.at.age_years} ${TEXT.years}${entry.pregnant ? `, ${TEXT.pregnant}` : ""}`}
+              {traitsLine(entry.traits) === "" ? null : (
+                <>
+                  <br />
+                  <strong>{traitsLine(entry.traits)}</strong>
+                </>
+              )}
               <br />
               <small>{looksLine(entry.looks)}</small>
               {action === undefined ? null : <div>{action(person)}</div>}

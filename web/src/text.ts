@@ -261,6 +261,9 @@ export const TEXT = {
   look_freckles: "Sommersprossen",
   look_height: "Größe",
   look_cognition: "Klugheit",
+  trait_smart: "Verstand",
+  trait_strong: "Kraft",
+  trait_beauty: "Schönheit",
   curve_hunger_note:
     "Die Zentimeter eines Hungerjahrs stehen auf der Karte eines Kindes, das es klein erlebt hat, in der mittleren Größe mit 25 erst, wenn diese Kinder 25 werden, und in der mittleren Größe der Erwachsenen kaum.",
 } as const;
@@ -281,6 +284,14 @@ export const LOOK_WORDS = {
     rather_high: "über dem Mittel",
     high: "weit über dem Mittel",
   },
+} as const;
+
+/** The steps of the traits the core sends, from 3 down to -3, 0 as none (Grok's round 43,
+ * R2). */
+export const TRAIT_WORDS = {
+  smart: { 3: "Genie", 2: "klug", 1: "aufgeweckt", 0: "ohne", [-1]: "schlicht", [-2]: "einfältig", [-3]: "schwer von Begriff" },
+  strong: { 3: "bärenstark", 2: "stark", 1: "kräftig", 0: "ohne", [-1]: "zart", [-2]: "schwächlich", [-3]: "kraftlos" },
+  beauty: { 3: "wunderschön", 2: "hübsch", 1: "ansehnlich", 0: "ohne", [-1]: "unscheinbar", [-2]: "reizlos", [-3]: "hässlich" },
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */

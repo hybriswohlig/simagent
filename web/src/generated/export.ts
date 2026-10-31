@@ -112,6 +112,7 @@ export type PersonAnswer = {
   readonly at_ages: Shown[];
   readonly partner_candidates: number[];
   readonly pregnancy: PregnancyShown | null;
+  readonly traits: Traits;
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
   readonly ages: Age[];
@@ -137,6 +138,14 @@ export type PeopleEntry = {
   readonly pregnant: boolean;
   readonly shown: Shown;
   readonly looks: Looks;
+  readonly traits: Traits;
+};
+
+/** A person's traits in steps from the core: 0 none, 1 to 3 up, -1 to -3 down. */
+export type Traits = {
+  readonly cognition: number;
+  readonly strength: number;
+  readonly beauty: number;
 };
 
 /** A person's looks in words, from the core: the colours, curls and freckles of the body now, height and cognition in bands of the percentile. */

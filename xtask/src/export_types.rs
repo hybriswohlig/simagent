@@ -208,6 +208,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("at_ages", list(Ref("Shown"))),
                 field("partner_candidates", list(Integer)),
                 field("pregnancy", nullable(Ref("PregnancyShown"))),
+                field("traits", Ref("Traits")),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),
@@ -239,6 +240,16 @@ pub fn descriptor() -> Vec<Named> {
                 field("pregnant", Bool),
                 field("shown", Ref("Shown")),
                 field("looks", Ref("Looks")),
+                field("traits", Ref("Traits")),
+            ],
+        },
+        Named {
+            name: "Traits",
+            doc: "A person's traits in steps from the core: 0 none, 1 to 3 up, -1 to -3 down.",
+            fields: vec![
+                field("cognition", Integer),
+                field("strength", Integer),
+                field("beauty", Integer),
             ],
         },
         Named {
