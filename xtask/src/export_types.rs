@@ -209,6 +209,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("partner_candidates", list(Integer)),
                 field("pregnancy", nullable(Ref("PregnancyShown"))),
                 field("traits", Ref("Traits")),
+                field("origin", list(Kind::Map)),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),

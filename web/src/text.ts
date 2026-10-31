@@ -147,6 +147,7 @@ export const TEXT = {
   kin_with: "Verwandtschaft mit",
   kin_pick: "Person wählen",
   card: "Genetik",
+  card_more: "Genauer",
   assumptions: "Modellannahmen",
   card_growth: "Größe",
   card_cognition: "Kognition",

@@ -113,6 +113,7 @@ export type PersonAnswer = {
   readonly partner_candidates: number[];
   readonly pregnancy: PregnancyShown | null;
   readonly traits: Traits;
+  readonly origin: { readonly [key: string]: unknown }[];
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
   readonly ages: Age[];

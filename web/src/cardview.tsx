@@ -1,6 +1,7 @@
 import { heightLines, parentsMeanSentence, partRows, TRAIT_HEADINGS, traitSentence, type Sex } from "./card.js";
 import { copiesLines, DISEASES, diseaseName, skippedSentence, statusWord } from "./carddiseases.js";
 import type { GeneticsCard, TraitCard } from "./generated/export.js";
+import { originSentence } from "./origin.js";
 import { bar } from "./render/bar.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
@@ -36,23 +37,25 @@ function Parts({ row }: { row: TraitCard }) {
   );
 }
 
-/** A trait of the card: its heading, for the height the lines in cm around the sentence. */
+/** Whether a line in cm is the parents' target height, which the card keeps under "Genauer"
+ * (Grok's round 45, H6). */
+const isTarget = (line: string) => line.startsWith(TEXT.card_parents_target);
+
+/** A trait of the card under "Genauer": its heading, the sentence of its percentile, for the
+ * height the parents' target. */
 function Trait({ row, card, sex, nowCm }: { row: TraitCard; card: GeneticsCard; sex: Sex; nowCm: number }) {
   const heading = TRAIT_HEADINGS[row.trait];
   const sentence = traitSentence(row, sex);
   if (heading === undefined || sentence === null) {
     return null;
   }
-  const lines = row.trait === "core:growth" && card.height !== null ? heightLines(card.height, nowCm) : [];
+  const lines = row.trait === "core:growth" && card.height !== null ? heightLines(card.height, nowCm).filter(isTarget) : [];
   const mean = parentsMeanSentence(row);
   return (
     <div>
       <h3>{heading}</h3>
-      {lines.slice(0, 1).map((line) => (
-        <p key={line}>{line}</p>
-      ))}
       <p>{sentence}</p>
-      {lines.slice(1).map((line) => (
+      {lines.map((line) => (
         <p key={line}>{line}</p>
       ))}
       {mean === null ? null : <p>{mean}</p>}
@@ -89,29 +92,64 @@ function Diseases({ card, sex }: { card: GeneticsCard; sex: Sex }) {
   );
 }
 
-/** The genetics card of a person, as far as the core sends it (ADR-0021 section 5); `names`
- * gives the grandparents of a skipped copy their names. */
+/** The locus a copy line of the origin speaks of. */
+const COPY_LOCI: { readonly [kind: string]: string } = { red_copies: "core:mc1r", blue_copies: "core:herc2" };
+
+/** The genetics card of a person, as far as the core sends it (ADR-0021 section 5): open the
+ * sentences of where looks and traits come from (Grok's round 45), each copy line with the
+ * lines "übersprungen" of its locus beneath, and the heights in cm; folded the percentiles
+ * and their parts ("Genauer") and the hereditary diseases. `names` gives the grandparents of
+ * a skipped copy their names. */
 export function CardView({
   card,
+  origin,
   sex,
   nowCm,
   names,
 }: {
   card: GeneticsCard;
+  origin: readonly { readonly [key: string]: unknown }[];
   sex: Sex;
   nowCm: number;
   names: ReadonlyMap<number, string>;
 }) {
-  const skipped = card.skipped.map((line) => skippedSentence(line, names)).filter((line) => line !== null);
+  const skipped = card.skipped.flatMap((line) => {
+    const text = skippedSentence(line, names);
+    const locus = (line as { readonly locus?: unknown }).locus;
+    return text === null ? [] : [{ text, locus: typeof locus === "string" ? locus : "" }];
+  });
+  const placed = new Set<string>();
+  const open = origin.flatMap((line, i) => {
+    const sentence = originSentence(line);
+    const own = sentence === null ? [] : [<p key={`o${i}`}>{sentence}</p>];
+    const locus = COPY_LOCI[String(line["kind"])];
+    const beneath = skipped
+      .filter((each) => locus !== undefined && each.locus === locus)
+      .map((each) => {
+        placed.add(each.text);
+        return <p key={each.text}>{each.text}</p>;
+      });
+    return [...own, ...beneath];
+  });
+  const heights = card.height === null ? [] : heightLines(card.height, nowCm).filter((line) => !isTarget(line));
   return (
     <section>
       <h2>{TEXT.card}</h2>
-      {card.traits.map((row) => (
-        <Trait key={row.trait} row={row} card={card} sex={sex} nowCm={nowCm} />
-      ))}
-      {skipped.map((line) => (
+      {open}
+      {heights.map((line) => (
         <p key={line}>{line}</p>
       ))}
+      <details>
+        <summary>{TEXT.card_more}</summary>
+        {card.traits.map((row) => (
+          <Trait key={row.trait} row={row} card={card} sex={sex} nowCm={nowCm} />
+        ))}
+        {skipped
+          .filter((each) => !placed.has(each.text))
+          .map((each) => (
+            <p key={each.text}>{each.text}</p>
+          ))}
+      </details>
       <Diseases card={card} sex={sex} />
       <p>
         <a href={format({ page: "assumptions" })}>{TEXT.assumptions}</a>

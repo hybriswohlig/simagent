@@ -383,6 +383,7 @@ pub fn person_answer(
         None => serde_json::Value::Null,
     };
     answer["traits"] = json(serde_json::to_value(world.traits(sim)))?;
+    answer["origin"] = json(serde_json::to_value(world.origin(sim)))?;
     answer["ages"] = json(serde_json::to_value(world.ages()))?;
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;

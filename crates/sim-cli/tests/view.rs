@@ -957,6 +957,18 @@ fn a_person_is_the_cores_presentation_state() {
             "traits".into(),
             serde_json::to_value(world.traits(id)).expect("JSON"),
         );
+        // The origin: hair, eyes (each maybe with its copies) and skin always lead.
+        let origin = world.origin(id).expect("an origin");
+        let kinds: Vec<String> = serde_json::to_value(&origin)
+            .expect("JSON")
+            .as_array()
+            .expect("lines")
+            .iter()
+            .map(|line| line["kind"].as_str().expect("a kind").to_owned())
+            .filter(|kind| !kind.ends_with("_copies"))
+            .collect();
+        assert_eq!(kinds[..3], ["hair", "eyes", "skin"], "{sim}");
+        fields.insert("origin".into(), serde_json::to_value(origin).expect("JSON"));
         assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");

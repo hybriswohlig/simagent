@@ -237,6 +237,29 @@ impl Genome {
         }))
     }
 
+    /// The genetic value of trait `t` split by the gametes (Grok's rounds 43, R3, and 45): the
+    /// part from the mother's copies and the part from the father's, each copy taking half of
+    /// `d_ref` and each half of `mean_ref`; their sum is `G` up to rounding. `None` if the
+    /// map has no such trait or one of its loci is not on an autosome.
+    pub fn gamete_values(&self, t: &DataId, data: &Data) -> Option<(f64, f64)> {
+        let (terms, sigma, mean) = data.trait_terms(t)?;
+        let (mut mother, mut father) = (0.0, 0.0);
+        for term in terms {
+            let locus = data
+                .genome_map()
+                .loci
+                .get(term.locus)
+                .unwrap_or_else(|| panic!("invariant genome.term_locus"));
+            let [m, p] = self.copies(locus)[..] else {
+                return None;
+            };
+            mother += term.coefficient * (f64::from(m) - term.d_ref / 2.0);
+            father += term.coefficient * (f64::from(p) - term.d_ref / 2.0);
+        }
+        let half = mean.map_or(0.0, |mean| mean / 2.0);
+        Some(((mother - half) / sigma, (father - half) / sigma))
+    }
+
     pub(crate) fn set_copies(&mut self, locus: &Locus, copies: &[u8]) {
         let (segment, slot) = (locus.segment, locus.slot);
         match (locus.chromosome, &mut self.paternal_sex, copies) {

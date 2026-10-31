@@ -419,6 +419,7 @@ export function PersonPage({ run, sim }: { run: string; sim: string }) {
           <FamilyView run={run} pedigree={pedigree} person={person} at={String(changed)} ages={view.value.at_ages} />
           <CardView
             card={view.value.card}
+            origin={view.value.origin}
             sex={person.sex}
             nowCm={view.value.shown.body.height_cm}
             names={namesOf(pedigree)}

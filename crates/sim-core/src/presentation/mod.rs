@@ -8,6 +8,7 @@ pub mod card;
 pub mod kin;
 pub mod looks;
 pub mod names;
+pub mod origin;
 pub mod partners;
 pub mod traits;
 
