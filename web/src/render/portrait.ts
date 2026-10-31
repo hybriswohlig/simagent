@@ -89,13 +89,29 @@ export function bust(params: BodyParams): Shape[] {
   const browUp = 0.06 * ry * f(7);
   const browWidth = 1.3 * (1 + 0.15 * f(7));
   const mouthY = cy + ry * 0.48 + lower;
-  // The outline holds the features at every end of the axes: the crown at least 0.1 ry above
-  // the brows, the chin at least 0.18 ry below the mouth.
-  const browTop = eyeY - 5.2 - browUp - browWidth / 2;
-  const ryTop = Math.max(ry * (1 + 0.07 * f(1)), cy - browTop + 0.1 * ry);
-  const ryBottom = Math.max(ryTop + 0.08 * ry * f(3), mouthY - cy + 0.18 * ry);
-  const rxCheek = rx * (1 + 0.06 * f(4));
+  const eye = 1 + 0.12 * f(5);
+  const eyeX = Math.max(rx * (0.38 + 0.04 * f(6)), 3.4 * eye + 0.6);
+  const mouthHalf = rx * 0.24 * (1 + 0.12 * f(11));
   const jaw = 1 + 0.08 * f(2);
+  // The outline holds the features at every end of the axes: each end of a brow, each eye's
+  // sides and top, each corner of the mouth lies inside the ellipse of its half (the lower
+  // one as narrow as the jaw) scaled by 0.85; where it would not, the cheeks, the crown or
+  // the chin give way.
+  const held: [number, number][] = [];
+  for (const side of [-1, 1]) {
+    const x = side * eyeX;
+    held.push([x - 3.6, eyeY - 4.6 - browUp - browWidth / 2], [x + 3.6, eyeY - 5.2 - browUp - browWidth / 2]);
+    held.push([x - 3.4 * eye, eyeY], [x + 3.4 * eye, eyeY], [x, eyeY - 2.2 * eye]);
+    held.push([side * mouthHalf, mouthY]);
+  }
+  const narrow = (y: number) => (y > cy ? Math.min(1, jaw) : 1);
+  const rxCheek = Math.max(rx * (1 + 0.06 * f(4)), ...held.map(([x, y]) => Math.abs(x) / 0.8 / narrow(y)));
+  const tall = (above: boolean) =>
+    held
+      .filter(([, y]) => (y <= cy) === above)
+      .map(([x, y]) => Math.abs(y - cy) / Math.sqrt(0.85 - (Math.abs(x) / (rxCheek * narrow(y))) ** 2));
+  const ryTop = Math.max(ry * (1 + 0.07 * f(1)), ...tall(true));
+  const ryBottom = Math.max(ryTop + 0.08 * ry * f(3), ...tall(false));
   const chin = cy + ryBottom;
   const k = 0.5523;
   const outline =
@@ -156,8 +172,6 @@ export function bust(params: BodyParams): Shape[] {
   }
 
   // The eyes, the brows, the nose, the mouth; the eyes' inner edges stay 1.2 apart.
-  const eye = 1 + 0.12 * f(5);
-  const eyeX = Math.max(rx * (0.38 + 0.04 * f(6)), 3.4 * eye + 0.6);
   for (const side of [-1, 1]) {
     const x = cx + side * eyeX;
     shapes.push({ kind: "ellipse", part: "sclera", cx: x, cy: eyeY, rx: 3.4 * eye, ry: 2.2 * eye, fill: "#f4f1ec", opacity: 1 });
@@ -176,7 +190,6 @@ export function bust(params: BodyParams): Shape[] {
     kind: "path", part: "nose", fill: "none", stroke: mixColor(skin, "#5a2a2a", 0.35), width: 0.7, opacity: 1,
     d: `M ${cx} ${noseTop} L ${cx - noseHalf * 0.3} ${noseBase} M ${cx - noseHalf} ${noseBase} Q ${cx} ${noseBase + 1.2} ${cx + noseHalf} ${noseBase}`,
   });
-  const mouthHalf = rx * 0.24 * (1 + 0.12 * f(11));
   shapes.push({
     kind: "line", part: "mouth", x1: cx - mouthHalf, y1: mouthY, x2: cx + mouthHalf, y2: mouthY,
     stroke: feature, width: Math.max(0.3, 1.1 * (1 + 0.35 * f(10))), opacity: 1,

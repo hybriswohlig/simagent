@@ -269,17 +269,58 @@ test("a wider jaw puts the chin's two control points wider apart (02)", () => {
   assert.ok(chinRow(2) > chinRow(0) && chinRow(0) > chinRow(-2));
 });
 
-test("at the ends of every axis the head still holds brows, nose and mouth", () => {
-  for (const f1 of [-4, 4]) for (const f3 of [-4, 4]) for (const f7 of [-4, 4]) for (const f8 of [-4, 4]) for (const f12 of [-4, 4]) {
-    const shapes = bust(params({ face_axis_01: f1, face_axis_03: f3, face_axis_07: f7, face_axis_08: f8, face_axis_12: f12 }));
-    const head = extent(one(shapes, "head"));
-    const mouth = one(shapes, "mouth");
-    const nose = extent(one(shapes, "nose"));
-    const label = `01 ${f1}, 03 ${f3}, 07 ${f7}, 08 ${f8}, 12 ${f12}`;
-    assert.ok(mouth.y1 < head.bottom - 1, `mouth inside: ${label}`);
-    for (const brow of parts(shapes, "brow")) {
-      assert.ok(Math.min(brow.y1, brow.y2) > head.top + 1, `brows inside: ${label}`);
+/** The outline of a path of cubic segments as a polygon, 40 points per segment. */
+function polygon(d) {
+  const numbers = d.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+  let [x, y] = numbers;
+  const points = [];
+  for (let i = 2; i + 5 < numbers.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = numbers.slice(i, i + 6);
+    for (let n = 0; n < 40; n += 1) {
+      const t = n / 40;
+      const u = 1 - t;
+      points.push([
+        u * u * u * x + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+        u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+      ]);
     }
-    assert.ok(nose.bottom < mouth.y1, `nose above the mouth: ${label}`);
+    [x, y] = [x3, y3];
+  }
+  return points;
+}
+
+/** Whether `[px, py]` lies inside the polygon (even-odd rule). */
+function inside(points, [px, py]) {
+  let odd = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      odd = !odd;
+    }
+  }
+  return odd;
+}
+
+test("at the ends of every axis the head holds brows, eyes, nose and mouth", () => {
+  const ends = [-4, 4];
+  const axes = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12];
+  for (let pick = 0; pick < 1 << axes.length; pick += 1) {
+    const set = Object.fromEntries(axes.map((n, i) => [`face_axis_${String(n).padStart(2, "0")}`, ends[(pick >> i) & 1]]));
+    const shapes = bust(params(set));
+    const outline = polygon(one(shapes, "head").d);
+    const mouth = one(shapes, "mouth");
+    const label = JSON.stringify(set);
+    const held = [[mouth.x1, mouth.y1], [mouth.x2, mouth.y2]];
+    for (const brow of parts(shapes, "brow")) {
+      held.push([brow.x1, brow.y1 - brow.width / 2], [brow.x2, brow.y2 - brow.width / 2]);
+    }
+    for (const eye of parts(shapes, "sclera")) {
+      held.push([eye.cx - eye.rx, eye.cy], [eye.cx + eye.rx, eye.cy], [eye.cx, eye.cy - eye.ry]);
+    }
+    for (const point of held) {
+      assert.ok(inside(outline, point), `${point} outside: ${label}`);
+    }
+    assert.ok(extent(one(shapes, "nose")).bottom < mouth.y1, `nose above the mouth: ${label}`);
   }
 });
