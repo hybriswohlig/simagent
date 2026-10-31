@@ -16,9 +16,11 @@ use crate::data_id::DataId;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::ids::SimId;
+use crate::input::ArrangePartnership;
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::phenotype::{Environment, Parents, phenotype_parts};
 use crate::rng::{Draws, WorldSeed};
+use crate::state::partnership::check_arrange;
 use crate::time::{SimDuration, SimTime, YEAR};
 use crate::world::World;
 
@@ -41,19 +43,21 @@ fn years(n: i64) -> SimDuration {
 }
 
 impl World {
-    /// The four possible children of `mother` and `father` (a woman and a man of the run,
-    /// living or archived); `None` if either is unknown, the sexes do not fit, the world has
-    /// not started or the data has no body.
+    /// The four possible children of `mother` and `father`; `None` unless an
+    /// `ArrangePartnership` of the two would be accepted now (Grok's round 44, K7: only the
+    /// candidates of a pairing), or if the data has no body.
     pub fn preview_children(&self, mother: SimId, father: SimId) -> Option<Vec<PreviewChild>> {
         let state = self.state();
         let domain = state.domain();
         let data = state.data();
         let now = self.closed_through();
+        let pair = ArrangePartnership {
+            woman: mother,
+            man: father,
+        };
+        check_arrange(domain, data, now, &pair).ok()?;
         let (_, _, her, her_key) = facts(domain, now, mother)?;
         let (_, _, his, his_key) = facts(domain, now, father)?;
-        if her.sex() != Sex::Female || his.sex() != Sex::Male {
-            return None;
-        }
         let body = BodyData::new(data).ok()?;
         let draws = Draws::new(WorldSeed::new(domain.world_seed?));
         let none = Draws::new(WorldSeed::new(0));

@@ -449,12 +449,25 @@ fn server_answers(
         .ok_or("the town has no pregnant woman")?;
     answers.push(("PeopleAnswer", people));
     let path = format!("/api/runs/town/persons/{pregnant}");
-    let pregnant_answer = get(port, &path)?;
-    // The possible children of the pregnant woman and her first partner on offer, or of her
-    // and any man of the town: the preview needs only a woman and a man.
-    let man = (people_men(&pregnant_answer)).ok_or("the town has no man to show children with")?;
-    answers.push(("PersonAnswer", pregnant_answer));
-    let path = format!("/api/runs/town/children/{pregnant}/{man}");
+    answers.push(("PersonAnswer", get(port, &path)?));
+    // The possible children of the first living woman with a partner on offer and that
+    // partner: only a pair the pairing would accept has them.
+    let mut couple = None;
+    for woman in persons
+        .iter()
+        .filter(|p| p["sex"] == "female" && p["died"].is_null() && p["emigrated"].is_null())
+    {
+        let sim = woman["sim"].as_u64().ok_or("a person without a sim")?;
+        let answer = get(port, &format!("/api/runs/town/persons/{sim}"))?;
+        if let Some(man) =
+            (answer["partner_candidates"].as_array()).and_then(|offered| offered.first()?.as_u64())
+        {
+            couple = Some((sim, man));
+            break;
+        }
+    }
+    let (mother, father) = couple.ok_or("the town has no woman with a partner on offer")?;
+    let path = format!("/api/runs/town/children/{mother}/{father}");
     answers.push(("ChildrenAnswer", get(port, &path)?));
     // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
     answers.push(("SheetAnswer", get(port, "/api/sheet")?));
@@ -633,12 +646,6 @@ impl Drop for Running {
 /// ADR-0021 section 4: `web/src/generated/export.ts` is the descriptor's, and the
 /// descriptor fits real output: the pedigree and the manifest of the coverage scenario and
 /// the manifest of a fork of it, keys both ways and kinds recursive, every case shown.
-/// A man among the ages of a person answer whose partner candidates name him first, or the
-/// first candidate at all.
-fn people_men(answer: &serde_json::Value) -> Option<u64> {
-    answer["partner_candidates"].as_array()?.first()?.as_u64()
-}
-
 fn check_export_types(root: &Path) -> Result {
     let types = export_types::descriptor();
     let checked_in = read(&root.join(export_types::GENERATED_EXPORT_TS))?;

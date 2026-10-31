@@ -42,7 +42,8 @@ impl LineageKey {
     }
 
     /// A hypothetical child of a couple, shown before a pairing (Grok's round 44, K1):
-    /// `index` from 0 to 3. No person of a run ever has this key.
+    /// `index` from 0 to 3, absorbed in a domain of its own, apart from the domains of the
+    /// run's persons. The key is never given to a person of the run.
     pub fn preview(mother: LineageKey, father: LineageKey, index: u64) -> LineageKey {
         LineageKey(absorb(PREVIEW, 0, &[mother.0, father.0, index]))
     }

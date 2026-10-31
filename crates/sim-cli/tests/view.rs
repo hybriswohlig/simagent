@@ -1071,37 +1071,36 @@ fn the_people_are_the_living_with_their_looks() {
 }
 
 /// The possible children of a couple (Grok's round 44): two daughters and two sons from the
-/// core, the same on every request, and asking changes nothing; a man as the mother or an
-/// unknown sim has none.
+/// core, the same on every request, and asking changes nothing. Only a pair the core would
+/// pair now has them (K7). By hand from the dummy run's golden pedigree, as in
+/// `a_person_with_its_kinship_to_another`: sim 8, the one living woman, may pair with sim 4
+/// alone; her father 2, her brother 10 and her son 13 are refused, sim 1 died, and a man as
+/// the mother or an unknown sim has none either.
 #[test]
 fn a_couple_shows_four_possible_children() {
-    let (runs, web) = long_fixture("children");
+    let (runs, web) = fixture("children");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
+        .args(["--out".as_ref(), runs.join("dummy").as_os_str()])
+        .stdout(Stdio::null())
+        .status()
+        .expect("runs");
+    assert!(status.success());
     let server = start(&runs, &web);
-    let save = fs::read(runs.join("long/state.save")).expect("the save");
+    let save = fs::read(runs.join("dummy/state.save")).expect("the save");
     let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
         .expect("loads");
-    let pedigree: Value =
-        serde_json::from_slice(&fs::read(runs.join("long/pedigree.json")).expect("read"))
-            .expect("JSON");
-    let first = |sex: &str| {
-        (pedigree["persons"].as_array().expect("persons").iter())
-            .find(|p| p["sex"] == sex && p["died"].is_null() && p["emigrated"].is_null())
-            .and_then(|p| p["sim"].as_u64())
-            .expect("a living person")
-    };
-    let (mother, father) = (first("female"), first("male"));
     let before = world.state_hash();
-    let path = format!("/api/runs/long/children/{mother}/{father}");
-    let (status, head, body) = get(server.port, &path);
+    let path = "/api/runs/dummy/children/8/4";
+    let (status, head, body) = get(server.port, path);
     assert_eq!(status, 200);
     assert!(head.contains("\r\nContent-Type: application/json\r\n"));
     let answer = json_of(&body);
     assert_eq!(answer["format"], "simagent.view.children");
     assert_eq!(answer["version"], 1);
     let id = |sim: u64| sim_core::ids::SimId::try_from(sim).expect("an id");
-    let expected = world
-        .preview_children(id(mother), id(father))
-        .expect("children");
+    let expected = world.preview_children(id(8), id(4)).expect("children");
     assert_eq!(
         answer["children"],
         serde_json::to_value(&expected).expect("JSON")
@@ -1110,19 +1109,27 @@ fn a_couple_shows_four_possible_children() {
         .map(|child| child["sex"].as_str().expect("a sex"))
         .collect();
     assert_eq!(sexes, ["female", "female", "male", "male"]);
-    assert_eq!(json_of(&get(server.port, &path).2), answer);
+    assert_eq!(json_of(&get(server.port, path).2), answer);
     assert_eq!(world.state_hash(), before);
-    for path in [
-        format!("/api/runs/long/children/{father}/{mother}"),
-        format!("/api/runs/long/children/{mother}/99999"),
-        format!("/api/runs/long/children/x/{father}"),
+    for (mother, father) in [
+        ("4", "8"),
+        ("8", "99999"),
+        ("x", "4"),
+        ("8", "2"),
+        ("8", "10"),
+        ("8", "13"),
+        ("1", "4"),
     ] {
+        let path = format!("/api/runs/dummy/children/{mother}/{father}");
         let (status, _, body) = get(server.port, &path);
         assert_eq!(
             (status, code_of(&body)),
             (404, "no_children".to_owned()),
             "{path}"
         );
+    }
+    for (mother, father) in [(8, 2), (8, 10), (8, 13), (1, 4)] {
+        assert_eq!(world.preview_children(id(mother), id(father)), None);
     }
 }
 
