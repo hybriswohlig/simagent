@@ -71,6 +71,8 @@ pub(crate) const RANK: u64 = u64::from_le_bytes(*b"sa.rank1");
 pub(crate) const CHILD: u64 = u64::from_le_bytes(*b"sa.chld1");
 pub(crate) const FOUNDER: u64 = u64::from_le_bytes(*b"sa.fndr1");
 pub(crate) const IMMIGRANT: u64 = u64::from_le_bytes(*b"sa.immi1");
+/// The hypothetical children of a couple a pairing shows (Grok's round 44, K1).
+pub(crate) const PREVIEW: u64 = u64::from_le_bytes(*b"sa.prev1");
 
 /// The SplitMix64 finaliser. `wrapping_mul`: overflow checks are on in release too.
 pub(crate) const fn mix64(z: u64) -> u64 {

@@ -6,7 +6,7 @@ mod common;
 
 use serde_json::{Value, json};
 use sim_core::genome::meiosis::Zygote;
-use sim_core::genome::{Genome, SexChromosome, Strand};
+use sim_core::genome::{Genome, Sex, SexChromosome, Strand};
 use sim_core::lineage::GenomeKey;
 use sim_core::rng::{Draws, WorldSeed};
 
@@ -51,6 +51,36 @@ fn genome(person: &Value) -> Genome {
         "mt": bits(&person["mt"]),
     }))
     .expect("a genome")
+}
+
+/// A child with its sex given (Grok's round 44, K2) is the drawn child but for the father's
+/// sex chromosome: with the drawn sex it is the same zygote, with the other sex the same
+/// autosomes, the same X from the mother and the same mitochondria.
+#[test]
+fn a_child_of_a_given_sex_is_the_drawn_child_but_for_the_fathers_sex_chromosome() {
+    let vectors: Value = serde_json::from_str(VECTORS).expect("json");
+    let data = common::data();
+    for case in vectors["cases"].as_array().expect("cases") {
+        let seed = case["seed"].as_u64().expect("seed");
+        let key: GenomeKey = serde_json::from_value(case["genome_key"].clone()).expect("key");
+        let draws = Draws::new(WorldSeed::new(seed));
+        let (mother, father) = (genome(&case["mother"]), genome(&case["father"]));
+        let drawn = Zygote::of(&draws, &data, key, &mother, &father);
+        let sex = drawn.genome.sex();
+        assert_eq!(
+            Zygote::with_sex(&draws, &data, key, &mother, &father, sex),
+            drawn
+        );
+        let other = if sex == Sex::Female {
+            Sex::Male
+        } else {
+            Sex::Female
+        };
+        let given = Zygote::with_sex(&draws, &data, key, &mother, &father, other);
+        assert_eq!(given.genome.sex(), other);
+        assert_eq!(given.mother, drawn.mother);
+        assert_eq!(given.father.segments, drawn.father.segments);
+    }
 }
 
 #[test]

@@ -450,6 +450,25 @@ fn server_answers(
     answers.push(("PeopleAnswer", people));
     let path = format!("/api/runs/town/persons/{pregnant}");
     answers.push(("PersonAnswer", get(port, &path)?));
+    // The possible children of the first living woman with a partner on offer and that
+    // partner: only a pair the pairing would accept has them.
+    let mut couple = None;
+    for woman in persons
+        .iter()
+        .filter(|p| p["sex"] == "female" && p["died"].is_null() && p["emigrated"].is_null())
+    {
+        let sim = woman["sim"].as_u64().ok_or("a person without a sim")?;
+        let answer = get(port, &format!("/api/runs/town/persons/{sim}"))?;
+        if let Some(man) =
+            (answer["partner_candidates"].as_array()).and_then(|offered| offered.first()?.as_u64())
+        {
+            couple = Some((sim, man));
+            break;
+        }
+    }
+    let (mother, father) = couple.ok_or("the town has no woman with a partner on offer")?;
+    let path = format!("/api/runs/town/children/{mother}/{father}");
+    answers.push(("ChildrenAnswer", get(port, &path)?));
     // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
     answers.push(("SheetAnswer", get(port, "/api/sheet")?));
     // A kinship without a foster word (the living person to the dead one), and one with:

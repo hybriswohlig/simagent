@@ -957,6 +957,18 @@ fn a_person_is_the_cores_presentation_state() {
             "traits".into(),
             serde_json::to_value(world.traits(id)).expect("JSON"),
         );
+        // The origin: hair, eyes (each maybe with its copies) and skin always lead.
+        let origin = world.origin(id).expect("an origin");
+        let kinds: Vec<String> = serde_json::to_value(&origin)
+            .expect("JSON")
+            .as_array()
+            .expect("lines")
+            .iter()
+            .map(|line| line["kind"].as_str().expect("a kind").to_owned())
+            .filter(|kind| !kind.ends_with("_copies"))
+            .collect();
+        assert_eq!(kinds[..3], ["hair", "eyes", "skin"], "{sim}");
+        fields.insert("origin".into(), serde_json::to_value(origin).expect("JSON"));
         assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -1056,6 +1068,69 @@ fn the_people_are_the_living_with_their_looks() {
     assert_eq!((status, code_of(&body)), (404, "unknown_run".to_owned()));
     let (status, _, body) = get(server.port, "/api/runs/fork.b/people");
     assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
+}
+
+/// The possible children of a couple (Grok's round 44): two daughters and two sons from the
+/// core, the same on every request, and asking changes nothing. Only a pair the core would
+/// pair now has them (K7). By hand from the dummy run's golden pedigree, as in
+/// `a_person_with_its_kinship_to_another`: sim 8, the one living woman, may pair with sim 4
+/// alone; her father 2, her brother 10 and her son 13 are refused, sim 1 died, and a man as
+/// the mother or an unknown sim has none either.
+#[test]
+fn a_couple_shows_four_possible_children() {
+    let (runs, web) = fixture("children");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
+        .args(["--out".as_ref(), runs.join("dummy").as_os_str()])
+        .stdout(Stdio::null())
+        .status()
+        .expect("runs");
+    assert!(status.success());
+    let server = start(&runs, &web);
+    let save = fs::read(runs.join("dummy/state.save")).expect("the save");
+    let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
+        .expect("loads");
+    let before = world.state_hash();
+    let path = "/api/runs/dummy/children/8/4";
+    let (status, head, body) = get(server.port, path);
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    let answer = json_of(&body);
+    assert_eq!(answer["format"], "simagent.view.children");
+    assert_eq!(answer["version"], 1);
+    let id = |sim: u64| sim_core::ids::SimId::try_from(sim).expect("an id");
+    let expected = world.preview_children(id(8), id(4)).expect("children");
+    assert_eq!(
+        answer["children"],
+        serde_json::to_value(&expected).expect("JSON")
+    );
+    let sexes: Vec<&str> = (answer["children"].as_array().expect("children").iter())
+        .map(|child| child["sex"].as_str().expect("a sex"))
+        .collect();
+    assert_eq!(sexes, ["female", "female", "male", "male"]);
+    assert_eq!(json_of(&get(server.port, path).2), answer);
+    assert_eq!(world.state_hash(), before);
+    for (mother, father) in [
+        ("4", "8"),
+        ("8", "99999"),
+        ("x", "4"),
+        ("8", "2"),
+        ("8", "10"),
+        ("8", "13"),
+        ("1", "4"),
+    ] {
+        let path = format!("/api/runs/dummy/children/{mother}/{father}");
+        let (status, _, body) = get(server.port, &path);
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "no_children".to_owned()),
+            "{path}"
+        );
+    }
+    for (mother, father) in [(8, 2), (8, 10), (8, 13), (1, 4)] {
+        assert_eq!(world.preview_children(id(mother), id(father)), None);
+    }
 }
 
 /// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section

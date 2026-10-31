@@ -117,6 +117,44 @@ fn ordered() -> Data {
 /// ADR-0008 section 3: the fold runs left to right, own loci in map order, then each
 /// included trait in the order of its ID, its loci in map order. Any other order gives
 /// other bits here: `1e17 + 1` rounds to `1e17`.
+/// The split by gametes (Grok's rounds 43, R3, and 45): each copy takes half of `d_ref`, the
+/// parts are over the same sigma, and their sum is `G`.
+#[test]
+fn the_genetic_value_splits_into_the_mothers_and_the_fathers_copy() {
+    let data = fixture();
+    let genome = woman(
+        &data,
+        &[
+            ("test:g1", 2),
+            ("test:g2", 0),
+            ("test:f1", 1),
+            ("test:p1", 1),
+        ],
+    );
+    let split = |t: &str| genome.gamete_values(&id(t), &data).expect("a trait");
+    // Growth: each side (1 · 0.5) · (1 − 0.625) + (2 · 0.125) · (0 − 0.25) = 0.125, over 2.
+    assert_eq!(split("test:growth"), (0.0625, 0.0625));
+    // Pigment: the mother's copy carries the allele, d_ref 0: (1, 0) over 0.75.
+    assert_eq!(split("test:pigment"), (1.0 / 0.75, 0.0));
+    // Face: own locus with the mother's copy, (0.75 · (1 − 0.5)) and growth with weight 0.25
+    // inside, folded in order, over 1.5; the father's side without the own copy.
+    let (mother, father) = split("test:face");
+    assert_eq!(
+        mother,
+        ((0.75 * 0.5 + 0.25 * 0.5 * 0.375) + (0.25 * 2.0 * 0.125) * -0.25) / 1.5
+    );
+    assert_eq!(
+        father,
+        ((0.75 * -0.5 + 0.25 * 0.5 * 0.375) + (0.25 * 2.0 * 0.125) * -0.25) / 1.5
+    );
+    for t in ["test:growth", "test:mood", "test:face", "test:pigment"] {
+        let (a, b) = split(t);
+        let g = genome.genetic_value(&id(t), &data).expect("a trait");
+        assert!((a + b - g).abs() < 1e-12, "{t}: {a} + {b} against {g}");
+    }
+    assert_eq!(genome.gamete_values(&id("test:other"), &data), None);
+}
+
 #[test]
 fn the_fold_runs_in_the_order_of_the_specification() {
     let data = ordered();

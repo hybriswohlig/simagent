@@ -10,7 +10,9 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use sim_math::dist;
 
-use super::{Autosomes, Genome, Mitochondria, PaternalSex, SexChromosome, Strand, XChromosome};
+use super::{
+    Autosomes, Genome, Mitochondria, PaternalSex, Sex, SexChromosome, Strand, XChromosome,
+};
 use crate::data::{
     AUTOSOME_SEGMENTS, AUTOSOME_SLOTS, Chromosome, Data, Genetics, Locus, Mark, Morgans,
     MutationDirection, X_SLOTS,
@@ -314,6 +316,29 @@ impl Zygote {
         mother: &Genome,
         father: &Genome,
     ) -> Zygote {
+        Zygote::made(seed, data, genome, (mother, father), None)
+    }
+
+    /// The child of `mother` and `father` with the sex `sex` instead of the father's draw
+    /// (a hypothetical child, Grok's round 44, K2): a daughter has his X, a son his Y.
+    pub fn with_sex(
+        seed: &Draws,
+        data: &Data,
+        genome: GenomeKey,
+        mother: &Genome,
+        father: &Genome,
+        sex: Sex,
+    ) -> Zygote {
+        Zygote::made(seed, data, genome, (mother, father), Some(sex))
+    }
+
+    fn made(
+        seed: &Draws,
+        data: &Data,
+        genome: GenomeKey,
+        (mother, father): (&Genome, &Genome),
+        sex: Option<Sex>,
+    ) -> Zygote {
         let genetics = data.genetics();
         let PaternalSex::X(her_paternal_x) = mother.paternal_sex else {
             panic!("invariant meiosis.mother_sex");
@@ -356,7 +381,11 @@ impl Zygote {
         // The father passes his Y with `p_Y = r / (1 + r)` of the sex ratio at birth `r`
         // (specification 2.3 and 11.3, W11.3d; 21/41 for 1.05), his X otherwise.
         let r = genetics.sex_ratio_at_birth;
-        let (paternal_sex, sex_chromosome) = if seed.bernoulli(sex_key(genome), r / (1.0 + r)) {
+        let son = match sex {
+            Some(sex) => sex == Sex::Male,
+            None => seed.bernoulli(sex_key(genome), r / (1.0 + r)),
+        };
+        let (paternal_sex, sex_chromosome) = if son {
             (PaternalSex::Y(his_y), SexChromosome::Y)
         } else {
             (PaternalSex::X(father.maternal_x), SexChromosome::X)

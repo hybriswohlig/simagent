@@ -49,7 +49,12 @@ pub(crate) fn nutrition_of(
 
 /// The biological age `b` of a person of this sex and genome at the calendar age `age`
 /// (7.4): `Δ` from its value of the longevity trait (7.2).
-fn bio_age(data: &Data, sex: Sex, genome: &crate::genome::Genome, age: SimDuration) -> f64 {
+pub(crate) fn bio_age(
+    data: &Data,
+    sex: Sex,
+    genome: &crate::genome::Genome,
+    age: SimDuration,
+) -> f64 {
     let genetics = data.genetics();
     let gompertz = match sex {
         Sex::Female => genetics.senescence_female,

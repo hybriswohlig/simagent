@@ -9,7 +9,7 @@ use alloc::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::{DataId, str_key};
-use crate::rng::{CHILD, FOUNDER, IMMIGRANT, absorb};
+use crate::rng::{CHILD, FOUNDER, IMMIGRANT, PREVIEW, absorb};
 
 /// The key of one person across forks. In JSON 16 hex digits, in postcard the plain
 /// u64 (ADR-0004 section 3). Reading a saved key is the only way to get one that was
@@ -39,6 +39,13 @@ impl LineageKey {
             0,
             &[mother.0, father.0, conception_number, multiple_index],
         ))
+    }
+
+    /// A hypothetical child of a couple, shown before a pairing (Grok's round 44, K1):
+    /// `index` from 0 to 3, absorbed in a domain of its own, apart from the domains of the
+    /// run's persons. The key is never given to a person of the run.
+    pub fn preview(mother: LineageKey, father: LineageKey, index: u64) -> LineageKey {
+        LineageKey(absorb(PREVIEW, 0, &[mother.0, father.0, index]))
     }
 
     /// An immigrant (provisional until the ADR on immigration): the year of arrival and

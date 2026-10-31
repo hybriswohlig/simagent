@@ -209,6 +209,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("partner_candidates", list(Integer)),
                 field("pregnancy", nullable(Ref("PregnancyShown"))),
                 field("traits", Ref("Traits")),
+                field("origin", list(Kind::Map)),
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),
@@ -222,6 +223,26 @@ pub fn descriptor() -> Vec<Named> {
                 field("version", Integer),
                 field("contract_version", Text),
                 field("people", list(Ref("PeopleEntry"))),
+            ],
+        },
+        Named {
+            name: "ChildrenAnswer",
+            doc: "`GET /api/runs/{run}/children/{mother}/{father}`: four possible children of the couple from the core, two daughters and two sons, each with its body at 25 without environment, its looks and its traits.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.children"])),
+                field("version", Integer),
+                field("contract_version", Text),
+                field("children", list(Ref("PreviewChild"))),
+            ],
+        },
+        Named {
+            name: "PreviewChild",
+            doc: "A possible child: its sex, its body at 25 without environment, its looks and traits.",
+            fields: vec![
+                field("sex", Kind::Literal(&["female", "male"])),
+                field("body", Kind::Body),
+                field("looks", Ref("Looks")),
+                field("traits", Ref("Traits")),
             ],
         },
         Named {
