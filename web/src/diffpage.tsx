@@ -178,14 +178,13 @@ function PinnedSide({ a, b, one, other }: { a: string; b: string; one: Pedigree;
     const person = pedigree.persons.find((each) => each.lineage_key === pinned.key);
     return { run, glass: person === undefined ? null : hourglass(pedigree, person.sim) };
   });
+  // A person in neither run keeps both columns, each saying so under its run (review).
   const center = columns.find((column) => column.glass !== null)?.glass?.center;
-  if (center === undefined) {
-    return <p>{TEXT.pinned_missing}</p>;
-  }
+  const name = center === undefined ? TEXT.unknown : fullName(center);
   const heading =
     pinned.from === null
-      ? TEXT.pinned_family.replace("{name}", fullName(center))
-      : TEXT.pinned_family_from.replace("{run}", pinned.from).replace("{name}", fullName(center));
+      ? TEXT.pinned_family.replace("{name}", name)
+      : TEXT.pinned_family_from.replace("{run}", pinned.from).replace("{name}", name);
   return (
     <>
       <h2>{heading}</h2>
