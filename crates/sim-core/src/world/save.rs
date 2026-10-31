@@ -242,6 +242,7 @@ impl World {
                 trace: TraceBuffer::default(),
                 data,
                 started: crate::state::start::persons_in(&exceptions.input_log),
+                bodies: core::cell::RefCell::default(),
             },
             inputs: InputLog {
                 next_seq: counter(next_input)?,

@@ -275,10 +275,35 @@ pub struct BodyInputs<'a> {
     pub herc2: u8,
 }
 
+impl BodyTraits {
+    /// The phenotypes of a person with the age 0 (their weights do not depend on age,
+    /// `BodyData::new` checked that), so the same all its life.
+    pub fn of_person(
+        body: &BodyData<'_>,
+        environment: Environment<'_>,
+        genome: &Genome,
+        own: LineageKey,
+        parents: Option<Parents>,
+    ) -> BodyTraits {
+        let data = body.data();
+        BodyTraits::from_values(body_traits().map(|t| {
+            phenotype(
+                environment,
+                data,
+                genome,
+                own,
+                parents,
+                &t,
+                SimDuration::ZERO,
+            )
+            .unwrap_or_else(|| panic!("invariant body.phenotype"))
+        }))
+    }
+}
+
 impl<'a> BodyInputs<'a> {
-    /// The inputs of a person: the sex from the genome, the phenotypes with the age 0 (their
-    /// weights do not depend on age, `BodyData::new` checked that), the doses of the two
-    /// pigment loci.
+    /// The inputs of a person: the sex from the genome, its traits (`BodyTraits::of_person`),
+    /// the doses of the two pigment loci.
     #[allow(clippy::too_many_arguments)]
     pub fn of_person(
         body: &BodyData<'_>,
@@ -291,19 +316,21 @@ impl<'a> BodyInputs<'a> {
         nutrition: &'a [NutritionYear],
         bio_age: f64,
     ) -> BodyInputs<'a> {
+        let z = BodyTraits::of_person(body, environment, genome, own, parents);
+        BodyInputs::with_traits(body, genome, z, born, age, nutrition, bio_age)
+    }
+
+    /// The inputs of a person whose traits `z` are known already.
+    pub(crate) fn with_traits(
+        body: &BodyData<'_>,
+        genome: &Genome,
+        z: BodyTraits,
+        born: SimTime,
+        age: SimDuration,
+        nutrition: &'a [NutritionYear],
+        bio_age: f64,
+    ) -> BodyInputs<'a> {
         let data = body.data();
-        let values = body_traits().map(|t| {
-            phenotype(
-                environment,
-                data,
-                genome,
-                own,
-                parents,
-                &t,
-                SimDuration::ZERO,
-            )
-            .unwrap_or_else(|| panic!("invariant body.phenotype"))
-        });
         let dose = |name: DataId| {
             if !body.pigment_loci {
                 return 0;
@@ -322,7 +349,7 @@ impl<'a> BodyInputs<'a> {
             bio_age,
             born,
             nutrition,
-            z: BodyTraits::from_values(values),
+            z,
             mc1r: dose(mc1r()),
             herc2: dose(herc2()),
         }
