@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { UnknownAnswer } from "../dist/api.js";
-import { HUNGERS, shockInput, switchInput, switchLabel, world } from "../dist/shocks.js";
+import { HUNGERS, shockInput, switchInput, switchLabel, switchState, world } from "../dist/shocks.js";
 
 test("a hunger button sends its template", () => {
   assert.deepEqual(
@@ -28,6 +28,8 @@ test("the switch button turns the switch the other way and says so", () => {
   );
   assert.equal(switchLabel(false), "Erbkrankheiten anschalten");
   assert.equal(switchLabel(true), "Erbkrankheiten ausschalten");
+  assert.equal(switchState(false), "Erbkrankheiten: ausgeschaltet");
+  assert.equal(switchState(true), "Erbkrankheiten: angeschaltet");
 });
 
 test("the switch, the hunger years and what a fork keeps come from the run's world", async () => {

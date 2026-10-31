@@ -26,6 +26,11 @@ export function switchLabel(on: boolean): string {
   return on ? TEXT.diseases_switch_off : TEXT.diseases_switch_on;
 }
 
+/** How the switch stands, on its fold (the genetics is about looks, not about defects). */
+export function switchState(on: boolean): string {
+  return on ? TEXT.diseases_state_on : TEXT.diseases_state_off;
+}
+
 /** The world of `run`: whether its hereditary diseases are on after its last input (the
  * addendum to ADR-0023 before S2), its hunger years and the switch a fork from each year
  * keeps (ADR-0021, addendum 2026-10-28). */

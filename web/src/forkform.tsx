@@ -105,20 +105,25 @@ export function ForkForm({
             onInput={(event) => setChosen(event.currentTarget.value)}
           />
         </label>{" "}
-        <label>
-          {TEXT.fork_diseases}{" "}
-          <select value={choice} disabled={busy} onChange={(event) => setChoice(event.currentTarget.value as Choice)}>
-            {CHOICES.map(([id, text]) => (
-              <option key={id} value={id}>
-                {id === "same" ? sameLabel(keeps, from, year) : TEXT[text]}
-              </option>
-            ))}
-          </select>
-        </label>{" "}
         <button type="button" disabled={busy || !valid || !writes.idle} onClick={send}>
           {TEXT.fork_make}
         </button>
       </p>
+      <details>
+        <summary>{TEXT.fork_diseases}</summary>
+        <select
+          aria-label={TEXT.fork_diseases}
+          value={choice}
+          disabled={busy}
+          onChange={(event) => setChoice(event.currentTarget.value as Choice)}
+        >
+          {CHOICES.map(([id, text]) => (
+            <option key={id} value={id}>
+              {id === "same" ? sameLabel(keeps, from, year) : TEXT[text]}
+            </option>
+          ))}
+        </select>
+      </details>
       {busy ? <p>{TEXT.fork_busy}</p> : null}
       {failed === null ? null : <p role="alert">{failed}</p>}
     </>
