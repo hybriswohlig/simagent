@@ -200,6 +200,9 @@ fn check(
         Input::TriggerShock(shock) => {
             state::params::check_shock(domain, data, closed_through, shock)
         }
+        Input::SeparatePartnership(pair) => {
+            state::partnership::check_separate(domain, closed_through, pair)
+        }
     }
 }
 
@@ -241,6 +244,9 @@ impl WorldState {
             }
             Input::TriggerShock(shock) => {
                 state::params::apply_shock(&mut self.domain, &self.data, shock, &mut ctx);
+            }
+            Input::SeparatePartnership(pair) => {
+                state::partnership::apply_separate(&mut self.domain, pair, &mut ctx);
             }
         }
     }
@@ -557,8 +563,9 @@ mod tests {
     }
 
     /// ADR-0023 section 1: at the last second of time there is no next second for an
-    /// input to act in. A world rule, an override that only sets the switch and an arranged
-    /// partnership are `end_of_time` (before, the override broke in `input_ctx` and the
+    /// input to act in. A world rule, an override that only sets the switch, an arranged
+    /// partnership and a parting (before its own check: these two are no couple) are
+    /// `end_of_time` (before, the override broke in `input_ctx` and the
     /// partnership in its own check), take no sequence number and change nothing; so is
     /// the rule of an override block and of a world rule as the load fold calls them.
     #[test]
@@ -588,6 +595,10 @@ mod tests {
             // Before the look at the template: these data have none.
             Input::TriggerShock(crate::input::TriggerShock {
                 shock: DataId::new("core:hunger_one_year").expect("valid"),
+            }),
+            Input::SeparatePartnership(crate::input::SeparatePartnership {
+                woman: sim(2),
+                man: sim(1),
             }),
         ] {
             let rejected = world.submit(input).expect_err("rejected");

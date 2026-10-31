@@ -320,6 +320,47 @@ if (browser !== undefined) {
       "the refused offer gone",
       choice.locator(`option[value="${x}"]`).waitFor({ state: "detached" }),
     );
+    // The cheat mode (ADR-0023, addendum of 2026-10-31): only when it is on does the page of a
+    // person with a partner offer to part them, and it asks first. Parted elsewhere meanwhile
+    // (another tab), the page's parting is refused, and the reason stays when the reload takes
+    // partner and button away (review). Paired again, the page parts them: partner and button
+    // go, and the person's chronicle tells of it.
+    await step("the paired person", page.goto(`${url}#/runs/neu/persons/${x}`));
+    const partnerLine = page.getByText(female ? "Partner:" : "Partnerin:");
+    await step("with a partner", partnerLine.waitFor());
+    const part = page.getByRole("button", { name: "Paar trennen (Cheat)" });
+    if ((await part.count()) !== 0) {
+      throw new Error("the cheat mode is off, yet the page offers to part the couple");
+    }
+    const cheat = page.getByRole("checkbox", { name: "Cheat-Modus" });
+    const yes = page.getByRole("button", { name: "Ja, trennen" });
+    await step("the cheat mode on", cheat.check());
+    await step("part them", part.click());
+    await step("asked first", page.getByText("Wirklich trennen?").waitFor());
+    await step("not yet", page.getByRole("button", { name: "Abbrechen" }).click());
+    await step("part them again", part.click());
+    const couple = female ? { woman: x, man: y } : { woman: y, man: x };
+    if ((await api("POST", "/api/runs/neu/input", { separate_partnership: couple })).format !== "simagent.view.input") {
+      throw new Error("the parting elsewhere was refused");
+    }
+    await step("yes, too late", yes.click());
+    const notPartners = page.getByText("Die beiden sind kein Paar.");
+    await step("the refusal", notPartners.waitFor());
+    await step("the partner gone after the refusal", partnerLine.waitFor({ state: "detached" }));
+    if (!(await notPartners.isVisible())) {
+      throw new Error("the reload took the refusal away");
+    }
+    if ((await api("POST", "/api/runs/neu/input", { arrange_partnership: couple })).format !== "simagent.view.input") {
+      throw new Error("the second pairing elsewhere was refused");
+    }
+    await step("the page again", page.reload());
+    await step("with a partner again", partnerLine.waitFor());
+    await step("part them at last", part.click());
+    await step("yes", yes.click());
+    await step("the partner gone", partnerLine.waitFor({ state: "detached" }));
+    await step("the button gone", part.waitFor({ state: "detached" }));
+    await step("the parting told", page.getByText("trennen sich").first().waitFor());
+    await step("the cheat mode off", cheat.uncheck());
     // The server falls silent (its answers cut off in the browser): first the chronicle and the
     // world after a step, then a step itself; once it answers again, "Erneut laden" ends the
     // message that it does not answer (the third playtest). No read of the world answers in
@@ -357,7 +398,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

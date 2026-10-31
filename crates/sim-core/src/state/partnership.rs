@@ -1,13 +1,16 @@
 //! Partnerships (ADR-0004 sections 1 and 4): the fixed couples of `Start` and the input
 //! `ArrangePartnership` pair a living woman and a living man. A partnership ends with the
 //! first death of the two or with their separation, whose time a budget fixes when it
-//! forms (ADR-0018 section 3), and stays as history.
+//! forms (ADR-0018 section 3), or the input `SeparatePartnership` (ADR-0023, addendum of
+//! 2026-10-31), and stays as history.
 
 use super::{DomainState, EndedBy, Ending, Partnership, Slot, conception, household, market};
 use crate::data::Data;
 use crate::genome::Sex;
 use crate::ids::{EventId, PartnershipId, SimId};
-use crate::input::{ArrangePartnership, Couple, Founder, InputRejected, RejectCode};
+use crate::input::{
+    ArrangePartnership, Couple, Founder, InputRejected, RejectCode, SeparatePartnership,
+};
 use crate::kinship::KinshipCache;
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
@@ -40,7 +43,18 @@ pub(crate) fn check_arrange(
 /// one in the archive, not a woman and a man, one in a partnership, one under the market
 /// age, too closely related (ADR-0018 section 1).
 fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<RejectCode> {
-    let both = [pair.woman, pair.man];
+    pair_rejection(domain, (pair.woman, pair.man)).or_else(|| {
+        [pair.woman, pair.man]
+            .iter()
+            .any(|id| open_partnership(domain, *id).is_some())
+            .then_some(RejectCode::AlreadyPartnered)
+    })
+}
+
+/// Why a woman and a man an input names are no pair to act on, if at all, in this order:
+/// a sim never handed out, one in the archive, not a woman and a man.
+fn pair_rejection(domain: &DomainState, (woman, man): (SimId, SimId)) -> Option<RejectCode> {
+    let both = [woman, man];
     let known = |id: &SimId| domain.sims.contains_key(id) || domain.archive.contains_key(id);
     if !both.iter().all(known) {
         return Some(RejectCode::UnknownSim);
@@ -49,16 +63,57 @@ fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<
         return Some(RejectCode::SimNotAlive);
     }
     let sex = |id: &SimId| domain.sims.get(id).map(|sim| sim.sex);
-    if sex(&pair.woman) != Some(Sex::Female) || sex(&pair.man) != Some(Sex::Male) {
+    if sex(&woman) != Some(Sex::Female) || sex(&man) != Some(Sex::Male) {
         return Some(RejectCode::PartnersOfWrongSex);
     }
-    if both
-        .iter()
-        .any(|id| open_partnership(domain, *id).is_some())
-    {
-        return Some(RejectCode::AlreadyPartnered);
-    }
     None
+}
+
+/// Pure check of `SeparatePartnership` (ADR-0023, addendum of 2026-10-31): a started world
+/// with a second after the clock, a known and living woman and man as for a pairing, then
+/// their open partnership with each other.
+pub(crate) fn check_separate(
+    domain: &DomainState,
+    closed_through: SimTime,
+    pair: &SeparatePartnership,
+) -> Result<(), InputRejected> {
+    let next = closed_through.checked_add(SimDuration::from_secs(1));
+    let code = match (domain.world_seed, next) {
+        (None, _) => Some(RejectCode::NotStarted),
+        (Some(_), None) => Some(RejectCode::EndOfTime),
+        (Some(_), Some(_)) => pair_rejection(domain, (pair.woman, pair.man)).or_else(|| {
+            couple_of(domain, (pair.woman, pair.man))
+                .is_none()
+                .then_some(RejectCode::NotPartners)
+        }),
+    };
+    match code {
+        Some(code) => Err(InputRejected { code }),
+        None => Ok(()),
+    }
+}
+
+/// The open partnership of `woman` and `man` with each other, if any.
+fn couple_of(domain: &DomainState, (woman, man): (SimId, SimId)) -> Option<PartnershipId> {
+    let id = open_partnership(domain, woman)?;
+    (open_partnership(domain, man) == Some(id)).then_some(id)
+}
+
+/// The player parts the couple now (ADR-0023, addendum of 2026-10-31): a separation as in
+/// ADR-0018 section 3, with the input as its only cause; its planned separation is struck.
+pub(crate) fn apply_separate(
+    domain: &mut DomainState,
+    pair: &SeparatePartnership,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let Some(id) = couple_of(domain, (pair.woman, pair.man)) else {
+        panic!("invariant separate.checked");
+    };
+    if let Some(handle) = domain.pending.remove(&(pair.woman, Slot::Separation)) {
+        ctx.cancel(handle);
+    }
+    let causes = Causes::new(ctx.trigger());
+    separate(domain, id, causes, ctx);
 }
 
 /// Why two living sims of the right sexes and without a partnership cannot be paired now,
@@ -262,6 +317,27 @@ fn lineage_key(domain: &DomainState, sim: SimId) -> LineageKey {
 /// now by separation, and with it her attempts; a running pregnancy stays (ADR-0018
 /// section 3). The entry names the plan and the draw of the budget as its causes.
 pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &mut SimCtx<'_, '_>) {
+    let Some(partnership) = domain.partnerships.get(&id) else {
+        panic!("invariant unknown_entity_id: partnership {}", id.get());
+    };
+    let (woman, man) = (partnership.woman, partnership.man);
+    // The event that runs right now is no longer pending.
+    domain.pending.remove(&(woman, Slot::Separation));
+    let (her, his) = (lineage_key(domain, woman), lineage_key(domain, man));
+    // Her partnerships end with this one: it is her last.
+    let k = domain
+        .sims
+        .get(&woman)
+        .and_then(|person| person.partnerships.checked_sub(1))
+        .unwrap_or_else(|| panic!("invariant partnership.count"));
+    let draw = separation_key(her, k, his);
+    let causes = Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw)));
+    separate(domain, id, causes, ctx);
+}
+
+/// The partnership `id` ends now by separation, its entry with `causes`, and with it her
+/// attempts; a running pregnancy stays, and the couple moves apart (ADR-0018 section 3).
+fn separate(domain: &mut DomainState, id: PartnershipId, causes: Causes, ctx: &mut SimCtx<'_, '_>) {
     let now = ctx.now();
     let Some(partnership) = domain.partnerships.get_mut(&id) else {
         panic!("invariant unknown_entity_id: partnership {}", id.get());
@@ -273,20 +349,10 @@ pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &m
     let (woman, man) = (partnership.woman, partnership.man);
     domain.open.remove(&woman);
     domain.open.remove(&man);
-    // The event that runs right now is no longer pending.
-    domain.pending.remove(&(woman, Slot::Separation));
-    let (her, his) = (lineage_key(domain, woman), lineage_key(domain, man));
-    // Her partnerships end with this one: it is her last.
-    let k = domain
-        .sims
-        .get(&woman)
-        .and_then(|person| person.partnerships.checked_sub(1))
-        .unwrap_or_else(|| panic!("invariant partnership.count"));
-    let draw = separation_key(her, k, his);
     let separated = ctx.emit(
         LogPayload::Separated { partnership: id },
         alloc::vec![Subject::Sim(woman), Subject::Sim(man)],
-        Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
+        causes,
     );
     conception::stop_attempts(domain, woman, ctx);
     household::separation_moves(domain, (woman, man), separated, ctx);

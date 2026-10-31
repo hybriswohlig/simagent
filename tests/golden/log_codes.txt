@@ -31,6 +31,7 @@ input 1 fork_override
 input 2 arrange_partnership
 input 3 set_world_param
 input 4 trigger_shock
+input 5 separate_partnership
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
@@ -68,6 +69,7 @@ reject 33 param_unchanged
 reject 34 shock_unknown
 reject 35 shock_overlaps
 reject 36 partners_in_direct_line
+reject 37 not_partners
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
