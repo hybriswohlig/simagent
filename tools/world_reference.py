@@ -685,7 +685,7 @@ FOUNDER_ALLELE = 28
 # copies give hair eumelanin times 0.08 (was 0.30) and pheomelanin 1 (was 0.80). New data,
 # a new data hash and new bodies: core 49 (ADR-0003 6.4), the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 49
+CORE_VERSION = 50
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1623,7 +1623,9 @@ def dummy_disease(onset_years: float) -> dict:
 
 
 MAP3 = Data(*data_reference.documents(MAP3_DIR))
-assert MAP3.hash == 0xADAB_5027_57B4_045C, f"{MAP3.hash:016x}"
+# Since Grok's round 43 the test map carries `core:body_pigment_hair_offset` 0 (the hair logit
+# without an offset, as before); 0xADAB_5027_57B4_045C before it.
+assert MAP3.hash == 0x1CCD_002B_FC5F_6185, f"{MAP3.hash:016x}"
 # The "fork data" of the acceptance scenario `fork_no_density` (ADR-0017 section 5, a core
 # test on the map 3 fixture): the old model, accident 0.02 per year, senescence practically off (`a` = 1e-12, `b` = 0.1),
 # the dummy disease from 18; the fertility `window` from 18 until 45 with 0.05 per month,

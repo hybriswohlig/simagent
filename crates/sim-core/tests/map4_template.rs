@@ -9,7 +9,7 @@ use sim_core::body_contract::BodyData;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 
-const TEMPLATE_DATA_HASH: u64 = 0x5ae3_d70c_71cf_063a;
+const TEMPLATE_DATA_HASH: u64 = 0x5934_8c2c_9b8d_5230;
 
 fn template() -> Data {
     let (calibration, genome_map) = common::files_from(

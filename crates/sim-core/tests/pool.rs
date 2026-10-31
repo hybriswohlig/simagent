@@ -132,12 +132,12 @@ fn each_rejected_pool_file_breaks_its_rule() {
 /// records, section 6), `pool_c`'s from its scenario `father_dies`, every other the
 /// template's.
 const STAMPS: [(&str, u64, u64); 6] = [
-    ("pool_a", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
-    ("pool_b", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
-    ("pool_c", 0xeb9f_b406_aa14_2f6a, 0xe2f2_44a7_e4cd_db5f),
-    ("pool_d", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
-    ("pool_e", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
-    ("pool_f", 0xb17a_fdcd_2961_75ac, 0x5ae3_d70c_71cf_063a),
+    ("pool_a", 0x945b_7e9e_2838_0f2d, 0x5934_8c2c_9b8d_5230),
+    ("pool_b", 0x945b_7e9e_2838_0f2d, 0x5934_8c2c_9b8d_5230),
+    ("pool_c", 0xc61d_82a5_4c8e_78d6, 0x28d9_9b78_ef31_6cc0),
+    ("pool_d", 0x945b_7e9e_2838_0f2d, 0x5934_8c2c_9b8d_5230),
+    ("pool_e", 0x945b_7e9e_2838_0f2d, 0x5934_8c2c_9b8d_5230),
+    ("pool_f", 0x945b_7e9e_2838_0f2d, 0x5934_8c2c_9b8d_5230),
 ];
 
 /// Format 2 carries `frozen_hash` right after `data_hash`; the reader reads both stamps.

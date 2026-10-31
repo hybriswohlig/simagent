@@ -4791,7 +4791,8 @@ TEST_DATA = [
 
 MEASURE_DIR = world_reference.ROOT / "tests" / "golden" / "data_traits"
 MEASURE_DATA = world_reference.Data(*data_reference.documents(MEASURE_DIR))
-assert f"{MEASURE_DATA.hash:016x}" == "3061cb5298c19dd9"
+# With `core:body_pigment_hair_offset` 0 since Grok's round 43 (3061cb5298c19dd9 before it).
+assert f"{MEASURE_DATA.hash:016x}" == "96ecba88f9e4f738"
 MEASURE_TAG = "test:measure"
 MEASURE_YEARS = 30
 MEASURE_END = MEASURE_YEARS * YEAR - 1

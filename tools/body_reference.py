@@ -26,7 +26,14 @@ hash is asserted to be that of the file before red hair (`MAP4_DATA_HASH`); then
 specification 10.4): the entries `core:body_mc1r_hair_eu` (0.08, was 0.30) and
 `core:body_mc1r_hair_pheo` (1, was 0.80) as the repository's calibration holds them, value
 and texts, nothing else. Only the hair of a person with two MC1R copies changes (asserted per
-pinned person). The files are JSON with an indent of two as the old ones (`json.dumps`).
+pinned person). Then the pigment of the northern European profile (`fixture_round43`; Grok
+round 43, R1; ADR-0015 section 1, addendum of 2026-10-31; specification 10.4): the eight
+pigment entries of `PIGMENT` as the repository's calibration holds them, value and texts,
+and the new entry `core:body_pigment_hair_offset` (−0.80) before `core:body_pigment_hair_slope`,
+nothing else; before it the hair logit had no offset, which is an offset of 0. Per pinned
+person only skin and hair eumelanin, iris melanin and, without two MC1R copies, hair
+pheomelanin change (asserted). The files are JSON with an indent of two as the old ones
+(`json.dumps`).
 
 The mapping (`body_params`), each formula of 10 with the numbers of the calibration
 (`core:body_*`, ADR-0015 section 1), left to right as written, `exp` correctly rounded
@@ -105,6 +112,34 @@ MAP4_DATA_HASH = 0x3DC6CA65E8E12DF3
 # repository's calibration, which must hold these values.
 RED_HAIR = {"core:body_mc1r_hair_eu": 0.08, "core:body_mc1r_hair_pheo": 1}
 RED_HAIR_BEFORE = {"core:body_mc1r_hair_eu": 0.3, "core:body_mc1r_hair_pheo": 0.8}
+# The data hash of tests/golden/data_body with red hair, before the pigment of round 43: the
+# fixture as `fixture_round39` builds it must give exactly this.
+ROUND39_DATA_HASH = 0xF2BD253668868025
+# The pigment of the northern European profile (Grok round 43, R1; ADR-0015 section 1,
+# addendum of 2026-10-31; specification 10.4), with the values before it. The new offset of
+# the hair logit was 0 before (the formula had none).
+PIGMENT = {
+    "core:body_pigment_skin_offset": -2.7,
+    "core:body_pigment_skin_slope": 0.6,
+    "core:body_pigment_hair_offset": -0.8,
+    "core:body_pigment_hair_slope": 0.55,
+    "core:body_pigment_hair_residual": 0.9,
+    "core:body_pigment_iris_offset": -0.35,
+    "core:body_pigment_iris_slope": 0.9,
+    "core:body_pigment_hair_pheo_offset": -1.1,
+    "core:body_pigment_hair_pheo_slope": -0.25,
+}
+PIGMENT_BEFORE = {
+    "core:body_pigment_skin_offset": -1.2,
+    "core:body_pigment_skin_slope": 1.15,
+    "core:body_pigment_hair_offset": 0.0,
+    "core:body_pigment_hair_slope": 1.2,
+    "core:body_pigment_hair_residual": 0.55,
+    "core:body_pigment_iris_offset": 0.5,
+    "core:body_pigment_iris_slope": 1.5,
+    "core:body_pigment_hair_pheo_offset": -2.0,
+    "core:body_pigment_hair_pheo_slope": -0.35,
+}
 REPOSITORY_CALIBRATION = ROOT / "data" / "calibration" / "genetics.json"
 
 FACES = [f"core:face_{n:02d}" for n in range(1, 13)]
@@ -244,6 +279,9 @@ def fixture_map3() -> tuple:
     }
     base = json.loads((REPOSITORY / "calibration" / "genetics.json").read_text())
     calibration = copy.deepcopy(base)
+    # The map 3 fixture carries `core:body_pigment_hair_offset` 0 since round 43; the test map
+    # as it stood before had none.
+    assert calibration["values"].pop("core:body_pigment_hair_offset")["value"] == 0.0
     calibration["diseases"] = []
     calibration["traits"] = [weights_row(trait) for trait in sorted(BODY_TRAITS_MAP3)]
     assert calibration["sex_differences"] == [] and all(calibration[field] is None for field in data_reference.NAMED_TRAITS)
@@ -305,6 +343,29 @@ def fixture_round39(map4: tuple) -> tuple:
         assert key in calibration["values"], key
         assert repository[key]["value"] == value, (key, repository[key]["value"])
         calibration["values"][key] = copy.deepcopy(repository[key])
+    return calibration, genome_map
+
+
+def fixture_round43(red: tuple) -> tuple:
+    """The test map with the pigment of the northern European profile (`PIGMENT`, Grok round
+    43, R1; ADR-0015 section 1, addendum of 2026-10-31; specification 10.4): the eight entries
+    of the calibration and the new `core:body_pigment_hair_offset` (placed before
+    `core:body_pigment_hair_slope`) as the repository's calibration holds them (value and
+    texts), every other entry and the genome map unchanged."""
+    calibration, genome_map = copy.deepcopy(red[0]), copy.deepcopy(red[1])
+    repository = json.loads(REPOSITORY_CALIBRATION.read_text())["values"]
+    offset = "core:body_pigment_hair_offset"
+    assert offset not in calibration["values"]
+    values = {}
+    for key, entry in calibration["values"].items():
+        if key == "core:body_pigment_hair_slope":
+            values[offset] = copy.deepcopy(repository[offset])
+        values[key] = entry
+    for key, value in PIGMENT.items():
+        assert key in values, key
+        assert repository[key]["value"] == value, (key, repository[key]["value"])
+        values[key] = copy.deepcopy(repository[key])
+    calibration["values"] = values
     return calibration, genome_map
 
 
@@ -514,7 +575,7 @@ def raw_values(values: BodyValues, person: dict) -> dict:
     z_pig = z["z_pig"]
     mc1r, herc2 = person["mc1r"], person["herc2"]
     eta_s = values["pigment_skin_offset"] + values["pigment_skin_slope"] * z_pig
-    eta_h = (values["pigment_hair_slope"] * z_pig + values["pigment_hair_residual"] * z["z_hair"]) - values["pigment_hair_darkening"] * (
+    eta_h = ((values["pigment_hair_offset"] + values["pigment_hair_slope"] * z_pig) + values["pigment_hair_residual"] * z["z_hair"]) - values["pigment_hair_darkening"] * (
         1.0 - s_curve(0.0, values["pigment_hair_darkening_age"], b)
     )
     eta_i = (values["pigment_iris_offset"] + values["pigment_iris_slope"] * z_pig) - values["pigment_iris_darkening"] * (
@@ -615,7 +676,8 @@ def body_params(values: BodyValues, contract: list, person: dict) -> dict:
 def spec_checks(values: BodyValues, contract: list) -> list:
     """The rounded values 10.4 to 10.6 print, from `body_params` of a person with every `z`
     0 (and `z_pig` 2 for the second skin value), no MC1R or HERC2 copy, `θ_i = θ`: pigment
-    at 30 years skin 0.23, hair 0.50, iris 0.62, skin 0.75 at `z_pig` = 2; androgenic
+    at 30 years for the northern European profile skin 0.063, hair 0.31, its pheomelanin 0.25,
+    iris 0.41, skin 0.182 at `z_pig` = 2 and 0.020 at -2; androgenic
     development of adults 0.82 (men) and 0.12 (women), breast 0.5; balding of the mean man
     at 50 about 1.38 (`7 · L(−1.4)`); curl about 0.20; and the adult height of `z` = 0 at
     25 years near `h1` (6.1)."""
@@ -628,10 +690,12 @@ def spec_checks(values: BodyValues, contract: list) -> list:
 
     woman, man = evaluate(FEMALE, 30), evaluate(MALE, 30)
     checks = [
-        ("skin_eumelanin z_pig 0", woman["skin_eumelanin"], 0.23, 0.005),
-        ("hair_eumelanin z_pig 0", woman["hair_eumelanin"], 0.50, 0.005),
-        ("iris_melanin z_pig 0", woman["iris_melanin"], 0.62, 0.005),
-        ("skin_eumelanin z_pig 2", evaluate(FEMALE, 30, z_pig=2.0)["skin_eumelanin"], 0.75, 0.005),
+        ("skin_eumelanin z_pig 0", woman["skin_eumelanin"], 0.063, 0.0005),
+        ("hair_eumelanin z_pig 0", woman["hair_eumelanin"], 0.31, 0.005),
+        ("hair_pheomelanin z_pig 0", woman["hair_pheomelanin"], 0.25, 0.005),
+        ("iris_melanin z_pig 0", woman["iris_melanin"], 0.41, 0.005),
+        ("skin_eumelanin z_pig 2", evaluate(FEMALE, 30, z_pig=2.0)["skin_eumelanin"], 0.182, 0.0005),
+        ("skin_eumelanin z_pig -2", evaluate(FEMALE, 30, z_pig=-2.0)["skin_eumelanin"], 0.020, 0.0005),
         ("androgenic_development men", man["androgenic_development"], 0.82, 0.005),
         ("androgenic_development women", woman["androgenic_development"], 0.12, 0.005),
         ("breast_development women", woman["breast_development"], 0.5, 0.005),
@@ -699,6 +763,7 @@ def inputs_of(fixture: tuple, names: int, sex: bytes, genome: dict, key: int, pa
 
 
 RED_HAIR_KEYS = ("hair_eumelanin", "hair_pheomelanin")
+PIGMENT_KEYS = ("skin_eumelanin", "hair_eumelanin", "iris_melanin", "hair_pheomelanin")
 REASONS = {
     "height_cm": "z_h is the phenotype of core:growth, not core:height: same locus and G, other C and E (occasion str_key)",
     "eyebrow_density": "reads z of core:hair_density, not of core:brow",
@@ -714,10 +779,11 @@ def main(argv) -> int:
     map3 = fixture_map3()
     map4 = fixture_map4(map3)
     red = fixture_round39(map4)
+    pigment = fixture_round43(red)
     alternative = fixture_map4(map3, rename_locus=True)
     files = {
-        FIXTURE / "calibration" / "genetics.json": text(red[0]),
-        FIXTURE / "genetics" / "genome_map.json": text(red[1]),
+        FIXTURE / "calibration" / "genetics.json": text(pigment[0]),
+        FIXTURE / "genetics" / "genome_map.json": text(pigment[1]),
     }
     if "--check" in argv:
         same = all(path.exists() and path.read_text() == content for path, content in files.items())
@@ -729,10 +795,13 @@ def main(argv) -> int:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
     hash3, hash4, hash_red, hash_alt = documents_hash(map3), documents_hash(map4), documents_hash(red), documents_hash(alternative)
+    hash_pigment = documents_hash(pigment)
     assert hash3 == MAP3_DATA_HASH, f"{hash3:016x}"
     assert hash4 == MAP4_DATA_HASH, f"{hash4:016x}"
-    assert data_reference.data_hash(FIXTURE) == hash_red
-    print(f"data_body_hash map4 {hash_red:016x} (tests/golden/data_body, with the repository's demography and red hair of round 39)")
+    assert hash_red == ROUND39_DATA_HASH, f"{hash_red:016x}"
+    assert data_reference.data_hash(FIXTURE) == hash_pigment
+    print(f"data_body_hash map4 {hash_pigment:016x} (tests/golden/data_body, with the repository's demography and the pigment of round 43)")
+    print(f"data_body_hash map4_before_round43 {hash_red:016x} (the fixture with red hair of round 39, rebuilt by fixture_round39)")
     print(f"data_body_hash map4_before_round39 {hash4:016x} (the fixture before red hair, rebuilt by fixture_map4)")
     print(f"data_body_hash map3 {hash3:016x} (the fixture before the names of map 4, rebuilt by fixture_map3)")
     print(f"data_body_hash alternative_locus_renamed {hash_alt:016x} (rejected alternative: core:height_locus renamed core:growth_locus)")
@@ -747,11 +816,11 @@ def main(argv) -> int:
     print(f"data_body_str_key core:growth {str_key('core:growth'):016x} core:height {str_key('core:height'):016x}")
     # BodyData::new with the traits of map 4 (and, for comparison, of map 3).
     template = ROOT / "tests" / "golden" / "map4_template"
-    cases = [("data_body_map4", red, BODY_TRAITS_MAP4), ("data_body_map3", map3, BODY_TRAITS_MAP4), ("data_body_map3_with_map3_names", map3, BODY_TRAITS_MAP3)]
+    cases = [("data_body_map4", pigment, BODY_TRAITS_MAP4), ("data_body_map3", map3, BODY_TRAITS_MAP4), ("data_body_map3_with_map3_names", map3, BODY_TRAITS_MAP3)]
     if template.exists():
         _, template_calibration, template_map = data_reference.documents(template)
         cases.append(("map4_template", (template_calibration, template_map), BODY_TRAITS_MAP4))
-    no_growth = copy.deepcopy(red)
+    no_growth = copy.deepcopy(pigment)
     no_growth[0]["traits"] = [row for row in no_growth[0]["traits"] if row["trait"] != "core:growth"]
     cases.append(("data_body_map4_without_growth_row", no_growth, BODY_TRAITS_MAP4))
     for name, fixture, read in cases:
@@ -759,13 +828,22 @@ def main(argv) -> int:
         print(f"body_data {name} reading {'map4' if read is BODY_TRAITS_MAP4 else 'map3'} names: {'accepted' if reason is None else 'rejected ' + reason}")
     contract = json.loads(CONTRACT.read_text())["parameters"]
     assert len(contract) == 44
-    values = BodyValues(data_reference.strip(red[0]))
+    values = BodyValues(data_reference.strip(pigment[0]))
+    values_red = BodyValues(data_reference.strip(red[0]))
     values4 = BodyValues(data_reference.strip(map4[0]))
     assert BodyValues(data_reference.strip(map3[0])).v == values4.v
+    # Before round 43 the hair logit had no offset: an offset of 0 in the formula.
+    for before in (values_red, values4):
+        assert "core:body_pigment_hair_offset" not in before.v
+        before.v["core:body_pigment_hair_offset"] = 0.0
     # Red hair changes the two values and nothing else of the calibration.
-    assert {key for key in values.v if values.v[key] != values4.v[key]} == set(RED_HAIR)
-    assert all(values.v[key] == value and values4.v[key] == RED_HAIR_BEFORE[key] for key, value in RED_HAIR.items())
+    assert {key for key in values_red.v if values_red.v[key] != values4.v[key]} == set(RED_HAIR)
+    assert all(values_red.v[key] == value and values4.v[key] == RED_HAIR_BEFORE[key] for key, value in RED_HAIR.items())
     assert red[1] == map4[1] and {k: v for k, v in red[0].items() if k != "values"} == {k: v for k, v in map4[0].items() if k != "values"}
+    # The pigment of round 43 changes its nine values and nothing else of the calibration.
+    assert {key for key in values.v if values.v[key] != values_red.v[key]} == set(PIGMENT)
+    assert all(values.v[key] == value and values_red.v[key] == PIGMENT_BEFORE[key] for key, value in PIGMENT.items())
+    assert pigment[1] == red[1] and {k: v for k, v in pigment[0].items() if k != "values"} == {k: v for k, v in red[0].items() if k != "values"}
     for sex, name in ((FEMALE, "female"), (MALE, "male")):
         curve = values.curve[sex]
         print(f"body_curve {name} q {curve['q']!r} bits {bits(curve['q'])} c {curve['c']!r} bits {bits(curve['c'])} B {curve['b']!r} bits {bits(curve['b'])}")
@@ -774,6 +852,7 @@ def main(argv) -> int:
     loci3 = {locus["id"]: locus for locus in map3[1]["loci"]}
     changed_keys = set()
     red_changed = set()
+    pigment_changed = set()
     for index, (name, sex, key, parents, age, delta, nutrition, mc1r, herc2) in enumerate(PERSONS):
         genome = genome_of(index, sex, mc1r, herc2, loci3)
         born = -age
@@ -781,12 +860,14 @@ def main(argv) -> int:
         b = bio_age(x, delta, values.bio_age_weight)
         nutrition = NUTRITION[nutrition] if isinstance(nutrition, str) else nutrition
         evaluations = []
-        for names, fixture, numbers in ((0, map3, values4), (1, map4, values4), (1, red, values)):
+        for names, fixture, numbers in ((0, map3, values4), (1, map4, values4), (1, red, values_red), (1, pigment, values)):
             z, z_of, n_mc1r, n_herc2 = inputs_of(fixture, names, sex, genome, key, parents)
             person = {"sex": sex, "age": age, "b": b, "born": born, "nutrition": nutrition, "z": z, "mc1r": n_mc1r, "herc2": n_herc2}
             params, curve = body_params(numbers, contract, person)
             evaluations.append((z, z_of, params, curve, n_mc1r, n_herc2))
-        z, z_of, params, curve, n_mc1r, n_herc2 = evaluations[2]
+        z, z_of, params, curve, n_mc1r, n_herc2 = evaluations[3]
+        red_params = evaluations[2][2]
+        assert evaluations[2][1] == z_of and evaluations[2][3] == curve
         print(
             f"body_person {name} sex {'female' if sex == FEMALE else 'male'} key {key:#x} parents"
             f" {'none' if parents is None else ' '.join(f'{p:#x}' for p in parents)} age_seconds {age} born {born}"
@@ -820,20 +901,38 @@ def main(argv) -> int:
                 )
         # Red hair (round 39): only the hair of two MC1R copies changes.
         for key_ in params:
-            if bits(params[key_][0]) != bits(before_params[key_][0]) or params[key_][1] != before_params[key_][1]:
+            if bits(red_params[key_][0]) != bits(before_params[key_][0]) or red_params[key_][1] != before_params[key_][1]:
                 assert n_mc1r == 2 and key_ in RED_HAIR_KEYS, (name, key_)
                 red_changed.add((name, key_))
                 print(
                     f"body_change_round39 {name} {key_} before {before_params[key_][0]!r} bits {bits(before_params[key_][0])}"
-                    f" -> {params[key_][0]!r} bits {bits(params[key_][0])}: two MC1R copies (round 39, R1 c)"
+                    f" -> {red_params[key_][0]!r} bits {bits(red_params[key_][0])}: two MC1R copies (round 39, R1 c)"
                 )
         if n_mc1r == 2:
             assert {(name, key_) for key_ in RED_HAIR_KEYS} <= red_changed, name
+        # The pigment of round 43: skin and hair eumelanin and iris melanin change, hair
+        # pheomelanin unless two MC1R copies set it to 1; nothing else.
+        expected = set(PIGMENT_KEYS) - ({"hair_pheomelanin"} if n_mc1r == 2 else set())
+        changed = set()
+        for key_ in params:
+            if bits(params[key_][0]) != bits(red_params[key_][0]) or params[key_][1] != red_params[key_][1]:
+                assert key_ in PIGMENT_KEYS, (name, key_)
+                changed.add(key_)
+                print(
+                    f"body_change_round43 {name} {key_} before {red_params[key_][0]!r} bits {bits(red_params[key_][0])}"
+                    f" -> {params[key_][0]!r} bits {bits(params[key_][0])}: the northern European profile (round 43, R1)"
+                )
+        assert changed == expected, (name, changed)
+        pigment_changed |= {(name, key_) for key_ in changed}
     assert changed_keys <= set(REASONS), changed_keys
     print(f"body_change_summary parameters changed {sorted(changed_keys)}; the other {44 - len(changed_keys)} equal bit for bit for every person")
     print(
         f"body_change_round39_summary persons with two MC1R copies {sorted({name for name, _ in red_changed})}"
         f" change {sorted({key_ for _, key_ in red_changed})}; every other parameter and person equal bit for bit"
+    )
+    print(
+        f"body_change_round43_summary {len(pigment_changed)} changes over {len({name for name, _ in pigment_changed})} persons"
+        f" in {sorted({key_ for _, key_ in pigment_changed})}; every other parameter equal bit for bit"
     )
     return 0
 

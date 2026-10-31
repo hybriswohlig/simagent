@@ -8,8 +8,8 @@
    "name": "a_template",
    "what": "the template of map 4 (tests/golden/map4_template) with the repository's life course data, unchanged: no mean_ref anywhere",
    "mean_ref": {},
-   "data_hash": "5ae3d70c71cf063a",
-   "definitions_bytes": 16784,
+   "data_hash": "59348c2c9b8d5230",
+   "definitions_bytes": 16823,
    "genome_map_bytes": 9114,
    "traits": {
     "core:growth": {
@@ -35,8 +35,8 @@
      "bits": "bfe0000000000000"
     }
    },
-   "data_hash": "79a96c45fbdbc9dd",
-   "definitions_bytes": 16802,
+   "data_hash": "fad3e0f62b441e2b",
+   "definitions_bytes": 16841,
    "genome_map_bytes": 9132,
    "traits": {
     "core:growth": {
@@ -58,8 +58,8 @@
      "bits": "0000000000000000"
     }
    },
-   "data_hash": "986d48c5397bdd37",
-   "definitions_bytes": 16793,
+   "data_hash": "89ff2b5059bc881f",
+   "definitions_bytes": 16832,
    "genome_map_bytes": 9123,
    "traits": {
     "core:growth": {
@@ -84,7 +84,7 @@
     "bound_longevity": 8.0,
     "bound_longevity_bits": "4020000000000000",
     "bound_over_sigma_bits": "4010000000000000",
-    "data_hash": "5ae3d70c71cf063a",
+    "data_hash": "59348c2c9b8d5230",
     "accepted": true
    },
    {
@@ -104,7 +104,7 @@
     "bound_longevity": 8.25,
     "bound_longevity_bits": "4020800000000000",
     "bound_over_sigma_bits": "4010800000000000",
-    "data_hash": "79a96c45fbdbc9dd",
+    "data_hash": "fad3e0f62b441e2b",
     "accepted": true
    },
    {
@@ -115,7 +115,7 @@
     "bound_longevity": 8.0,
     "bound_longevity_bits": "4020000000000000",
     "bound_over_sigma_bits": "4232a05f20000000",
-    "data_hash": "45638eedc3457205",
+    "data_hash": "73fdf8cb96b52189",
     "accepted": true
    },
    {

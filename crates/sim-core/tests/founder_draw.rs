@@ -38,8 +38,8 @@ const SEED: u64 = 0x28;
 const TAG: &str = "test:founder_allele";
 const POOL_B: &[u8] = include_bytes!("../../../tests/golden/pool/pool_b.bin");
 
-const TEMPLATE_DATA_HASH: u64 = 0x5ae3_d70c_71cf_063a;
-const POOL_B_DATA_HASH: u64 = 0x6bc8_a5d6_8de3_6a5e;
+const TEMPLATE_DATA_HASH: u64 = 0x5934_8c2c_9b8d_5230;
+const POOL_B_DATA_HASH: u64 = 0xcee2_fddd_5f5f_8eef;
 /// The lineage keys of founders 0, 1 and 2.
 const KEYS: [u64; 3] = [
     0x922e_affa_24f5_8fdb,
@@ -127,7 +127,7 @@ const START_INPUT: (usize, u64) = (65, 0x5af2_b992_de9a_4803);
 const START_INPUT_HEX: &str = "0101002813746573743a666f756e6465725f616c6c656c65010003ffefe383070000ffffe1bf070100ffefe3830700010a636f72653a6865726332020000000000";
 const STATE_HASH_AFTER_START: u64 = 0x821a_1320_c251_ebe8;
 const LOG_HASH_AFTER_START: u64 = 0x5faf_e3d3_0194_5d35;
-const SAVE_AFTER_START: (usize, u64) = (552, 0x5765_1e97_bd87_3907);
+const SAVE_AFTER_START: (usize, u64) = (553, 0x4843_8a03_7f42_4362);
 /// The genomes of the same founders on the template without a pool: the additive loci
 /// drawn as above, the seven pool loci at the reference allele.
 const GENOMES_WITHOUT_POOL: [&str; 3] = [
@@ -502,7 +502,7 @@ fn only_the_additive_loci_are_drawn() {
 #[test]
 fn map_3_draws_nothing() {
     let data = common::data();
-    assert_eq!(data.hash(), 0xadab_5027_57b4_045c);
+    assert_eq!(data.hash(), 0x1ccd_002b_fc5f_6185);
     let world = started(data, founders(true)[..2].to_vec());
     for person in world.pedigree().persons {
         assert!(person.alleles.is_empty(), "{:?}", person.sim);
@@ -528,13 +528,13 @@ fn the_share_of_alleles_is_q() {
 const BOUNDARY: [(u64, u64, [u8; 2], &str); 2] = [
     (
         0x3ff5_2625_2abe_a831,
-        0xcfe6_3f1f_c396_321e,
+        0x4e16_93bc_e769_90b6,
         [0, 1],
         "0000008080808880808008000000000000",
     ),
     (
         0x3ff5_2625_2abe_a832,
-        0x425e_f7dd_e6e6_4b5f,
+        0x0e47_891d_1fe8_b826,
         [1, 1],
         "8080800800008080808880808008000000000000",
     ),
@@ -546,9 +546,9 @@ const BOUNDARY_U: u64 = 0x3fe5_2625_2abe_a831;
 /// segment 0, slot 0, before the mt; the hash of its definitions, `pool_b` with its
 /// `frozen_hash` set to it (length, xxh3), the data hash with that pool and the file's
 /// frequencies.
-const Y_DEFINITIONS_HASH: u64 = 0xf52e_7556_29ce_4bcf;
-const Y_POOL: (usize, u64) = (4257, 0x6adb_7d67_0559_4ad3);
-const Y_DATA_HASH: u64 = 0x894c_c097_7a02_a07c;
+const Y_DEFINITIONS_HASH: u64 = 0xc998_1798_1960_a001;
+const Y_POOL: (usize, u64) = (4257, 0x3a4a_f296_693d_fa78);
+const Y_DATA_HASH: u64 = 0xda0f_0d66_253c_4976;
 /// A man's Y draws: the bits of `u` at detail 1 (the rule) and at detail 0, and his Y copy.
 type YDraws = (u64, u64, u8);
 /// The founders of the Y case (all naming nothing): their sex, their key, and a man's Y

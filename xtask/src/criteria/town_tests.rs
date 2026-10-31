@@ -248,8 +248,8 @@ fn the_towns_data_take_the_pool_frequencies() {
     let error = town_data(&root(), &template, POOL_D).expect_err("no frequencies");
     assert!(error.starts_with("pool.frequencies_loci"), "{error}");
     for (label, pool, data_hash) in [
-        ("town-d", POOL_D, 0xeccf_f256_9ac1_2bb4),
-        ("town-b", POOL_B, 0x6bc8_a5d6_8de3_6a5e),
+        ("town-d", POOL_D, 0x0cf9_cfca_70d4_fe3b),
+        ("town-b", POOL_B, 0xcee2_fddd_5f5f_8eef),
     ] {
         let data = frozen_town_data(label, pool).expect("the town's data");
         assert_eq!(data.hash(), data_hash, "{label}");

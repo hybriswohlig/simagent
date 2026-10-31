@@ -11,7 +11,7 @@ use sim_core::data::{
 use sim_core::data_id::DataId;
 
 /// The data hash of the definitions of the repository, from `tools/data_reference.py`.
-const DATA_HASH: u64 = 0xadab_5027_57b4_045c;
+const DATA_HASH: u64 = 0x1ccd_002b_fc5f_6185;
 
 /// A change of the two files: calibration, genome map.
 type Change = fn(&mut Value, &mut Value);
@@ -100,7 +100,7 @@ fn a_map_with_traits_hashes_like_the_reference() {
     );
     let definitions = common::definitions(calibration, genome_map).expect("definitions");
     let data = Data::new(definitions).expect("checked");
-    assert_eq!(data.hash(), 0x3061_cb52_98c1_9dd9);
+    assert_eq!(data.hash(), 0x96ec_ba88_f9e4_f738);
 }
 
 #[test]
@@ -1079,7 +1079,7 @@ fn death_values_reject() {
         named.longevity_trait().map(DataId::as_str),
         Some("test:growth")
     );
-    assert_ne!(named.hash(), 0x3061_cb52_98c1_9dd9);
+    assert_ne!(named.hash(), 0x96ec_ba88_f9e4_f738);
     assert_eq!(common::data().longevity_trait(), None);
     // The data name the trait or say `null` explicitly (ADR-0017 section 1).
     let missing = checked(|c, _| {
@@ -1193,7 +1193,7 @@ fn fertility_curves_reject() {
     let (mut c, mut g) = common::files();
     window(18.0, 45.0)(&mut c, &mut g);
     let windowed = Data::new(common::definitions(c, g).expect("definitions")).expect("checked");
-    assert_eq!(windowed.hash(), 0x7d3c_9516_1d3a_2404);
+    assert_eq!(windowed.hash(), 0xe89a_fdd8_dd36_d30c);
     assert_eq!(
         checked_traits(|c, _| c["puberty_trait"] = json!("test:growth")),
         "ok"

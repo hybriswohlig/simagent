@@ -18,7 +18,7 @@
     "couples": "none",
     "run_to": 943487999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "b17afdcd296175ac"
+    "data_hash": "945b7e9e28380f2d"
    },
    "story": {
     "ever": 46,
@@ -1160,13 +1160,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "27a6d310c620f992"
+    "data_hash": "bc6342f6bca1fba3"
    },
    "frozen": {
-    "data_hash": "bde640bc588c43db",
+    "data_hash": "f286bbb81f2ae0b7",
     "genome_map_json_bytes": 77243,
     "genome_map_json_xxh3": "c794d5ecab4f14df",
-    "data_hash_without_mean_ref": "f3a196cce7404668",
+    "data_hash_without_mean_ref": "fe78f52db8bf1e3c",
     "mean_ref": {
      "core:androgen": "3ff0000000000000",
      "core:bald": "3fdd9765d9765d95",
@@ -1223,7 +1223,7 @@
     "couples": "none",
     "run_to": 1415231999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "b17afdcd296175ac"
+    "data_hash": "945b7e9e28380f2d"
    },
    "story": {
     "ever": 49,
@@ -2485,13 +2485,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "4d45415cd3da4dc6"
+    "data_hash": "62307883a160bf24"
    },
    "frozen": {
-    "data_hash": "f0540d8bc88ff534",
+    "data_hash": "fdd3800cd6ebeec4",
     "genome_map_json_bytes": 77319,
     "genome_map_json_xxh3": "5bf21498907c95c4",
-    "data_hash_without_mean_ref": "c9c0fb41b452511d",
+    "data_hash_without_mean_ref": "6ccf7fbfaddd5565",
     "mean_ref": {
      "core:androgen": "3feb13b13b13b13c",
      "core:bald": "3fd5555555555555",
@@ -2548,7 +2548,7 @@
     "couples": "none",
     "run_to": 1886975999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "b17afdcd296175ac"
+    "data_hash": "945b7e9e28380f2d"
    },
    "story": {
     "ever": 52,
@@ -3930,13 +3930,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "cd110bc5bc280b21"
+    "data_hash": "ba5de3ffc3a1d781"
    },
    "frozen": {
-    "data_hash": "b0d7dd7d7c3d8675",
+    "data_hash": "b31ec369e06c661c",
     "genome_map_json_bytes": 75737,
     "genome_map_json_xxh3": "1677410e132975d4",
-    "data_hash_without_mean_ref": "9b47f193f998d2c7",
+    "data_hash_without_mean_ref": "a096ac809b23d7b7",
     "mean_ref": {
      "core:androgen": "3fdd555555555555",
      "core:bald": "3fc0000000000000",
@@ -3993,7 +3993,7 @@
     "couples": "none",
     "run_to": 943487999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "b17afdcd296175ac"
+    "data_hash": "945b7e9e28380f2d"
    },
    "story": {
     "ever": 52,
@@ -5213,13 +5213,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "9e405e5d886206c6"
+    "data_hash": "71de9d2a5bed184f"
    },
    "frozen": {
-    "data_hash": "f7411e738dd435cf",
+    "data_hash": "ffe2e5c1f7ba1aff",
     "genome_map_json_bytes": 75822,
     "genome_map_json_xxh3": "2229138deaf48cfa",
-    "data_hash_without_mean_ref": "d84524ec5bf13b48",
+    "data_hash_without_mean_ref": "ed275d91ea7395bd",
     "mean_ref": {
      "core:androgen": "bfd1555555555555",
      "core:bald": "3fe0aaaaaaaaaaab",
@@ -5276,7 +5276,7 @@
     "couples": "none",
     "run_to": 943487999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "aa31ef80f29047ab"
+    "data_hash": "ccccee1ed68095e5"
    },
    "story": {
     "ever": 48,
@@ -6444,13 +6444,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "a07df56b5282e524"
+    "data_hash": "d68bc2d757ddf1b1"
    },
    "frozen": {
-    "data_hash": "df52c744eb8002e6",
+    "data_hash": "7987b56ae1b9b536",
     "genome_map_json_bytes": 77271,
     "genome_map_json_xxh3": "8f398701b89422c9",
-    "data_hash_without_mean_ref": "b589828119a2e21d",
+    "data_hash_without_mean_ref": "a8f59d8e9b059fe2",
     "mean_ref": {
      "core:androgen": "3fea5a5a5a5a5a5d",
      "core:bald": "3fcb4b4b4b4b4b4f",
@@ -6507,7 +6507,7 @@
     "couples": "none",
     "run_to": 943487999,
     "founder_rule": "ADR-0020 section 3 'Gruender, genau' (prerun_reference.counts, founders; alleles with PRERUN_ALLELE at the run's seed)",
-    "data_hash": "27a6d310c620f992"
+    "data_hash": "bc6342f6bca1fba3"
    },
    "story": {
     "ever": 48,
@@ -7675,13 +7675,13 @@
    ],
    "next_map": {
     "what": "the map of the next run of the iteration: measured d_ref and sigma_ref, no mean_ref",
-    "data_hash": "c8a66d15ba375caf"
+    "data_hash": "f469c86c1c063e3c"
    },
    "frozen": {
-    "data_hash": "27ce46b8bacaaf41",
+    "data_hash": "852c197b17a5dced",
     "genome_map_json_bytes": 75674,
     "genome_map_json_xxh3": "aa04f5cbd808c3ff",
-    "data_hash_without_mean_ref": "37f5047db0106c79",
+    "data_hash_without_mean_ref": "f47f73d0eb936a0a",
     "mean_ref": {
      "core:androgen": "3fee000000000000",
      "core:bald": "3fd8000000000000",

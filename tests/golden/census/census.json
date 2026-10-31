@@ -1,7 +1,7 @@
 {
  "format_version": 1,
  "written_by": "tools/census_reference.py (independent of crates/)",
- "core_version_modelled": 49,
+ "core_version_modelled": 50,
  "projection_version_modelled": 18,
  "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
  "clamped_keys": [
@@ -115,7 +115,7 @@
  "fixtures": {
   "a_template_extremes": {
    "data": "tests/golden/map4_template with data/calibration/demography.json",
-   "data_hash": "5ae3d70c71cf063a",
+   "data_hash": "59348c2c9b8d5230",
    "body_data": "accepted",
    "start_input_hash": "5a334c7f285f7bfb",
    "year_hashes": [
@@ -2759,9 +2759,9 @@
   },
   "b_pool_c_immigration": {
    "data": "the documents of father_dies (tools/pool_reference.py: tests/golden/map4_template with data/calibration/demography.json and the scenario's values) and the pool tests/golden/pool/pool_c.bin",
-   "data_hash": "c7fbd1668c8e94f6",
+   "data_hash": "5fc9e48e4e7307db",
    "body_data": "accepted",
-   "start_input_hash": "1254a9c9a3a9c937",
+   "start_input_hash": "12407187c4d85aff",
    "year_hashes": [
     "3f46622227ac2f26",
     "66cddd2c0152fdb9",
@@ -3828,7 +3828,7 @@
     }
    },
    "pool": {
-    "pool_hash": "ec01a0ff07260ad1",
+    "pool_hash": "6038468aa922e37b",
     "pool_seed": "0000000011b019a2",
     "frozen_at": 62899200
    },
@@ -5326,9 +5326,9 @@
   },
   "b2_pool_b_start": {
    "data": "tests/golden/map4_template with data/calibration/demography.json and the pool tests/golden/pool/pool_b.bin",
-   "data_hash": "6bc8a5d68de36a5e",
+   "data_hash": "cee2fddd5f5f8eef",
    "body_data": "accepted",
-   "start_input_hash": "c9a52103af787940",
+   "start_input_hash": "b0ec0f0d1c75741f",
    "year_hashes": [
     "a25123c00bca7ef1",
     "2832b886c5197c83",
@@ -6833,7 +6833,7 @@
     }
    },
    "pool": {
-    "pool_hash": "8fbc3d92596336b6",
+    "pool_hash": "cb6a133c8d0149e4",
     "pool_seed": "0000000011b019a2",
     "frozen_at": 943488000
    },
@@ -7269,7 +7269,7 @@
   },
   "c_prerun_small": {
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
-   "data_hash": "b17afdcd296175ac",
+   "data_hash": "945b7e9e28380f2d",
    "body_data": "accepted without core:mc1r and core:herc2 in the map, both read as 0 copies (note section 6.1)",
    "start_input_hash": "a9f9746730a92dd1",
    "year_hashes": [
@@ -9231,7 +9231,7 @@
   },
   "c_prerun_small_reference_alleles": {
    "data": "the pre-run data of tools/prerun_reference.py (the template without the five disease loci, MC1R, HERC2 and the Mendelian diseases)",
-   "data_hash": "b17afdcd296175ac",
+   "data_hash": "945b7e9e28380f2d",
    "body_data": "accepted with MC1R and HERC2 read as 0 copies (the twin of c, which reaches the same rows by the rule of note section 6.1)",
    "start_input_hash": "a9f9746730a92dd1",
    "year_hashes": [
