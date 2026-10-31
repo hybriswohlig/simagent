@@ -1133,6 +1133,68 @@ fn a_couple_shows_four_possible_children() {
     }
 }
 
+/// What the people of a person's family tree are to it, in one answer (Grok's round 46, P3):
+/// the kinship of the person route for each sim of `?to=`, in the order asked. By hand from
+/// the dummy run's golden pedigree: sim 13 is the son of 8 and 4, and 8 the daughter of 1
+/// and 2; the couple 8 and 4 is unrelated, so 13's parents share half and its grandparents
+/// on its mother's side a quarter with it. An unknown sim in the list or the path is an
+/// unknown sim; a query that is not exactly `to=` and sims with commas is refused.
+#[test]
+fn the_kin_of_a_family_tree() {
+    let (runs, web) = fixture("kin");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let status = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .args(["run".as_ref(), "--scenario".as_ref(), scenario.as_os_str()])
+        .args(["--out".as_ref(), runs.join("dummy").as_os_str()])
+        .stdout(Stdio::null())
+        .status()
+        .expect("runs");
+    assert!(status.success());
+    let server = start(&runs, &web);
+    let (status, head, body) = get(server.port, "/api/runs/dummy/persons/13/kin?to=8,4,1,2");
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    assert_eq!(
+        json_of(&body),
+        json!({
+            "format": "simagent.view.kin",
+            "version": 1,
+            "kin": [
+                {"to": 8, "word": "mother", "foster": null, "r_percent": 50.0},
+                {"to": 4, "word": "father", "foster": null, "r_percent": 50.0},
+                {"to": 1, "word": "grandmother", "foster": null, "r_percent": 25.0},
+                {"to": 2, "word": "grandfather", "foster": null, "r_percent": 25.0}
+            ]
+        })
+    );
+    for path in [
+        "/api/runs/dummy/persons/13/kin?to=8,99",
+        "/api/runs/dummy/persons/99/kin?to=8",
+        "/api/runs/dummy/persons/13/kin?to=08",
+    ] {
+        let (status, _, body) = get(server.port, path);
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "unknown_sim".to_owned()),
+            "{path}"
+        );
+    }
+    for path in [
+        "/api/runs/dummy/persons/13/kin",
+        "/api/runs/dummy/persons/13/kin?to=",
+        "/api/runs/dummy/persons/13/kin?to=8,",
+        "/api/runs/dummy/persons/13/kin?to=8&to=4",
+        "/api/runs/dummy/persons/13/kin?of=8",
+    ] {
+        let (status, _, body) = get(server.port, path);
+        assert_eq!(
+            (status, code_of(&body)),
+            (400, "bad_query".to_owned()),
+            "{path}"
+        );
+    }
+}
+
 /// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section
 /// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the uncle
 /// of sim 13 (φ 1/8) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly

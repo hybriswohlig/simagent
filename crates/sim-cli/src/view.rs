@@ -246,7 +246,9 @@ impl Server {
         }
         match segments.as_slice() {
             // A query belongs to the events and the persons alone.
-            ["api", "runs", _, "events"] | ["api", "runs", _, "persons", _] => {}
+            ["api", "runs", _, "events"]
+            | ["api", "runs", _, "persons", _]
+            | ["api", "runs", _, "persons", _, "kin"] => {}
             ["api", ..] if request.query.is_some() => return Response::error(400, "bad_query"),
             _ => {}
         }
@@ -259,6 +261,12 @@ impl Server {
                 Some(to) => self.read(run, |dir| person(|| self.world_of(dir), sim, to)),
                 None => Response::error(400, "bad_query"),
             },
+            ["api", "runs", run, "persons", sim, "kin"] => {
+                match kin_query(request.query.as_deref()) {
+                    Some(to) => self.read(run, |dir| kin(|| self.world_of(dir), sim, &to)),
+                    None => Response::error(400, "bad_query"),
+                }
+            }
             ["api", "runs", run, "census"] => self.read(run, census),
             ["api", "runs", run, "people"] => self.read(run, |dir| people(|| self.world_of(dir))),
             ["api", "runs", run, "children", mother, father] => {
@@ -703,6 +711,16 @@ fn person_query(query: Option<&str>) -> Option<Option<&str>> {
     }
 }
 
+/// The query of the kin route: exactly `to=` and one or more runs of digits, separated by
+/// commas (the other sims, still as text); anything else is `None`.
+fn kin_query(query: Option<&str>) -> Option<Vec<&str>> {
+    let to = query?.strip_prefix("to=")?;
+    let others: Vec<&str> = to.split(',').collect();
+    (others.iter())
+        .all(|other| !other.is_empty() && other.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(others)
+}
+
 /// A sim of a path or a query: decimal, without a leading zero or sign; `None` otherwise.
 fn sim_of(text: &str) -> Option<sim_core::ids::SimId> {
     (text.parse::<u64>().ok())
@@ -727,6 +745,25 @@ fn person(
         Some(None) => return unknown(),
     };
     match world().and_then(|world| crate::person_answer(&world, id, other)) {
+        Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Ok(None) => unknown(),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/persons/{sim}/kin?to={other},…` (Grok's round 46, P3): what each
+/// other sim is to the person, in the order asked, as the person route's `kinship`.
+fn kin(world: impl FnOnce() -> Result<Rc<World>, CliError>, sim: &str, to: &[&str]) -> Response {
+    let unknown = || Response::error(404, "unknown_sim");
+    let (Some(id), Some(others)) = (
+        sim_of(sim),
+        to.iter()
+            .map(|other| sim_of(other))
+            .collect::<Option<Vec<_>>>(),
+    ) else {
+        return unknown();
+    };
+    match world().and_then(|world| crate::kin_answer(&world, id, &others)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),

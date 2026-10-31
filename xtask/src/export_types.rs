@@ -236,6 +236,15 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "KinAnswer",
+            doc: "`GET /api/runs/{run}/persons/{sim}/kin?to={other},…`: what each other sim is to the person, by the core, in the order asked.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.kin"])),
+                field("version", Integer),
+                field("kin", list(Ref("Kinship"))),
+            ],
+        },
+        Named {
             name: "PreviewChild",
             doc: "A possible child: its sex, its body at 25 without environment, its looks and traits.",
             fields: vec![

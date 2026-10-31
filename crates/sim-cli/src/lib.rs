@@ -391,16 +391,46 @@ pub fn person_answer(
         answer["card"] = json(serde_json::to_value(card))?;
     }
     if let Some(other) = to {
-        let Some(kin) = world.kin_view(sim, other) else {
+        let Some(kinship) = kinship(world, sim, other)? else {
             return Ok(None);
         };
-        let mut kinship = json(serde_json::to_value(kin))?;
-        if let Some(kinship) = kinship.as_object_mut() {
-            kinship.insert("to".into(), other.get().into());
-        }
         answer["kinship"] = kinship;
     }
     Ok(Some(answer))
+}
+
+/// What `other` is to `sim`, by the core, with `to` naming `other`; `None` if either is
+/// unknown.
+fn kinship(world: &World, sim: SimId, other: SimId) -> Result<Option<serde_json::Value>, CliError> {
+    let Some(kin) = world.kin_view(sim, other) else {
+        return Ok(None);
+    };
+    let mut kinship = serde_json::to_value(kin).map_err(|e| CliError::new("io", e.to_string()))?;
+    if let Some(kinship) = kinship.as_object_mut() {
+        kinship.insert("to".into(), other.get().into());
+    }
+    Ok(Some(kinship))
+}
+
+/// The answer of the kin route (Grok's round 46, P3): the kinship of each of `others` to
+/// `sim`, in their order; `None` if any of them is unknown.
+pub fn kin_answer(
+    world: &World,
+    sim: SimId,
+    others: &[SimId],
+) -> Result<Option<serde_json::Value>, CliError> {
+    let mut kin = Vec::new();
+    for other in others {
+        let Some(kinship) = kinship(world, sim, *other)? else {
+            return Ok(None);
+        };
+        kin.push(kinship);
+    }
+    Ok(Some(serde_json::json!({
+        "format": "simagent.view.kin",
+        "version": 1,
+        "kin": kin,
+    })))
 }
 
 /// A second with its date, as the server's answers carry dates.
