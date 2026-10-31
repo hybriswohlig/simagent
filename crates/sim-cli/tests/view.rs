@@ -1070,6 +1070,62 @@ fn the_people_are_the_living_with_their_looks() {
     assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
 }
 
+/// The possible children of a couple (Grok's round 44): two daughters and two sons from the
+/// core, the same on every request, and asking changes nothing; a man as the mother or an
+/// unknown sim has none.
+#[test]
+fn a_couple_shows_four_possible_children() {
+    let (runs, web) = long_fixture("children");
+    let server = start(&runs, &web);
+    let save = fs::read(runs.join("long/state.save")).expect("the save");
+    let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
+        .expect("loads");
+    let pedigree: Value =
+        serde_json::from_slice(&fs::read(runs.join("long/pedigree.json")).expect("read"))
+            .expect("JSON");
+    let first = |sex: &str| {
+        (pedigree["persons"].as_array().expect("persons").iter())
+            .find(|p| p["sex"] == sex && p["died"].is_null() && p["emigrated"].is_null())
+            .and_then(|p| p["sim"].as_u64())
+            .expect("a living person")
+    };
+    let (mother, father) = (first("female"), first("male"));
+    let before = world.state_hash();
+    let path = format!("/api/runs/long/children/{mother}/{father}");
+    let (status, head, body) = get(server.port, &path);
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    let answer = json_of(&body);
+    assert_eq!(answer["format"], "simagent.view.children");
+    assert_eq!(answer["version"], 1);
+    let id = |sim: u64| sim_core::ids::SimId::try_from(sim).expect("an id");
+    let expected = world
+        .preview_children(id(mother), id(father))
+        .expect("children");
+    assert_eq!(
+        answer["children"],
+        serde_json::to_value(&expected).expect("JSON")
+    );
+    let sexes: Vec<&str> = (answer["children"].as_array().expect("children").iter())
+        .map(|child| child["sex"].as_str().expect("a sex"))
+        .collect();
+    assert_eq!(sexes, ["female", "female", "male", "male"]);
+    assert_eq!(json_of(&get(server.port, &path).2), answer);
+    assert_eq!(world.state_hash(), before);
+    for path in [
+        format!("/api/runs/long/children/{father}/{mother}"),
+        format!("/api/runs/long/children/{mother}/99999"),
+        format!("/api/runs/long/children/x/{father}"),
+    ] {
+        let (status, _, body) = get(server.port, &path);
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "no_children".to_owned()),
+            "{path}"
+        );
+    }
+}
+
 /// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section
 /// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the uncle
 /// of sim 13 (φ 1/8) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly

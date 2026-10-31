@@ -144,6 +144,13 @@ export const TEXT = {
   pair: "Paar stiften",
   pair_with: "Mit wem?",
   pair_search: "Nach Aussehen suchen",
+  children_show: "Mögliche Kinder zeigen",
+  children_heading: "So könnten Kinder von {mother} und {father} aussehen",
+  children_note:
+    "Vier mögliche Kinder aus den Genen der beiden, gezeigt mit 25 Jahren. Das echte Kind bekommt seine Gene erst bei der Empfängnis und kann anders aussehen.",
+  children_failed: "Die möglichen Kinder kamen nicht.",
+  child_daughter: "Tochter",
+  child_son: "Sohn",
   kin_with: "Verwandtschaft mit",
   kin_pick: "Person wählen",
   card: "Genetik",

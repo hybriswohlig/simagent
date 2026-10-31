@@ -261,6 +261,9 @@ impl Server {
             },
             ["api", "runs", run, "census"] => self.read(run, census),
             ["api", "runs", run, "people"] => self.read(run, |dir| people(|| self.world_of(dir))),
+            ["api", "runs", run, "children", mother, father] => {
+                self.read(run, |dir| children(|| self.world_of(dir), mother, father))
+            }
             ["api", "runs", run, "world"] => self.read(run, |dir| world(self.world_of(dir))),
             ["api", "runs", a, "diff", b] => {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
@@ -728,6 +731,33 @@ fn person(
         Ok(None) => unknown(),
         Err(error) => Response::error(500, error.code),
     }
+}
+
+/// `GET /api/runs/{run}/children/{mother}/{father}`: the four possible children of the couple
+/// (Grok's round 44), from the core; `no_children` for a pair the core shows none of.
+fn children(
+    world: impl FnOnce() -> Result<Rc<World>, CliError>,
+    mother: &str,
+    father: &str,
+) -> Response {
+    let none = || Response::error(404, "no_children");
+    let (Some(mother), Some(father)) = (sim_of(mother), sim_of(father)) else {
+        return none();
+    };
+    let world = match world() {
+        Ok(world) => world,
+        Err(error) => return Response::error(500, error.code),
+    };
+    let Some(children) = world.preview_children(mother, father) else {
+        return none();
+    };
+    let answer = serde_json::json!({
+        "format": "simagent.view.children",
+        "version": 1,
+        "contract_version": sim_core::body_contract::CONTRACT_VERSION,
+        "children": children,
+    });
+    Response::new(200, JSON, format!("{answer}\n").into_bytes())
 }
 
 /// `GET /api/runs/{run}/people`: the living persons with their bodies now and their looks

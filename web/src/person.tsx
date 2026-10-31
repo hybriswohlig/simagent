@@ -4,7 +4,7 @@ import { getJson, postJson, Refused } from "./api.js";
 import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import type { EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import type { ChildrenAnswer, EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
 import { FamilyView } from "./familyview.js";
 import { bornText, captionYear, dateText } from "./dates.js";
@@ -14,6 +14,7 @@ import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
 import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
+import { childName, childrenHeading, childWords } from "./children.js";
 import { found, NO_FILTER, type Filter } from "./people.js";
 import { FilterForm, PeopleList, traitsLine, usePeople } from "./peopleview.js";
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
@@ -239,6 +240,43 @@ function KinForm({
 
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
+/** The four possible children of a couple (Grok's round 44): the heading, the note, and per
+ * child its portrait at 25, "Tochter" or "Sohn", the words of its looks and its traits. */
+function Children({ mother, father, answer }: { mother: Person; father: Person; answer: ChildrenAnswer }) {
+  return (
+    <section>
+      <h3>{childrenHeading(fullName(mother), fullName(father))}</h3>
+      <p>{TEXT.children_note}</p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+        {answer.children.map((child, i) => (
+          <figure key={i} style={{ width: "170px", margin: "0" }}>
+            <Portrait params={child.body} label={childName(child)} width={110} />
+            <figcaption>
+              <strong>{childName(child)}</strong>
+              <br />
+              <small>{childWords(child)}</small>
+              {traitsLine(child.traits) === "" ? null : (
+                <>
+                  <br />
+                  <strong>{traitsLine(child.traits)}</strong>
+                </>
+              )}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** What the possible children of the chosen pair are: not asked, on their way, there (for
+ * the pair `key`) or not come. */
+type Kids =
+  | { readonly state: "idle" }
+  | { readonly state: "busy"; readonly key: string }
+  | { readonly state: "ready"; readonly key: string; readonly answer: ChildrenAnswer }
+  | { readonly state: "failed"; readonly key: string };
+
 /** Pairing a person with one of the partners the core offers (ADR-0021 section 6, "ein
  * Paar stiften"); the core judges age and kinship. After each answer of the server, a
  * rejection too, the page reads the person again (`answered`). */
@@ -262,6 +300,7 @@ function PairForm({
   const [pairing, setPairing] = useState<Pairing>({ state: "idle" });
   const people = usePeople(run);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const [kids, setKids] = useState<Kids>({ state: "idle" });
   const offeredSims = new Set(offered);
   const kept =
     people.state === "ready"
@@ -277,6 +316,19 @@ function PairForm({
     return failure;
   }
   const other = listed.find((candidate) => String(candidate.sim) === chosen);
+  const couple = other === undefined ? null : person.sex === "female" ? ([person, other] as const) : ([other, person] as const);
+  const showKids = () => {
+    if (couple === null) {
+      return;
+    }
+    const [mother, father] = couple;
+    const key = `${mother.sim}/${father.sim}`;
+    setKids({ state: "busy", key });
+    getJson(`/api/runs/${run}/children/${key}`, { format: "simagent.view.children", version: 1 })
+      .then((json) => setKids({ state: "ready", key, answer: json as unknown as ChildrenAnswer }))
+      .catch(() => setKids({ state: "failed", key }));
+  };
+  const kidsKey = couple === null ? "" : `${couple[0].sim}/${couple[1].sim}`;
   const send = (with_: Person | undefined) => {
     const input = with_ === undefined ? null : arrangement(person, with_);
     if (input === null) {
@@ -311,9 +363,16 @@ function PairForm({
         </select>{" "}
         <button type="button" disabled={other === undefined || pairing.state === "busy"} onClick={() => send(other)}>
           {TEXT.pair}
+        </button>{" "}
+        <button type="button" disabled={couple === null || (kids.state === "busy" && kids.key === kidsKey)} onClick={showKids}>
+          {TEXT.children_show}
         </button>
       </p>
       {failure}
+      {couple !== null && kids.state === "ready" && kids.key === kidsKey ? (
+        <Children mother={couple[0]} father={couple[1]} answer={kids.answer} />
+      ) : null}
+      {couple !== null && kids.state === "failed" && kids.key === kidsKey ? <p role="alert">{TEXT.children_failed}</p> : null}
       {kept === null ? null : (
         <details>
           <summary>{TEXT.pair_search}</summary>

@@ -127,6 +127,22 @@ export type PeopleAnswer = {
   readonly people: PeopleEntry[];
 };
 
+/** `GET /api/runs/{run}/children/{mother}/{father}`: four possible children of the couple from the core, two daughters and two sons, each with its body at 25 without environment, its looks and its traits. */
+export type ChildrenAnswer = {
+  readonly format: "simagent.view.children";
+  readonly version: number;
+  readonly contract_version: string;
+  readonly children: PreviewChild[];
+};
+
+/** A possible child: its sex, its body at 25 without environment, its looks and traits. */
+export type PreviewChild = {
+  readonly sex: "female" | "male";
+  readonly body: BodyParams;
+  readonly looks: Looks;
+  readonly traits: Traits;
+};
+
 /** A running pregnancy: the second it began and the second the birth is due, each with its date. */
 export type PregnancyShown = {
   readonly conceived: DatedSecond;
