@@ -6,6 +6,7 @@
 
 pub mod card;
 pub mod kin;
+pub mod looks;
 pub mod names;
 pub mod partners;
 

@@ -248,7 +248,7 @@ pub struct GeneticsCard {
 
 /// What the card reads of a sim, living or archived: its birth, the second shown (now for
 /// the living, the second it left for the others), its genome and lineage key.
-fn facts(
+pub(super) fn facts(
     domain: &DomainState,
     now: SimTime,
     sim: SimId,
@@ -264,7 +264,7 @@ fn facts(
 
 impl World {
     /// The terms of the phenotype of trait `t` of `sim` at its second shown.
-    fn parts_shown(&self, sim: SimId, t: &DataId) -> Option<(PhenotypeParts, i64)> {
+    pub(super) fn parts_shown(&self, sim: SimId, t: &DataId) -> Option<(PhenotypeParts, i64)> {
         let state = self.state();
         let domain = state.domain();
         let data = state.data();

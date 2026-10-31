@@ -957,6 +957,84 @@ fn a_person_is_the_cores_presentation_state() {
     assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
 }
 
+/// The persons of a run for finding them (the filter of the person list): every living
+/// person in the order of the ages the person answer lists, with its body now and its looks
+/// in words from the core; the colours, curls and freckles by hand from that body at the
+/// bounds of the words.
+#[test]
+fn the_people_are_the_living_with_their_looks() {
+    let (runs, web) = long_fixture("people");
+    let server = start(&runs, &web);
+    let save = fs::read(runs.join("long/state.save")).expect("the save");
+    let (world, _) = sim_core::world::World::load(&save, sim_cli::data::core_data().expect("data"))
+        .expect("loads");
+    let (status, head, body) = get(server.port, "/api/runs/long/people");
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    let answer = json_of(&body);
+    assert_eq!(answer["format"], "simagent.view.people");
+    assert_eq!(answer["version"], 1);
+    assert_eq!(
+        answer["contract_version"],
+        sim_core::body_contract::CONTRACT_VERSION
+    );
+    let people = answer["people"].as_array().expect("people");
+    let living: Vec<u64> = world.ages().iter().map(|age| age.sim.get()).collect();
+    assert!(!living.is_empty());
+    let sims: Vec<u64> = people
+        .iter()
+        .map(|p| p["sim"].as_u64().expect("a sim"))
+        .collect();
+    assert_eq!(sims, living);
+    fn word(x: &Value, bounds: [f64; 3], names: [&'static str; 4]) -> &'static str {
+        let x = x.as_f64().expect("a number");
+        names[bounds.iter().filter(|&&bound| x >= bound).count()]
+    }
+    for person in people {
+        let id =
+            sim_core::ids::SimId::try_from(person["sim"].as_u64().expect("a sim")).expect("an id");
+        let view = world.person_view(id).expect("a view");
+        assert_eq!(
+            person["shown"],
+            serde_json::to_value(&view.shown).expect("JSON")
+        );
+        let looks = &person["looks"];
+        assert_eq!(*looks, serde_json::to_value(world.looks(id)).expect("JSON"));
+        let body = &person["shown"]["body"];
+        if looks["hair"] != "red" {
+            let hair = ["blond", "light_brown", "dark_brown", "black"];
+            assert_eq!(
+                looks["hair"],
+                word(&body["hair_eumelanin"], [0.16, 0.36, 0.75], hair)
+            );
+        }
+        let eyes = ["blue", "green", "hazel", "brown"];
+        assert_eq!(
+            looks["eyes"],
+            word(&body["iris_melanin"], [0.20, 0.45, 0.60], eyes)
+        );
+        let skin = ["very_light", "light", "beige", "tanned"];
+        assert_eq!(
+            looks["skin"],
+            word(&body["skin_eumelanin"], [0.05, 0.10, 0.18], skin)
+        );
+        let curls = ["straight", "wavy", "curly", "kinky"];
+        assert_eq!(
+            looks["curls"],
+            word(&body["hair_curl"], [0.15, 0.40, 0.70], curls)
+        );
+        let freckles = ["none", "few", "clear", "many"];
+        assert_eq!(
+            looks["freckles"],
+            word(&body["freckle_density"], [0.10, 0.30, 0.60], freckles)
+        );
+    }
+    let (status, _, body) = get(server.port, "/api/runs/nothing/people");
+    assert_eq!((status, code_of(&body)), (404, "unknown_run".to_owned()));
+    let (status, _, body) = get(server.port, "/api/runs/fork.b/people");
+    assert_eq!((status, code_of(&body)), (500, "save_rejected".to_owned()));
+}
+
 /// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section
 /// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the uncle
 /// of sim 13 (φ 1/8) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly

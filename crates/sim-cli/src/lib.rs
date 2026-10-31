@@ -392,6 +392,35 @@ pub fn person_answer(
     Ok(Some(answer))
 }
 
+/// The living persons of a run's world for finding them (the filter of the person list): in
+/// the order of the ages the person answer lists, each with its body now and its looks in
+/// words, all from the core.
+pub fn people_answer(world: &World) -> Result<serde_json::Value, CliError> {
+    let json = |value: serde_json::Result<serde_json::Value>| {
+        value.map_err(|e| CliError::new("io", e.to_string()))
+    };
+    let mut people = Vec::new();
+    for age in world.ages() {
+        let (Some(view), Some(looks)) = (world.person_view(age.sim), world.looks(age.sim)) else {
+            return Err(CliError::new(
+                "io",
+                format!("sim {} has no view", age.sim.get()),
+            ));
+        };
+        people.push(serde_json::json!({
+            "sim": age.sim.get(),
+            "shown": json(serde_json::to_value(&view.shown))?,
+            "looks": json(serde_json::to_value(looks))?,
+        }));
+    }
+    Ok(serde_json::json!({
+        "format": "simagent.view.people",
+        "version": 1,
+        "contract_version": sim_core::body_contract::CONTRACT_VERSION,
+        "people": people,
+    }))
+}
+
 /// Prints φ of the persons `a` and `b` of the run in `dir`, from its save, as one JSON
 /// number. The core computes it; the CLI only prints it.
 fn kinship_of(dir: &Path, a: &str, b: &str) -> Result<(), CliError> {

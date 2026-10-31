@@ -440,6 +440,8 @@ fn server_answers(
         answers.push(("PersonAnswer", get(port, &path)?));
         sims.push(sim);
     }
+    // The living persons of the town with their looks: a town of hundreds shows every word.
+    answers.push(("PeopleAnswer", get(port, "/api/runs/town/people")?));
     // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
     answers.push(("SheetAnswer", get(port, "/api/sheet")?));
     // A kinship without a foster word (the living person to the dead one), and one with:
