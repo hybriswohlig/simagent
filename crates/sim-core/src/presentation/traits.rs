@@ -62,10 +62,6 @@ pub fn traits_of(cognition: f64, strength: f64, beauty: f64) -> Traits {
     }
 }
 
-fn id(text: &str) -> DataId {
-    DataId::new(text).unwrap_or_else(|_| panic!("invariant traits.trait_id"))
-}
-
 impl World {
     /// The traits of `sim`, living or archived, from its phenotypes with the adult weights;
     /// `None` for an unknown sim or a map without the traits read.
@@ -77,10 +73,27 @@ impl World {
         let adult = YEAR
             .checked_mul(100)
             .unwrap_or_else(|| panic!("invariant traits.age"));
-        let z = |t: &str| self.parts_at(sim, &id(t), adult).map(|parts| parts.z());
+        let z = |t| {
+            let t = DataId::new(t).unwrap_or_else(|_| panic!("invariant traits.trait_id"));
+            self.parts_at(sim, &t, adult).map(|parts| parts.z())
+        };
+        let names = [
+            "core:face_01",
+            "core:face_02",
+            "core:face_03",
+            "core:face_04",
+            "core:face_05",
+            "core:face_06",
+            "core:face_07",
+            "core:face_08",
+            "core:face_09",
+            "core:face_10",
+            "core:face_11",
+            "core:face_12",
+        ];
         let mut faces = [0.0; 12];
-        for (k, face) in faces.iter_mut().enumerate() {
-            *face = z(&alloc::format!("core:face_{:02}", k + 1))?;
+        for (face, t) in faces.iter_mut().zip(names) {
+            *face = z(t)?;
         }
         let typical = z(match genome.sex() {
             Sex::Female => "core:estrogen",
