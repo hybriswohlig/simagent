@@ -9,7 +9,8 @@
 // the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits with a height under each
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin; last the server falls silent and loading again ends the
-// message that it does not answer.
+// message that it does not answer, and once more after a step alone, where the message ends
+// by itself once the server answers.
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
@@ -310,10 +311,21 @@ if (browser !== undefined) {
     await page.unrouteAll();
     await step("load again", again.click());
     await step("the silence over", silence.waitFor({ state: "detached" }));
+    // Once more with only a step and the reads of the world cut off (the fourth playtest, K3):
+    // nothing is to be loaded again, and once the server answers, the message ends by itself.
+    await page.route(/\/api\/runs\/neu\/advance$/, (route) => route.abort());
+    await page.route(world, (route) => route.abort());
+    await step("a step without an answer again", step28.click());
+    await step("the server's silence again", silence.waitFor());
+    if (await again.isVisible()) {
+      throw new Error("the silence of a step alone asks to load again");
+    }
+    await page.unrouteAll();
+    await step("the silence over by itself", silence.waitFor({ state: "detached" }));
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

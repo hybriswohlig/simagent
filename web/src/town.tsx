@@ -24,6 +24,8 @@ const INPUT = { format: "simagent.view.input", version: 1 } as const;
 
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
+/** How often the page asks again for the run's world while the server does not answer. */
+const SILENCE_MS = 2000;
 
 
 const STEPS: readonly (readonly [Step, keyof typeof TEXT])[] = [
@@ -219,6 +221,16 @@ function Town({
     setInputRefused(null);
     void readWorld();
   }, [listedAt, retries]);
+  // While the server does not answer, its world is asked for again, so that the message ends
+  // once it answers, also after a step alone, where nothing is to be loaded again (the fourth
+  // playtest, K3).
+  useEffect(() => {
+    if (clock.refused !== "network") {
+      return;
+    }
+    const timer = setInterval(() => void readWorld(), SILENCE_MS);
+    return () => clearInterval(timer);
+  }, [clock.refused]);
   // An input at the standing clock (ADR-0023 section 6 and its addendum before S2): its
   // entries in the chronicle at once and the switch read again, each on its own.
   const send = (input: unknown) => {

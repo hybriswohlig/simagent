@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { postJson } from "./api.js";
 import { forkBody, forkFailureText, FORKED, sameLabel, type Choice } from "./fork.js";
+import { browserStorage, pinFork } from "./pin.js";
 import { format, runName } from "./router.js";
 import { TEXT } from "./text.js";
 
@@ -58,6 +59,7 @@ export function ForkForm({
     setFailed(null);
     postJson(`/api/runs/${run}/fork`, forkBody(name, fromYear, choice), FORKED)
       .then(() => {
+        pinFork(browserStorage(), run, name);
         // Only from the page that asked: a fork that ends after the player left goes nowhere.
         if (shown.current) {
           location.hash = format({ page: "diff", a: run, b: name });

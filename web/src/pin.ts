@@ -33,6 +33,17 @@ export function unpin(storage: Storage | null, run: string): void {
   }
 }
 
+/** A new fork pins the family its run pins (the fourth playtest, K2): the person is the same
+ * in the fork, born before it or not yet; where the run pins nothing, the fork neither. */
+export function pinFork(storage: Storage | null, run: string, fork: string): void {
+  const key = pinnedKey(storage, run);
+  if (key === null) {
+    unpin(storage, fork);
+  } else {
+    pin(storage, fork, key);
+  }
+}
+
 /** The page's storage, if the browser gives one. */
 export function browserStorage(): Storage | null {
   try {
