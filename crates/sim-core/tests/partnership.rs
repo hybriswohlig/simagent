@@ -1,7 +1,8 @@
 //! Partnerships (ADR-0004 sections 1 and 4, ADR-0001 "Durchstich"): the fixed couples
 //! of `Start` and the input `ArrangePartnership` pair a living woman and a living man.
 //! Each partnership gets a PartnershipId and one creation entry `core:partnered`; it
-//! ends with the first death of the two and stays as history.
+//! ends with the first death of the two and stays as history. The input
+//! `SeparatePartnership` ends it at once (ADR-0023, addendum of 2026-10-31).
 //!
 //! The expected bytes come from `tools/state_reference.py`, which runs the model of
 //! `tools/world_reference.py`, written from the ADRs and not from this code.
@@ -18,7 +19,8 @@ use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
 use sim_core::ids::SimId;
 use sim_core::input::{
-    ArrangePartnership, Couple, Founder, Input, InputRejected, RejectCode, Start,
+    ArrangePartnership, Couple, Founder, Input, InputRejected, RejectCode, SeparatePartnership,
+    Start,
 };
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
@@ -114,6 +116,24 @@ fn arrange(woman: u64, man: u64) -> Input {
     })
 }
 
+fn separate(woman: u64, man: u64) -> Input {
+    Input::SeparatePartnership(SeparatePartnership {
+        woman: sim(woman),
+        man: sim(man),
+    })
+}
+
+/// What a rejected input leaves: the code, and nothing changed (state, input log, log).
+fn rejected(world: &mut World, input: Input) -> Option<RejectCode> {
+    let before = world.state_hash();
+    let inputs = world.input_log().len();
+    let result = world.submit(input).err();
+    assert_eq!(world.state_hash(), before);
+    assert_eq!(world.input_log().len(), inputs);
+    assert!(world.take_log().is_empty());
+    result.map(|InputRejected { code }| code)
+}
+
 struct Run {
     world: World,
     out: YearOut,
@@ -196,15 +216,6 @@ fn a_death_ends_the_partnership_and_the_survivor_can_be_paired_again() {
 /// and a man, neither in a partnership. A rejected input changes nothing.
 #[test]
 fn arrange_partnership_is_rejected_unless_both_live_unpaired() {
-    let rejected = |world: &mut World, input: Input| {
-        let before = world.state_hash();
-        let inputs = world.input_log().len();
-        let result = world.submit(input).err();
-        assert_eq!(world.state_hash(), before);
-        assert_eq!(world.input_log().len(), inputs);
-        assert!(world.take_log().is_empty());
-        result.map(|InputRejected { code }| code)
-    };
     assert_eq!(
         rejected(&mut World::new(partners_data()), arrange(1, 2)),
         Some(RejectCode::NotStarted)
@@ -384,4 +395,107 @@ fn save_load_continue_across_the_partnerships() {
             "stop {stop}"
         );
     }
+}
+
+/// `SeparatePartnership` checks in the order of `ArrangePartnership` (started, known,
+/// alive, a woman and a man), then that the two are a couple with each other (ADR-0023,
+/// addendum of 2026-10-31). A rejected input changes nothing.
+#[test]
+fn separate_partnership_is_rejected_unless_they_are_a_couple() {
+    assert_eq!(
+        rejected(&mut World::new(partners_data()), separate(1, 2)),
+        Some(RejectCode::NotStarted)
+    );
+    // At the start she is paired with the first man; the second man is single.
+    let mut world = partners();
+    world.take_log();
+    for (input, code) in [
+        (separate(1, 4), RejectCode::UnknownSim),
+        (separate(4, 2), RejectCode::UnknownSim),
+        (separate(2, 1), RejectCode::PartnersOfWrongSex),
+        (separate(1, 1), RejectCode::PartnersOfWrongSex),
+        (separate(1, 3), RejectCode::NotPartners),
+    ] {
+        assert_eq!(rejected(&mut world, input.clone()), Some(code), "{input:?}");
+    }
+    // After his death he is not alive and she is single.
+    let mut run = Run::new(partners());
+    run.advance(Y - 1);
+    assert_eq!(
+        rejected(&mut run.world, separate(1, 2)),
+        Some(RejectCode::SimNotAlive)
+    );
+    assert_eq!(
+        rejected(&mut run.world, separate(1, 3)),
+        Some(RejectCode::NotPartners)
+    );
+    // Two singles, and a man who is paired with another woman.
+    let mut world = World::new(partners_data());
+    world
+        .submit(two_women_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.take_log();
+    assert_eq!(
+        rejected(&mut world, separate(4, 3)),
+        Some(RejectCode::NotPartners)
+    );
+    assert_eq!(
+        rejected(&mut world, separate(4, 2)),
+        Some(RejectCode::NotPartners)
+    );
+    world.submit(separate(1, 2)).expect("accepted");
+    world.take_log();
+    assert_eq!(
+        rejected(&mut world, separate(1, 2)),
+        Some(RejectCode::NotPartners)
+    );
+}
+
+/// An accepted `SeparatePartnership`, stamped at 1 000, ends the partnership of the
+/// founder couple in 1 001 by separation, with the input (sequence 2) as its only cause
+/// (ADR-0023, addendum of 2026-10-31). A pairing of hers stamped at the same second forms
+/// in that same 1 001, after the separation. The save of both loads, and the loaded world
+/// runs on as the world does.
+#[test]
+fn a_player_separation_ends_the_partnership_at_once() {
+    let mut run = Run::new(partners());
+    run.advance(1_000);
+    let before = run.log.len();
+    run.submit(separate(1, 2));
+    let entry = serde_json::to_value(&run.log[before]).expect("json");
+    assert_eq!(entry["t"], 1_001);
+    assert_eq!(
+        entry["subjects"],
+        serde_json::json!([{"sim": 1}, {"sim": 2}])
+    );
+    assert_eq!(entry["causes"], serde_json::json!([{"input": 2}]));
+    assert_eq!(
+        entry["payload"],
+        serde_json::json!({"core:separated": {"partnership": 1}})
+    );
+    let ended = |world: &World, number: u64| {
+        let pedigree = serde_json::to_value(world.pedigree()).expect("json");
+        let couple = (pedigree["partnerships"]
+            .as_array()
+            .expect("partnerships")
+            .iter())
+        .find(|couple| couple["partnership"] == number)
+        .cloned()
+        .expect("the partnership");
+        (couple["ended"].clone(), couple["ended_by"].clone())
+    };
+    assert_eq!(
+        ended(&run.world, 1),
+        (serde_json::json!(1_001), serde_json::json!("separation"))
+    );
+    run.submit(arrange(1, 3));
+    let pedigree = serde_json::to_value(run.world.pedigree()).expect("json");
+    assert_eq!(pedigree["partnerships"][1]["formed"], 1_001);
+    assert_eq!(pedigree["partnerships"][1]["man"], 3);
+    let (mut loaded, _) = World::load(&run.save(), partners_data()).expect("loads");
+    assert_eq!(loaded.state_hash(), run.world.state_hash());
+    run.advance(5 * Y - 1);
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(5 * Y - 1), &mut |_| false);
+    assert_eq!(loaded.state_hash(), run.world.state_hash());
 }

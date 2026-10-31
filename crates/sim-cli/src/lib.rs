@@ -330,7 +330,9 @@ fn fork_keeps_diseases(world: &World) -> Vec<bool> {
                             }
                         }
                     }
-                    Input::ArrangePartnership(_) | Input::TriggerShock(_) => {}
+                    Input::ArrangePartnership(_)
+                    | Input::TriggerShock(_)
+                    | Input::SeparatePartnership(_) => {}
                 }
             }
             on

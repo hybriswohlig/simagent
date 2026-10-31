@@ -38,7 +38,8 @@ pub(crate) fn persons_in(history: &[InputRecord]) -> u64 {
             Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
-            | Input::TriggerShock(_) => None,
+            | Input::TriggerShock(_)
+            | Input::SeparatePartnership(_) => None,
         })
         .unwrap_or(0)
 }

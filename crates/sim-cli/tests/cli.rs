@@ -302,7 +302,8 @@ fn commands() -> Vec<(Input, &'static str)> {
             | Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
-            | Input::TriggerShock(_) => {}
+            | Input::TriggerShock(_)
+            | Input::SeparatePartnership(_) => {}
         }
     }
     commands
@@ -390,6 +391,77 @@ fn a_partnership_at_a_stop_replays() {
         fs::read(run.join("state.save")).expect("reads"),
         world.save(&out.year_hashes).expect("saves")
     );
+}
+
+/// The woman and the man of the dummy run's third partnership parted, in the command schema.
+const SEPARATE: &str = r#"{"separate_partnership":{"woman":8,"man":4}}"#;
+
+/// ADR-0023, addendum of 2026-10-31: the dummy run stopped at the end of year 26 gets a
+/// `SeparatePartnership` of sims 8 and 4 at the stop (`run --resume --input`) and runs on
+/// to its end. By hand from its golden pedigree, their partnership 3 formed in 628 992 000
+/// and separated by itself in 878 816 547; the input ends it in 849 139 200, the second
+/// after the stop, with the input as its only cause, and no second separation of it
+/// follows. The replay from `input.ndjson` gives the same run directory, and so does a
+/// resume in two steps, whose middle save holds the input.
+#[test]
+fn a_separation_at_a_stop_replays() {
+    let dir = scratch("separate");
+    let scenario = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/dummy.json");
+    let stop = (27 * Y - 1).to_string();
+    let middle = (28 * Y - 1).to_string();
+    let end = (30 * Y - 1).to_string();
+    let inputs = dir.join("separate.json");
+    fs::write(&inputs, format!("[{SEPARATE}]")).expect("writes the inputs");
+    let (run, steps) = (dir.join("run"), dir.join("steps"));
+    for out in [&run, &steps] {
+        must(&[
+            "run",
+            "--scenario",
+            arg(&scenario),
+            "--out",
+            arg(out),
+            "--until",
+            &stop,
+        ]);
+    }
+    let resume = |out: &Path, input: Option<&Path>, until: &str| {
+        let mut args = vec!["run", "--resume", "--out", arg(out)];
+        if let Some(input) = input {
+            args.extend(["--input", arg(input)]);
+        }
+        args.extend(["--until", until]);
+        must(&args);
+    };
+    resume(&run, Some(&inputs), &end);
+    let log = text(&run.join("input.ndjson"));
+    assert_eq!(
+        log.lines().nth(2),
+        Some(format!(r#"{{"t":{stop},"seq":2,"input":{SEPARATE}}}"#).as_str())
+    );
+    let events = text(&run.join("events.ndjson"));
+    assert!(events.contains(
+        r#""t":849139200,"subjects":[{"sim":8},{"sim":4}],"causes":[{"input":2}],"payload":{"core:separated":{"partnership":3}}}"#
+    ));
+    assert_eq!(
+        events
+            .matches(r#""core:separated":{"partnership":3}"#)
+            .count(),
+        1
+    );
+    let replayed = dir.join("replayed");
+    must(&[
+        "run",
+        "--replay",
+        arg(&run.join("input.ndjson")),
+        "--manifest",
+        arg(&run.join("manifest.json")),
+        "--out",
+        arg(&replayed),
+    ]);
+    assert_same_run(&run, &replayed);
+    resume(&steps, Some(&inputs), &middle);
+    resume(&steps, None, &end);
+    assert_same_run(&run, &steps);
 }
 
 /// ADR-0023 section 5, the lever of the switch: world rules at stops inside the years,

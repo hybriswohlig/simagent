@@ -200,6 +200,9 @@ fn check(
         Input::TriggerShock(shock) => {
             state::params::check_shock(domain, data, closed_through, shock)
         }
+        Input::SeparatePartnership(pair) => {
+            state::partnership::check_separate(domain, closed_through, pair)
+        }
     }
 }
 
@@ -241,6 +244,9 @@ impl WorldState {
             }
             Input::TriggerShock(shock) => {
                 state::params::apply_shock(&mut self.domain, &self.data, shock, &mut ctx);
+            }
+            Input::SeparatePartnership(pair) => {
+                state::partnership::apply_separate(&mut self.domain, pair, &mut ctx);
             }
         }
     }

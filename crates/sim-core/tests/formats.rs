@@ -118,6 +118,14 @@ fn sample_arrange() -> Input {
     })
 }
 
+/// The first woman and the first man of a world parted (ADR-0023, addendum of 2026-10-31).
+fn sample_separate() -> Input {
+    Input::SeparatePartnership(sim_core::input::SeparatePartnership {
+        woman: sim(1),
+        man: sim(2),
+    })
+}
+
 fn sample_shock() -> Input {
     Input::TriggerShock(sim_core::input::TriggerShock {
         shock: data_id("core:hunger_one_year"),
@@ -138,6 +146,7 @@ fn all_inputs() -> Vec<Input> {
         sample_arrange(),
         sample_rule(),
         sample_shock(),
+        sample_separate(),
     ];
     for input in &inputs {
         match input {
@@ -145,7 +154,8 @@ fn all_inputs() -> Vec<Input> {
             | Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
-            | Input::TriggerShock(_) => {}
+            | Input::TriggerShock(_)
+            | Input::SeparatePartnership(_) => {}
         }
     }
     inputs
@@ -412,6 +422,15 @@ fn partnership_forms_are_pinned() {
         sample_arrange()
     );
     assert_eq!(postcard_round_trip(&sample_arrange()), hex("020102"));
+    // The separation by the player: variant 5, the same fields (ADR-0023, addendum of
+    // 2026-10-31), by hand from the form of the pairing above.
+    let separate_json = r#"{"separate_partnership":{"woman":1,"man":2}}"#;
+    assert_eq!(json(&sample_separate()), separate_json);
+    assert_eq!(
+        from_json::<Input>(separate_json).expect("parses"),
+        sample_separate()
+    );
+    assert_eq!(postcard_round_trip(&sample_separate()), hex("050102"));
 
     let partnered = LogPayload::Partnered {
         partnership: PartnershipId::try_from(1).expect("valid"),
@@ -740,7 +759,8 @@ fn formats_roundtrip_rejects_malformed_hex() {
             Input::ForkOverride(_)
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
-            | Input::TriggerShock(_) => panic!("a start"),
+            | Input::TriggerShock(_)
+            | Input::SeparatePartnership(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -1029,6 +1049,7 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::ShockUnknown,
         RejectCode::ShockOverlaps,
         RejectCode::PartnersInDirectLine,
+        RejectCode::NotPartners,
     ];
     for code in &codes {
         match code {
@@ -1068,7 +1089,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::ParamUnchanged
             | RejectCode::ShockUnknown
             | RejectCode::ShockOverlaps
-            | RejectCode::PartnersInDirectLine => {}
+            | RejectCode::PartnersInDirectLine
+            | RejectCode::NotPartners => {}
         }
     }
     codes

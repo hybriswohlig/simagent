@@ -28,6 +28,8 @@ pub enum Input {
     SetWorldParam(SetWorldParam),
     /// Triggers a shock from its template in the data (ADR-0023 section 3).
     TriggerShock(TriggerShock),
+    /// Parts a couple at once (ADR-0023, addendum of 2026-10-31: the cheat mode).
+    SeparatePartnership(SeparatePartnership),
 }
 
 /// The start of a run (ADR-0004 section 4 and its addendum of 2026-10-30). The data's hash
@@ -140,6 +142,14 @@ pub struct Couple {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArrangePartnership {
+    pub woman: SimId,
+    pub man: SimId,
+}
+
+/// A woman and a man to part; they must live and be partners of each other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeparatePartnership {
     pub woman: SimId,
     pub man: SimId,
 }
@@ -307,6 +317,9 @@ pub enum RejectCode {
     /// A woman and a man of whom one is an ancestor of the other, at any depth (ADR-0018
     /// section 8).
     PartnersInDirectLine,
+    /// A woman and a man to part who have no open partnership with each other (ADR-0023,
+    /// addendum of 2026-10-31).
+    NotPartners,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.
