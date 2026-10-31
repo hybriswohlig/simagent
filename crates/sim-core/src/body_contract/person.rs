@@ -6,12 +6,13 @@
 
 use alloc::vec::Vec;
 
-use super::{BodyData, BodyEvaluation, BodyInputs, body_params};
+use super::{BodyData, BodyEvaluation, BodyInputs, BodyTraits, body_params};
 use crate::ageing;
 use crate::data::Data;
 use crate::genome::Sex;
 use crate::growth::{IndividualCurve, height_loss, nutrition_loss};
 use crate::ids::SimId;
+use crate::lineage::LineageKey;
 use crate::mortality;
 use crate::params::NutritionYear;
 use crate::phenotype::Environment;
@@ -63,44 +64,64 @@ fn bio_age(data: &Data, sex: Sex, genome: &crate::genome::Genome, age: SimDurati
     ageing::bio_age(age.as_years(), delta, genetics.bio_age_weight)
 }
 
-/// The mapping's inputs of a sim at `t`, living or archived (the archive keeps its birth,
-/// sex, genome and key), with the nutrition years `nutrition` (see `nutrition_of`), without
-/// environment if `neutral` (the sheet of portraits); `None` for an unknown sim or a `t`
-/// before its birth.
+/// The birth, sex, genome and key of a sim, living or archived (the archive keeps them).
+fn person_of(
+    domain: &DomainState,
+    sim: SimId,
+) -> Option<(SimTime, Sex, &crate::genome::Genome, LineageKey)> {
+    match domain.sims.get(&sim) {
+        Some(person) => Some((person.born, person.sex, &person.genome, person.lineage_key)),
+        None => {
+            let gone = domain.archive.get(&sim)?;
+            Some((gone.born, gone.sex, &gone.genome, gone.lineage_key))
+        }
+    }
+}
+
+/// The traits of a sim's body (`BodyTraits::of_person`), living or archived: `E` and `C`
+/// from its seeds, without environment if `neutral` (the sheet of portraits); from nothing
+/// that changes in its life. `None` for an unknown sim.
+pub(crate) fn traits_of(
+    domain: &DomainState,
+    data: &Data,
+    body: &BodyData<'_>,
+    sim: SimId,
+    neutral: bool,
+) -> Option<BodyTraits> {
+    let (_, _, genome, key) = person_of(domain, sim)?;
+    let seeds = domain.seeds(data, sim);
+    let individual = Draws::new(WorldSeed::new(seeds.individual));
+    let shared = Draws::new(WorldSeed::new(seeds.shared));
+    let environment = Environment {
+        individual: &individual,
+        shared: &shared,
+        neutral,
+    };
+    Some(BodyTraits::of_person(
+        body,
+        environment,
+        genome,
+        key,
+        domain.parent_keys(sim),
+    ))
+}
+
+/// The mapping's inputs of a sim at `t`, living or archived, with its traits `z` (see
+/// `traits_of`) and the nutrition years `nutrition` (see `nutrition_of`); `None` for an
+/// unknown sim or a `t` before its birth.
 pub(crate) fn inputs_of<'a>(
     domain: &DomainState,
     data: &Data,
     body: &BodyData<'_>,
     (sim, t): (SimId, SimTime),
     nutrition: &'a [NutritionYear],
-    neutral: bool,
+    z: BodyTraits,
 ) -> Option<BodyInputs<'a>> {
-    let (born, sex, genome, key) = match domain.sims.get(&sim) {
-        Some(person) => (person.born, person.sex, &person.genome, person.lineage_key),
-        None => {
-            let gone = domain.archive.get(&sim)?;
-            (gone.born, gone.sex, &gone.genome, gone.lineage_key)
-        }
-    };
+    let (born, sex, genome, _) = person_of(domain, sim)?;
     let age = t.checked_since(born).filter(|age| age.as_secs() >= 0)?;
     let bio_age = bio_age(data, sex, genome, age);
-    let seeds = domain.seeds(data, sim);
-    let individual = Draws::new(WorldSeed::new(seeds.individual));
-    let shared = Draws::new(WorldSeed::new(seeds.shared));
-    Some(BodyInputs::of_person(
-        body,
-        Environment {
-            individual: &individual,
-            shared: &shared,
-            neutral,
-        },
-        genome,
-        key,
-        domain.parent_keys(sim),
-        born,
-        age,
-        nutrition,
-        bio_age,
+    Some(BodyInputs::with_traits(
+        body, genome, z, born, age, nutrition, bio_age,
     ))
 }
 
@@ -127,7 +148,8 @@ impl WorldState {
             .as_ref()
             .map_or(&[][..], |params| params.nutrition.as_slice());
         let nutrition = nutrition_of(domain, sim, world);
-        let inputs = inputs_of(domain, data, &body, (sim, t), &nutrition, neutral)?;
+        let z = traits_of(domain, data, &body, sim, neutral)?;
+        let inputs = inputs_of(domain, data, &body, (sim, t), &nutrition, z)?;
         Some(body_params(&body, &inputs))
     }
 }

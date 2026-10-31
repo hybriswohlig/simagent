@@ -2,8 +2,10 @@
 //! evaluated once at the year end, counted per clamped parameter. Integers only, so the
 //! counts do not depend on an order of sums.
 
-use super::person::{inputs_of, nutrition_of};
-use super::{BodyData, BodyParamKey, CLAMPED_KEYS, body_params};
+use alloc::collections::BTreeMap;
+
+use super::person::{inputs_of, nutrition_of, traits_of};
+use super::{BodyData, BodyParamKey, BodyTraits, CLAMPED_KEYS, body_params};
 use crate::data::Data;
 use crate::ids::SimId;
 use crate::state::DomainState;
@@ -19,14 +21,20 @@ pub struct BodyCensus {
     pub curve_clamped: u64,
 }
 
+/// The traits of the living's bodies as the last census computed them (`traits_of`), kept
+/// for the next: nothing they come from changes in a life.
+pub(crate) type BodyMemo = BTreeMap<SimId, BodyTraits>;
+
 /// The body census of the living at `t`; all zero for data without body traits. Each sim
 /// whose growth curve held an input goes to `held` with `z_h` and `z_p` before the hold;
 /// each evaluated sim goes to `measured` with its height now (`height_cm`), in ascending
-/// SimId.
+/// SimId. The traits come from `memo`, else they are computed and kept there; after the
+/// census it holds the living only.
 pub(crate) fn count(
     domain: &DomainState,
     data: &Data,
     t: SimTime,
+    memo: &mut BodyMemo,
     held: &mut dyn FnMut(SimId, f64, f64),
     measured: &mut dyn FnMut(SimId, f64),
 ) -> BodyCensus {
@@ -42,9 +50,14 @@ pub(crate) fn count(
         n.checked_add(1)
             .unwrap_or_else(|| panic!("invariant census.body_count"))
     };
+    memo.retain(|sim, _| domain.sims.contains_key(sim));
     for sim in domain.sims.keys() {
+        let z = *memo.entry(*sim).or_insert_with(|| {
+            traits_of(domain, data, &body, *sim, false)
+                .unwrap_or_else(|| panic!("invariant census.body_traits"))
+        });
         let nutrition = nutrition_of(domain, *sim, world);
-        let inputs = inputs_of(domain, data, &body, (*sim, t), &nutrition, false)
+        let inputs = inputs_of(domain, data, &body, (*sim, t), &nutrition, z)
             .unwrap_or_else(|| panic!("invariant census.body_inputs"));
         let evaluation = body_params(&body, &inputs);
         measured(*sim, evaluation.params.get(BodyParamKey::HeightCm));

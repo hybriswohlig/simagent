@@ -1549,6 +1549,39 @@ fn a_loaded_town_runs_on_as_the_uninterrupted_one() {
     assert_eq!(resumed.world.state_hash(), ARRIVAL_STATE_HASH, "state hash");
 }
 
+/// The body census keeps each living person's traits from one census to the next, and a
+/// load starts without them: "arrival" saved and loaded at the end of every year counts each
+/// census as the run in one piece, row for row, its bodies and heights with them.
+#[test]
+fn a_town_loaded_every_year_counts_its_census_as_the_uninterrupted_one() {
+    let mut whole = Run::start(&ARRIVAL);
+    whole.play(ARRIVAL_END);
+    let mut run = Run::start(&ARRIVAL);
+    let mut rows = Vec::new();
+    for year in 1..=ARRIVAL_YEAR_HASHES.len() {
+        let end = i64::try_from(year).expect("a year") * Y - 1;
+        run.play(end);
+        rows.append(&mut run.out.census);
+        let (world, year_hashes) = World::load(&run.save(), pool_c_data(POOL_C)).expect("loads");
+        run = Run {
+            world,
+            out: YearOut {
+                census: Vec::new(),
+                year_hashes,
+                trace: Vec::new(),
+            },
+            log: run.log,
+            data: ARRIVAL.data,
+        };
+    }
+    assert_eq!(rows.len(), ARRIVAL_YEAR_HASHES.len());
+    assert!(
+        rows.iter().all(|row| row.body.evaluated > 0),
+        "bodies counted"
+    );
+    assert_eq!(rows, whole.out.census);
+}
+
 /// The load checks of the review (design note, sections 5 and 9; D8): the father of a
 /// carried pregnancy dropped although he came with her; the town's series of an arrival
 /// missing after her pairing in the town; the immigrations of years 1 and 2 swapped; a world

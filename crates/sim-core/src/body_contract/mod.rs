@@ -9,7 +9,7 @@ mod mapping;
 mod person;
 
 pub use census::BodyCensus;
-pub(crate) use census::count;
+pub(crate) use census::{BodyMemo, count};
 pub use generated::{BodyParamKey, BodyParamSpec, BodyParams, CONTRACT_VERSION, SOURCE_HASH};
 pub use mapping::{
     BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,

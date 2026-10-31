@@ -13,6 +13,7 @@ pub use save::{FORMAT_VERSION, LoadError, SaveError};
 pub use crate::state::census::{CensusRow, HeightMean, InheritanceCensus, PopulationCensus};
 
 use alloc::vec::Vec;
+use core::cell::RefCell;
 
 use crate::canonical::{self, YearHash};
 use crate::data::Data;
@@ -69,6 +70,11 @@ pub struct WorldState {
     /// How many persons `Start` made, from its input (ADR-0021, addendum 2026-10-21): no
     /// state either, not hashed, not saved; a load takes it from the input log again.
     started: u64,
+    /// The traits of the living's bodies from the last census, for the next
+    /// (`body_contract::count`; ADR-0002, addendum of 2026-10-31): a memo, no state either,
+    /// not hashed, not saved; a load starts without it. The observer's one write outside
+    /// its `Out`.
+    bodies: RefCell<crate::body_contract::BodyMemo>,
 }
 
 impl World {
@@ -82,6 +88,7 @@ impl World {
                 trace: TraceBuffer::default(),
                 data,
                 started: 0,
+                bodies: RefCell::default(),
             },
             inputs: InputLog {
                 next_seq: Counter::new(),
@@ -365,6 +372,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                     &self.domain,
                     &self.data,
                     t,
+                    &mut self.bodies.borrow_mut(),
                     &mut |sim, z_h, z_p| {
                         if trace.includes(sim) {
                             entries.push(TraceEntry {
