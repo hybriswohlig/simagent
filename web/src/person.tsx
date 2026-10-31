@@ -14,6 +14,8 @@ import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
 import { arrangement, candidates, pairingShown, type Pairing } from "./pairing.js";
+import { found, NO_FILTER, type Filter } from "./people.js";
+import { FilterForm, PeopleList, usePeople } from "./peopleview.js";
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
@@ -246,6 +248,14 @@ function PairForm({
   const options = candidates(pedigree, offered);
   const [chosen, setChosen] = useState("");
   const [pairing, setPairing] = useState<Pairing>({ state: "idle" });
+  const people = usePeople(run);
+  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const offeredSims = new Set(offered);
+  const kept =
+    people.state === "ready"
+      ? found(pedigree, people.value.people.filter((entry) => offeredSims.has(entry.sim)), filter)
+      : null;
+  const listed = kept === null ? options : kept.map((each) => each.person);
   const failure = pairing.state === "failed" ? <p role="alert">{pairing.text}</p> : null;
   const shown = pairingShown(options.length, pairing.state);
   if (shown === "paired") {
@@ -254,9 +264,9 @@ function PairForm({
   if (shown === "nothing") {
     return failure;
   }
-  const other = options.find((candidate) => String(candidate.sim) === chosen);
-  const input = other === undefined ? null : arrangement(person, other);
-  const send = () => {
+  const other = listed.find((candidate) => String(candidate.sim) === chosen);
+  const send = (with_: Person | undefined) => {
+    const input = with_ === undefined ? null : arrangement(person, with_);
     if (input === null) {
       return;
     }
@@ -281,17 +291,32 @@ function PairForm({
       <p>
         <select aria-label={TEXT.pair_with} value={chosen} onChange={(event) => setChosen(event.currentTarget.value)}>
           <option value="">{TEXT.pair_with}</option>
-          {options.map((candidate) => (
+          {listed.map((candidate) => (
             <option key={candidate.sim} value={String(candidate.sim)}>
               {offerLabel(candidate, ages)}
             </option>
           ))}
         </select>{" "}
-        <button type="button" disabled={input === null || pairing.state === "busy"} onClick={send}>
+        <button type="button" disabled={other === undefined || pairing.state === "busy"} onClick={() => send(other)}>
           {TEXT.pair}
         </button>
       </p>
       {failure}
+      {kept === null ? null : (
+        <details>
+          <summary>{TEXT.pair_search}</summary>
+          <FilterForm filter={filter} set={setFilter} sexFixed={true} />
+          <PeopleList
+            run={run}
+            people={kept}
+            action={(candidate) => (
+              <button type="button" disabled={pairing.state === "busy"} onClick={() => send(candidate)}>
+                {TEXT.pair}
+              </button>
+            )}
+          />
+        </details>
+      )}
     </>
   );
 }

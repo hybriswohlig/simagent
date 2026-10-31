@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import { AssumptionsPage } from "./assumptionspage.js";
 import { DiffPage } from "./diffpage.js";
+import { PeoplePage } from "./peopleview.js";
 import { PersonPage } from "./person.js";
 import { format, parse, type Route } from "./router.js";
 import { RunsPage } from "./runs.js";
@@ -21,6 +22,8 @@ function Page({ route }: { route: Route }) {
       return <AssumptionsPage />;
     case "run":
       return <RunPage run={route.run} />;
+    case "people":
+      return <PeoplePage run={route.run} />;
     case "person":
     case "tree":
       return <PersonPage run={route.run} sim={route.sim} />;

@@ -143,6 +143,7 @@ export const TEXT = {
   fork_origin: "Eine Gabel, neu gerechnet ab dem Anfang von Jahr {year}.",
   pair: "Paar stiften",
   pair_with: "Mit wem?",
+  pair_search: "Nach Aussehen suchen",
   kin_with: "Verwandtschaft mit",
   kin_pick: "Person wählen",
   card: "Genetik",
@@ -238,8 +239,45 @@ export const TEXT = {
   curve_values: "Werte",
   curve_hunger_years: "Hungerjahre",
   curve_hunger_year: "Hungerjahr",
+  people: "Personen suchen",
+  people_found: "{n} von {all} Lebenden",
+  people_more: "Weitere zeigen",
+  people_none: "Niemand passt zu diesem Filter.",
+  people_failed: "Die Personen kamen nicht.",
+  filter_sex: "Geschlecht",
+  filter_any: "alle",
+  filter_age: "Alter",
+  filter_age_from: "von",
+  filter_age_to: "bis",
+  filter_single: "nur Ledige",
+  filter_clear: "Filter zurücksetzen",
+  look_hair: "Haar",
+  look_eyes: "Augen",
+  look_skin: "Haut",
+  look_curls: "Locken",
+  look_freckles: "Sommersprossen",
+  look_height: "Größe",
+  look_cognition: "Klugheit",
   curve_hunger_note:
     "Die Zentimeter eines Hungerjahrs stehen auf der Karte eines Kindes, das es klein erlebt hat, in der mittleren Größe mit 25 erst, wenn diese Kinder 25 werden, und in der mittleren Größe der Erwachsenen kaum.",
+} as const;
+
+/** The words of the looks the core sends (its codes), as the person list shows them (Grok's
+ * round 43, R6). */
+export const LOOK_WORDS = {
+  hair: { blond: "blond", light_brown: "hellbraun", dark_brown: "dunkelbraun", black: "schwarz", red: "rot" },
+  eyes: { blue: "blau", green: "grün", hazel: "haselnuss", brown: "braun" },
+  skin: { very_light: "sehr hell", light: "hell", beige: "beige", tanned: "gebräunt" },
+  curls: { straight: "glatt", wavy: "gewellt", curly: "lockig", kinky: "kraus" },
+  freckles: { none: "keine", few: "wenige", clear: "deutlich", many: "viele" },
+  height: { low: "klein", rather_low: "eher klein", middle: "mittel", rather_high: "eher groß", high: "groß" },
+  cognition: {
+    low: "weit unter dem Mittel",
+    rather_low: "unter dem Mittel",
+    middle: "im Mittel",
+    rather_high: "über dem Mittel",
+    high: "weit über dem Mittel",
+  },
 } as const;
 
 /** The months of the core's calendar by their index (ADR-0002: 13 months, from 0). */

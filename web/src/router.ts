@@ -4,6 +4,7 @@ export type Route =
   | { page: "portraits" }
   | { page: "assumptions" }
   | { page: "run"; run: string }
+  | { page: "people"; run: string }
   | { page: "person"; run: string; sim: string }
   | { page: "tree"; run: string; sim: string }
   | { page: "diff"; a: string; b: string }
@@ -37,6 +38,9 @@ export function parse(hash: string): Route {
   if (known && parts.length === 3) {
     return { page: "run", run };
   }
+  if (known && persons === "people" && parts.length === 4) {
+    return { page: "people", run };
+  }
   const person = known && persons === "persons" && sim !== undefined && SIM.test(sim);
   if (person && parts.length === 5) {
     return { page: "person", run, sim };
@@ -61,6 +65,8 @@ export function format(route: Route): string {
       return "#/assumptions";
     case "run":
       return `#/runs/${route.run}`;
+    case "people":
+      return `#/runs/${route.run}/people`;
     case "person":
       return `#/runs/${route.run}/persons/${route.sim}`;
     case "tree":

@@ -45,9 +45,9 @@ function Drawn({ shape }: { shape: Shape }) {
 }
 
 /** The portrait v0 of one person: a bust from the body values. */
-export function Portrait({ params, label }: { params: BodyParams; label: string }) {
+export function Portrait({ params, label, width = 150 }: { params: BodyParams; label: string; width?: number }) {
   return (
-    <svg viewBox="0 0 100 120" width="150" height="180" role="img" aria-label={label}>
+    <svg viewBox="0 0 100 120" width={String(width)} height={String(width * 1.2)} role="img" aria-label={label}>
       {bust(params).map((shape, i) => (
         <Drawn key={i} shape={shape} />
       ))}
