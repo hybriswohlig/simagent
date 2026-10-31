@@ -85,8 +85,15 @@ export function bust(params: BodyParams): Shape[] {
   // 08 the nose's length, 09 its width, 10 the lips, 11 the mouth's width, 12 the forehead.
   const f = (n: number) => v(`face_axis_${String(n).padStart(2, "0")}` as BodyParamKey);
   const lower = 0.06 * ry * f(12);
-  const ryTop = ry * (1 + 0.07 * f(1));
-  const ryBottom = ryTop + 0.08 * ry * f(3);
+  const eyeY = cy - ry * 0.05 + lower;
+  const browUp = 0.06 * ry * f(7);
+  const browWidth = 1.3 * (1 + 0.15 * f(7));
+  const mouthY = cy + ry * 0.48 + lower;
+  // The outline holds the features at every end of the axes: the crown at least 0.1 ry above
+  // the brows, the chin at least 0.18 ry below the mouth.
+  const browTop = eyeY - 5.2 - browUp - browWidth / 2;
+  const ryTop = Math.max(ry * (1 + 0.07 * f(1)), cy - browTop + 0.1 * ry);
+  const ryBottom = Math.max(ryTop + 0.08 * ry * f(3), mouthY - cy + 0.18 * ry);
   const rxCheek = rx * (1 + 0.06 * f(4));
   const jaw = 1 + 0.08 * f(2);
   const chin = cy + ryBottom;
@@ -149,10 +156,8 @@ export function bust(params: BodyParams): Shape[] {
   }
 
   // The eyes, the brows, the nose, the mouth; the eyes' inner edges stay 1.2 apart.
-  const eyeY = cy - ry * 0.05 + lower;
   const eye = 1 + 0.12 * f(5);
   const eyeX = Math.max(rx * (0.38 + 0.04 * f(6)), 3.4 * eye + 0.6);
-  const browUp = 0.06 * ry * f(7);
   for (const side of [-1, 1]) {
     const x = cx + side * eyeX;
     shapes.push({ kind: "ellipse", part: "sclera", cx: x, cy: eyeY, rx: 3.4 * eye, ry: 2.2 * eye, fill: "#f4f1ec", opacity: 1 });
@@ -160,7 +165,7 @@ export function bust(params: BodyParams): Shape[] {
     shapes.push({ kind: "ellipse", part: "pupil", cx: x, cy: eyeY, rx: 0.8 * eye, ry: 0.8 * eye, fill: PUPIL, opacity: 1 });
     shapes.push({
       kind: "line", part: "brow", x1: x - 3.6, y1: eyeY - 4.6 - browUp, x2: x + 3.6, y2: eyeY - 5.2 - browUp,
-      stroke: hair, width: 1.3 * (1 + 0.15 * f(7)), opacity: v("eyebrow_density"),
+      stroke: hair, width: browWidth, opacity: v("eyebrow_density"),
     });
   }
   const feature = mixColor(skin, "#5a2a2a", 0.5);
@@ -171,7 +176,6 @@ export function bust(params: BodyParams): Shape[] {
     kind: "path", part: "nose", fill: "none", stroke: mixColor(skin, "#5a2a2a", 0.35), width: 0.7, opacity: 1,
     d: `M ${cx} ${noseTop} L ${cx - noseHalf * 0.3} ${noseBase} M ${cx - noseHalf} ${noseBase} Q ${cx} ${noseBase + 1.2} ${cx + noseHalf} ${noseBase}`,
   });
-  const mouthY = cy + ry * 0.48 + lower;
   const mouthHalf = rx * 0.24 * (1 + 0.12 * f(11));
   shapes.push({
     kind: "line", part: "mouth", x1: cx - mouthHalf, y1: mouthY, x2: cx + mouthHalf, y2: mouthY,

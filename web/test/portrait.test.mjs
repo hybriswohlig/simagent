@@ -252,3 +252,34 @@ test("the eyes never touch: their inner edges stay 1.2 apart", () => {
   const [left, right] = parts(shapes, "sclera");
   assert.ok(right.cx - right.rx - (left.cx + left.rx) >= 1.2 - 1e-9);
 });
+
+test("a wider jaw puts the chin's two control points wider apart (02)", () => {
+  // The control points on the chin's row: the lowest y of the outline.
+  const chinRow = (f) => {
+    const d = one(axis(2, f), "head").d;
+    const numbers = d.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+    const points = [];
+    for (let i = 0; i + 1 < numbers.length; i += 2) {
+      points.push([numbers[i], numbers[i + 1]]);
+    }
+    const low = Math.max(...points.map(([, y]) => y));
+    const xs = points.filter(([, y]) => y === low).map(([x]) => x);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  assert.ok(chinRow(2) > chinRow(0) && chinRow(0) > chinRow(-2));
+});
+
+test("at the ends of every axis the head still holds brows, nose and mouth", () => {
+  for (const f1 of [-4, 4]) for (const f3 of [-4, 4]) for (const f7 of [-4, 4]) for (const f8 of [-4, 4]) for (const f12 of [-4, 4]) {
+    const shapes = bust(params({ face_axis_01: f1, face_axis_03: f3, face_axis_07: f7, face_axis_08: f8, face_axis_12: f12 }));
+    const head = extent(one(shapes, "head"));
+    const mouth = one(shapes, "mouth");
+    const nose = extent(one(shapes, "nose"));
+    const label = `01 ${f1}, 03 ${f3}, 07 ${f7}, 08 ${f8}, 12 ${f12}`;
+    assert.ok(mouth.y1 < head.bottom - 1, `mouth inside: ${label}`);
+    for (const brow of parts(shapes, "brow")) {
+      assert.ok(Math.min(brow.y1, brow.y2) > head.top + 1, `brows inside: ${label}`);
+    }
+    assert.ok(nose.bottom < mouth.y1, `nose above the mouth: ${label}`);
+  }
+});
