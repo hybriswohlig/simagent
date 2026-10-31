@@ -1,11 +1,13 @@
 // The browser smoke test of the gate (ADR-0021 section 4 and its acceptance): Chromium headless
 // opens the run page of a fresh run of the gate scenario at the end of year 28, finds the
-// seven curves, the empty chronicle's hint and the step the play button plays, triggers a hunger year (its line, for year 29, comes at once), steps one
-// year, turns the hereditary diseases on (off in the scenario; its line and the button's new
-// label come at once), opens sim 13 and clicks its mother, sim 8, in the pedigree (P11),
+// five curves with the affected and the inbreeding folded apart, the empty chronicle's hint and
+// the step the play button plays, triggers a hunger year (its line, for year 29, comes at once),
+// steps one year, unfolds the hereditary diseases and turns them on (off in the scenario; its
+// line, the fold's new state and the button's new label come at once), opens sim 13, whose card
+// folds its hereditary diseases, and clicks its mother, sim 8, in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
-// year with the hereditary diseases off and lands on the comparison with the fork, finds where
+// year with the hereditary diseases off (unfolded in the form) and lands on the comparison with the fork, finds where
 // the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits with a height under each
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin; last the server falls silent and loading again ends the
@@ -73,10 +75,15 @@ if (browser !== undefined) {
     await step("open the run", page.goto(`${url}#/runs/${run}`));
     await step("the run's heading", page.getByRole("heading", { level: 1, name: `Lauf ${run}` }).waitFor());
     await step("the date of year 28", dated(28));
-    await step("seven curves", page.locator("figure svg[role=img]").nth(6).waitFor());
-    const figures = await page.locator("figure").count();
-    if (figures !== 7) {
-      throw new Error(`seven curves: ${figures} pictures`);
+    await step("five curves", page.locator("figure svg[role=img]").nth(4).waitFor());
+    const figures = await page.locator("figure:visible").count();
+    if (figures !== 5) {
+      throw new Error(`five curves: ${figures} pictures`);
+    }
+    const folded = page.locator("details", { has: page.locator("summary", { hasText: /^Erbkrankheiten und Inzucht$/ }) });
+    await step("the affected and the inbreeding folded", folded.waitFor());
+    if ((await folded.locator("figure").count()) !== 2 || (await folded.locator("figure:visible").count()) !== 0) {
+      throw new Error("the affected and the inbreeding: not two folded pictures");
     }
     await step(
       "an empty chronicle says when it begins",
@@ -103,17 +110,20 @@ if (browser !== undefined) {
       const buttons = [...document.querySelectorAll('[aria-label="Zeit"] button')];
       return buttons.length > 0 && buttons.every((button) => !button.disabled);
     }));
-    const on = interventions.getByRole("button", { name: "Erbkrankheiten anschalten" });
+    if ((await interventions.getByRole("button", { name: "Erbkrankheiten anschalten" }).count()) > 0) {
+      throw new Error("the switch of the hereditary diseases among the interventions");
+    }
+    await step("unfold the hereditary diseases", page.locator("summary", { hasText: /^Erbkrankheiten: ausgeschaltet$/ }).click());
+    const on = page.getByRole("button", { name: "Erbkrankheiten anschalten" });
     await step("turn the hereditary diseases on", on.click());
     await step("its line", page.getByText("Die Erbkrankheiten sind von nun an angeschaltet.").waitFor());
-    await step(
-      "the switch's new label",
-      interventions.getByRole("button", { name: "Erbkrankheiten ausschalten" }).waitFor(),
-    );
+    await step("the fold's new state", page.locator("summary", { hasText: /^Erbkrankheiten: angeschaltet$/ }).waitFor());
+    await step("the switch's new label", page.getByRole("button", { name: "Erbkrankheiten ausschalten" }).waitFor());
     if ((await page.getByRole("alert").count()) > 0) {
       throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
     }
     await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
+    await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
     const mother = page.locator('svg[aria-label="Stammbaum"] a[data-sim="8"]');
     await step("its mother in the pedigree", mother.waitFor());
     const before = await page.locator("h1").textContent();
@@ -142,6 +152,7 @@ if (browser !== undefined) {
     );
     await step("with the switch's line", page.getByText("Die Erbkrankheiten sind von nun an angeschaltet.").waitFor());
     await step("the fork's name", page.getByRole("textbox", { name: "Name der Gabel" }).fill("gabel"));
+    await step("unfold the fork's diseases", page.locator("summary", { hasText: /^Erbkrankheiten in der Gabel$/ }).click());
     await step("the diseases off", page.getByLabel("Erbkrankheiten in der Gabel").selectOption("off"));
     await step("fork", page.getByRole("button", { name: "Gabel anlegen" }).click());
     await step(
@@ -325,7 +336,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the switch, sim 13, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, sim 13 with its card, then its mother sim 8, the comparison with itself, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls, the sheet of portraits with their heights, a new town in its first second with a refused pairing, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

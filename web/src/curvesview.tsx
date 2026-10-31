@@ -132,10 +132,13 @@ function Picture({ years, hunger, legend, curve }: { years: number[]; hunger: nu
   );
 }
 
+const ROW = { display: "flex", flexWrap: "wrap", gap: "16px 24px" } as const;
+
 /** The curves of the run (ADR-0021, addenda 2026-10-21 and 2026-10-28): the pictures side by
- * side, each with its values as a folded table (a year without a point an empty cell) and the
- * hunger years as bands behind the lines; the last curves that came stay while the next load,
- * so playing does not flicker; while no year is complete, a sentence says when they begin. */
+ * side, the affected and the newborns' inbreeding folded beneath, each with its values as a
+ * folded table (a year without a point an empty cell) and the hunger years as bands behind the
+ * lines; the last curves that came stay while the next load, so playing does not flicker;
+ * while no year is complete, a sentence says when they begin. */
 export function CurvesView({ run, at, hunger }: { run: string; at: string; hunger: readonly number[] }) {
   const loaded = useCurves(run, at, hunger);
   const [shown, setShown] = useState<Curves | null>(null);
@@ -150,11 +153,21 @@ export function CurvesView({ run, at, hunger }: { run: string; at: string; hunge
       {loaded.state === "failed" ? <p>{TEXT[loaded.text]}</p> : null}
       {loaded.state !== "failed" && shown !== null && shown.years.length === 0 ? <p>{TEXT.curves_later}</p> : null}
       {shown === null || shown.years.length === 0 ? null : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
-          {shown.curves.map((curve) => (
-            <Picture key={curve.title} years={shown.years} hunger={shown.hunger} legend={shown.hungerLegend} curve={curve} />
-          ))}
-        </div>
+        <>
+          <div style={ROW}>
+            {shown.curves.map((curve) => (
+              <Picture key={curve.title} years={shown.years} hunger={shown.hunger} legend={shown.hungerLegend} curve={curve} />
+            ))}
+          </div>
+          <details>
+            <summary>{TEXT.curves_folded}</summary>
+            <div style={ROW}>
+              {shown.folded.map((curve) => (
+                <Picture key={curve.title} years={shown.years} hunger={shown.hunger} legend={shown.hungerLegend} curve={curve} />
+              ))}
+            </div>
+          </details>
+        </>
       )}
     </>
   );

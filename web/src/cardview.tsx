@@ -61,12 +61,13 @@ function Trait({ row, card, sex, nowCm }: { row: TraitCard; card: GeneticsCard; 
   );
 }
 
-/** The hereditary diseases (Grok G1, G4, L7, M1): the switch when off, then per disease its
- * name, status word, one-liner and copies. */
+/** The hereditary diseases (Grok G1, G4, L7, M1), folded (the genetics is about looks, not
+ * about defects): the switch when off, then per disease its name, status word, one-liner and
+ * copies. */
 function Diseases({ card, sex }: { card: GeneticsCard; sex: Sex }) {
   return (
-    <div>
-      <h3>{TEXT.card_diseases}</h3>
+    <details>
+      <summary>{TEXT.card_diseases}</summary>
       {card.diseases_off ? <p>{TEXT.card_diseases_off}</p> : null}
       {card.diseases.map((disease) => {
         const status = statusWord(disease.status, sex);
@@ -84,7 +85,7 @@ function Diseases({ card, sex }: { card: GeneticsCard; sex: Sex }) {
           </div>
         );
       })}
-    </div>
+    </details>
   );
 }
 

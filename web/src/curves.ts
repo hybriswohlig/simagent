@@ -22,9 +22,18 @@ export type Curve = {
   tick: (value: number) => string;
 };
 
-/** The pictures over `years`, whether the switch ended the last year off, and the hunger
- * years in the picture with the legend that names them while there are any (Grok round 40). */
-export type Curves = { years: number[]; curves: Curve[]; off: boolean; hunger: number[]; hungerLegend: string | null };
+/** The pictures over `years`, the affected and the newborns' inbreeding folded apart (the
+ * genetics is about looks, not about defects), whether the switch ended the last year off, and
+ * the hunger years in the picture with the legend that names them while there are any (Grok
+ * round 40). */
+export type Curves = {
+  years: number[];
+  curves: Curve[];
+  folded: Curve[];
+  off: boolean;
+  hunger: number[];
+  hungerLegend: string | null;
+};
 
 /** A year in the table of values, with its mark if it was a hunger year (Grok round 40). */
 export function yearLabel(year: number, hunger: readonly number[]): string {
@@ -141,9 +150,11 @@ export function curves(answer: CensusAnswer, hunger: readonly number[]): Curves 
         [TEXT.curve_emigrations, column("emigrations")],
       ]),
       curve(TEXT.curve_deaths, 0, true, byCode("deaths.", causeName), note),
-      curve(TEXT.curve_affected, 0, true, byCode("affected.", diseaseName), note),
       curve(TEXT.curve_adults, 1, false, height("adults", "adult_height_mm"), null, after),
       curve(TEXT.curve_age25, 1, false, height("age25", "age25_height_mm"), null, after),
+    ],
+    folded: [
+      curve(TEXT.curve_affected, 0, true, byCode("affected.", diseaseName), note),
       curve(TEXT.curve_inbreeding, 2, true, [[TEXT.curve_inbreeding, mean("births", "inbreeding_e4", 100)]]),
     ],
   };

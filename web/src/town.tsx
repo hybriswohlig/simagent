@@ -16,7 +16,7 @@ import { hourglass } from "./tree.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
-import { HUNGERS, shockInput, switchInput, switchLabel, world as readWorldOf } from "./shocks.js";
+import { HUNGERS, shockInput, switchInput, switchLabel, switchState, world as readWorldOf } from "./shocks.js";
 import { TEXT } from "./text.js";
 
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
@@ -326,12 +326,15 @@ function Town({
             {label}
           </button>
         ))}
-        {diseases === null ? null : (
+      </p>
+      {diseases === null ? null : (
+        <details>
+          <summary>{switchState(diseases)}</summary>
           <button type="button" disabled={standingStill} onClick={() => send(switchInput(diseases))}>
             {switchLabel(diseases)}
           </button>
-        )}
-      </p>
+        </details>
+      )}
       {clock.refused === null ? null : <p role="alert">{refusalText(clock.refused)}</p>}
       {inputRefused === null ? null : <p role="alert">{inputRefused}</p>}
       <PinnedFamily run={run} pedigree={kept} />
