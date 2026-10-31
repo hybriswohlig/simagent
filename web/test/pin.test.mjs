@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { pin, pinnedKey, unpin } from "../dist/pin.js";
+import { pin, pinFork, pinnedKey, unpin } from "../dist/pin.js";
 
 /** A storage of the browser, in memory. */
 function memory() {
@@ -47,4 +47,17 @@ test("without a storage, or with one that throws, nothing is pinned and nothing 
     assert.doesNotThrow(() => unpin(storage, "town"));
     assert.equal(pinnedKey(storage, "town"), null);
   }
+});
+
+test("a fork pins the family its run pins, and nothing where its run pins nothing", () => {
+  const storage = memory();
+  pin(storage, "town", "00000000000000aa");
+  pinFork(storage, "town", "gabel");
+  assert.equal(pinnedKey(storage, "gabel"), "00000000000000aa");
+  assert.equal(pinnedKey(storage, "town"), "00000000000000aa");
+  // A run of that name pinned before (and gone since) keeps nothing of it.
+  pin(storage, "alt", "00000000000000bb");
+  pinFork(storage, "leer", "alt");
+  assert.equal(pinnedKey(storage, "alt"), null);
+  assert.doesNotThrow(() => pinFork(null, "town", "gabel"));
 });
