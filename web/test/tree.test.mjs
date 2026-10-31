@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { layout, MARK_DY, RADIUS } from "../dist/render/tree.js";
+import { KIN_DY, layout, MARK_DY, RADIUS } from "../dist/render/tree.js";
 import { hourglass } from "../dist/tree.js";
 
 /** A person of the pedigree format with only the fields the tree reads set by hand. */
@@ -183,9 +183,10 @@ test("empty generations above and below take no room", () => {
   // 14 is alone: one row.
   const alone = layout(hourglass(PEDIGREE, 14));
   assert.equal(alone.nodes.length, 1);
-  // One row of 100, the mark under the name inside it (the third playtest, K7: room for the
-  // lines between two rows below the names).
-  assert.equal(alone.height, 100);
+  // One row of 110 and 7 below it: the line of kinship under the mark ends 6 px above the
+  // edge (56 + 6 = 62 under the centre at 55; Grok's round 46), room for the lines between
+  // two rows below the names (the third playtest, K7).
+  assert.equal(alone.height, 117);
   assert.ok(parentsOnly.height > alone.height);
 });
 
@@ -197,6 +198,7 @@ test("the mark under the lowest name fits in the drawing", () => {
     const { nodes, height } = layout(hourglass(PEDIGREE, sim));
     const lowest = Math.max(...nodes.map((n) => n.y));
     assert.ok(lowest + MARK_DY + 6 <= height, `sim ${sim}`);
+    assert.ok(lowest + KIN_DY + 6 <= height, `sim ${sim}: the kinship`);
   }
 });
 

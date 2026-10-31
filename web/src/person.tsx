@@ -4,13 +4,13 @@ import { getJson, postJson, Refused } from "./api.js";
 import { added } from "./chronicle.js";
 import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import type { ChildrenAnswer, EventItem, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
+import type { ChildrenAnswer, EventItem, KinAnswer, Kinship, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
 import { separation } from "./cheat.js";
 import { FamilyView } from "./familyview.js";
 import { bornText, captionYear, dateText } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
-import { kinshipText } from "./kin.js";
+import { kinNodeText, kinshipText } from "./kin.js";
 import { Chronicle } from "./lines.js";
 import { fullName, namesOf } from "./names.js";
 import { readLog } from "./log.js";
@@ -21,7 +21,7 @@ import { FilterForm, PeopleList, traitsLine, usePeople } from "./peopleview.js";
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
 import { Portrait } from "./portrait.js";
-import { layout, MARK_DY, NAME_DY, RADIUS } from "./render/tree.js";
+import { KIN_DY, layout, MARK_DY, NAME_DY, RADIUS } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
 import { currentPartner, hourglass, nodeMark, parentsOf, type Hourglass } from "./tree.js";
@@ -111,11 +111,42 @@ function Name({ run, person }: { run: string; person: Person | undefined }) {
   return person === undefined ? <span>{TEXT.unknown}</span> : <a href={personHref(run, person.sim)}>{fullName(person)}</a>;
 }
 
-/** The hourglass as a drawing; each person a link that centres the tree on them (P11). A
- * wide family scrolls sideways in its own box (the second playtest), focusable, so that a
- * keyboard scrolls it too. */
+/** What the people of the tree are to its centre, by the core (Grok's round 46, P3): one
+ * request for all of them. While it loads, or when it failed, the tree shows them without. */
+function useTreeKin(run: string, glass: Hourglass): ReadonlyMap<number, Kinship> {
+  const others = [...glass.up.flat(), ...glass.down.flat()].map((person) => person.sim);
+  const key = `${run}/${glass.center.sim}?to=${others.join(",")}`;
+  const [kin, setKin] = useState<{ key: string; value: ReadonlyMap<number, Kinship> } | null>(null);
+  useEffect(() => {
+    if (others.length === 0) {
+      return;
+    }
+    let live = true;
+    getJson(`/api/runs/${run}/persons/${glass.center.sim}/kin?to=${others.join(",")}`, {
+      format: "simagent.view.kin",
+      version: 1,
+    })
+      .then((json) => {
+        const answer = json as unknown as KinAnswer;
+        if (live) {
+          setKin({ key, value: new Map(answer.kin.map((each) => [each.to, each])) });
+        }
+      })
+      .catch(() => live && setKin(null));
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  return kin !== null && kin.key === key ? kin.value : new Map();
+}
+
+/** The hourglass as a drawing; each person a link that centres the tree on them (P11), with
+ * what they are to the centre under the name (Grok's round 46, P3). A wide family scrolls
+ * sideways in its own box (the second playtest), focusable, so that a keyboard scrolls it
+ * too. */
 export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
   const { nodes, edges, width, height } = layout(glass);
+  const kin = useTreeKin(run, glass);
   return (
     <div style={{ overflowX: "auto", maxWidth: "100%" }} tabIndex={0}>
       <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={TEXT.tree}>
@@ -127,7 +158,11 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
             key={node.person.sim}
             href={personHref(run, node.person.sim)}
             data-sim={node.person.sim}
-            aria-label={nodeMark(node.person).spoken}
+            aria-label={
+              kin.has(node.person.sim)
+                ? `${nodeMark(node.person).spoken}, ${kinNodeText(kin.get(node.person.sim) as Kinship)}`
+                : nodeMark(node.person).spoken
+            }
           >
             <circle
               cx={node.x}
@@ -146,6 +181,11 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
             {nodeMark(node.person).shown === null ? null : (
               <text x={node.x} y={node.y} dy={MARK_DY} text-anchor="middle" font-size="10">
                 {nodeMark(node.person).shown}
+              </text>
+            )}
+            {node.center || !kin.has(node.person.sim) ? null : (
+              <text x={node.x} y={node.y} dy={KIN_DY} text-anchor="middle" font-size="10">
+                {kinNodeText(kin.get(node.person.sim) as Kinship)}
               </text>
             )}
           </a>
@@ -183,7 +223,8 @@ function PersonChronicle({ run, sim, names }: { run: string; sim: string; names:
 }
 
 /** What another person of the run is to this one (ADR-0021 section 3): the core's kinship
- * word, foster word and `r`, for a person chosen from the pedigree. Only the answer for the
+ * word, foster word and `r`, for a person found by name (Grok's round 46: the tree shows its
+ * own people; siblings, cousins and the partner are found here). Only the answer for the
  * chosen person counts. */
 function KinForm({
   run,
@@ -196,7 +237,10 @@ function KinForm({
   pedigree: Pedigree;
   ages: ReadonlyMap<number, number>;
 }) {
-  const [other, setOther] = useState("");
+  const [typed, setTyped] = useState("");
+  const others = kinChoices(pedigree, ages, Number(sim));
+  const picked = others.find((choice) => choice.label === typed);
+  const other = picked === undefined ? "" : String(picked.sim);
   const key = `${run}/${sim}?to=${other}`;
   const [loaded, setLoaded] = useState<Loaded<PersonAnswer>>({ state: "loading", key });
   useEffect(() => {
@@ -214,19 +258,24 @@ function KinForm({
   }, [key]);
   const shown = current(loaded, key);
   const kinship = shown.state === "ready" ? shown.value.kinship : undefined;
-  const others = kinChoices(pedigree, ages, Number(sim));
+  const list = `kin-${run}-${sim}`;
   return (
     <>
       <h2>{TEXT.kin_with}</h2>
       <p>
-        <select aria-label={TEXT.kin_with} value={other} onChange={(event) => setOther(event.currentTarget.value)}>
-          <option value="">{TEXT.kin_pick}</option>
+        <input
+          type="search"
+          aria-label={TEXT.kin_with}
+          placeholder={TEXT.kin_pick}
+          list={list}
+          value={typed}
+          onInput={(event) => setTyped(event.currentTarget.value)}
+        />
+        <datalist id={list}>
           {others.map((choice) => (
-            <option key={choice.sim} value={String(choice.sim)}>
-              {choice.label}
-            </option>
+            <option key={choice.sim} value={choice.label} />
           ))}
-        </select>{" "}
+        </datalist>{" "}
         {other === "" ? null : kinship !== undefined ? (
           <span role="status">{kinshipText(kinship)}</span>
         ) : shown.state === "failed" ? (
@@ -529,6 +578,8 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
   const [mother, father] = parentsOf(pedigree, person);
   const partner = currentPartner(pedigree, person);
   const ages = agesOf(view.state === "ready" ? view.value.ages : []);
+  // The answer of the core, if this view can read its body values.
+  const shown = view.state === "ready" && readable(view.value.contract_version) ? view.value : null;
   return (
     <section>
       <p>
@@ -537,31 +588,18 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
       <h1>{fullName(person)}</h1>
       {reloadFailed}
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
-      {view.state === "ready" && !readable(view.value.contract_version) ? (
-        <p>{TEXT.failed_contract}</p>
-      ) : view.state === "ready" ? (
+      {shown !== null ? (
         <div>
-          <Portrait params={view.value.shown.body} label={fullName(person)} />
-          <Life view={view.value} />
-          <Ages shown={view.value.at_ages} />
-          <FamilyView run={run} pedigree={pedigree} person={person} at={String(changed)} ages={view.value.at_ages} />
-          <CardView
-            card={view.value.card}
-            origin={view.value.origin}
-            sex={person.sex}
-            nowCm={view.value.shown.body.height_cm}
-            names={namesOf(pedigree)}
-          />
+          <Portrait params={shown.shown.body} label={fullName(person)} />
+          <Life view={shown} />
         </div>
+      ) : view.state === "ready" ? (
+        <p>{TEXT.failed_contract}</p>
       ) : view.state === "failed" ? (
         <p>{TEXT[view.text]}</p>
       ) : (
         <p>{TEXT.loading}</p>
       )}
-      <p>
-        {TEXT.mother} <Name run={run} person={mother} /> · {TEXT.father}{" "}
-        <Name run={run} person={father} />
-      </p>
       {partner === undefined ? null : (
         <p>
           {partner.sex === "female" ? TEXT.partner_female : TEXT.partner_male} <Name run={run} person={partner} />
@@ -580,9 +618,22 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
       {partingRefused !== null && partingRefused.person === `${run}/${sim}` ? (
         <p role="alert">{partingRefused.text}</p>
       ) : null}
-      <TreeView run={run} glass={glass} />
-      <PinButton key={`${run}/${sim}`} run={run} person={person} />
-      <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} ages={ages} />
+      {shown === null ? null : (
+        <div>
+          <details>
+            <summary>{TEXT.ages_strip}</summary>
+            <Ages shown={shown.at_ages} />
+          </details>
+          <FamilyView run={run} pedigree={pedigree} person={person} at={String(changed)} ages={shown.at_ages} />
+          <CardView
+            card={shown.card}
+            origin={shown.origin}
+            sex={person.sex}
+            nowCm={shown.shown.body.height_cm}
+            names={namesOf(pedigree)}
+          />
+        </div>
+      )}
       <PairForm
         key={`${run}/${sim}`}
         run={run}
@@ -592,6 +643,13 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
         ages={ages}
         answered={() => setChanged((n) => n + 1)}
       />
+      <p>
+        {TEXT.mother} <Name run={run} person={mother} /> · {TEXT.father}{" "}
+        <Name run={run} person={father} />
+      </p>
+      <TreeView run={run} glass={glass} />
+      <PinButton key={`${run}/${sim}`} run={run} person={person} />
+      <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} ages={ages} />
       <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />
     </section>
   );
