@@ -360,3 +360,22 @@ test("women and girls wear their hair long, men and boys keep the cap", () => {
   const wide = (curl) => width(extent(one(bust(params({ hair_curl: curl }), "female"), "locks")));
   assert.ok(wide(1) > wide(0));
 });
+
+test("at the ends of every axis the locks stay inside the picture", () => {
+  // The largest head against the box is a child's of the largest size; the locks reach their
+  // length at six and are widest with curls.
+  const axes = [1, 2, 3, 4, 5, 6, 7, 11, 12];
+  for (const age of [1, 6, 40]) {
+    for (const size of [-4, 4]) {
+      for (let pick = 0; pick < 1 << axes.length; pick += 1) {
+        const set = { face_form_age: age, body_form_age: age, head_size_z: size, hair_curl: 1 };
+        axes.forEach((n, i) => {
+          set[`face_axis_${String(n).padStart(2, "0")}`] = (pick >> i) & 1 ? 4 : -4;
+        });
+        const reach = extent(one(bust(params(set), "female"), "locks"));
+        const label = JSON.stringify(set);
+        assert.ok(reach.top >= 0 && reach.left >= 0 && reach.right <= 100 && reach.bottom <= 120, label);
+      }
+    }
+  }
+});
