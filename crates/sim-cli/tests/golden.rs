@@ -19,7 +19,8 @@ use sim_core::canonical::YearHash;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
-use sim_core::input::{ForkOverride, Input, PoolStart, Start};
+use sim_core::ids::SimId;
+use sim_core::input::{ForkOverride, Input, PoolStart, Start, TimeTogether};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::time::{EventClass, EventKind, Payload, RunStats, SimTime};
@@ -27,7 +28,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0x69d9_be70_ae89_4469;
+const DATA_HASH: u64 = 0x269f_c851_7af4_b8f4;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -83,7 +84,8 @@ fn whole_run() -> Run {
 
 /// The year of the fork point of the golden fork, and the fork: the dummy run with the
 /// override "hereditary diseases on", submitted with the stamp `T_5 - 1 s` (ADR-0001
-/// section 6), and a hunger of one year at the same stamp, which hits year 5 (ADR-0023).
+/// section 6), a hunger of one year at the same stamp, which hits year 5 (ADR-0023), and at
+/// the same stamp "Zeit zu zweit" of sims 1 and 2 (its addendum of 2026-11-01).
 const FORK_YEAR: usize = 5;
 
 fn fork_run() -> Run {
@@ -104,7 +106,85 @@ fn fork_run() -> Run {
     part.world
         .submit(Input::TriggerShock(shock))
         .expect("accepted");
+    // The couple of partnership 1, open at the fork point; the input acts in T_5, a month
+    // start, so her window is the next three (tools/golden_reference.py).
+    part.world.submit(together(1, 2)).expect("accepted");
+    assert_eq!(
+        part.world.time_together(sim(1)),
+        Some((
+            SimTime::from_secs(5 * 31_449_600 + MONTH),
+            SimTime::from_secs(5 * 31_449_600 + 3 * MONTH)
+        ))
+    );
     run_to(part.world, part.out, part.log, scenario().until)
+}
+
+/// The month of the calendar: 28 days.
+const MONTH: i64 = 2_419_200;
+
+fn sim(n: u64) -> SimId {
+    SimId::try_from(n).expect("valid")
+}
+
+fn together(woman: u64, man: u64) -> Input {
+    Input::TimeTogether(TimeTogether {
+        woman: sim(woman),
+        man: sim(man),
+    })
+}
+
+/// The lever of "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01, "Hebeltests"), from
+/// `tools/together_lever_reference.py` on the dummy and the repository's data: sim 5's attempt
+/// with sim 6 at the month start `LEVER` (year 2) has both factors 1 and the draw u =
+/// 0.2239279413154054, which fails the adult rate 0.20 and passes the template's 0.30. Each
+/// row stamps the input at its seconds; it acts one second later, its window is the three
+/// month starts strictly after (W1). The attempts of the couple in the three month starts
+/// before `LEVER` fail at 0.30 too, so every run is the twin's until `LEVER`.
+#[test]
+fn time_together_is_the_lever_of_one_conception() {
+    const LEVER: i64 = 65_318_400;
+    let at_lever = |stamps: &[i64]| {
+        let mut run = Run {
+            world: started(),
+            out: YearOut::default(),
+            log: Vec::new(),
+        };
+        for &stamp in stamps {
+            run = run_to(run.world, run.out, run.log, SimTime::from_secs(stamp));
+            run.world.submit(together(5, 6)).expect("accepted");
+        }
+        let window = run.world.time_together(sim(5));
+        let run = run_to(run.world, run.out, run.log, SimTime::from_secs(LEVER));
+        let conceived = (run.world.pregnancy(sim(5))).map(|p| p.conceived.as_secs());
+        (window.map(|(a, b)| (a.as_secs(), b.as_secs())), conceived)
+    };
+    // The twin: no input, no conception at the lever.
+    assert_eq!(at_lever(&[]), (None, None));
+    // "first": the lever is the window's first month start.
+    assert_eq!(
+        at_lever(&[LEVER - MONTH]),
+        (Some((LEVER, LEVER + 2 * MONTH)), Some(LEVER))
+    );
+    // "last": its last, included.
+    assert_eq!(
+        at_lever(&[LEVER - 3 * MONTH]),
+        (Some((LEVER - 2 * MONTH, LEVER)), Some(LEVER))
+    );
+    // "fourth": the month start after the window has the adult rate.
+    assert_eq!(
+        at_lever(&[LEVER - 4 * MONTH]),
+        (Some((LEVER - 3 * MONTH, LEVER - MONTH)), None)
+    );
+    // "own_second": the input acts in the lever itself, which is not in its window.
+    assert_eq!(
+        at_lever(&[LEVER - 1]),
+        (Some((LEVER + MONTH, LEVER + 3 * MONTH)), None)
+    );
+    // "again": a second click moves the window over the lever (no stacking).
+    assert_eq!(
+        at_lever(&[LEVER - 4 * MONTH, LEVER - 2 * MONTH]),
+        (Some((LEVER - MONTH, LEVER + MONTH)), Some(LEVER))
+    );
 }
 
 /// The golden scenario of the arrival (`tests/golden/arrival.json`, from
@@ -249,8 +329,16 @@ fn golden_fork_matches() {
     // about 78; she dies of senescence in year 26 first (second 836 172 484, at 56.6), as
     // in the run (tools/golden_reference.py). After it come the onsets of sims 1 and 3,
     // reached at their birth and never reported while the switch was off, then the shock's
-    // `core:shock_triggered` and its one `core:param_changed` for year 5.
-    assert_eq!(fork.log.len(), whole_run().log.len() + 5);
+    // `core:shock_triggered` and its one `core:param_changed` for year 5, then
+    // `core:time_together` of sims 1 and 2.
+    assert_eq!(fork.log.len(), whole_run().log.len() + 6);
+    let entry = (fork.log.iter())
+        .find(|entry| matches!(entry.payload, LogPayload::TimeTogether { .. }))
+        .expect("the entry of the boost");
+    assert_eq!(
+        serde_json::to_string(entry).expect("json"),
+        r#"{"id":81,"t":157248000,"subjects":[{"sim":1},{"sim":2}],"causes":[{"input":4}],"payload":{"core:time_together":{"partnership":1}}}"#
+    );
 }
 
 /// The pedigrees of the golden run and of its fork after thirty years are the goldens
@@ -494,10 +582,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Arrived { .. } => "core:arrived",
         LogPayload::DiseaseOnset { .. } => "core:disease_onset",
         LogPayload::ShockTriggered { .. } => "core:shock_triggered",
+        LogPayload::TimeTogether { .. } => "core:time_together",
     }
 }
 
-const LOG_KINDS: [&str; 16] = [
+const LOG_KINDS: [&str; 17] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -514,6 +603,7 @@ const LOG_KINDS: [&str; 16] = [
     "core:arrived",
     "core:disease_onset",
     "core:shock_triggered",
+    "core:time_together",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -535,7 +625,7 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
 /// appears at least once. The scenarios are the dummy run, its fork at year 5 and the
 /// arrival; only the arrival has a pool, so only it has immigrants, and only the fork has
-/// a shock (ADR-0023, addendum before S1b).
+/// a shock and "Zeit zu zweit" (ADR-0023, addenda before S1b and of 2026-11-01).
 #[test]
 fn golden_scenarios_cover_every_kind() {
     let run = whole_run();
@@ -547,10 +637,11 @@ fn golden_scenarios_cover_every_kind() {
             "log core:param_changed",
             "log core:arrived",
             "log core:disease_onset",
-            "log core:shock_triggered"
+            "log core:shock_triggered",
+            "log core:time_together"
         ],
-        "the dummy run has no override, no shock and no pool, its switch is off, and its \
-         only disease begins at birth"
+        "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
+         and its only disease begins at birth"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -598,7 +689,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 16);
+    assert_eq!(logs.len(), 17);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -669,7 +760,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:emigrated",
             "log core:arrived",
             "log core:disease_onset",
-            "log core:shock_triggered"
+            "log core:shock_triggered",
+            "log core:time_together"
         ]
     );
 }
