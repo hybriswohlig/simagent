@@ -702,6 +702,35 @@ fn time_together_in_the_second_of_a_pairing_or_a_parting() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 }
 
+/// In one second: a pairing, a parting, a pairing of the same two again, "Zeit zu zweit" on
+/// the second partnership, then a parting of it. The click belongs to the second partnership
+/// (the first parting ended the first one), so each save loads with the window the world has.
+#[test]
+fn time_together_on_the_second_partnership_of_a_second() {
+    let mut world = World::new(together_data(0.3));
+    world.submit(partners_start(Vec::new())).expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(1_000), &mut |_| false);
+    for input in [arrange(1, 2), separate(1, 2), arrange(1, 2), together(1, 2)] {
+        world.submit(input).expect("accepted");
+    }
+    let at = |m: i64| SimTime::from_secs(m * M);
+    assert_eq!(world.time_together(sim(1)), Some((at(1), at(3))));
+    world.take_log();
+    let save = world.save(&out.year_hashes).expect("saves");
+    let (loaded, _) = World::load(&save, together_data(0.3)).expect("loads with the window");
+    assert_eq!(loaded.time_together(sim(1)), Some((at(1), at(3))));
+    world.submit(separate(1, 2)).expect("accepted");
+    world.take_log();
+    let save = world.save(&out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&save, together_data(0.3)).expect("loads after the parting");
+    assert_eq!(loaded.time_together(sim(1)), None);
+    let until = SimTime::from_secs(2 * Y);
+    world.advance_until(&mut out, until, &mut |_| false);
+    loaded.advance_until(&mut YearOut::default(), until, &mut |_| false);
+    assert_eq!(loaded.state_hash(), world.state_hash());
+}
+
 /// A couple of 25 and 30 (both factors 1, genetics specification 5.6) with the boost at rate
 /// 1: her first attempt, at M inside the window, conceives for certain. The save after it
 /// loads only with the window's rate in the check of the conception, and the loaded world
