@@ -5,6 +5,7 @@
 //! input log and the partnerships of the save.
 
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use super::partnership::{check_couple, couple_of};
 use super::{DomainState, EndedBy, Partnership};
@@ -93,73 +94,98 @@ pub(crate) fn opened(
     window(id, now, months).unwrap_or_else(|| panic!("invariant together.window"))
 }
 
-/// The windows of an input log over the partnerships of a save (ADR-0023, addendum of
-/// 2026-11-01), by woman, the later replacing the earlier; `None` if an input names no
-/// partnership of the two that was open when it acted, or the data hold no template. Open
-/// when it acted: formed before its second, or in it by a pairing earlier in the log; not
-/// ended before its second, nor in it by a parting earlier in the log (an input acts
-/// before the events of its second).
-pub(crate) fn rebuilt(
+/// Each input of "Zeit zu zweit" of a log over the partnerships of a save (ADR-0023,
+/// addendum of 2026-11-01), in the order of the log: the woman, the second it acted in and
+/// its window on the partnership it acted on; `None` if one names no partnership of the two
+/// that was open when it acted, or the data hold no template. Open when it acted: formed
+/// before its second, or in it by an input earlier in the log (a couple of `Start` or a
+/// pairing); not ended before its second, nor in it by a parting earlier in the log (an
+/// input acts before the events of its second).
+pub(crate) fn clicks(
     partnerships: &BTreeMap<PartnershipId, Partnership>,
     log: &[InputRecord],
     data: &Data,
-) -> Option<BTreeMap<SimId, Window>> {
+) -> Option<Vec<(SimId, SimTime, Window)>> {
     let after = |record: &InputRecord| record.t.checked_add(SimDuration::from_secs(1));
-    let earlier = |seq: u64, at: SimTime, couple: (SimId, SimId), pairing: bool| {
+    let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
+    let paired_before = |seq: u64, at: SimTime, couple: (SimId, SimId)| {
         (log.iter()).any(|record| {
-            let named = match &record.input {
-                Input::ArrangePartnership(pair) if pairing => (pair.woman, pair.man),
-                Input::SeparatePartnership(pair) if !pairing => (pair.woman, pair.man),
-                _ => return false,
-            };
-            record.seq.get() < seq && after(record) == Some(at) && named == couple
+            record.seq.get() < seq
+                && match &record.input {
+                    Input::Start(start) => {
+                        at == SimTime::START
+                            && (start.couples.iter()).any(|c| {
+                                (founder(c.woman), founder(c.man))
+                                    == (Some(couple.0), Some(couple.1))
+                            })
+                    }
+                    Input::ArrangePartnership(pair) => {
+                        after(record) == Some(at) && (pair.woman, pair.man) == couple
+                    }
+                    _ => false,
+                }
         })
     };
-    let mut windows = BTreeMap::new();
+    let parted_before = |seq: u64, at: SimTime, couple: (SimId, SimId)| {
+        (log.iter()).any(|record| match &record.input {
+            Input::SeparatePartnership(pair) => {
+                record.seq.get() < seq
+                    && after(record) == Some(at)
+                    && (pair.woman, pair.man) == couple
+            }
+            _ => false,
+        })
+    };
+    let mut clicks = Vec::new();
     for record in log {
         let Input::TimeTogether(pair) = &record.input else {
             continue;
         };
         let (at, seq, couple) = (after(record)?, record.seq.get(), (pair.woman, pair.man));
         let open = |p: &Partnership| {
-            let formed = p.formed < at || (p.formed == at && earlier(seq, at, couple, true));
+            let formed = p.formed < at || (p.formed == at && paired_before(seq, at, couple));
             let ended = p.ended.is_some_and(|ending| {
                 ending.at < at
                     || (ending.at == at
                         && ending.by == EndedBy::Separation
-                        && earlier(seq, at, couple, false))
+                        && parted_before(seq, at, couple))
             });
             (p.woman, p.man) == couple && formed && !ended
         };
         let (id, _) = partnerships.iter().find(|(_, p)| open(p))?;
         let (months, _) = template(data)?;
-        windows.insert(pair.woman, window(*id, at, months)?);
+        clicks.push((pair.woman, at, window(*id, at, months)?));
     }
-    Some(windows)
+    Some(clicks)
 }
 
-/// The window that holds for a conception of `couple` in `partnership`, formed at `formed`,
-/// at `t`: the window of the last input of the two that acted before `t` and in the
-/// partnership (Astra's round 1 on the addendum: later inputs change no earlier one).
-pub(crate) fn window_for(
+/// The windows of a save by woman, the later replacing the earlier (`clicks`).
+pub(crate) fn rebuilt(
+    partnerships: &BTreeMap<PartnershipId, Partnership>,
     log: &[InputRecord],
     data: &Data,
-    couple: (SimId, SimId),
-    (partnership, formed): (PartnershipId, SimTime),
+) -> Option<BTreeMap<SimId, Window>> {
+    let clicks = clicks(partnerships, log, data)?;
+    Some(
+        clicks
+            .into_iter()
+            .map(|(woman, _, window)| (woman, window))
+            .collect(),
+    )
+}
+
+/// The window that holds for a conception in `partnership` at `t`: the window of the last
+/// input on that partnership that acted before `t` (Astra's rounds 1 on the addendum and on
+/// slice A: a later input changes no earlier conception, and a new partnership of the same
+/// two inherits nothing).
+pub(crate) fn window_for(
+    clicks: &[(SimId, SimTime, Window)],
+    partnership: PartnershipId,
     t: SimTime,
 ) -> Option<Window> {
-    let (months, _) = template(data)?;
-    let at = (log.iter().rev())
-        .filter_map(|record| match &record.input {
-            Input::TimeTogether(pair) if (pair.woman, pair.man) == couple => {
-                record.t.checked_add(SimDuration::from_secs(1))
-            }
-            _ => None,
-        })
-        .find(|at| *at < t)?;
-    (at >= formed)
-        .then(|| window(partnership, at, months))
-        .flatten()
+    (clicks.iter().rev())
+        .find(|(_, at, window)| window.partnership == partnership && *at < t)
+        .map(|(_, _, window)| *window)
 }
 
 #[cfg(test)]
@@ -185,6 +211,25 @@ mod tests {
         let w = window(id(1), t(M), 3).expect("a window");
         assert_eq!((w.first, w.last), (t(2 * M), t(4 * M)));
         assert_eq!(window(id(1), t(1), 0), None);
+    }
+
+    /// The window of a conception is the last input's on its own partnership before it
+    /// (review of slice A): an input of the two on an earlier partnership holds for none.
+    #[test]
+    fn a_conception_takes_the_window_of_its_own_partnership() {
+        let w = |p, at| window(id(p), t(at), 3).expect("a window");
+        let clicks = [
+            (SimId::try_from(1).expect("valid"), t(1_001), w(1, 1_001)),
+            (
+                SimId::try_from(1).expect("valid"),
+                t(3 * M + 5),
+                w(2, 3 * M + 5),
+            ),
+        ];
+        assert_eq!(window_for(&clicks, id(1), t(M)), Some(w(1, 1_001)));
+        assert_eq!(window_for(&clicks, id(2), t(M)), None);
+        assert_eq!(window_for(&clicks, id(2), t(4 * M)), Some(w(2, 3 * M + 5)));
+        assert_eq!(window_for(&clicks, id(1), t(1_001)), None);
     }
 
     /// The rate inside the window, both ends included, for its own partnership only.

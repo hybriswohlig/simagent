@@ -60,7 +60,7 @@ pub fn shocks_from(text: &str) -> Result<Vec<ShockTemplate>, CliError> {
     struct File {
         format: String,
         version: u32,
-        shocks: Vec<Entry>,
+        shocks: Vec<serde_json::Map<String, serde_json::Value>>,
     }
     let file: File =
         serde_json::from_str(text).map_err(|error| rejected(&format!("shocks.json: {error}")))?;
@@ -68,7 +68,21 @@ pub fn shocks_from(text: &str) -> Result<Vec<ShockTemplate>, CliError> {
         return Err(rejected("shocks.json: not simagent.shocks version 1"));
     }
     (file.shocks.into_iter())
-        .map(|entry| {
+        .map(|fields| {
+            // Exactly the fields of the kind: a field of another kind is refused even as
+            // `null`, which the options below could not tell from a missing one (review).
+            let own: &[&str] = match fields.get("kind").and_then(serde_json::Value::as_str) {
+                Some("hunger") => &["id", "kind", "years", "index", "source"],
+                Some("fertility_boost") => &["id", "kind", "months", "rate", "source"],
+                _ => &[],
+            };
+            if fields.len() != own.len() || !own.iter().all(|key| fields.contains_key(*key)) {
+                return Err(rejected(
+                    "shocks.json: a template without exactly its kind's fields",
+                ));
+            }
+            let entry: Entry = serde_json::from_value(serde_json::Value::Object(fields))
+                .map_err(|error| rejected(&format!("shocks.json: {error}")))?;
             let kind = match (
                 entry.kind,
                 entry.years,
@@ -311,6 +325,9 @@ mod tests {
         assert_eq!(read[0].boost().map(|(m, r)| (m, r.get())), Some((3, 0.3)));
         assert_eq!(read[1].hunger().map(|(y, i)| (y, i.get())), Some((1, 0.7)));
         for wrong in [
+            r#"{"id":"core:h","kind":"hunger","years":1,"index":0.7,"months":null,"source":"x"}"#,
+            r#"{"id":"core:b","kind":"fertility_boost","months":3,"rate":null,"source":"x"}"#,
+            r#"{"id":"core:b","kind":"other","source":"x"}"#,
             r#"{"id":"core:b","kind":"fertility_boost","months":3,"source":"x"}"#,
             r#"{"id":"core:b","kind":"fertility_boost","months":3,"rate":0.3,"years":1,"source":"x"}"#,
             r#"{"id":"core:h","kind":"hunger","years":1,"index":0.7,"rate":0.3,"source":"x"}"#,

@@ -353,6 +353,11 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
     let Some(view) = pool_view(loaded, data, seed, history.pool.as_ref(), now) else {
         return false;
     };
+    // Each input of "Zeit zu zweit" names a partnership open when it acted.
+    let Some(together) = state::together::clicks(&loaded.partnerships, &exceptions.input_log, data)
+    else {
+        return false;
+    };
     let rules = Rules {
         seed,
         data,
@@ -361,7 +366,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         pool: &view,
         pairs: &history.pairs,
         parted: &history.parted,
-        log: &exceptions.input_log,
+        together: &together,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -378,7 +383,6 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && twins_complete(loaded, &rules)
         && sims_consistent(loaded, now, &rules)
         && partnerships_consistent(loaded, now, &rules, (&history.pairs, &history.pair_seqs))
-        && state::together::rebuilt(&loaded.partnerships, &exceptions.input_log, data).is_some()
         && partnership_counts_consistent(loaded, &rules)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
@@ -1472,8 +1476,8 @@ struct Rules<'a> {
     pairs: &'a [(SimId, SimId, SimTime)],
     /// (woman, man, at, sequence number) of each couple an input parted.
     parted: &'a [(SimId, SimId, SimTime, u64)],
-    /// The input log, for the windows of "Zeit zu zweit".
-    log: &'a [InputRecord],
+    /// Each input of "Zeit zu zweit": the woman, the second it acted in, its window.
+    together: &'a [(SimId, SimTime, state::together::Window)],
 }
 
 impl Rules<'_> {
@@ -1861,20 +1865,10 @@ fn conception_fits(
         };
         // The rate of "Zeit zu zweit" where its window holds (ADR-0023, addendum of
         // 2026-11-01), else the adult rate.
-        let rate = formed.map_or(
-            rules.data.demography().fertility.adult_rate,
-            |(id, since)| {
-                let couple = (parents.mother, parents.father);
-                let window = state::together::window_for(
-                    rules.log,
-                    rules.data,
-                    couple,
-                    (id, since),
-                    conceived,
-                );
-                conception::rate(rules.data, window.as_ref(), id, conceived)
-            },
-        );
+        let rate = formed.map_or(rules.data.demography().fertility.adult_rate, |(id, _)| {
+            let window = state::together::window_for(rules.together, id, conceived);
+            conception::rate(rules.data, window.as_ref(), id, conceived)
+        });
         let p = conception::chance(rules.data, &woman, &man, conceived, rate);
         Draws::new(WorldSeed::new(rules.seed)).bernoulli(key, p)
     });

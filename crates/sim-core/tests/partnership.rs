@@ -621,6 +621,40 @@ fn the_window_of_time_together() {
     assert_eq!(window(&world), Some((at(2), at(4))));
 }
 
+/// Review of slice A: an input in the second the partnership formed (a couple of `Start`)
+/// or after a parting and a new pairing of the same two in its own second: each save loads.
+/// The first opens M to 3 M; in the second, the window stays with the partnership that
+/// ended, so the new one has none.
+#[test]
+fn time_together_in_the_second_of_a_pairing_or_a_parting() {
+    let mut world = World::new(together_data(0.3));
+    world
+        .submit(partners_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.submit(together(1, 2)).expect("accepted");
+    let at = |m: i64| SimTime::from_secs(m * M);
+    assert_eq!(world.time_together(sim(1)), Some((at(1), at(3))));
+    world.take_log();
+    let (loaded, _) =
+        World::load(&world.save(&[]).expect("saves"), together_data(0.3)).expect("loads");
+    assert_eq!(loaded.time_together(sim(1)), Some((at(1), at(3))));
+
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(1_000), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    world.submit(separate(1, 2)).expect("accepted");
+    world.submit(arrange(1, 2)).expect("accepted");
+    assert_eq!(world.time_together(sim(1)), None);
+    world.take_log();
+    let save = world.save(&out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&save, together_data(0.3)).expect("loads");
+    assert_eq!(loaded.time_together(sim(1)), None);
+    let until = SimTime::from_secs(2 * Y);
+    world.advance_until(&mut out, until, &mut |_| false);
+    loaded.advance_until(&mut YearOut::default(), until, &mut |_| false);
+    assert_eq!(loaded.state_hash(), world.state_hash());
+}
+
 /// A couple of 25 and 30 (both factors 1, genetics specification 5.6) with the boost at rate
 /// 1: her first attempt, at M inside the window, conceives for certain. The save after it
 /// loads only with the window's rate in the check of the conception, and the loaded world
