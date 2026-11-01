@@ -397,6 +397,7 @@ export const CODES: { readonly [code: string]: string } = {
   "input set_world_param": "Weltregel ändern",
   "input trigger_shock": "Schock auslösen",
   "input separate_partnership": "Paar trennen",
+  "input time_together": "Zeit zu zweit",
   "reject already_started": "Die Welt hat schon begonnen.",
   "reject clock_not_at_start": "Die Uhr steht nicht am Anfang.",
   "reject founder_not_born_before_start": "Eine Gründerperson ist nicht vor dem Start geboren.",

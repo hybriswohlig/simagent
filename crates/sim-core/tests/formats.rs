@@ -126,6 +126,15 @@ fn sample_separate() -> Input {
     })
 }
 
+/// The first woman and the first man of a world spending time together (ADR-0023, addendum
+/// of 2026-11-01).
+fn sample_together() -> Input {
+    Input::TimeTogether(sim_core::input::TimeTogether {
+        woman: sim(1),
+        man: sim(2),
+    })
+}
+
 fn sample_shock() -> Input {
     Input::TriggerShock(sim_core::input::TriggerShock {
         shock: data_id("core:hunger_one_year"),
@@ -147,6 +156,7 @@ fn all_inputs() -> Vec<Input> {
         sample_rule(),
         sample_shock(),
         sample_separate(),
+        sample_together(),
     ];
     for input in &inputs {
         match input {
@@ -155,7 +165,8 @@ fn all_inputs() -> Vec<Input> {
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
-            | Input::SeparatePartnership(_) => {}
+            | Input::SeparatePartnership(_)
+            | Input::TimeTogether(_) => {}
         }
     }
     inputs
@@ -431,6 +442,14 @@ fn partnership_forms_are_pinned() {
         sample_separate()
     );
     assert_eq!(postcard_round_trip(&sample_separate()), hex("050102"));
+    // Time together: variant 6, the same fields (ADR-0023, addendum of 2026-11-01).
+    let together_json = r#"{"time_together":{"woman":1,"man":2}}"#;
+    assert_eq!(json(&sample_together()), together_json);
+    assert_eq!(
+        from_json::<Input>(together_json).expect("parses"),
+        sample_together()
+    );
+    assert_eq!(postcard_round_trip(&sample_together()), hex("060102"));
 
     let partnered = LogPayload::Partnered {
         partnership: PartnershipId::try_from(1).expect("valid"),
@@ -760,7 +779,8 @@ fn formats_roundtrip_rejects_malformed_hex() {
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
-            | Input::SeparatePartnership(_) => panic!("a start"),
+            | Input::SeparatePartnership(_)
+            | Input::TimeTogether(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));

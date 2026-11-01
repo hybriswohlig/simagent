@@ -552,23 +552,43 @@ pub struct Data {
     shocks: Vec<ShockTemplate>,
 }
 
-/// The kind of a shock template (ADR-0023 section 3); in phase 1 only the hunger.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// The kind of a shock template with its values (ADR-0023 section 3 and its addendum of
+/// 2026-11-01). The hunger stays variant 0 with its fields in their order, so its bytes in
+/// the data hash are those of the template before the kinds carried fields.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShockKind {
-    /// Sets the nutrition index of calendar years.
-    Hunger,
+    /// Sets the nutrition index of `years` calendar years to `index`.
+    Hunger { years: u32, index: FiniteF64 },
+    /// Raises a couple's chance of conception per attempt to `rate` for `months` month
+    /// starts ("Zeit zu zweit").
+    FertilityBoost { months: u32, rate: FiniteF64 },
 }
 
-/// A shock template (ADR-0023 section 3): how many calendar years it sets and to which
-/// nutrition index.
+/// A shock template (ADR-0023 section 3): its id and its kind with the kind's values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShockTemplate {
     pub id: DataId,
     pub kind: ShockKind,
-    pub years: u32,
-    pub index: FiniteF64,
+}
+
+impl ShockTemplate {
+    /// The years and the index of a hunger template.
+    pub fn hunger(&self) -> Option<(u32, FiniteF64)> {
+        match self.kind {
+            ShockKind::Hunger { years, index } => Some((years, index)),
+            ShockKind::FertilityBoost { .. } => None,
+        }
+    }
+
+    /// The month starts and the rate of a fertility boost.
+    pub fn boost(&self) -> Option<(u32, FiniteF64)> {
+        match self.kind {
+            ShockKind::FertilityBoost { months, rate } => Some((months, rate)),
+            ShockKind::Hunger { .. } => None,
+        }
+    }
 }
 
 /// The pool of the pre-run in the data with its lookups by lineage key (design note of the
@@ -673,6 +693,10 @@ pub enum DataError {
     ShocksYears,
     /// A shock template whose index is not in [0, 1).
     ShocksIndex,
+    /// A boost of no month (ADR-0023, addendum of 2026-11-01).
+    ShocksMonths,
+    /// A boost whose rate is not in (0, 1].
+    ShocksRate,
 }
 
 impl fmt::Display for DataError {
@@ -713,6 +737,8 @@ impl fmt::Display for DataError {
             DataError::ShocksDuplicate => "shocks.duplicate",
             DataError::ShocksYears => "shocks.years",
             DataError::ShocksIndex => "shocks.index",
+            DataError::ShocksMonths => "shocks.months",
+            DataError::ShocksRate => "shocks.rate",
         })
     }
 }
@@ -1750,23 +1776,29 @@ impl Data {
         Ok(data)
     }
 
-    /// These data with the shock templates (ADR-0023 section 3 and its addendum): each id
-    /// once, at least one year, the index in [0, 1). They enter the data hash after the
-    /// definitions and the pool, in the order of their ids; without templates the hash is
-    /// the one of the data without them.
+    /// These data with the shock templates (ADR-0023 section 3 and its addenda): each id
+    /// once; a hunger of at least one year with the index in [0, 1); a boost of at least one
+    /// month with the rate in (0, 1]. They enter the data hash after the definitions and the
+    /// pool, in the order of their ids; without templates the hash is the one of the data
+    /// without them.
     pub fn with_shocks(mut self, mut shocks: Vec<ShockTemplate>) -> Result<Data, DataError> {
         shocks.sort_by(|a, b| a.id.cmp(&b.id));
         if shocks.windows(2).any(|pair| pair[0].id == pair[1].id) {
             return Err(DataError::ShocksDuplicate);
         }
-        if shocks.iter().any(|shock| shock.years == 0) {
+        let hungers = || shocks.iter().filter_map(ShockTemplate::hunger);
+        if hungers().any(|(years, _)| years == 0) {
             return Err(DataError::ShocksYears);
         }
-        if shocks
-            .iter()
-            .any(|shock| !(0.0..1.0).contains(&shock.index.get()))
-        {
+        if hungers().any(|(_, index)| !(0.0..1.0).contains(&index.get())) {
             return Err(DataError::ShocksIndex);
+        }
+        let boosts = || shocks.iter().filter_map(ShockTemplate::boost);
+        if boosts().any(|(months, _)| months == 0) {
+            return Err(DataError::ShocksMonths);
+        }
+        if boosts().any(|(_, rate)| !(rate.get() > 0.0 && rate.get() <= 1.0)) {
+            return Err(DataError::ShocksRate);
         }
         self.shocks = shocks;
         self.hash = self.hashed();

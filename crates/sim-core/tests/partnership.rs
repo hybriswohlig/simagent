@@ -15,12 +15,14 @@
 
 mod common;
 
+use sim_core::data::{ShockKind, ShockTemplate};
 use sim_core::data_id::DataId;
+use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
 use sim_core::ids::SimId;
 use sim_core::input::{
     ArrangePartnership, Couple, Founder, Input, InputRejected, RejectCode, SeparatePartnership,
-    Start,
+    Start, TimeTogether, TriggerShock,
 };
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::params::WorldParams;
@@ -519,4 +521,174 @@ fn a_player_separation_ends_the_partnership_at_once() {
     let mut out = YearOut::default();
     loaded.advance_until(&mut out, SimTime::from_secs(5 * Y - 1), &mut |_| false);
     assert_eq!(loaded.state_hash(), run.world.state_hash());
+}
+
+/// The data of "partners" with the template of "Zeit zu zweit" at `rate` (ADR-0023, addendum
+/// of 2026-11-01): three month starts.
+fn together_data(rate: f64) -> sim_core::data::Data {
+    partners_data()
+        .with_shocks(vec![ShockTemplate {
+            id: DataId::new("core:time_together").expect("valid"),
+            kind: ShockKind::FertilityBoost {
+                months: 3,
+                rate: FiniteF64::try_new(rate).expect("finite"),
+            },
+        }])
+        .expect("checked")
+}
+
+fn together(woman: u64, man: u64) -> Input {
+    Input::TimeTogether(TimeTogether {
+        woman: sim(woman),
+        man: sim(man),
+    })
+}
+
+/// The month of the calendar: 28 days.
+const M: i64 = 2_419_200;
+
+/// `TimeTogether` is checked like a parting, then the template must be in the data (W2);
+/// a boost is no shock of `TriggerShock`.
+#[test]
+fn time_together_is_checked_like_a_parting() {
+    assert_eq!(
+        rejected(&mut World::new(together_data(0.3)), together(1, 2)),
+        Some(RejectCode::NotStarted)
+    );
+    let mut world = World::new(together_data(0.3));
+    world
+        .submit(partners_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.take_log();
+    for (input, code) in [
+        (together(1, 4), RejectCode::UnknownSim),
+        (together(2, 1), RejectCode::PartnersOfWrongSex),
+        (together(1, 3), RejectCode::NotPartners),
+        (
+            Input::TriggerShock(TriggerShock {
+                shock: DataId::new("core:time_together").expect("valid"),
+            }),
+            RejectCode::ShockUnknown,
+        ),
+    ] {
+        assert_eq!(rejected(&mut world, input.clone()), Some(code), "{input:?}");
+    }
+    // Without the template: a couple, but nothing to spend time with.
+    let mut world = partners();
+    world.take_log();
+    assert_eq!(
+        rejected(&mut world, together(1, 2)),
+        Some(RejectCode::ShockUnknown)
+    );
+    // After his death.
+    let mut run = Run::new(partners());
+    run.advance(Y - 1);
+    assert_eq!(
+        rejected(&mut run.world, together(1, 2)),
+        Some(RejectCode::SimNotAlive)
+    );
+}
+
+/// The window by hand (W1, W3): the three month starts strictly after the second the input
+/// acts in, M to 3 M for a stamp of 1 000; a second click in month 2 moves it to 2 M to 4 M;
+/// his death in 6 267 517 ends it with the partnership. On a month start itself (a stamp of
+/// M − 1) the next three, 2 M to 4 M.
+#[test]
+fn the_window_of_time_together() {
+    let mut world = World::new(together_data(0.3));
+    world
+        .submit(partners_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(1_000), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    let window = |world: &World| world.time_together(sim(1));
+    let at = |m: i64| SimTime::from_secs(m * M);
+    assert_eq!(window(&world), Some((at(1), at(3))));
+    assert_eq!(world.time_together(sim(2)), None);
+    world.advance_until(&mut out, SimTime::from_secs(3_000_000), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    assert_eq!(window(&world), Some((at(2), at(4))));
+    world.advance_until(&mut out, SimTime::from_secs(FIRST_MAN_DIES), &mut |_| false);
+    assert_eq!(window(&world), None);
+
+    let mut world = World::new(together_data(0.3));
+    world
+        .submit(partners_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(M - 1), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    assert_eq!(window(&world), Some((at(2), at(4))));
+}
+
+/// Review of slice A: an input in the second the partnership formed (a couple of `Start`)
+/// or after a parting and a new pairing of the same two in its own second: each save loads.
+/// The first opens M to 3 M; in the second, the window stays with the partnership that
+/// ended, so the new one has none.
+#[test]
+fn time_together_in_the_second_of_a_pairing_or_a_parting() {
+    let mut world = World::new(together_data(0.3));
+    world
+        .submit(partners_start(vec![couple(0, 1)]))
+        .expect("accepted");
+    world.submit(together(1, 2)).expect("accepted");
+    let at = |m: i64| SimTime::from_secs(m * M);
+    assert_eq!(world.time_together(sim(1)), Some((at(1), at(3))));
+    world.take_log();
+    let (loaded, _) =
+        World::load(&world.save(&[]).expect("saves"), together_data(0.3)).expect("loads");
+    assert_eq!(loaded.time_together(sim(1)), Some((at(1), at(3))));
+
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(1_000), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    world.submit(separate(1, 2)).expect("accepted");
+    world.submit(arrange(1, 2)).expect("accepted");
+    assert_eq!(world.time_together(sim(1)), None);
+    world.take_log();
+    let save = world.save(&out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&save, together_data(0.3)).expect("loads");
+    assert_eq!(loaded.time_together(sim(1)), None);
+    let until = SimTime::from_secs(2 * Y);
+    world.advance_until(&mut out, until, &mut |_| false);
+    loaded.advance_until(&mut YearOut::default(), until, &mut |_| false);
+    assert_eq!(loaded.state_hash(), world.state_hash());
+}
+
+/// A couple of 25 and 30 (both factors 1, genetics specification 5.6) with the boost at rate
+/// 1: her first attempt, at M inside the window, conceives for certain. The save after it
+/// loads only with the window's rate in the check of the conception, and the loaded world
+/// runs on as the world does; a save whose input names no couple does not load.
+#[test]
+fn a_boosted_conception_saves_loads_and_runs_on() {
+    let start = |data| {
+        let mut world = World::new(data);
+        let Input::Start(start) = partners_start(vec![couple(0, 1)]) else {
+            unreachable!("a start")
+        };
+        let mut founders = start.founders.clone();
+        founders[0].born = SimTime::from_secs(-25 * Y);
+        founders[1].born = SimTime::from_secs(-30 * Y);
+        world
+            .submit(Input::Start(Start { founders, ..start }))
+            .expect("accepted");
+        world
+    };
+    let mut world = start(together_data(1.0));
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(1_000), &mut |_| false);
+    world.submit(together(1, 2)).expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(M + 10), &mut |_| false);
+    let pregnancy = world.pregnancy(sim(1)).expect("pregnant");
+    assert_eq!(pregnancy.conceived, SimTime::from_secs(M));
+    world.take_log();
+    let save = world.save(&out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&save, together_data(1.0)).expect("loads");
+    assert_eq!(loaded.state_hash(), world.state_hash());
+    assert_eq!(loaded.time_together(sim(1)), world.time_together(sim(1)));
+    let until = SimTime::from_secs(3 * Y);
+    world.advance_until(&mut out, until, &mut |_| false);
+    let mut more = YearOut::default();
+    loaded.advance_until(&mut more, until, &mut |_| false);
+    assert_eq!(loaded.state_hash(), world.state_hash());
 }

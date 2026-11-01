@@ -8,14 +8,14 @@
 
 use alloc::vec;
 
-use super::{DomainState, Pregnancy, Slot, Unborn, disease, partnership};
+use super::{DomainState, Pregnancy, Slot, Unborn, disease, partnership, together};
 use crate::data::Data;
 use crate::data_id::Code;
 use crate::data_id::DataId;
 use crate::fertility::{self, Curves};
 use crate::genome::Genome;
 use crate::genome::meiosis::Zygote;
-use crate::ids::{EventId, SimId};
+use crate::ids::{EventId, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::phenotype::{self, Parents};
@@ -116,9 +116,16 @@ pub(crate) fn wish(data: &Data, seed: u64, her: LineageKey) -> u32 {
     fertility::wish(u, &fertility.wish_shape, fertility.wish_tilt)
 }
 
-/// The chance of her attempt with him at `t` (11.3): the adult rate times her factor from
-/// her menarche and his from his puberty timing, both at `t`.
-pub(crate) fn chance(data: &Data, her: &Person<'_>, him: &Person<'_>, t: SimTime) -> f64 {
+/// The chance of her attempt with him at `t` (11.3): `rate` (the adult rate, or the boost of
+/// "Zeit zu zweit") times her factor from her menarche and his from his puberty timing,
+/// both at `t`.
+pub(crate) fn chance(
+    data: &Data,
+    her: &Person<'_>,
+    him: &Person<'_>,
+    t: SimTime,
+    rate: f64,
+) -> f64 {
     let curves = data.genetics().fertility;
     let her_menarche = match &curves {
         Curves::Puberty(p) => {
@@ -139,7 +146,22 @@ pub(crate) fn chance(data: &Data, her: &Person<'_>, him: &Person<'_>, t: SimTime
     };
     let female = fertility::female_factor(disease::age(her.born, t), her_menarche, &curves);
     let male = fertility::male_factor(disease::age(him.born, t), theta_i(data, him, t), &curves);
-    fertility::chance(data.demography().fertility.adult_rate, female, male)
+    fertility::chance(rate, female, male)
+}
+
+/// The rate of an attempt of `partnership` at `t` with `window` (ADR-0023, addendum of
+/// 2026-11-01): the boost of the template inside the window, else the adult rate.
+pub(crate) fn rate(
+    data: &Data,
+    window: Option<&together::Window>,
+    partnership: PartnershipId,
+    t: SimTime,
+) -> f64 {
+    let adult = data.demography().fertility.adult_rate;
+    match together::template(data) {
+        Some((_, boost)) => together::rate_at(window, partnership, t, adult, boost.get()),
+        None => adult,
+    }
 }
 
 /// Whether a series beginning at `start` belongs to her: fewer live births than her wish
@@ -220,29 +242,33 @@ pub(crate) fn month_index(t: SimTime) -> Option<u64> {
     u64::try_from(t.as_secs().div_euclid(MONTH.as_secs())).ok()
 }
 
-/// An attempt of the monthly series of `woman`: the draw decides. A failed one writes no
-/// entry; it ends the series if her fertility has ended by the next month start, so that
-/// no attempt lies at or after its end.
+/// An attempt of the monthly series of `woman`, at the rate of her `window` of "Zeit zu
+/// zweit" if it holds: the draw decides. A failed one writes no entry; it ends the series if
+/// her fertility has ended by the next month start, so that no attempt lies at or after its
+/// end.
 pub(crate) fn on_attempt(
     domain: &mut DomainState,
     data: &Data,
     woman: SimId,
+    window: Option<&together::Window>,
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let seed = domain
         .world_seed
         .unwrap_or_else(|| panic!("invariant conception.before_start"));
     let now = ctx.now();
-    let Some(man) = partnership::open_partnership(domain, woman)
-        .and_then(|id| domain.partnerships.get(&id))
-        .map(|partnership| partnership.man)
-    else {
+    let Some((id, man)) = partnership::open_partnership(domain, woman).and_then(|id| {
+        domain
+            .partnerships
+            .get(&id)
+            .map(|partnership| (id, partnership.man))
+    }) else {
         panic!("invariant conception.without_partnership");
     };
     let (her, him) = (person(domain, data, woman), person(domain, data, man));
     let month = month_index(now).unwrap_or_else(|| panic!("invariant conception.before_start"));
     let draw = attempt_key(her.lineage_key, him.lineage_key, month);
-    let p = chance(data, &her, &him, now);
+    let p = chance(data, &her, &him, now, rate(data, window, id, now));
     if !Draws::new(WorldSeed::new(seed)).bernoulli(draw, p) {
         let end = fertility_end(&data.genetics().fertility);
         let next = now.checked_add(MONTH);
@@ -472,7 +498,14 @@ mod tests {
             seeds: super::super::Seeds::one(0xff),
         };
         let chance_at = |her: i64, him: i64| {
-            chance(&data, &person(0, her, &women), &person(1, him, &men), t(0))
+            let adult = data.demography().fertility.adult_rate;
+            chance(
+                &data,
+                &person(0, her, &women),
+                &person(1, him, &men),
+                t(0),
+                adult,
+            )
         };
         assert_eq!(chance_at(130, 150), 0.002_324_437_937_216_047_3);
         assert_eq!(chance_at(135, 150), 0.025_551_524_660_079_46);

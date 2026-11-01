@@ -39,7 +39,8 @@ pub(crate) fn persons_in(history: &[InputRecord]) -> u64 {
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
-            | Input::SeparatePartnership(_) => None,
+            | Input::SeparatePartnership(_)
+            | Input::TimeTogether(_) => None,
         })
         .unwrap_or(0)
 }

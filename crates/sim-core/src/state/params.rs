@@ -7,7 +7,7 @@
 use alloc::vec::Vec;
 
 use super::{DomainState, death, onset};
-use crate::data::Data;
+use crate::data::{Data, ShockTemplate};
 use crate::data_id::DataId;
 use crate::input::{
     ForkOverride, InputRecord, InputRejected, RejectCode, SetWorldParam, TriggerShock,
@@ -158,14 +158,12 @@ pub(crate) fn shock_rejection(
     let Some(next) = stamp.checked_add(SimDuration::from_secs(1)) else {
         return Some(RejectCode::EndOfTime);
     };
-    let Some(template) = data.shock(shock) else {
+    // A boost is no shock of this input (ADR-0023, addendum of 2026-11-01).
+    let Some((years, index)) = data.shock(shock).and_then(ShockTemplate::hunger) else {
         return Some(RejectCode::ShockUnknown);
     };
-    let (first, last) = shock_years(next, template.years);
-    let years = (first..=last).map(|year| NutritionYear {
-        year,
-        index: template.index,
-    });
+    let (first, last) = shock_years(next, years);
+    let years = (first..=last).map(|year| NutritionYear { year, index });
     if years.clone().any(|year| !year.in_range()) {
         return Some(RejectCode::NutritionOutOfRange);
     }
@@ -202,8 +200,10 @@ pub(crate) fn apply_shock(
     shock: &TriggerShock,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let template = (data.shock(&shock.shock)).unwrap_or_else(|| panic!("invariant shock.unknown"));
-    let (first, last) = shock_years(ctx.now(), template.years);
+    let (years, index) = (data.shock(&shock.shock))
+        .and_then(ShockTemplate::hunger)
+        .unwrap_or_else(|| panic!("invariant shock.unknown"));
+    let (first, last) = shock_years(ctx.now(), years);
     let entry = ctx.emit(
         LogPayload::ShockTriggered {
             shock: shock.shock.clone(),
@@ -214,10 +214,7 @@ pub(crate) fn apply_shock(
         Causes::new(ctx.trigger()),
     );
     for year in first..=last {
-        let change = ParamChange::NutritionYear(NutritionYear {
-            year,
-            index: template.index,
-        });
+        let change = ParamChange::NutritionYear(NutritionYear { year, index });
         apply_change(domain, data, change, Causes::new(Cause::Event(entry)), ctx);
     }
 }

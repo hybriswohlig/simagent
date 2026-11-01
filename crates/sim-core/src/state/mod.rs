@@ -15,6 +15,7 @@ pub(crate) mod onset;
 pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod start;
+pub(crate) mod together;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;

@@ -4361,9 +4361,10 @@ fn load_checks_the_world_rules_of_the_input_log() {
 fn shocked_data() -> Data {
     let hunger = |id: &str, years| ShockTemplate {
         id: DataId::new(id).expect("valid"),
-        kind: ShockKind::Hunger,
-        years,
-        index: FiniteF64::try_new(0.7).expect("finite"),
+        kind: ShockKind::Hunger {
+            years,
+            index: FiniteF64::try_new(0.7).expect("finite"),
+        },
     };
     common::data()
         .with_shocks(vec![

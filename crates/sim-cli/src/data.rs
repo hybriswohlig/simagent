@@ -33,16 +33,25 @@ pub fn core_data() -> Result<Data, CliError> {
         .map_err(|error| rejected(&error.to_string()))
 }
 
-/// The shock templates of `shocks.json` (ADR-0023 section 3): the file's format and
-/// version, each template with its text (`source`) removed; the core checks the values.
+/// The shock templates of `shocks.json` (ADR-0023 section 3 and its addendum of
+/// 2026-11-01): the file's format and version, each template with its text (`source`)
+/// removed and with exactly the fields of its kind; the core checks the values.
 pub fn shocks_from(text: &str) -> Result<Vec<ShockTemplate>, CliError> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Kind {
+        Hunger,
+        FertilityBoost,
+    }
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Entry {
         id: DataId,
-        kind: ShockKind,
-        years: u32,
-        index: FiniteF64,
+        kind: Kind,
+        years: Option<u32>,
+        index: Option<FiniteF64>,
+        months: Option<u32>,
+        rate: Option<FiniteF64>,
         #[serde(rename = "source")]
         _source: String,
     }
@@ -51,21 +60,52 @@ pub fn shocks_from(text: &str) -> Result<Vec<ShockTemplate>, CliError> {
     struct File {
         format: String,
         version: u32,
-        shocks: Vec<Entry>,
+        shocks: Vec<serde_json::Map<String, serde_json::Value>>,
     }
     let file: File =
         serde_json::from_str(text).map_err(|error| rejected(&format!("shocks.json: {error}")))?;
     if (file.format.as_str(), file.version) != ("simagent.shocks", 1) {
         return Err(rejected("shocks.json: not simagent.shocks version 1"));
     }
-    Ok((file.shocks.into_iter())
-        .map(|entry| ShockTemplate {
-            id: entry.id,
-            kind: entry.kind,
-            years: entry.years,
-            index: entry.index,
+    (file.shocks.into_iter())
+        .map(|fields| {
+            // Exactly the fields of the kind: a field of another kind is refused even as
+            // `null`, which the options below could not tell from a missing one (review).
+            let own: &[&str] = match fields.get("kind").and_then(serde_json::Value::as_str) {
+                Some("hunger") => &["id", "kind", "years", "index", "source"],
+                Some("fertility_boost") => &["id", "kind", "months", "rate", "source"],
+                _ => &[],
+            };
+            if fields.len() != own.len() || !own.iter().all(|key| fields.contains_key(*key)) {
+                return Err(rejected(
+                    "shocks.json: a template without exactly its kind's fields",
+                ));
+            }
+            let entry: Entry = serde_json::from_value(serde_json::Value::Object(fields))
+                .map_err(|error| rejected(&format!("shocks.json: {error}")))?;
+            let kind = match (
+                entry.kind,
+                entry.years,
+                entry.index,
+                entry.months,
+                entry.rate,
+            ) {
+                (Kind::Hunger, Some(years), Some(index), None, None) => {
+                    ShockKind::Hunger { years, index }
+                }
+                (Kind::FertilityBoost, None, None, Some(months), Some(rate)) => {
+                    ShockKind::FertilityBoost { months, rate }
+                }
+                _ => {
+                    return Err(rejected(&format!(
+                        "shocks.json: {} lacks a field of its kind or has another kind's",
+                        entry.id.as_str()
+                    )));
+                }
+            };
+            Ok(ShockTemplate { id: entry.id, kind })
         })
-        .collect())
+        .collect()
 }
 
 /// The frequencies of the pool's loci (`pool/pool_frequencies.json`): per locus a value of
@@ -272,6 +312,29 @@ mod tests {
         include_str!("../../../tests/golden/map3/calibration/genetics.json");
     const MAP3_GENOME_MAP: &str =
         include_str!("../../../tests/golden/map3/genetics/genome_map.json");
+
+    /// ADR-0023, addendum of 2026-11-01: each template with exactly the fields of its kind.
+    #[test]
+    fn a_template_has_the_fields_of_its_kind() {
+        let file = |entries: &str| {
+            format!(r#"{{"format":"simagent.shocks","version":1,"shocks":[{entries}]}}"#)
+        };
+        let boost = r#"{"id":"core:time_together","kind":"fertility_boost","months":3,"rate":0.3,"source":"x"}"#;
+        let hunger = r#"{"id":"core:h","kind":"hunger","years":1,"index":0.7,"source":"x"}"#;
+        let read = shocks_from(&file(&format!("{boost},{hunger}"))).expect("reads");
+        assert_eq!(read[0].boost().map(|(m, r)| (m, r.get())), Some((3, 0.3)));
+        assert_eq!(read[1].hunger().map(|(y, i)| (y, i.get())), Some((1, 0.7)));
+        for wrong in [
+            r#"{"id":"core:h","kind":"hunger","years":1,"index":0.7,"months":null,"source":"x"}"#,
+            r#"{"id":"core:b","kind":"fertility_boost","months":3,"rate":null,"source":"x"}"#,
+            r#"{"id":"core:b","kind":"other","source":"x"}"#,
+            r#"{"id":"core:b","kind":"fertility_boost","months":3,"source":"x"}"#,
+            r#"{"id":"core:b","kind":"fertility_boost","months":3,"rate":0.3,"years":1,"source":"x"}"#,
+            r#"{"id":"core:h","kind":"hunger","years":1,"index":0.7,"rate":0.3,"source":"x"}"#,
+        ] {
+            assert!(shocks_from(&file(wrong)).is_err(), "{wrong}");
+        }
+    }
 
     #[test]
     fn the_base_game_loads() {

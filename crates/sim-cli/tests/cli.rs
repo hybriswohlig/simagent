@@ -303,7 +303,8 @@ fn commands() -> Vec<(Input, &'static str)> {
             | Input::ArrangePartnership(_)
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
-            | Input::SeparatePartnership(_) => {}
+            | Input::SeparatePartnership(_)
+            | Input::TimeTogether(_) => {}
         }
     }
     commands

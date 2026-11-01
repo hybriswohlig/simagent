@@ -12,6 +12,7 @@ pub use save::{FORMAT_VERSION, LoadError, SaveError};
 
 pub use crate::state::census::{CensusRow, HeightMean, InheritanceCensus, PopulationCensus};
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
@@ -70,6 +71,10 @@ pub struct WorldState {
     /// How many persons `Start` made, from its input (ADR-0021, addendum 2026-10-21): no
     /// state either, not hashed, not saved; a load takes it from the input log again.
     started: u64,
+    /// The windows of "Zeit zu zweit" by woman (ADR-0023, addendum of 2026-11-01): set by
+    /// the input, no state either, not hashed, not saved; a load rebuilds them from the
+    /// input log and the partnerships.
+    together: BTreeMap<SimId, state::together::Window>,
     /// The traits of the living's bodies from the last census, for the next
     /// (`body_contract::count`; ADR-0002, addendum of 2026-10-31): a memo, no state either,
     /// not hashed, not saved; a load starts without it. The observer's one write outside
@@ -88,6 +93,7 @@ impl World {
                 trace: TraceBuffer::default(),
                 data,
                 started: 0,
+                together: BTreeMap::new(),
                 bodies: RefCell::default(),
             },
             inputs: InputLog {
@@ -166,6 +172,14 @@ impl World {
         self.state.log.take()
     }
 
+    /// The first and the last month start of her window of "Zeit zu zweit" (ADR-0023,
+    /// addendum of 2026-11-01), while it belongs to her open partnership.
+    pub fn time_together(&self, woman: SimId) -> Option<(SimTime, SimTime)> {
+        let window = self.state.together.get(&woman)?;
+        let open = state::partnership::open_partnership(&self.state.domain, woman)?;
+        (window.partnership == open).then_some((window.first, window.last))
+    }
+
     pub fn input_log(&self) -> &[InputRecord] {
         &self.inputs.records
     }
@@ -203,6 +217,7 @@ fn check(
         Input::SeparatePartnership(pair) => {
             state::partnership::check_separate(domain, closed_through, pair)
         }
+        Input::TimeTogether(pair) => state::together::check(domain, data, closed_through, pair),
     }
 }
 
@@ -247,6 +262,10 @@ impl WorldState {
             }
             Input::SeparatePartnership(pair) => {
                 state::partnership::apply_separate(&mut self.domain, pair, &mut ctx);
+            }
+            Input::TimeTogether(pair) => {
+                let window = state::together::opened(&self.domain, &self.data, pair, ctx.now());
+                self.together.insert(pair.woman, window);
             }
         }
     }
@@ -332,7 +351,14 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::death::on_death(&mut self.domain, &self.data, sim, cause, &mut ctx);
             }
             EventPayload::ConceptionAttempt { woman } => {
-                state::conception::on_attempt(&mut self.domain, &self.data, woman, &mut ctx);
+                let window = self.together.get(&woman);
+                state::conception::on_attempt(
+                    &mut self.domain,
+                    &self.data,
+                    woman,
+                    window,
+                    &mut ctx,
+                );
             }
             EventPayload::Birth { mother } => {
                 state::birth::on_birth(&mut self.domain, &self.data, mother, &mut ctx);
@@ -634,9 +660,10 @@ mod tests {
     fn a_shock_past_the_end_of_time_changes_nothing() {
         let hunger = |id, years| crate::data::ShockTemplate {
             id: DataId::new(id).expect("valid"),
-            kind: crate::data::ShockKind::Hunger,
-            years,
-            index: crate::finite::FiniteF64::try_new(0.7).expect("finite"),
+            kind: crate::data::ShockKind::Hunger {
+                years,
+                index: crate::finite::FiniteF64::try_new(0.7).expect("finite"),
+            },
         };
         let data = testing::data()
             .with_shocks(alloc::vec![
