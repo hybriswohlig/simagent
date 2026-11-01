@@ -140,15 +140,16 @@ export function bust(params: BodyParams, sex: Sex): Shape[] {
   const shapes: Shape[] = [{ kind: "path", part: "torso", d: torso, fill: skin, stroke: "none", width: 0, opacity: 1 }];
 
   // Women and girls wear their hair long: locks behind the neck and the head, beyond the
-  // cheeks and fuller with curls, a tenth wider where they end, from the crown to 16 below the
-  // chin; a newborn has none, they grow to that length by six; gone at stage 7.
+  // cheeks and fuller with curls, a tenth wider where they end, from just above the crown (never
+  // above the picture) to 16 below the chin; a newborn has none, they grow to that length by
+  // six; gone at stage 7.
   const stage = v("balding_stage");
   const density = v("hair_density");
   const grow = Math.min(1, v("face_form_age") / 6);
   const full = 1.04 + 0.14 * v("hair_curl");
   if (sex === "female" && density > 0 && stage < 7 && grow > 0) {
     const w = rxCheek * (full + 0.08);
-    const h = ryTop * 1.1;
+    const h = Math.min(ryTop * 1.1, cy);
     const end = cy + grow * (ryBottom + 16);
     const flare = w * (1 + 0.1 * grow);
     shapes.push({
