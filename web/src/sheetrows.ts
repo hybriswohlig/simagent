@@ -2,8 +2,13 @@ import type { BodyParams } from "./generated/body.js";
 import type { SheetAnswer } from "./generated/export.js";
 import { TEXT } from "./text.js";
 
-/** A row of the sheet: its label and a portrait per age the core gives, with its height. */
-export type SheetRow = { label: string; cells: { age: number; title: string; height: string; body: BodyParams }[] };
+/** A row of the sheet: its label, its sex and a portrait per age the core gives, with its
+ * height. */
+export type SheetRow = {
+  label: string;
+  sex: SheetAnswer["rows"][number]["sex"];
+  cells: { age: number; title: string; height: string; body: BodyParams }[];
+};
 
 const VARIANTS: Readonly<Record<string, string>> = {
   early: TEXT.sheet_early,
@@ -35,6 +40,7 @@ export function sheetRows(answer: SheetAnswer): SheetRow[] {
     const label = `${VARIANTS[row.variant] ?? row.variant}, ${row.sex === "female" ? TEXT.female : TEXT.male}`;
     return {
       label,
+      sex: row.sex,
       cells: row.at_ages.map((shown) => ({
         age: shown.at.age_years,
         title: `${label}, ${yearsText(shown.at.age_years)}`,

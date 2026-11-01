@@ -46,7 +46,7 @@ function Row({ run, title, shown }: { run: string; title: string; shown: Picture
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
         {shown.sitters.map((sitter) => (
           <figure key={sitter.person.sim}>
-            <Portrait params={sitter.body} label={fullName(sitter.person)} />
+            <Portrait params={sitter.body} sex={sitter.person.sex} label={fullName(sitter.person)} />
             <figcaption>
               {sitter.role === null ? (
                 <strong>{fullName(sitter.person)}</strong>
