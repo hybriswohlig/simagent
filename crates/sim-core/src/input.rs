@@ -30,6 +30,9 @@ pub enum Input {
     TriggerShock(TriggerShock),
     /// Parts a couple at once (ADR-0023, addendum of 2026-10-31: the cheat mode).
     SeparatePartnership(SeparatePartnership),
+    /// A couple spends time together: a higher chance of conception for some month starts
+    /// (ADR-0023, addendum of 2026-11-01: the cheat mode).
+    TimeTogether(TimeTogether),
 }
 
 /// The start of a run (ADR-0004 section 4 and its addendum of 2026-10-30). The data's hash
@@ -150,6 +153,14 @@ pub struct ArrangePartnership {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeparatePartnership {
+    pub woman: SimId,
+    pub man: SimId,
+}
+
+/// A woman and a man who spend time together; they must live and be partners of each other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimeTogether {
     pub woman: SimId,
     pub man: SimId,
 }

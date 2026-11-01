@@ -210,6 +210,9 @@ impl World {
         // Every sim is a founder with the key of its index (`consistent`), so the keys
         // differ exactly where the uninterrupted run had them differ.
         let lineage = lineage_index(&loaded.sims, &loaded.archive, &loaded.pregnancies);
+        // `consistent` has checked that every input of "Zeit zu zweit" names a partnership.
+        let together = state::together::rebuilt(&loaded.partnerships, &exceptions.input_log, &data)
+            .ok_or(LoadError::Inconsistent)?;
         let pending = pending_index(&loaded.queue, &loaded.partnerships);
         let open = open_index(&loaded.partnerships);
         let members = member_index(&loaded.sims);
@@ -242,6 +245,7 @@ impl World {
                 trace: TraceBuffer::default(),
                 data,
                 started: crate::state::start::persons_in(&exceptions.input_log),
+                together,
                 bodies: core::cell::RefCell::default(),
             },
             inputs: InputLog {
@@ -357,6 +361,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         pool: &view,
         pairs: &history.pairs,
         parted: &history.parted,
+        log: &exceptions.input_log,
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -373,6 +378,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && twins_complete(loaded, &rules)
         && sims_consistent(loaded, now, &rules)
         && partnerships_consistent(loaded, now, &rules, (&history.pairs, &history.pair_seqs))
+        && state::together::rebuilt(&loaded.partnerships, &exceptions.input_log, data).is_some()
         && partnership_counts_consistent(loaded, &rules)
         && pregnancies_consistent(loaded, now, &rules)
         && conceptions_consistent(loaded, &rules)
@@ -895,6 +901,8 @@ fn input_log_consistent(
                 parted.push((pair.woman, pair.man, at, position));
                 started = Some(kept);
             }
+            // Time together names an open partnership (`state::together::rebuilt`).
+            (Input::TimeTogether(_), Some(kept)) => started = Some(kept),
             // A world rule passes the check of the input against the parameters at its
             // place in the log (ADR-0023 section 1) and acts in the next second.
             (Input::SetWorldParam(rule), Some((before, start))) => {
@@ -912,14 +920,11 @@ fn input_log_consistent(
                 if state::params::shock_rejection(data, &before, record.t, &shock.shock).is_some() {
                     return None;
                 }
-                let template = data.shock(&shock.shock)?;
+                let (years, index) = data.shock(&shock.shock)?.hunger()?;
                 let next = record.t.checked_add(SimDuration::from_secs(1))?;
-                let (first, last) = state::params::shock_years(next, template.years);
+                let (first, last) = state::params::shock_years(next, years);
                 let after = (first..=last).fold(before, |params, year| {
-                    params.with(ParamChange::NutritionYear(NutritionYear {
-                        year,
-                        index: template.index,
-                    }))
+                    params.with(ParamChange::NutritionYear(NutritionYear { year, index }))
                 });
                 started = Some((after, start));
             }
@@ -930,7 +935,8 @@ fn input_log_consistent(
                 | Input::ArrangePartnership(_)
                 | Input::SetWorldParam(_)
                 | Input::TriggerShock(_)
-                | Input::SeparatePartnership(_),
+                | Input::SeparatePartnership(_)
+                | Input::TimeTogether(_),
                 None,
             ) => return None,
         }
@@ -1466,6 +1472,8 @@ struct Rules<'a> {
     pairs: &'a [(SimId, SimId, SimTime)],
     /// (woman, man, at, sequence number) of each couple an input parted.
     parted: &'a [(SimId, SimId, SimTime, u64)],
+    /// The input log, for the windows of "Zeit zu zweit".
+    log: &'a [InputRecord],
 }
 
 impl Rules<'_> {
@@ -1851,7 +1859,23 @@ fn conception_fits(
         else {
             return false;
         };
-        let p = conception::chance(rules.data, &woman, &man, conceived);
+        // The rate of "Zeit zu zweit" where its window holds (ADR-0023, addendum of
+        // 2026-11-01), else the adult rate.
+        let rate = formed.map_or(
+            rules.data.demography().fertility.adult_rate,
+            |(id, since)| {
+                let couple = (parents.mother, parents.father);
+                let window = state::together::window_for(
+                    rules.log,
+                    rules.data,
+                    couple,
+                    (id, since),
+                    conceived,
+                );
+                conception::rate(rules.data, window.as_ref(), id, conceived)
+            },
+        );
+        let p = conception::chance(rules.data, &woman, &man, conceived, rate);
         Draws::new(WorldSeed::new(rules.seed)).bernoulli(key, p)
     });
     // The child is one of the children of that conception, with its genome and sex.

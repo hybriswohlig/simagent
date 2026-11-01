@@ -69,20 +69,29 @@ fn pair_rejection(domain: &DomainState, (woman, man): (SimId, SimId)) -> Option<
     None
 }
 
-/// Pure check of `SeparatePartnership` (ADR-0023, addendum of 2026-10-31): a started world
-/// with a second after the clock, a known and living woman and man as for a pairing, then
-/// their open partnership with each other.
+/// Pure check of `SeparatePartnership` (ADR-0023, addendum of 2026-10-31).
 pub(crate) fn check_separate(
     domain: &DomainState,
     closed_through: SimTime,
     pair: &SeparatePartnership,
 ) -> Result<(), InputRejected> {
+    check_couple(domain, closed_through, (pair.woman, pair.man))
+}
+
+/// Whether an input may act on a couple (ADR-0023, addenda of 2026-10-31 and 2026-11-01): a
+/// started world with a second after the clock, a known and living woman and man as for a
+/// pairing, then their open partnership with each other.
+pub(crate) fn check_couple(
+    domain: &DomainState,
+    closed_through: SimTime,
+    couple: (SimId, SimId),
+) -> Result<(), InputRejected> {
     let next = closed_through.checked_add(SimDuration::from_secs(1));
     let code = match (domain.world_seed, next) {
         (None, _) => Some(RejectCode::NotStarted),
         (Some(_), None) => Some(RejectCode::EndOfTime),
-        (Some(_), Some(_)) => pair_rejection(domain, (pair.woman, pair.man)).or_else(|| {
-            couple_of(domain, (pair.woman, pair.man))
+        (Some(_), Some(_)) => pair_rejection(domain, couple).or_else(|| {
+            couple_of(domain, couple)
                 .is_none()
                 .then_some(RejectCode::NotPartners)
         }),
@@ -94,7 +103,10 @@ pub(crate) fn check_separate(
 }
 
 /// The open partnership of `woman` and `man` with each other, if any.
-fn couple_of(domain: &DomainState, (woman, man): (SimId, SimId)) -> Option<PartnershipId> {
+pub(crate) fn couple_of(
+    domain: &DomainState,
+    (woman, man): (SimId, SimId),
+) -> Option<PartnershipId> {
     let id = open_partnership(domain, woman)?;
     (open_partnership(domain, man) == Some(id)).then_some(id)
 }

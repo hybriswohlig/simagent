@@ -140,9 +140,11 @@ fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
             let index = entry["index"].as_f64().ok_or_else(|| field("index"))?;
             Ok(sim_core::data::ShockTemplate {
                 id: DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?,
-                kind: sim_core::data::ShockKind::Hunger,
-                years: u32::try_from(years).map_err(|_| field("years"))?,
-                index: sim_core::finite::FiniteF64::try_new(index).map_err(|_| field("index"))?,
+                kind: sim_core::data::ShockKind::Hunger {
+                    years: u32::try_from(years).map_err(|_| field("years"))?,
+                    index: sim_core::finite::FiniteF64::try_new(index)
+                        .map_err(|_| field("index"))?,
+                },
             })
         })
         .collect()

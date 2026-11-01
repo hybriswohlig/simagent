@@ -407,12 +407,13 @@ pub fn repository_shocks() -> Vec<sim_core::data::ShockTemplate> {
             sim_core::data::ShockTemplate {
                 id: sim_core::data_id::DataId::new(entry["id"].as_str().expect("an id"))
                     .expect("id"),
-                kind: sim_core::data::ShockKind::Hunger,
-                years: u32::try_from(entry["years"].as_u64().expect("years")).expect("fits"),
-                index: sim_core::finite::FiniteF64::try_new(
-                    entry["index"].as_f64().expect("index"),
-                )
-                .expect("finite"),
+                kind: sim_core::data::ShockKind::Hunger {
+                    years: u32::try_from(entry["years"].as_u64().expect("years")).expect("fits"),
+                    index: sim_core::finite::FiniteF64::try_new(
+                        entry["index"].as_f64().expect("index"),
+                    )
+                    .expect("finite"),
+                },
             }
         })
         .collect()

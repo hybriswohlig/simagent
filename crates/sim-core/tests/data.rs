@@ -2138,9 +2138,10 @@ fn diseases_reject() {
 fn the_shock_templates_are_checked_and_hashed() {
     let hunger = |id: &str, years: u32, index: f64| ShockTemplate {
         id: DataId::new(id).expect("valid"),
-        kind: ShockKind::Hunger,
-        years,
-        index: sim_core::finite::FiniteF64::try_new(index).expect("finite"),
+        kind: ShockKind::Hunger {
+            years,
+            index: sim_core::finite::FiniteF64::try_new(index).expect("finite"),
+        },
     };
     let base = common::data();
     let none = base.clone().with_shocks(Vec::new()).expect("no templates");
@@ -2168,4 +2169,43 @@ fn the_shock_templates_are_checked_and_hashed() {
     let next = f64::from_bits(0.7_f64.to_bits() + 1);
     let ulp = both(hunger("core:a", 1, next), hunger("core:b", 3, 0.7));
     assert_ne!(ulp.hash(), ordered.hash());
+}
+
+/// ADR-0023, addendum of 2026-11-01: a boost with its own fields, at least one month and the
+/// rate in (0, 1], each with its code; it enters the hash like a hunger.
+#[test]
+fn a_boost_template_is_checked_and_hashed() {
+    let boost = |months: u32, rate: f64| ShockTemplate {
+        id: DataId::new("core:time_together").expect("valid"),
+        kind: ShockKind::FertilityBoost {
+            months,
+            rate: sim_core::finite::FiniteF64::try_new(rate).expect("finite"),
+        },
+    };
+    let base = common::data();
+    for (template, code) in [
+        (boost(0, 0.3), DataError::ShocksMonths),
+        (boost(3, 0.0), DataError::ShocksRate),
+        (boost(3, 1.1), DataError::ShocksRate),
+        (boost(3, -0.3), DataError::ShocksRate),
+    ] {
+        assert_eq!(base.clone().with_shocks(vec![template]).err(), Some(code));
+    }
+    let one = base
+        .clone()
+        .with_shocks(vec![boost(3, 1.0)])
+        .expect("checked");
+    let three = base
+        .clone()
+        .with_shocks(vec![boost(3, 0.3)])
+        .expect("checked");
+    assert_ne!(one.hash(), base.hash());
+    assert_ne!(one.hash(), three.hash());
+    assert_eq!(
+        three
+            .shock(&DataId::new("core:time_together").expect("valid"))
+            .and_then(ShockTemplate::boost)
+            .map(|(m, r)| (m, r.get())),
+        Some((3, 0.3))
+    );
 }

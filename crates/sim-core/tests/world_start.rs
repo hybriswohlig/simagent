@@ -754,9 +754,10 @@ const YEAR: i64 = 31_449_600;
 fn hunger(id: &str, years: u32) -> ShockTemplate {
     ShockTemplate {
         id: DataId::new(id).expect("valid"),
-        kind: ShockKind::Hunger,
-        years,
-        index: FiniteF64::try_new(0.7).expect("finite"),
+        kind: ShockKind::Hunger {
+            years,
+            index: FiniteF64::try_new(0.7).expect("finite"),
+        },
     }
 }
 

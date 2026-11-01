@@ -151,7 +151,8 @@ pub(crate) fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
             }
             Input::ArrangePartnership(_)
             | Input::TriggerShock(_)
-            | Input::SeparatePartnership(_) => {}
+            | Input::SeparatePartnership(_)
+            | Input::TimeTogether(_) => {}
         }
     }
     on
