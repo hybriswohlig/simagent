@@ -26,6 +26,7 @@ pub mod genome;
 pub mod growth;
 pub mod hash;
 pub mod hex_u64;
+pub mod house;
 pub mod ids;
 pub mod input;
 pub mod kinship;
