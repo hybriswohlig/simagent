@@ -350,7 +350,8 @@ fn fork_stamp(from_year: i64) -> SimTime {
 /// The presentation state of a person of a run's world as `simagent view` sends it
 /// (ADR-0021 section 3), with the contract version of its body values, the partners a
 /// pairing would be accepted with now (nearest in age first), the ages of the living (Grok's
-/// round 33, P3 and P4) and its genetics card (section 5), and with `to` what
+/// round 33, P3 and P4), the end of a window of "Zeit zu zweit" still ahead and its
+/// genetics card (section 5), and with `to` what
 /// that sim is to the person (its
 /// kinship word, its foster word and `r` in percent, all from the core); `None` for a sim
 /// the run does not know.
@@ -384,6 +385,12 @@ pub fn person_answer(
             "due": dated(pregnancy.due),
         }),
         None => serde_json::Value::Null,
+    };
+    // The last month start of the window of "Zeit zu zweit" of the person's partnership,
+    // with its date, while it is ahead (ADR-0023, addendum of 2026-11-01, W5).
+    answer["time_together"] = match world.time_together(sim) {
+        Some((_, last)) if last > world.closed_through() => dated(last),
+        _ => serde_json::Value::Null,
     };
     answer["traits"] = json(serde_json::to_value(world.traits(sim)))?;
     answer["origin"] = json(serde_json::to_value(world.origin(sim)))?;

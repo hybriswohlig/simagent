@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { onsetTemplate } from "../dist/carddiseases.js";
-import { KEPT, added, payloadCode, segments, template } from "../dist/chronicle.js";
+import { KEPT, added, followed, payloadCode, segments, template } from "../dist/chronicle.js";
 import { CODES } from "../dist/text.js";
 
 const DATE = {
@@ -218,6 +218,14 @@ test("a shock names the years of its entry", () => {
   assert.equal(template(shock(1, "core:hunger_three_years", -2, 0)), "Drei Hungerjahre kommen: Jahre -2 bis 0.");
   assert.equal(template(shock(1, "mod:flood", 3, 4)), "Ein Schock kommt.");
   assert.equal(template(about(1, { "core:shock_triggered": { shock: "core:hunger_one_year" } }, [])), "Ein Schock kommt.");
+});
+
+// ADR-0023, addendum of 2026-11-01 (W4, Grok's wording): "Zeit zu zweit" is followed and
+// reads with the couple as its subjects.
+test("time together is followed and says who", () => {
+  const together = { entry: { id: 1, t: 1, subjects: [{ sim: 5 }, { sim: 6 }], causes: [{ input: 3 }], payload: { "core:time_together": { partnership: 2 } } }, date: DATE };
+  assert.equal(followed(together), true);
+  assert.equal(template(together), "{0} und {1} verbringen Zeit zu zweit.");
 });
 
 test("the switch says how it stands from now on", () => {

@@ -6,7 +6,7 @@ import { readable } from "./contract.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import type { ChildrenAnswer, EventItem, KinAnswer, Kinship, Pedigree, Person, PersonAnswer, Shown } from "./generated/export.js";
 import { CardView } from "./cardview.js";
-import { separation } from "./cheat.js";
+import { separation, timeTogether, togetherUntil } from "./cheat.js";
 import { FamilyView } from "./familyview.js";
 import { bornText, captionYear, dateText } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
@@ -82,6 +82,12 @@ function Life({ view }: { view: PersonAnswer }) {
         <>
           <br />
           {TEXT.pregnant_due.replace("{date}", dateText(view.pregnancy.due.date))}
+        </>
+      )}
+      {view.time_together === null ? null : (
+        <>
+          <br />
+          {togetherUntil(view.time_together.date)}
         </>
       )}
     </p>
@@ -330,71 +336,73 @@ type Kids =
 /** Pairing a person with one of the partners the core offers (ADR-0021 section 6, "ein
  * Paar stiften"); the core judges age and kinship. After each answer of the server, a
  * rejection too, the page reads the person again (`answered`). */
-/** Where parting a couple stands: nothing yet, the question whether to, a request on its
+/** Where a cheat on a couple stands: nothing yet, the question whether to, a request on its
  * way. */
-type Parting = { readonly state: "idle" } | { readonly state: "asking" } | { readonly state: "busy" };
+type Cheating = { readonly state: "idle" } | { readonly state: "asking" } | { readonly state: "busy" };
 
-/** In the cheat mode, the button that parts a person from their partner (ADR-0023, addendum
- * of 2026-10-31), marked as a cheat and asking once before it acts (Grok's second opinion:
- * one click changes the run). Once the core parted them the page reads the run again, and
- * with the partner the button goes. A rejection goes to `refused`, which the page shows
- * outside the button: after another tab parted them, the reload takes the button away
- * (review). */
-function SeparateButton({
+/** The words of a cheat's button: its label, its question, yes and no. */
+type CheatTexts = { readonly label: string; readonly ask: string; readonly yes: string; readonly no: string };
+
+/** In the cheat mode, a button that sends an input about a person and their partner: parting
+ * them (ADR-0023, addendum of 2026-10-31) or "Zeit zu zweit" (addendum of 2026-11-01), marked
+ * as a cheat and asking once before it acts (Grok's second opinion: one click changes the
+ * run). Once the core took it the page reads the run again (a parting takes partner and
+ * buttons away). A rejection goes to `refused`, which the page shows outside the button:
+ * after another tab parted them, the reload takes the button away (review). */
+function CheatButton({
   run,
-  person,
-  partner,
+  input,
+  texts,
   answered,
   refused,
 }: {
   run: string;
-  person: Person;
-  partner: Person;
+  input: object;
+  texts: CheatTexts;
   answered: () => void;
   refused: (text: string | null) => void;
 }) {
-  const [parting, setParting] = useState<Parting>({ state: "idle" });
-  const input = separation(person, partner);
-  if (input === null) {
-    return null;
-  }
+  const [cheating, setCheating] = useState<Cheating>({ state: "idle" });
   const send = () => {
-    setParting({ state: "busy" });
+    setCheating({ state: "busy" });
     refused(null);
     postJson(`/api/runs/${run}/input`, input, INPUT)
       .then(() => {
-        setParting({ state: "idle" });
+        setCheating({ state: "idle" });
         answered();
       })
       .catch((error: unknown) => {
-        setParting({ state: "idle" });
+        setCheating({ state: "idle" });
         refused(inputFailureText(error));
         if (error instanceof Refused) {
           answered();
         }
       });
   };
-  if (parting.state === "asking" || parting.state === "busy") {
+  if (cheating.state === "asking" || cheating.state === "busy") {
     return (
       <p>
-        {TEXT.separate_ask}{" "}
-        <button type="button" disabled={parting.state === "busy"} onClick={send}>
-          {TEXT.separate_yes}
+        {texts.ask}{" "}
+        <button type="button" disabled={cheating.state === "busy"} onClick={send}>
+          {texts.yes}
         </button>{" "}
-        <button type="button" disabled={parting.state === "busy"} onClick={() => setParting({ state: "idle" })}>
-          {TEXT.separate_no}
+        <button type="button" disabled={cheating.state === "busy"} onClick={() => setCheating({ state: "idle" })}>
+          {texts.no}
         </button>
       </p>
     );
   }
   return (
     <p>
-      <button type="button" onClick={() => setParting({ state: "asking" })}>
-        {TEXT.separate}
+      <button type="button" onClick={() => setCheating({ state: "asking" })}>
+        {texts.label}
       </button>
     </p>
   );
 }
+
+const SEPARATE: CheatTexts = { label: TEXT.separate, ask: TEXT.separate_ask, yes: TEXT.separate_yes, no: TEXT.separate_no };
+const TOGETHER: CheatTexts = { label: TEXT.together, ask: TEXT.together_ask, yes: TEXT.together_yes, no: TEXT.separate_no };
 
 function PairForm({
   run,
@@ -538,8 +546,8 @@ function PinButton({ run, person }: { run: string; person: Person }) {
 
 export function PersonPage({ run, sim, cheat }: { run: string; sim: string; cheat: boolean }) {
   const [changed, setChanged] = useState(0);
-  // Why a parting of this person was refused, kept beside the person it was for.
-  const [partingRefused, setPartingRefused] = useState<{ person: string; text: string } | null>(null);
+  // Why a cheat on this person's couple was refused, kept beside the person it was for.
+  const [cheatRefused, setCheatRefused] = useState<{ person: string; text: string } | null>(null);
   const loaded = usePedigree(run, String(changed));
   const read = usePersonView(run, sim, String(changed));
   // The last view of this person stays while a newer one loads after a pairing, so card and
@@ -605,18 +613,27 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
           {partner.sex === "female" ? TEXT.partner_female : TEXT.partner_male} <Name run={run} person={partner} />
         </p>
       )}
-      {cheat && partner !== undefined ? (
-        <SeparateButton
-          key={`${run}/${person.sim}/${partner.sim}`}
-          run={run}
-          person={person}
-          partner={partner}
-          answered={() => setChanged((n) => n + 1)}
-          refused={(text) => setPartingRefused(text === null ? null : { person: `${run}/${sim}`, text })}
-        />
-      ) : null}
-      {partingRefused !== null && partingRefused.person === `${run}/${sim}` ? (
-        <p role="alert">{partingRefused.text}</p>
+      {cheat && partner !== undefined
+        ? (
+            [
+              [timeTogether(person, partner), TOGETHER, "together"],
+              [separation(person, partner), SEPARATE, "separate"],
+            ] as const
+          ).map(([input, texts, kind]) =>
+            input === null ? null : (
+              <CheatButton
+                key={`${run}/${person.sim}/${partner.sim}/${kind}`}
+                run={run}
+                input={input}
+                texts={texts}
+                answered={() => setChanged((n) => n + 1)}
+                refused={(text) => setCheatRefused(text === null ? null : { person: `${run}/${sim}`, text })}
+              />
+            ),
+          )
+        : null}
+      {cheatRefused !== null && cheatRefused.person === `${run}/${sim}` ? (
+        <p role="alert">{cheatRefused.text}</p>
       ) : null}
       {shown === null ? null : (
         <div>

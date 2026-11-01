@@ -605,7 +605,9 @@ fn the_window_of_time_together() {
     let window = |world: &World| world.time_together(sim(1));
     let at = |m: i64| SimTime::from_secs(m * M);
     assert_eq!(window(&world), Some((at(1), at(3))));
-    assert_eq!(world.time_together(sim(2)), None);
+    // His page shows the window of their partnership too (W5); the second man has none.
+    assert_eq!(world.time_together(sim(2)), Some((at(1), at(3))));
+    assert_eq!(world.time_together(sim(3)), None);
     world.advance_until(&mut out, SimTime::from_secs(3_000_000), &mut |_| false);
     world.submit(together(1, 2)).expect("accepted");
     assert_eq!(window(&world), Some((at(2), at(4))));
