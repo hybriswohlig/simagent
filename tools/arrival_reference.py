@@ -252,7 +252,8 @@ def entry_json(line: bytes):
     """The JSON form of an entry whose payload names are known (ADR-0004 section 7, the forms
     of tools/state_reference.py, and `core:arrived { lineage_key }` of the design note of
     the arrival, section 5, the key as 16 hex digits; `core:shock_triggered { shock,
-    first_year, last_year }` of ADR-0023, addendum before S1b); None for the other kinds
+    first_year, last_year }` of ADR-0023, addendum before S1b, and `core:time_together {
+    partnership }` of its addendum of 2026-11-01); None for the other kinds
     (their bytes are pinned)."""
     c = pool_reference.Cursor(line)
     entry_id, t = c.varint(), c.signed()
@@ -285,6 +286,7 @@ def entry_json(line: bytes):
         wr.ARRIVED_VARIANT: lambda: {"core:arrived": {"lineage_key": hexed(c.varint())}},
         wr.DISEASE_ONSET_ENTRY: lambda: {"core:disease_onset": {"disease": c.string(), "since_year": c.signed(), "age_years": c.signed()}},
         wr.SHOCK_TRIGGERED_ENTRY: lambda: {"core:shock_triggered": {"shock": c.string(), "first_year": c.signed(), "last_year": c.signed()}},
+        wr.TIME_TOGETHER_ENTRY: lambda: {"core:time_together": {"partnership": c.varint()}},
     }
     if kind not in readers:
         return None
@@ -297,7 +299,7 @@ KIND_NAMES = {
     0: "core:started", 1: "core:founder_added", 2: "core:birthday", 3: "core:param_changed", 4: "core:death",
     5: "core:partnered", 6: "core:conception", 7: "core:meiosis", 8: "core:birth", 9: "core:separated",
     10: "core:household_formed", 11: "core:moved", 12: "core:emigrated", 13: "core:arrived",
-    14: "core:disease_onset", 15: "core:shock_triggered",
+    14: "core:disease_onset", 15: "core:shock_triggered", 16: "core:time_together",
 }
 
 

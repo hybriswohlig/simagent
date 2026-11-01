@@ -684,8 +684,10 @@ FOUNDER_ALLELE = 28
 # Red hair (ADR-0015 section 1, addendum of 2026-10-24; Grok, round 39, R1 c): two MC1R
 # copies give hair eumelanin times 0.08 (was 0.30) and pheomelanin 1 (was 0.80). New data,
 # a new data hash and new bodies: core 49 (ADR-0003 6.4), the projection stays 18.
+# "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01): the input writes the entry
+# `core:time_together`, so a log with it changes: core 51, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 50
+CORE_VERSION = 51
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -784,6 +786,9 @@ SHOCK_TRIGGERED_ENTRY = 15
 TIME_TOGETHER_INPUT = 6
 NOT_PARTNERS = 37
 TIME_TOGETHER_TEMPLATE = "core:time_together"
+# Its entry `core:time_together { partnership }` (log payload 16, after
+# core:shock_triggered, 15).
+TIME_TOGETHER_ENTRY = 16
 # The range of the years of `Start`'s nutrition (ADR-0013 section 1, ADR-0002).
 NUTRITION_YEARS = (-1_000_000, 999_999)
 REJECT_NAMES = {
@@ -4349,16 +4354,21 @@ class World:
         """`TimeTogether { woman, man }` (input variant 6), submitted right now; it must be
         accepted. Stamped with the last closed second `t`, it acts in `t + 1`: her window is
         the template's `months` month starts strictly after `t + 1` on their open partnership
-        (W1), replacing an earlier one (no stacking); nothing else changes (slice A: no entry,
-        no event)."""
+        (W1), replacing an earlier one (no stacking), and at `t + 1` the entry
+        `core:time_together { partnership }` (log payload 16, the woman and the man as its
+        subjects, caused by the input; W4). Nothing is planned or cancelled."""
         code = self.time_together_rejection(woman, man)
         assert code is None, f"TimeTogether is rejected: {REJECT_NAMES[code]}"
         self.script.append(("time_together", woman, man))
         sequence = len(self.inputs) + 1
         self.inputs.append(signed(self.closed) + varint(sequence) + variant(TIME_TOGETHER_INPUT, varint(woman), varint(man)))
-        first = month_start_after(self.closed + 1)
+        now = self.closed + 1
+        partnership = self.open_partnership(woman)
+        first = month_start_after(now)
         last = first + (self.data.shocks[TIME_TOGETHER_TEMPLATE]["months"] - 1) * MONTH
-        self.together[woman] = (self.open_partnership(woman), first, last)
+        self.together[woman] = (partnership, first, last)
+        subjects = [variant(0, varint(woman)), variant(0, varint(man))]
+        self._entry(now, subjects, [variant(2, varint(sequence))], variant(TIME_TOGETHER_ENTRY, varint(partnership)))
 
     # ------------------------------------------------------------------ events
 
@@ -6375,6 +6385,8 @@ if __name__ == "__main__":
         ("payload", str(DISEASE_ONSET_ENTRY), "core:disease_onset"),
         ("payload", str(SHOCK_TRIGGERED_ENTRY), "core:shock_triggered"),
         ("input", str(TRIGGER_SHOCK_INPUT), "trigger_shock"),
+        ("payload", str(TIME_TOGETHER_ENTRY), "core:time_together"),
+        ("input", str(TIME_TOGETHER_INPUT), "time_together"),
         ("payload", "3", "core:param_changed"),
         ("input", "1", "fork_override"),
     } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL + NEW_CODE_LINES_OF_THE_VILLAGE}
