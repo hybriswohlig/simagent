@@ -140,13 +140,15 @@ if (browser !== undefined) {
     await step("back to the run", page.goBack());
     await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
-    await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Geschwister, alle mit \d+$/ }).waitFor());
+    await step("its family folded", page.locator("details > summary", { hasText: /^Ähnlichkeit in der Familie$/ }).click());
+    await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Vollgeschwister, mit \d+$/ }).waitFor());
     await step(
       "its mother among them",
       page.locator("figcaption", { hasText: /^Mutter / }).locator(`a[href="#/runs/${run}/persons/8"]`).waitFor(),
     );
     const mother = page.locator('svg[aria-label="Stammbaum"] a[data-sim="8"]');
     await step("its mother in the pedigree", mother.waitFor());
+    await step("what she is to it", mother.locator("text", { hasText: /^Mutter · 50,0 %$/ }).waitFor());
     const before = await page.locator("h1").textContent();
     await step("click its mother", mother.click());
     await step(
@@ -205,10 +207,15 @@ if (browser !== undefined) {
       ).waitFor(),
     );
     await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
-    await step(
-      "the kinship's own placeholder",
-      page.getByLabel("Verwandtschaft mit").locator("option").first().filter({ hasText: /^Person wählen$/ }).waitFor({ state: "attached" }),
-    );
+    // The kinship found by name (Grok's round 46): a name of the list typed in, the core's line.
+    const kinField = page.getByPlaceholder("Name eingeben");
+    await step("the kinship's search field", kinField.waitFor());
+    const named = await page.locator('datalist[id^="kin-"] option').first().getAttribute("value");
+    if (named === null) {
+      throw new Error("the kinship's search offers no name");
+    }
+    await step("a name typed", kinField.fill(named));
+    await step("what that person is", page.getByRole("status").filter({ hasText: / Prozent$/ }).waitFor());
     await step("pin its family", page.getByRole("button", { name: "Familie anheften" }).click());
     await step("pinned", page.getByRole("button", { name: "Nicht mehr anheften" }).waitFor());
     await step("back to the run with the family", page.goto(`${url}#/runs/${run}`));
@@ -426,7 +433,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents and with its card, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {

@@ -93,6 +93,22 @@ test("the kinship list: the living by name first, then the others, without the p
   ]);
 });
 
+// Review of the name search: two persons whose labels are the same are told apart by their
+// sims, written by hand; a label of one person alone stays as it is.
+test("a label two persons share carries each one's number", () => {
+  const twins = {
+    ...PEDIGREE,
+    persons: [
+      ...PEDIGREE.persons,
+      { ...PEDIGREE.persons.find((p) => p.sim === 4), sim: 11, lineage_key: "11" },
+    ],
+  };
+  const labels = kinChoices(twins, AGES, 9).map((choice) => choice.label);
+  assert.ok(labels.includes("Anna Zeh, † (Nr. 4)"));
+  assert.ok(labels.includes("Anna Zeh, † (Nr. 11)"));
+  assert.ok(labels.includes("Ärne Vogt, †"));
+});
+
 test("the person asking is not in the list", () => {
   const sims = kinChoices(PEDIGREE, AGES, 1).map((choice) => choice.sim);
   assert.equal(sims.includes(1), false);

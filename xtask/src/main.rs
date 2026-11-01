@@ -469,6 +469,12 @@ fn server_answers(
     let (mother, father) = couple.ok_or("the town has no woman with a partner on offer")?;
     let path = format!("/api/runs/town/children/{mother}/{father}");
     answers.push(("ChildrenAnswer", get(port, &path)?));
+    // What the woman's partner on offer and the persons above are to her (Grok's round 46).
+    let path = format!(
+        "/api/runs/town/persons/{mother}/kin?to={father},{},{}",
+        sims[1], sims[2]
+    );
+    answers.push(("KinAnswer", get(port, &path)?));
     // The sheet of portraits: every variant, both sexes (ADR-0021 G10).
     answers.push(("SheetAnswer", get(port, "/api/sheet")?));
     // A kinship without a foster word (the living person to the dead one), and one with:

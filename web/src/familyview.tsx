@@ -107,10 +107,10 @@ export function FamilyView({
     return null;
   }
   return (
-    <>
-      <h2>{TEXT.family}</h2>
+    <details>
+      <summary>{TEXT.family}</summary>
       {up === null ? null : <Row run={run} title={TEXT.family_origin} shown={up} />}
       {down === null ? null : <Row run={run} title={TEXT.family_children} shown={down} />}
-    </>
+    </details>
   );
 }

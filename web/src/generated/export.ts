@@ -135,6 +135,13 @@ export type ChildrenAnswer = {
   readonly children: PreviewChild[];
 };
 
+/** `GET /api/runs/{run}/persons/{sim}/kin?to={other},…`: what each other sim is to the person, by the core, in the order asked. */
+export type KinAnswer = {
+  readonly format: "simagent.view.kin";
+  readonly version: number;
+  readonly kin: Kinship[];
+};
+
 /** A possible child: its sex, its body at 25 without environment, its looks and traits. */
 export type PreviewChild = {
   readonly sex: "female" | "male";
