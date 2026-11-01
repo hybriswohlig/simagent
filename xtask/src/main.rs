@@ -365,7 +365,8 @@ const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 
 /// The answers of `simagent view` (the release binary) over the runs in `out`: the person
 /// answer of a living, a dead and an emigrated person of the town; a step of the town's
-/// clock, a rejected input (an error with the core's reason), a fork that does not open (an
+/// clock, a rejected input (an error with the core's reason), an accepted pairing and
+/// "Zeit zu zweit" with the woman's person answer, a fork that does not open (an
 /// extra line in its events: an error without one), and then the run list with the town
 /// (manifest and date), the failed fork, a directory whose manifest is broken and a town
 /// founded from the template; a page of the town's log with a next page, and an empty page.
@@ -510,6 +511,25 @@ fn server_answers(
         ask(port, "/api/runs/town/input", Some(body), 200)
     })?;
     answers.push(("InputAnswer", pair));
+    // "Zeit zu zweit" for the town's first open partnership (ADR-0023, addendum of
+    // 2026-11-01): the woman's person answer then shows the end of its window.
+    let open = (now["partnerships"].as_array().into_iter().flatten())
+        .find(|p| p["ended"].is_null())
+        .ok_or("the town has no open partnership")?;
+    let together = format!(
+        r#"{{"time_together":{{"woman":{},"man":{}}}}}"#,
+        open["woman"], open["man"]
+    );
+    answers.push((
+        "InputAnswer",
+        ask(port, "/api/runs/town/input", Some(&together), 200)?,
+    ));
+    let path = format!("/api/runs/town/persons/{}", open["woman"]);
+    let window = get(port, &path)?;
+    if window["time_together"].is_null() {
+        return Err(format!("{path}: no window of time together: {window}"));
+    }
+    answers.push(("PersonAnswer", window));
     let events = out.join("fork").join("events.ndjson");
     let text = read(&events)?;
     let last = text.lines().last().ok_or("the fork has no events")?;
