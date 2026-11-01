@@ -14,7 +14,9 @@ use crate::data_id::DataId;
 use crate::finite::FiniteF64;
 use crate::ids::{PartnershipId, SimId};
 use crate::input::{Input, InputRecord, InputRejected, RejectCode, TimeTogether};
+use crate::log::{Causes, LogPayload, Subject};
 use crate::time::{MONTH, SimDuration, SimTime};
+use crate::world::SimCtx;
 
 use super::conception::month_start_after;
 
@@ -81,17 +83,25 @@ pub(crate) fn check(
 }
 
 /// The window the input opens now for the couple's open partnership; a second one replaces
-/// the first (W1: no stacking).
-pub(crate) fn opened(
+/// the first (W1: no stacking). Its entry `core:time_together` names the partnership, the
+/// woman and the man as subjects, the input as its cause (W4).
+pub(crate) fn apply(
     domain: &DomainState,
     data: &Data,
     pair: &TimeTogether,
-    now: SimTime,
+    ctx: &mut SimCtx<'_, '_>,
 ) -> Window {
     let id = couple_of(domain, (pair.woman, pair.man))
         .unwrap_or_else(|| panic!("invariant together.checked"));
     let (months, _) = template(data).unwrap_or_else(|| panic!("invariant together.template"));
-    window(id, now, months).unwrap_or_else(|| panic!("invariant together.window"))
+    let opened =
+        window(id, ctx.now(), months).unwrap_or_else(|| panic!("invariant together.window"));
+    ctx.emit(
+        LogPayload::TimeTogether { partnership: id },
+        alloc::vec![Subject::Sim(pair.woman), Subject::Sim(pair.man)],
+        Causes::new(ctx.trigger()),
+    );
+    opened
 }
 
 /// Each input of "Zeit zu zweit" of a log over the partnerships of a save (ADR-0023,

@@ -264,7 +264,7 @@ impl WorldState {
                 state::partnership::apply_separate(&mut self.domain, pair, &mut ctx);
             }
             Input::TimeTogether(pair) => {
-                let window = state::together::opened(&self.domain, &self.data, pair, ctx.now());
+                let window = state::together::apply(&self.domain, &self.data, pair, &mut ctx);
                 self.together.insert(pair.woman, window);
             }
         }

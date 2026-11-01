@@ -1005,6 +1005,9 @@ fn all_payloads() -> Vec<LogPayload> {
             first_year: 4,
             last_year: 6,
         },
+        LogPayload::TimeTogether {
+            partnership: PartnershipId::try_from(1).expect("valid"),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1024,7 +1027,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Moved { .. }
             | LogPayload::Emigrated { .. }
             | LogPayload::DiseaseOnset { .. }
-            | LogPayload::ShockTriggered { .. } => {}
+            | LogPayload::ShockTriggered { .. }
+            | LogPayload::TimeTogether { .. } => {}
         }
     }
     payloads
