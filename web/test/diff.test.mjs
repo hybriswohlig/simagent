@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { diffView, home } from "../dist/diff.js";
+import { diffView, home, livesDiffering, pinnedFor } from "../dist/diff.js";
 
 const date = (year, month, day_of_month) => ({ year, day_of_year: 0, month, day_of_month, week: 0, weekday: 0, season: 0, second_of_day: 0 });
 const at = (t, year, month, day) => ({ t, date: date(year, month, day) });
@@ -337,4 +337,20 @@ test("the lives with a hereditary disease first", () => {
     ["Im Übrigen anders verlaufen", [HER]],
   ]);
   assert.deepEqual(titles({ ...ANSWER, changed: [] }), []);
+});
+
+// The pinned family beside itself (the backlog of the fun test, Grok's second opinion): the
+// first run's pin, else the second's; the heading names the run it came from unless both pin
+// the same person.
+test("whose pinned family the comparison shows", () => {
+  assert.deepEqual(pinnedFor("aa", "aa", "town", "gabel"), { key: "aa", from: null });
+  assert.deepEqual(pinnedFor("aa", null, "town", "gabel"), { key: "aa", from: "town" });
+  assert.deepEqual(pinnedFor(null, "bb", "town", "gabel"), { key: "bb", from: "gabel" });
+  assert.deepEqual(pinnedFor("aa", "bb", "town", "gabel"), { key: "aa", from: "town" });
+  assert.equal(pinnedFor(null, null, "town", "gabel"), null);
+});
+
+test("the folded lives count every person of one run only and every life that went otherwise", () => {
+  // One person only in each run and two lives that went otherwise (`ANSWER` above).
+  assert.equal(livesDiffering(diffView(ANSWER, NAMES)), 4);
 });
