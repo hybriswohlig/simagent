@@ -383,6 +383,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:arrived": "{0} kommt in die Stadt",
   "payload core:disease_onset": "{0} erkrankt an {disease}",
   "payload core:shock_triggered": "Ein Schock kommt.",
+  "payload core:time_together": "{0} und {1} verbringen Zeit zu zweit.",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",

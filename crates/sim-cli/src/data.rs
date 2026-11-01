@@ -340,7 +340,7 @@ mod tests {
     fn the_base_game_loads() {
         // The data hash of the built-in data, map 4 with the pool and its frequencies,
         // from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0x69d9_be70_ae89_4469);
+        assert_eq!(core_data().expect("data").hash(), 0x269f_c851_7af4_b8f4);
     }
 
     /// The pool's frequencies are read like calibration values: the unit `fraction`, the three

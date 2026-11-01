@@ -743,32 +743,51 @@ def data_hash_with_pool(definitions: bytes, pool_seed: int, pool_hash: int, freq
 SHOCKS_FORMAT = "simagent.shocks"
 SHOCKS_VERSION = 1
 SHOCKS_FILE_FIELDS = ("format", "version", "shocks")
-SHOCK_FIELDS = ("id", "kind", "years", "index", "source")
-# The kinds of a template in the order of the enum: variant 0 `hunger` (the only kind of
-# phase 1, ADR-0023 section 4).
-SHOCK_KINDS = ["hunger"]
-# `years` is a u32.
+# The fields of a template by its kind (ADR-0023 section 3 and its addendum of 2026-11-01):
+# exactly these, `source` the text.
+SHOCK_FIELDS = {
+    "hunger": ("id", "kind", "years", "index", "source"),
+    "fertility_boost": ("id", "kind", "months", "rate", "source"),
+}
+# The kinds of a template in the order of the enum: variant 0 `hunger`, variant 1
+# `fertility_boost` ("Zeit zu zweit").
+SHOCK_KINDS = ["hunger", "fertility_boost"]
+# `years` and `months` are u32.
 SHOCK_YEARS_MAX = 2**32 - 1
 
 
+def finite(value, rule: str) -> float:
+    """`value` as a `FiniteF64`: a number, no NaN, no infinity, no -0.0; else `rule` fails."""
+    assert isinstance(value, (int, float)) and not isinstance(value, bool), rule
+    value = float(value)
+    assert math.isfinite(value) and not (value == 0.0 and math.copysign(1.0, value) < 0.0), rule
+    return value
+
+
 def templates_checked(templates) -> list:
-    """The templates (each a dict with `id`, `kind`, `years`, `index`; a `source` is ignored)
-    checked by the rules of the data (ADR-0023 section 3) and sorted by ID, each failure an
-    AssertionError naming its rule: `shocks.duplicate` (an ID twice), `shocks.kind` (not
-    `hunger`), `shocks.years` (below 1, or no u32), `shocks.index` (not a number in [0, 1);
-    a NaN, an infinity or -0.0 is no `FiniteF64` and fails it too). Returns the templates as
-    dicts of the four hashed fields, ascending by ID."""
+    """The templates checked by the rules of the data (ADR-0023 section 3 and its addendum of
+    2026-11-01) and sorted by ID, each failure an AssertionError naming its rule:
+    `shocks.duplicate` (an ID twice), `shocks.kind` (neither `hunger` nor `fertility_boost`);
+    a hunger (`years`, `index`): `shocks.years` (below 1, or no u32), `shocks.index` (not a
+    finite number in [0, 1)); a boost (`months`, `rate`): `shocks.months` (below 1, or no
+    u32), `shocks.rate` (not a finite number in (0, 1]). A `source` is ignored. Returns the
+    templates as dicts of their hashed fields, ascending by ID."""
     out = []
     for template in templates:
-        identifier, kind, years, index = template["id"], template["kind"], template["years"], template["index"]
+        identifier, kind = template["id"], template["kind"]
         assert isinstance(identifier, str) and identifier, f"shocks.id {identifier!r}"
         assert kind in SHOCK_KINDS, f"shocks.kind {identifier} {kind!r}"
-        assert isinstance(years, int) and not isinstance(years, bool) and 1 <= years <= SHOCK_YEARS_MAX, f"shocks.years {identifier} {years!r}"
-        assert isinstance(index, (int, float)) and not isinstance(index, bool), f"shocks.index {identifier} {index!r}"
-        index = float(index)
-        assert math.isfinite(index) and not (index == 0.0 and math.copysign(1.0, index) < 0.0), f"shocks.index {identifier} {index!r}"
-        assert 0.0 <= index < 1.0, f"shocks.index {identifier} {index!r}"
-        out.append({"id": identifier, "kind": kind, "years": years, "index": index})
+        count = template["years"] if kind == "hunger" else template["months"]
+        rule = "shocks.years" if kind == "hunger" else "shocks.months"
+        assert isinstance(count, int) and not isinstance(count, bool) and 1 <= count <= SHOCK_YEARS_MAX, f"{rule} {identifier} {count!r}"
+        if kind == "hunger":
+            index = finite(template["index"], f"shocks.index {identifier} {template['index']!r}")
+            assert 0.0 <= index < 1.0, f"shocks.index {identifier} {index!r}"
+            out.append({"id": identifier, "kind": kind, "years": count, "index": index})
+        else:
+            rate = finite(template["rate"], f"shocks.rate {identifier} {template['rate']!r}")
+            assert 0.0 < rate <= 1.0, f"shocks.rate {identifier} {rate!r}"
+            out.append({"id": identifier, "kind": kind, "months": count, "rate": rate})
     ids = [template["id"] for template in out]
     assert len(set(ids)) == len(ids), f"shocks.duplicate {sorted(ids)}"
     return sorted(out, key=lambda template: template["id"].encode("utf-8"))
@@ -777,7 +796,7 @@ def templates_checked(templates) -> list:
 def shocks_of(document) -> list:
     """The templates of a shocks file (data/shocks.json), parsed JSON: exactly the fields
     `format` (`simagent.shocks`), `version` (1) and `shocks` (a list), each template exactly
-    `id`, `kind`, `years`, `index` and `source` (`deny_unknown_fields`, every field required;
+    the fields of its kind (`SHOCK_FIELDS`; `deny_unknown_fields`, every field required;
     the text `source` filled, as every text of the data, and not hashed); then
     `templates_checked`. Returns them without their text, ascending by ID."""
     assert isinstance(document, dict) and set(document) == set(SHOCKS_FILE_FIELDS), f"shocks.fields {sorted(document) if isinstance(document, dict) else document!r}"
@@ -785,7 +804,8 @@ def shocks_of(document) -> list:
     assert document["version"] == SHOCKS_VERSION, f"shocks.version {document['version']!r}"
     assert isinstance(document["shocks"], list), "shocks.fields shocks"
     for template in document["shocks"]:
-        assert isinstance(template, dict) and set(template) == set(SHOCK_FIELDS), f"shocks.fields {sorted(template) if isinstance(template, dict) else template!r}"
+        fields = SHOCK_FIELDS.get(template.get("kind")) if isinstance(template, dict) else None
+        assert fields is not None and set(template) == set(fields), f"shocks.fields {sorted(template) if isinstance(template, dict) else template!r}"
         filled(template, ("source",))
     return templates_checked(document["shocks"])
 
@@ -801,14 +821,19 @@ def shock_templates(data_dir: Path):
 
 def shocks_suffix(templates) -> bytes:
     """The postcard of the templates that the data hash appends (ADR-0023 section 3, addendum
-    before S1b): the list sorted by ID, `varint(len)`, then per template `string(id)`,
-    `varint(kind)` (hunger 0), `varint(years)` and `index` as an f64 little endian. Empty
+    before S1b, addendum of 2026-11-01): the list sorted by ID, `varint(len)`, then per template
+    `string(id)`, `varint(kind)`, then the kind's fields: a hunger (0) `varint(years)` and
+    `index` as an f64 little endian, a boost (1) `varint(months)` and `rate` likewise. Empty
     (nothing appended) for data without templates (None or an empty list)."""
     if not templates:
         return b""
     out = varint(len(templates))
     for template in templates_checked(templates):
-        out += string(template["id"]) + varint(SHOCK_KINDS.index(template["kind"])) + varint(template["years"]) + f64(template["index"])
+        out += string(template["id"]) + varint(SHOCK_KINDS.index(template["kind"]))
+        if template["kind"] == "hunger":
+            out += varint(template["years"]) + f64(template["index"])
+        else:
+            out += varint(template["months"]) + f64(template["rate"])
     return out
 
 
@@ -917,7 +942,12 @@ def main(argv):
         # hash of the definitions and the pool without them, for comparison.
         templates = shock_templates(data_dir)
         definitions_and_pool = definitions_bytes(*documents(data_dir)) + pool_suffix(head["pool_seed"], pool_hash, frequencies)
-        listed = " ".join("{}:{}:{}:{!r}".format(t["id"], t["kind"], t["years"], t["index"]) for t in templates or [])
+        listed = " ".join(
+            "{}:{}:{}:{!r}".format(
+                t["id"], t["kind"], t.get("years", t.get("months")), t.get("index", t.get("rate"))
+            )
+            for t in templates or []
+        )
         print(
             f"shocks {listed or 'none'} suffix {shocks_suffix(templates).hex()}"
             f" data_hash_without_shocks {xxhash.xxh3_64_intdigest(definitions_and_pool, seed=0):016x}"

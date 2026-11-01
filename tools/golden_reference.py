@@ -11,7 +11,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
   dummy_fork.json of its fork (the same run to the last second of year 4, the override
   "hereditary diseases on" stamped T_5 − 1 s, then at the same stamp the shock
   `core:hunger_one_year`, which sets year 5 to 0.7 (input 3; ADR-0023, addendum before S1b:
-  the golden fork covers `core:shock_triggered`), then to `until`; ADR-0001 section 6);
+  the golden fork covers `core:shock_triggered`), then at the same stamp "Zeit zu zweit" of
+  sims 1 and 2, the couple of `FORK_TOGETHER` (input 4; ADR-0023, addendum of 2026-11-01:
+  it covers `core:time_together`), then to `until`; ADR-0001 section 6);
   tests/golden/dummy.save, the save of the run on day 100 of year 3; tests/golden/
   dummy_pedigree.json and dummy_fork_pedigree.json, the text of `pedigree.json` of the run and
   of the fork at `until`, compact as serde_json writes it, followed by one newline (`simagent
@@ -38,8 +40,9 @@ and 14, I-f). What `simagent run` gives for each scenario file, without a story:
 Every model load check runs on the save and at the ends (`check_all`). The coverage of
 ADR-0003 6.3 is recounted over the dummy run, its fork, the arrival (tests/golden/
 arrival.json, tools/arrival_reference.py) and the town: every event kind (event_codes.txt,
-codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 15) must appear in
-one of them (payload 15, `core:shock_triggered`, only in the fork); printed per scenario and
+codes 1 to 11) must run and every log kind (log_codes.txt, payloads 0 to 16) must appear in
+one of them (payloads 15, `core:shock_triggered`, and 16, `core:time_together`, only in the
+fork); printed per scenario and
 for the union (`coverage_rows`). The onset of a disease
 (ADR-0017 section 3, addendum of 2026-10-20: the event `disease_onset`, kind 11, and the entry
 `core:disease_onset`, payload 14) is counted per scenario and path in `onset_rows`, the dummy
@@ -78,6 +81,11 @@ FORK_YEAR = 5
 # The shock of the golden fork (ADR-0023, addendum before S1b): after the override, at its
 # stamp; it sets year 5.
 FORK_SHOCK = "core:hunger_one_year"
+# "Zeit zu zweit" of the golden fork (ADR-0023, addendum of 2026-11-01): after the shock, at
+# its stamp, for the couple (woman, man) of the dummy's partnership 1, open at the fork point.
+# It acts in T_5, itself a month start, so her window is the next three (W1): the second to
+# the fourth month start of year 5.
+FORK_TOGETHER = (1, 2)
 SAVE_AT = 3 * YEAR + 100 * DAY
 DUMMY_FILES = ("dummy.json", "dummy_fork.json", "dummy.save", "dummy_pedigree.json", "dummy_fork_pedigree.json")
 # The export of the run with names (`simagent export`, format 5); not one of the story's files.
@@ -100,7 +108,7 @@ NAMES = ROOT / "data" / "names"
 FIRST_NAME, SURNAME = 29, 30
 TOWN_FILE = "town.json"
 # The kinds of ADR-0003 6.3: event kinds 1 (year_end) to 11 (disease_onset), log payloads 0
-# (core:started) to 15 (core:shock_triggered), as tests/golden/event_codes.txt and
+# (core:started) to 16 (core:time_together), as tests/golden/event_codes.txt and
 # log_codes.txt register them.
 EVENT_NAMES = {
     1: "year_end", 2: "birthday", 3: "death", 4: "conception_attempt", 5: "birth", 6: "separation",
@@ -110,7 +118,7 @@ LOG_NAMES = {
     0: "core:started", 1: "core:founder_added", 2: "core:birthday", 3: "core:param_changed", 4: "core:death",
     5: "core:partnered", 6: "core:conception", 7: "core:meiosis", 8: "core:birth", 9: "core:separated",
     10: "core:household_formed", 11: "core:moved", 12: "core:emigrated", 13: "core:arrived",
-    14: "core:disease_onset", 15: "core:shock_triggered",
+    14: "core:disease_onset", 15: "core:shock_triggered", 16: "core:time_together",
 }
 # The pairs of the CLI's kinship test (crates/sim-cli/tests/cli.rs) on the dummy run.
 KINSHIP_PAIRS = [(1, 8), (8, 10), (1, 2), (3, 3), (13, 13), (2, 13), (10, 13), (8, 7), (8, 4), (14, 1)]
@@ -172,10 +180,11 @@ def golden_text(world: wr.World) -> str:
 
 def dummy_worlds(s: dict, data: wr.Data, shock: bool = True) -> dict:
     """The run to `until`, the fork (the override "hereditary diseases on" at the last second
-    of year 4, then the shock `FORK_SHOCK` at the same stamp, which sets year 5), the world of
-    the save (day 100 of year 3); every load check on each. `shock` False leaves the shock
-    out (the story on map 3, `story_check`: its data hold no templates and its hand story
-    predates the shocks)."""
+    of year 4, then the shock `FORK_SHOCK` at the same stamp, which sets year 5, then "Zeit zu
+    zweit" of `FORK_TOGETHER` at the same stamp), the world of the save (day 100 of year 3);
+    every load check on each. `shock` False leaves the shock and the boost out (the story on
+    map 3, `story_check`: its data hold no templates and its hand story predates the
+    shocks)."""
     run = make_world(s, data)
     run.advance(s["until"])
     check_all(run)
@@ -186,6 +195,9 @@ def dummy_worlds(s: dict, data: wr.Data, shock: bool = True) -> dict:
     if shock:
         fork.trigger_shock(FORK_SHOCK)
         assert fork.shocks[-1]["years"] == [FORK_YEAR] and fork.shocks[-1]["input"] == 3, fork.shocks
+        fork.time_together(*FORK_TOGETHER)
+        woman, _ = FORK_TOGETHER
+        assert fork.together[woman] == (1, FORK_YEAR * YEAR + MONTH, FORK_YEAR * YEAR + 3 * MONTH), fork.together
     input_entries = range(first_entry, fork.next_event_id)
     fork.advance(s["until"])
     check_all(fork)
@@ -637,9 +649,9 @@ def onset_rows(worlds: dict) -> list:
 
 
 def fork_input_rows(w: dict) -> list:
-    """The inputs of the golden fork at its stamp (the override, then the shock; ADR-0023,
-    addendum before S1b): the shock's record (years, index, its entries), every entry the two
-    inputs wrote at `T_5` in log order (hex, and the JSON where `arrival_reference.entry_json`
+    """The inputs of the golden fork at its stamp (the override, then the shock, then "Zeit zu
+    zweit"; ADR-0023, addenda before S1b and of 2026-11-01): the shock's record (years, index,
+    its entries), every entry the three inputs wrote at `T_5` in log order (hex, and the JSON where `arrival_reference.entry_json`
     reads it), the input records, and how many entries the fork has more than the run (the
     golden test's `fork.log.len() == whole_run().log.len() + n`)."""
     import arrival_reference

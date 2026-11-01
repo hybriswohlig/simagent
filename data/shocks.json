@@ -15,6 +15,13 @@
       "years": 3,
       "index": 0.7,
       "source": "Grok G8 (ADR-0021 section 5, ADR-0023 section 3): the next calendar year, index 0.7, three years in a row"
+    },
+    {
+      "id": "core:time_together",
+      "kind": "fertility_boost",
+      "months": 3,
+      "rate": 0.3,
+      "source": "Grok R4, W1 (ADR-0023, addendum of 2026-11-01): the three month starts after the input, each attempt with the rate 0.30 instead of the adult rate 0.20"
     }
   ]
 }

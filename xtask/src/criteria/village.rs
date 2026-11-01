@@ -129,22 +129,39 @@ fn shocks(root: &Path) -> Result<Vec<sim_core::data::ShockTemplate>> {
         .iter()
         .map(|entry| {
             let field = |name: &str| format!("shocks: an entry without its {name}");
-            if !exactly(entry, &["id", "kind", "years", "index", "source"]) {
-                return Err(field("fields id, kind, years, index and source alone"));
+            // Each kind takes exactly its own fields (ADR-0023, addendum of 2026-11-01).
+            let (kind, fields): (&str, [&str; 2]) = match entry["kind"].as_str() {
+                Some("hunger") => ("hunger", ["years", "index"]),
+                Some("fertility_boost") => ("fertility_boost", ["months", "rate"]),
+                _ => return Err(field("kind hunger or fertility_boost")),
+            };
+            let [count, number] = fields;
+            if !exactly(entry, &["id", "kind", count, number, "source"]) {
+                return Err(field("fields id, kind, those of its kind and source alone"));
             }
-            if entry["kind"] != "hunger" || !entry["source"].is_string() {
-                return Err(field("kind hunger and its source"));
+            if !entry["source"].is_string() {
+                return Err(field("source"));
             }
             let id = entry["id"].as_str().ok_or_else(|| field("id"))?;
-            let years = entry["years"].as_u64().ok_or_else(|| field("years"))?;
-            let index = entry["index"].as_f64().ok_or_else(|| field("index"))?;
+            let count = (entry[count].as_u64())
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| field(count))?;
+            let number = (entry[number].as_f64())
+                .and_then(|x| sim_core::finite::FiniteF64::try_new(x).ok())
+                .ok_or_else(|| field(number))?;
+            let kind = match kind {
+                "hunger" => sim_core::data::ShockKind::Hunger {
+                    years: count,
+                    index: number,
+                },
+                _ => sim_core::data::ShockKind::FertilityBoost {
+                    months: count,
+                    rate: number,
+                },
+            };
             Ok(sim_core::data::ShockTemplate {
                 id: DataId::new(id).map_err(|e| format!("{id}: {e:?}"))?,
-                kind: sim_core::data::ShockKind::Hunger {
-                    years: u32::try_from(years).map_err(|_| field("years"))?,
-                    index: sim_core::finite::FiniteF64::try_new(index)
-                        .map_err(|_| field("index"))?,
-                },
+                kind,
             })
         })
         .collect()

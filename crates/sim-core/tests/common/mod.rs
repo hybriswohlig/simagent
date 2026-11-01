@@ -403,17 +403,27 @@ pub fn repository_shocks() -> Vec<sim_core::data::ShockTemplate> {
         .expect("the templates")
         .iter()
         .map(|entry| {
-            assert_eq!(entry["kind"], "hunger");
+            let number = |name: &str| {
+                sim_core::finite::FiniteF64::try_new(entry[name].as_f64().expect("a number"))
+                    .expect("finite")
+            };
+            let count =
+                |name: &str| u32::try_from(entry[name].as_u64().expect("a count")).expect("fits");
+            let kind = match entry["kind"].as_str() {
+                Some("hunger") => sim_core::data::ShockKind::Hunger {
+                    years: count("years"),
+                    index: number("index"),
+                },
+                Some("fertility_boost") => sim_core::data::ShockKind::FertilityBoost {
+                    months: count("months"),
+                    rate: number("rate"),
+                },
+                other => panic!("a kind of shock: {other:?}"),
+            };
             sim_core::data::ShockTemplate {
                 id: sim_core::data_id::DataId::new(entry["id"].as_str().expect("an id"))
                     .expect("id"),
-                kind: sim_core::data::ShockKind::Hunger {
-                    years: u32::try_from(entry["years"].as_u64().expect("years")).expect("fits"),
-                    index: sim_core::finite::FiniteF64::try_new(
-                        entry["index"].as_f64().expect("index"),
-                    )
-                    .expect("finite"),
-                },
+                kind,
             }
         })
         .collect()

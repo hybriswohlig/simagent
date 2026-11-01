@@ -205,6 +205,10 @@ pub enum LogPayload {
         first_year: i64,
         last_year: i64,
     },
+    /// A woman and a man (the subjects, in this order) spend time together: the input
+    /// opened the window of their partnership (ADR-0023, addendum of 2026-11-01, W4).
+    #[serde(rename = "core:time_together")]
+    TimeTogether { partnership: PartnershipId },
 }
 
 /// One entry of the domain log.
