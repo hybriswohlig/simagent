@@ -778,6 +778,12 @@ PARTNERS_IN_DIRECT_LINE = 36
 # core:disease_onset, 14: the template's ID as a string, then two i64).
 TRIGGER_SHOCK_INPUT = 4
 SHOCK_TRIGGERED_ENTRY = 15
+# "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01): input variant 6 (after
+# SeparatePartnership, 5), `not_partners` (37) when the two are no couple, the template
+# `core:time_together` of the kind `fertility_boost`.
+TIME_TOGETHER_INPUT = 6
+NOT_PARTNERS = 37
+TIME_TOGETHER_TEMPLATE = "core:time_together"
 # The range of the years of `Start`'s nutrition (ADR-0013 section 1, ADR-0002).
 NUTRITION_YEARS = (-1_000_000, 999_999)
 REJECT_NAMES = {
@@ -787,6 +793,7 @@ REJECT_NAMES = {
     END_OF_TIME: "end_of_time",
     SHOCK_UNKNOWN: "shock_unknown",
     SHOCK_OVERLAPS: "shock_overlaps",
+    NOT_PARTNERS: "not_partners",
     START_POOL_AND_FOUNDERS: "start_pool_and_founders",
     START_POOL_MISSING: "start_pool_missing",
     START_POOL_N_START: "start_pool_n_start",
@@ -2492,6 +2499,9 @@ class World:
         self.input_pairings = [(0, woman + 1, man + 1) for woman, man in couples]
         # The couples of Start as SimIds (the loader reads them from the input log).
         self.start_couples = [(woman + 1, man + 1) for woman, man in couples]
+        # The windows of "Zeit zu zweit" by woman: (partnership, first, last month start);
+        # not state, set by the input.
+        self.together = {}
         self.closed = -1
         self.queue = []
         self.next_insertion = 1
@@ -3893,9 +3903,16 @@ class World:
         return female_factor(her_age, her_menarche, form), male_factor(his_age, self.theta_of(man, t), form)
 
     def attempt_chance(self, woman: int, man: int, t: int) -> float:
-        """The chance of her attempt at `t`: `chance(adult_rate, F_w, F_m)`."""
+        """The chance of her attempt at `t`: `chance(rate, F_w, F_m)`, the rate the boost of
+        her window of "Zeit zu zweit" on a month start of it, both ends included, while the
+        window belongs to her open partnership (ADR-0023, addendum of 2026-11-01), else the
+        adult rate."""
         f_w, f_m = self.factors(woman, man, t)
-        return chance(self.data.adult_rate, f_w, f_m)
+        rate = self.data.adult_rate
+        window = self.together.get(woman)
+        if window is not None and window[0] == self.open_partnership(woman) and window[1] <= t <= window[2]:
+            rate = float(self.data.shocks[TIME_TOGETHER_TEMPLATE]["rate"])
+        return chance(rate, f_w, f_m)
 
     def series_allowed(self, woman: int, s: int) -> bool:
         """Whether her series may be planned at `s` now (design note section 4): an open
@@ -4267,7 +4284,8 @@ class World:
         if t >= MAX_ABS_SECS:
             return END_OF_TIME
         template = self.data.shocks.get(shock_id)
-        if template is None:
+        # A boost is no shock of this input (ADR-0023, addendum of 2026-11-01).
+        if template is None or template["kind"] != "hunger":
             return SHOCK_UNKNOWN
         years = shock_years(t, template["years"])
         if years[0] < NUTRITION_YEARS[0] or years[-1] > NUTRITION_YEARS[1]:
@@ -4304,6 +4322,43 @@ class World:
             self.nutrition = sorted([entry for entry in self.nutrition if entry[0] != year] + [(year, index)])
             changed.append(self._entry(now, [], [variant(0, varint(shock_entry))], variant(3, param_change_nutrition(year, index))))
         self.shocks.append({"second": now, "input": sequence, "shock": shock_id, "years": list(years), "index": index, "entry": shock_entry, "changes": changed})
+
+    def time_together_rejection(self, woman: int, man: int):
+        """The reject code of `TimeTogether { woman, man }` submitted now (ADR-0023, addendum
+        of 2026-11-01), or None: `end_of_time`, then for both unknown, not alive, the sexes,
+        then `not_partners` (no open partnership of the two with each other), then
+        `shock_unknown` (no template `core:time_together` of the kind `fertility_boost`)."""
+        if self.closed >= MAX_ABS_SECS:
+            return END_OF_TIME
+        pair = (woman, man)
+        if any(sim not in self.sims and sim not in self.archive for sim in pair):
+            return UNKNOWN_SIM
+        if any(sim not in self.sims for sim in pair):
+            return SIM_NOT_ALIVE
+        if self.sims[woman][2] != FEMALE or self.sims[man][2] != MALE:
+            return PARTNERS_OF_WRONG_SEX
+        number_ = self.open_partnership(woman)
+        if number_ is None or self.open_partnership(man) != number_:
+            return NOT_PARTNERS
+        template = self.data.shocks.get(TIME_TOGETHER_TEMPLATE)
+        if template is None or template["kind"] != "fertility_boost":
+            return SHOCK_UNKNOWN
+        return None
+
+    def time_together(self, woman: int, man: int) -> None:
+        """`TimeTogether { woman, man }` (input variant 6), submitted right now; it must be
+        accepted. Stamped with the last closed second `t`, it acts in `t + 1`: her window is
+        the template's `months` month starts strictly after `t + 1` on their open partnership
+        (W1), replacing an earlier one (no stacking); nothing else changes (slice A: no entry,
+        no event)."""
+        code = self.time_together_rejection(woman, man)
+        assert code is None, f"TimeTogether is rejected: {REJECT_NAMES[code]}"
+        self.script.append(("time_together", woman, man))
+        sequence = len(self.inputs) + 1
+        self.inputs.append(signed(self.closed) + varint(sequence) + variant(TIME_TOGETHER_INPUT, varint(woman), varint(man)))
+        first = month_start_after(self.closed + 1)
+        last = first + (self.data.shocks[TIME_TOGETHER_TEMPLATE]["months"] - 1) * MONTH
+        self.together[woman] = (self.open_partnership(woman), first, last)
 
     # ------------------------------------------------------------------ events
 
