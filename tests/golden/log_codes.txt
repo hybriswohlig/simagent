@@ -20,6 +20,7 @@ payload 12 core:emigrated
 payload 13 core:arrived
 payload 14 core:disease_onset
 payload 15 core:shock_triggered
+payload 16 core:time_together
 cause 0 event
 cause 1 plan
 cause 2 input
