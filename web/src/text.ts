@@ -66,6 +66,8 @@ export const TEXT = {
   unpin_family: "Nicht mehr anheften",
   pinned_family: "Angeheftete Familie: {name}",
   pinned_missing: "Die angeheftete Person gibt es in diesem Lauf nicht.",
+  pinned_family_from: "Angeheftete Familie aus {run}: {name}",
+  pinned_none: "Hefte auf einer Personenseite eine Familie an, dann steht sie hier in beiden Läufen nebeneinander.",
   fork: "Gabel",
   fork_note:
     "Eine Gabel rechnet diesen Lauf ab dem Anfang des gewählten Jahres neu. Eingaben dieses Laufs ab diesem Jahr fallen in der Gabel weg.",
@@ -101,6 +103,7 @@ export const TEXT = {
   diff_counted_list:
     "Die Liste „{list}“ nennt auch Verstorbene, die nicht an der Krankheit gestorben sind, und Weggezogene, mit ihren Krankheiten bis zu ihrem Tod oder Wegzug.",
   diff_none: "Die beiden Läufe unterscheiden sich in keinem Leben.",
+  diff_lives: "Alle Unterschiede in einzelnen Leben ({n})",
   diff_born: "Geburt",
   diff_died: "Tod",
   diff_cause: "Todesursache",
