@@ -172,11 +172,13 @@ impl World {
         self.state.log.take()
     }
 
-    /// The first and the last month start of her window of "Zeit zu zweit" (ADR-0023,
-    /// addendum of 2026-11-01), while it belongs to her open partnership.
-    pub fn time_together(&self, woman: SimId) -> Option<(SimTime, SimTime)> {
+    /// The first and the last month start of the window of "Zeit zu zweit" (ADR-0023,
+    /// addendum of 2026-11-01) of `sim`'s open partnership, for the woman and the man alike
+    /// (W5: both person pages show it); `None` without one.
+    pub fn time_together(&self, sim: SimId) -> Option<(SimTime, SimTime)> {
+        let open = state::partnership::open_partnership(&self.state.domain, sim)?;
+        let woman = self.state.domain.partnerships.get(&open)?.woman;
         let window = self.state.together.get(&woman)?;
-        let open = state::partnership::open_partnership(&self.state.domain, woman)?;
         (window.partnership == open).then_some((window.first, window.last))
     }
 

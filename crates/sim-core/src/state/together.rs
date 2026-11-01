@@ -8,7 +8,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use super::partnership::{check_couple, couple_of};
-use super::{DomainState, EndedBy, Partnership};
+use super::{DomainState, Partnership};
 use crate::data::{Data, ShockTemplate};
 use crate::data_id::DataId;
 use crate::finite::FiniteF64;
@@ -107,66 +107,72 @@ pub(crate) fn apply(
 /// Each input of "Zeit zu zweit" of a log over the partnerships of a save (ADR-0023,
 /// addendum of 2026-11-01), in the order of the log: the woman, the second it acted in and
 /// its window on the partnership it acted on; `None` if one names no partnership of the two
-/// that was open when it acted, or the data hold no template. Open when it acted: formed
-/// before its second, or in it by an input earlier in the log (a couple of `Start` or a
-/// pairing); not ended before its second, nor in it by a parting earlier in the log (an
-/// input acts before the events of its second).
+/// that was open when it acted (`open_at`), or the data hold no template.
 pub(crate) fn clicks(
     partnerships: &BTreeMap<PartnershipId, Partnership>,
     log: &[InputRecord],
     data: &Data,
 ) -> Option<Vec<(SimId, SimTime, Window)>> {
-    let after = |record: &InputRecord| record.t.checked_add(SimDuration::from_secs(1));
-    let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
-    let paired_before = |seq: u64, at: SimTime, couple: (SimId, SimId)| {
-        (log.iter()).any(|record| {
-            record.seq.get() < seq
-                && match &record.input {
-                    Input::Start(start) => {
-                        at == SimTime::START
-                            && (start.couples.iter()).any(|c| {
-                                (founder(c.woman), founder(c.man))
-                                    == (Some(couple.0), Some(couple.1))
-                            })
-                    }
-                    Input::ArrangePartnership(pair) => {
-                        after(record) == Some(at) && (pair.woman, pair.man) == couple
-                    }
-                    _ => false,
-                }
-        })
-    };
-    let parted_before = |seq: u64, at: SimTime, couple: (SimId, SimId)| {
-        (log.iter()).any(|record| match &record.input {
-            Input::SeparatePartnership(pair) => {
-                record.seq.get() < seq
-                    && after(record) == Some(at)
-                    && (pair.woman, pair.man) == couple
-            }
-            _ => false,
-        })
-    };
     let mut clicks = Vec::new();
     for record in log {
         let Input::TimeTogether(pair) = &record.input else {
             continue;
         };
-        let (at, seq, couple) = (after(record)?, record.seq.get(), (pair.woman, pair.man));
-        let open = |p: &Partnership| {
-            let formed = p.formed < at || (p.formed == at && paired_before(seq, at, couple));
-            let ended = p.ended.is_some_and(|ending| {
-                ending.at < at
-                    || (ending.at == at
-                        && ending.by == EndedBy::Separation
-                        && parted_before(seq, at, couple))
-            });
-            (p.woman, p.man) == couple && formed && !ended
-        };
-        let (id, _) = partnerships.iter().find(|(_, p)| open(p))?;
+        let (at, couple) = (acts_in(record)?, (pair.woman, pair.man));
+        let id = open_at(partnerships, log, couple, at, record.seq.get())?;
         let (months, _) = template(data)?;
-        clicks.push((pair.woman, at, window(*id, at, months)?));
+        clicks.push((pair.woman, at, window(id, at, months)?));
     }
     Some(clicks)
+}
+
+/// The second an input acts in: one after its stamp.
+fn acts_in(record: &InputRecord) -> Option<SimTime> {
+    record.t.checked_add(SimDuration::from_secs(1))
+}
+
+/// The partnership of `couple` open when the input `seq` acts in `at`: the one open as the
+/// second begins (formed before it, not ended before it), then each input of the second
+/// earlier in the log in turn (an input acts before the events of its second): a couple of
+/// `Start` or a pairing of the two opens their next partnership formed in `at` (ids rise in
+/// that order), a parting of the two ends the open one (review of slice B2: after a parting
+/// and a new pairing of the same two in one second, the parting belongs to the first
+/// partnership only).
+fn open_at(
+    partnerships: &BTreeMap<PartnershipId, Partnership>,
+    log: &[InputRecord],
+    couple: (SimId, SimId),
+    at: SimTime,
+    seq: u64,
+) -> Option<PartnershipId> {
+    let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
+    let theirs = || (partnerships.iter()).filter(|(_, p)| (p.woman, p.man) == couple);
+    let mut open = theirs()
+        .find(|(_, p)| p.formed < at && p.ended.is_none_or(|ending| ending.at >= at))
+        .map(|(id, _)| *id);
+    let mut formed = theirs().filter(|(_, p)| p.formed == at).map(|(id, _)| *id);
+    for record in log {
+        if record.seq.get() >= seq || acts_in(record) != Some(at) {
+            continue;
+        }
+        match &record.input {
+            Input::Start(start)
+                if (start.couples.iter()).any(|c| {
+                    (founder(c.woman), founder(c.man)) == (Some(couple.0), Some(couple.1))
+                }) =>
+            {
+                open = formed.next();
+            }
+            Input::ArrangePartnership(pair) if (pair.woman, pair.man) == couple => {
+                open = formed.next();
+            }
+            Input::SeparatePartnership(pair) if (pair.woman, pair.man) == couple => {
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    open
 }
 
 /// The windows of a save by woman, the later replacing the earlier (`clicks`).

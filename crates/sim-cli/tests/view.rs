@@ -953,6 +953,8 @@ fn a_person_is_the_cores_presentation_state() {
             }
         }
         fields.insert("pregnancy".into(), shown["pregnancy"].clone());
+        // No input of "Zeit zu zweit" in this run: no window.
+        fields.insert("time_together".into(), Value::Null);
         fields.insert(
             "traits".into(),
             serde_json::to_value(world.traits(id)).expect("JSON"),
@@ -1521,6 +1523,50 @@ fn an_input_over_http_is_resume_with_input() {
         replayed.as_os_str(),
     ])
     .expect("the log replays to the run");
+}
+
+/// "Zeit zu zweit" over HTTP (ADR-0023, addendum of 2026-11-01, W2 and W5): without a
+/// couple the core refuses with `not_partners`; after the input both person pages carry the
+/// window's last month start with its date while it is ahead, none before the input, none
+/// once it passed.
+#[test]
+fn time_together_shows_its_end_on_both_pages() {
+    const M: i64 = 2_419_200;
+    let (runs, web, _) = writable_fixture("together");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let together = r#"{"time_together":{"woman":1,"man":2}}"#;
+    let (status, _, body) = post(port, "/api/runs/town/input", together);
+    assert_eq!(
+        (status, &json_of(&body)["reason"]),
+        (409, &json!("not_partners"))
+    );
+    let arrange = r#"{"arrange_partnership":{"woman":1,"man":2}}"#;
+    let (status, _, _) = post(port, "/api/runs/town/input", arrange);
+    assert_eq!(status, 200);
+    let shown = |sim: u64| {
+        let (status, _, body) = get(port, &format!("/api/runs/town/persons/{sim}"));
+        assert_eq!(status, 200);
+        json_of(&body)["time_together"].clone()
+    };
+    assert_eq!((shown(1), shown(2)), (Value::Null, Value::Null));
+    let (status, _, body) = post(port, "/api/runs/town/input", together);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    // It acts in T_4, a month start, so the window is the next three: its last is 4 Y + 3 M,
+    // day 0 of month 3 (counted from 0) of year 4.
+    for sim in [1, 2] {
+        let end = shown(sim);
+        assert_eq!(end["t"], 4 * Y + 3 * M, "{sim}");
+        let date = &end["date"];
+        assert_eq!(
+            (&date["year"], &date["month"], &date["day_of_month"]),
+            (&json!(4), &json!(3), &json!(0)),
+            "{sim}"
+        );
+    }
+    let (status, _, _) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200);
+    assert_eq!((shown(1), shown(2)), (Value::Null, Value::Null));
 }
 
 /// The run's world (ADR-0021, addendum 2026-10-28; Grok round 40): where the switch stands,

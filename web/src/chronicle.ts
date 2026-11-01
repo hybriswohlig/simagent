@@ -19,6 +19,7 @@ export const FOLLOWED: ReadonlySet<string> = new Set([
   "core:param_changed",
   "core:disease_onset",
   "core:shock_triggered",
+  "core:time_together",
 ]);
 
 /** The most lines the chronicle keeps; older ones go. */

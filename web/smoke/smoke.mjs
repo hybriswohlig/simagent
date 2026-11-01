@@ -390,9 +390,19 @@ if (browser !== undefined) {
     }
     await step("the page again", page.reload());
     await step("with a partner again", partnerLine.waitFor());
+    // "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01): asked first like the parting, then
+    // the page names the end of the window and the chronicle tells of it; the parting below
+    // ends the window, and the line goes with it.
+    const until = page.getByText(/Zeit zu zweit bis Jahr \d+, \d+\. Monat\./);
+    await step("time together", page.getByRole("button", { name: "Zeit zu zweit (Cheat)" }).click());
+    await step("asked first too", page.getByText("Wirklich Zeit zu zweit?").waitFor());
+    await step("yes, together", page.getByRole("button", { name: "Ja, Zeit zu zweit" }).click());
+    await step("until when", until.waitFor());
+    await step("time together told", page.getByText("verbringen Zeit zu zweit").first().waitFor());
     await step("part them at last", part.click());
     await step("yes", yes.click());
     await step("the partner gone", partnerLine.waitFor({ state: "detached" }));
+    await step("the window gone", until.waitFor({ state: "detached" }));
     await step("the button gone", part.waitFor({ state: "detached" }));
     await step("the parting told", page.getByText("trennen sich").first().waitFor());
     await step("the cheat mode off", cheat.uncheck());
@@ -433,7 +443,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple parted in the cheat mode, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, and the server's silence ended by loading again and by itself");
   } catch (error) {
     fail(error.message);
   } finally {
