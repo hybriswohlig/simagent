@@ -32,6 +32,7 @@ input 2 arrange_partnership
 input 3 set_world_param
 input 4 trigger_shock
 input 5 separate_partnership
+input 6 time_together
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
