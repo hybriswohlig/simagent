@@ -54,6 +54,11 @@ test("each founder a row in the answer's order, with the names of the variants",
       "Helle Iris, weiblich",
     ],
   );
+  // The portraits of a row take its sex, for the hair's length.
+  assert.deepEqual(
+    rows.map((row) => row.sex),
+    ["female", "male", "female", "male", "female"],
+  );
   assert.deepEqual(rows[0].cells, [
     { age: 2, title: "Frühe Reife, weiblich, 2 Jahre", height: "86 cm", body: body(86) },
     { age: 60, title: "Frühe Reife, weiblich, 60 Jahre", height: "162 cm", body: body(162) },

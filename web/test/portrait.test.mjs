@@ -324,3 +324,39 @@ test("at the ends of every axis the head holds brows, eyes, nose and mouth", () 
     assert.ok(extent(one(shapes, "nose")).bottom < mouth.y1, `nose above the mouth: ${label}`);
   }
 });
+
+// Women and girls wear their hair long, men and boys keep the cap. The locks hang behind the
+// head and the neck from the crown to below the chin, wider than the cheeks; a newborn has
+// none, they grow to their length by six; they take the hair's colour and density and go with
+// the hair at stage 7.
+test("women and girls wear their hair long, men and boys keep the cap", () => {
+  const woman = bust(params(), "female");
+  const locks = one(woman, "locks");
+  assert.equal(parts(bust(params(), "male"), "locks").length, 0);
+  // Behind the neck and the head, in front of the torso.
+  assert.ok(woman.indexOf(parts(woman, "torso")[0]) < woman.indexOf(locks));
+  assert.ok(woman.indexOf(locks) < woman.indexOf(one(woman, "neck")));
+  assert.ok(woman.indexOf(locks) < woman.indexOf(one(woman, "head")));
+  // The default adult head: centre (50, 35), ry 17, rx 17 · 0.82; the locks reach 16 below
+  // the chin and stand out beyond the cheeks.
+  const reach = extent(locks);
+  const head = extent(one(woman, "head"));
+  assert.ok(Math.abs(reach.bottom - (35 + 17 + 16)) < 1e-9);
+  assert.ok(reach.left < head.left && reach.right > head.right);
+  assert.equal(locks.fill, one(woman, "hair").fill);
+  assert.equal(one(bust(params({ hair_density: 0.4 }), "female"), "locks").opacity, 0.4);
+  assert.equal(one(bust(params({ hair_grey_fraction: 1 }), "female"), "locks").fill, "#c4c4c4");
+  for (const set of [{ hair_density: 0 }, { balding_stage: 7 }, { face_form_age: 0 }]) {
+    assert.equal(parts(bust(params(set), "female"), "locks").length, 0, JSON.stringify(set));
+  }
+  // A girl's locks grow with her face's form age to their length at six, then stay.
+  const bottom = (age) => {
+    const shapes = bust(params({ face_form_age: age, body_form_age: age }), "female");
+    return extent(one(shapes, "locks")).bottom - extent(one(shapes, "head")).bottom;
+  };
+  assert.ok(bottom(1) < bottom(3) && bottom(3) < bottom(6));
+  assert.ok(Math.abs(bottom(6) - 16) < 1e-9 && Math.abs(bottom(40) - 16) < 1e-9);
+  // Curls make them fuller.
+  const wide = (curl) => width(extent(one(bust(params({ hair_curl: curl }), "female"), "locks")));
+  assert.ok(wide(1) > wide(0));
+});
