@@ -56,7 +56,7 @@ export function Sheet() {
               <th scope="row">{row.label}</th>
               {row.cells.map((cell) => (
                 <td key={cell.age} style={CELL}>
-                  <Portrait params={cell.body} label={cell.title} />
+                  <Portrait params={cell.body} sex={row.sex} label={cell.title} />
                   <div>{cell.height}</div>
                 </td>
               ))}

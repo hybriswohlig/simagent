@@ -20,6 +20,7 @@ export type Part =
   | "neck"
   | "head"
   | "hair"
+  | "locks"
   | "rim"
   | "sclera"
   | "iris"
@@ -33,6 +34,9 @@ export type Part =
   | "moustache"
   | "mouth"
   | "nose";
+
+/** The sex a portrait is drawn for; it chooses the hair's length. */
+export type Sex = "female" | "male";
 
 /** The grey that hair turns to with `hair_grey_fraction` 1. */
 const GREY = "#c4c4c4";
@@ -64,8 +68,8 @@ function maturity(age: number): number {
   return Math.min(1, Math.max(0, age / 18));
 }
 
-/** The shapes of the bust of `params`. */
-export function bust(params: BodyParams): Shape[] {
+/** The shapes of the bust of `params`, a person of `sex`. */
+export function bust(params: BodyParams, sex: Sex): Shape[] {
   const v = (key: BodyParamKey) => value(params, key);
   const skin = gridColor(MELANIN_TO_SRGB.skin, v("skin_eumelanin"), v("skin_pheomelanin"));
   const hairOwn = gridColor(MELANIN_TO_SRGB.hair, v("hair_eumelanin"), v("hair_pheomelanin"));
@@ -133,13 +137,33 @@ export function bust(params: BodyParams): Shape[] {
   const torso = `M ${50 - half} 120 Q ${50 - half} ${top} 50 ${top} Q ${50 + half} ${top} ${50 + half} 120 Z`;
   const bustLine = `M ${50 - half * 0.55} ${top + 12} q ${half * 0.275} ${chest} ${half * 0.55} 0 q ${half * 0.275} ${chest} ${half * 0.55} 0`;
 
-  const shapes: Shape[] = [
-    { kind: "path", part: "torso", d: torso, fill: skin, stroke: "none", width: 0, opacity: 1 },
-    {
-      kind: "ellipse", part: "neck", cx, cy: (chin + top) / 2, rx: rx * 0.42 * (1 + 0.15 * androgenic),
-      ry: (top - chin) / 2 + 3, fill: skin, opacity: 1,
-    },
-  ];
+  const shapes: Shape[] = [{ kind: "path", part: "torso", d: torso, fill: skin, stroke: "none", width: 0, opacity: 1 }];
+
+  // Women and girls wear their hair long: locks behind the neck and the head, beyond the
+  // cheeks and fuller with curls, a tenth wider where they end, from just above the crown (never
+  // above the picture) to 16 below the chin; a newborn has none, they grow to that length by
+  // six; gone at stage 7.
+  const stage = v("balding_stage");
+  const density = v("hair_density");
+  const grow = Math.min(1, v("face_form_age") / 6);
+  const full = 1.04 + 0.14 * v("hair_curl");
+  if (sex === "female" && density > 0 && stage < 7 && grow > 0) {
+    const w = rxCheek * (full + 0.08);
+    const h = Math.min(ryTop * 1.1, cy);
+    const end = cy + grow * (ryBottom + 16);
+    const flare = w * (1 + 0.1 * grow);
+    shapes.push({
+      kind: "path", part: "locks", fill: hair, stroke: "none", width: 0, opacity: density,
+      d:
+        `M ${cx - flare} ${end} L ${cx - w} ${cy} C ${cx - w} ${cy - k * h} ${cx - k * w} ${cy - h} ${cx} ${cy - h} ` +
+        `C ${cx + k * w} ${cy - h} ${cx + w} ${cy - k * h} ${cx + w} ${cy} L ${cx + flare} ${end} ` +
+        `Q ${cx} ${end - 6} ${cx - flare} ${end} Z`,
+    });
+  }
+  shapes.push({
+    kind: "ellipse", part: "neck", cx, cy: (chin + top) / 2, rx: rx * 0.42 * (1 + 0.15 * androgenic),
+    ry: (top - chin) / 2 + 3, fill: skin, opacity: 1,
+  });
   // The breast as a line in the skin's tone, as strong as its development.
   if (chest > 0) {
     shapes.push({
@@ -152,8 +176,6 @@ export function bust(params: BodyParams): Shape[] {
   // The hair: a rim at the sides, which stays at every stage of balding ("7 is bald except
   // for the rim of hair"), and a cap over the top that ends above the brows, thinner with
   // the density, smaller and higher with each stage, fuller with curls, gone at stage 7.
-  const stage = v("balding_stage");
-  const density = v("hair_density");
   if (density > 0) {
     for (const side of [-1, 1]) {
       shapes.push({
@@ -164,7 +186,6 @@ export function bust(params: BodyParams): Shape[] {
   }
   if (density > 0 && stage < 7) {
     const cover = 1 - stage / 7;
-    const full = 1.04 + 0.14 * v("hair_curl");
     shapes.push({
       kind: "ellipse", part: "hair", cx, cy: cy - ry * (0.78 + 0.22 * (1 - cover)) - 0.04 * ry * f(12),
       rx: rx * full * (0.55 + 0.45 * cover), ry: ry * 0.4 * cover, fill: hair, opacity: density,

@@ -95,12 +95,12 @@ function Life({ view }: { view: PersonAnswer }) {
 }
 
 /** The portraits at the ages a person reached. */
-function Ages({ shown }: { shown: readonly Shown[] }) {
+function Ages({ shown, sex }: { shown: readonly Shown[]; sex: Person["sex"] }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
       {shown.map((at) => (
         <figure key={at.at.age_years}>
-          <Portrait params={at.body} label={`${TEXT.at_age} ${at.at.age_years}`} />
+          <Portrait params={at.body} sex={sex} label={`${TEXT.at_age} ${at.at.age_years}`} />
           <figcaption>{`${TEXT.at_age} ${at.at.age_years} (${captionYear(at.at.calendar_year)})`}</figcaption>
         </figure>
       ))}
@@ -306,7 +306,7 @@ function Children({ mother, father, answer }: { mother: Person; father: Person; 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
         {answer.children.map((child, i) => (
           <figure key={i} style={{ width: "170px", margin: "0" }}>
-            <Portrait params={child.body} label={childName(child)} width={110} />
+            <Portrait params={child.body} sex={child.sex} label={childName(child)} width={110} />
             <figcaption>
               <strong>{childName(child)}</strong>
               <br />
@@ -598,7 +598,7 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
       {shown !== null ? (
         <div>
-          <Portrait params={shown.shown.body} label={fullName(person)} />
+          <Portrait params={shown.shown.body} sex={person.sex} label={fullName(person)} />
           <Life view={shown} />
         </div>
       ) : view.state === "ready" ? (
@@ -639,7 +639,7 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
         <div>
           <details>
             <summary>{TEXT.ages_strip}</summary>
-            <Ages shown={shown.at_ages} />
+            <Ages shown={shown.at_ages} sex={person.sex} />
           </details>
           <FamilyView run={run} pedigree={pedigree} person={person} at={String(changed)} ages={shown.at_ages} />
           <CardView

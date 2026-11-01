@@ -176,7 +176,7 @@ export function PeopleList({ run, people, action }: { run: string; people: reado
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
         {people.slice(0, shown).map(({ person, entry }) => (
           <figure key={person.sim} style={{ width: "160px", margin: "0" }}>
-            <Portrait params={entry.shown.body} label={fullName(person)} width={90} />
+            <Portrait params={entry.shown.body} sex={person.sex} label={fullName(person)} width={90} />
             <figcaption>
               <a href={format({ page: "person", run, sim: String(person.sim) })}>{fullName(person)}</a>
               {`, ${entry.shown.at.age_years} ${TEXT.years}${entry.pregnant ? `, ${TEXT.pregnant}` : ""}`}

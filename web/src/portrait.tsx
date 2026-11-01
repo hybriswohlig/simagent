@@ -1,5 +1,5 @@
 import type { BodyParams } from "./generated/body.js";
-import { bust, type Shape } from "./render/portrait.js";
+import { bust, type Sex, type Shape } from "./render/portrait.js";
 
 /** One shape as SVG; `web/` draws, `render/` computed the numbers. */
 function Drawn({ shape }: { shape: Shape }) {
@@ -44,11 +44,21 @@ function Drawn({ shape }: { shape: Shape }) {
   }
 }
 
-/** The portrait v0 of one person: a bust from the body values. */
-export function Portrait({ params, label, width = 150 }: { params: BodyParams; label: string; width?: number }) {
+/** The portrait v0 of one person: a bust from the body values, the hair by the sex. */
+export function Portrait({
+  params,
+  sex,
+  label,
+  width = 150,
+}: {
+  params: BodyParams;
+  sex: Sex;
+  label: string;
+  width?: number;
+}) {
   return (
     <svg viewBox="0 0 100 120" width={String(width)} height={String(width * 1.2)} role="img" aria-label={label}>
-      {bust(params).map((shape, i) => (
+      {bust(params, sex).map((shape, i) => (
         <Drawn key={i} shape={shape} />
       ))}
     </svg>
