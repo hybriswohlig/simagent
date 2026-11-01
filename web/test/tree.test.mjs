@@ -193,6 +193,17 @@ test("empty generations above and below take no room", () => {
 // The review of F6: the mark under the name of the last row ("†" or "weggezogen") lay below
 // the edge of the drawing and was cut off; its baseline stays 6 px above the edge, room for
 // the descenders of a 10 px font.
+// Review: the line of kinship under the outermost people stays in the drawing up to 200 px
+// wide, 100 px either side of the centre (half a step of 120 and the margin of 40).
+test("a kinship of 200 px under the outermost names fits in the drawing", () => {
+  for (const sim of [1, 7, 9, 14]) {
+    const { nodes, width } = layout(hourglass(PEDIGREE, sim));
+    for (const node of nodes) {
+      assert.ok(node.x - 100 >= 0 && node.x + 100 <= width, `sim ${sim}, node ${node.person.sim}`);
+    }
+  }
+});
+
 test("the mark under the lowest name fits in the drawing", () => {
   for (const sim of [7, 9, 14]) {
     const { nodes, height } = layout(hourglass(PEDIGREE, sim));

@@ -26,7 +26,8 @@ export function offerLabel(person: Person, ages: ReadonlyMap<number, number>): s
 /** The persons to ask the kinship with (Grok's round 33, P4), without `self`: first who lives
  * in the town, then everyone else of the pedigree, each group by name (`nameKey`, then the
  * name itself, then the smaller sim); the living with their age, the dead with "†", who
- * moved away with "weggezogen". */
+ * moved away with "weggezogen". A label that two persons share carries the sim of each, so
+ * that a search by name reaches every one (review). */
 export function kinChoices(
   pedigree: Pedigree,
   ages: ReadonlyMap<number, number>,
@@ -37,13 +38,22 @@ export function kinChoices(
   const others = pedigree.persons.filter((person) => person.sim !== self);
   const living = others.filter((person) => person.died === null && person.emigrated === null).sort(byName);
   const gone = others.filter((person) => person.died !== null || person.emigrated !== null).sort(byName);
-  return [
+  const choices = [
     ...living.map((person) => ({ sim: person.sim, label: offerLabel(person, ages) })),
     ...gone.map((person) => ({
       sim: person.sim,
       label: `${fullName(person)}, ${person.died === null ? TEXT.tree_away : TEXT.tree_dead_mark}`,
     })),
   ];
+  const count = new Map<string, number>();
+  for (const choice of choices) {
+    count.set(choice.label, (count.get(choice.label) ?? 0) + 1);
+  }
+  return choices.map((choice) =>
+    (count.get(choice.label) ?? 0) > 1
+      ? { sim: choice.sim, label: TEXT.kin_numbered.replace("{label}", choice.label).replace("{sim}", String(choice.sim)) }
+      : choice,
+  );
 }
 
 /** The order of two texts by their code units, the same in every browser. */

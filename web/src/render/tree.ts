@@ -29,6 +29,9 @@ export type Layout = {
  * line of kinship under each name ("Urgroßmutter · 12,5 %", Grok's round 46). */
 const STEP_X = 120;
 const STEP_Y = 110;
+/** Room left and right of the outermost people: a line of kinship up to 200 px wide under
+ * them stays in the drawing ("Tochter, Pflegetochter · 50,0 %", review). */
+const MARGIN_X = 40;
 /** The radius of a person's circle. */
 export const RADIUS = 20;
 /** Offsets under a circle's centre of the first name and of the mark below it. */
@@ -50,7 +53,7 @@ export function layout(glass: Hourglass): Layout {
   const last = all.length - 1 - [...all].reverse().findIndex((row) => row.length > 0);
   const rows = all.slice(first, last + 1);
   const widest = Math.max(...rows.map((row) => row.length));
-  const width = Math.max(1, widest) * STEP_X;
+  const width = Math.max(1, widest) * STEP_X + 2 * MARGIN_X;
   const nodes: Placed[] = [];
   rows.forEach((row, r) => {
     row.forEach((person, i) => {

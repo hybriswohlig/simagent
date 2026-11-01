@@ -157,6 +157,7 @@ export const TEXT = {
   child_son: "Sohn",
   kin_with: "Verwandtschaft mit",
   kin_pick: "Name eingeben",
+  kin_numbered: "{label} (Nr. {sim})",
   card: "Genetik",
   card_more: "Genauer",
   assumptions: "Modellannahmen",
