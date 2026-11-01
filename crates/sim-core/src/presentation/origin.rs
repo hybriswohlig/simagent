@@ -141,6 +141,16 @@ pub fn beauty_source(mother: f64, father: f64) -> Source {
     }
 }
 
+/// Whether the freckles get their own line (Grok's rounds 45, H2, and 47, S1): a clear sum
+/// of the gametes `pair`; with no freckles shown only a sum toward fewer, since the line
+/// would else hang the parents on an absent word.
+pub fn freckles_shown(word: Freckles, pair: Option<(f64, f64)>) -> bool {
+    pair.is_some_and(|(a, b)| {
+        let d = a + b;
+        d.abs() >= CLEAR && (word != Freckles::None || d < 0.0)
+    })
+}
+
 /// The gametes of trait `t` in the unit of the genetic part of `z` (the adult `√h²`).
 fn gametes(genome: &Genome, data: &Data, t: &DataId) -> Option<(f64, f64)> {
     let [_, _, h2_adult, _] = data.phenotype_weights(t)?;
@@ -280,7 +290,7 @@ impl World {
         let freckle = g("core:freckle")
             .zip(pigment)
             .map(|(f, p)| mixed(f, p, m.freckle_slope, m.freckle_pigment));
-        if clear(freckle) {
+        if freckles_shown(looks.freckles, freckle) {
             lines.push(OriginLine::Freckles {
                 word: looks.freckles,
                 source: by(freckle),
@@ -376,6 +386,19 @@ mod tests {
         assert_eq!(source(-0.1, -0.6), Source::Father);
         // A parent against the direction counts as nothing: 0.6 and −0.1 give D 0.5.
         assert_eq!(source(0.6, -0.1), Source::Mother);
+    }
+
+    /// Grok's round 47, S1: a clear sum gives freckles their own line, but with none shown
+    /// only a sum toward fewer; one toward more beside "keine" goes.
+    #[test]
+    fn no_freckles_keep_their_line_only_toward_fewer() {
+        assert!(freckles_shown(Freckles::None, Some((-0.3, -0.2))));
+        assert!(!freckles_shown(Freckles::None, Some((0.3, 0.2))));
+        assert!(freckles_shown(Freckles::Few, Some((0.3, 0.2))));
+        assert!(freckles_shown(Freckles::Many, Some((-0.3, -0.2))));
+        assert!(!freckles_shown(Freckles::None, Some((-0.2, -0.1))));
+        assert!(!freckles_shown(Freckles::Clear, Some((0.2, 0.1))));
+        assert!(!freckles_shown(Freckles::Few, None));
     }
 
     #[test]

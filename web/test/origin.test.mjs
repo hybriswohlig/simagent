@@ -66,3 +66,25 @@ test("freckles with red hair, the face, the steps", () => {
 test("a line the viewer does not know says so", () => {
   assert.equal(originSentence({ kind: "elsewhere" }), null);
 });
+
+// No freckles shown and a bent toward fewer (Grok's round 47, S1 and S2), each sentence by
+// hand from Grok's wording.
+test("no freckles: where the bent toward none comes from", () => {
+  assert.equal(
+    originSentence({ kind: "freckles", word: "none", source: "father" }),
+    "Sommersprossen: keine, die Anlage dafür eher vom Vater.",
+  );
+  assert.equal(
+    originSentence({ kind: "freckles", word: "none", source: "mother" }),
+    "Sommersprossen: keine, die Anlage dafür eher von der Mutter.",
+  );
+  assert.equal(originSentence({ kind: "freckles", word: "none", source: "both" }), "Sommersprossen: keine, die Anlage dafür von beiden.");
+  assert.equal(
+    originSentence({ kind: "freckles", word: "none", source: "both_faint" }),
+    "Sommersprossen: keine, die Anlage dafür von beiden, bei den Eltern kaum zu sehen.",
+  );
+  assert.equal(
+    originSentence({ kind: "freckles", word: "none", source: "away" }),
+    "Sommersprossen: keine, die Anlage dafür aus den beiden Kopien, Eltern nicht in der Stadt.",
+  );
+});

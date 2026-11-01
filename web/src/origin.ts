@@ -24,6 +24,16 @@ const SOURCES: { readonly [source: string]: string } = {
   copies: "",
 };
 
+/** Where the bent toward no freckles comes from, after "keine, die Anlage dafür" (Grok's
+ * round 47, S2): no side with the parents away, D being the sum of the person's two copies. */
+const ABSENT_SOURCES: { readonly [source: string]: string } = {
+  mother: " eher von der Mutter",
+  father: " eher vom Vater",
+  both: " von beiden",
+  both_faint: " von beiden, bei den Eltern kaum zu sehen",
+  away: " aus den beiden Kopien, Eltern nicht in der Stadt",
+};
+
 /** The words of the face axes (H4): the drawn direction first, the other second. */
 const FACE_WORDS: { readonly [axis: number]: readonly [string, string] } = {
   1: ["langes Gesicht", "kurzes Gesicht"],
@@ -71,6 +81,10 @@ function copiesText(copies: readonly string[]): string | null {
 export function originSentence(line: Line): string | null {
   const kind = text(line["kind"]);
   const source = SOURCES[text(line["source"])];
+  if (kind === "freckles" && line["word"] === "none") {
+    const absent = ABSENT_SOURCES[text(line["source"])];
+    return absent === undefined ? null : `${LABELS.freckles}: ${LOOK_WORDS.freckles.none}, die Anlage dafür${absent}.`;
+  }
   switch (kind) {
     case "hair":
     case "eyes":
