@@ -106,6 +106,15 @@ stays; the pool's check still compares with the hash of the definitions alone
 (`frozen_hash`). The CLI's data carry the repository's templates, so `repository_hash` is
 xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 
+The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2): data/house/needs.json (the
+rates per need and age band, awake and asleep), data/house/kinds.json (the kinds of furniture
+with their offers) and one file per house under data/house/houses/, which name rooms and
+offers. `houses_checked` repeats the checks of the reader (sim-cli: names once, one entrance,
+named rooms there) and of the core, each failure naming its code. Data that hold houses append
+`houses_suffix` after the templates: the rates, the kinds by ID, the houses by ID with their
+rooms as numbers in the file's order; names are not hashed. The CLI's data hold the
+repository's houses, so `repository_hash` ends with that suffix.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
        (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
        frequencies and, with DATA_DIR/shocks.json, the templates; the pool's seed, hash,
@@ -838,6 +847,193 @@ def shocks_suffix(templates) -> bytes:
 
 
 # ---------------------------------------------------------------------------------------
+# The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2): data/house/needs.json,
+# data/house/kinds.json and data/house/houses/*.json, their own data set after the
+# definitions, the pool and the shock templates.
+
+NEEDS = ["hunger", "energy", "bladder", "hygiene", "fun"]
+OLDEST = 130
+AGE_BANDS = [(6, 12), (13, 17), (18, 66), (67, OLDEST)]
+ESSENTIALS = ["core:dining_table", "core:fridge", "core:toilet", "core:shower", "core:sofa"]
+SOFA = "core:sofa"
+OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age"}
+HOUSE_FIELDS = {"id", "capacity", "rooms", "child_day_room", "child_night_room", "doors", "objects"}
+
+
+def zigzag(value: int) -> bytes:
+    """An i32 as postcard writes it: zigzag, then varint."""
+    assert -(2**31) <= value < 2**31, value
+    return varint((value << 1) ^ (value >> 31))
+
+
+def option(value, encode) -> bytes:
+    return b"\x00" if value is None else b"\x01" + encode(value)
+
+
+def house_files(data_dir: Path):
+    """(needs, kinds, houses) of `data_dir/house/`, parsed JSON, the houses in the order of
+    their file names, or None without that folder (every fixture: test data hold no houses)."""
+    folder = Path(data_dir) / "house"
+    if not folder.exists():
+        return None
+    houses = [json.loads(path.read_text()) for path in sorted((folder / "houses").glob("*.json"))]
+    return json.loads((folder / "needs.json").read_text()), json.loads((folder / "kinds.json").read_text()), houses
+
+
+def band(age: int):
+    return next((at for at, (low, high) in enumerate(AGE_BANDS) if low <= age <= high), None)
+
+
+def offer_rate(needs: dict, offer: dict, need: str, at: int) -> int:
+    """The rate of `need` during `offer` in the age band `at` (ADR-0026 sections 1 and 2): the
+    offer's own rate, else the sleep column for a sleeping offer, else the awake column."""
+    rates = offer.get("rates", {})
+    if need in rates:
+        return rates[need]
+    return needs["asleep" if offer.get("sleep", False) else "awake"][need][at]
+
+
+def raises(needs: dict, offer: dict, need: str, age: int) -> bool:
+    at = band(age)
+    open_at = offer["min_age"] <= age <= offer["max_age"]
+    return open_at and at is not None and offer_rate(needs, offer, need, at) > 0
+
+
+def houses_checked(needs, kinds, houses):
+    """The checks of ADR-0025 section 2 and of the offers' format (ADR-0026 section 2), in the
+    order of the reader and the core; a failed one names its code. Returns (needs, kinds by
+    ID, houses by ID) with the rooms numbered in each file's order."""
+    assert isinstance(needs, dict) and set(needs) == {"awake", "asleep"}, "needs fields"
+    for column in needs.values():
+        assert set(column) == set(NEEDS), "needs fields"
+        assert all(len(rates) == 4 and all(isinstance(r, int) and -(2**31) <= r < 2**31 for r in rates) for rates in column.values()), "needs rates"
+    for kind in kinds:
+        assert set(kind) == {"id", "slots", "offers"}, f"kind fields {kind}"
+        names = [offer["id"] for offer in kind["offers"]]
+        assert len(set(names)) == len(names), "house.offer_duplicate"
+        for offer in kind["offers"]:
+            assert set(offer) <= OFFER_FIELDS and {"id", "min_age", "max_age"} <= set(offer), f"offer fields {offer}"
+            assert set(offer.get("rates", {})) <= set(NEEDS), f"offer rates {offer}"
+    kinds = sorted(kinds, key=lambda kind: kind["id"].encode())
+    ids = [kind["id"] for kind in kinds]
+    assert len(set(ids)) == len(ids), "house.kind_duplicate"
+    for kind in kinds:
+        assert 1 <= kind["slots"] <= 8, "house.kind_slots"
+        for offer in kind["offers"]:
+            shape = (offer.get("seconds") is not None, offer.get("until_full") is not None, offer.get("max_seconds") is not None)
+            assert shape in ((True, False, False), (False, True, True)), "house.offer_length"
+            length = offer["seconds"] if shape[0] else offer["max_seconds"]
+            assert 60 <= length <= 43_200, "house.offer_length"
+            assert offer["min_age"] <= offer["max_age"] <= OLDEST, "house.offer_ages"
+            if shape[1]:
+                ages = range(max(offer["min_age"], AGE_BANDS[0][0]), offer["max_age"] + 1)
+                assert all(raises(needs, offer, offer["until_full"], age) for age in ages), "house.offer_full"
+    by_id = {kind["id"]: kind for kind in kinds}
+    numbered = [house_numbered(house) for house in houses]
+    numbered.sort(key=lambda house: house["id"].encode())
+    house_ids = [house["id"] for house in numbered]
+    assert len(set(house_ids)) == len(house_ids), "house.duplicate"
+    capacities = [house["capacity"] for house in numbered]
+    assert len(set(capacities)) == len(capacities) and all(1 <= c <= 8 for c in capacities), "house.capacity"
+    for house in numbered:
+        house_checked(needs, by_id, house)
+    return needs, kinds, numbered
+
+
+def house_numbered(house: dict) -> dict:
+    """The reader's part (sim-cli): each room once, at most 255, one entrance, every named
+    room there; the rooms numbered in the file's order."""
+    assert set(house) == HOUSE_FIELDS, f"house fields {house.get('id')}"
+    names = [room["id"] for room in house["rooms"]]
+    assert all(set(room) <= {"id", "entrance"} for room in house["rooms"]), "room fields"
+    assert len(set(names)) == len(names), "house.room_duplicate"
+    assert len(names) <= 255, "house.limit"
+    entrances = [at for at, room in enumerate(house["rooms"]) if room.get("entrance", False)]
+    assert len(entrances) == 1, "house.entrance"
+
+    def room(name, code):
+        assert name in names, code
+        return names.index(name)
+
+    return {
+        "id": house["id"],
+        "capacity": house["capacity"],
+        "rooms": len(names),
+        "entrance": entrances[0],
+        "child_day_room": room(house["child_day_room"], "house.child_room"),
+        "child_night_room": room(house["child_night_room"], "house.child_room"),
+        "doors": [(room(d["a"], "house.door_room"), room(d["b"], "house.door_room"), d["seconds"]) for d in house["doors"]],
+        "objects": [(o["kind"], room(o["room"], "house.object_room")) for o in house["objects"]],
+    }
+
+
+def house_checked(needs: dict, kinds: dict, house: dict) -> None:
+    """The core's part for one numbered house (ADR-0025 section 2)."""
+    for a, b, seconds in house["doors"]:
+        assert a != b, "house.door_room"
+        assert 1 <= seconds <= 120, "house.door_seconds"
+    pairs = [(min(a, b), max(a, b)) for a, b, _ in house["doors"]]
+    assert len(set(pairs)) == len(pairs), "house.door_duplicate"
+    reached, todo = {house["entrance"]}, [house["entrance"]]
+    while todo:
+        at = todo.pop()
+        for a, b, _ in house["doors"]:
+            for here, there in ((a, b), (b, a)):
+                if here == at and there not in reached:
+                    reached.add(there)
+                    todo.append(there)
+    assert len(reached) == house["rooms"], "house.disconnected"
+    objects = []
+    for kind, _ in house["objects"]:
+        assert kind in kinds, "house.object_kind"
+        objects.append(kinds[kind])
+    assert len(objects) <= 32 and sum(len(kind["offers"]) for kind in objects) <= 64, "house.limit"
+    present = {kind["id"] for kind in objects}
+    assert all(essential in present for essential in ESSENTIALS), "house.essentials"
+    beds = sum(kind["slots"] for kind in objects if kind["id"] != SOFA and any(o.get("sleep", False) for o in kind["offers"]))
+    assert beds >= house["capacity"], "house.sleep_places"
+    offers = [offer for kind in objects for offer in kind["offers"]]
+    for need in NEEDS:
+        for age in range(AGE_BANDS[0][0], OLDEST + 1):
+            assert any(raises(needs, offer, need, age) for offer in offers), f"house.need_unserved {house['id']} {need} {age}"
+
+
+def houses_suffix(files) -> bytes:
+    """The postcard that the data hash appends for the houses: `(rates, kinds, houses)` with
+    `NeedRates { awake, asleep }` (each `BandRates` the five needs in order, each four i32),
+    the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
+    i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
+    bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
+    by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
+    child_night_room: u8, doors: [DoorDef { a: u8, b: u8, seconds: u32 }], objects:
+    [ObjectDef { kind, room: u8 }] }` (rooms are numbers, their names are not hashed). Empty
+    for data without houses (None)."""
+    if files is None:
+        return b""
+    needs, kinds, houses = houses_checked(*files)
+    out = b""
+    for column in ("awake", "asleep"):
+        for need in NEEDS:
+            out += b"".join(zigzag(rate) for rate in needs[column][need])
+    out += varint(len(kinds))
+    for kind in kinds:
+        out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))
+        for offer in kind["offers"]:
+            rates = sorted(offer.get("rates", {}).items(), key=lambda pair: NEEDS.index(pair[0]))
+            out += varint(len(rates)) + b"".join(varint(NEEDS.index(need)) + zigzag(rate) for need, rate in rates)
+            out += option(offer.get("seconds"), varint)
+            out += option(offer.get("until_full"), lambda need: varint(NEEDS.index(need)))
+            out += option(offer.get("max_seconds"), varint)
+            out += boolean(offer.get("sleep", False)) + u8(offer["min_age"]) + u8(offer["max_age"])
+    out += varint(len(houses))
+    for house in houses:
+        out += string(house["id"]) + u8(house["capacity"]) + u8(house["rooms"]) + u8(house["entrance"])
+        out += u8(house["child_day_room"]) + u8(house["child_night_room"])
+        out += varint(len(house["doors"])) + b"".join(u8(a) + u8(b) + varint(s) for a, b, s in house["doors"])
+        out += varint(len(house["objects"])) + b"".join(string(kind) + u8(room) for kind, room in house["objects"])
+    return out
+
+# ---------------------------------------------------------------------------------------
 # The repository's pool (slice S5): data/pool/pool.bin and data/pool/pool_frequencies.json.
 
 POOL_MAGIC = b"SIMPOOL"
@@ -889,7 +1085,8 @@ def repository_hash(data_dir: Path) -> int:
     `pool/` followed by `(pool_seed, pool_hash, frequencies)` (`pool_suffix`, the frequencies
     checked by `frequencies_rejection`), with a `shocks.json` followed by its templates
     (`shocks_suffix`, ADR-0023 section 3); xxh3-64 with seed 0 of the concatenation. Without
-    either it is the definitions alone (`data_hash`)."""
+    either it is the definitions alone (`data_hash`); with a `house/` followed by the houses
+    (`houses_suffix`, ADR-0025)."""
     files = pool_files(data_dir)
     out = definitions_bytes(*documents(data_dir))
     if files is not None:
@@ -898,6 +1095,7 @@ def repository_hash(data_dir: Path) -> int:
         head = pool_head(pool)
         out += pool_suffix(head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
     out += shocks_suffix(shock_templates(data_dir))
+    out += houses_suffix(house_files(data_dir))
     return xxhash.xxh3_64_intdigest(out, seed=0)
 
 
@@ -952,6 +1150,15 @@ def main(argv):
             f"shocks {listed or 'none'} suffix {shocks_suffix(templates).hex()}"
             f" data_hash_without_shocks {xxhash.xxh3_64_intdigest(definitions_and_pool, seed=0):016x}"
             f" data_hash {repository_hash(data_dir):016x} ({repository_hash(data_dir)})"
+        )
+        # The houses (ADR-0025): the data hash above ends with them; the hash without them.
+        files = house_files(data_dir)
+        listed = " ".join(f"{h['id']}:{h['capacity']}" for h in houses_checked(*files)[2]) if files else "none"
+        without = definitions_and_pool + shocks_suffix(templates)
+        print(
+            f"houses {listed} suffix_bytes {len(houses_suffix(files))}"
+            f" data_hash_without_houses {xxhash.xxh3_64_intdigest(without, seed=0):016x}"
+            f" data_hash {repository_hash(data_dir):016x}"
         )
     # The threshold of each threshold disease that names its trait of liability (none in the
     # repository's data, so their output stays one line).
