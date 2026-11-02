@@ -401,6 +401,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::HouseMorning { household } => {
                 state::house::on_morning(&mut self.domain, &self.data, household, &mut ctx);
             }
+            EventPayload::NeedCrossing { sim, need, level } => {
+                state::house::on_crossing(&mut self.domain, sim, need, level);
+            }
             // Nothing plans a house event before its handler comes, and the loader refuses
             // one (ADR-0024, addendum of 2026-11-02).
             EventPayload::DayPlan { .. }
@@ -409,7 +412,6 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Wake { .. }
             | EventPayload::Arrive { .. }
             | EventPayload::ActionEnd { .. }
-            | EventPayload::NeedCrossing { .. }
             | EventPayload::Decide { .. } => panic!("invariant house.orphan_event"),
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);

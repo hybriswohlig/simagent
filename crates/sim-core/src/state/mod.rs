@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
+use crate::house::data::Need;
 use crate::house::state::HouseState;
 use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::kinship::KinshipCache;
@@ -285,6 +286,9 @@ pub(crate) enum Slot {
     Death(u64),
     /// The onset of the hereditary disease with this `str_key` (ADR-0017 section 3).
     Onset(u64),
+    /// The house events come last: leaving the house cancels them, not the archive
+    /// (ADR-0024 section 2). A falling need reaching a threshold (ADR-0026 section 1).
+    Crossing(Need, u16),
 }
 
 impl DomainState {
