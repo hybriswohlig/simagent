@@ -1,0 +1,33 @@
+{
+  "id": "core:flat",
+  "capacity": 3,
+  "rooms": [
+    {"id": "hall", "entrance": true},
+    {"id": "kitchen"},
+    {"id": "living"},
+    {"id": "bath"},
+    {"id": "bedroom"},
+    {"id": "kids"}
+  ],
+  "child_day_room": "kids",
+  "child_night_room": "kids",
+  "doors": [
+    {"a": "hall", "b": "kitchen", "seconds": 4},
+    {"a": "hall", "b": "living", "seconds": 3},
+    {"a": "hall", "b": "bath", "seconds": 3},
+    {"a": "hall", "b": "bedroom", "seconds": 5},
+    {"a": "hall", "b": "kids", "seconds": 5}
+  ],
+  "objects": [
+    {"kind": "core:dining_table", "room": "kitchen"},
+    {"kind": "core:fridge", "room": "kitchen"},
+    {"kind": "core:sofa", "room": "living"},
+    {"kind": "core:tv", "room": "living"},
+    {"kind": "core:bookshelf", "room": "living"},
+    {"kind": "core:toilet", "room": "bath"},
+    {"kind": "core:shower", "room": "bath"},
+    {"kind": "core:bed", "room": "bedroom"},
+    {"kind": "core:single_bed", "room": "kids"},
+    {"kind": "core:toy_chest", "room": "kids"}
+  ]
+}

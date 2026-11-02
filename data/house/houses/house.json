@@ -1,0 +1,52 @@
+{
+  "id": "core:house",
+  "capacity": 8,
+  "rooms": [
+    {"id": "hall", "entrance": true},
+    {"id": "kitchen"},
+    {"id": "dining"},
+    {"id": "living"},
+    {"id": "wc"},
+    {"id": "landing"},
+    {"id": "bath"},
+    {"id": "bedroom"},
+    {"id": "kids"},
+    {"id": "kids_two"},
+    {"id": "guest"},
+    {"id": "study"}
+  ],
+  "child_day_room": "kids",
+  "child_night_room": "kids",
+  "doors": [
+    {"a": "hall", "b": "kitchen", "seconds": 4},
+    {"a": "kitchen", "b": "dining", "seconds": 3},
+    {"a": "hall", "b": "living", "seconds": 4},
+    {"a": "dining", "b": "living", "seconds": 3},
+    {"a": "hall", "b": "wc", "seconds": 2},
+    {"a": "hall", "b": "landing", "seconds": 14},
+    {"a": "landing", "b": "bath", "seconds": 3},
+    {"a": "landing", "b": "bedroom", "seconds": 5},
+    {"a": "landing", "b": "kids", "seconds": 4},
+    {"a": "landing", "b": "kids_two", "seconds": 5},
+    {"a": "landing", "b": "guest", "seconds": 6},
+    {"a": "hall", "b": "study", "seconds": 5}
+  ],
+  "objects": [
+    {"kind": "core:dining_table", "room": "dining"},
+    {"kind": "core:fridge", "room": "kitchen"},
+    {"kind": "core:sofa", "room": "living"},
+    {"kind": "core:tv", "room": "living"},
+    {"kind": "core:bookshelf", "room": "living"},
+    {"kind": "core:bookshelf", "room": "study"},
+    {"kind": "core:toilet", "room": "wc"},
+    {"kind": "core:toilet", "room": "bath"},
+    {"kind": "core:shower", "room": "bath"},
+    {"kind": "core:bed", "room": "bedroom"},
+    {"kind": "core:single_bed", "room": "kids"},
+    {"kind": "core:single_bed", "room": "kids"},
+    {"kind": "core:toy_chest", "room": "kids"},
+    {"kind": "core:single_bed", "room": "kids_two"},
+    {"kind": "core:single_bed", "room": "kids_two"},
+    {"kind": "core:bed", "room": "guest"}
+  ]
+}
