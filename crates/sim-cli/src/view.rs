@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sim_core::data::Data;
 use sim_core::input::Input;
 use sim_core::params::ParamChange;
 use sim_core::time::{DAY, SimTime, calendar};
@@ -34,6 +35,9 @@ pub const PORT: u16 = 8742;
 /// What the server serves and reads.
 struct Server {
     runs: PathBuf,
+    /// The data of every world this server loads. A `settings.json` in `runs` replaces
+    /// calibration values; otherwise these are the built-in data.
+    data: Data,
     port: u16,
     /// The files of `web/dist` at start: relative path to type and bytes.
     files: BTreeMap<String, (&'static str, Vec<u8>)>,
@@ -307,7 +311,7 @@ impl Server {
                 }
                 Some(_) => {}
             }
-            match open(&self.runs.join(run)) {
+            match open(&self.runs.join(run), &self.data) {
                 Ok(opened) => {
                     self.failed.remove(run);
                     self.open.insert(run.to_owned(), opened);
@@ -373,7 +377,7 @@ impl Server {
             if let Some(seed) = seed {
                 file.start.world_seed = seed;
             }
-            crate::resolve(file, crate::data::core_data)
+            crate::resolve(file, || Ok(self.data.clone()))
         });
         let scenario = match scenario {
             Ok(scenario) => scenario,
@@ -382,7 +386,7 @@ impl Server {
         // From here on the directory is this server's: a failure marks it failed.
         let made = (|| {
             // The run stands at the template's end, as `run --scenario` leaves it.
-            let mut session = crate::begin(&dir, &scenario, scenario.until)?;
+            let mut session = crate::begin_with(&dir, &scenario, scenario.until, &self.data)?;
             session.advance(scenario.until)?;
             session.checkpoint(&scenario)?;
             Ok::<_, CliError>(session)
@@ -500,7 +504,8 @@ impl Server {
             return Response::error(409, "run_exists");
         }
         self.open.remove(parent);
-        let made = crate::fork_into(&parent_dir, fork.from_year, fork.changes, &dir);
+        let made =
+            crate::fork_into_with(&parent_dir, fork.from_year, fork.changes, &dir, &self.data);
         if made.is_err() {
             discard(&dir, &self.runs.join(format!("{}.repro.json", fork.run)));
         }
@@ -551,7 +556,7 @@ impl Server {
 
     /// The world of the run in `dir`: the one loaded last while it is this run's and its
     /// save has the same bytes, else loaded from them. The world is the save's alone (the
-    /// core data are the program's), so both give the same answers.
+    /// server's data), so both give the same answers.
     fn world_of(&self, dir: &Path) -> Result<Rc<World>, CliError> {
         let save = files::read(&dir.join(files::SAVE))?;
         if let Some(loaded) = self.loaded.borrow().as_ref()
@@ -560,7 +565,7 @@ impl Server {
         {
             return Ok(Rc::clone(&loaded.world));
         }
-        let world = Rc::new(crate::world_from_save(&save)?);
+        let world = Rc::new(crate::world_from_save_with(&save, &self.data)?);
         let world_kept = Rc::clone(&world);
         *self.loaded.borrow_mut() = Some(Loaded {
             dir: dir.to_path_buf(),
@@ -632,10 +637,10 @@ fn foreign_write(request: &Request, host: &str) -> Option<Response> {
 }
 
 /// A run opened for writing: its lock first, then what `run --resume` reads.
-fn open(dir: &Path) -> Result<Open, CliError> {
+fn open(dir: &Path, data: &Data) -> Result<Open, CliError> {
     let lock = RunLock::acquire(dir)?;
     let scenario = crate::resumed_scenario(dir)?;
-    let session = Session::resume(dir)?;
+    let session = Session::resume_with(dir, data)?;
     Ok(Open {
         session,
         scenario,
@@ -1072,6 +1077,13 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
             ),
         ));
     }
+    let settings = runs.join(crate::data::SETTINGS_FILE);
+    let data = if settings.is_file() {
+        eprintln!("view: settings {}", settings.display());
+        crate::data::data_with_settings(&files::read_text(&settings)?)?
+    } else {
+        crate::data::core_data()?
+    };
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .map_err(|e| CliError::new("port_unavailable", format!("127.0.0.1:{port}: {e}")))?;
     let port = listener
@@ -1080,6 +1092,7 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         .port();
     let mut server = Server {
         runs: runs.to_path_buf(),
+        data: data.clone(),
         port,
         files: found,
         open: BTreeMap::new(),
@@ -1094,7 +1107,7 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         let Ok(_lock) = RunLock::acquire(&dir) else {
             continue;
         };
-        if let Ok(Some(cut)) = session::recover(&dir) {
+        if let Ok(Some(cut)) = session::recover_with(&dir, &data) {
             let t = cut.closed_through;
             eprintln!(
                 "view: run {name} went back to its last stop at {} (year {}): cut {} events, {} census rows, {} inputs",
@@ -1171,6 +1184,7 @@ mod tests {
         }
         let server = Server {
             runs: base.clone(),
+            data: crate::data::core_data().expect("data"),
             port: 0,
             files: BTreeMap::new(),
             open: BTreeMap::new(),

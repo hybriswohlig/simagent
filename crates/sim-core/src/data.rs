@@ -1819,6 +1819,29 @@ impl Data {
         self
     }
 
+    /// These data with another demography and genetics calibration. The genome map, the
+    /// pool, the shocks and the houses stay. The pool was checked against the definitions
+    /// these data already hold. The data hash covers the replacement, so a town founded
+    /// from it is not the base game.
+    pub fn with_calibration(
+        self,
+        demography: DemographyCalibration,
+        calibration: GeneticsCalibration,
+    ) -> Result<Data, DataError> {
+        let mut definitions = self.definitions.clone();
+        definitions.demography = demography;
+        definitions.calibration = calibration;
+        let pool = self.pool.clone();
+        let shocks = self.shocks.clone();
+        let houses = self.houses.clone();
+        let mut data = Data::new(definitions)?;
+        data.pool = pool;
+        data.shocks = shocks;
+        data.houses = houses;
+        data.hash = data.hashed();
+        Ok(data)
+    }
+
     /// The houses of the data, if they hold them.
     pub fn houses(&self) -> Option<&HouseData> {
         self.houses.as_deref()

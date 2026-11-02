@@ -150,7 +150,7 @@ fn demography_rejects() {
         ("core:twins_identical", -0.001),
         ("core:twins_identical", 1.01),
         ("core:twins_fraternal", 1.01),
-        ("core:market_age", 15.0),
+        ("core:market_age", 11.0),
         ("core:market_age", 16.5),
         ("core:market_age", 121.0),
         ("core:market_search_height_female", -0.01),
@@ -244,7 +244,7 @@ fn demography_limits_are_allowed() {
         set(d, "core:pregnancy_length", 1.0);
         set(d, "core:twins_identical", 0.0);
         set(d, "core:twins_fraternal", 0.0);
-        set(d, "core:market_age", 16.0);
+        set(d, "core:market_age", 12.0);
         set(d, "core:market_search_height_female", 0.0);
         set(d, "core:market_candidates", 1.0);
         set(d, "core:pairing_cousin_odds", 1.0);

@@ -173,6 +173,26 @@ impl Session {
         compare: Compare,
         rejected: impl FnOnce(String) -> CliError,
     ) -> Result<Session, CliError> {
+        Self::start_with(
+            dir,
+            first_t,
+            first,
+            compare,
+            rejected,
+            &crate::data::core_data()?,
+        )
+    }
+
+    /// [`start`] on `data`. A settings document uses this so the new run carries that
+    /// data hash.
+    pub fn start_with(
+        dir: &Path,
+        first_t: SimTime,
+        first: Input,
+        compare: Compare,
+        rejected: impl FnOnce(String) -> CliError,
+        data: &Data,
+    ) -> Result<Session, CliError> {
         let occupied = fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some());
         if occupied {
             return Err(CliError::new(
@@ -180,7 +200,7 @@ impl Session {
                 "the output directory already has content",
             ));
         }
-        let mut world = World::new(crate::data::core_data()?);
+        let mut world = World::new(data.clone());
         let mut before = YearOut::default();
         // A break-off before the first input writes the package into `dir` too.
         if first_t > world.closed_through() {
@@ -227,9 +247,14 @@ impl Session {
     /// over the whole log, so the entries written so far are read back (ADR-0004
     /// section 8).
     pub fn resume(dir: &Path) -> Result<Session, CliError> {
+        Self::resume_with(dir, &crate::data::core_data()?)
+    }
+
+    /// [`resume`] on `data`. The save opens only when its data hash is `data`'s.
+    pub fn resume_with(dir: &Path, data: &Data) -> Result<Session, CliError> {
         let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
         let bytes = files::read(&dir.join(files::SAVE))?;
-        let (world, year_hashes) = World::load(&bytes, crate::data::core_data()?)
+        let (world, year_hashes) = World::load(&bytes, data.clone())
             .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
         // A run that was interrupted while it wrote has lines in its files that the
         // save does not know. The manifest of the last orderly end tells them apart.
@@ -683,18 +708,24 @@ pub struct Recovered {
 /// the input log is written as the stop wrote it. Any other damage is refused with the
 /// open's code, nothing written.
 pub fn recover(dir: &Path) -> Result<Option<Recovered>, CliError> {
-    let refused = match Session::resume(dir) {
+    recover_with(dir, &crate::data::core_data()?)
+}
+
+/// [`recover`] on `data`, so a run founded from a settings document goes back on those
+/// same numbers.
+pub fn recover_with(dir: &Path, data: &Data) -> Result<Option<Recovered>, CliError> {
+    let refused = match Session::resume_with(dir, data) {
         Ok(_) => return Ok(None),
         Err(refused) => refused,
     };
-    let Some(stop) = witnessed_stop(dir) else {
+    let Some(stop) = witnessed_stop(dir, data) else {
         return Err(refused);
     };
     files::truncate(&dir.join(files::EVENTS), stop.events_kept)?;
     files::truncate(&dir.join(files::CENSUS), stop.census_kept)?;
     files::replace(&dir.join(files::INPUT_LOG), stop.input_log.as_bytes())?;
     // The directory is the stop again; an open that still refuses it is reported.
-    Session::resume(dir)?;
+    Session::resume_with(dir, data)?;
     Ok(Some(stop.recovered))
 }
 
@@ -708,9 +739,9 @@ struct Stop {
 }
 
 /// The stop of `dir`, if every part of it is whole.
-fn witnessed_stop(dir: &Path) -> Option<Stop> {
+fn witnessed_stop(dir: &Path, data: &Data) -> Option<Stop> {
     let bytes = files::read(&dir.join(files::SAVE)).ok()?;
-    let (world, year_hashes) = World::load(&bytes, crate::data::core_data().ok()?).ok()?;
+    let (world, year_hashes) = World::load(&bytes, data.clone()).ok()?;
     let manifest =
         files::read_manifest(&files::read_text(&dir.join(files::MANIFEST)).ok()?).ok()?;
     if !describes_the_save(&manifest, &world, &year_hashes)

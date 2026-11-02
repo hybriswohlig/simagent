@@ -34,7 +34,7 @@ pub(crate) fn of_age(born: SimTime, at: SimTime, years: i64) -> bool {
         .is_some_and(|years| since.as_secs() >= years.as_secs())
 }
 
-/// The market age in whole years (11.2, 16).
+/// The market age in whole years (11.2).
 pub(crate) fn market_age(data: &Data) -> i64 {
     i64::from(data.demography().market.age_years)
 }
