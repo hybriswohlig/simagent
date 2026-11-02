@@ -95,6 +95,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+    use crate::time::YEAR;
 
     const fn t(secs: i64) -> SimTime {
         SimTime::from_secs(secs)
@@ -165,11 +166,11 @@ mod tests {
         );
         // A whole year later the product does not overflow.
         assert_eq!(
-            NeedSample::new(1000, SimTime::START, i32::MIN).value_at(t(31_449_600)),
+            NeedSample::new(1000, SimTime::START, i32::MIN).value_at(SimTime::START + YEAR),
             0
         );
         assert_eq!(
-            NeedSample::new(0, SimTime::START, i32::MAX).value_at(t(31_449_600)),
+            NeedSample::new(0, SimTime::START, i32::MAX).value_at(SimTime::START + YEAR),
             1000
         );
     }
