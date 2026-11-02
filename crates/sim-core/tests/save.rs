@@ -128,13 +128,43 @@ fn load_error_with(data: Data, bytes: &[u8]) -> Option<LoadError> {
 #[derive(Clone, Serialize)]
 enum Payload {
     YearEnd,
-    Birthday { sim: u64 },
-    Death { sim: u64, cause: u64 },
-    ConceptionAttempt { woman: u64 },
-    Birth { mother: u64 },
-    Separation { partnership: u64 },
+    Birthday {
+        sim: u64,
+    },
+    Death {
+        sim: u64,
+        cause: u64,
+    },
+    ConceptionAttempt {
+        woman: u64,
+    },
+    Birth {
+        mother: u64,
+    },
+    Separation {
+        partnership: u64,
+    },
     MarketRound,
-    LeaveHome { sim: u64 },
+    LeaveHome {
+        sim: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the house events")]
+    Emigration {
+        capacity: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the house events")]
+    Immigration {
+        persons: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the house events")]
+    DiseaseOnset {
+        sim: u64,
+        disease: u64,
+    },
+    /// The first house event (ADR-0024, addendum of 2026-11-02).
+    HouseMorning {
+        household: u64,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -463,6 +493,13 @@ struct File {
     archive: Vec<(u64, Archived)>,
     /// The households of the pool used (ADR-0020 section 5): none here.
     pool_used: Vec<u32>,
+    /// The house (ADR-0024, addendum of 2026-11-02): the households moved in as (id,
+    /// (house, morning)); nobody has needs, waits or holds here, so the other three maps are
+    /// empty and their elements never written.
+    house_households: Vec<(u64, (String, bool))>,
+    house_sims: Vec<(u64, ())>,
+    house_waits: Vec<(u64, ())>,
+    house_holds: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -482,9 +519,9 @@ impl File {
             round: Round::Due,
             magic: *b"SIMAGENT",
             format_version: 2,
-            core_version: 52,
+            core_version: 53,
             data_hash: DATA_HASH,
-            projection_version: 18,
+            projection_version: 19,
             world_seed: Some(0xff),
             world_params: Some(params(false)),
             closed_through: -1,
@@ -507,6 +544,10 @@ impl File {
             pregnancies: Vec::new(),
             archive: Vec::new(),
             pool_used: Vec::new(),
+            house_households: Vec::new(),
+            house_sims: Vec::new(),
+            house_waits: Vec::new(),
+            house_holds: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0), (2, 0)],
             next_event_id: 4,
             input_log: vec![(
@@ -564,6 +605,59 @@ impl File {
         change(&mut self);
         self.bytes()
     }
+}
+
+/// The house part of the projection (ADR-0024, addendum of 2026-11-02): her household
+/// moved into the flat before its first morning loads and saves to the same bytes; a house
+/// the data lack, a household that has ended, and any house event in the queue (until its
+/// handler comes) are refused.
+#[test]
+fn a_save_keeps_the_house() {
+    let data = common::data().with_houses(common::repository_houses());
+    let moved = |household: u64, house: &str| {
+        let hash = data.hash();
+        let house = house.to_owned();
+        move |f: &mut File| {
+            f.data_hash = hash;
+            f.house_households = vec![(household, (house, false))];
+        }
+    };
+    let flat = File::tiny().with(moved(1, "core:flat"));
+    assert_eq!(load_error_with(data.clone(), &flat), None);
+    let castle = File::tiny().with(moved(1, "core:castle"));
+    assert_eq!(
+        load_error_with(data.clone(), &castle),
+        Some(LoadError::Inconsistent)
+    );
+    let gone = File::tiny().with(moved(2, "core:flat"));
+    assert_eq!(
+        load_error_with(data.clone(), &gone),
+        Some(LoadError::Inconsistent)
+    );
+    // Without houses in the data nothing can be moved in.
+    let without =
+        File::tiny().with(|f| f.house_households = vec![(1, ("core:flat".into(), false))]);
+    assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
+    let morning = File::tiny().with(|f| {
+        moved(1, "core:flat")(f);
+        let seq = f.next_event_seq;
+        f.next_event_seq += 1;
+        insert_event(
+            f,
+            (
+                6 * 3_600,
+                0,
+                seq,
+                Payload::HouseMorning { household: 1 },
+                None,
+            ),
+            (1, 0),
+        );
+    });
+    assert_eq!(
+        load_error_with(data, &morning),
+        Some(LoadError::Inconsistent)
+    );
 }
 
 #[test]
