@@ -9,6 +9,7 @@ pub(crate) mod conception;
 pub(crate) mod death;
 pub(crate) mod disease;
 pub(crate) mod emigration;
+pub(crate) mod house;
 pub(crate) mod household;
 pub(crate) mod market;
 pub(crate) mod onset;
@@ -260,6 +261,12 @@ pub(crate) struct DomainState {
     /// The living members of each household that has not ended (ADR-0018 section 4). Not
     /// part of the projection: loading builds it again from the sims.
     pub(crate) members: BTreeMap<HouseholdId, BTreeSet<SimId>>,
+    /// The first morning of each household in a house before it has come (ADR-0024 section
+    /// 1). Not part of the projection: loading builds it again from the queue.
+    pub(crate) house_mornings: BTreeMap<HouseholdId, EventHandle>,
+    /// The changes of membership of the running handler, for `house::settle`; empty
+    /// between handlers, so not part of the projection.
+    pub(crate) house_moves: Vec<house::HouseMove>,
 }
 
 /// What a pending event of a sim is. A sim has at most one of each.
@@ -373,6 +380,8 @@ impl DomainState {
             open: BTreeMap::new(),
             kinship: KinshipCache::new(),
             members: BTreeMap::new(),
+            house_mornings: BTreeMap::new(),
+            house_moves: Vec::new(),
         }
     }
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::genome::{LocusAlleles, Sex};
-use crate::ids::{InputSeq, SimId};
+use crate::ids::{HouseholdId, InputSeq, SimId};
 use crate::params::{ParamChange, WorldParams};
 use crate::time::SimTime;
 
@@ -33,6 +33,10 @@ pub enum Input {
     /// A couple spends time together: a higher chance of conception for some month starts
     /// (ADR-0023, addendum of 2026-11-01: the cheat mode).
     TimeTogether(TimeTogether),
+    /// A household moves into its house (ADR-0024 section 1).
+    MoveIn(MoveIn),
+    /// A household moves out of its house (ADR-0024 section 1).
+    MoveOut(MoveOut),
 }
 
 /// The start of a run (ADR-0004 section 4 and its addendum of 2026-10-30). The data's hash
@@ -163,6 +167,21 @@ pub struct SeparatePartnership {
 pub struct TimeTogether {
     pub woman: SimId,
     pub man: SimId,
+}
+
+/// A household that moves into the smallest house that holds it (ADR-0024 section 1,
+/// ADR-0025 section 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MoveIn {
+    pub household: HouseholdId,
+}
+
+/// A household that moves out of its house.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MoveOut {
+    pub household: HouseholdId,
 }
 
 /// One world parameter with its new value, set at a stop of the run (ADR-0023 section 2).
@@ -331,6 +350,16 @@ pub enum RejectCode {
     /// A woman and a man to part who have no open partnership with each other (ADR-0023,
     /// addendum of 2026-10-31).
     NotPartners,
+    /// No living household with this id (ADR-0024 section 1).
+    HouseholdUnknown,
+    /// The household lives in a house already.
+    AlreadyInHouse,
+    /// 64 households live in houses already (ADR-0024 section 6).
+    HouseLimit,
+    /// No house holds the household's members (ADR-0025 section 3).
+    NoHouse,
+    /// The household lives in no house.
+    NotInHouse,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

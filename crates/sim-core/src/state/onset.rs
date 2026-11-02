@@ -182,7 +182,9 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
             Input::ArrangePartnership(_)
             | Input::TriggerShock(_)
             | Input::SeparatePartnership(_)
-            | Input::TimeTogether(_) => Vec::new(),
+            | Input::TimeTogether(_)
+            | Input::MoveIn(_)
+            | Input::MoveOut(_) => Vec::new(),
         })
         .collect()
 }
@@ -197,7 +199,9 @@ fn by_start(history: &[InputRecord]) -> u64 {
         | Input::SetWorldParam(_)
         | Input::TriggerShock(_)
         | Input::SeparatePartnership(_)
-        | Input::TimeTogether(_) => None,
+        | Input::TimeTogether(_)
+        | Input::MoveIn(_)
+        | Input::MoveOut(_) => None,
     });
     super::start::persons(start.unwrap_or_else(|| panic!("invariant onset.no_start")))
 }

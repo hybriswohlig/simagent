@@ -1,0 +1,309 @@
+//! Households in their houses (ADR-0024 sections 1 and 2): moving in and out, the first
+//! morning at 6:00, and members who come and go. Every change of membership leaves a
+//! `HouseMove` in the domain state; after each handler and input `settle` turns those of
+//! households in houses into their entries, so the rules of phase 1 stay as they were.
+
+use alloc::vec::Vec;
+
+use super::{DomainState, whole_years};
+use crate::data::Data;
+use crate::house::data::{NEEDS, age_band};
+use crate::house::need::NeedSample;
+use crate::house::state::{Decisions, InHouse, MAX_HOUSEHOLDS, MovedIn, Place};
+use crate::ids::{EventId, HouseholdId, SimId};
+use crate::input::{InputRejected, MoveIn, MoveOut, RejectCode};
+use crate::log::{Cause, Causes, LogPayload, Subject};
+use crate::time::{DAY, HOUR, SimDuration, SimTime, calendar, day_index};
+use crate::world::{EventPayload, SimCtx};
+
+/// The needs at the first morning and when someone comes after it (ADR-0026 section 1):
+/// hunger, energy, bladder, hygiene, fun.
+pub(crate) const MORNING_VALUES: [u16; 5] = [600, 900, 500, 700, 800];
+
+/// The first morning comes at 6:00 (ADR-0024 section 1).
+const MORNING: SimDuration = SimDuration::from_secs(6 * HOUR.as_secs());
+
+/// A change of a person's household in this handler: from one, into one, or both, with
+/// the entry that made it (ADR-0024 section 2).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HouseMove {
+    pub(crate) sim: SimId,
+    pub(crate) from: Option<HouseholdId>,
+    pub(crate) to: Option<HouseholdId>,
+    pub(crate) cause: EventId,
+}
+
+/// The first second at or after `at` that is 6:00; `None` beyond the end of time.
+pub(crate) fn next_morning(at: SimTime) -> Option<SimTime> {
+    let since = i64::from(calendar(at).second_of_day);
+    let wait = (MORNING.as_secs() - since).rem_euclid(DAY.as_secs());
+    at.checked_add(SimDuration::from_secs(wait))
+}
+
+/// A started world with a second after the clock.
+fn running(domain: &DomainState, closed_through: SimTime) -> Result<(), RejectCode> {
+    let next = closed_through.checked_add(SimDuration::from_secs(1));
+    match (domain.world_seed, next) {
+        (None, _) => Err(RejectCode::NotStarted),
+        (Some(_), None) => Err(RejectCode::EndOfTime),
+        (Some(_), Some(_)) => Ok(()),
+    }
+}
+
+/// The living members of a household, by SimId; none once it has ended.
+fn members(domain: &DomainState, household: HouseholdId) -> Vec<SimId> {
+    (domain.members.get(&household))
+        .map_or_else(Vec::new, |members| members.iter().copied().collect())
+}
+
+fn rejected(code: RejectCode) -> InputRejected {
+    InputRejected { code }
+}
+
+/// Pure check of `MoveIn` (ADR-0024 section 1).
+pub(crate) fn check_move_in(
+    domain: &DomainState,
+    data: &Data,
+    closed_through: SimTime,
+    input: &MoveIn,
+) -> Result<(), InputRejected> {
+    running(domain, closed_through).map_err(rejected)?;
+    let members = members(domain, input.household);
+    if members.is_empty() {
+        return Err(rejected(RejectCode::HouseholdUnknown));
+    }
+    if domain.house.households.contains_key(&input.household) {
+        return Err(rejected(RejectCode::AlreadyInHouse));
+    }
+    if domain.house.households.len() >= MAX_HOUSEHOLDS {
+        return Err(rejected(RejectCode::HouseLimit));
+    }
+    match data
+        .houses()
+        .and_then(|houses| houses.house_for(members.len()))
+    {
+        Some(_) => Ok(()),
+        None => Err(rejected(RejectCode::NoHouse)),
+    }
+}
+
+/// The household gets its house now and its first morning at the next 6:00; its entry
+/// names all members.
+pub(crate) fn apply_move_in(
+    domain: &mut DomainState,
+    data: &Data,
+    input: &MoveIn,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let household = input.household;
+    let members = members(domain, household);
+    let house = (data
+        .houses()
+        .and_then(|houses| houses.house_for(members.len())))
+    .unwrap_or_else(|| panic!("invariant house.checked"))
+    .id()
+    .clone();
+    let subjects = members.iter().copied().map(Subject::Sim).collect();
+    let entry = ctx.emit(
+        LogPayload::MovedIn {
+            household,
+            house: house.clone(),
+        },
+        subjects,
+        Causes::new(ctx.trigger()),
+    );
+    let moved = MovedIn {
+        house,
+        morning: false,
+    };
+    domain.house.households.insert(household, moved);
+    // A morning beyond the end of time never comes.
+    if let Some(at) = next_morning(ctx.now()) {
+        let morning = ctx.schedule(at, EventPayload::HouseMorning { household }, entry);
+        domain.house_mornings.insert(household, morning);
+    }
+}
+
+/// Pure check of `MoveOut`.
+pub(crate) fn check_move_out(
+    domain: &DomainState,
+    closed_through: SimTime,
+    input: &MoveOut,
+) -> Result<(), InputRejected> {
+    running(domain, closed_through).map_err(rejected)?;
+    if members(domain, input.household).is_empty() {
+        return Err(rejected(RejectCode::HouseholdUnknown));
+    }
+    if !domain.house.households.contains_key(&input.household) {
+        return Err(rejected(RejectCode::NotInHouse));
+    }
+    Ok(())
+}
+
+/// The household leaves its house now, with all its members.
+pub(crate) fn apply_move_out(domain: &mut DomainState, input: &MoveOut, ctx: &mut SimCtx<'_, '_>) {
+    let household = input.household;
+    let members = members(domain, household);
+    ctx.emit(
+        LogPayload::MovedOut { household },
+        members.iter().copied().map(Subject::Sim).collect(),
+        Causes::new(ctx.trigger()),
+    );
+    for sim in members {
+        forget(domain, sim);
+    }
+    end_house(domain, household, ctx);
+}
+
+/// The first morning of a household: each member of 6 or more starts the day.
+pub(crate) fn on_morning(
+    domain: &mut DomainState,
+    data: &Data,
+    household: HouseholdId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    // The event that runs right now is no longer pending.
+    domain.house_mornings.remove(&household);
+    let Some(moved) = domain.house.households.get_mut(&household) else {
+        panic!("invariant house.orphan_event");
+    };
+    moved.morning = true;
+    for sim in members(domain, household) {
+        start_day(
+            domain,
+            data,
+            sim,
+            household,
+            Causes::new(ctx.trigger()),
+            ctx,
+        );
+    }
+}
+
+/// A member's needs from now, if it is 6 or older: its entry `core:day_started`, the
+/// morning values with the awake rates of its age, in the entrance (ADR-0025 section 5).
+fn start_day(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    household: HouseholdId,
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let Some(person) = domain.sims.get(&sim) else {
+        panic!("invariant unknown_entity_id: sim {}", sim.get());
+    };
+    let age = whole_years(person.born, now);
+    let Some(band) = u8::try_from(age).ok().and_then(age_band) else {
+        return;
+    };
+    let house = (domain.house.households.get(&household))
+        .and_then(|moved| data.houses()?.house(&moved.house))
+        .unwrap_or_else(|| panic!("invariant house.unknown"));
+    let entrance = house.def().entrance;
+    let rates = (data.houses().map(|houses| &houses.rates().awake))
+        .unwrap_or_else(|| panic!("invariant house.unknown"));
+    ctx.emit(
+        LogPayload::DayStarted {
+            needs: MORNING_VALUES,
+        },
+        alloc::vec![Subject::Sim(sim)],
+        causes,
+    );
+    let needs = core::array::from_fn(|at| {
+        NeedSample::new(MORNING_VALUES[at], now, rates.rate(NEEDS[at], band))
+    });
+    let person = InHouse {
+        needs,
+        place: Place::Room(entrance),
+        action: None,
+        due: None,
+        decisions: Decisions {
+            day: day_index(now),
+            count: 0,
+        },
+    };
+    domain.house.sims.insert(sim, person);
+}
+
+/// A person leaves the house part: its needs, its waiting positions and its holds.
+fn forget(domain: &mut DomainState, sim: SimId) {
+    domain.house.sims.remove(&sim);
+    for waiters in domain.house.waits.values_mut() {
+        waiters.retain(|(_, waiter)| *waiter != sim);
+    }
+    domain.house.waits.retain(|_, waiters| !waiters.is_empty());
+    domain.house.holds.retain(|_, holder| *holder != sim);
+}
+
+/// A household's house ends: its entry, its morning if it has not come, its lists.
+fn end_house(domain: &mut DomainState, household: HouseholdId, ctx: &mut SimCtx<'_, '_>) {
+    domain.house.households.remove(&household);
+    if let Some(morning) = domain.house_mornings.remove(&household) {
+        ctx.cancel(morning);
+    }
+    domain.house.waits.retain(|(at, _), _| *at != household);
+    domain.house.holds.retain(|(at, _, _), _| *at != household);
+}
+
+/// The moves of this handler, in their order (ADR-0024 section 2): one who leaves a
+/// household in a house moves out of it, one who comes into one moves in, and after its
+/// first morning starts the day at once; a household that has ended leaves its house
+/// without an entry.
+pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
+    for change in core::mem::take(&mut domain.house_moves) {
+        let because = || Causes::new(Cause::Event(change.cause));
+        if let Some(from) = change.from
+            && domain.house.households.contains_key(&from)
+        {
+            forget(domain, change.sim);
+            ctx.emit(
+                LogPayload::MovedOut { household: from },
+                alloc::vec![Subject::Sim(change.sim)],
+                because(),
+            );
+        }
+        if let Some(to) = change.to
+            && let Some(moved) = domain.house.households.get(&to)
+        {
+            let (house, morning) = (moved.house.clone(), moved.morning);
+            let entry = ctx.emit(
+                LogPayload::MovedIn {
+                    household: to,
+                    house,
+                },
+                alloc::vec![Subject::Sim(change.sim)],
+                because(),
+            );
+            if morning {
+                let causes = Causes::new(Cause::Event(entry));
+                start_day(domain, data, change.sim, to, causes, ctx);
+            }
+        }
+    }
+    let ended: Vec<HouseholdId> = (domain.house.households.keys())
+        .filter(|household| !domain.members.contains_key(household))
+        .copied()
+        .collect();
+    for household in ended {
+        end_house(domain, household, ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The next 6:00: the same second at 6:00, the next day just after it.
+    #[test]
+    fn the_next_morning_is_the_first_six_at_or_after() {
+        let t = |secs: i64| SimTime::from_secs(secs);
+        let day = DAY.as_secs();
+        assert_eq!(next_morning(t(0)), Some(t(21_600)));
+        assert_eq!(next_morning(t(21_600)), Some(t(21_600)));
+        assert_eq!(next_morning(t(21_601)), Some(t(day + 21_600)));
+        assert_eq!(next_morning(t(day - 1)), Some(t(day + 21_600)));
+        assert_eq!(next_morning(t(-1)), Some(t(21_600)));
+    }
+}

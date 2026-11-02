@@ -13,6 +13,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use super::conception::month_index;
+use super::house::HouseMove;
 use super::{DomainState, Household, Sim, Slot, market};
 use crate::data::Data;
 use crate::data_id::Code;
@@ -160,11 +161,17 @@ fn move_into(
     let from = living(domain, sim).household;
     leave(domain, sim, from, ctx.now());
     join(domain, sim, household);
-    ctx.emit(
+    let entry = ctx.emit(
         LogPayload::Moved { household },
         alloc::vec![Subject::Sim(sim)],
         causes,
     );
+    domain.house_moves.push(HouseMove {
+        sim,
+        from: Some(from),
+        to: Some(household),
+        cause: entry,
+    });
 }
 
 /// A new household: its creation entry, then the members move in, in this order.
@@ -260,11 +267,17 @@ pub(crate) fn born_into(
     let household = living(domain, mother).household;
     join(domain, child, household);
     let causes = Causes::new(ctx.trigger()).with(Cause::Rule(rule()));
-    ctx.emit(
+    let entry = ctx.emit(
         LogPayload::Moved { household },
         alloc::vec![Subject::Sim(child)],
         causes,
     );
+    domain.house_moves.push(HouseMove {
+        sim: child,
+        from: None,
+        to: Some(household),
+        cause: entry,
+    });
 }
 
 /// The dependent children `carers` care for, by SimId, without the carers themselves.
@@ -372,6 +385,12 @@ pub(crate) fn death_moves(
 ) {
     let now = ctx.now();
     leave(domain, dead, household, now);
+    domain.house_moves.push(HouseMove {
+        sim: dead,
+        from: Some(household),
+        to: None,
+        cause: death,
+    });
     let orphans = succeed(domain, dead, partner, now);
     let causes = Causes::new(Cause::Event(death)).with(Cause::Rule(rule()));
     place(domain, data, &orphans, &causes, ctx);
