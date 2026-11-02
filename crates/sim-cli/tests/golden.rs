@@ -19,6 +19,8 @@ use sim_core::canonical::YearHash;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
+use sim_core::house::data::Need;
+use sim_core::house::state::Duty;
 use sim_core::ids::SimId;
 use sim_core::input::{ForkOverride, Input, PoolStart, Start, TimeTogether};
 use sim_core::log::{LogEntry, LogPayload, log_hash};
@@ -543,6 +545,40 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             "disease_onset",
             EventPayload::DiseaseOnset { sim, disease: 0 },
         ),
+        (
+            "house_morning",
+            EventPayload::HouseMorning {
+                household: sim_core::ids::HouseholdId::try_from(1).expect("valid"),
+            },
+        ),
+        ("day_plan", EventPayload::DayPlan { sim }),
+        (
+            "return",
+            EventPayload::Return {
+                sim,
+                place: Duty::School,
+            },
+        ),
+        (
+            "depart",
+            EventPayload::Depart {
+                sim,
+                place: Duty::Work,
+                back: SimTime::START,
+            },
+        ),
+        ("wake", EventPayload::Wake { sim }),
+        ("arrive", EventPayload::Arrive { sim }),
+        ("action_end", EventPayload::ActionEnd { sim }),
+        (
+            "need_crossing",
+            EventPayload::NeedCrossing {
+                sim,
+                need: Need::Fun,
+                level: 700,
+            },
+        ),
+        ("decide", EventPayload::Decide { sim }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -557,7 +593,16 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::LeaveHome { .. }
                 | EventPayload::Emigration { .. }
                 | EventPayload::Immigration { .. }
-                | EventPayload::DiseaseOnset { .. } => {}
+                | EventPayload::DiseaseOnset { .. }
+                | EventPayload::HouseMorning { .. }
+                | EventPayload::DayPlan { .. }
+                | EventPayload::Return { .. }
+                | EventPayload::Depart { .. }
+                | EventPayload::Wake { .. }
+                | EventPayload::Arrive { .. }
+                | EventPayload::ActionEnd { .. }
+                | EventPayload::NeedCrossing { .. }
+                | EventPayload::Decide { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -622,6 +667,20 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
     missing
 }
 
+/// The house events come before their handlers (ADR-0024, addendum of 2026-11-02); no
+/// golden scenario moves in yet, so none of them runs.
+const HOUSE_EVENTS: [&str; 9] = [
+    "house_morning",
+    "day_plan",
+    "return",
+    "depart",
+    "wake",
+    "arrive",
+    "action_end",
+    "need_crossing",
+    "decide",
+];
+
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
 /// appears at least once. The scenarios are the dummy run, its fork at year 5 and the
 /// arrival; only the arrival has a pool, so only it has immigrants, and only the fork has
@@ -634,6 +693,15 @@ fn golden_scenarios_cover_every_kind() {
         [
             "event immigration",
             "event disease_onset",
+            "event house_morning",
+            "event day_plan",
+            "event return",
+            "event depart",
+            "event wake",
+            "event arrive",
+            "event action_end",
+            "event need_crossing",
+            "event decide",
             "log core:param_changed",
             "log core:arrived",
             "log core:disease_onset",
@@ -641,7 +709,7 @@ fn golden_scenarios_cover_every_kind() {
             "log core:time_together"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
-         and its only disease begins at birth"
+         its only disease begins at birth, and nobody moves into a house"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -652,7 +720,10 @@ fn golden_scenarios_cover_every_kind() {
         .into_iter()
         .filter(|kind| uncovered(arrival.world.stats(), &log).contains(kind))
         .collect();
-    assert_eq!(in_neither, Vec::<String>::new());
+    let expected: Vec<String> = (HOUSE_EVENTS.iter())
+        .map(|kind| format!("event {kind}"))
+        .collect();
+    assert_eq!(in_neither, expected);
 }
 
 /// The two fields behind `prefix` in the lines of a code registry in `tests/golden/`.
@@ -681,7 +752,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 11);
+    assert_eq!(kinds.len(), 20);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -706,15 +777,14 @@ fn every_required_kind_is_checked() {
             .cloned()
             .collect();
         // The fork has no pool: its own events never include the immigration; its only
-        // disease begins at birth, so it plans no onset.
-        assert_eq!(
-            uncovered(run.world.stats(), &without),
-            [
-                "event immigration".to_owned(),
-                "event disease_onset".to_owned(),
-                format!("log {missing}")
-            ]
-        );
+        // disease begins at birth, so it plans no onset; nobody moves into a house.
+        let mut expected = vec![
+            "event immigration".to_owned(),
+            "event disease_onset".to_owned(),
+        ];
+        expected.extend(HOUSE_EVENTS.iter().map(|kind| format!("event {kind}")));
+        expected.push(format!("log {missing}"));
+        assert_eq!(uncovered(run.world.stats(), &without), expected);
     }
     // A world that never ran: no event fired, every event kind is reported.
     let idle = World::new(sim_cli::data::core_data().expect("data"));
@@ -746,6 +816,15 @@ fn the_coverage_check_reports_missing_kinds() {
             "event leave_home",
             "event immigration",
             "event disease_onset",
+            "event house_morning",
+            "event day_plan",
+            "event return",
+            "event depart",
+            "event wake",
+            "event arrive",
+            "event action_end",
+            "event need_crossing",
+            "event decide",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",

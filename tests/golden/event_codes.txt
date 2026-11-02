@@ -21,3 +21,12 @@ kind leave_home 8
 kind emigration 9
 kind immigration 10
 kind disease_onset 11
+kind house_morning 12
+kind day_plan 13
+kind return 14
+kind depart 15
+kind wake 16
+kind arrive 17
+kind action_end 18
+kind need_crossing 19
+kind decide 20
