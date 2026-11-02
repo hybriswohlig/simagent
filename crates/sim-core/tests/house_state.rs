@@ -7,10 +7,11 @@ mod common;
 use std::collections::BTreeMap;
 
 use sim_core::data_id::DataId;
-use sim_core::house::data::HouseData;
+use sim_core::house::data::{HouseData, Need};
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{
     Action, Broken, Decisions, Due, Duty, HouseState, InHouse, MovedIn, Place, consistent,
+    crossings,
 };
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::time::{SimTime, YEAR, day_index};
@@ -434,4 +435,59 @@ fn waiters_and_holds_are_checked() {
         s.holds.insert((household(1), 1, 0), sim(6));
     });
     assert_eq!(held_free, Ok(()));
+}
+
+/// The crossings a change plans (ADR-0026 section 1), by hand: the morning values at 6:00
+/// with an adult's awake rates fall past every threshold below them, `at + ⌈3600 · (value −
+/// level) / |rate|⌉`, in the order of the needs and of the thresholds; two hours later those
+/// at or before that second are gone; a rising need and a person away plan none.
+#[test]
+fn the_crossings_after_a_change() {
+    let six = t(NOW - 6 * 3_600);
+    let at = |secs: i64| t(NOW - 6 * 3_600 + secs);
+    let morning = person(Place::Room(0), None);
+    let all: Vec<(Need, u16, SimTime)> = crossings(&morning, six).collect();
+    let expected = [
+        (Need::Hunger, 400, 7_200),
+        (Need::Hunger, 150, 16_200),
+        (Need::Hunger, 50, 19_800),
+        (Need::Energy, 700, 18_000),
+        (Need::Energy, 400, 45_000),
+        (Need::Energy, 150, 67_500),
+        (Need::Energy, 50, 76_500),
+        (Need::Bladder, 400, 3_000),
+        (Need::Bladder, 150, 10_500),
+        (Need::Bladder, 50, 13_500),
+        (Need::Hygiene, 400, 36_000),
+        (Need::Hygiene, 150, 66_000),
+        (Need::Hygiene, 50, 78_000),
+        (Need::Fun, 700, 6_000),
+        (Need::Fun, 400, 24_000),
+        (Need::Fun, 150, 39_000),
+        (Need::Fun, 50, 45_000),
+    ]
+    .map(|(need, level, secs)| (need, level, at(secs)));
+    assert_eq!(all, expected);
+    // At 8:00 hunger is at 400 in that very second; it, bladder at 400 and fun at 700 have
+    // come.
+    let later: Vec<_> = crossings(&morning, at(7_200)).collect();
+    assert_eq!(later.len(), 14);
+    assert_eq!(
+        later,
+        expected[1..7]
+            .iter()
+            .chain(&expected[8..13])
+            .chain(&expected[14..])
+            .copied()
+            .collect::<Vec<_>>()
+    );
+    // Eating from 8:00: hunger rises, the others fall as before.
+    let mut eating = morning.clone();
+    eating.needs[0] = eating.needs[0].with_rate(at(7_200), 2_400);
+    let fed: Vec<_> = crossings(&eating, at(7_200)).collect();
+    assert_eq!(fed, later[2..]);
+    // Away every rate is 0.
+    let mut away = person(Place::Away, None);
+    away.needs = away.needs.map(|need| need.with_rate(six, 0));
+    assert_eq!(crossings(&away, six).count(), 0);
 }

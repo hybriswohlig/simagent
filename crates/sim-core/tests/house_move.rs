@@ -322,7 +322,16 @@ fn moving_out_ends_the_house() {
 /// uninterrupted one.
 #[test]
 fn a_house_is_saved_and_loaded() {
-    for save_at in [DAY.as_secs() + 60, 3 * DAY.as_secs()] {
+    let morning = DAY.as_secs() + SIX;
+    // Before the morning, with its crossings planned, in the second hunger reaches 400 (its
+    // crossing just come), and after the last crossing.
+    let points = [
+        DAY.as_secs() + 60,
+        morning + 60,
+        morning + 2 * HOUR.as_secs(),
+        3 * DAY.as_secs(),
+    ];
+    for save_at in points {
         let mut run = Run::new(data(), 1);
         let home = run.homes()[&sim(1)];
         run.advance(DAY.as_secs() - 1);
@@ -337,6 +346,39 @@ fn a_house_is_saved_and_loaded() {
         run.advance(until.as_secs());
         assert_eq!(loaded.state_hash(), run.world.state_hash(), "{save_at}");
     }
+}
+
+/// The first morning plans each member's crossings (ADR-0026 section 1): an adult at the
+/// morning values has 17 thresholds below its needs. They come one by one, the last, hygiene
+/// at 50, 78 000 s after the morning; moving out cancels those still to come.
+#[test]
+fn the_morning_plans_the_crossings() {
+    let morning = DAY.as_secs() + SIX;
+    let moved_in = || {
+        let mut run = Run::new(data(), 1);
+        let home = run.homes()[&sim(1)];
+        run.advance(DAY.as_secs() - 1);
+        run.submit(move_in(home));
+        run.advance(morning - 1);
+        let before = run.world.pending_events();
+        (run, home, before)
+    };
+    let (mut run, _, before) = moved_in();
+    run.advance(morning);
+    // The morning is gone, two adults' crossings have come.
+    assert_eq!(run.world.pending_events(), before - 1 + 2 * 17);
+    // By 8:00 bladder at 400 (50 min), fun at 700 (100 min) and hunger at 400 (2 h).
+    run.advance(morning + 2 * HOUR.as_secs());
+    assert_eq!(run.world.pending_events(), before - 1 + 2 * 14);
+    run.advance(morning + 78_000 - 1);
+    assert_eq!(run.world.pending_events(), before - 1 + 2);
+    run.advance(morning + 78_000);
+    assert_eq!(run.world.pending_events(), before - 1);
+
+    let (mut run, home, before) = moved_in();
+    run.advance(morning + 60);
+    run.submit(move_out(home));
+    assert_eq!(run.world.pending_events(), before - 1);
 }
 
 /// The dynasty does not see the house (ADR-0024 section 3): the same run with and without
