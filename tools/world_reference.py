@@ -688,8 +688,13 @@ FOUNDER_ALLELE = 28
 # `core:time_together`, so a log with it changes: core 51, the projection stays 18.
 # The houses (ADR-0025) enter the repository's data: a new data hash, so the goldens change
 # their data hash and nothing else: core 52, the projection stays 18.
-PROJECTION_VERSION = 18
-CORE_VERSION = 52
+# The house part of the projection (ADR-0024, addendum of 2026-11-02): four maps after
+# `pool_used` (`house_households`, `house_sims`, `house_waits`, `house_holds`) and the nine
+# house events at the end of `EventPayload`; a run without `MoveIn` holds them empty, so its
+# projection ends with four zero lengths (`EMPTY_HOUSE`) and every year hash changes once:
+# projection 19, core 53. No log entry changes.
+PROJECTION_VERSION = 19
+CORE_VERSION = 53
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -4702,6 +4707,7 @@ class World:
             + seq(pregnancies)
             + seq(archive)
             + used_households_bytes(self.used)
+            + EMPTY_HOUSE
         )
 
     def census(self, closed=None) -> bytes:
@@ -6026,6 +6032,11 @@ def pool_origin_bytes(origin) -> bytes:
     )
 
 
+# The four empty maps of the house (`house_households`, `house_sims`, `house_waits`,
+# `house_holds`), each a postcard length 0.
+EMPTY_HOUSE = bytes([0, 0, 0, 0])
+
+
 def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
     arrival order), the last field of the projection (decision of NOTES.md)."""
@@ -6068,6 +6079,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
+    + EMPTY_HOUSE  # the house (projection 19)
 )
 
 
