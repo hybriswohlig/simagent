@@ -71,8 +71,8 @@ pub fn village_plan(seed: u64, years: i64) -> Plan {
     }
 }
 
-/// The repository's data: the documents under `data/`, the pool and its frequencies, as the
-/// CLI builds its own.
+/// The repository's data: the documents under `data/`, the pool and its frequencies, the
+/// shock templates and the houses, as the CLI builds its own.
 pub fn repository_data(root: &Path) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
     let (calibration, map) = crate::prerun::read_files(&root.join("data"))?;
@@ -98,9 +98,114 @@ pub fn repository_data(root: &Path) -> Result<Data> {
     }
     let frequencies = crate::pool_file::finite(frequencies)?;
     let shocks = shocks(root)?;
+    let houses = houses(root)?;
     Data::with_pool(definitions, &pool, frequencies)
         .and_then(|data| data.with_shocks(shocks))
+        .map(|data| data.with_houses(houses))
         .map_err(|e| format!("the repository's data: {e}"))
+}
+
+/// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the kinds with
+/// their offers without the offers' names, each house file in the order of the file names
+/// with its rooms numbered in the file's order; the core checks the rest. The test
+/// `the_base_game_loads` of sim-cli reads the same files with its stricter reader.
+fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
+    use sim_core::house::data::{DoorDef, HouseData, HouseDef, KindDef, ObjectDef, OfferDef};
+    let read = |path: &Path| -> Result<Value> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let folder = root.join("data/house");
+    let rates = serde_json::from_value(read(&folder.join("needs.json"))?)
+        .map_err(|e| format!("needs.json: {e}"))?;
+    let small = |value: &Value, what: &str| {
+        (value.as_u64())
+            .and_then(|n| u8::try_from(n).ok())
+            .ok_or(format!("house: {what}"))
+    };
+    let count = |value: &Value| value.as_u64().and_then(|n| u32::try_from(n).ok());
+    let id = |value: &Value| {
+        let text = value.as_str().ok_or("house: an id")?;
+        DataId::new(text).map_err(|e| format!("{text}: {e:?}"))
+    };
+    let need = |value: &Value| serde_json::from_value(value.clone()).map_err(|e| e.to_string());
+    let kinds = read(&folder.join("kinds.json"))?;
+    let kinds = (kinds.as_array().ok_or("kinds.json: no list")?.iter())
+        .map(|kind| {
+            let offers = (kind["offers"]
+                .as_array()
+                .ok_or("kinds.json: no offers")?
+                .iter())
+            .map(|offer| {
+                Ok(OfferDef {
+                    rates: serde_json::from_value(offer.get("rates").cloned().unwrap_or(json!({})))
+                        .map_err(|e| format!("kinds.json: {e}"))?,
+                    seconds: count(&offer["seconds"]),
+                    until_full: offer.get("until_full").map(need).transpose()?,
+                    max_seconds: count(&offer["max_seconds"]),
+                    sleep: offer["sleep"].as_bool().unwrap_or(false),
+                    min_age: small(&offer["min_age"], "min_age")?,
+                    max_age: small(&offer["max_age"], "max_age")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+            Ok(KindDef {
+                id: id(&kind["id"])?,
+                slots: small(&kind["slots"], "slots")?,
+                offers,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut files: Vec<_> = (std::fs::read_dir(folder.join("houses")))
+        .map_err(|e| format!("data/house/houses: {e}"))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    files.sort();
+    let houses = (files.iter())
+        .map(|path| {
+            let house = read(path)?;
+            let rooms = house["rooms"].as_array().ok_or("house: no rooms")?;
+            let room = |name: &Value| {
+                let at = rooms.iter().position(|room| room["id"] == *name);
+                at.and_then(|at| u8::try_from(at).ok())
+                    .ok_or("house: a room")
+            };
+            let entrance = rooms.iter().position(|room| room["entrance"] == true);
+            let doors = (house["doors"].as_array().ok_or("house: no doors")?.iter())
+                .map(|door| {
+                    Ok(DoorDef {
+                        a: room(&door["a"])?,
+                        b: room(&door["b"])?,
+                        seconds: count(&door["seconds"]).ok_or("house: seconds")?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let objects = (house["objects"]
+                .as_array()
+                .ok_or("house: no objects")?
+                .iter())
+            .map(|object| {
+                Ok(ObjectDef {
+                    kind: id(&object["kind"])?,
+                    room: room(&object["room"])?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+            Ok(HouseDef {
+                id: id(&house["id"])?,
+                capacity: small(&house["capacity"], "capacity")?,
+                rooms: u8::try_from(rooms.len()).map_err(|_| "house: rooms")?,
+                entrance: (entrance.and_then(|at| u8::try_from(at).ok()))
+                    .ok_or("house: entrance")?,
+                child_day_room: room(&house["child_day_room"])?,
+                child_night_room: room(&house["child_night_room"])?,
+                doors,
+                objects,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    HouseData::new(rates, kinds, houses).map_err(|e| format!("the houses: {e}"))
 }
 
 /// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
