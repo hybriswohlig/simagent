@@ -91,9 +91,13 @@ Usage: .venv/bin/python tools/prerun_reference.py [--out DIR]   (print the pins;
        also write the frozen map of the small run's measurement to DIR, as if it stopped)
        .venv/bin/python tools/prerun_reference.py --trial [--out DIR]   (the data and the
        optional larger trial: 400 founders, 30 years, labels prerun_trial_...)
+       .venv/bin/python tools/prerun_reference.py --gf-cases   (the six runs of
+       tests/golden/gl_mean/prerun.json: per case its data hash, checked against the file,
+       its log hash, checked, and its state hash, which a new projection changes)
 """
 
 import copy
+import json
 import math
 from fractions import Fraction
 import sys
@@ -953,8 +957,46 @@ def print_stop_cases() -> None:
     assert r_of(3.1875, 3.125) == 0.02
 
 
+def print_gf_cases() -> None:
+    """The runs of the cases of tests/golden/gl_mean/prerun.json (Grok GF-1): 40 founders
+    on the pre-run data for 30, 45 and 60 years and with seed 0x43; on the frozen map with
+    `mean_ref` and on the next map without, both through the pre-run's documents. Each
+    case's data hash and log hash are the file's; the state hash is printed."""
+    golden = json.loads((ROOT / "tests" / "golden" / "gl_mean" / "prerun.json").read_text())
+    template = template_documents()
+    prerun = prerun_documents(template)
+    base = prerun_data(prerun)
+
+    def small(data, years, seed):
+        loci = [locus["id"] for locus in data.measured_loci]
+        founder_list = founders(counts(weight_table(data), 40), seed, MEASURE_TAG, loci)
+        return run(data, founder_list, seed, MEASURE_TAG, 40, years)[0]
+
+    first = small(base, 30, MEASURE_SEED)
+    measurement = prerun_measurement(first, prerun[2], 30)
+    calibration, frozen = frozen_documents(template, measurement)
+    runs = {
+        "a_small": (base, 30, MEASURE_SEED),
+        "b_45_years": (base, 45, MEASURE_SEED),
+        "c_60_years": (base, 60, MEASURE_SEED),
+        "d_dead_newborn": (base, 30, 0x43),
+        "e_frozen_with_mean_ref": (prerun_data(prerun_documents((template[0], calibration, frozen))), 30, MEASURE_SEED),
+        "f_next_without_mean_ref": (prerun_data((prerun[0], prerun[1], next_map(prerun[2], measurement))), 30, MEASURE_SEED),
+    }
+    for case in golden["cases"]:
+        data, years, seed = runs[case["name"]]
+        assert f"{data.hash:016x}" == case["scenario"]["data_hash"], case["name"]
+        assert (years, seed) == (case["scenario"]["years"], int(case["scenario"]["seed"], 16)), case["name"]
+        world = first if case["name"] == "a_small" else small(data, years, seed)
+        assert f"{world.log_hash():016x}" == case["story"]["log_hash"], case["name"]
+        print(f"gf_case {case['name']} data_hash {data.hash:016x} log_hash {world.log_hash():016x} state_hash {world.state_hash():016x}")
+
+
 def main(argv) -> int:
     out = argv[argv.index("--out") + 1] if "--out" in argv else None
+    if "--gf-cases" in argv:
+        print_gf_cases()
+        return 0
     template = template_documents()
     prerun = prerun_documents(template)
     data = print_data(template, prerun)

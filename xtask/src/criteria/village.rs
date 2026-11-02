@@ -160,6 +160,8 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
         .map_err(|e| format!("data/house/houses: {e}"))?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        // A drawing `<name>.layout.json` is no house (ADR-0025 section 1).
+        .filter(|path| !path.to_string_lossy().ends_with(".layout.json"))
         .collect();
     files.sort();
     let houses = (files.iter())

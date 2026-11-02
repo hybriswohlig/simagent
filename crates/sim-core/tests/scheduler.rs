@@ -615,7 +615,7 @@ fn load_rejects_invalid_queue() {
 fn event_codes_pinned() {
     let golden = include_str!("../../../tests/golden/event_codes.txt");
     let actual = format!(
-        "class immigration {}\nclass birth {}\nclass general {}\nclass death {}\nclass emigration {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\nkind separation {}\nkind market_round {}\nkind leave_home {}\nkind emigration {}\nkind immigration {}\nkind disease_onset {}\n",
+        "class immigration {}\nclass birth {}\nclass general {}\nclass death {}\nclass emigration {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\nkind separation {}\nkind market_round {}\nkind leave_home {}\nkind emigration {}\nkind immigration {}\nkind disease_onset {}\nkind house_morning {}\nkind day_plan {}\nkind return {}\nkind depart {}\nkind wake {}\nkind arrive {}\nkind action_end {}\nkind need_crossing {}\nkind decide {}\n",
         EventClass::IMMIGRATION.code(),
         EventClass::BIRTH.code(),
         EventClass::GENERAL.code(),
@@ -637,6 +637,15 @@ fn event_codes_pinned() {
         sim_core::world::EventPayload::EMIGRATION.0,
         sim_core::world::EventPayload::IMMIGRATION.0,
         sim_core::world::EventPayload::DISEASE_ONSET.0,
+        sim_core::world::EventPayload::HOUSE_MORNING.0,
+        sim_core::world::EventPayload::DAY_PLAN.0,
+        sim_core::world::EventPayload::RETURN.0,
+        sim_core::world::EventPayload::DEPART.0,
+        sim_core::world::EventPayload::WAKE.0,
+        sim_core::world::EventPayload::ARRIVE.0,
+        sim_core::world::EventPayload::ACTION_END.0,
+        sim_core::world::EventPayload::NEED_CROSSING.0,
+        sim_core::world::EventPayload::DECIDE.0,
     );
     let pinned: String = golden
         .lines()

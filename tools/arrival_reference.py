@@ -1083,11 +1083,11 @@ def broken_rows() -> list:
 
 def unstarted_save(data: wr.Data, used: list) -> bytes:
     """The save of a world that never started (no input) on `data`, with `used` as its used
-    households (the last field of the projection): the empty save of the model with the
-    data's hash."""
-    empty = wr.used_households_bytes([])
+    households (the field of the projection before the empty house): the empty save of the
+    model with the data's hash."""
+    empty = wr.used_households_bytes([]) + wr.EMPTY_HOUSE
     assert wr.EMPTY_PROJECTION.endswith(empty)
-    projection = wr.EMPTY_PROJECTION[: -len(empty)] + wr.used_households_bytes(used)
+    projection = wr.EMPTY_PROJECTION[: -len(empty)] + wr.used_households_bytes(used) + wr.EMPTY_HOUSE
     return wr.header(data.hash) + projection + seq([]) + varint(1) + seq([]) + seq([])
 
 

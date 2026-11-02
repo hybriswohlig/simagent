@@ -3,6 +3,8 @@
 //! falling value reaches a threshold are integer arithmetic, so a day in the house is the same
 //! on every target.
 
+use serde::{Deserialize, Serialize};
+
 use crate::time::{SimDuration, SimTime};
 
 /// A full need.
@@ -15,7 +17,8 @@ pub const THRESHOLDS: [u16; 4] = [700, 400, 150, 50];
 const HOUR_SECS: i128 = 3600;
 
 /// One need: `value` at second `at`, changing by `rate` per hour until the next sample.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// In a save the value may come above `FULL`; the loader refuses that (`house::state`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NeedSample {
     value: u16,
     at: SimTime,

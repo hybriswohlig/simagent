@@ -302,9 +302,11 @@ def run_rows(data: wr.Data, seed: int, years: int, out) -> list:
     def projection(closed=None):
         out_ = plain_projection(closed)
         if world.current is not None and world.current.kind == wr.YEAR_END_KIND and closed not in variant_by_closed:
-            tail = wr.used_households_bytes(world.used)
+            # `pool_used`, then the empty house (projection 19), end the projection.
+            tail = wr.used_households_bytes(world.used) + wr.EMPTY_HOUSE
             assert out_.endswith(tail) and hash64(out_) not in variant_by_closed.values()
-            variant_by_closed[closed] = hash64(out_[: len(out_) - len(tail)] + wr.used_households_bytes(variant_used))
+            variant = wr.used_households_bytes(variant_used) + wr.EMPTY_HOUSE
+            variant_by_closed[closed] = hash64(out_[: len(out_) - len(tail)] + variant)
         return out_
 
     world.projection = projection

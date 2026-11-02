@@ -229,6 +229,7 @@ impl World {
                     pregnancies: loaded.pregnancies,
                     archive: loaded.archive,
                     pool_used: loaded.pool_used,
+                    house: loaded.house,
                     lineage,
                     keys,
                     pending,
@@ -301,6 +302,17 @@ pub(super) fn pending_index(
             | EventPayload::Immigration { .. } => {
                 continue;
             }
+            // Refused by the loader until their handlers come (ADR-0024, addendum of
+            // 2026-11-02); their slots come with them.
+            EventPayload::HouseMorning { .. }
+            | EventPayload::DayPlan { .. }
+            | EventPayload::Return { .. }
+            | EventPayload::Depart { .. }
+            | EventPayload::Wake { .. }
+            | EventPayload::Arrive { .. }
+            | EventPayload::ActionEnd { .. }
+            | EventPayload::NeedCrossing { .. }
+            | EventPayload::Decide { .. } => continue,
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
@@ -333,6 +345,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         // insertion number below the counter, which stands at 1.
         let empty = loaded.world_params.is_none()
             && loaded.pool_used.is_empty()
+            && loaded.house.is_empty()
             && loaded.sims.is_empty()
             && loaded.partnerships.is_empty()
             && loaded.pregnancies.is_empty()
@@ -388,6 +401,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && conceptions_consistent(loaded, &rules)
         && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
+        && house_consistent(loaded, data, now)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
@@ -1202,6 +1216,17 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 /// (the last stage of the orphan rule); nobody else has a carer. The living who moved out
 /// share a household only as the two partners of an open partnership (a village's persons
 /// arrive alone, ADR-0020 section 8; nothing else joins two who left home).
+/// The house part (ADR-0024, addendum of 2026-11-02): its checks on the living households
+/// and sims of the save, at the second it runs next.
+fn house_consistent(loaded: &LoadedState, data: &Data, now: i64) -> bool {
+    let alive = |id: HouseholdId| (loaded.households.get(&id)).is_some_and(|h| h.ended.is_none());
+    let member = |id: SimId| loaded.sims.get(&id).map(|sim| (sim.household, sim.born));
+    // At the last second of time there is no next one (review); every bound of the checks
+    // holds at the clock too, since nothing has run after it.
+    let now = SimTime::try_from(now).unwrap_or(loaded.closed_through);
+    crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
+}
+
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     let clock = loaded.closed_through;
     let t = clock.max(SimTime::START);
@@ -2407,6 +2432,16 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
+            // No handler plans a house event yet (ADR-0024, addendum of 2026-11-02).
+            EventPayload::HouseMorning { .. }
+            | EventPayload::DayPlan { .. }
+            | EventPayload::Return { .. }
+            | EventPayload::Depart { .. }
+            | EventPayload::Wake { .. }
+            | EventPayload::Arrive { .. }
+            | EventPayload::ActionEnd { .. }
+            | EventPayload::NeedCrossing { .. }
+            | EventPayload::Decide { .. } => false,
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
                 let first = !year_end_seen;
