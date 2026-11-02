@@ -334,7 +334,9 @@ fn fork_keeps_diseases(world: &World) -> Vec<bool> {
                     Input::ArrangePartnership(_)
                     | Input::TriggerShock(_)
                     | Input::SeparatePartnership(_)
-                    | Input::TimeTogether(_) => {}
+                    | Input::TimeTogether(_)
+                    | Input::MoveIn(_)
+                    | Input::MoveOut(_) => {}
                 }
             }
             on

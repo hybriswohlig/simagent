@@ -209,6 +209,21 @@ pub enum LogPayload {
     /// opened the window of their partnership (ADR-0023, addendum of 2026-11-01, W4).
     #[serde(rename = "core:time_together")]
     TimeTogether { partnership: PartnershipId },
+    /// A household (all its members as subjects, by SimId) moves into `house`, or one
+    /// person (the subject) comes into a household in its house (ADR-0024 sections 1 and 2).
+    #[serde(rename = "core:moved_in")]
+    MovedIn {
+        household: HouseholdId,
+        house: DataId,
+    },
+    /// A household (all its members) moves out of its house, or one member (the subject)
+    /// leaves it.
+    #[serde(rename = "core:moved_out")]
+    MovedOut { household: HouseholdId },
+    /// A person's first day in the house begins with these values of hunger, energy,
+    /// bladder, hygiene and fun (ADR-0024 section 1, ADR-0026 section 1).
+    #[serde(rename = "core:day_started")]
+    DayStarted { needs: [u16; 5] },
 }
 
 /// One entry of the domain log.

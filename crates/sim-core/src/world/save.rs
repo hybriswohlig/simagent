@@ -214,6 +214,14 @@ impl World {
         let together = state::together::rebuilt(&loaded.partnerships, &exceptions.input_log, &data)
             .ok_or(LoadError::Inconsistent)?;
         let pending = pending_index(&loaded.queue, &loaded.partnerships);
+        let house_mornings = (loaded.queue.iter())
+            .filter_map(|entry| match entry.payload {
+                EventPayload::HouseMorning { household } => {
+                    Some((household, EventHandle::from_seq(entry.seq)))
+                }
+                _ => None,
+            })
+            .collect();
         let open = open_index(&loaded.partnerships);
         let members = member_index(&loaded.sims);
         let keys = key_index(&loaded.sims, &loaded.archive);
@@ -236,6 +244,8 @@ impl World {
                     open,
                     kinship: KinshipCache::new(),
                     members,
+                    house_mornings,
+                    house_moves: Vec::new(),
                 },
                 ids: IdCounters::restore(
                     counter(loaded.next_sim_id)?,
@@ -921,6 +931,9 @@ fn input_log_consistent(
             }
             // Time together names an open partnership (`state::together::rebuilt`).
             (Input::TimeTogether(_), Some(kept)) => started = Some(kept),
+            // Moving in and out leave the house part, which the projection holds and its own
+            // checks judge (ADR-0024, addendum of 2026-11-02).
+            (Input::MoveIn(_) | Input::MoveOut(_), Some(kept)) => started = Some(kept),
             // A world rule passes the check of the input against the parameters at its
             // place in the log (ADR-0023 section 1) and acts in the next second.
             (Input::SetWorldParam(rule), Some((before, start))) => {
@@ -954,7 +967,9 @@ fn input_log_consistent(
                 | Input::SetWorldParam(_)
                 | Input::TriggerShock(_)
                 | Input::SeparatePartnership(_)
-                | Input::TimeTogether(_),
+                | Input::TimeTogether(_)
+                | Input::MoveIn(_)
+                | Input::MoveOut(_),
                 None,
             ) => return None,
         }
@@ -2420,6 +2435,11 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut leaving = BTreeSet::new();
     let mut deaths = BTreeSet::new();
     let mut onsets = BTreeSet::new();
+    let mut mornings = BTreeSet::new();
+    // The first morning of a household in a house comes at the first 6:00 after the clock.
+    let morning_due = SimTime::try_from(now)
+        .ok()
+        .and_then(state::house::next_morning);
     // Per death: the sim, the insertion number and the place of the cause in the list.
     let mut planned = Vec::new();
     let dues = |person: &Sim| {
@@ -2432,9 +2452,17 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     for entry in &loaded.queue {
         let due = entry.time.as_secs();
         let expected = match &entry.payload {
-            // No handler plans a house event yet (ADR-0024, addendum of 2026-11-02).
-            EventPayload::HouseMorning { .. }
-            | EventPayload::DayPlan { .. }
+            // Once per household in a house whose first morning has not come (ADR-0024
+            // section 1).
+            EventPayload::HouseMorning { household } => {
+                let waiting = (loaded.house.households.get(household)).is_some_and(|m| !m.morning);
+                waiting
+                    && entry.period.is_none()
+                    && Some(entry.time) == morning_due
+                    && mornings.insert(*household)
+            }
+            // No handler plans these yet (ADR-0024, addendum of 2026-11-02).
+            EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
             | EventPayload::Depart { .. }
             | EventPayload::Wake { .. }
@@ -2600,7 +2628,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         .sims
         .iter()
         .all(|(id, person)| person.moved_out || leaving.contains(id));
+    // A household whose first morning has not come waits for it, unless time ends first.
+    let all_mornings_planned = (loaded.house.households.iter())
+        .filter(|(_, moved)| !moved.morning)
+        .all(|(household, _)| mornings.contains(household) || morning_due.is_none());
     year_end_seen
+        && all_mornings_planned
         && round_seen
         && emigration_seen == rules.capacity.is_some()
         && immigration_seen == rules.pool.immigration.is_some()

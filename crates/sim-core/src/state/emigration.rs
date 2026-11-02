@@ -8,6 +8,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use super::house::HouseMove;
 use super::{DomainState, EndedBy, LeftBy, death, household, market, partnership};
 use crate::data_id::Code;
 use crate::ids::HouseholdId;
@@ -88,7 +89,7 @@ pub(crate) fn on_emigration(domain: &mut DomainState, capacity: u64, ctx: &mut S
             .map(|members| members.iter().copied().collect())
             .unwrap_or_default();
         for sim in members {
-            ctx.emit(
+            let entry = ctx.emit(
                 LogPayload::Emigrated { household: id },
                 vec![Subject::Sim(sim)],
                 Causes::new(ctx.trigger())
@@ -98,6 +99,12 @@ pub(crate) fn on_emigration(domain: &mut DomainState, capacity: u64, ctx: &mut S
             death::archive(domain, sim, LeftBy::Emigration, ctx);
             partnership::end_with(domain, sim, EndedBy::Emigration, ctx);
             household::leave(domain, sim, id, now);
+            domain.house_moves.push(HouseMove {
+                sim,
+                from: Some(id),
+                to: None,
+                cause: entry,
+            });
         }
     }
 }

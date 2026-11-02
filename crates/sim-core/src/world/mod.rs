@@ -220,6 +220,8 @@ fn check(
             state::partnership::check_separate(domain, closed_through, pair)
         }
         Input::TimeTogether(pair) => state::together::check(domain, data, closed_through, pair),
+        Input::MoveIn(input) => state::house::check_move_in(domain, data, closed_through, input),
+        Input::MoveOut(input) => state::house::check_move_out(domain, closed_through, input),
     }
 }
 
@@ -269,7 +271,19 @@ impl WorldState {
                 let window = state::together::apply(&self.domain, &self.data, pair, &mut ctx);
                 self.together.insert(pair.woman, window);
             }
+            Input::MoveIn(input) => {
+                state::house::apply_move_in(&mut self.domain, &self.data, input, &mut ctx);
+            }
+            Input::MoveOut(input) => {
+                state::house::apply_move_out(&mut self.domain, input, &mut ctx);
+            }
         }
+        state::house::settle(&mut self.domain, &self.data, &mut ctx);
+    }
+
+    /// The house part of the state (ADR-0024 section 7).
+    pub fn house(&self) -> &crate::house::state::HouseState {
+        &self.domain.house
     }
 
     pub(crate) fn domain(&self) -> &DomainState {
@@ -384,10 +398,12 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::onset::on_onset(&mut self.domain, &self.data, sim, disease, &mut ctx);
             }
             EventPayload::YearEnd => panic!("invariant world.observer_in_domain_phase"),
+            EventPayload::HouseMorning { household } => {
+                state::house::on_morning(&mut self.domain, &self.data, household, &mut ctx);
+            }
             // Nothing plans a house event before its handler comes, and the loader refuses
             // one (ADR-0024, addendum of 2026-11-02).
-            EventPayload::HouseMorning { .. }
-            | EventPayload::DayPlan { .. }
+            EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
             | EventPayload::Depart { .. }
             | EventPayload::Wake { .. }
@@ -396,6 +412,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::NeedCrossing { .. }
             | EventPayload::Decide { .. } => panic!("invariant house.orphan_event"),
         }
+        state::house::settle(&mut self.domain, &self.data, &mut ctx);
     }
 
     fn on_observer(

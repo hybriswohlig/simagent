@@ -6039,7 +6039,8 @@ EMPTY_HOUSE = bytes([0, 0, 0, 0])
 
 def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
-    arrival order), the last field of the projection (decision of NOTES.md)."""
+    arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
+    `MoveIn`; decision of NOTES.md, projection 19)."""
     return seq([varint(index) for index in used])
 
 
