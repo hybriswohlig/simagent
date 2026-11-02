@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::hash::stable_hash64;
+use crate::house::state::HouseState;
 use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::log::PlanRef;
 use crate::params::WorldParams;
@@ -24,7 +25,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 18;
+pub const PROJECTION_VERSION: u32 = 19;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -57,6 +58,9 @@ pub(crate) struct LoadedState {
     pub(crate) pregnancies: BTreeMap<SimId, Pregnancy>,
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
     pub(crate) pool_used: Vec<u32>,
+    /// `house_households`, `house_sims`, `house_waits`, `house_holds` (ADR-0024, addendum of
+    /// 2026-11-02): a struct encodes as its fields in order.
+    pub(crate) house: HouseState,
 }
 
 /// The canonical view of the state, in the field order of ADR-0003 5.2. Maps serialize
@@ -78,6 +82,7 @@ pub struct CanonicalState<'a> {
     pregnancies: &'a BTreeMap<SimId, Pregnancy>,
     archive: &'a BTreeMap<SimId, ArchivedSim>,
     pool_used: &'a Vec<u32>,
+    house: &'a HouseState,
 }
 
 /// The projection of the handler state and the scheduler.
@@ -121,6 +126,7 @@ pub fn canonical_projection<'a>(
         pregnancies: &domain.pregnancies,
         archive: &domain.archive,
         pool_used: &domain.pool_used,
+        house: &domain.house,
     }
 }
 

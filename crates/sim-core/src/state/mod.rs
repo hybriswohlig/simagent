@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finite::FiniteF64;
 use crate::genome::{Genome, Sex};
+use crate::house::state::HouseState;
 use crate::ids::{HouseholdId, PartnershipId, SimId};
 use crate::kinship::KinshipCache;
 use crate::lineage::{GenomeKey, LineageIndex, LineageKey};
@@ -236,6 +237,9 @@ pub(crate) struct DomainState {
     /// The households of the data's pool that came into the town, as their indices in the
     /// pool file, in arrival order (founders first; ADR-0020 section 5).
     pub(crate) pool_used: Vec<u32>,
+    /// The house part: households moved in, persons with needs, waiters and holds
+    /// (ADR-0024 section 7 and its addendum of 2026-11-02).
+    pub(crate) house: HouseState,
     /// The lineage keys of the living and the archive. Not part of the projection:
     /// loading builds it again (ADR-0001 section 4).
     pub(crate) lineage: LineageIndex,
@@ -362,6 +366,7 @@ impl DomainState {
             households: BTreeMap::new(),
             archive: BTreeMap::new(),
             pool_used: Vec::new(),
+            house: HouseState::new(),
             lineage: LineageIndex::new(),
             keys: BTreeMap::new(),
             pending: BTreeMap::new(),
