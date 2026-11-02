@@ -660,6 +660,26 @@ fn a_save_keeps_the_house() {
     );
 }
 
+/// A save at the last second of time (review): the house checks have no next second, and
+/// the save is refused, not a panic.
+#[test]
+fn a_save_at_the_end_of_time_is_refused_without_a_panic() {
+    let bytes = File::tiny().with(|f| {
+        f.round = Round::Missing;
+        f.closed_through = sim_core::time::MAX_ABS_SECS;
+        f.queue.clear();
+        f.plan_refs.clear();
+        f.sims.clear();
+        f.households.clear();
+        f.next_sim_id = 1;
+        f.next_household_id = 1;
+        if let Some((_, _, TestInput::Start { founders, .. })) = f.input_log.first_mut() {
+            founders.clear();
+        }
+    });
+    assert_eq!(load_error(&bytes), Some(LoadError::Inconsistent));
+}
+
 #[test]
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));

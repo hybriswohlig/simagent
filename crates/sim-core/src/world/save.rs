@@ -1221,7 +1221,9 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 fn house_consistent(loaded: &LoadedState, data: &Data, now: i64) -> bool {
     let alive = |id: HouseholdId| (loaded.households.get(&id)).is_some_and(|h| h.ended.is_none());
     let member = |id: SimId| loaded.sims.get(&id).map(|sim| (sim.household, sim.born));
-    let now = SimTime::from_secs(now);
+    // At the last second of time there is no next one (review); every bound of the checks
+    // holds at the clock too, since nothing has run after it.
+    let now = SimTime::try_from(now).unwrap_or(loaded.closed_through);
     crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
 }
 
