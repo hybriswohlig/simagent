@@ -686,8 +686,10 @@ FOUNDER_ALLELE = 28
 # a new data hash and new bodies: core 49 (ADR-0003 6.4), the projection stays 18.
 # "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01): the input writes the entry
 # `core:time_together`, so a log with it changes: core 51, the projection stays 18.
+# The houses (ADR-0025) enter the repository's data: a new data hash, so the goldens change
+# their data hash and nothing else: core 52, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 51
+CORE_VERSION = 52
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

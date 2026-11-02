@@ -37,7 +37,7 @@ fn every_member_of_the_pool_meets_the_clamp_rate_at_its_arrival() {
     let data = common::repository_data();
     // The CLI's data hash of the repository (tools/data_reference.py, `data_hash`): these
     // are the data `simagent` runs on.
-    assert_eq!(data.hash(), 0x269f_c851_7af4_b8f4);
+    assert_eq!(data.hash(), 0xdc88_7533_e981_159a);
     let pool = Pool::from_bytes(common::REPOSITORY_POOL).expect("the pool");
     let members: usize = pool.households.iter().map(|h| h.members.len()).sum();
     assert_eq!(pool.households.len(), 20_859);
