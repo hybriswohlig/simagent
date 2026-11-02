@@ -221,7 +221,12 @@ pub fn load_world(dir: &Path) -> Result<World, CliError> {
 
 /// The world a save's bytes hold.
 pub fn world_from_save(bytes: &[u8]) -> Result<World, CliError> {
-    let (world, _) = World::load(bytes, data::core_data()?)
+    world_from_save_with(bytes, &data::core_data()?)
+}
+
+/// [`world_from_save`] on `data`.
+pub fn world_from_save_with(bytes: &[u8], data: &Data) -> Result<World, CliError> {
+    let (world, _) = World::load(bytes, data.clone())
         .map_err(|error| CliError::new("save_rejected", files::code(&error)))?;
     Ok(world)
 }
@@ -715,6 +720,16 @@ fn run_scenario(file: &Path, out: &Path, until: Option<SimTime>) -> Result<(), C
 /// (the scenario's and `limit`) are checked before anything is written. The caller holds
 /// the lock of `out`.
 pub fn begin(out: &Path, scenario: &Scenario, limit: SimTime) -> Result<Session, CliError> {
+    begin_with(out, scenario, limit, &data::core_data()?)
+}
+
+/// [`begin`] on `data`.
+pub fn begin_with(
+    out: &Path,
+    scenario: &Scenario,
+    limit: SimTime,
+    data: &Data,
+) -> Result<Session, CliError> {
     if before_the_start(scenario.until) {
         let detail = format!("until {} lies before the start", scenario.until.as_secs());
         return Err(CliError::new("scenario_invalid", detail));
@@ -726,7 +741,7 @@ pub fn begin(out: &Path, scenario: &Scenario, limit: SimTime) -> Result<Session,
     session::check_limit(stamp, limit)?;
     let first = Input::Start(scenario.start.clone());
     let rejected = |code: String| CliError::new("input_rejected", code);
-    Session::start(out, stamp, first, Compare::Nothing, rejected)
+    Session::start_with(out, stamp, first, Compare::Nothing, rejected, data)
 }
 
 /// Continues a run from its save. The inputs of `inputs` (a JSON list in the command
@@ -917,6 +932,17 @@ pub fn fork_into(
     changes: Vec<ParamChange>,
     out: &Path,
 ) -> Result<(), CliError> {
+    fork_into_with(parent, from_year, changes, out, &data::core_data()?)
+}
+
+/// [`fork_into`] on `data`.
+pub fn fork_into_with(
+    parent: &Path,
+    from_year: i64,
+    changes: Vec<ParamChange>,
+    out: &Path,
+    data: &Data,
+) -> Result<(), CliError> {
     // The fork reads its parent: it may not be in use.
     let _parent = lock::RunLock::acquire(parent)?;
     // What the core would reject at the fork point is refused before anything is written.
@@ -954,7 +980,7 @@ pub fn fork_into(
         return Err(CliError::new("manifest_invalid", detail));
     }
     let describes_the_run = manifest.core_version == CORE_VERSION
-        && manifest.data_hash == data::core_data()?.hash()
+        && manifest.data_hash == data.hash()
         && manifest.world_seed == scenario.start.world_seed;
     if !describes_the_run {
         return Err(CliError::new(
@@ -1029,7 +1055,7 @@ pub fn fork_into(
     };
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
-    let mut session = Session::start(out, t, first.input.clone(), compare, rejected)?;
+    let mut session = Session::start_with(out, t, first.input.clone(), compare, rejected, data)?;
     session.check_stamp(t, seq)?;
     for record in kept {
         if record.t > session.closed_through() {
