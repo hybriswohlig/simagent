@@ -304,7 +304,9 @@ fn commands() -> Vec<(Input, &'static str)> {
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
             | Input::SeparatePartnership(_)
-            | Input::TimeTogether(_) => {}
+            | Input::TimeTogether(_)
+            | Input::MoveIn(_)
+            | Input::MoveOut(_) => {}
         }
     }
     commands

@@ -135,6 +135,18 @@ fn sample_together() -> Input {
     })
 }
 
+fn sample_move_in() -> Input {
+    Input::MoveIn(sim_core::input::MoveIn {
+        household: HouseholdId::try_from(1).expect("valid"),
+    })
+}
+
+fn sample_move_out() -> Input {
+    Input::MoveOut(sim_core::input::MoveOut {
+        household: HouseholdId::try_from(1).expect("valid"),
+    })
+}
+
 fn sample_shock() -> Input {
     Input::TriggerShock(sim_core::input::TriggerShock {
         shock: data_id("core:hunger_one_year"),
@@ -157,6 +169,8 @@ fn all_inputs() -> Vec<Input> {
         sample_shock(),
         sample_separate(),
         sample_together(),
+        sample_move_in(),
+        sample_move_out(),
     ];
     for input in &inputs {
         match input {
@@ -166,7 +180,9 @@ fn all_inputs() -> Vec<Input> {
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
             | Input::SeparatePartnership(_)
-            | Input::TimeTogether(_) => {}
+            | Input::TimeTogether(_)
+            | Input::MoveIn(_)
+            | Input::MoveOut(_) => {}
         }
     }
     inputs
@@ -450,6 +466,17 @@ fn partnership_forms_are_pinned() {
         sample_together()
     );
     assert_eq!(postcard_round_trip(&sample_together()), hex("060102"));
+    // Moving in and out: variants 7 and 8 with the household (ADR-0024 section 1).
+    let move_in_json = r#"{"move_in":{"household":1}}"#;
+    assert_eq!(json(&sample_move_in()), move_in_json);
+    assert_eq!(
+        from_json::<Input>(move_in_json).expect("parses"),
+        sample_move_in()
+    );
+    assert_eq!(postcard_round_trip(&sample_move_in()), hex("0701"));
+    let move_out_json = r#"{"move_out":{"household":1}}"#;
+    assert_eq!(json(&sample_move_out()), move_out_json);
+    assert_eq!(postcard_round_trip(&sample_move_out()), hex("0801"));
 
     let partnered = LogPayload::Partnered {
         partnership: PartnershipId::try_from(1).expect("valid"),
@@ -780,7 +807,9 @@ fn formats_roundtrip_rejects_malformed_hex() {
             | Input::SetWorldParam(_)
             | Input::TriggerShock(_)
             | Input::SeparatePartnership(_)
-            | Input::TimeTogether(_) => panic!("a start"),
+            | Input::TimeTogether(_)
+            | Input::MoveIn(_)
+            | Input::MoveOut(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -1008,6 +1037,16 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::TimeTogether {
             partnership: PartnershipId::try_from(1).expect("valid"),
         },
+        LogPayload::MovedIn {
+            household: HouseholdId::try_from(1).expect("valid"),
+            house: DataId::new("core:flat").expect("valid"),
+        },
+        LogPayload::MovedOut {
+            household: HouseholdId::try_from(1).expect("valid"),
+        },
+        LogPayload::DayStarted {
+            needs: [600, 900, 500, 700, 800],
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1028,7 +1067,10 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Emigrated { .. }
             | LogPayload::DiseaseOnset { .. }
             | LogPayload::ShockTriggered { .. }
-            | LogPayload::TimeTogether { .. } => {}
+            | LogPayload::TimeTogether { .. }
+            | LogPayload::MovedIn { .. }
+            | LogPayload::MovedOut { .. }
+            | LogPayload::DayStarted { .. } => {}
         }
     }
     payloads
@@ -1074,6 +1116,11 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::ShockOverlaps,
         RejectCode::PartnersInDirectLine,
         RejectCode::NotPartners,
+        RejectCode::HouseholdUnknown,
+        RejectCode::AlreadyInHouse,
+        RejectCode::HouseLimit,
+        RejectCode::NoHouse,
+        RejectCode::NotInHouse,
     ];
     for code in &codes {
         match code {
@@ -1114,7 +1161,12 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::ShockUnknown
             | RejectCode::ShockOverlaps
             | RejectCode::PartnersInDirectLine
-            | RejectCode::NotPartners => {}
+            | RejectCode::NotPartners
+            | RejectCode::HouseholdUnknown
+            | RejectCode::AlreadyInHouse
+            | RejectCode::HouseLimit
+            | RejectCode::NoHouse
+            | RejectCode::NotInHouse => {}
         }
     }
     codes

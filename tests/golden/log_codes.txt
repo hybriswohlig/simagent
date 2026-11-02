@@ -21,6 +21,9 @@ payload 13 core:arrived
 payload 14 core:disease_onset
 payload 15 core:shock_triggered
 payload 16 core:time_together
+payload 17 core:moved_in
+payload 18 core:moved_out
+payload 19 core:day_started
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -34,6 +37,8 @@ input 3 set_world_param
 input 4 trigger_shock
 input 5 separate_partnership
 input 6 time_together
+input 7 move_in
+input 8 move_out
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
@@ -72,6 +77,11 @@ reject 34 shock_unknown
 reject 35 shock_overlaps
 reject 36 partners_in_direct_line
 reject 37 not_partners
+reject 38 household_unknown
+reject 39 already_in_house
+reject 40 house_limit
+reject 41 no_house
+reject 42 not_in_house
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

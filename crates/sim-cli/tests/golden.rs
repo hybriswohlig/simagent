@@ -628,10 +628,13 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::DiseaseOnset { .. } => "core:disease_onset",
         LogPayload::ShockTriggered { .. } => "core:shock_triggered",
         LogPayload::TimeTogether { .. } => "core:time_together",
+        LogPayload::MovedIn { .. } => "core:moved_in",
+        LogPayload::MovedOut { .. } => "core:moved_out",
+        LogPayload::DayStarted { .. } => "core:day_started",
     }
 }
 
-const LOG_KINDS: [&str; 17] = [
+const LOG_KINDS: [&str; 20] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -649,7 +652,13 @@ const LOG_KINDS: [&str; 17] = [
     "core:disease_onset",
     "core:shock_triggered",
     "core:time_together",
+    "core:moved_in",
+    "core:moved_out",
+    "core:day_started",
 ];
+
+/// The entries of the house: no golden scenario moves in yet (ADR-0024).
+const HOUSE_LOGS: [&str; 3] = ["core:moved_in", "core:moved_out", "core:day_started"];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
 fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
@@ -706,7 +715,10 @@ fn golden_scenarios_cover_every_kind() {
             "log core:arrived",
             "log core:disease_onset",
             "log core:shock_triggered",
-            "log core:time_together"
+            "log core:time_together",
+            "log core:moved_in",
+            "log core:moved_out",
+            "log core:day_started"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, and nobody moves into a house"
@@ -720,9 +732,10 @@ fn golden_scenarios_cover_every_kind() {
         .into_iter()
         .filter(|kind| uncovered(arrival.world.stats(), &log).contains(kind))
         .collect();
-    let expected: Vec<String> = (HOUSE_EVENTS.iter())
+    let mut expected: Vec<String> = (HOUSE_EVENTS.iter())
         .map(|kind| format!("event {kind}"))
         .collect();
+    expected.extend(HOUSE_LOGS.iter().map(|kind| format!("log {kind}")));
     assert_eq!(in_neither, expected);
 }
 
@@ -760,7 +773,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 17);
+    assert_eq!(logs.len(), 20);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -783,15 +796,21 @@ fn every_required_kind_is_checked() {
             "event disease_onset".to_owned(),
         ];
         expected.extend(HOUSE_EVENTS.iter().map(|kind| format!("event {kind}")));
-        expected.push(format!("log {missing}"));
+        expected.extend(
+            (LOG_KINDS.iter())
+                .filter(|kind| **kind == missing || HOUSE_LOGS.contains(kind))
+                .map(|kind| format!("log {kind}")),
+        );
         assert_eq!(uncovered(run.world.stats(), &without), expected);
     }
-    // A world that never ran: no event fired, every event kind is reported.
+    // A world that never ran: no event fired, every event kind is reported, and the house
+    // entries the log lacks.
     let idle = World::new(sim_cli::data::core_data().expect("data"));
-    let events: Vec<String> = event_kinds()
+    let mut events: Vec<String> = event_kinds()
         .into_iter()
         .map(|(name, _, _)| format!("event {name}"))
         .collect();
+    events.extend(HOUSE_LOGS.iter().map(|kind| format!("log {kind}")));
     assert_eq!(uncovered(idle.stats(), &log), events);
 }
 
@@ -840,7 +859,10 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:arrived",
             "log core:disease_onset",
             "log core:shock_triggered",
-            "log core:time_together"
+            "log core:time_together",
+            "log core:moved_in",
+            "log core:moved_out",
+            "log core:day_started"
         ]
     );
 }

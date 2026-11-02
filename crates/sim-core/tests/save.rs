@@ -165,6 +165,10 @@ enum Payload {
     HouseMorning {
         household: u64,
     },
+    /// A house event whose handler has not come.
+    DayPlan {
+        sim: u64,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -607,57 +611,64 @@ impl File {
     }
 }
 
-/// The house part of the projection (ADR-0024, addendum of 2026-11-02): her household
-/// moved into the flat before its first morning loads and saves to the same bytes; a house
-/// the data lack, a household that has ended, and any house event in the queue (until its
-/// handler comes) are refused.
+/// The house part of the projection (ADR-0024, addendum of 2026-11-02): her household in
+/// the flat before its first morning, with that morning planned, and after it loads and
+/// saves to the same bytes; a missing or misplaced morning, a house the data lack, a
+/// household that has ended, and a house event whose handler has not come are refused.
 #[test]
 fn a_save_keeps_the_house() {
     let data = common::data().with_houses(common::repository_houses());
-    let moved = |household: u64, house: &str| {
+    let moved = |household: u64, house: &str, morning: bool| {
         let hash = data.hash();
         let house = house.to_owned();
         move |f: &mut File| {
             f.data_hash = hash;
-            f.house_households = vec![(household, (house, false))];
+            f.house_households = vec![(household, (house, morning))];
         }
     };
-    let flat = File::tiny().with(moved(1, "core:flat"));
+    // Its first morning planned at 6:00, the first after the clock (ADR-0024 section 1).
+    let waiting = |at: i64, payload: Payload| {
+        move |f: &mut File| {
+            moved(1, "core:flat", false)(f);
+            let seq = f.next_event_seq;
+            f.next_event_seq += 1;
+            insert_event(f, (at, 0, seq, payload, None), (1, 0));
+        }
+    };
+    let morning = Payload::HouseMorning { household: 1 };
+    let flat = File::tiny().with(waiting(6 * 3_600, morning.clone()));
     assert_eq!(load_error_with(data.clone(), &flat), None);
-    let castle = File::tiny().with(moved(1, "core:castle"));
-    assert_eq!(
-        load_error_with(data.clone(), &castle),
-        Some(LoadError::Inconsistent)
-    );
-    let gone = File::tiny().with(moved(2, "core:flat"));
-    assert_eq!(
-        load_error_with(data.clone(), &gone),
-        Some(LoadError::Inconsistent)
-    );
-    // Without houses in the data nothing can be moved in.
-    let without =
-        File::tiny().with(|f| f.house_households = vec![(1, ("core:flat".into(), false))]);
-    assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
-    let morning = File::tiny().with(|f| {
-        moved(1, "core:flat")(f);
+    let after = File::tiny().with(moved(1, "core:flat", true));
+    assert_eq!(load_error_with(data.clone(), &after), None);
+    let refused = |bytes: &[u8]| {
+        assert_eq!(
+            load_error_with(data.clone(), bytes),
+            Some(LoadError::Inconsistent)
+        );
+    };
+    // No morning planned, one at 7:00, a morning after it came, a house event without its
+    // handler yet.
+    refused(&File::tiny().with(moved(1, "core:flat", false)));
+    refused(&File::tiny().with(waiting(7 * 3_600, morning.clone())));
+    refused(&File::tiny().with(|f| {
+        waiting(6 * 3_600, morning.clone())(f);
+        f.house_households[0].1.1 = true;
+    }));
+    refused(&File::tiny().with(|f| {
+        waiting(6 * 3_600, morning.clone())(f);
         let seq = f.next_event_seq;
         f.next_event_seq += 1;
         insert_event(
             f,
-            (
-                6 * 3_600,
-                0,
-                seq,
-                Payload::HouseMorning { household: 1 },
-                None,
-            ),
+            (5 * 3_600, 0, seq, Payload::DayPlan { sim: 1 }, None),
             (1, 0),
         );
-    });
-    assert_eq!(
-        load_error_with(data, &morning),
-        Some(LoadError::Inconsistent)
-    );
+    }));
+    refused(&File::tiny().with(moved(1, "core:castle", true)));
+    refused(&File::tiny().with(moved(2, "core:flat", true)));
+    // Without houses in the data nothing can be moved in.
+    let without = File::tiny().with(|f| f.house_households = vec![(1, ("core:flat".into(), true))]);
+    assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
 }
 
 /// A save at the last second of time (review): the house checks have no next second, and
