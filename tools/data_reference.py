@@ -876,7 +876,9 @@ def house_files(data_dir: Path):
     folder = Path(data_dir) / "house"
     if not folder.exists():
         return None
-    houses = [json.loads(path.read_text()) for path in sorted((folder / "houses").glob("*.json"))]
+    # A drawing `<name>.layout.json` is no house and not in the data hash (ADR-0025 section 1).
+    paths = [path for path in sorted((folder / "houses").glob("*.json")) if not path.name.endswith(".layout.json")]
+    houses = [json.loads(path.read_text()) for path in paths]
     return json.loads((folder / "needs.json").read_text()), json.loads((folder / "kinds.json").read_text()), houses
 
 
