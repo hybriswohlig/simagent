@@ -686,8 +686,10 @@ FOUNDER_ALLELE = 28
 # a new data hash and new bodies: core 49 (ADR-0003 6.4), the projection stays 18.
 # "Zeit zu zweit" (ADR-0023, addendum of 2026-11-01): the input writes the entry
 # `core:time_together`, so a log with it changes: core 51, the projection stays 18.
+# The houses (ADR-0025) enter the repository's data: a new data hash, so the goldens change
+# their data hash and nothing else: core 52, the projection stays 18.
 PROJECTION_VERSION = 18
-CORE_VERSION = 51
+CORE_VERSION = 52
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1304,9 +1306,11 @@ class Data:
     ADR-0023 section 3) the data hold the templates of `TriggerShock` (`shocks`, by ID) and
     the data hash ends with their postcard (`data_reference.shocks_suffix`), after the pool's
     if there is one; without templates (None or none at all) nothing is appended and every
-    shock is unknown."""
+    shock is unknown. With `houses` (`(needs, kinds, houses)` as `data_reference.house_files`
+    reads them; ADR-0025) the data hash ends with their postcard (`data_reference.houses_suffix`)
+    after the templates'; without, nothing is appended."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None):
         definitions = data_reference.definitions_bytes(demography, calibration, genome_map)
         self.hash = xxhash.xxh3_64_intdigest(definitions, seed=0)
         assert self.hash == data_reference.documents_hash(demography, calibration, genome_map)
@@ -1331,6 +1335,10 @@ class Data:
         self.shocks = {template["id"]: template for template in templates}
         if templates:
             hashed += data_reference.shocks_suffix(templates)
+            self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
+        # The houses (ADR-0025): checked and appended after the templates.
+        if houses is not None:
+            hashed += data_reference.houses_suffix(houses)
             self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
         assert self.hash == xxhash.xxh3_64_intdigest(hashed, seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
@@ -1492,13 +1500,15 @@ class Data:
 def repository_data() -> Data:
     """The repository's data as the CLI builds them (slice S5): the documents under data/, the
     pool data/pool/pool.bin and its frequencies data/pool/pool_frequencies.json
-    (`Data::with_pool`), and the shock templates of data/shocks.json (ADR-0023 section 3)."""
+    (`Data::with_pool`), the shock templates of data/shocks.json (ADR-0023 section 3) and the
+    houses of data/house/ (ADR-0025)."""
     files = data_reference.pool_files(ROOT / "data")
     assert files is not None, "the repository's data hold the pool (data/pool/)"
     pool, frequencies = files
     shocks = data_reference.shock_templates(ROOT / "data")
     assert shocks, "the repository's data hold the shock templates (data/shocks.json)"
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks)
+    houses = data_reference.house_files(ROOT / "data")
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
@@ -1659,7 +1669,8 @@ def repository() -> Data:
     """The repository's data as the CLI builds them (`repository_data`), read once; their data
     hash is checked against their own reference (`data_reference.repository_hash`: the
     definitions, then the pool's seed and hash and the frequencies, then the shock
-    templates), and the definitions alone must hash to the pool's `frozen_hash`."""
+    templates, then the houses), and the definitions alone must hash to the pool's
+    `frozen_hash`."""
     if not _REPOSITORY:
         data = repository_data()
         assert data.hash == data_reference.repository_hash(ROOT / "data")

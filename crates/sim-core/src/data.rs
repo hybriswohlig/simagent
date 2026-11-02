@@ -16,6 +16,7 @@ use crate::demography::{Demography, DemographyCalibration, read_demography};
 use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
+use crate::house::data::HouseData;
 use crate::lineage::LineageKey;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
 use crate::pool::{Ancestor, Pool, PoolError, PoolUnborn};
@@ -550,6 +551,9 @@ pub struct Data {
     pool: Option<Arc<PoolData>>,
     /// The shock templates, in the order of their ids (ADR-0023 section 3).
     shocks: Vec<ShockTemplate>,
+    /// The houses with the kinds of furniture and the rates of the needs, if the data hold
+    /// them (ADR-0025).
+    houses: Option<Arc<HouseData>>,
 }
 
 /// The kind of a shock template with its values (ADR-0023 section 3 and its addendum of
@@ -1685,6 +1689,7 @@ impl Data {
             thresholds,
             pool: None,
             shocks: Vec::new(),
+            houses: None,
         })
     }
 
@@ -1805,14 +1810,29 @@ impl Data {
         Ok(self)
     }
 
+    /// The data with checked houses (ADR-0025). They enter the data hash after the
+    /// definitions, the pool and the shock templates as the postcard of `(rates, kinds by id,
+    /// houses by id)`.
+    pub fn with_houses(mut self, houses: HouseData) -> Data {
+        self.houses = Some(Arc::new(houses));
+        self.hash = self.hashed();
+        self
+    }
+
+    /// The houses of the data, if they hold them.
+    pub fn houses(&self) -> Option<&HouseData> {
+        self.houses.as_deref()
+    }
+
     /// The template with this id, if the data hold it.
     pub fn shock(&self, id: &DataId) -> Option<&ShockTemplate> {
         (self.shocks.binary_search_by(|shock| shock.id.cmp(id)).ok()).map(|at| &self.shocks[at])
     }
 
-    /// The data hash (ADR-0007 section 3, ADR-0020 section 4, ADR-0023 section 3): xxh3 of
-    /// the definitions' bytes, followed by those of `(pool_seed, pool_hash, frequencies)` if
-    /// the data hold a pool, followed by those of the shock templates if they hold any.
+    /// The data hash (ADR-0007 section 3, ADR-0020 section 4, ADR-0023 section 3, ADR-0025):
+    /// xxh3 of the definitions' bytes, followed by those of `(pool_seed, pool_hash,
+    /// frequencies)` if the data hold a pool, by those of the shock templates if they hold
+    /// any, and by those of the houses if they hold them.
     fn hashed(&self) -> u64 {
         let mut bytes = encode(&self.definitions);
         if let Some(pool) = &self.pool {
@@ -1823,6 +1843,9 @@ impl Data {
         }
         if !self.shocks.is_empty() {
             bytes.extend(encode(&self.shocks));
+        }
+        if let Some(houses) = &self.houses {
+            bytes.extend(encode(&(houses.rates(), houses.kinds(), houses.defs())));
         }
         stable_hash64(&bytes)
     }

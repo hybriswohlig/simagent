@@ -387,6 +387,86 @@ const REPOSITORY_GENOME_MAP: &str = include_str!("../../../../data/genetics/geno
 pub const REPOSITORY_POOL: &[u8] = include_bytes!("../../../../data/pool/pool.bin");
 const REPOSITORY_FREQUENCIES: &str = include_str!("../../../../data/pool/pool_frequencies.json");
 const REPOSITORY_SHOCKS: &str = include_str!("../../../../data/shocks.json");
+const REPOSITORY_NEEDS: &str = include_str!("../../../../data/house/needs.json");
+const REPOSITORY_KINDS: &str = include_str!("../../../../data/house/kinds.json");
+const REPOSITORY_HOUSES: [&str; 3] = [
+    include_str!("../../../../data/house/houses/flat.json"),
+    include_str!("../../../../data/house/houses/house.json"),
+    include_str!("../../../../data/house/houses/terraced.json"),
+];
+
+/// The houses of `data/house/` as sim-cli reads them (ADR-0025): the offers without their
+/// names, the rooms numbered in each file's order.
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_houses() -> sim_core::house::data::HouseData {
+    use sim_core::house::data::{DoorDef, HouseData, HouseDef, KindDef, ObjectDef, OfferDef};
+    let parse = |text: &str| -> Value { serde_json::from_str(text).expect("json") };
+    let id =
+        |value: &Value| sim_core::data_id::DataId::new(value.as_str().expect("an id")).expect("id");
+    let small = |value: &Value| u8::try_from(value.as_u64().expect("a number")).expect("fits");
+    let count = |value: &Value| value.as_u64().map(|n| u32::try_from(n).expect("fits"));
+    let need = |value: &Value| serde_json::from_value(value.clone()).expect("a need");
+    let kinds = (parse(REPOSITORY_KINDS)
+        .as_array()
+        .expect("the kinds")
+        .iter())
+    .map(|kind| KindDef {
+        id: id(&kind["id"]),
+        slots: small(&kind["slots"]),
+        offers: (kind["offers"].as_array().expect("the offers").iter())
+            .map(|offer| OfferDef {
+                rates: serde_json::from_value(offer.get("rates").cloned().unwrap_or(json!({})))
+                    .expect("rates"),
+                seconds: count(&offer["seconds"]),
+                until_full: offer.get("until_full").map(need),
+                max_seconds: count(&offer["max_seconds"]),
+                sleep: offer["sleep"].as_bool().unwrap_or(false),
+                min_age: small(&offer["min_age"]),
+                max_age: small(&offer["max_age"]),
+            })
+            .collect(),
+    })
+    .collect();
+    let houses = (REPOSITORY_HOUSES.iter().map(|text| parse(text)))
+        .map(|house| {
+            let rooms = house["rooms"].as_array().expect("the rooms");
+            let room = |name: &Value| {
+                let at = rooms
+                    .iter()
+                    .position(|room| room["id"] == *name)
+                    .expect("a room");
+                u8::try_from(at).expect("fits")
+            };
+            let entrance = rooms.iter().position(|room| room["entrance"] == true);
+            HouseDef {
+                id: id(&house["id"]),
+                capacity: small(&house["capacity"]),
+                rooms: u8::try_from(rooms.len()).expect("fits"),
+                entrance: u8::try_from(entrance.expect("an entrance")).expect("fits"),
+                child_day_room: room(&house["child_day_room"]),
+                child_night_room: room(&house["child_night_room"]),
+                doors: (house["doors"].as_array().expect("the doors").iter())
+                    .map(|door| DoorDef {
+                        a: room(&door["a"]),
+                        b: room(&door["b"]),
+                        seconds: count(&door["seconds"]).expect("seconds"),
+                    })
+                    .collect(),
+                objects: (house["objects"].as_array().expect("the objects").iter())
+                    .map(|object| ObjectDef {
+                        kind: id(&object["kind"]),
+                        room: room(&object["room"]),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    let rates = serde_json::from_str(REPOSITORY_NEEDS).expect("the rates");
+    HouseData::new(rates, kinds, houses).expect("the houses")
+}
 
 /// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
 /// (ADR-0023 section 3).
@@ -454,7 +534,8 @@ pub fn repository_frequencies()
 }
 
 /// The repository's data as the CLI builds them: the life course data, the calibration and
-/// the map of `data/` without their text, with the pool and its frequencies.
+/// the map of `data/` without their text, with the pool and its frequencies, the shock
+/// templates and the houses.
 #[allow(
     dead_code,
     reason = "only the tests on the repository's data need them"
@@ -467,5 +548,6 @@ pub fn repository_data() -> Data {
         repository_frequencies(),
     )
     .and_then(|data| data.with_shocks(repository_shocks()))
+    .map(|data| data.with_houses(repository_houses()))
     .expect("data")
 }

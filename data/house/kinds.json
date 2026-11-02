@@ -1,0 +1,87 @@
+[
+  {
+    "id": "core:bed",
+    "slots": 2,
+    "offers": [
+      {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:bookshelf",
+    "slots": 2,
+    "offers": [
+      {"id": "read", "rates": {"fun": 300}, "seconds": 3600, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:dining_table",
+    "slots": 4,
+    "offers": [
+      {"id": "eat", "rates": {"hunger": 1800}, "seconds": 1200, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:fridge",
+    "slots": 1,
+    "offers": [
+      {"id": "snack", "rates": {"hunger": 2400}, "seconds": 300, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:shower",
+    "slots": 1,
+    "offers": [
+      {"id": "shower", "rates": {"hygiene": 2800}, "seconds": 900, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:single_bed",
+    "slots": 1,
+    "offers": [
+      {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}
+    ]
+  },
+  {
+    "id": "core:sofa",
+    "slots": 3,
+    "offers": [
+      {
+        "id": "sleep",
+        "rates": {"energy": 50},
+        "sleep": true,
+        "until_full": "energy",
+        "max_seconds": 43200,
+        "min_age": 0,
+        "max_age": 130
+      }
+    ]
+  },
+  {
+    "id": "core:toilet",
+    "slots": 1,
+    "offers": [
+      {
+        "id": "use",
+        "rates": {"bladder": 12000},
+        "until_full": "bladder",
+        "max_seconds": 300,
+        "min_age": 0,
+        "max_age": 130
+      }
+    ]
+  },
+  {
+    "id": "core:toy_chest",
+    "slots": 2,
+    "offers": [
+      {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 6, "max_age": 12}
+    ]
+  },
+  {
+    "id": "core:tv",
+    "slots": 3,
+    "offers": [
+      {"id": "watch", "rates": {"fun": 400}, "seconds": 2700, "min_age": 0, "max_age": 130}
+    ]
+  }
+]

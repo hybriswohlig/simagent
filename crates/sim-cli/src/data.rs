@@ -10,6 +10,7 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 
 use crate::error::CliError;
+use crate::house::house_data_from;
 
 const DEMOGRAPHY: &str = include_str!("../../../data/calibration/demography.json");
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
@@ -17,6 +18,23 @@ const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
 const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 const SHOCKS: &str = include_str!("../../../data/shocks.json");
+const NEEDS: &str = include_str!("../../../data/house/needs.json");
+const KINDS: &str = include_str!("../../../data/house/kinds.json");
+/// The houses with their names in the messages, in the order of the file names.
+const HOUSES: [(&str, &str); 3] = [
+    (
+        "house/houses/flat.json",
+        include_str!("../../../data/house/houses/flat.json"),
+    ),
+    (
+        "house/houses/house.json",
+        include_str!("../../../data/house/houses/house.json"),
+    ),
+    (
+        "house/houses/terraced.json",
+        include_str!("../../../data/house/houses/terraced.json"),
+    ),
+];
 
 /// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
 /// ADR-0008 section 1).
@@ -24,12 +42,15 @@ const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];
 const LOCUS_TEXT: [&str; 1] = ["description"];
 
 /// The checked definitions of the base game, with the pool of the pre-run and its
-/// frequencies (ADR-0020 sections 4 and 5) and the shock templates (ADR-0023 section 3).
+/// frequencies (ADR-0020 sections 4 and 5), the shock templates (ADR-0023 section 3) and
+/// the houses (ADR-0025).
 pub fn core_data() -> Result<Data, CliError> {
     let definitions = definitions_from(DEMOGRAPHY, CALIBRATION, GENOME_MAP)?;
     let shocks = shocks_from(SHOCKS)?;
+    let houses = house_data_from(NEEDS, KINDS, &HOUSES)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
         .and_then(|data| data.with_shocks(shocks))
+        .map(|data| data.with_houses(houses))
         .map_err(|error| rejected(&error.to_string()))
 }
 
@@ -338,9 +359,26 @@ mod tests {
 
     #[test]
     fn the_base_game_loads() {
-        // The data hash of the built-in data, map 4 with the pool and its frequencies,
-        // from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0x269f_c851_7af4_b8f4);
+        // The data hash of the built-in data, map 4 with the pool and its frequencies, the
+        // shock templates and the houses, from tools/data_reference.py (line `data_hash`).
+        assert_eq!(core_data().expect("data").hash(), 0xdc88_7533_e981_159a);
+    }
+
+    /// The houses of `data/house/` (ADR-0025 section 3): one to three members take the flat,
+    /// four and five the terraced house, six to eight the house, nine none.
+    #[test]
+    fn the_base_game_has_its_houses() {
+        let data = core_data().expect("data");
+        let houses = data.houses().expect("the houses");
+        let chosen: Vec<Option<&str>> = (1..=9)
+            .map(|members| houses.house_for(members).map(|house| house.id().as_str()))
+            .collect();
+        let (flat, terraced, house) =
+            (Some("core:flat"), Some("core:terraced"), Some("core:house"));
+        let expected = [
+            flat, flat, flat, terraced, terraced, house, house, house, None,
+        ];
+        assert_eq!(chosen, expected);
     }
 
     /// The pool's frequencies are read like calibration values: the unit `fraction`, the three

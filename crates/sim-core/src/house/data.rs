@@ -352,6 +352,18 @@ impl HouseData {
         &self.rates
     }
 
+    /// The kinds in the order of their ids.
+    pub fn kinds(&self) -> &[KindDef] {
+        &self.kinds
+    }
+
+    /// The houses in the order of their ids.
+    pub fn defs(&self) -> Vec<&HouseDef> {
+        let mut defs: Vec<&HouseDef> = self.houses.iter().map(House::def).collect();
+        defs.sort_by(|a, b| a.id.cmp(&b.id));
+        defs
+    }
+
     pub fn kind(&self, id: &DataId) -> Option<&KindDef> {
         let at = self.kinds.binary_search_by(|kind| kind.id.cmp(id)).ok()?;
         Some(&self.kinds[at])
