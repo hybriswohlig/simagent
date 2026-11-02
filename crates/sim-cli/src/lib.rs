@@ -5,6 +5,7 @@
 pub mod data;
 pub mod error;
 pub mod files;
+pub mod house;
 pub mod lock;
 pub mod names;
 pub mod repro;
