@@ -635,10 +635,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Reached { .. } => "core:reached",
         LogPayload::ActionEnded { .. } => "core:action_ended",
         LogPayload::Idle { .. } => "core:idle",
+        LogPayload::NeedCritical { .. } => "core:need_critical",
     }
 }
 
-const LOG_KINDS: [&str; 24] = [
+const LOG_KINDS: [&str; 25] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -663,10 +664,11 @@ const LOG_KINDS: [&str; 24] = [
     "core:reached",
     "core:action_ended",
     "core:idle",
+    "core:need_critical",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 7] = [
+const HOUSE_LOGS: [&str; 8] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -674,6 +676,7 @@ const HOUSE_LOGS: [&str; 7] = [
     "core:reached",
     "core:action_ended",
     "core:idle",
+    "core:need_critical",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -738,7 +741,8 @@ fn golden_scenarios_cover_every_kind() {
             "log core:action_started",
             "log core:reached",
             "log core:action_ended",
-            "log core:idle"
+            "log core:idle",
+            "log core:need_critical"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, and nobody moves into a house"
@@ -793,7 +797,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 24);
+    assert_eq!(logs.len(), 25);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -886,7 +890,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:action_started",
             "log core:reached",
             "log core:action_ended",
-            "log core:idle"
+            "log core:idle",
+            "log core:need_critical"
         ]
     );
 }

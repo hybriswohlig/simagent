@@ -1,6 +1,7 @@
 //! What a person in a house does (ADR-0026 sections 3 and 4): it chooses when it is idle in a
 //! room, walks to the chosen object holding one of its places, arrives and takes the offer's
-//! rates, and at the end takes the awake rates again and chooses anew.
+//! rates, and at the end takes the awake rates again and chooses anew. A need turning critical
+//! ends what does not raise it.
 
 use alloc::collections::BTreeSet;
 use alloc::vec;
@@ -9,11 +10,11 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
-use crate::house::choice::{ENOUGH, best, score};
+use crate::house::choice::{CRITICAL, ENOUGH, best, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::need::FULL;
 use crate::house::state::{Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end};
-use crate::ids::{HouseholdId, SimId};
+use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
 use crate::time::{SimDuration, SimTime, day_index};
 use crate::world::{EventPayload, SimCtx};
@@ -186,8 +187,11 @@ pub(crate) fn on_decide(
     decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
 }
 
-/// A falling need of a person reaches a threshold (ADR-0026 section 1): idle in a room, the
-/// person chooses; otherwise nothing happens.
+/// A falling need of a person reaches a threshold (ADR-0026 sections 1 and 4). At 700 and 400
+/// a person idle in a room chooses, otherwise nothing happens. At 150 and 50 the need is
+/// critical: an entry, then a person idle in a room chooses, and a walk to an offer that will
+/// not raise the need, or an action under way, ends with reason `critical` and the person
+/// chooses again.
 pub(crate) fn on_crossing(
     domain: &mut DomainState,
     data: &Data,
@@ -199,8 +203,38 @@ pub(crate) fn on_crossing(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    if matches!(person.place, Place::Room(_)) && person.action.is_none() {
-        decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
+    let (place, action) = (person.place, person.action);
+    let mut causes = Causes::new(ctx.trigger());
+    if level <= CRITICAL {
+        let critical = LogPayload::NeedCritical { need, level };
+        let entry = ctx.emit(critical, vec![Subject::Sim(sim)], causes);
+        causes = Causes::new(Cause::Event(entry));
+    }
+    match (place, action) {
+        (Place::Room(_), None) => decide(domain, data, sim, causes, ctx),
+        (_, Some(action)) if level <= CRITICAL => {
+            // At the object the need falls, so the action does not raise it. On the way the
+            // offer's rate is still to come, in the age band of the arrival.
+            let raises = match place {
+                Place::Walking { arrive, .. } => {
+                    let (_, houses, house) = home(domain, data, sim);
+                    let band = band(domain, sim, arrive);
+                    offer_of(house, houses, action).rate(houses.rates(), need, band) > 0
+                }
+                Place::Room(_) | Place::Away => false,
+            };
+            if !raises {
+                for slot in [Slot::Arrive, Slot::End] {
+                    if let Some(handle) = domain.pending.remove(&(sim, slot)) {
+                        ctx.cancel(handle);
+                    }
+                }
+                let critical = |_: &OfferDef, _: [u16; 5]| EndReason::Critical;
+                let ended = end(domain, data, sim, critical, causes, ctx);
+                decide(domain, data, sim, Causes::new(Cause::Event(ended)), ctx);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -241,8 +275,7 @@ pub(crate) fn on_arrive(
 }
 
 /// A person's action ends (ADR-0026 section 4): `full` if the need it fills is full, else
-/// `done`; the needs the offer set go back to the awake rates, the crossings are planned
-/// anew, the place is free and the person chooses again.
+/// `done`; then the person chooses again.
 pub(crate) fn on_action_end(
     domain: &mut DomainState,
     data: &Data,
@@ -251,33 +284,62 @@ pub(crate) fn on_action_end(
 ) {
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::End));
+    let at_object = (domain.house.sims.get(&sim))
+        .is_some_and(|person| matches!(person.place, Place::Room(_)) && person.action.is_some());
+    if !at_object {
+        panic!("invariant house.orphan_event");
+    }
+    let full = |offer: &OfferDef, needs: [u16; 5]| {
+        if (offer.until_full).is_some_and(|need| needs[need_index(need)] == FULL) {
+            EndReason::Full
+        } else {
+            EndReason::Done
+        }
+    };
+    let entry = end(domain, data, sim, full, Causes::new(ctx.trigger()), ctx);
+    decide(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
+}
+
+/// A person's walk or action ends for the reason `reason` gives for the offer and the needs of
+/// now (ADR-0026 section 4), the rates having worked until now: on the way the person is in the
+/// room it came from again and the walk counts as not gone (ADR-0025 section 5); at the object
+/// the needs the offer set take the awake rates again and the crossings are planned anew. Its
+/// place is free. Returns the entry `core:action_ended`.
+fn end(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    reason: impl FnOnce(&OfferDef, [u16; 5]) -> EndReason,
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) -> EventId {
     let now = ctx.now();
     let (_, houses, house) = home(domain, data, sim);
     let band = band(domain, sim, now);
     let person = person_mut(domain, sim);
-    let (Place::Room(_), Some(action)) = (person.place, person.action) else {
+    let Some(action) = person.action.take() else {
         panic!("invariant house.orphan_event");
     };
     let offer = offer_of(house, houses, action);
     let needs = person.needs.map(|need| need.value_at(now));
-    let full = (offer.until_full).is_some_and(|need| needs[need_index(need)] == FULL);
     let ended = LogPayload::ActionEnded {
         object: action.object,
         offer: action.offer,
-        reason: if full {
-            EndReason::Full
-        } else {
-            EndReason::Done
-        },
+        reason: reason(offer, needs),
         needs,
     };
-    let entry = ctx.emit(ended, vec![Subject::Sim(sim)], Causes::new(ctx.trigger()));
-    for (sample, need) in person.needs.iter_mut().zip(NEEDS) {
-        if offer.sets(need) {
-            *sample = sample.with_rate(now, houses.rates().awake.rate(need, band));
+    let entry = ctx.emit(ended, vec![Subject::Sim(sim)], causes);
+    match person.place {
+        Place::Walking { from, .. } => person.place = Place::Room(from),
+        Place::Room(_) => {
+            for (sample, need) in person.needs.iter_mut().zip(NEEDS) {
+                if offer.sets(need) {
+                    *sample = sample.with_rate(now, houses.rates().awake.rate(need, band));
+                }
+            }
+            plan_crossings(domain, sim, entry, ctx);
         }
+        Place::Away => panic!("invariant house.orphan_event"),
     }
-    person.action = None;
-    plan_crossings(domain, sim, entry, ctx);
-    decide(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
+    entry
 }

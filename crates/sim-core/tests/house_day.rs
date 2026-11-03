@@ -6,110 +6,17 @@
 
 mod common;
 
+use common::day::{MORNING, Run, number};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::genome::Sex;
-use sim_core::ids::{HouseholdId, SimId};
-use sim_core::input::{Couple, Founder, Input, MoveIn, MoveOut, Start};
+use sim_core::ids::SimId;
+use sim_core::input::{Input, MoveOut};
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
-use sim_core::params::WorldParams;
-use sim_core::time::{DAY, HOUR, SimTime, YEAR};
+use sim_core::time::{DAY, HOUR, SimTime};
 use sim_core::world::{World, YearOut};
-
-/// The first morning, 6:00 of day 1, after moving in at the end of day 0.
-const MORNING: i64 = DAY.as_secs() + 6 * HOUR.as_secs();
 
 fn data() -> Data {
     common::death_data(1e-9, None, serde_json::json!([])).with_houses(common::repository_houses())
-}
-
-struct Run {
-    world: World,
-    out: YearOut,
-    log: Vec<LogEntry>,
-}
-
-impl Run {
-    /// The couple, moved in at 23:59:59 of day 0.
-    fn moved_in() -> (Run, HouseholdId) {
-        let founder = |years: i64, sex: Sex| Founder {
-            born: SimTime::from_secs(-years * YEAR.as_secs()),
-            sex,
-            alleles: common::dummy(0, 0),
-        };
-        let mut world = World::new(data());
-        let start = Start {
-            world_seed: 7,
-            founder_tag: DataId::new("test:house").expect("valid"),
-            world_params: WorldParams {
-                hereditary_diseases: false,
-                nutrition: Vec::new(),
-            },
-            founders: vec![founder(30, Sex::Female), founder(32, Sex::Male)],
-            couples: vec![Couple { woman: 0, man: 1 }],
-            capacity: None,
-            pool: None,
-        };
-        world.submit(Input::Start(start)).expect("accepted");
-        let mut run = Run {
-            world,
-            out: YearOut::default(),
-            log: Vec::new(),
-        };
-        run.advance(DAY.as_secs() - 2);
-        let home = (run.log.iter())
-            .find_map(|entry| match entry.payload {
-                LogPayload::HouseholdFormed { household } => Some(household),
-                _ => None,
-            })
-            .expect("their household");
-        run.submit(Input::MoveIn(MoveIn { household: home }));
-        (run, home)
-    }
-
-    fn advance(&mut self, until: i64) {
-        self.world
-            .advance_until(&mut self.out, SimTime::from_secs(until), &mut |_| false);
-        self.log.extend(self.world.take_log());
-    }
-
-    fn submit(&mut self, input: Input) {
-        self.world.submit(input).expect("accepted");
-        self.log.extend(self.world.take_log());
-    }
-
-    /// The house entries of a person after its `core:day_started`, as (second, payload).
-    fn doings(&self, sim: u64) -> Vec<(i64, LogPayload)> {
-        (self.log.iter())
-            .filter(|entry| entry.subjects == [Subject::Sim(SimId::try_from(sim).expect("id"))])
-            .filter(|entry| doing(&entry.payload))
-            .map(|entry| (entry.t.as_secs() - MORNING, entry.payload.clone()))
-            .collect()
-    }
-
-    fn entry(&self, id: &sim_core::ids::EventId) -> &LogEntry {
-        (self.log.iter())
-            .find(|entry| number(&entry.id) == number(id))
-            .expect("an entry")
-    }
-}
-
-/// An entry's id as the log writes it.
-fn number(id: &sim_core::ids::EventId) -> u64 {
-    serde_json::to_value(id)
-        .ok()
-        .and_then(|value| value.as_u64())
-        .expect("a number")
-}
-
-fn doing(payload: &LogPayload) -> bool {
-    matches!(
-        payload,
-        LogPayload::ActionStarted { .. }
-            | LogPayload::Reached { .. }
-            | LogPayload::ActionEnded { .. }
-            | LogPayload::Idle { .. }
-    )
 }
 
 fn flat() -> DataId {
@@ -139,7 +46,7 @@ fn started(object: u16, slot: u8, room: u8, walk_secs: u32, needs: [u16; 5]) -> 
 /// 690, fun 780.
 #[test]
 fn the_first_morning_of_a_couple() {
-    let (mut run, _) = Run::moved_in();
+    let (mut run, _) = Run::moved_in(data());
     run.advance(MORNING + 1_204);
     let morning = [600, 900, 500, 700, 800];
     let hers = run.doings(1);
@@ -209,7 +116,7 @@ fn the_first_morning_of_a_couple() {
 /// house stays planned.
 #[test]
 fn moving_out_ends_what_they_do() {
-    let (mut run, home) = Run::moved_in();
+    let (mut run, home) = Run::moved_in(data());
     run.advance(MORNING - 1);
     let before = run.world.pending_events();
     // An input comes in the second after the clock: 6:00:02, both still on the way.
@@ -249,7 +156,7 @@ fn moving_out_ends_what_they_do() {
 #[test]
 fn a_day_is_saved_and_loaded() {
     for after in [2, 100, 153, 5 * HOUR.as_secs()] {
-        let (mut run, _) = Run::moved_in();
+        let (mut run, _) = Run::moved_in(data());
         run.advance(MORNING + after);
         let bytes = run.world.save(&run.out.year_hashes).expect("saves");
         let (mut loaded, _) = World::load(&bytes, data()).expect("loads");

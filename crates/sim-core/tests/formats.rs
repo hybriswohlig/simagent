@@ -17,6 +17,7 @@ use sim_core::genome::meiosis::{Mutation, SegmentMeiosis};
 use sim_core::genome::{
     Genome, LocusAlleles, PaternalSex, Sex, SexChromosome, Strand, XChromosome, YChromosome,
 };
+use sim_core::house::data::Need;
 use sim_core::ids::{EventId, HouseholdId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
     ArrangePartnership, Couple, ForkOverride, Founder, Input, InputRecord, InputRejected,
@@ -1072,6 +1073,10 @@ fn all_payloads() -> Vec<LogPayload> {
             busy: Vec::new(),
             waits: None,
         },
+        LogPayload::NeedCritical {
+            need: Need::Hunger,
+            level: 150,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1099,7 +1104,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::ActionStarted { .. }
             | LogPayload::Reached { .. }
             | LogPayload::ActionEnded { .. }
-            | LogPayload::Idle { .. } => {}
+            | LogPayload::Idle { .. }
+            | LogPayload::NeedCritical { .. } => {}
         }
     }
     payloads
@@ -1561,10 +1567,15 @@ fn log_codes_are_stable() {
     }
     actual.extend(fosters.iter().map(|f| line("foster", f)));
     // Why an action ended (ADR-0026 section 4).
-    let reasons = [EndReason::Done, EndReason::Full, EndReason::Left];
+    let reasons = [
+        EndReason::Done,
+        EndReason::Full,
+        EndReason::Left,
+        EndReason::Critical,
+    ];
     for reason in &reasons {
         match reason {
-            EndReason::Done | EndReason::Full | EndReason::Left => {}
+            EndReason::Done | EndReason::Full | EndReason::Left | EndReason::Critical => {}
         }
     }
     actual.extend(reasons.iter().map(|r| line("end_reason", r)));

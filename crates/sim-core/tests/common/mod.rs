@@ -5,6 +5,9 @@
 use serde_json::{Value, json};
 use sim_core::data::{Data, Definitions};
 
+#[allow(dead_code, reason = "only the tests of a day in a house use it")]
+pub mod day;
+
 const DEMOGRAPHY: &str = include_str!("../../../../data/calibration/demography.json");
 /// Map 3 as a fixture (`tests/golden/map3/`): the subject of these tests is a rule, not
 /// the repository's map (design note of the map 4 switch, section 4).
@@ -402,6 +405,13 @@ const REPOSITORY_HOUSES: [&str; 3] = [
     reason = "only the tests on the repository's data need them"
 )]
 pub fn repository_houses() -> sim_core::house::data::HouseData {
+    houses_from(REPOSITORY_NEEDS, REPOSITORY_KINDS, &REPOSITORY_HOUSES)
+}
+
+/// House data from the texts of a `needs.json`, a `kinds.json` and house files, read as
+/// sim-cli reads `data/house/`.
+#[allow(dead_code, reason = "only the tests on houses need it")]
+pub fn houses_from(needs: &str, kinds: &str, houses: &[&str]) -> sim_core::house::data::HouseData {
     use sim_core::house::data::{DoorDef, HouseData, HouseDef, KindDef, ObjectDef, OfferDef};
     let parse = |text: &str| -> Value { serde_json::from_str(text).expect("json") };
     let id =
@@ -409,28 +419,25 @@ pub fn repository_houses() -> sim_core::house::data::HouseData {
     let small = |value: &Value| u8::try_from(value.as_u64().expect("a number")).expect("fits");
     let count = |value: &Value| value.as_u64().map(|n| u32::try_from(n).expect("fits"));
     let need = |value: &Value| serde_json::from_value(value.clone()).expect("a need");
-    let kinds = (parse(REPOSITORY_KINDS)
-        .as_array()
-        .expect("the kinds")
-        .iter())
-    .map(|kind| KindDef {
-        id: id(&kind["id"]),
-        slots: small(&kind["slots"]),
-        offers: (kind["offers"].as_array().expect("the offers").iter())
-            .map(|offer| OfferDef {
-                rates: serde_json::from_value(offer.get("rates").cloned().unwrap_or(json!({})))
-                    .expect("rates"),
-                seconds: count(&offer["seconds"]),
-                until_full: offer.get("until_full").map(need),
-                max_seconds: count(&offer["max_seconds"]),
-                sleep: offer["sleep"].as_bool().unwrap_or(false),
-                min_age: small(&offer["min_age"]),
-                max_age: small(&offer["max_age"]),
-            })
-            .collect(),
-    })
-    .collect();
-    let houses = (REPOSITORY_HOUSES.iter().map(|text| parse(text)))
+    let kinds = (parse(kinds).as_array().expect("the kinds").iter())
+        .map(|kind| KindDef {
+            id: id(&kind["id"]),
+            slots: small(&kind["slots"]),
+            offers: (kind["offers"].as_array().expect("the offers").iter())
+                .map(|offer| OfferDef {
+                    rates: serde_json::from_value(offer.get("rates").cloned().unwrap_or(json!({})))
+                        .expect("rates"),
+                    seconds: count(&offer["seconds"]),
+                    until_full: offer.get("until_full").map(need),
+                    max_seconds: count(&offer["max_seconds"]),
+                    sleep: offer["sleep"].as_bool().unwrap_or(false),
+                    min_age: small(&offer["min_age"]),
+                    max_age: small(&offer["max_age"]),
+                })
+                .collect(),
+        })
+        .collect();
+    let houses = (houses.iter().map(|text| parse(text)))
         .map(|house| {
             let rooms = house["rooms"].as_array().expect("the rooms");
             let room = |name: &Value| {
@@ -464,7 +471,7 @@ pub fn repository_houses() -> sim_core::house::data::HouseData {
             }
         })
         .collect();
-    let rates = serde_json::from_str(REPOSITORY_NEEDS).expect("the rates");
+    let rates = serde_json::from_str(needs).expect("the rates");
     HouseData::new(rates, kinds, houses).expect("the houses")
 }
 
