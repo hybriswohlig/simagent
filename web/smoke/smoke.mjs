@@ -440,10 +440,34 @@ if (browser !== undefined) {
     }
     await page.unrouteAll();
     await step("the silence over by itself", silence.waitFor({ state: "detached" }));
+    // The house (ADR-0021, addendum of 2026-11-03): a person of a household of two moves in from
+    // its page; the house waits for its first morning, then the clock moves an hour, and a
+    // choice of the day tells why it was made.
+    const town = await api("GET", "/api/runs/neu/pedigree");
+    const living = town.persons.filter((p) => p.died === null && p.emigrated === null);
+    const sizes = new Map();
+    for (const p of living) {
+      sizes.set(p.household, (sizes.get(p.household) ?? 0) + 1);
+    }
+    const mover = living.find((p) => sizes.get(p.household) === 2);
+    if (mover === undefined) {
+      throw new Error("the new town has no household of two");
+    }
+    await step("a person of a household of two", page.goto(`${url}#/runs/neu/persons/${mover.sim}`));
+    await step("into the house", page.getByRole("button", { name: "Ins Haus" }).click());
+    await step("the house before its morning", page.getByText("Der erste Morgen im Haus beginnt um 6:00.").waitFor());
+    const time = page.getByRole("group", { name: "Zeit" });
+    await step("to the morning", time.getByRole("button", { name: "Bis morgen früh" }).click());
+    await step("its people", page.getByRole("heading", { name: "Bewohner" }).waitFor());
+    await step("an hour", time.getByRole("button", { name: "Eine Stunde" }).click());
+    await step("an hour on", page.getByText(/Jetzt: .*, 7:00$/).waitFor());
+    await step("the day", page.getByText("Heute").first().click());
+    await step("why", page.getByRole("button", { name: "Warum?" }).first().click());
+    await step("why told", page.getByText(/Gewählt: .*, [\d.]+ Punkte\./).first().waitFor());
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, and the server's silence ended by loading again and by itself");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, and a household moved into its house, an hour on and why a choice was made");
   } catch (error) {
     fail(error.message);
   } finally {

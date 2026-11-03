@@ -2800,3 +2800,36 @@ fn why_over_http() {
     let (status, _, body) = get(port, &path);
     assert_eq!((status, code_of(&body)), (500, "events_invalid".to_owned()));
 }
+
+/// The households with a house (ADR-0021, addendum of 2026-11-03): none, then the couple's,
+/// before and after its first morning.
+#[test]
+fn houses_over_http() {
+    let (server, home, _) = couple("houses");
+    let port = server.port;
+    let houses = || {
+        let (status, _, body) = get(port, "/api/runs/couple/houses");
+        assert_eq!(status, 200);
+        let answer = json_of(&body);
+        assert_eq!(
+            (&answer["format"], &answer["version"]),
+            (&json!("simagent.view.houses"), &json!(1))
+        );
+        answer["households"].clone()
+    };
+    assert_eq!(houses(), json!([]));
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
+    assert_eq!(
+        houses(),
+        json!([{"household": home, "house": "core:flat", "morning": false}])
+    );
+    assert_eq!(
+        post(port, "/api/runs/couple/advance", r#"{"step":"morning"}"#).0,
+        200
+    );
+    assert_eq!(
+        houses(),
+        json!([{"household": home, "house": "core:flat", "morning": true}])
+    );
+}
