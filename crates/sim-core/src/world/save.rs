@@ -4,6 +4,7 @@
 use crate::data::Data;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
+use core::cmp::Reverse;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -312,8 +313,9 @@ pub(super) fn pending_index(
             | EventPayload::Immigration { .. } => {
                 continue;
             }
-            // Refused by the loader until their handlers come (ADR-0024, addendum of
-            // 2026-11-02); their slots come with them.
+            // The first morning has its own index; the others are refused by the loader
+            // until their handlers come (ADR-0024, addendum of 2026-11-02), their slots
+            // come with them.
             EventPayload::HouseMorning { .. }
             | EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
@@ -321,8 +323,10 @@ pub(super) fn pending_index(
             | EventPayload::Wake { .. }
             | EventPayload::Arrive { .. }
             | EventPayload::ActionEnd { .. }
-            | EventPayload::NeedCrossing { .. }
             | EventPayload::Decide { .. } => continue,
+            EventPayload::NeedCrossing { sim, need, level } => {
+                (*sim, Slot::Crossing(*need, *level))
+            }
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
@@ -2436,6 +2440,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut deaths = BTreeSet::new();
     let mut onsets = BTreeSet::new();
     let mut mornings = BTreeSet::new();
+    let mut crossings = BTreeSet::new();
+    // Per crossing: the sim, the insertion number, the need and the level downwards.
+    let mut planned_crossings = Vec::new();
     // The first morning of a household in a house comes at the first 6:00 after the clock.
     let morning_due = SimTime::try_from(now)
         .ok()
@@ -2461,6 +2468,11 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && Some(entry.time) == morning_due
                     && mornings.insert(*household)
             }
+            // Once per crossing still to come (ADR-0026 section 1), checked as a whole below.
+            EventPayload::NeedCrossing { sim, need, level } => {
+                planned_crossings.push((*sim, entry.seq, (*need, Reverse(*level))));
+                entry.period.is_none() && crossings.insert((*sim, *need, *level, entry.time))
+            }
             // No handler plans these yet (ADR-0024, addendum of 2026-11-02).
             EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
@@ -2468,7 +2480,6 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             | EventPayload::Wake { .. }
             | EventPayload::Arrive { .. }
             | EventPayload::ActionEnd { .. }
-            | EventPayload::NeedCrossing { .. }
             | EventPayload::Decide { .. } => false,
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
@@ -2632,8 +2643,22 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let all_mornings_planned = (loaded.house.households.iter())
         .filter(|(_, moved)| !moved.morning)
         .all(|(household, _)| mornings.contains(household) || morning_due.is_none());
+    // The crossings are exactly those of the persons' needs after the clock.
+    let due_crossings: BTreeSet<_> = (loaded.house.sims.iter())
+        .flat_map(|(&sim, person)| {
+            let after = crate::house::state::crossings(person, loaded.closed_through);
+            after.map(move |(need, level, at)| (sim, need, level, at))
+        })
+        .collect();
+    // A change plans all of a person's crossings at once, by need and then from the highest
+    // level down; their order decides which of two in one second runs first.
+    planned_crossings.sort_unstable();
+    let crossings_in_order =
+        (planned_crossings.windows(2)).all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
     year_end_seen
         && all_mornings_planned
+        && crossings == due_crossings
+        && crossings_in_order
         && round_seen
         && emigration_seen == rules.capacity.is_some()
         && immigration_seen == rules.pool.immigration.is_some()

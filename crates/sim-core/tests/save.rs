@@ -169,6 +169,23 @@ enum Payload {
     DayPlan {
         sim: u64,
     },
+    #[allow(dead_code, reason = "only its place matters, before the crossing")]
+    Return,
+    #[allow(dead_code, reason = "only its place matters, before the crossing")]
+    Depart,
+    #[allow(dead_code, reason = "only its place matters, before the crossing")]
+    Wake,
+    #[allow(dead_code, reason = "only its place matters, before the crossing")]
+    Arrive,
+    #[allow(dead_code, reason = "only its place matters, before the crossing")]
+    ActionEnd,
+    /// A falling need of `sim` reaches `level` (ADR-0026 section 1); the need by its number
+    /// from hunger 0, one byte like its variant index.
+    NeedCrossing {
+        sim: u64,
+        need: u8,
+        level: u16,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -409,6 +426,22 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
 
 /// (time, micro, seq, payload, period)
 type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
+
+/// A person with needs (ADR-0024, addendum of 2026-11-02): each need as (value, at, rate),
+/// in a room, without action or duty, with the choices of a day as (day, count).
+#[derive(Clone, Serialize)]
+struct TestInHouse {
+    needs: [(u16, i64, i32); 5],
+    place: TestPlace,
+    action: Option<()>,
+    due: Option<()>,
+    decisions: (i64, u16),
+}
+
+#[derive(Clone, Serialize)]
+enum TestPlace {
+    Room(u8),
+}
 /// Why a partnership ended (ADR-0018 section 3).
 #[derive(Clone, Copy, Serialize)]
 enum TestEndedBy {
@@ -498,10 +531,10 @@ struct File {
     /// The households of the pool used (ADR-0020 section 5): none here.
     pool_used: Vec<u32>,
     /// The house (ADR-0024, addendum of 2026-11-02): the households moved in as (id,
-    /// (house, morning)); nobody has needs, waits or holds here, so the other three maps are
-    /// empty and their elements never written.
+    /// (house, morning)), the persons with needs; nobody waits or holds here, so the other
+    /// two maps are empty and their elements never written.
     house_households: Vec<(u64, (String, bool))>,
-    house_sims: Vec<(u64, ())>,
+    house_sims: Vec<(u64, TestInHouse)>,
     house_waits: Vec<(u64, ())>,
     house_holds: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
@@ -669,6 +702,97 @@ fn a_save_keeps_the_house() {
     // Without houses in the data nothing can be moved in.
     let without = File::tiny().with(|f| f.house_households = vec![(1, ("core:flat".into(), true))]);
     assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
+}
+
+/// The crossings of a person with needs (ADR-0026 section 1): she is 7 and in the flat since a
+/// morning at 6:00, hunger falling from 600 by 100 an hour and the others still, so 400, 150
+/// and 50 come 2, 4.5 and 5.5 hours later. At 7:59:59 the save with all three loads; one
+/// missing, doubled, at another second or as a series is refused, as are the three planned in
+/// another order, one above the value, one of a still need and one of a sim without needs. At
+/// 8:00 the first has come.
+#[test]
+fn a_save_keeps_the_crossings() {
+    let data = common::data().with_houses(common::repository_houses());
+    let six = 7 * Y + 6 * 3_600;
+    let day = sim_core::time::day_index(sim_core::time::SimTime::from_secs(six));
+    let crossing = |sim: u64, need: u8, level: u16, secs: i64| {
+        let payload = Payload::NeedCrossing { sim, need, level };
+        (six + secs, 0, 0, payload, None)
+    };
+    let hunger = |level: u16, secs: i64| crossing(1, 0, level, secs);
+    let saved = |clock: i64, crossings: Vec<QueueEntry>| {
+        let hash = data.hash();
+        File::tiny().with(move |f| {
+            f.data_hash = hash;
+            f.closed_through = clock;
+            for entry in &mut f.queue {
+                if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
+                    entry.0 = 8 * Y - 1;
+                }
+            }
+            f.year_hashes = (0..7).map(|year| (year, 7)).collect();
+            f.house_households = vec![(1, ("core:flat".into(), true))];
+            let needs = [(600, -100), (900, 0), (500, 0), (700, 0), (800, 0)];
+            let person = TestInHouse {
+                needs: needs.map(|(value, rate)| (value, six, rate)),
+                place: TestPlace::Room(0),
+                action: None,
+                due: None,
+                decisions: (day, 0),
+            };
+            f.house_sims = vec![(1, person)];
+            for mut entry in crossings {
+                entry.2 = f.next_event_seq;
+                f.next_event_seq += 1;
+                insert_event(f, entry, (3, six));
+            }
+        })
+    };
+    let all = vec![hunger(400, 7_200), hunger(150, 16_200), hunger(50, 19_800)];
+    let before = six + 7_199;
+    assert_eq!(
+        load_error_with(data.clone(), &saved(before, all.clone())),
+        None
+    );
+    let refused = |clock: i64, crossings: Vec<QueueEntry>| {
+        assert_eq!(
+            load_error_with(data.clone(), &saved(clock, crossings)),
+            Some(LoadError::Inconsistent)
+        );
+    };
+    for missing in 0..3 {
+        let mut fewer = all.clone();
+        fewer.remove(missing);
+        refused(before, fewer);
+    }
+    let with = |extra: QueueEntry| {
+        let mut more = all.clone();
+        more.push(extra);
+        more
+    };
+    refused(before, with(hunger(150, 16_200)));
+    refused(before, with(hunger(700, 8_000)));
+    refused(before, with(crossing(1, 1, 700, 8_000)));
+    refused(before, with(crossing(2, 0, 400, 7_200)));
+    let mut later = all.clone();
+    later[1].0 += 1;
+    refused(before, later);
+    let mut series = all.clone();
+    series[2].4 = Some(Y);
+    refused(before, series);
+    // Planned at once, by need and level: the insertion numbers follow that order.
+    let mut reversed = all.clone();
+    reversed.reverse();
+    refused(before, reversed);
+    // At 8:00 hunger is at 400: its crossing has come, one in that second is in the past.
+    assert_eq!(
+        load_error_with(data.clone(), &saved(six + 7_200, all.clone())),
+        Some(LoadError::InvalidQueue)
+    );
+    assert_eq!(
+        load_error_with(data.clone(), &saved(six + 7_200, all[1..].to_vec())),
+        None
+    );
 }
 
 /// A save at the last second of time (review): the house checks have no next second, and

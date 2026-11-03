@@ -69,8 +69,8 @@ impl NeedSample {
     }
 
     /// The first second at which the value is at or below `level`:
-    /// `at + ⌈3600 · (value − level) / |rate|⌉`. None if the value is already there or does
-    /// not fall.
+    /// `at + ⌈3600 · (value − level) / |rate|⌉`. None if the value is already there, does
+    /// not fall, or gets there only after the end of time.
     pub fn crossing(self, level: u16) -> Option<SimTime> {
         if self.rate >= 0 || self.value <= level {
             return None;
@@ -78,7 +78,7 @@ impl NeedSample {
         let distance = i64::from(self.value - level) * 3600;
         let speed = i64::from(self.rate).abs();
         let secs = (distance + speed - 1) / speed;
-        Some(self.at + SimDuration::from_secs(secs))
+        self.at.checked_add(SimDuration::from_secs(secs))
     }
 
     /// The crossings of every threshold below the value, earliest first.
@@ -197,6 +197,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_crossing_beyond_the_end_of_time_never_comes() {
+        // 600 at −100: 400 two hours later, 150 four and a half; time ends after three.
+        let end = crate::time::MAX_ABS_SECS;
+        let need = NeedSample::new(600, t(end - 3 * 3_600), -100);
+        assert_eq!(need.crossing(400), Some(t(end - 3_600)));
+        assert_eq!(need.crossing(150), None);
+        assert_eq!(need.crossings().count(), 1);
     }
 
     #[test]

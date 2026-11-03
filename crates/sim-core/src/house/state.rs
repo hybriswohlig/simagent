@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::data::{AGE_BANDS, House, HouseData};
+use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need};
 use crate::house::need::{FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimTime, YEAR, day_index};
@@ -111,6 +111,15 @@ impl HouseState {
             && self.waits.is_empty()
             && self.holds.is_empty()
     }
+}
+
+/// The crossings a change of the person's rates at `after` plans (ADR-0026 section 1): per
+/// need and threshold below its value the second it gets there, if that comes after
+/// `after`, in the order of the needs and then of the thresholds.
+pub fn crossings(person: &InHouse, after: SimTime) -> impl Iterator<Item = (Need, u16, SimTime)> {
+    (NEEDS.into_iter().zip(person.needs))
+        .flat_map(|(need, sample)| sample.crossings().map(move |(level, at)| (need, level, at)))
+        .filter(move |&(_, _, at)| at > after)
 }
 
 /// The rule a loaded house part breaks (the addendum's list of checks).

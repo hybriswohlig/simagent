@@ -5,11 +5,11 @@
 
 use alloc::vec::Vec;
 
-use super::{DomainState, whole_years};
+use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
-use crate::house::data::{NEEDS, age_band};
+use crate::house::data::{NEEDS, Need, age_band};
 use crate::house::need::NeedSample;
-use crate::house::state::{Decisions, InHouse, MAX_HOUSEHOLDS, MovedIn, Place};
+use crate::house::state::{Decisions, InHouse, MAX_HOUSEHOLDS, MovedIn, Place, crossings};
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::input::{InputRejected, MoveIn, MoveOut, RejectCode};
 use crate::log::{Cause, Causes, LogPayload, Subject};
@@ -150,7 +150,7 @@ pub(crate) fn apply_move_out(domain: &mut DomainState, input: &MoveOut, ctx: &mu
         Causes::new(ctx.trigger()),
     );
     for sim in members {
-        forget(domain, sim);
+        forget(domain, sim, ctx);
     }
     end_house(domain, household, ctx);
 }
@@ -204,7 +204,7 @@ fn start_day(
     let entrance = house.def().entrance;
     let rates = (data.houses().map(|houses| &houses.rates().awake))
         .unwrap_or_else(|| panic!("invariant house.unknown"));
-    ctx.emit(
+    let entry = ctx.emit(
         LogPayload::DayStarted {
             needs: MORNING_VALUES,
         },
@@ -225,10 +225,54 @@ fn start_day(
         },
     };
     domain.house.sims.insert(sim, person);
+    plan_crossings(domain, sim, entry, ctx);
 }
 
-/// A person leaves the house part: its needs, its waiting positions and its holds.
-fn forget(domain: &mut DomainState, sim: SimId) {
+/// The person's crossings anew after a change of its rates in the handler that wrote `by`
+/// (ADR-0026 section 1): those still planned are cancelled, then each threshold below a
+/// falling value is planned.
+fn plan_crossings(domain: &mut DomainState, sim: SimId, by: EventId, ctx: &mut SimCtx<'_, '_>) {
+    cancel_crossings(domain, sim, ctx);
+    let Some(person) = domain.house.sims.get(&sim) else {
+        panic!("invariant house.orphan_event");
+    };
+    let planned: Vec<(Need, u16, SimTime)> = crossings(person, ctx.now()).collect();
+    for (need, level, at) in planned {
+        let crossing = EventPayload::NeedCrossing { sim, need, level };
+        let handle = ctx.schedule(at, crossing, by);
+        domain
+            .pending
+            .insert((sim, Slot::Crossing(need, level)), handle);
+    }
+}
+
+fn cancel_crossings(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+    let first = (sim, Slot::Crossing(Need::Hunger, 0));
+    let last = (sim, Slot::Crossing(Need::Fun, u16::MAX));
+    let slots: Vec<(SimId, Slot)> = (domain.pending.range(first..=last))
+        .map(|(slot, _)| *slot)
+        .collect();
+    for slot in slots {
+        if let Some(handle) = domain.pending.remove(&slot) {
+            ctx.cancel(handle);
+        }
+    }
+}
+
+/// A falling need of a person reaches a threshold (ADR-0026 section 1); the person stays
+/// as it is.
+pub(crate) fn on_crossing(domain: &mut DomainState, sim: SimId, need: Need, level: u16) {
+    // The event that runs right now is no longer pending.
+    domain.pending.remove(&(sim, Slot::Crossing(need, level)));
+    if !domain.house.sims.contains_key(&sim) {
+        panic!("invariant house.orphan_event");
+    }
+}
+
+/// A person leaves the house part: its pending house events, its needs, its waiting
+/// positions and its holds.
+fn forget(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+    cancel_crossings(domain, sim, ctx);
     domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {
         waiters.retain(|(_, waiter)| *waiter != sim);
@@ -257,7 +301,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
         if let Some(from) = change.from
             && domain.house.households.contains_key(&from)
         {
-            forget(domain, change.sim);
+            forget(domain, change.sim, ctx);
             ctx.emit(
                 LogPayload::MovedOut { household: from },
                 alloc::vec![Subject::Sim(change.sim)],
