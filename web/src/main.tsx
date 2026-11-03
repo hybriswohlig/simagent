@@ -33,7 +33,8 @@ function Page({ route, cheat }: { route: Route; cheat: boolean }) {
     case "diff":
       return <DiffPage a={route.a} b={route.b} />;
     case "house":
-      return <HousePage run={route.run} household={route.household} />;
+      // A new house is a new page: no clock, timer or answer of the last one goes on (review).
+      return <HousePage key={`${route.run}/${route.household}`} run={route.run} household={route.household} />;
     case "not_found":
       return (
         <p>

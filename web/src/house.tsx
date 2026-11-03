@@ -12,6 +12,7 @@ import { Portrait } from "./portrait.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
 import { plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
+import { readable } from "./contract.js";
 import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
 const HOUSE = { format: "simagent.view.house", version: 1 } as const;
@@ -19,6 +20,10 @@ const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
 const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
+/** How many pages of a person's day the page reads at most (a day has some hundred entries). */
+const DAY_PAGES = 10;
+/** The most members a household with a house has (ADR-0025 section 3). */
+const LARGEST = 8;
 const WHY = { format: "simagent.view.why", version: 1 } as const;
 const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
   hunger: "need_hunger",
@@ -161,10 +166,18 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
       `${TEXT.house_why_offer.replace("{what}", offerWords(layout, offer.object, offer.offer)).replace("{points}", points(offer.points))}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`,
     )
     .join(", ");
+  // Idle while the best that brings enough is taken: it waits for it (ADR-0026 section 5).
+  const waited = why.offers.find((offer) => !offer.busy && offer.points >= why.enough) === undefined
+    ? why.offers.find((offer) => offer.busy && offer.points >= why.enough)
+    : undefined;
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>
       {why.commanded ? `${TEXT.house_why_commanded} ` : ""}
-      {chosen === null
+      {chosen === null && waited !== undefined
+        ? TEXT.house_why_waits
+            .replace("{what}", offerWords(layout, waited.object, waited.offer))
+            .replace("{points}", points(waited.points))
+        : chosen === null
         ? TEXT.house_why_none.replace("{enough}", points(why.enough))
         : TEXT.house_why_chosen
             .replace("{what}", offerWords(layout, chosen.object, chosen.offer))
@@ -177,17 +190,36 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
 /** A person's house entries of the day so far, from the run's log, each choice with its
  * "Warum?". */
 function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number }) {
-  const [items, setItems] = useState<readonly EventItem[]>([]);
+  const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
   const dayStart = house.at.t - house.at.date.second_of_day;
   useEffect(() => {
     let live = true;
-    getJson(`/api/runs/${run}/events?subject=${sim}&from=${dayStart}`, EVENTS)
-      .then((json) => live && setItems((json as unknown as EventsAnswer).events))
-      .catch(() => live && setItems([]));
+    // The day up to the second the house shows, page by page (500 entries each).
+    const read = async () => {
+      const all: EventItem[] = [];
+      let after: number | null = null;
+      for (let page = 0; page < DAY_PAGES; page += 1) {
+        const from = after === null ? "" : `&after=${after}`;
+        const json = await getJson(`/api/runs/${run}/events?subject=${sim}&from=${dayStart}&to=${house.at.t}${from}`, EVENTS);
+        const answer = json as unknown as EventsAnswer;
+        all.push(...answer.events);
+        if (answer.next === null) {
+          break;
+        }
+        after = answer.next;
+      }
+      return all;
+    };
+    read()
+      .then((all) => live && setItems(all))
+      .catch(() => live && setItems("failed"));
     return () => {
       live = false;
     };
   }, [run, sim, house.at.t]);
+  if (items === "failed") {
+    return <p>{TEXT.failed_network}</p>;
+  }
   const lines = items
     .map((item) => [item, dayLine(house.layout, item)] as const)
     .filter((pair): pair is readonly [EventItem, { text: string; choice: boolean }] => pair[1] !== null);
@@ -293,7 +325,9 @@ function Resident({
 }) {
   const known = pedigree.persons.find((p) => p.sim === person.sim);
   const name = known === undefined ? String(person.sim) : fullName(known);
-  const shown = people?.people.find((p) => p.sim === person.sim)?.shown;
+  const shown = people !== null && readable(people.contract_version)
+    ? people.people.find((p) => p.sim === person.sim)?.shown
+    : undefined;
   return (
     <li style={{ display: "flex", gap: "1em", alignItems: "flex-start", listStyle: "none", marginBottom: "1em" }}>
       {shown !== undefined && known !== undefined && (
@@ -310,9 +344,17 @@ function Resident({
             const value = person.needs[index] ?? 0;
             return (
               <div key={need} style={{ display: "flex", gap: "0.5em" }}>
-                <dt style={{ width: "5em" }}>{TEXT[need]}</dt>
+                <dt style={{ width: "5em" }} id={`need-${person.sim}-${index}`}>{TEXT[need]}</dt>
                 <dd style={{ margin: 0 }}>
-                  <meter min={0} max={1000} low={150} high={400} optimum={1000} value={value} />{" "}
+                  <meter
+                    min={0}
+                    max={1000}
+                    low={150}
+                    high={400}
+                    optimum={1000}
+                    value={value}
+                    aria-labelledby={`need-${person.sim}-${index}`}
+                  />{" "}
                   {value}
                 </dd>
               </div>
@@ -342,7 +384,13 @@ export function HousePage({ run, household }: { run: string; household: string }
       live.current = false;
     };
   }, []);
-  const house = loaded.state === "ready" ? loaded.value : null;
+  // The last house stays while the next loads after a step, so the clock and its pause
+  // button, open days and answers stay (review).
+  const last = useRef<HouseAnswer | null>(null);
+  if (loaded.state === "ready" && loaded.value !== null) {
+    last.current = loaded.value;
+  }
+  const house = loaded.state === "ready" ? loaded.value : last.current;
   useEffect(() => {
     if (house !== null && latest.current === null) {
       const start = standing(house.at.t, house.at.date);
@@ -380,10 +428,10 @@ export function HousePage({ run, household }: { run: string; household: string }
     const timer = setTimeout(() => latest.current !== null && apply(tick(latest.current)), PACE_MS);
     return () => clearTimeout(timer);
   }, [clock]);
-  if (loaded.state === "loading") {
+  if (loaded.state === "loading" && house === null) {
     return <p>{TEXT.loading}</p>;
   }
-  if (loaded.state === "failed") {
+  if (loaded.state === "failed" && house === null) {
     return <p role="alert">{TEXT[loaded.text]}</p>;
   }
   const back = <a href={format({ page: "run", run })}>{TEXT.to_run.replace("{run}", run)}</a>;
@@ -422,6 +470,8 @@ export function HousePage({ run, household }: { run: string; household: string }
           {clock.refused !== null && <span role="status"> {refusalText(clock.refused)}</span>}
         </div>
       )}
+      {loaded.state === "failed" && <p role="alert">{TEXT[loaded.text]}</p>}
+      {pedigree.state === "failed" && <p role="alert">{TEXT[pedigree.text]}</p>}
       {!house.morning && <p>{TEXT.house_before_morning}</p>}
       <Plan house={house} names={names} />
       {pedigree.state === "ready" && house.persons.length > 0 && (
@@ -448,9 +498,16 @@ export function HousePage({ run, household }: { run: string; household: string }
 
 /** On a person's page, the way to its household's house: there if it has one, else "Ins
  * Haus", which moves the household in (an input, ADR-0024) and opens the house. */
-export function HouseLink({ run, household }: { run: string; household: number }) {
-  const [state, setState] = useState<"asking" | "in" | "out" | "moving">("asking");
+export function HouseLink({ run, household, members }: { run: string; household: number; members: number }) {
+  const [state, setState] = useState<"asking" | "in" | "out" | "moving" | "failed">("asking");
   const [refused, setRefused] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     let live = true;
     setState("asking");
@@ -463,7 +520,7 @@ export function HouseLink({ run, household }: { run: string; household: number }
           setState(listed ? "in" : "out");
         }
       })
-      .catch(() => undefined);
+      .catch(() => live && setState("failed"));
     return () => {
       live = false;
     };
@@ -472,6 +529,9 @@ export function HouseLink({ run, household }: { run: string; household: number }
   if (state === "asking") {
     return null;
   }
+  if (state === "failed") {
+    return <p>{TEXT.failed_network}</p>;
+  }
   if (state === "in") {
     return (
       <p>
@@ -479,16 +539,25 @@ export function HouseLink({ run, household }: { run: string; household: number }
       </p>
     );
   }
+  if (members > LARGEST) {
+    return null;
+  }
   const moveIn = () => {
     setState("moving");
     setRefused(null);
     postJson(`/api/runs/${run}/input`, { move_in: { household } }, INPUT)
       .then(() => {
-        location.hash = to;
+        // Only while this page is still open (review): an answer after the person left it
+        // does not pull them back.
+        if (mounted.current) {
+          location.hash = to;
+        }
       })
       .catch((error: unknown) => {
-        setState("out");
-        setRefused(inputFailureText(error));
+        if (mounted.current) {
+          setState("out");
+          setRefused(inputFailureText(error));
+        }
       });
   };
   return (

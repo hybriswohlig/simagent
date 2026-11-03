@@ -317,6 +317,7 @@ export const TEXT = {
   house_why: "Warum?",
   house_why_chosen: "Gewählt: {what}, {points} Punkte.",
   house_why_none: "Nichts brachte genug ({enough} Punkte nötig).",
+  house_why_waits: "Das Beste war besetzt: {what}, {points} Punkte; darauf wird gewartet.",
   house_why_behind: "Dahinter: {list}.",
   house_why_offer: "{what} {points}",
   house_why_busy: "(besetzt)",
