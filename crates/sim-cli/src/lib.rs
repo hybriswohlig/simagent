@@ -312,6 +312,17 @@ pub fn world_answer(world: &World) -> Result<serde_json::Value, CliError> {
     }))
 }
 
+/// The households with a house (ADR-0021, addendum of 2026-11-03), in ascending id, each with
+/// its house and whether its first morning has come.
+pub fn houses_answer(world: &World) -> serde_json::Value {
+    let households: Vec<serde_json::Value> = (world.state().house().households.iter())
+        .map(|(id, moved)| {
+            serde_json::json!({"household": id.get(), "house": moved.house, "morning": moved.morning})
+        })
+        .collect();
+    serde_json::json!({"format": "simagent.view.houses", "version": 1, "households": households})
+}
+
 /// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
 /// drawing with each object's places and the names of its offers, and each person with needs
 /// in ascending SimId with where it is, what it does and until when, and its needs at the

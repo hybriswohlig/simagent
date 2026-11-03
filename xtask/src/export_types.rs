@@ -542,6 +542,24 @@ pub fn descriptor() -> Vec<Named> {
             fields: vec![field("t", Integer), field("date", Ref("CalendarDate"))],
         },
         Named {
+            name: "HousesAnswer",
+            doc: "`GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come.",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.houses"])),
+                field("version", Integer),
+                field("households", list(Ref("HousesEntry"))),
+            ],
+        },
+        Named {
+            name: "HousesEntry",
+            doc: "A household with a house.",
+            fields: vec![
+                field("household", Integer),
+                field("house", Text),
+                field("morning", Bool),
+            ],
+        },
+        Named {
             name: "HouseAnswer",
             doc: "`GET /api/runs/{run}/house/{household}`: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03).",
             fields: vec![

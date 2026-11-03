@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { getJsonOrRefusal, postJson } from "./api.js";
+import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { dateText } from "./dates.js";
-import type { AdvanceAnswer, HouseAnswer, HouseLayout, HousePerson, Pedigree, PeopleAnswer } from "./generated/export.js";
+import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName } from "./names.js";
 import { usePedigree } from "./person.js";
@@ -12,11 +12,21 @@ import { Portrait } from "./portrait.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
 import { plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
-import { KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
+import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
 const HOUSE = { format: "simagent.view.house", version: 1 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
+const EVENTS = { format: "simagent.view.events", version: 2 } as const;
+const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
+const WHY = { format: "simagent.view.why", version: 1 } as const;
+const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
+  hunger: "need_hunger",
+  energy: "need_energy",
+  bladder: "need_bladder",
+  hygiene: "need_hygiene",
+  fun: "need_fun",
+};
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -80,6 +90,123 @@ function doing(layout: HouseLayout, person: HousePerson): string {
     .replace("{at}", kind?.[1] ?? object?.kind ?? "");
   const until = action.until === null ? "" : ` ${TEXT.house_until.replace("{time}", timeOfDay(action.until.date.second_of_day))}`;
   return `${does}${until}`;
+}
+
+/** What an offer of an object is, as a person does it: "isst am Esstisch". */
+function offerWords(layout: HouseLayout, object: number, offer: number): string {
+  const drawn = layout.objects[object];
+  const name = drawn?.offers[offer] ?? "";
+  const kind = KIND_WORDS[drawn?.kind ?? ""];
+  return TEXT.house_does.replace("{offer}", OFFER_WORDS[name] ?? name).replace("{at}", kind?.[1] ?? drawn?.kind ?? "");
+}
+
+/** The line of a house entry of the day, or null for one the day leaves out (an arrival). */
+function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: boolean } | null {
+  const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
+  const fields = body as { [key: string]: unknown };
+  const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
+  switch (code) {
+    case "core:action_started":
+      return { text: TEXT.house_choice.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
+    case "core:action_ended": {
+      const codes: Record<string, string> = CODES;
+      const reason = codes[`end_reason ${String(fields["reason"])}`] ?? String(fields["reason"]);
+      return { text: TEXT.house_end.replace("{why}", reason), choice: false };
+    }
+    case "core:idle": {
+      const waits = fields["waits"];
+      if (typeof waits === "number") {
+        const kind = KIND_WORDS[layout.objects[waits]?.kind ?? ""];
+        return { text: TEXT.house_waits.replace("{object}", kind?.[0] ?? String(waits)), choice: true };
+      }
+      return { text: TEXT.house_idle, choice: true };
+    }
+    case "core:need_critical": {
+      const need = NEED_KEYS[String(fields["need"])];
+      return {
+        text: TEXT.house_critical.replace("{need}", need === undefined ? String(fields["need"]) : TEXT[need]).replace("{level}", String(number("level"))),
+        choice: false,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/** "Warum?" for a choice: what it chose with its points and what came behind, from the
+ * server (ADR-0026 section 6). */
+function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: number }) {
+  const [why, setWhy] = useState<WhyAnswer | null | "failed">(null);
+  const ask = () => {
+    getJson(`/api/runs/${run}/why/${entry}`, WHY)
+      .then((json) => setWhy(json as unknown as WhyAnswer))
+      .catch(() => setWhy("failed"));
+  };
+  if (why === null) {
+    return (
+      <button type="button" onClick={ask}>
+        {TEXT.house_why}
+      </button>
+    );
+  }
+  if (why === "failed") {
+    return <span>{TEXT.failed_network}</span>;
+  }
+  const points = (n: number) => n.toLocaleString("de-DE");
+  const chosen = why.chosen;
+  const behind = why.offers
+    .filter((offer) => chosen === null || offer.object !== chosen.object || offer.offer !== chosen.offer)
+    .slice(0, chosen === null ? 4 : 3)
+    .map((offer) =>
+      `${TEXT.house_why_offer.replace("{what}", offerWords(layout, offer.object, offer.offer)).replace("{points}", points(offer.points))}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`,
+    )
+    .join(", ");
+  return (
+    <div style={{ marginLeft: "1em", color: "#444" }}>
+      {why.commanded ? `${TEXT.house_why_commanded} ` : ""}
+      {chosen === null
+        ? TEXT.house_why_none.replace("{enough}", points(why.enough))
+        : TEXT.house_why_chosen
+            .replace("{what}", offerWords(layout, chosen.object, chosen.offer))
+            .replace("{points}", points(chosen.points))}{" "}
+      {behind === "" ? "" : TEXT.house_why_behind.replace("{list}", behind)}
+    </div>
+  );
+}
+
+/** A person's house entries of the day so far, from the run's log, each choice with its
+ * "Warum?". */
+function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number }) {
+  const [items, setItems] = useState<readonly EventItem[]>([]);
+  const dayStart = house.at.t - house.at.date.second_of_day;
+  useEffect(() => {
+    let live = true;
+    getJson(`/api/runs/${run}/events?subject=${sim}&from=${dayStart}`, EVENTS)
+      .then((json) => live && setItems((json as unknown as EventsAnswer).events))
+      .catch(() => live && setItems([]));
+    return () => {
+      live = false;
+    };
+  }, [run, sim, house.at.t]);
+  const lines = items
+    .map((item) => [item, dayLine(house.layout, item)] as const)
+    .filter((pair): pair is readonly [EventItem, { text: string; choice: boolean }] => pair[1] !== null);
+  if (lines.length === 0) {
+    return null;
+  }
+  return (
+    <details>
+      <summary>{TEXT.house_today}</summary>
+      <ol style={{ paddingLeft: "1.2em" }}>
+        {lines.map(([item, line]) => (
+          <li key={item.entry.id}>
+            {timeOfDay(item.date.second_of_day)} {line.text}{" "}
+            {line.choice && <Why run={run} layout={house.layout} entry={item.entry.id} />}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 /** The floor plan from above, each floor beside the other, with the people where they are. */
@@ -192,6 +319,7 @@ function Resident({
             );
           })}
         </dl>
+        <Day run={run} house={house} sim={person.sim} />
       </div>
     </li>
   );
@@ -327,9 +455,15 @@ export function HouseLink({ run, household }: { run: string; household: number }
     let live = true;
     setState("asking");
     setRefused(null);
-    getJsonOrRefusal(`/api/runs/${run}/house/${household}`, HOUSE)
-      .then(() => live && setState("in"))
-      .catch((error: unknown) => live && failureCode(error) === "not_in_house" && setState("out"));
+    // The list of houses, not the house itself: a household without one is no error.
+    getJson(`/api/runs/${run}/houses`, HOUSES)
+      .then((json) => {
+        const listed = (json as unknown as HousesAnswer).households.some((entry) => entry.household === household);
+        if (live) {
+          setState(listed ? "in" : "out");
+        }
+      })
+      .catch(() => undefined);
     return () => {
       live = false;
     };

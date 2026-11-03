@@ -378,6 +378,20 @@ export type DatedSecond = {
   readonly date: CalendarDate;
 };
 
+/** `GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come. */
+export type HousesAnswer = {
+  readonly format: "simagent.view.houses";
+  readonly version: number;
+  readonly households: HousesEntry[];
+};
+
+/** A household with a house. */
+export type HousesEntry = {
+  readonly household: number;
+  readonly house: string;
+  readonly morning: boolean;
+};
+
 /** `GET /api/runs/{run}/house/{household}`: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
