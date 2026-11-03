@@ -161,3 +161,17 @@ fn ties_and_taken_objects() {
     assert_eq!(best(&all, &[2, 3, 4, 6]), None);
     assert_eq!(best(&[], &[]), None);
 }
+
+/// The sleeping rates follow the age band (review): in the bedroom with energy at 0 the bed
+/// fills 12 h at +60 for 8, +70 for 15, +85 for 30 and +80 for 70, so 720, 840, 1 000 (of
+/// 1 020) and 960; energy at 0 is critical, `151 · 10⁹`, and the bed stands in the room, 5 s.
+#[test]
+fn the_sleeping_rates_follow_the_age_band() {
+    let houses = houses();
+    for (age, gain) in [(8, 720), (15, 840), (30, 1_000), (70, 960)] {
+        let scored = score(flat(&houses), &houses, age, [700, 0, 700, 700, 700], 4);
+        let bed = scored.iter().find(|scored| scored.object == 7);
+        let expected = 151_000_000_000 + 1_000 * gain - 250;
+        assert_eq!(bed.map(|bed| bed.points), Some(expected), "{age}");
+    }
+}
