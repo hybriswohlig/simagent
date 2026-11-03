@@ -2591,17 +2591,9 @@ fn dated(t: i64) -> Value {
     json!({"t": t, "date": date(t)})
 }
 
-/// The house of a household over HTTP (ADR-0021, addendum of 2026-11-03): none before it moves
-/// in; moved in, its house without persons until its first morning; the steps of ten minutes,
-/// an hour and to the next morning; at 6:00 both walk (she, the smaller SimId, to the toilet
-/// 3 s away, he finds it taken and goes to the table, 4 s), with the morning values; at 6:10
-/// both eat at the table, she from 6:02:40 on place 1 (hunger 596 on arrival, +1 800 an hour:
-/// 816), he from 6:00:04 on place 0 (600 + 298), each for 20 minutes; energy 900 − 6.7,
-/// her bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, hygiene 700 − 5, fun 800 − 10, all
-/// truncated (ADR-0026).
-#[test]
-fn a_house_over_http() {
-    let (runs, web) = fixture("house");
+/// The server over the run `couple` of the scenario `COUPLE`, and the couple's household.
+fn couple(name: &str) -> (Server, Value) {
+    let (runs, web) = fixture(name);
     let base = runs.parent().expect("a parent").to_path_buf();
     let scenario = base.join("couple.json");
     write(&scenario, COUPLE.as_bytes());
@@ -2615,9 +2607,23 @@ fn a_house_over_http() {
     ])
     .expect("runs");
     let server = start(&runs, &web);
-    let port = server.port;
-    let (_, _, pedigree) = get(port, "/api/runs/couple/pedigree");
+    let (_, _, pedigree) = get(server.port, "/api/runs/couple/pedigree");
     let home = json_of(&pedigree)["households"][0]["household"].clone();
+    (server, home)
+}
+
+/// The house of a household over HTTP (ADR-0021, addendum of 2026-11-03): none before it moves
+/// in; moved in, its house without persons until its first morning; the steps of ten minutes,
+/// an hour and to the next morning; at 6:00 both walk (she, the smaller SimId, to the toilet
+/// 3 s away, he finds it taken and goes to the table, 4 s), with the morning values; at 6:10
+/// both eat at the table, she from 6:02:40 on place 1 (hunger 596 on arrival, +1 800 an hour:
+/// 816), he from 6:00:04 on place 0 (600 + 298), each for 20 minutes; energy 900 − 6.7,
+/// her bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, hygiene 700 − 5, fun 800 − 10, all
+/// truncated (ADR-0026).
+#[test]
+fn a_house_over_http() {
+    let (server, home) = couple("house");
+    let port = server.port;
     let path = format!("/api/runs/couple/house/{home}");
     let (status, _, body) = get(port, &path);
     assert_eq!((status, code_of(&body)), (404, "not_in_house".to_owned()));
@@ -2702,4 +2708,78 @@ fn a_house_over_http() {
     // From 7:10 the next morning is tomorrow's, and from 6:00 itself too.
     step("morning", MORNING + DAY);
     step("morning", MORNING + 2 * DAY);
+}
+
+/// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): the first
+/// choices of the couple at 6:00 in the hall at the morning values, recomputed (the points by
+/// hand in `sim-core/tests/house_choice.rs`): the toilet 249 850, the table 159 800, the
+/// shower 89 850, the fridge 79 800, television and bookshelf 39 850, the sofa 9 850, the beds
+/// 9 750; she takes the toilet, for him it is taken and he takes the table. Any other entry
+/// is no choice.
+#[test]
+fn why_over_http() {
+    let (server, home) = couple("why");
+    let port = server.port;
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
+    let morning = r#"{"step":"morning"}"#;
+    assert_eq!(post(port, "/api/runs/couple/advance", morning).0, 200);
+    let starts = |sim: u64| -> Vec<u64> {
+        let path = format!("/api/runs/couple/events?subject={sim}&from={MORNING}");
+        let (_, _, body) = get(port, &path);
+        (json_of(&body)["events"].as_array().expect("events").iter())
+            .filter(|row| row["entry"]["payload"].get("core:action_started").is_some())
+            .map(|row| row["entry"]["id"].as_u64().expect("an id"))
+            .collect()
+    };
+    let offers = |busy: Option<u64>| {
+        let points = [
+            (5, 249_850),
+            (0, 159_800),
+            (6, 89_850),
+            (1, 79_800),
+            (3, 39_850),
+            (4, 39_850),
+            (2, 9_850),
+            (7, 9_750),
+            (8, 9_750),
+        ];
+        (points.iter())
+            .map(|&(object, points)| {
+                json!({"object": object, "offer": 0, "points": points, "busy": Some(object) == busy})
+            })
+            .collect::<Vec<_>>()
+    };
+    for (sim, chosen, busy) in [(1, (5, 249_850), None), (2, (0, 159_800), Some(5))] {
+        let entry = starts(sim)[0];
+        let (status, _, body) = get(port, &format!("/api/runs/couple/why/{entry}"));
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+        assert_eq!(
+            json_of(&body),
+            json!({
+                "format": "simagent.view.why",
+                "version": 1,
+                "entry": entry,
+                "sim": sim,
+                "at": dated(MORNING),
+                "enough": 40_000,
+                "commanded": false,
+                "chosen": {"object": chosen.0, "offer": 0, "points": chosen.1},
+                "offers": offers(busy),
+            }),
+            "{sim}"
+        );
+    }
+    for path in [
+        "/api/runs/couple/why/1",
+        "/api/runs/couple/why/999999",
+        "/api/runs/couple/why/x",
+    ] {
+        let (status, _, body) = get(port, path);
+        assert_eq!(
+            (status, code_of(&body)),
+            (404, "not_a_choice".to_owned()),
+            "{path}"
+        );
+    }
 }
