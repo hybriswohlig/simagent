@@ -391,6 +391,10 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:moved_in": "Ins Haus: {all}",
   "payload core:moved_out": "Aus dem Haus: {all}",
   "payload core:day_started": "{0} beginnt den Tag im Haus",
+  "payload core:action_started": "{0} geht zu einem Möbel",
+  "payload core:reached": "{0} ist angekommen",
+  "payload core:action_ended": "{0} ist fertig",
+  "payload core:idle": "{0} tut nichts",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",
@@ -538,4 +542,7 @@ export const CODES: { readonly [code: string]: string } = {
   "foster foster_father": "Pflegevater",
   "foster foster_daughter": "Pflegetochter",
   "foster foster_son": "Pflegesohn",
+  "end_reason done": "fertig",
+  "end_reason full": "Bedürfnis erfüllt",
+  "end_reason left": "Haus verlassen",
 };

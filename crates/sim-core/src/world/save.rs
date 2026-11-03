@@ -15,6 +15,7 @@ use crate::canonical::{self, LoadedState, PROJECTION_VERSION, QueueEntry, YearHa
 use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
+use crate::house::state::Place;
 use crate::ids::{Counter, HouseholdId, PartnershipId, SimId};
 use crate::input::{Input, InputRecord, PoolStart, Start};
 use crate::kinship::{Kin, KinshipCache};
@@ -313,20 +314,20 @@ pub(super) fn pending_index(
             | EventPayload::Immigration { .. } => {
                 continue;
             }
-            // The first morning has its own index; the others are refused by the loader
-            // until their handlers come (ADR-0024, addendum of 2026-11-02), their slots
-            // come with them.
+            // The first morning has its own index, a choice is never pending in a save; the
+            // others are refused by the loader until their handlers come (ADR-0024, addendum
+            // of 2026-11-02), their slots come with them.
             EventPayload::HouseMorning { .. }
             | EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
             | EventPayload::Depart { .. }
             | EventPayload::Wake { .. }
-            | EventPayload::Arrive { .. }
-            | EventPayload::ActionEnd { .. }
             | EventPayload::Decide { .. } => continue,
             EventPayload::NeedCrossing { sim, need, level } => {
                 (*sim, Slot::Crossing(*need, *level))
             }
+            EventPayload::Arrive { sim } => (*sim, Slot::Arrive),
+            EventPayload::ActionEnd { sim } => (*sim, Slot::End),
             EventPayload::Birthday { sim } => (*sim, Slot::Birthday),
             EventPayload::Death { sim, cause } => (*sim, Slot::Death(*cause)),
             EventPayload::ConceptionAttempt { woman } => (*woman, Slot::Conception),
@@ -2420,6 +2421,23 @@ fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + 
     })
 }
 
+/// The second the action of a person at its object ends, from its offer and needs.
+fn action_due(loaded: &LoadedState, data: &Data, sim: SimId) -> Option<SimTime> {
+    let person = loaded.house.sims.get(&sim)?;
+    let (Place::Room(_), Some(action)) = (person.place, person.action) else {
+        return None;
+    };
+    let household = loaded.sims.get(&sim)?.household;
+    let houses = data.houses()?;
+    let house = houses.house(&loaded.house.households.get(&household)?.house)?;
+    let object = house.def().objects.get(usize::from(action.object))?;
+    let offer = houses
+        .kind(&object.kind)?
+        .offers
+        .get(usize::from(action.offer))?;
+    crate::house::state::action_end(person, offer)
+}
+
 /// One year end series, due at the next year end; one birthday per living sim, due at
 /// its next anniversary; per living sim and cause of death one death, due when the
 /// budget for that cause runs out, and none where it never does; per living sim and
@@ -2441,6 +2459,8 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut onsets = BTreeSet::new();
     let mut mornings = BTreeSet::new();
     let mut crossings = BTreeSet::new();
+    let mut arrivals = BTreeSet::new();
+    let mut ends = BTreeSet::new();
     // Per crossing: the sim, the insertion number, the need and the level downwards.
     let mut planned_crossings = Vec::new();
     // The first morning of a household in a house comes at the first 6:00 after the clock.
@@ -2473,13 +2493,27 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 planned_crossings.push((*sim, entry.seq, (*need, Reverse(*level))));
                 entry.period.is_none() && crossings.insert((*sim, *need, *level, entry.time))
             }
-            // No handler plans these yet (ADR-0024, addendum of 2026-11-02).
+            // Once per person walking to the object of its action, at the walk's end.
+            EventPayload::Arrive { sim } => {
+                let person = loaded.house.sims.get(sim);
+                let due = person.and_then(|person| match (person.place, person.action) {
+                    (Place::Walking { arrive, .. }, Some(_)) => Some(arrive),
+                    _ => None,
+                });
+                entry.period.is_none() && arrivals.insert(*sim) && due == Some(entry.time)
+            }
+            // Once per person at its object, when its action ends (ADR-0026 section 4).
+            EventPayload::ActionEnd { sim } => {
+                entry.period.is_none()
+                    && ends.insert(*sim)
+                    && action_due(loaded, rules.data, *sim) == Some(entry.time)
+            }
+            // A choice runs in the second it was planned for (ADR-0026 section 3); no handler
+            // plans the others yet (ADR-0024, addendum of 2026-11-02).
             EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
             | EventPayload::Depart { .. }
             | EventPayload::Wake { .. }
-            | EventPayload::Arrive { .. }
-            | EventPayload::ActionEnd { .. }
             | EventPayload::Decide { .. } => false,
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
@@ -2655,10 +2689,25 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     planned_crossings.sort_unstable();
     let crossings_in_order =
         (planned_crossings.windows(2)).all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
+    // Everyone walking walks to the object of an action and arrives; everyone at its object
+    // ends, unless after the end of time.
+    let all_walks_planned =
+        loaded
+            .house
+            .sims
+            .iter()
+            .all(|(sim, person)| match (person.place, person.action) {
+                (Place::Walking { .. }, action) => action.is_some() && arrivals.contains(sim),
+                (Place::Room(_), Some(_)) => {
+                    ends.contains(sim) || action_due(loaded, rules.data, *sim).is_none()
+                }
+                _ => true,
+            });
     year_end_seen
         && all_mornings_planned
         && crossings == due_crossings
         && crossings_in_order
+        && all_walks_planned
         && round_seen
         && emigration_seen == rules.capacity.is_some()
         && immigration_seen == rules.pool.immigration.is_some()

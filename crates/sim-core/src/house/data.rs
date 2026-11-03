@@ -124,6 +124,12 @@ impl OfferDef {
         }
     }
 
+    /// Whether the offer sets the rate of `need`: a sleeping offer sets all, any other those
+    /// it names. A set need's sample is written down when the action begins and ends.
+    pub fn sets(&self, need: Need) -> bool {
+        self.sleep || self.rates.contains_key(&need)
+    }
+
     /// Whether the offer is open at `age` and raises `need` there.
     pub fn raises(&self, rates: &NeedRates, need: Need, age: u8) -> bool {
         let open = (self.min_age..=self.max_age).contains(&age);
@@ -141,6 +147,9 @@ impl OfferDef {
         }
         if self.min_age > self.max_age || self.max_age > OLDEST {
             return Err(HouseError::OfferAges);
+        }
+        if !self.sleep && self.rates.is_empty() {
+            return Err(HouseError::OfferRates);
         }
         // Full only by a need that the offer raises at every age with needs it is open to.
         if let Some(need) = self.until_full {
@@ -195,6 +204,8 @@ pub enum HouseError {
     OfferAges,
     /// An offer full by a need it does not raise at every age it is open to.
     OfferFull,
+    /// An offer that sets no rate: not sleeping and naming none.
+    OfferRates,
     /// Two houses with one id.
     Duplicate,
     /// A house for nobody, two houses for as many, or one for more than eight.
@@ -233,6 +244,7 @@ impl fmt::Display for HouseError {
             HouseError::OfferLength => "house.offer_length",
             HouseError::OfferAges => "house.offer_ages",
             HouseError::OfferFull => "house.offer_full",
+            HouseError::OfferRates => "house.offer_rates",
             HouseError::Duplicate => "house.duplicate",
             HouseError::Capacity => "house.capacity",
             HouseError::Entrance => "house.entrance",

@@ -402,17 +402,24 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::house::on_morning(&mut self.domain, &self.data, household, &mut ctx);
             }
             EventPayload::NeedCrossing { sim, need, level } => {
-                state::house::on_crossing(&mut self.domain, sim, need, level);
+                let crossing = (sim, need, level);
+                state::action::on_crossing(&mut self.domain, &self.data, crossing, &mut ctx);
+            }
+            EventPayload::Decide { sim } => {
+                state::action::on_decide(&mut self.domain, &self.data, sim, &mut ctx);
+            }
+            EventPayload::Arrive { sim } => {
+                state::action::on_arrive(&mut self.domain, &self.data, sim, &mut ctx);
+            }
+            EventPayload::ActionEnd { sim } => {
+                state::action::on_action_end(&mut self.domain, &self.data, sim, &mut ctx);
             }
             // Nothing plans a house event before its handler comes, and the loader refuses
             // one (ADR-0024, addendum of 2026-11-02).
             EventPayload::DayPlan { .. }
             | EventPayload::Return { .. }
             | EventPayload::Depart { .. }
-            | EventPayload::Wake { .. }
-            | EventPayload::Arrive { .. }
-            | EventPayload::ActionEnd { .. }
-            | EventPayload::Decide { .. } => panic!("invariant house.orphan_event"),
+            | EventPayload::Wake { .. } => panic!("invariant house.orphan_event"),
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
     }

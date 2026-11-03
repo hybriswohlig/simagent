@@ -631,10 +631,14 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::MovedIn { .. } => "core:moved_in",
         LogPayload::MovedOut { .. } => "core:moved_out",
         LogPayload::DayStarted { .. } => "core:day_started",
+        LogPayload::ActionStarted { .. } => "core:action_started",
+        LogPayload::Reached { .. } => "core:reached",
+        LogPayload::ActionEnded { .. } => "core:action_ended",
+        LogPayload::Idle { .. } => "core:idle",
     }
 }
 
-const LOG_KINDS: [&str; 20] = [
+const LOG_KINDS: [&str; 24] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -655,10 +659,22 @@ const LOG_KINDS: [&str; 20] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
+    "core:action_started",
+    "core:reached",
+    "core:action_ended",
+    "core:idle",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 3] = ["core:moved_in", "core:moved_out", "core:day_started"];
+const HOUSE_LOGS: [&str; 7] = [
+    "core:moved_in",
+    "core:moved_out",
+    "core:day_started",
+    "core:action_started",
+    "core:reached",
+    "core:action_ended",
+    "core:idle",
+];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
 fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
@@ -718,7 +734,11 @@ fn golden_scenarios_cover_every_kind() {
             "log core:time_together",
             "log core:moved_in",
             "log core:moved_out",
-            "log core:day_started"
+            "log core:day_started",
+            "log core:action_started",
+            "log core:reached",
+            "log core:action_ended",
+            "log core:idle"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, and nobody moves into a house"
@@ -773,7 +793,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 20);
+    assert_eq!(logs.len(), 24);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -862,7 +882,11 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:time_together",
             "log core:moved_in",
             "log core:moved_out",
-            "log core:day_started"
+            "log core:day_started",
+            "log core:action_started",
+            "log core:reached",
+            "log core:action_ended",
+            "log core:idle"
         ]
     );
 }

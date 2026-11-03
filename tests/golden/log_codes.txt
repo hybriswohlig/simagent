@@ -24,6 +24,10 @@ payload 16 core:time_together
 payload 17 core:moved_in
 payload 18 core:moved_out
 payload 19 core:day_started
+payload 20 core:action_started
+payload 21 core:reached
+payload 22 core:action_ended
+payload 23 core:idle
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -169,3 +173,6 @@ foster 0 foster_mother
 foster 1 foster_father
 foster 2 foster_daughter
 foster 3 foster_son
+end_reason 0 done
+end_reason 1 full
+end_reason 2 left

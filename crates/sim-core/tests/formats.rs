@@ -23,7 +23,7 @@ use sim_core::input::{
     InputStamp, RejectCode, Start,
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
-use sim_core::log::{Cause, Causes, DrawRef, LogEntry, LogPayload, PlanRef, Subject};
+use sim_core::log::{Cause, Causes, DrawRef, EndReason, LogEntry, LogPayload, PlanRef, Subject};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::presentation::kin::{Foster, KinWord};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
@@ -1047,6 +1047,31 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::DayStarted {
             needs: [600, 900, 500, 700, 800],
         },
+        LogPayload::ActionStarted {
+            house: DataId::new("core:flat").expect("valid"),
+            object: 5,
+            offer: 0,
+            slot: 0,
+            room: 0,
+            walk_secs: 3,
+            needs: [600, 900, 500, 700, 800],
+            busy: vec![1],
+            commanded: false,
+        },
+        LogPayload::Reached { object: 5 },
+        LogPayload::ActionEnded {
+            object: 5,
+            offer: 0,
+            reason: EndReason::Full,
+            needs: [596, 899, 1000, 699, 798],
+        },
+        LogPayload::Idle {
+            house: DataId::new("core:flat").expect("valid"),
+            room: 2,
+            needs: [990, 900, 950, 700, 800],
+            busy: Vec::new(),
+            waits: None,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1070,7 +1095,11 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::TimeTogether { .. }
             | LogPayload::MovedIn { .. }
             | LogPayload::MovedOut { .. }
-            | LogPayload::DayStarted { .. } => {}
+            | LogPayload::DayStarted { .. }
+            | LogPayload::ActionStarted { .. }
+            | LogPayload::Reached { .. }
+            | LogPayload::ActionEnded { .. }
+            | LogPayload::Idle { .. } => {}
         }
     }
     payloads
@@ -1531,6 +1560,14 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(fosters.iter().map(|f| line("foster", f)));
+    // Why an action ended (ADR-0026 section 4).
+    let reasons = [EndReason::Done, EndReason::Full, EndReason::Left];
+    for reason in &reasons {
+        match reason {
+            EndReason::Done | EndReason::Full | EndReason::Left => {}
+        }
+    }
+    actual.extend(reasons.iter().map(|r| line("end_reason", r)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

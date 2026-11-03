@@ -81,6 +81,22 @@ impl NeedSample {
         self.at.checked_add(SimDuration::from_secs(secs))
     }
 
+    /// The first second at which the value is full: `at` if it is, otherwise
+    /// `at + ⌈3600 · (1000 − value) / rate⌉` for a rising value. None if it does not rise or
+    /// gets there only after the end of time.
+    pub fn full(self) -> Option<SimTime> {
+        if self.value >= FULL {
+            return Some(self.at);
+        }
+        if self.rate <= 0 {
+            return None;
+        }
+        let distance = i64::from(FULL - self.value) * 3600;
+        let speed = i64::from(self.rate);
+        self.at
+            .checked_add(SimDuration::from_secs((distance + speed - 1) / speed))
+    }
+
     /// The crossings of every threshold below the value, earliest first.
     pub fn crossings(self) -> impl Iterator<Item = (u16, SimTime)> {
         THRESHOLDS
@@ -197,6 +213,23 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn full_by_hand() {
+        // 500 at +12 000: 500 more in exactly 150 s; 990 needs 3 s (10 · 3600 / 12 000).
+        assert_eq!(NeedSample::new(500, t(7), 12_000).full(), Some(t(157)));
+        assert_eq!(NeedSample::new(990, t(0), 12_000).full(), Some(t(3)));
+        // 400 at +2 400: 900 s; 999 at +7: ⌈3600 / 7⌉ = 515 s.
+        assert_eq!(NeedSample::new(400, t(0), 2_400).full(), Some(t(900)));
+        assert_eq!(NeedSample::new(999, t(0), 7).full(), Some(t(515)));
+        assert_eq!(NeedSample::new(999, t(0), 7).value_at(t(514)), 999);
+        // Full already, still or falling, and beyond the end of time.
+        assert_eq!(NeedSample::new(1000, t(9), -40).full(), Some(t(9)));
+        assert_eq!(NeedSample::new(400, t(0), 0).full(), None);
+        assert_eq!(NeedSample::new(400, t(0), -10).full(), None);
+        let end = crate::time::MAX_ABS_SECS;
+        assert_eq!(NeedSample::new(0, t(end - 10), 1).full(), None);
     }
 
     #[test]

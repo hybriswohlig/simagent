@@ -59,6 +59,18 @@ fn needs() -> [NeedSample; 5] {
         .map(|(value, rate)| NeedSample::new(value, morning, rate))
 }
 
+/// The same with a child's awake energy (6 to 12).
+fn child_needs() -> [NeedSample; 5] {
+    let mut needs = needs();
+    needs[1] = NeedSample::new(900, needs[1].at(), -50);
+    needs
+}
+
+/// Fun at 800 ten minutes ago, rising by `rate` since: watching or reading from then on.
+fn fun_since(rate: i32) -> NeedSample {
+    NeedSample::new(800, t(NOW - 600), rate)
+}
+
 fn person(place: Place, action: Option<Action>) -> InHouse {
     InHouse {
         needs: needs(),
@@ -74,9 +86,9 @@ fn person(place: Place, action: Option<Action>) -> InHouse {
 
 /// The flat (rooms: hall 0, kitchen 1, living 2, bath 3, bedroom 4, kids 5; objects:
 /// table 0, fridge 1, sofa 2, tv 3, bookshelf 4, toilet 5, shower 6, bed 7, single bed 8,
-/// toy chest 9). Sim 2 watches television on place 0, sim 3 walks from the living room to
-/// the fridge, whose one place is so taken, and sim 1 idles in the living room waiting for
-/// the fridge.
+/// toy chest 9). Sim 2 watches television on place 0 (fun +400 for ten minutes), sim 3 (8)
+/// walks the 7 s from the living room to the fridge, whose one place is so taken, and sim 1
+/// idles in the living room waiting for the fridge.
 fn legal() -> HouseState {
     let tv = Action {
         object: 3,
@@ -92,8 +104,12 @@ fn legal() -> HouseState {
         from: 2,
         to: 1,
         depart: t(NOW - 3),
-        arrive: t(NOW + 3),
+        arrive: t(NOW + 4),
     };
+    let mut watching = person(Place::Room(2), Some(tv));
+    watching.needs[4] = fun_since(400);
+    let mut walking = person(walk, Some(fridge));
+    walking.needs = child_needs();
     HouseState {
         households: BTreeMap::from([(
             household(1),
@@ -104,8 +120,8 @@ fn legal() -> HouseState {
         )]),
         sims: BTreeMap::from([
             (sim(1), person(Place::Room(2), None)),
-            (sim(2), person(Place::Room(2), Some(tv))),
-            (sim(3), person(walk, Some(fridge))),
+            (sim(2), watching),
+            (sim(3), walking),
         ]),
         waits: BTreeMap::from([((household(1), 1), vec![(t(NOW - 60), sim(1))])]),
         holds: BTreeMap::new(),
@@ -245,7 +261,8 @@ fn places_and_actions_are_checked() {
         };
     });
     assert_eq!(astray, Err(Broken::Walk));
-    // Walking out instead of to the fridge, which sim 1 then no longer waits for.
+    // Walking out instead of to the fridge, which sim 1 then no longer waits for: to the
+    // entrance 3 s, out 5 s.
     let out = |to: u8| {
         checked(move |s| {
             s.waits.clear();
@@ -255,12 +272,13 @@ fn places_and_actions_are_checked() {
                 from: 2,
                 to,
                 depart: t(NOW - 3),
-                arrive: t(NOW + 3),
+                arrive: t(NOW + 5),
             };
         })
     };
     assert_eq!(out(0), Ok(()));
     assert_eq!(out(1), Err(Broken::Walk));
+    // Reading (fun +300) or watching (+400) in the living room.
     let action = |object: u16, offer: u16, slot: u8| {
         checked(move |s| {
             let one = in_house(s, 1);
@@ -269,6 +287,7 @@ fn places_and_actions_are_checked() {
                 offer,
                 slot,
             });
+            one.needs[4] = fun_since(if object == 3 { 400 } else { 300 });
             s.waits.clear();
         })
     };
@@ -283,6 +302,63 @@ fn places_and_actions_are_checked() {
         s.holds.insert((household(1), 3, 0), sim(1));
     });
     assert_eq!(held, Err(Broken::SlotTaken));
+}
+
+/// A walk is as long as the house makes it and began before the clock; the rates are the
+/// awake ones, at an object those the offer sets the offer's, written down together, each by
+/// the age band of its second (ADR-0026 sections 1 and 4).
+#[test]
+fn walks_and_rates_are_checked() {
+    let walk = |depart: i64, arrive: i64| {
+        checked(move |s| {
+            in_house(s, 3).place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(depart),
+                arrive: t(arrive),
+            };
+        })
+    };
+    assert_eq!(walk(NOW - 1, NOW + 6), Ok(()));
+    assert_eq!(walk(NOW - 3, NOW + 5), Err(Broken::Walk));
+    assert_eq!(walk(NOW, NOW + 7), Err(Broken::Walk));
+    let rate = |change: fn(&mut HouseState)| checked(change);
+    // Idle with another hunger rate; a child with an adult's energy.
+    let hungry = rate(|s| in_house(s, 1).needs[0] = NeedSample::new(600, t(NOW - 60), -90));
+    assert_eq!(hungry, Err(Broken::Rate));
+    let grown = rate(|s| in_house(s, 3).needs[1] = NeedSample::new(900, t(NOW - 60), -40));
+    assert_eq!(grown, Err(Broken::Rate));
+    // At 40 at that second sim 1 has the adult rate; one written when she was 6 the child's.
+    let young = rate(|s| {
+        let at = t(NOW - 34 * YEAR.as_secs());
+        in_house(s, 1).needs[1] = NeedSample::new(900, at, -50);
+    });
+    assert_eq!(young, Ok(()));
+    // Watching with fun at the awake rate, or with hunger rising.
+    let bored = rate(|s| in_house(s, 2).needs[4] = NeedSample::new(800, t(NOW - 60), -60));
+    assert_eq!(bored, Err(Broken::Rate));
+    let fed = rate(|s| in_house(s, 2).needs[0] = NeedSample::new(600, t(NOW - 60), 400));
+    assert_eq!(fed, Err(Broken::Rate));
+    // Asleep in the bed every need has the sleeping rate of an adult, all from one second.
+    let asleep = |late: usize| {
+        checked(move |s| {
+            s.waits.clear();
+            let one = in_house(s, 1);
+            one.place = Place::Room(4);
+            one.action = Some(Action {
+                object: 7,
+                offer: 0,
+                slot: 0,
+            });
+            let rates = [-40, 85, -40, -10, 0];
+            for (at, need) in one.needs.iter_mut().enumerate() {
+                let since = if at == late { NOW - 60 } else { NOW - 600 };
+                *need = NeedSample::new(need.value(), t(since), rates[at]);
+            }
+        })
+    };
+    assert_eq!(asleep(5), Ok(()));
+    assert_eq!(asleep(3), Err(Broken::Rate));
 }
 
 #[test]
@@ -378,7 +454,7 @@ fn waiters_and_holds_are_checked() {
             from: 2,
             to: 0,
             depart: t(NOW - 3),
-            arrive: t(NOW + 3),
+            arrive: t(NOW + 5),
         };
     });
     assert_eq!(leaving, Err(Broken::Waiter));
