@@ -63,6 +63,12 @@ fn a_drawing_is_checked() {
     // A room or an object without area.
     assert_eq!(checked(|l| l["rooms"][1]["w"] = json!(0)), "layout.size");
     assert_eq!(checked(|l| l["objects"][0]["h"] = json!(-1)), "layout.size");
+    // A side below 1 cm (review: at 1e-20 it adds nothing to its start); 1 cm is fine.
+    assert_eq!(
+        checked(|l| l["objects"][0]["w"] = json!(1e-20)),
+        "layout.size"
+    );
+    assert_eq!(checked(|l| l["objects"][0]["w"] = json!(0.01)), "ok");
     // Two rooms of one floor overlapping: the kitchen 1 cm into the hall; on another floor
     // the same rectangle is fine, but then its door is no longer on a shared edge.
     assert_eq!(

@@ -220,6 +220,9 @@ const SLACK: f64 = 0.001;
 /// Every number of a drawing lies from 0 to this, in metres (review: far out, a rectangle's
 /// end rounds back onto its start).
 const FARTHEST: f64 = 100.0;
+/// The smallest side of a room or an object, in metres (review: a side far below the slack
+/// adds nothing to its start).
+const SMALLEST: f64 = 0.01;
 /// How far a door between two rooms of a floor stays from either end of their shared wall.
 const DOOR_CLEARANCE: f64 = 0.4;
 
@@ -244,7 +247,8 @@ fn shared_wall(a: &RoomRect, b: &RoomRect) -> Option<(bool, f64, f64, f64)> {
 }
 
 /// The drawing `text` (named `name` in messages) checked against the text of its house file:
-/// the same house, the same rooms in order, each with an area; every number from 0 to 100 m;
+/// the same house, the same rooms in order, each side at least 1 cm; every number from 0 to
+/// 100 m;
 /// no two rooms of a floor overlap; the same doors, each between two rooms of a floor on
 /// their shared wall, at least 0.4 m from its ends, or a staircase between floors with its
 /// point in both rooms; the same objects in order, each with an area inside its room
@@ -263,7 +267,7 @@ pub fn layout_from(name: &str, text: &str, house: &str) -> Result<Layout, CliErr
     }
     let sizes = (layout.rooms.iter().map(|room| (room.w, room.h)))
         .chain(layout.objects.iter().map(|object| (object.w, object.h)));
-    if sizes.into_iter().any(|(w, h)| w <= 0.0 || h <= 0.0) {
+    if sizes.into_iter().any(|(w, h)| w < SMALLEST || h < SMALLEST) {
         return Err(refused("layout.size"));
     }
     let ends = (layout
