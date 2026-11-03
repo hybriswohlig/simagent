@@ -312,6 +312,106 @@ pub fn world_answer(world: &World) -> Result<serde_json::Value, CliError> {
     }))
 }
 
+/// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
+/// drawing with each object's places and the names of its offers, and each person with needs
+/// in ascending SimId with where it is, what it does and until when, and its needs at the
+/// clock. `None` for a household without a house.
+pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
+    use sim_core::house::state::{Place, action_end};
+    let state = world.state();
+    let Ok(household) = sim_core::ids::HouseholdId::try_from(household) else {
+        return Ok(None);
+    };
+    let Some(moved) = state.house().households.get(&household) else {
+        return Ok(None);
+    };
+    let broken = |what: &str| CliError::new("save_rejected", format!("the house: {what}"));
+    let houses = state
+        .data()
+        .houses()
+        .ok_or_else(|| broken("no house data"))?;
+    let house = houses
+        .house(&moved.house)
+        .ok_or_else(|| broken("an unknown house"))?;
+    let layouts = data::layouts()?;
+    let layout = (layouts.get(&moved.house))
+        .ok_or_else(|| CliError::new("data_rejected", "a house without a drawing"))?;
+    let names = data::offer_names()?;
+    let objects: Vec<serde_json::Value> = (layout.objects.iter())
+        .map(|object| {
+            let slots = houses.kind(&object.kind).map_or(0, |kind| kind.slots);
+            serde_json::json!({
+                "kind": object.kind,
+                "room": object.room,
+                "x": object.x,
+                "y": object.y,
+                "w": object.w,
+                "h": object.h,
+                "slots": slots,
+                "offers": names.get(&object.kind).cloned().unwrap_or_default(),
+            })
+        })
+        .collect();
+    let at = world.closed_through();
+    let mut persons = Vec::new();
+    for (&sim, person) in &state.house().sims {
+        if state.household_of(sim) != Some(household) {
+            continue;
+        }
+        let place = match person.place {
+            Place::Room(room) => serde_json::json!({"room": room}),
+            Place::Walking {
+                from,
+                to,
+                depart,
+                arrive,
+            } => serde_json::json!({"walking": {
+                "from": from,
+                "to": to,
+                "depart": dated(depart),
+                "arrive": dated(arrive),
+            }}),
+            // Away comes with work and school, in version 2.
+            Place::Away => return Err(broken("a person away")),
+        };
+        let action = match person.action {
+            None => serde_json::Value::Null,
+            Some(action) => {
+                let offer = (house.def().objects.get(usize::from(action.object)))
+                    .and_then(|object| houses.kind(&object.kind))
+                    .and_then(|kind| kind.offers.get(usize::from(action.offer)))
+                    .ok_or_else(|| broken("an unknown offer"))?;
+                let until = match person.place {
+                    Place::Room(_) => action_end(person, offer).map(dated),
+                    _ => None,
+                };
+                serde_json::json!({
+                    "object": action.object,
+                    "offer": action.offer,
+                    "slot": action.slot,
+                    "until": until,
+                })
+            }
+        };
+        persons.push(serde_json::json!({
+            "sim": sim.get(),
+            "place": place,
+            "action": action,
+            "needs": person.needs.map(|need| need.value_at(at)),
+        }));
+    }
+    Ok(Some(serde_json::json!({
+        "format": "simagent.view.house",
+        "version": 1,
+        "at": dated(at),
+        "household": household.get(),
+        "house": moved.house,
+        "morning": moved.morning,
+        "layout": {"rooms": layout.rooms, "doors": layout.doors, "objects": objects},
+        "persons": persons,
+    })))
+}
+
 /// For each year X from 1 to the year of the clock, the switch of the hereditary diseases a
 /// fork from X keeps: the start's, changed by every input `fork_into` takes over (stamped
 /// before `fork_stamp(X)`), in the order of the log.
