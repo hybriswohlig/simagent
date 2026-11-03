@@ -1311,9 +1311,10 @@ class Data:
     ADR-0023 section 3) the data hold the templates of `TriggerShock` (`shocks`, by ID) and
     the data hash ends with their postcard (`data_reference.shocks_suffix`), after the pool's
     if there is one; without templates (None or none at all) nothing is appended and every
-    shock is unknown. With `houses` (`(needs, kinds, houses)` as `data_reference.house_files`
-    reads them; ADR-0025) the data hash ends with their postcard (`data_reference.houses_suffix`)
-    after the templates'; without, nothing is appended."""
+    shock is unknown. With `houses` (`(needs, day, kinds, houses)` as
+    `data_reference.house_files` reads them; ADR-0025, ADR-0024 section 4) the data hash ends
+    with their postcard (`data_reference.houses_suffix`) after the templates'; without, nothing
+    is appended."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None):
         definitions = data_reference.definitions_bytes(demography, calibration, genome_map)

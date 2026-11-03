@@ -19,6 +19,7 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 const SHOCKS: &str = include_str!("../../../data/shocks.json");
 const NEEDS: &str = include_str!("../../../data/house/needs.json");
+const DAY: &str = include_str!("../../../data/house/day.json");
 const KINDS: &str = include_str!("../../../data/house/kinds.json");
 /// The houses with their names in the messages, in the order of the file names.
 const HOUSES: [(&str, &str); 3] = [
@@ -120,7 +121,7 @@ pub fn data_with_settings(text: &str) -> Result<Data, CliError> {
 fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
     let definitions = definitions_from(demography, calibration, GENOME_MAP)?;
     let shocks = shocks_from(SHOCKS)?;
-    let houses = house_data_from(NEEDS, KINDS, &HOUSES)?;
+    let houses = house_data_from(NEEDS, DAY, KINDS, &HOUSES)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
         .and_then(|data| data.with_shocks(shocks))
         .map(|data| data.with_houses(houses))
@@ -520,7 +521,7 @@ mod tests {
     fn the_base_game_loads() {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
         // shock templates and the houses, from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0xdc88_7533_e981_159a);
+        assert_eq!(core_data().expect("data").hash(), 0x9b9c_bcf6_ef2d_5fb1);
     }
 
     fn puberty_ramp(data: &Data) -> f64 {

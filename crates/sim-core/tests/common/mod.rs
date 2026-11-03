@@ -391,6 +391,7 @@ pub const REPOSITORY_POOL: &[u8] = include_bytes!("../../../../data/pool/pool.bi
 const REPOSITORY_FREQUENCIES: &str = include_str!("../../../../data/pool/pool_frequencies.json");
 const REPOSITORY_SHOCKS: &str = include_str!("../../../../data/shocks.json");
 const REPOSITORY_NEEDS: &str = include_str!("../../../../data/house/needs.json");
+const REPOSITORY_DAY: &str = include_str!("../../../../data/house/day.json");
 const REPOSITORY_KINDS: &str = include_str!("../../../../data/house/kinds.json");
 const REPOSITORY_HOUSES: [&str; 3] = [
     include_str!("../../../../data/house/houses/flat.json"),
@@ -405,13 +406,23 @@ const REPOSITORY_HOUSES: [&str; 3] = [
     reason = "only the tests on the repository's data need them"
 )]
 pub fn repository_houses() -> sim_core::house::data::HouseData {
-    houses_from(REPOSITORY_NEEDS, REPOSITORY_KINDS, &REPOSITORY_HOUSES)
+    houses_from(
+        REPOSITORY_NEEDS,
+        REPOSITORY_DAY,
+        REPOSITORY_KINDS,
+        &REPOSITORY_HOUSES,
+    )
 }
 
-/// House data from the texts of a `needs.json`, a `kinds.json` and house files, read as
-/// sim-cli reads `data/house/`.
+/// House data from the texts of a `needs.json`, a `day.json`, a `kinds.json` and house files,
+/// read as sim-cli reads `data/house/`.
 #[allow(dead_code, reason = "only the tests on houses need it")]
-pub fn houses_from(needs: &str, kinds: &str, houses: &[&str]) -> sim_core::house::data::HouseData {
+pub fn houses_from(
+    needs: &str,
+    day: &str,
+    kinds: &str,
+    houses: &[&str],
+) -> sim_core::house::data::HouseData {
     use sim_core::house::data::{DoorDef, HouseData, HouseDef, KindDef, ObjectDef, OfferDef};
     let parse = |text: &str| -> Value { serde_json::from_str(text).expect("json") };
     let id =
@@ -472,7 +483,8 @@ pub fn houses_from(needs: &str, kinds: &str, houses: &[&str]) -> sim_core::house
         })
         .collect();
     let rates = serde_json::from_str(needs).expect("the rates");
-    HouseData::new(rates, kinds, houses).expect("the houses")
+    let day = serde_json::from_str(day).expect("the day");
+    HouseData::new(rates, day, kinds, houses).expect("the houses")
 }
 
 /// The shock templates of `data/shocks.json` without their text, as sim-cli reads them
