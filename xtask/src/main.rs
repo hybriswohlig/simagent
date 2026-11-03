@@ -1,5 +1,6 @@
-//! Project automation (ADR-0000). `cargo xtask ci` is the gate: the CI, the pre-push
-//! hook and every agent run exactly this command.
+//! Project automation (ADR-0000). `cargo xtask ci` is the gate: the CI runs exactly this
+//! command on every supported target; the pre-push hook runs its first part,
+//! `cargo xtask quick`.
 
 mod arch;
 mod bench;
@@ -52,6 +53,7 @@ fn main() -> ExitCode {
     let result = match command.as_deref() {
         Some("ci") => gate(true),
         Some("check") => gate(false),
+        Some("quick") => workspace_root().and_then(|root| checks(&root, true)),
         Some("kat-record") => return report("kat-record", kat_record()),
         Some("bench") => {
             return report(
@@ -142,7 +144,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI, pre-push)\n  check                 the same gate on a dirty working tree (local iteration)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the web build (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -295,35 +297,8 @@ fn kat_verify_reference() -> Result {
 
 fn gate(require_clean_tree: bool) -> Result {
     let root = workspace_root()?;
-    step("location", || check_location(&root))?;
-    if require_clean_tree {
-        step("clean working tree", || check_clean_tree(&root))?;
-    }
-    step("compiler flags", || check_compiler_flags(&root))?;
-    step("document limits", || check_document_limits(&root))?;
-    step("result changes", || check_result_changes(&root))?;
-    step("architecture", || check_architecture(&root))?;
-    step("contract check", || {
-        check_contract(&root, &contract_base(&root)?)
-    })?;
-    step("scans", || check_scans(&root))?;
-    step("web dependencies", || web_deps::command(&root))?;
+    checks(&root, require_clean_tree)?;
     step("web", || web::build(&root))?;
-    step("fmt", || cargo(&root, &["fmt", "--all", "--check"]))?;
-    step("clippy", || {
-        cargo(
-            &root,
-            &[
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--locked",
-                "--",
-                "-D",
-                "warnings",
-            ],
-        )
-    })?;
     step("canaries", || {
         let problems = canary::run(
             &root,
@@ -357,6 +332,40 @@ fn gate(require_clean_tree: bool) -> Result {
         check_export_types(&root)
     })?;
     step("smoke (release binary)", || smoke::smoke(&root))
+}
+
+/// The first part of the gate, the pre-push hook on its own (`cargo xtask quick`): the checks
+/// of the sources, fmt and clippy, without the web build, the tests and the runs. Those take
+/// the CI, which runs the whole gate on each supported target (ADR-0000).
+fn checks(root: &Path, require_clean_tree: bool) -> Result {
+    step("location", || check_location(root))?;
+    if require_clean_tree {
+        step("clean working tree", || check_clean_tree(root))?;
+    }
+    step("compiler flags", || check_compiler_flags(root))?;
+    step("document limits", || check_document_limits(root))?;
+    step("result changes", || check_result_changes(root))?;
+    step("architecture", || check_architecture(root))?;
+    step("contract check", || {
+        check_contract(root, &contract_base(root)?)
+    })?;
+    step("scans", || check_scans(root))?;
+    step("web dependencies", || web_deps::command(root))?;
+    step("fmt", || cargo(root, &["fmt", "--all", "--check"]))?;
+    step("clippy", || {
+        cargo(
+            root,
+            &[
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+    })
 }
 
 /// The scenario whose output must show every optional field, nullable value, listed text
@@ -1451,8 +1460,8 @@ mod tests {
         }
     }
 
-    /// The pre-push hook runs these tests with `GIT_DIR` of the pushing repository in the
-    /// environment. A git command that inherits it works on that repository instead of
+    /// A test run inside a git hook (the pre-push hook once ran the whole gate) has `GIT_DIR`
+    /// of the pushing repository in the environment. A git command that inherits it works on that repository instead of
     /// the one in its directory (it happened: `git init` of a test set `core.bare` there).
     /// The export gate takes only the form the web reads.
     #[test]
