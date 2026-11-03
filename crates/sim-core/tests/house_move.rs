@@ -11,7 +11,7 @@ use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
 use sim_core::house::data::HouseData;
 use sim_core::house::need::NeedSample;
-use sim_core::house::state::{Decisions, InHouse, MovedIn, Place};
+use sim_core::house::state::{Action, Decisions, InHouse, MovedIn, Place};
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, InputRejected, MoveIn, MoveOut, RejectCode, Start};
 use sim_core::log::{Cause, LogEntry, LogPayload, Subject};
@@ -266,22 +266,33 @@ fn the_first_morning_gives_the_needs() {
     run.advance(DAY.as_secs() - 1);
     run.submit(move_in(home));
     let morning = DAY.as_secs() + SIX;
-    run.advance(morning + 60);
-    // Morning values with the awake rates of an adult (18 to 66), in the entrance.
+    run.advance(morning);
+    // Morning values with the awake rates of an adult (18 to 66), in the entrance; each
+    // chooses at once and walks from there (she to the toilet in the bath, 3 s, he to the
+    // table in the kitchen, 4 s; tests/house_day.rs has the choices by hand).
     let values = [600, 900, 500, 700, 800];
     for entry in run.entries(day_started) {
         assert_eq!(entry.payload, LogPayload::DayStarted { needs: values });
     }
     let at = SimTime::from_secs(morning);
-    let expected = InHouse {
+    let walking = |to: u8, secs: i64, object: u16| InHouse {
         needs: [(600, -100), (900, -40), (500, -120), (700, -30), (800, -60)]
             .map(|(value, rate)| NeedSample::new(value, at, rate)),
-        place: Place::Room(0),
-        action: None,
+        place: Place::Walking {
+            from: 0,
+            to,
+            depart: at,
+            arrive: SimTime::from_secs(morning + secs),
+        },
+        action: Some(Action {
+            object,
+            offer: 0,
+            slot: 0,
+        }),
         due: None,
         decisions: Decisions {
             day: day_index(at),
-            count: 0,
+            count: 1,
         },
     };
     let house = run.world.state().house();
@@ -290,7 +301,8 @@ fn the_first_morning_gives_the_needs() {
         house.sims.keys().copied().collect::<Vec<_>>(),
         [sim(1), sim(2)]
     );
-    assert!(house.sims.values().all(|person| *person == expected));
+    assert_eq!(house.sims[&sim(1)], walking(3, 3, 5));
+    assert_eq!(house.sims[&sim(2)], walking(1, 4, 0));
 }
 
 #[test]
@@ -349,8 +361,8 @@ fn a_house_is_saved_and_loaded() {
 }
 
 /// The first morning plans each member's crossings (ADR-0026 section 1): an adult at the
-/// morning values has 17 thresholds below its needs. They come one by one, the last, hygiene
-/// at 50, 78 000 s after the morning; moving out cancels those still to come.
+/// morning values has 17 thresholds below its needs; each then chooses and walks to it (the
+/// toilet, the table). Moving out cancels all of it.
 #[test]
 fn the_morning_plans_the_crossings() {
     let morning = DAY.as_secs() + SIX;
@@ -365,15 +377,8 @@ fn the_morning_plans_the_crossings() {
     };
     let (mut run, _, before) = moved_in();
     run.advance(morning);
-    // The morning is gone, two adults' crossings have come.
-    assert_eq!(run.world.pending_events(), before - 1 + 2 * 17);
-    // By 8:00 bladder at 400 (50 min), fun at 700 (100 min) and hunger at 400 (2 h).
-    run.advance(morning + 2 * HOUR.as_secs());
-    assert_eq!(run.world.pending_events(), before - 1 + 2 * 14);
-    run.advance(morning + 78_000 - 1);
-    assert_eq!(run.world.pending_events(), before - 1 + 2);
-    run.advance(morning + 78_000);
-    assert_eq!(run.world.pending_events(), before - 1);
+    // The morning is gone; two adults' crossings and their walks have come.
+    assert_eq!(run.world.pending_events(), before - 1 + 2 * 17 + 2);
 
     let (mut run, home, before) = moved_in();
     run.advance(morning + 60);
@@ -406,7 +411,13 @@ fn move_in_does_not_touch_the_dynasty() {
 fn house_entry(payload: &LogPayload) -> bool {
     matches!(
         payload,
-        LogPayload::MovedIn { .. } | LogPayload::MovedOut { .. } | LogPayload::DayStarted { .. }
+        LogPayload::MovedIn { .. }
+            | LogPayload::MovedOut { .. }
+            | LogPayload::DayStarted { .. }
+            | LogPayload::ActionStarted { .. }
+            | LogPayload::Reached { .. }
+            | LogPayload::ActionEnded { .. }
+            | LogPayload::Idle { .. }
     )
 }
 

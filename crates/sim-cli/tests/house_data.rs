@@ -230,6 +230,11 @@ fn house_data_loads_and_rejects() {
         kind(kinds, "core:bed")["offers"][0]["until_full"] = json!("fun");
     });
     assert_eq!(full_of_fun, "house.offer_full");
+    // An offer must set a rate, so its action has a second it began at; sleeping sets all.
+    let nothing = shower(|o| {
+        o.as_object_mut().expect("an offer").remove("rates");
+    });
+    assert_eq!(nothing, "house.offer_rates");
 
     // The houses (ADR-0025 section 2).
     let twice = load(

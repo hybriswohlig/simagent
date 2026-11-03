@@ -175,16 +175,24 @@ enum Payload {
     Depart,
     #[allow(dead_code, reason = "only its place matters, before the crossing")]
     Wake,
-    #[allow(dead_code, reason = "only its place matters, before the crossing")]
-    Arrive,
-    #[allow(dead_code, reason = "only its place matters, before the crossing")]
-    ActionEnd,
+    /// The end of a walk (ADR-0026 section 4).
+    Arrive {
+        sim: u64,
+    },
+    /// The end of an action.
+    ActionEnd {
+        sim: u64,
+    },
     /// A falling need of `sim` reaches `level` (ADR-0026 section 1); the need by its number
     /// from hunger 0, one byte like its variant index.
     NeedCrossing {
         sim: u64,
         need: u8,
         level: u16,
+    },
+    /// A choice in the second it was planned for, never pending in a save.
+    Decide {
+        sim: u64,
     },
 }
 
@@ -428,12 +436,13 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
 type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 
 /// A person with needs (ADR-0024, addendum of 2026-11-02): each need as (value, at, rate),
-/// in a room, without action or duty, with the choices of a day as (day, count).
+/// the place, the action as (object, offer, place), no duty, the choices of a day as (day,
+/// count).
 #[derive(Clone, Serialize)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
     place: TestPlace,
-    action: Option<()>,
+    action: Option<(u16, u16, u8)>,
     due: Option<()>,
     decisions: (i64, u16),
 }
@@ -441,6 +450,12 @@ struct TestInHouse {
 #[derive(Clone, Serialize)]
 enum TestPlace {
     Room(u8),
+    Walking {
+        from: u8,
+        to: u8,
+        depart: i64,
+        arrive: i64,
+    },
 }
 /// Why a partnership ended (ADR-0018 section 3).
 #[derive(Clone, Copy, Serialize)]
@@ -713,40 +728,20 @@ fn a_save_keeps_the_house() {
 #[test]
 fn a_save_keeps_the_crossings() {
     let data = common::data().with_houses(common::repository_houses());
-    let six = 7 * Y + 6 * 3_600;
-    let day = sim_core::time::day_index(sim_core::time::SimTime::from_secs(six));
+    let six = SEVEN_SIX;
     let crossing = |sim: u64, need: u8, level: u16, secs: i64| {
         let payload = Payload::NeedCrossing { sim, need, level };
         (six + secs, 0, 0, payload, None)
     };
     let hunger = |level: u16, secs: i64| crossing(1, 0, level, secs);
+    let person = still(
+        TestPlace::Room(0),
+        None,
+        [600, 900, 500, 700, 800],
+        (0, -100),
+    );
     let saved = |clock: i64, crossings: Vec<QueueEntry>| {
-        let hash = data.hash();
-        File::tiny().with(move |f| {
-            f.data_hash = hash;
-            f.closed_through = clock;
-            for entry in &mut f.queue {
-                if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
-                    entry.0 = 8 * Y - 1;
-                }
-            }
-            f.year_hashes = (0..7).map(|year| (year, 7)).collect();
-            f.house_households = vec![(1, ("core:flat".into(), true))];
-            let needs = [(600, -100), (900, 0), (500, 0), (700, 0), (800, 0)];
-            let person = TestInHouse {
-                needs: needs.map(|(value, rate)| (value, six, rate)),
-                place: TestPlace::Room(0),
-                action: None,
-                due: None,
-                decisions: (day, 0),
-            };
-            f.house_sims = vec![(1, person)];
-            for mut entry in crossings {
-                entry.2 = f.next_event_seq;
-                f.next_event_seq += 1;
-                insert_event(f, entry, (3, six));
-            }
-        })
+        in_the_flat(&data, clock, person.clone(), crossings)
     };
     let all = vec![hunger(400, 7_200), hunger(150, 16_200), hunger(50, 19_800)];
     let before = six + 7_199;
@@ -793,6 +788,129 @@ fn a_save_keeps_the_crossings() {
         load_error_with(data.clone(), &saved(six + 7_200, all[1..].to_vec())),
         None
     );
+}
+
+/// 6:00 of the first day of year 7.
+const SEVEN_SIX: i64 = 7 * Y + 6 * 3_600;
+
+/// A person with needs from 6:00 of year 7 at `values`, all still but one need with its rate.
+fn still(
+    place: TestPlace,
+    action: Option<(u16, u16, u8)>,
+    values: [u16; 5],
+    (moving, rate): (usize, i32),
+) -> TestInHouse {
+    let mut needs = values.map(|value| (value, SEVEN_SIX, 0));
+    needs[moving].2 = rate;
+    TestInHouse {
+        needs,
+        place,
+        action,
+        due: None,
+        decisions: (
+            sim_core::time::day_index(sim_core::time::SimTime::from_secs(SEVEN_SIX)),
+            0,
+        ),
+    }
+}
+
+/// "tiny" at 7 at the second `clock`, her household in the flat since the morning of
+/// `SEVEN_SIX`, `person` her needs, `events` added to the queue in this order.
+fn in_the_flat(data: &Data, clock: i64, person: TestInHouse, events: Vec<QueueEntry>) -> Vec<u8> {
+    let hash = data.hash();
+    File::tiny().with(move |f| {
+        f.data_hash = hash;
+        f.closed_through = clock;
+        for entry in &mut f.queue {
+            if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
+                entry.0 = 8 * Y - 1;
+            }
+        }
+        f.year_hashes = (0..7).map(|year| (year, 7)).collect();
+        f.house_households = vec![(1, ("core:flat".into(), true))];
+        f.house_sims = vec![(1, person)];
+        for mut entry in events {
+            entry.2 = f.next_event_seq;
+            f.next_event_seq += 1;
+            insert_event(f, entry, (3, SEVEN_SIX));
+        }
+    })
+}
+
+/// A walk and an action (ADR-0026 section 4), she still in every need but the one an action
+/// raises. On the way from the hall to the fridge in the kitchen (4 s) her arrival is due at
+/// the walk's end; at the fridge from 6:00 (hunger +2 400 for 5 min) the end is due 300 s
+/// later; on the toilet from 6:00 with the bladder at 500 at +12 000 an hour it is full after
+/// 150 s, and at 990 after 3 s, but an action lasts at least 60 s. Any other second, a
+/// missing or doubled event, an arrival of someone not walking, a walk without an action and
+/// a pending choice are refused.
+#[test]
+fn a_save_keeps_the_walk_and_the_action() {
+    let data = common::data().with_houses(common::repository_houses());
+    let six = SEVEN_SIX;
+    let values = [400, 900, 500, 700, 800];
+    let at = |secs: i64, payload: Payload| (six + secs, 0, 0, payload, None);
+    let arrive = |secs: i64| at(secs, Payload::Arrive { sim: 1 });
+    let end = |secs: i64| at(secs, Payload::ActionEnd { sim: 1 });
+    let walk = TestPlace::Walking {
+        from: 0,
+        to: 1,
+        depart: six,
+        arrive: six + 4,
+    };
+    let fridge = Some((1, 0, 0));
+    let walking = still(walk, fridge, values, (0, 0));
+    let snacking = still(TestPlace::Room(1), fridge, values, (0, 2_400));
+    let toilet = Some((5, 0, 0));
+    let flushing = still(TestPlace::Room(3), toilet, values, (2, 12_000));
+    let nearly = still(
+        TestPlace::Room(3),
+        toilet,
+        [400, 900, 990, 700, 800],
+        (2, 12_000),
+    );
+    let idle = still(TestPlace::Room(0), None, values, (0, 0));
+    let loads = |clock: i64, person: &TestInHouse, events: Vec<QueueEntry>| {
+        load_error_with(
+            data.clone(),
+            &in_the_flat(&data, clock, person.clone(), events),
+        )
+    };
+    assert_eq!(loads(six + 2, &walking, vec![arrive(4)]), None);
+    assert_eq!(loads(six + 100, &snacking, vec![end(300)]), None);
+    assert_eq!(loads(six + 100, &flushing, vec![end(150)]), None);
+    assert_eq!(loads(six + 10, &nearly, vec![end(60)]), None);
+    let refused = Some(LoadError::Inconsistent);
+    assert_eq!(loads(six + 2, &walking, vec![]), refused);
+    assert_eq!(loads(six + 2, &walking, vec![arrive(5)]), refused);
+    assert_eq!(
+        loads(six + 2, &walking, vec![arrive(4), arrive(4)]),
+        refused
+    );
+    assert_eq!(loads(six + 2, &walking, vec![arrive(4), end(300)]), refused);
+    assert_eq!(loads(six + 100, &snacking, vec![]), refused);
+    assert_eq!(loads(six + 100, &snacking, vec![end(301)]), refused);
+    assert_eq!(
+        loads(six + 100, &snacking, vec![end(300), arrive(200)]),
+        refused
+    );
+    assert_eq!(loads(six + 100, &flushing, vec![end(300)]), refused);
+    assert_eq!(
+        loads(six + 10, &nearly, vec![end(3)]),
+        Some(LoadError::InvalidQueue)
+    );
+    assert_eq!(loads(six + 2, &idle, vec![end(300)]), refused);
+    let mut out = walking.clone();
+    out.action = None;
+    out.place = TestPlace::Walking {
+        from: 1,
+        to: 0,
+        depart: six,
+        arrive: six + 4,
+    };
+    assert_eq!(loads(six + 2, &out, vec![arrive(4)]), refused);
+    let decide = at(5, Payload::Decide { sim: 1 });
+    assert_eq!(loads(six + 2, &idle, vec![decide]), refused);
 }
 
 /// A save at the last second of time (review): the house checks have no next second, and
