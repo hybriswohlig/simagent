@@ -2564,3 +2564,142 @@ fn the_server_brings_an_interrupted_run_back_to_its_last_stop() {
         )
     );
 }
+
+/// A couple of 30 and 32 (ADR-0024), together from the start, run to 23:59:58 of day 0; moved
+/// into the flat at 23:59:59, their first morning is at 6:00 of day 1.
+const COUPLE: &str = r#"{
+  "format_version": 5,
+  "start": {
+    "world_seed": "0000000000000007",
+    "founder_tag": "test:house",
+    "world_params": {"hereditary_diseases": false, "nutrition": []},
+    "founders": [
+      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:disease_ar", "copies": [0, 0]}]},
+      {"born": -1006387200, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [0, 0]}]}
+    ],
+    "couples": [{"woman": 0, "man": 1}],
+    "capacity": null,
+    "pool": null
+  },
+  "until": 86398
+}"#;
+
+/// The first 6:00 of day 1.
+const MORNING: i64 = DAY + 6 * 3_600;
+
+fn dated(t: i64) -> Value {
+    json!({"t": t, "date": date(t)})
+}
+
+/// The house of a household over HTTP (ADR-0021, addendum of 2026-11-03): none before it moves
+/// in; moved in, its house without persons until its first morning; the steps of ten minutes,
+/// an hour and to the next morning; at 6:00 both walk (she, the smaller SimId, to the toilet
+/// 3 s away, he finds it taken and goes to the table, 4 s), with the morning values; at 6:10
+/// both eat at the table, she from 6:02:40 on place 1 (hunger 596 on arrival, +1 800 an hour:
+/// 816), he from 6:00:04 on place 0 (600 + 298), each for 20 minutes; energy 900 − 6.7,
+/// her bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, hygiene 700 − 5, fun 800 − 10, all
+/// truncated (ADR-0026).
+#[test]
+fn a_house_over_http() {
+    let (runs, web) = fixture("house");
+    let base = runs.parent().expect("a parent").to_path_buf();
+    let scenario = base.join("couple.json");
+    write(&scenario, COUPLE.as_bytes());
+    let out = runs.join("couple");
+    simagent(&[
+        "run".as_ref(),
+        "--scenario".as_ref(),
+        scenario.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ])
+    .expect("runs");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let (_, _, pedigree) = get(port, "/api/runs/couple/pedigree");
+    let home = json_of(&pedigree)["households"][0]["household"].clone();
+    let path = format!("/api/runs/couple/house/{home}");
+    let (status, _, body) = get(port, &path);
+    assert_eq!((status, code_of(&body)), (404, "not_in_house".to_owned()));
+    let (status, _, body) = get(port, "/api/runs/couple/house/99");
+    assert_eq!((status, code_of(&body)), (404, "not_in_house".to_owned()));
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    let (status, _, _) = post(port, "/api/runs/couple/input", &move_in);
+    assert_eq!(status, 200);
+    let house = |at: i64| {
+        let (status, _, body) = get(port, &path);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+        let answer = json_of(&body);
+        assert_eq!(
+            (&answer["format"], &answer["version"], &answer["at"]),
+            (&json!("simagent.view.house"), &json!(1), &dated(at))
+        );
+        assert_eq!(
+            (&answer["household"], &answer["house"]),
+            (&home, &json!("core:flat"))
+        );
+        answer
+    };
+    // The clock stays at the last second it ran; the input stands one second later.
+    let before = house(DAY - 2);
+    assert_eq!(
+        (&before["morning"], &before["persons"]),
+        (&json!(false), &json!([]))
+    );
+    // The drawing of the flat with each object's places and offers (`kinds.json`).
+    let layout = &before["layout"];
+    let rooms: Vec<&Value> = (layout["rooms"].as_array().expect("rooms").iter())
+        .map(|room| &room["id"])
+        .collect();
+    assert_eq!(
+        rooms,
+        ["hall", "kitchen", "living", "bath", "bedroom", "kids"]
+    );
+    assert_eq!(layout["rooms"][1]["w"], json!(4.0));
+    assert_eq!(layout["doors"].as_array().map(Vec::len), Some(5));
+    assert_eq!(
+        (
+            &layout["objects"][0]["kind"],
+            &layout["objects"][0]["slots"]
+        ),
+        (&json!("core:dining_table"), &json!(4))
+    );
+    assert_eq!(layout["objects"][0]["offers"], json!(["eat"]));
+    assert_eq!(layout["objects"][7]["offers"], json!(["sleep"]));
+    let step = |step: &str, target: i64| {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/couple/advance", &body);
+        assert_eq!(status, 200, "{step}: {}", String::from_utf8_lossy(&answer));
+        assert_eq!(json_of(&answer)["closed_through"], json!(target), "{step}");
+    };
+    step("morning", MORNING);
+    let morning = [600, 900, 500, 700, 800];
+    let walking = |to: u8, arrive: i64| json!({"walking": {"from": 0, "to": to, "depart": dated(MORNING), "arrive": dated(arrive)}});
+    let at_six = house(MORNING);
+    assert_eq!(at_six["morning"], json!(true));
+    assert_eq!(
+        at_six["persons"],
+        json!([
+            {"sim": 1, "place": walking(3, MORNING + 3),
+             "action": {"object": 5, "offer": 0, "slot": 0, "until": null}, "needs": morning},
+            {"sim": 2, "place": walking(1, MORNING + 4),
+             "action": {"object": 0, "offer": 0, "slot": 0, "until": null}, "needs": morning},
+        ])
+    );
+    step("minutes10", MORNING + 600);
+    assert_eq!(
+        house(MORNING + 600)["persons"],
+        json!([
+            {"sim": 1, "place": {"room": 1},
+             "action": {"object": 0, "offer": 0, "slot": 1, "until": dated(MORNING + 1_360)},
+             "needs": [816, 894, 986, 695, 790]},
+            {"sim": 2, "place": {"room": 1},
+             "action": {"object": 0, "offer": 0, "slot": 0, "until": dated(MORNING + 1_204)},
+             "needs": [898, 894, 480, 695, 790]},
+        ])
+    );
+    step("hour", MORNING + 4_200);
+    // From 7:10 the next morning is tomorrow's, and from 6:00 itself too.
+    step("morning", MORNING + DAY);
+    step("morning", MORNING + 2 * DAY);
+}
