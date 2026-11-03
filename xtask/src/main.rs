@@ -144,7 +144,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the web build (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the tests and runs (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -298,7 +298,6 @@ fn kat_verify_reference() -> Result {
 fn gate(require_clean_tree: bool) -> Result {
     let root = workspace_root()?;
     checks(&root, require_clean_tree)?;
-    step("web", || web::build(&root))?;
     step("canaries", || {
         let problems = canary::run(
             &root,
@@ -335,8 +334,9 @@ fn gate(require_clean_tree: bool) -> Result {
 }
 
 /// The first part of the gate, the pre-push hook on its own (`cargo xtask quick`): the checks
-/// of the sources, fmt and clippy, without the web build, the tests and the runs. Those take
-/// the CI, which runs the whole gate on each supported target (ADR-0000).
+/// of the sources, the web build with its tests, fmt and clippy, without the tests of the
+/// workspace and the runs. Those take the CI, which runs the whole gate on each supported
+/// target (ADR-0000).
 fn checks(root: &Path, require_clean_tree: bool) -> Result {
     step("location", || check_location(root))?;
     if require_clean_tree {
@@ -351,6 +351,7 @@ fn checks(root: &Path, require_clean_tree: bool) -> Result {
     })?;
     step("scans", || check_scans(root))?;
     step("web dependencies", || web_deps::command(root))?;
+    step("web", || web::build(root))?;
     step("fmt", || cargo(root, &["fmt", "--all", "--check"]))?;
     step("clippy", || {
         cargo(

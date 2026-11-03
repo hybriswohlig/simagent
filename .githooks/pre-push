@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs the first part of the gate before every push (ADR-0000): the checks of the sources,
-# fmt and clippy. The whole gate runs in the CI on every supported target, macOS arm64
+# the web build with its tests, fmt and clippy. The whole gate runs in the CI on every supported target, macOS arm64
 # included. Enable once per clone:
 #   git config core.hooksPath .githooks
 # It requires a clean working tree, so commit or stash first.
