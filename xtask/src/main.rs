@@ -558,6 +558,25 @@ fn server_answers(
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
     answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
     answers.push(("WorldAnswer", get(port, "/api/runs/town/world")?));
+    // The house of the open partnership's household (ADR-0021, addendum of 2026-11-03): at
+    // its first morning everyone walks to a choice, ten minutes later everyone is at it.
+    let household = (now["persons"].as_array().into_iter().flatten())
+        .find(|p| p["sim"] == open["woman"])
+        .map(|p| p["household"].clone())
+        .ok_or("the open partnership's woman is not in the pedigree")?;
+    let move_in = format!(r#"{{"move_in":{{"household":{household}}}}}"#);
+    answers.push((
+        "InputAnswer",
+        ask(port, "/api/runs/town/input", Some(&move_in), 200)?,
+    ));
+    let path = format!("/api/runs/town/house/{household}");
+    for step in [r#"{"step":"morning"}"#, r#"{"step":"minutes10"}"#] {
+        answers.push((
+            "AdvanceAnswer",
+            ask(port, "/api/runs/town/advance", Some(step), 200)?,
+        ));
+        answers.push(("HouseAnswer", get(port, &path)?));
+    }
     // A fork with an override, so that the comparison shows its every shape: the town has
     // the switch on, the fork has it off from year 10.
     let off =

@@ -331,6 +331,11 @@ impl WorldState {
             .unwrap_or_else(|_| panic!("invariant world.count_range"))
     }
 
+    /// The household of a living sim (ADR-0018 section 4).
+    pub fn household_of(&self, id: SimId) -> Option<crate::ids::HouseholdId> {
+        self.domain.sims.get(&id).map(|sim| sim.household)
+    }
+
     /// Birth time of a sim, living or archived; `None` for an ID never handed out.
     pub fn born(&self, id: SimId) -> Option<SimTime> {
         let living = self.domain.sims.get(&id).map(|sim| sim.born);

@@ -542,6 +542,103 @@ pub fn descriptor() -> Vec<Named> {
             fields: vec![field("t", Integer), field("date", Ref("CalendarDate"))],
         },
         Named {
+            name: "HouseAnswer",
+            doc: "`GET /api/runs/{run}/house/{household}`: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03).",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.house"])),
+                field("version", Integer),
+                field("at", Ref("DatedSecond")),
+                field("household", Integer),
+                field("house", Text),
+                field("morning", Bool),
+                field("layout", Ref("HouseLayout")),
+                field("persons", list(Ref("HousePerson"))),
+            ],
+        },
+        Named {
+            name: "HouseLayout",
+            doc: "The drawing of a house in metres from the top left: the rooms in the house file's order, the doors, the objects in their order.",
+            fields: vec![
+                field("rooms", list(Ref("LayoutRoom"))),
+                field("doors", list(Ref("LayoutDoor"))),
+                field("objects", list(Ref("LayoutObject"))),
+            ],
+        },
+        Named {
+            name: "LayoutRoom",
+            doc: "A room on its floor, 0 the ground floor.",
+            fields: vec![
+                field("id", Text),
+                field("floor", Integer),
+                field("x", Number),
+                field("y", Number),
+                field("w", Number),
+                field("h", Number),
+            ],
+        },
+        Named {
+            name: "LayoutDoor",
+            doc: "A door between two rooms; between floors a staircase, its point in both.",
+            fields: vec![
+                field("a", Text),
+                field("b", Text),
+                field("x", Number),
+                field("y", Number),
+            ],
+        },
+        Named {
+            name: "LayoutObject",
+            doc: "An object of the house with its places and the names of its offers.",
+            fields: vec![
+                field("kind", Text),
+                field("room", Text),
+                field("x", Number),
+                field("y", Number),
+                field("w", Number),
+                field("h", Number),
+                field("slots", Integer),
+                field("offers", list(Text)),
+            ],
+        },
+        Named {
+            name: "HousePerson",
+            doc: "A person with needs: where it is, what it does, its five needs at the clock.",
+            fields: vec![
+                field("sim", Integer),
+                field("place", Ref("HousePlace")),
+                field("action", nullable(Ref("HouseAction"))),
+                field("needs", list(Integer)),
+            ],
+        },
+        Named {
+            name: "HousePlace",
+            doc: "In a room, or walking from one room to another.",
+            fields: vec![
+                optional("room", Integer),
+                optional("walking", Ref("HouseWalk")),
+            ],
+        },
+        Named {
+            name: "HouseWalk",
+            doc: "A walk between two rooms, its start and its arrival.",
+            fields: vec![
+                field("from", Integer),
+                field("to", Integer),
+                field("depart", Ref("DatedSecond")),
+                field("arrive", Ref("DatedSecond")),
+            ],
+        },
+        Named {
+            name: "HouseAction",
+            doc: "The offer a person chose and the place it holds; the planned end at the object, none on the way.",
+            fields: vec![
+                field("object", Integer),
+                field("offer", Integer),
+                field("slot", Integer),
+                field("until", nullable(Ref("DatedSecond"))),
+            ],
+        },
+        Named {
             name: "WorldAnswer",
             doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i.",
             fields: vec![

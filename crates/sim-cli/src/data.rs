@@ -63,6 +63,22 @@ pub fn layouts() -> Result<BTreeMap<DataId, Layout>, CliError> {
         .collect()
 }
 
+/// The names of each kind's offers in `kinds.json`, in their order: the core numbers them and
+/// drops the names, the house page shows them.
+pub fn offer_names() -> Result<BTreeMap<DataId, Vec<String>>, CliError> {
+    let refused = || CliError::new("data_rejected", "kinds.json: the offers");
+    let kinds: Value = serde_json::from_str(KINDS).map_err(|_| refused())?;
+    (kinds.as_array().ok_or_else(refused)?.iter())
+        .map(|kind| {
+            let id = (kind["id"].as_str()).and_then(|id| DataId::new(id).ok());
+            let offers = (kind["offers"].as_array().into_iter().flatten())
+                .map(|offer| offer["id"].as_str().map(str::to_owned))
+                .collect::<Option<Vec<String>>>();
+            Ok((id.ok_or_else(refused)?, offers.ok_or_else(refused)?))
+        })
+        .collect()
+}
+
 /// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
 /// ADR-0008 section 1).
 const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];

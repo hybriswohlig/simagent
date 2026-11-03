@@ -378,6 +378,85 @@ export type DatedSecond = {
   readonly date: CalendarDate;
 };
 
+/** `GET /api/runs/{run}/house/{household}`: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03). */
+export type HouseAnswer = {
+  readonly format: "simagent.view.house";
+  readonly version: number;
+  readonly at: DatedSecond;
+  readonly household: number;
+  readonly house: string;
+  readonly morning: boolean;
+  readonly layout: HouseLayout;
+  readonly persons: HousePerson[];
+};
+
+/** The drawing of a house in metres from the top left: the rooms in the house file's order, the doors, the objects in their order. */
+export type HouseLayout = {
+  readonly rooms: LayoutRoom[];
+  readonly doors: LayoutDoor[];
+  readonly objects: LayoutObject[];
+};
+
+/** A room on its floor, 0 the ground floor. */
+export type LayoutRoom = {
+  readonly id: string;
+  readonly floor: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+};
+
+/** A door between two rooms; between floors a staircase, its point in both. */
+export type LayoutDoor = {
+  readonly a: string;
+  readonly b: string;
+  readonly x: number;
+  readonly y: number;
+};
+
+/** An object of the house with its places and the names of its offers. */
+export type LayoutObject = {
+  readonly kind: string;
+  readonly room: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly slots: number;
+  readonly offers: string[];
+};
+
+/** A person with needs: where it is, what it does, its five needs at the clock. */
+export type HousePerson = {
+  readonly sim: number;
+  readonly place: HousePlace;
+  readonly action: HouseAction | null;
+  readonly needs: number[];
+};
+
+/** In a room, or walking from one room to another. */
+export type HousePlace = {
+  readonly room?: number;
+  readonly walking?: HouseWalk;
+};
+
+/** A walk between two rooms, its start and its arrival. */
+export type HouseWalk = {
+  readonly from: number;
+  readonly to: number;
+  readonly depart: DatedSecond;
+  readonly arrive: DatedSecond;
+};
+
+/** The offer a person chose and the place it holds; the planned end at the object, none on the way. */
+export type HouseAction = {
+  readonly object: number;
+  readonly offer: number;
+  readonly slot: number;
+  readonly until: DatedSecond | null;
+};
+
 /** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i. */
 export type WorldAnswer = {
   readonly format: "simagent.view.world";

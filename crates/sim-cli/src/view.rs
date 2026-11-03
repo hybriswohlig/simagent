@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use sim_core::data::Data;
 use sim_core::input::Input;
 use sim_core::params::ParamChange;
-use sim_core::time::{DAY, SimTime, calendar};
+use sim_core::time::{DAY, HOUR, MINUTE, SimDuration, SimTime, calendar};
 use sim_core::world::World;
 
 use crate::error::CliError;
@@ -66,13 +66,16 @@ struct Open {
     _lock: RunLock,
 }
 
-/// The one step of `POST …/advance` (ADR-0021 section 2).
+/// The one step of `POST …/advance` (ADR-0021 section 2 and its addendum of 2026-11-03).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
     Days28,
     Year,
     Decade,
+    Minutes10,
+    Hour,
+    Morning,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -133,11 +136,24 @@ fn parse_write(route: &str, body: &[u8]) -> Option<WriteRequest> {
 }
 
 /// The target of `step` from `closed`, by the core's calendar: 28 days on; the last second
-/// of the year that begins or continues after `closed`; ten such year ends. A decade that
-/// would pass the horizon stops at its first year end beyond, which `check_limit` refuses.
+/// of the year that begins or continues after `closed`; ten such year ends; ten minutes, an
+/// hour on; the first 6:00 after `closed`. A decade that would pass the horizon stops at its
+/// first year end beyond, which `check_limit` refuses.
 pub fn step_target(closed: SimTime, step: Step) -> SimTime {
     match step {
         Step::Days28 => closed + DAY * 28,
+        Step::Minutes10 => closed + MINUTE * 10,
+        Step::Hour => closed + HOUR,
+        Step::Morning => {
+            let of_day = i64::from(calendar(closed).second_of_day);
+            let six = HOUR.as_secs() * 6;
+            let wait = if of_day < six {
+                six - of_day
+            } else {
+                DAY.as_secs() - of_day + six
+            };
+            closed + SimDuration::from_secs(wait)
+        }
         Step::Year => session::end_of_the_open_year(closed),
         Step::Decade => {
             let mut target = closed;
@@ -277,6 +293,9 @@ impl Server {
                 self.read(run, |dir| children(|| self.world_of(dir), mother, father))
             }
             ["api", "runs", run, "world"] => self.read(run, |dir| world(self.world_of(dir))),
+            ["api", "runs", run, "house", household] => {
+                self.read(run, |dir| house(self.world_of(dir), household))
+            }
             ["api", "runs", a, "diff", b] => {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
             }
@@ -890,6 +909,18 @@ fn sheet() -> Response {
 fn world(world: Result<Rc<World>, CliError>) -> Response {
     match world.and_then(|world| crate::world_answer(&world)) {
         Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/house/{household}` (ADR-0021, addendum of 2026-11-03).
+fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
+    let Ok(id) = household.parse::<u64>() else {
+        return Response::error(404, "not_in_house");
+    };
+    match world.and_then(|world| crate::house_answer(&world, id)) {
+        Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Ok(None) => Response::error(404, "not_in_house"),
         Err(error) => Response::error(500, error.code),
     }
 }
