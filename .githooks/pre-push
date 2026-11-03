@@ -1,8 +1,9 @@
 #!/bin/sh
-# Runs the gate before every push (ADR-0000); covers macOS arm64 between the weekly
-# CI runs. Enable once per clone:
+# Runs the first part of the gate before every push (ADR-0000): the checks of the sources,
+# the web build with its tests, fmt and clippy. The whole gate runs in the CI on every supported target, macOS arm64
+# included. Enable once per clone:
 #   git config core.hooksPath .githooks
-# The gate requires a clean working tree, so commit or stash first.
+# It requires a clean working tree, so commit or stash first.
 #
 # The code is public and the planning private (ADR-0000 point 10): a push is refused if the
 # tree of any new commit holds docs, HANDOFF.md or CLAUDE.md, except to the private archive.
@@ -33,4 +34,4 @@ case "$url" in
     done
     ;;
 esac
-exec cargo xtask ci
+exec cargo xtask quick

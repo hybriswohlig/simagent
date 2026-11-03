@@ -1,6 +1,6 @@
-# Weekly gate on macOS arm64 (ADR-0000, ADR-0003): the third supported target, and the
-# reference check of the known-answer tests. Not a required check; daily work on the
-# Mac is covered by the pre-push hook.
+# Weekly gate on macOS arm64 (ADR-0000, ADR-0003) with the reference check of the
+# known-answer tests. Not a required check; every PR runs the gate on macOS arm64 as
+# well (gate.yml).
 name: weekly-macos
 
 on:

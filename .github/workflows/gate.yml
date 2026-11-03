@@ -1,6 +1,7 @@
-# The gate (ADR-0000): required check on main. It runs exactly `cargo xtask ci`,
-# the same command as the pre-push hook. No paths-ignore: a required check that is
-# skipped blocks the PR, and docs/adr is on the protected list (ADR-0000).
+# The gate (ADR-0000): required check on main, on every supported target. It runs exactly
+# `cargo xtask ci`; the pre-push hook runs only its first part (`cargo xtask quick`). No
+# paths-ignore: a required check that is skipped blocks the PR, and docs/adr is on the
+# protected list (ADR-0000).
 # Never edit this file to make a merge possible (ADR-0000, exception to A3).
 name: gate
 
@@ -22,10 +23,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # x86_64 and arm64: the measured determinism differences run along this line.
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        # x86_64 and arm64: the measured determinism differences run along this line;
+        # macOS arm64 is the third supported target, the Mac the game is developed on.
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,13 +49,13 @@ jobs:
           node-version-file: web/.nvmrc
           package-manager-cache: false
       # The Chromium headless shell of the pinned playwright-core for the browser smoke
-      # test of the gate (ADR-0021 section 4), cached per architecture and lockfile; the
-      # system libraries it needs come from apt on every run.
+      # test of the gate (ADR-0021 section 4), cached per system, architecture and
+      # lockfile; on Linux the system libraries it needs come from apt on every run.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/ms-playwright
-          key: ms-playwright-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
+          path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
       - name: Install the browser
-        run: cargo xtask browser --with-deps
+        run: cargo xtask browser ${{ runner.os == 'Linux' && '--with-deps' || '' }}
       - name: Gate
         run: cargo xtask ci
