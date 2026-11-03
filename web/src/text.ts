@@ -542,4 +542,7 @@ export const CODES: { readonly [code: string]: string } = {
   "foster foster_father": "Pflegevater",
   "foster foster_daughter": "Pflegetochter",
   "foster foster_son": "Pflegesohn",
+  "end_reason done": "fertig",
+  "end_reason full": "Bedürfnis erfüllt",
+  "end_reason left": "Haus verlassen",
 };
