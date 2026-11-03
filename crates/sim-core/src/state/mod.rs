@@ -7,6 +7,7 @@ pub(crate) mod birth;
 pub(crate) mod birthday;
 pub(crate) mod census;
 pub(crate) mod conception;
+pub(crate) mod day;
 pub(crate) mod death;
 pub(crate) mod disease;
 pub(crate) mod emigration;
@@ -288,7 +289,15 @@ pub(crate) enum Slot {
     /// The onset of the hereditary disease with this `str_key` (ADR-0017 section 3).
     Onset(u64),
     /// The house events come last: leaving the house cancels them, not the archive
-    /// (ADR-0024 section 2). A falling need reaching a threshold (ADR-0026 section 1).
+    /// (ADR-0024 section 2). The daily series of the day's plan (ADR-0024 section 4).
+    DayPlan,
+    /// The return from the day's duty.
+    Return,
+    /// The departure to it.
+    Depart,
+    /// The wake before it.
+    Wake,
+    /// A falling need reaching a threshold (ADR-0026 section 1).
     Crossing(Need, u16),
     /// The end of the walk to the object of an action (ADR-0026 section 4).
     Arrive,

@@ -69,7 +69,9 @@ pub struct Due {
     pub back: SimTime,
 }
 
+/// Where a person goes on a weekday (ADR-0024 section 4); a code in the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Duty {
     School,
     Work,
@@ -168,12 +170,15 @@ pub enum Broken {
     SlotUnknown,
     /// A place of two actions, or taken and held at once.
     SlotTaken,
-    /// Away with a rate, an action or a duty.
+    /// Away or on the way out with a rate, an action or a duty.
     AwayBusy,
     /// A rate other than the awake one, or at an object other than the offer's, by the age
     /// band of its second; or the needs an action sets written down at different seconds.
     Rate,
     DueOrder,
+    /// A departure waiting without a walk or an action that raised a need critical at the
+    /// departure (ADR-0024 section 4).
+    Due,
     Decisions,
     /// A waiter or holder without needs in that household, away, walking out or busy.
     Waiter,
@@ -221,6 +226,7 @@ pub fn consistent(
         let home = homes[&household];
         person_consistent(person, home, data, now)?;
         rates_consistent(person, home, data, born)?;
+        due_consistent(person, home, data, born)?;
         if let Some(action) = person.action
             && !taken.insert((household, action.object, action.slot))
         {
@@ -346,11 +352,13 @@ fn person_consistent(
                 return Err(Broken::Walk);
             }
         }
-        Place::Away => {
-            let still = person.needs.iter().all(|need| need.rate() == 0);
-            if !still || person.action.is_some() || person.due.is_some() {
-                return Err(Broken::AwayBusy);
-            }
+        Place::Away => {}
+    }
+    // Away and on the way out every need stands still (ADR-0024 section 4).
+    if out(person) {
+        let still = person.needs.iter().all(|need| need.rate() == 0);
+        if !still || person.action.is_some() || person.due.is_some() {
+            return Err(Broken::AwayBusy);
         }
     }
     if let Some(due) = person.due
@@ -365,17 +373,64 @@ fn person_consistent(
     Ok(())
 }
 
+/// Whether a person is away or on its way out: a walk without an action leads out.
+fn out(person: &InHouse) -> bool {
+    matches!(
+        (person.place, person.action),
+        (Place::Away, _) | (Place::Walking { .. }, None)
+    )
+}
+
+/// The age band at `at` of a person born at `born`.
+fn band_at(born: SimTime, at: SimTime) -> Option<usize> {
+    let years = (at.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
+    u8::try_from(years).ok().and_then(age_band)
+}
+
+/// A departure waits only for a walk or an action that raised a need critical at the
+/// departure (ADR-0024 section 4): on the way one the offer raises in the age band of the
+/// arrival, at the object one that rises. Where the need was written down after the
+/// departure, at the arrival, its value then is gone; that is taken as it is.
+fn due_consistent(
+    person: &InHouse,
+    home: &House,
+    data: Option<&HouseData>,
+    born: SimTime,
+) -> Result<(), Broken> {
+    let Some(due) = person.due else {
+        return Ok(());
+    };
+    let action = person.action.ok_or(Broken::Due)?;
+    let rates = data.ok_or(Broken::HouseUnknown)?.rates();
+    let object = &home.def().objects[usize::from(action.object)];
+    let kind = data.and_then(|data| data.kind(&object.kind));
+    let offer = kind.and_then(|kind| kind.offers.get(usize::from(action.offer)));
+    let offer = offer.ok_or(Broken::OfferUnknown)?;
+    let raises = |need: Need, sample: NeedSample| match person.place {
+        Place::Walking { arrive, .. } => {
+            band_at(born, arrive).is_some_and(|band| offer.rate(rates, need, band) > 0)
+        }
+        _ => sample.rate() > 0,
+    };
+    let critical = |sample: NeedSample| {
+        sample.at() > due.depart || sample.value_at(due.depart) <= crate::house::choice::CRITICAL
+    };
+    let waits = (NEEDS.into_iter().zip(person.needs))
+        .any(|(need, sample)| raises(need, sample) && critical(sample));
+    if waits { Ok(()) } else { Err(Broken::Due) }
+}
+
 /// The rates of a person with needs (ADR-0026 sections 1 and 4): at its object those the
 /// offer sets are the offer's, written down together when it arrived; every other is the
-/// awake rate; each by the age band at the second it was written down. Away, all are 0
-/// (checked with the place).
+/// awake rate; each by the age band at the second it was written down. Away and on the way
+/// out, all are 0 (checked with the place).
 fn rates_consistent(
     person: &InHouse,
     home: &House,
     data: Option<&HouseData>,
     born: SimTime,
 ) -> Result<(), Broken> {
-    if person.place == Place::Away {
+    if out(person) {
         return Ok(());
     }
     let rates = data.ok_or(Broken::HouseUnknown)?.rates();
@@ -387,13 +442,9 @@ fn rates_consistent(
         }
         _ => None,
     };
-    let band_at = |at: SimTime| {
-        let years = (at.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
-        u8::try_from(years).ok().and_then(age_band)
-    };
     let mut begun = None;
     for (need, sample) in NEEDS.into_iter().zip(person.needs) {
-        let band = band_at(sample.at()).ok_or(Broken::Rate)?;
+        let band = band_at(born, sample.at()).ok_or(Broken::Rate)?;
         let rate = match doing {
             Some(offer) if offer.sets(need) => {
                 if begun.is_some_and(|begun| begun != sample.at()) {

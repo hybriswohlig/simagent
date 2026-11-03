@@ -392,7 +392,7 @@ export type HousesEntry = {
   readonly morning: boolean;
 };
 
-/** `GET /api/runs/{run}/house/{household}`: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03). */
+/** `GET /api/runs/{run}/house/{household}`, version 2: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
   readonly version: number;
@@ -449,10 +449,17 @@ export type HousePerson = {
   readonly needs: number[];
 };
 
-/** In a room, or walking from one room to another. */
+/** In a room, walking from one room to another (or out), or away at school or work. */
 export type HousePlace = {
   readonly room?: number;
   readonly walking?: HouseWalk;
+  readonly away?: HouseAway;
+};
+
+/** Away at school or work until the return, its second with its date. */
+export type HouseAway = {
+  readonly place: "school" | "work";
+  readonly until: DatedSecond;
 };
 
 /** A walk between two rooms, its start and its arrival. */

@@ -197,6 +197,24 @@ impl World {
     pub fn pending_events(&self) -> usize {
         self.sched.pending_len()
     }
+
+    /// Where a person away or on its way out is and until when: the place and the second of
+    /// its return (ADR-0024 section 4); `None` for anyone else.
+    pub fn away(&self, sim: SimId) -> Option<(crate::house::state::Duty, SimTime)> {
+        use crate::house::state::Place;
+        let person = self.state.domain.house.sims.get(&sim)?;
+        if !matches!(
+            (person.place, person.action),
+            (Place::Away | Place::Walking { .. }, None)
+        ) {
+            return None;
+        }
+        let handle = *self.state.domain.pending.get(&(sim, state::Slot::Return))?;
+        match self.sched.pending_payload(handle)? {
+            EventPayload::Return { place, .. } => Some((*place, self.pending_time(handle)?)),
+            _ => None,
+        }
+    }
 }
 
 /// Pure function of state and input (ADR-0004 section 4).
@@ -419,12 +437,19 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::ActionEnd { sim } => {
                 state::action::on_action_end(&mut self.domain, &self.data, sim, &mut ctx);
             }
-            // Nothing plans a house event before its handler comes, and the loader refuses
-            // one (ADR-0024, addendum of 2026-11-02).
-            EventPayload::DayPlan { .. }
-            | EventPayload::Return { .. }
-            | EventPayload::Depart { .. }
-            | EventPayload::Wake { .. } => panic!("invariant house.orphan_event"),
+            EventPayload::DayPlan { sim } => {
+                state::day::on_day_plan(&mut self.domain, &self.data, sim, &mut ctx);
+            }
+            EventPayload::Wake { sim } => {
+                state::day::on_wake(&mut self.domain, &self.data, sim, &mut ctx);
+            }
+            EventPayload::Depart { sim, place, back } => {
+                let departure = (sim, place, back);
+                state::day::on_depart(&mut self.domain, &self.data, departure, &mut ctx);
+            }
+            EventPayload::Return { sim, place } => {
+                state::day::on_return(&mut self.domain, &self.data, (sim, place), &mut ctx);
+            }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
     }

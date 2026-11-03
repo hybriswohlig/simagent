@@ -3,5 +3,6 @@
 
 pub mod choice;
 pub mod data;
+pub mod day;
 pub mod need;
 pub mod state;
