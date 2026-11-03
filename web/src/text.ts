@@ -395,6 +395,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:reached": "{0} ist angekommen",
   "payload core:action_ended": "{0} ist fertig",
   "payload core:idle": "{0} tut nichts",
+  "payload core:need_critical": "{0} braucht dringend etwas",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",
@@ -545,4 +546,5 @@ export const CODES: { readonly [code: string]: string } = {
   "end_reason done": "fertig",
   "end_reason full": "Bedürfnis erfüllt",
   "end_reason left": "Haus verlassen",
+  "end_reason critical": "Dringenderes",
 };

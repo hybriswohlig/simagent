@@ -13,6 +13,7 @@ use crate::data_id::{Code, DataId};
 use crate::genome::SexChromosome;
 use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
+use crate::house::data::Need;
 use crate::ids::{EventId, HouseholdId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
@@ -262,16 +263,20 @@ pub enum LogPayload {
         busy: Vec<u16>,
         waits: Option<u16>,
     },
+    /// A person's need fell to `level`, 150 or 50 (ADR-0026 section 4).
+    #[serde(rename = "core:need_critical")]
+    NeedCritical { need: Need, level: u16 },
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was
-/// full, or the person left the house.
+/// full, the person left the house, or a need it does not raise turned critical.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndReason {
     Done,
     Full,
     Left,
+    Critical,
 }
 
 /// One entry of the domain log.
