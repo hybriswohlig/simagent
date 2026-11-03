@@ -56,6 +56,12 @@ export const TEXT = {
   play_days28: "Abspielen, je 28 Tage",
   play_year: "Abspielen, je ein Jahr",
   play_decade: "Abspielen, je zehn Jahre",
+  step_minutes10: "10 Minuten",
+  step_hour: "Eine Stunde",
+  step_morning: "Bis morgen früh",
+  play_minutes10: "Abspielen, je 10 Minuten",
+  play_hour: "Abspielen, je eine Stunde",
+  play_morning: "Abspielen, je bis zum Morgen",
   pause: "Anhalten",
   steps: "Zeit",
   tree_dead_mark: "†",
@@ -286,9 +292,76 @@ export const TEXT = {
   trait_smart: "Verstand",
   trait_strong: "Kraft",
   trait_beauty: "Schönheit",
+  house_title: "Das Haus von {name}",
+  house_of_household: "Haushalt {n}",
+  house_before_morning: "Eingezogen. Der erste Morgen im Haus beginnt um 6:00.",
+  house_none: "Dieser Haushalt wohnt in keinem Haus.",
+  house_move_in: "Ins Haus",
+  house_to_house: "Zum Haus",
+  house_moving_in: "Zieht ein …",
+  house_move_out: "Ausziehen",
+  house_floor_0: "Erdgeschoss",
+  house_floor_1: "Obergeschoss",
+  house_people: "Bewohner",
+  house_young: "Kinder unter 6 sind noch nicht im Haus zu sehen.",
+  house_walks: "geht {where}",
+  house_does: "{offer} {at}",
+  house_until: "bis {time}",
+  house_idle: "tut gerade nichts",
+  house_now: "Jetzt:",
+  need_hunger: "Hunger",
+  need_energy: "Energie",
+  need_bladder: "Blase",
+  need_hygiene: "Hygiene",
+  need_fun: "Spaß",
   curve_hunger_note:
     "Die Zentimeter eines Hungerjahrs stehen auf der Karte eines Kindes, das es klein erlebt hat, in der mittleren Größe mit 25 erst, wenn diese Kinder 25 werden, und in der mittleren Größe der Erwachsenen kaum.",
 } as const;
+
+/** The rooms of the houses by their names in `data/house/houses/` (ADR-0025), as the house
+ * page shows them; "in" for a walk's goal. */
+export const ROOM_WORDS: { readonly [id: string]: readonly [string, string] } = {
+  hall: ["Flur", "in den Flur"],
+  kitchen: ["Küche", "in die Küche"],
+  living: ["Wohnzimmer", "ins Wohnzimmer"],
+  dining: ["Esszimmer", "ins Esszimmer"],
+  bath: ["Bad", "ins Bad"],
+  wc: ["WC", "aufs WC"],
+  bedroom: ["Schlafzimmer", "ins Schlafzimmer"],
+  kids: ["Kinderzimmer", "ins Kinderzimmer"],
+  kids_two: ["zweites Kinderzimmer", "ins zweite Kinderzimmer"],
+  small_room: ["kleines Zimmer", "ins kleine Zimmer"],
+  guest: ["Gästezimmer", "ins Gästezimmer"],
+  study: ["Arbeitszimmer", "ins Arbeitszimmer"],
+  landing: ["Flur oben", "in den Flur oben"],
+};
+
+/** The kinds of furniture by their data IDs (`data/house/kinds.json`): the name, and where
+ * one is while using it. */
+export const KIND_WORDS: { readonly [id: string]: readonly [string, string] } = {
+  "core:dining_table": ["Esstisch", "am Esstisch"],
+  "core:fridge": ["Kühlschrank", "am Kühlschrank"],
+  "core:sofa": ["Sofa", "auf dem Sofa"],
+  "core:tv": ["Fernseher", "vor dem Fernseher"],
+  "core:bookshelf": ["Bücherregal", "am Bücherregal"],
+  "core:toilet": ["Toilette", "auf der Toilette"],
+  "core:shower": ["Dusche", "unter der Dusche"],
+  "core:bed": ["Bett", "im Bett"],
+  "core:single_bed": ["Einzelbett", "im Einzelbett"],
+  "core:toy_chest": ["Spielzeugkiste", "an der Spielzeugkiste"],
+};
+
+/** The offers by their names in `kinds.json`, as what a person does there. */
+export const OFFER_WORDS: { readonly [id: string]: string } = {
+  eat: "isst",
+  snack: "nascht",
+  sleep: "schläft",
+  read: "liest",
+  shower: "duscht",
+  use: "ist",
+  play: "spielt",
+  watch: "sieht fern",
+};
 
 /** The words of the looks the core sends (its codes), as the person list shows them (Grok's
  * round 43, R6). */

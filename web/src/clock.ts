@@ -1,8 +1,9 @@
 import type { CalendarDate } from "./generated/export.js";
 import { TEXT } from "./text.js";
 
-/** The one step of a request to move the clock (ADR-0021 section 2). */
-export type Step = "days28" | "year" | "decade";
+/** The one step of a request to move the clock (ADR-0021 section 2 and its addendum of
+ * 2026-11-03). */
+export type Step = "days28" | "year" | "decade" | "minutes10" | "hour" | "morning";
 
 /**
  * The clock of a run page: where the run stands as the server last said, the step that
