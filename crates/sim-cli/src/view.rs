@@ -931,25 +931,85 @@ fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
 /// `GET /api/runs/{run}/why/{entry}` (ADR-0021, addendum of 2026-11-03): the entry from the
 /// run's domain log, if it is a choice, recomputed.
 fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &str) -> Response {
-    use std::io::BufRead;
     let no_choice = || Response::error(404, "not_a_choice");
     let Ok(id) = entry.parse::<u64>() else {
         return no_choice();
     };
-    let Ok(file) = std::fs::File::open(dir.join(files::EVENTS)) else {
-        return Response::error(500, "events_invalid");
+    let found = match find_entry(&dir.join(files::EVENTS), id) {
+        Err(()) => return Response::error(500, "events_invalid"),
+        Ok(None) => return no_choice(),
+        Ok(Some(line)) => line,
     };
-    let line = (std::io::BufReader::new(file).lines())
-        .map_while(Result::ok)
-        .find(|line| leading_id(line) == Some(id));
-    let Some(found) = line.and_then(|line| serde_json::from_str(&line).ok()) else {
-        return no_choice();
+    let Ok(found) = serde_json::from_str(&found) else {
+        return Response::error(500, "events_invalid");
     };
     match world().and_then(|world| crate::why_answer(&world, &found, id)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => no_choice(),
         Err(error) => Response::error(500, error.code),
     }
+}
+
+/// How many bytes of the domain log the search for an entry reads one line after the other.
+const SEARCH_WINDOW: u64 = 1 << 16;
+
+/// The line of the domain log at `path` with the entry `id`: only a complete line (the command
+/// line appends whole lines, a last one without its line end it is still writing), found by
+/// halving, since the ids grow along the log (review: no scan from the start per request).
+/// `Err` for a log it cannot read, or whose ids do not grow around the entry.
+fn find_entry(path: &Path, id: u64) -> Result<Option<String>, ()> {
+    use std::io::{BufRead, Seek, SeekFrom};
+    let file = std::fs::File::open(path).map_err(drop)?;
+    let len = file.metadata().map_err(drop)?.len();
+    let mut reader = std::io::BufReader::new(file);
+    // The first complete line that starts at or after `at`, with its start.
+    let mut line_from = |at: u64| -> Result<Option<(u64, String)>, ()> {
+        let mut skipped = Vec::new();
+        let start = if at == 0 {
+            reader.seek(SeekFrom::Start(0)).map_err(drop)?;
+            0
+        } else {
+            reader.seek(SeekFrom::Start(at - 1)).map_err(drop)?;
+            let rest = reader.read_until(b'\n', &mut skipped).map_err(drop)?;
+            at - 1 + u64::try_from(rest).map_err(drop)?
+        };
+        let mut line = String::new();
+        reader.read_line(&mut line).map_err(drop)?;
+        Ok(line.ends_with('\n').then_some((start, line)))
+    };
+    let (mut low, mut high) = (0, len);
+    while high - low > SEARCH_WINDOW {
+        let middle = low + (high - low) / 2;
+        match line_from(middle)? {
+            Some((start, line)) if leading_id(&line).ok_or(())? < id => {
+                low = start + u64::try_from(line.len()).map_err(drop)?;
+            }
+            _ => high = middle,
+        }
+    }
+    let mut at = low;
+    let mut before = None;
+    while let Some((start, line)) = line_from(at)? {
+        let here = leading_id(&line).ok_or(())?;
+        if before.is_some_and(|before| before >= here) {
+            return Err(());
+        }
+        if here > id {
+            return Ok(None);
+        }
+        at = start + u64::try_from(line.len()).map_err(drop)?;
+        if here == id {
+            // The next entry, if written, has a larger id.
+            let next = line_from(at)?.map(|(_, next)| leading_id(&next));
+            return match next {
+                Some(Some(next)) if next <= id => Err(()),
+                Some(None) => Err(()),
+                _ => Ok(Some(line)),
+            };
+        }
+        before = Some(here);
+    }
+    Ok(None)
 }
 
 /// Events per page (ADR-0021 section 2).
@@ -1214,6 +1274,42 @@ fn after_accept(failures: u32, accepted: bool) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The search for an entry by halving (review): a log of 20 000 entries with the odd ids
+    /// 1 to 39 999, far beyond the window; each id found or not, a last line not yet ended left
+    /// out, a doubled id and ids that do not grow around the entry refused.
+    #[test]
+    fn an_entry_is_found_by_halving() {
+        let base = std::env::temp_dir().join(format!("simagent-find-{}", std::process::id()));
+        std::fs::create_dir_all(&base).expect("a directory");
+        let log = base.join("events.ndjson");
+        let line = |id: u64| {
+            format!(
+                "{{\"id\":{id},\"t\":0,\"payload\":\"{}\"}}\n",
+                "x".repeat(40)
+            )
+        };
+        let lines: String = (0..20_000).map(|n| line(2 * n + 1)).collect();
+        assert!(u64::try_from(lines.len()).expect("fits") > 10 * SEARCH_WINDOW);
+        std::fs::write(&log, &lines).expect("written");
+        for id in [1, 3, 2_001, 19_999, 20_001, 39_997, 39_999] {
+            assert_eq!(find_entry(&log, id), Ok(Some(line(id))), "{id}");
+        }
+        for id in [0, 2, 20_000, 39_998, 40_000, 1 << 40] {
+            assert_eq!(find_entry(&log, id), Ok(None), "{id}");
+        }
+        let unended = line(40_001);
+        std::fs::write(&log, format!("{lines}{}", unended.trim_end())).expect("written");
+        assert_eq!(find_entry(&log, 40_001), Ok(None));
+        assert_eq!(find_entry(&log, 39_999), Ok(Some(line(39_999))));
+        std::fs::write(&log, format!("{lines}{}", line(39_999))).expect("written");
+        assert_eq!(find_entry(&log, 39_999), Err(()));
+        let shuffled = lines.replacen(&line(20_001), &line(20_005), 1);
+        std::fs::write(&log, shuffled).expect("written");
+        // 19 999, 20 005, 20 003: the entry 20 005 is followed by a smaller id.
+        assert_eq!(find_entry(&log, 20_005), Err(()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     /// A founder in a world without a pool, for one or two years.
     const TINY: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":62899199}"#;

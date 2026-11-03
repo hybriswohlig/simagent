@@ -463,7 +463,8 @@ pub fn why_answer(
     let house = houses
         .house(house)
         .ok_or_else(|| broken("an unknown house"))?;
-    let mut scored = score(house, houses, age(born, entry.t), needs, room);
+    let age = age(born, entry.t).ok_or_else(|| broken("a choice before the birth"))?;
+    let mut scored = score(house, houses, age, needs, room);
     scored.sort_by_key(|scored| {
         (
             core::cmp::Reverse(scored.points),

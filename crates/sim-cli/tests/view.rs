@@ -2591,8 +2591,9 @@ fn dated(t: i64) -> Value {
     json!({"t": t, "date": date(t)})
 }
 
-/// The server over the run `couple` of the scenario `COUPLE`, and the couple's household.
-fn couple(name: &str) -> (Server, Value) {
+/// The server over the run `couple` of the scenario `COUPLE`, the couple's household, and the
+/// run's directory.
+fn couple(name: &str) -> (Server, Value, PathBuf) {
     let (runs, web) = fixture(name);
     let base = runs.parent().expect("a parent").to_path_buf();
     let scenario = base.join("couple.json");
@@ -2609,7 +2610,7 @@ fn couple(name: &str) -> (Server, Value) {
     let server = start(&runs, &web);
     let (_, _, pedigree) = get(server.port, "/api/runs/couple/pedigree");
     let home = json_of(&pedigree)["households"][0]["household"].clone();
-    (server, home)
+    (server, home, out)
 }
 
 /// The house of a household over HTTP (ADR-0021, addendum of 2026-11-03): none before it moves
@@ -2622,7 +2623,7 @@ fn couple(name: &str) -> (Server, Value) {
 /// truncated (ADR-0026).
 #[test]
 fn a_house_over_http() {
-    let (server, home) = couple("house");
+    let (server, home, _) = couple("house");
     let port = server.port;
     let path = format!("/api/runs/couple/house/{home}");
     let (status, _, body) = get(port, &path);
@@ -2718,7 +2719,7 @@ fn a_house_over_http() {
 /// is no choice.
 #[test]
 fn why_over_http() {
-    let (server, home) = couple("why");
+    let (server, home, run) = couple("why");
     let port = server.port;
     let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
     assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
@@ -2782,4 +2783,20 @@ fn why_over_http() {
             "{path}"
         );
     }
+    // A last line without its line end is one the command line is still writing (review): the
+    // last entry again with the next id is not served yet; once two lines carry that id, the
+    // log is broken.
+    let log = run.join("events.ndjson");
+    let text = fs::read_to_string(&log).expect("the log");
+    let last = text.lines().last().expect("a last entry");
+    let id = last["{\"id\":".len()..].split(',').next().expect("an id");
+    let next = id.parse::<u64>().expect("a number") + 1;
+    let again = last.replacen(&format!("{{\"id\":{id},"), &format!("{{\"id\":{next},"), 1);
+    write(&log, format!("{text}{again}").as_bytes());
+    let path = format!("/api/runs/couple/why/{next}");
+    let (status, _, body) = get(port, &path);
+    assert_eq!((status, code_of(&body)), (404, "not_a_choice".to_owned()));
+    write(&log, format!("{text}{again}\n{again}\n").as_bytes());
+    let (status, _, body) = get(port, &path);
+    assert_eq!((status, code_of(&body)), (500, "events_invalid".to_owned()));
 }

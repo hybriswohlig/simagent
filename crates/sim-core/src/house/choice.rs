@@ -29,10 +29,10 @@ pub struct Scored {
 }
 
 /// The age a choice is made at (ADR-0026 section 3): whole years from `born` to `at`, at
-/// most 255.
-pub fn age(born: SimTime, at: SimTime) -> u8 {
+/// most 255; `None` before the birth.
+pub fn age(born: SimTime, at: SimTime) -> Option<u8> {
     let years = (at.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
-    u8::try_from(years).unwrap_or(u8::MAX)
+    (years >= 0).then(|| u8::try_from(years).unwrap_or(u8::MAX))
 }
 
 /// The points of every offer of `house` open at `age`, for a person with the needs `values`

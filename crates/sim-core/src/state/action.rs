@@ -43,6 +43,7 @@ fn age(domain: &DomainState, sim: SimId, now: SimTime) -> u8 {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
     crate::house::choice::age(person.born, now)
+        .unwrap_or_else(|| panic!("invariant age.out_of_range"))
 }
 
 /// The age band of a person with needs at `now`.
