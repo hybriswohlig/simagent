@@ -18,6 +18,7 @@ use sim_core::genome::{
     Genome, LocusAlleles, PaternalSex, Sex, SexChromosome, Strand, XChromosome, YChromosome,
 };
 use sim_core::house::data::Need;
+use sim_core::house::state::Duty;
 use sim_core::ids::{EventId, HouseholdId, InputSeq, MAX_JS_SAFE, PartnershipId, SimId};
 use sim_core::input::{
     ArrangePartnership, Couple, ForkOverride, Founder, Input, InputRecord, InputRejected,
@@ -1077,6 +1078,17 @@ fn all_payloads() -> Vec<LogPayload> {
             need: Need::Hunger,
             level: 150,
         },
+        LogPayload::DayPlanned {
+            place: Duty::School,
+            depart: SimTime::from_secs(27_600),
+            back: SimTime::from_secs(55_200),
+        },
+        LogPayload::LeftHome {
+            place: Duty::Work,
+            late_secs: 1_295,
+        },
+        LogPayload::CameHome { place: Duty::Work },
+        LogPayload::Missed { place: Duty::Work },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1105,7 +1117,11 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Reached { .. }
             | LogPayload::ActionEnded { .. }
             | LogPayload::Idle { .. }
-            | LogPayload::NeedCritical { .. } => {}
+            | LogPayload::NeedCritical { .. }
+            | LogPayload::DayPlanned { .. }
+            | LogPayload::LeftHome { .. }
+            | LogPayload::CameHome { .. }
+            | LogPayload::Missed { .. } => {}
         }
     }
     payloads
@@ -1572,10 +1588,15 @@ fn log_codes_are_stable() {
         EndReason::Full,
         EndReason::Left,
         EndReason::Critical,
+        EndReason::Obligation,
     ];
     for reason in &reasons {
         match reason {
-            EndReason::Done | EndReason::Full | EndReason::Left | EndReason::Critical => {}
+            EndReason::Done
+            | EndReason::Full
+            | EndReason::Left
+            | EndReason::Critical
+            | EndReason::Obligation => {}
         }
     }
     actual.extend(reasons.iter().map(|r| line("end_reason", r)));

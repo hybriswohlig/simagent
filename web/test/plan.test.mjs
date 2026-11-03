@@ -55,4 +55,9 @@ test("a second of the day as a clock reads it", async () => {
   assert.equal(timeOfDay(0), "0:00");
   assert.equal(timeOfDay(6 * 3600 + 5 * 60 + 59), "6:05");
   assert.equal(timeOfDay(23 * 3600 + 59 * 60 + 59), "23:59");
+  // A late departure in whole minutes (ADR-0024 section 4): 1 295 s are 21 minutes.
+  const { wholeMinutes } = await import("../dist/render/plan.js");
+  assert.equal(wholeMinutes(1_295), 21);
+  assert.equal(wholeMinutes(59), 0);
+  assert.equal(wholeMinutes(60), 1);
 });

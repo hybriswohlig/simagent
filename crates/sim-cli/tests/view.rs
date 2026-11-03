@@ -2620,7 +2620,9 @@ fn couple(name: &str) -> (Server, Value, PathBuf) {
 /// both eat at the table, she from 6:02:40 on place 1 (hunger 596 on arrival, +1 800 an hour:
 /// 816), he from 6:00:04 on place 0 (600 + 298), each for 20 minutes; energy 900 − 6.7,
 /// her bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, hygiene 700 − 5, fun 800 − 10, all
-/// truncated (ADR-0026).
+/// truncated (ADR-0026). Both work full time (their draws 30 and 3, ADR-0024 section 4) and
+/// leave at 8:40, no need of theirs below 150 by then (at most 2:40 h at the awake rates from
+/// the morning values: bladder 500 − 320); at 9:10 both are at work until 17:20 (version 2).
 #[test]
 fn a_house_over_http() {
     let (server, home, _) = couple("house");
@@ -2639,7 +2641,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(1), &dated(at))
+            (&json!("simagent.view.house"), &json!(2), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"]),
@@ -2706,7 +2708,21 @@ fn a_house_over_http() {
         ])
     );
     step("hour", MORNING + 4_200);
-    // From 7:10 the next morning is tomorrow's, and from 6:00 itself too.
+    step("hour", MORNING + 7_800);
+    step("hour", MORNING + 11_400);
+    let at_work = json!({"away": {"place": "work", "until": dated(DAY + 62_400)}});
+    let persons = house(MORNING + 11_400)["persons"].clone();
+    for (index, sim) in [1, 2].into_iter().enumerate() {
+        assert_eq!(
+            (
+                &persons[index]["sim"],
+                &persons[index]["place"],
+                &persons[index]["action"]
+            ),
+            (&json!(sim), &at_work, &Value::Null)
+        );
+    }
+    // From 9:10 the next morning is tomorrow's, and from 6:00 itself too.
     step("morning", MORNING + DAY);
     step("morning", MORNING + 2 * DAY);
 }
