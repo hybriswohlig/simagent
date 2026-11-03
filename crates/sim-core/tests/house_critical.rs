@@ -10,7 +10,7 @@ use common::day::{MORNING, Run};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::house::data::Need;
-use sim_core::log::{EndReason, LogPayload};
+use sim_core::log::{EndReason, LogEntry, LogPayload};
 use sim_core::time::{HOUR, SimTime};
 use sim_core::world::{World, YearOut};
 
@@ -230,7 +230,8 @@ fn critical_ends_a_walk_where_it_began() {
 }
 
 /// Saved in the seconds a need turns critical and right after: the save loads, saves to the
-/// same bytes and runs on as the uninterrupted world for an hour.
+/// same bytes and runs on as the uninterrupted world until an hour after the morning, with the
+/// same entries and causes.
 #[test]
 fn a_critical_second_is_saved_and_loaded() {
     let den_seconds: &[i64] = &[1_440, 1_441, 1_560, 1_562];
@@ -245,8 +246,15 @@ fn a_critical_second_is_saved_and_loaded() {
             let until = SimTime::from_secs(MORNING + HOUR.as_secs());
             let mut out = YearOut::default();
             loaded.advance_until(&mut out, until, &mut |_| false);
+            let saved = run.log.len();
             run.advance(until.as_secs());
             assert_eq!(loaded.state_hash(), run.world.state_hash(), "{after}");
+            let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
+            assert_eq!(
+                entries(&loaded.take_log()),
+                entries(&run.log[saved..]),
+                "{after}"
+            );
         }
     }
 }

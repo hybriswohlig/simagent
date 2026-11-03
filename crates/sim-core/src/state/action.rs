@@ -189,8 +189,9 @@ pub(crate) fn on_decide(
 
 /// A falling need of a person reaches a threshold (ADR-0026 sections 1 and 4). At 700 and 400
 /// a person idle in a room chooses, otherwise nothing happens. At 150 and 50 the need is
-/// critical: an entry, then a person idle in a room chooses, and a walk or an action whose
-/// offer does not raise the need ends with reason `critical` and the person chooses again.
+/// critical: an entry, then a person idle in a room chooses, and a walk to an offer that will
+/// not raise the need, or an action under way, ends with reason `critical` and the person
+/// chooses again.
 pub(crate) fn on_crossing(
     domain: &mut DomainState,
     data: &Data,
@@ -212,9 +213,17 @@ pub(crate) fn on_crossing(
     match (place, action) {
         (Place::Room(_), None) => decide(domain, data, sim, causes, ctx),
         (_, Some(action)) if level <= CRITICAL => {
-            let (_, houses, house) = home(domain, data, sim);
-            let age = age(domain, sim, ctx.now());
-            if !offer_of(house, houses, action).raises(houses.rates(), need, age) {
+            // At the object the need falls, so the action does not raise it. On the way the
+            // offer's rate is still to come, in the age band of the arrival.
+            let raises = match place {
+                Place::Walking { arrive, .. } => {
+                    let (_, houses, house) = home(domain, data, sim);
+                    let band = band(domain, sim, arrive);
+                    offer_of(house, houses, action).rate(houses.rates(), need, band) > 0
+                }
+                Place::Room(_) | Place::Away => false,
+            };
+            if !raises {
                 for slot in [Slot::Arrive, Slot::End] {
                     if let Some(handle) = domain.pending.remove(&(sim, slot)) {
                         ctx.cancel(handle);
