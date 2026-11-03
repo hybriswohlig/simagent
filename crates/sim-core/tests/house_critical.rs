@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::day::{MORNING, Run};
+use common::day::{self, MORNING, Run};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::house::data::Need;
@@ -14,34 +14,9 @@ use sim_core::log::{EndReason, LogEntry, LogPayload};
 use sim_core::time::{HOUR, SimTime};
 use sim_core::world::{World, YearOut};
 
-/// Hunger falls 3 000 an hour awake and fun 600; asleep hunger falls 1 200 and energy rises
-/// 1 200. In the den (`DEN`) energy falls 600 awake; in the far house (`FAR`) it stays.
-fn needs(energy: i32) -> String {
-    let bands = |rate: i32| [rate; 4];
-    serde_json::json!({
-        "awake": {
-            "hunger": bands(-3000),
-            "energy": bands(energy),
-            "bladder": bands(0),
-            "hygiene": bands(0),
-            "fun": bands(-600)
-        },
-        "asleep": {
-            "hunger": bands(-1200),
-            "energy": bands(1200),
-            "bladder": bands(0),
-            "hygiene": bands(0),
-            "fun": bands(0)
-        }
-    })
-    .to_string()
-}
-
 /// A television (fun +1 200 for 2 h), a fridge (hunger +6 000 until full, at most 10 min), a
-/// snack (hunger +600 for 2 min) and a bed; two places each. Every house needs the five kinds
-/// of `core:`; here they raise a need by 1 an hour for a minute, a gain of 0, so they never
-/// bring enough, and below anything that brings more when the need is critical.
-const KINDS: &str = r#"[
+/// snack (hunger +600 for 2 min) and a bed; two places each.
+const KINDS: &str = r#"
   {"id": "test:tv", "slots": 2, "offers": [
     {"id": "watch", "rates": {"fun": 1200}, "seconds": 7200, "min_age": 0, "max_age": 130}]},
   {"id": "test:fridge", "slots": 2, "offers": [
@@ -49,27 +24,11 @@ const KINDS: &str = r#"[
   {"id": "test:snack", "slots": 2, "offers": [
     {"id": "nibble", "rates": {"hunger": 600}, "seconds": 120, "min_age": 0, "max_age": 130}]},
   {"id": "test:bed", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]},
-  {"id": "core:dining_table", "slots": 1, "offers": [
-    {"id": "eat", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
-  {"id": "core:fridge", "slots": 1, "offers": [
-    {"id": "snack", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
-  {"id": "core:toilet", "slots": 1, "offers": [
-    {"id": "use", "rates": {"bladder": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
-  {"id": "core:shower", "slots": 1, "offers": [
-    {"id": "shower", "rates": {"hygiene": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
-  {"id": "core:sofa", "slots": 1, "offers": [
-    {"id": "sit", "rates": {"fun": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]}
-]"#;
-
-/// The five kinds every house needs, in the hall, objects 3 to 7.
-const ESSENTIALS: &str = r#"{"kind": "core:dining_table", "room": "hall"},
-    {"kind": "core:fridge", "room": "hall"}, {"kind": "core:toilet", "room": "hall"},
-    {"kind": "core:shower", "room": "hall"}, {"kind": "core:sofa", "room": "hall"}"#;
+    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]}"#;
 
 /// Rooms hall 0, den 1, kitchen 2, bedroom 3; the den and the bedroom 3 s from the hall, the
 /// kitchen 120 s. Objects: television 0 in the den, fridge 1 in the kitchen, bed 2 in the
-/// bedroom.
+/// bedroom, the five essential ones 3 to 7 in the hall.
 const DEN: &str = r#"{
   "id": "test:den", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}, {"id": "kitchen"}, {"id": "bedroom"}],
@@ -99,10 +58,10 @@ const FAR: &str = r#"{
     {"kind": "test:bed", "room": "den"}, ESSENTIALS]
 }"#;
 
+/// Hunger falls 3 000 an hour awake and fun 600; in the den energy falls 600, in the far house
+/// it stays.
 fn data(house: &str, energy: i32) -> Data {
-    let house = house.replace("ESSENTIALS", ESSENTIALS);
-    let houses = common::houses_from(&needs(energy), KINDS, &[&house]);
-    common::death_data(1e-9, None, serde_json::json!([])).with_houses(houses)
+    day::house_data(&day::rates(-3000, energy, -600), KINDS, house)
 }
 
 fn den() -> Data {
