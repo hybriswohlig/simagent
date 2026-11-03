@@ -546,12 +546,12 @@ struct File {
     /// The households of the pool used (ADR-0020 section 5): none here.
     pool_used: Vec<u32>,
     /// The house (ADR-0024, addendum of 2026-11-02): the households moved in as (id,
-    /// (house, morning)), the persons with needs; nobody waits or holds here, so the other
-    /// two maps are empty and their elements never written.
+    /// (house, morning)), the persons with needs, the held places as ((household, object,
+    /// place), sim); nobody waits here, so that map is empty and its elements never written.
     house_households: Vec<(u64, (String, bool))>,
     house_sims: Vec<(u64, TestInHouse)>,
     house_waits: Vec<(u64, ())>,
-    house_holds: Vec<(u64, ())>,
+    house_holds: Vec<((u64, u16, u8), u64)>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -817,8 +817,20 @@ fn seven(
 /// "tiny" at 7 at the second `clock`, her household in the flat since the morning of
 /// `SEVEN_SIX`, `person` her needs, `events` added to the queue in this order.
 fn in_the_flat(data: &Data, clock: i64, person: TestInHouse, events: Vec<QueueEntry>) -> Vec<u8> {
+    holding_in_the_flat(data, clock, person, events, Vec::new())
+}
+
+/// The same with the held places `holds`.
+fn holding_in_the_flat(
+    data: &Data,
+    clock: i64,
+    person: TestInHouse,
+    events: Vec<QueueEntry>,
+    holds: Vec<((u64, u16, u8), u64)>,
+) -> Vec<u8> {
     let hash = data.hash();
     File::tiny().with(move |f| {
+        f.house_holds = holds;
         f.data_hash = hash;
         f.closed_through = clock;
         for entry in &mut f.queue {
@@ -928,6 +940,21 @@ fn a_save_keeps_the_walk_and_the_action() {
     assert_eq!(loads(six + 2, &slow, vec![arrive(40)]), refused);
     let still = seven(TestPlace::Room(1), fridge, hungry, Some((0, 0)));
     assert_eq!(loads(six + 100, &still, vec![end(300)]), refused);
+}
+
+/// A held place lasts only the second of the choice it plans (ADR-0026 section 5), and no
+/// choice is pending in a save: she idles in the hall of the flat and the fridge (object 1, one
+/// place) is free; held for her, the same save is refused.
+#[test]
+fn a_save_holds_no_place() {
+    let data = common::data().with_houses(common::repository_houses());
+    let idle = seven(TestPlace::Room(0), None, [0; 5], None);
+    let save = |holds| holding_in_the_flat(&data, SEVEN_SIX + 2, idle.clone(), Vec::new(), holds);
+    assert_eq!(load_error_with(data.clone(), &save(Vec::new())), None);
+    assert_eq!(
+        load_error_with(data.clone(), &save(vec![((1, 1, 0), 1)])),
+        Some(LoadError::Inconsistent)
+    );
 }
 
 /// A save at the last second of time (review): the house checks have no next second, and

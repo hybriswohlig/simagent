@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, ENOUGH, best, score};
+use crate::house::choice::{CRITICAL, ENOUGH, Scored, best, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::need::FULL;
 use crate::house::state::{Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end};
@@ -68,18 +68,57 @@ fn need_index(need: Need) -> usize {
     (NEEDS.iter().position(|&each| each == need)).unwrap_or_else(|| panic!("invariant house.need"))
 }
 
-/// The places of the household's objects taken by an action or held, as (object, place).
-fn taken(domain: &DomainState, household: HouseholdId) -> BTreeSet<(u16, u8)> {
+/// The places of the household's objects taken by an action or held for another than `sim`,
+/// as (object, place): in its choice a place held for `sim` counts as free (ADR-0026 section 5).
+fn taken(domain: &DomainState, household: HouseholdId, sim: SimId) -> BTreeSet<(u16, u8)> {
     let members = domain.members.get(&household).into_iter().flatten();
     let actions = members.filter_map(|sim| domain.house.sims.get(sim)?.action);
     let mut taken: BTreeSet<(u16, u8)> = actions.map(|a| (a.object, a.slot)).collect();
-    let held = (domain
-        .house
-        .holds
-        .range((household, 0, 0)..=(household, u16::MAX, u8::MAX)))
-    .map(|(&(_, object, slot), _)| (object, slot));
+    let held = (domain.house.holds.range(household_places(household)))
+        .filter(|&(_, &holder)| holder != sim)
+        .map(|(&(_, object, slot), _)| (object, slot));
     taken.extend(held);
     taken
+}
+
+/// The keys of all places of a household's objects.
+fn household_places(household: HouseholdId) -> core::ops::RangeInclusive<(HouseholdId, u16, u8)> {
+    (household, 0, 0)..=(household, u16::MAX, u8::MAX)
+}
+
+/// The place held for `sim`, if any.
+pub(crate) fn held_by(
+    domain: &DomainState,
+    household: HouseholdId,
+    sim: SimId,
+) -> Option<(u16, u8)> {
+    (domain.house.holds.range(household_places(household)))
+        .find(|&(_, &holder)| holder == sim)
+        .map(|(&(_, object, slot), _)| (object, slot))
+}
+
+/// A place of `object` is free again (ADR-0026 section 5): the first who waits for the object
+/// (earliest start, then smaller SimId) leaves the list and the place is held for it, with a
+/// choice planned by `by` in this second; with nobody waiting the place is simply free.
+pub(crate) fn release(
+    domain: &mut DomainState,
+    household: HouseholdId,
+    (object, slot): (u16, u8),
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let Some(waiters) = domain.house.waits.get_mut(&(household, object)) else {
+        return;
+    };
+    let (_, waiter) = waiters.remove(0);
+    if waiters.is_empty() {
+        domain.house.waits.remove(&(household, object));
+    }
+    domain.house.holds.insert((household, object, slot), waiter);
+    let handle = ctx.schedule(ctx.now(), EventPayload::Decide { sim: waiter }, by);
+    if let Some(stale) = domain.pending.insert((waiter, Slot::Decide), handle) {
+        ctx.cancel(stale);
+    }
 }
 
 /// The objects of `house` with no free place.
@@ -111,7 +150,16 @@ pub(crate) fn decide(
     }
     let (household, houses, house) = home(domain, data, sim);
     let age = age(domain, sim, now);
-    let taken = taken(domain, household);
+    // Who chooses leaves every waiting list (ADR-0026 section 5).
+    for waiters in domain.house.waits.values_mut() {
+        waiters.retain(|&(_, waiter)| waiter != sim);
+    }
+    domain.house.waits.retain(|_, waiters| !waiters.is_empty());
+    let held = held_by(domain, household, sim);
+    if let Some((object, slot)) = held {
+        domain.house.holds.remove(&(household, object, slot));
+    }
+    let taken = taken(domain, household, sim);
     let busy = busy(house, houses, &taken);
     let person = person_mut(domain, sim);
     let (Place::Room(room), None) = (person.place, person.action) else {
@@ -134,14 +182,30 @@ pub(crate) fn decide(
     let walk = chosen.map(|chosen| house.walk_to(room, chosen.object));
     let arrive = walk.and_then(|walk| now.checked_add(SimDuration::from_secs(i64::from(walk))));
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
+        // The best of a fully taken object, if it brings enough, is waited for.
+        let taken_offers: Vec<Scored> = (scored.iter())
+            .filter(|scored| busy.contains(&scored.object))
+            .copied()
+            .collect();
+        let waits = best(&taken_offers, &[])
+            .filter(|best| best.points >= ENOUGH)
+            .map(|best| best.object);
+        if let Some(object) = waits {
+            let waiters = domain.house.waits.entry((household, object)).or_default();
+            let at = waiters.partition_point(|&waiter| waiter < (now, sim));
+            waiters.insert(at, (now, sim));
+        }
         let idle = LogPayload::Idle {
             house: house.id().clone(),
             room,
             needs,
             busy,
-            waits: None,
+            waits,
         };
-        ctx.emit(idle, vec![Subject::Sim(sim)], causes);
+        let entry = ctx.emit(idle, vec![Subject::Sim(sim)], causes);
+        if let Some(place) = held {
+            release(domain, household, place, entry, ctx);
+        }
         return;
     };
     let object = chosen.object;
@@ -173,6 +237,10 @@ pub(crate) fn decide(
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
+    // A held place the choice did not take goes on to the next who waits.
+    if let Some(place) = held.filter(|&place| place != (object, slot)) {
+        release(domain, household, place, entry, ctx);
+    }
 }
 
 /// A planned choice: the first morning, or coming in after it (ADR-0026 section 3).
@@ -314,7 +382,7 @@ fn end(
     ctx: &mut SimCtx<'_, '_>,
 ) -> EventId {
     let now = ctx.now();
-    let (_, houses, house) = home(domain, data, sim);
+    let (household, houses, house) = home(domain, data, sim);
     let band = band(domain, sim, now);
     let person = person_mut(domain, sim);
     let Some(action) = person.action.take() else {
@@ -329,7 +397,8 @@ fn end(
         needs,
     };
     let entry = ctx.emit(ended, vec![Subject::Sim(sim)], causes);
-    match person.place {
+    let place = person.place;
+    match place {
         Place::Walking { from, .. } => person.place = Place::Room(from),
         Place::Room(_) => {
             for (sample, need) in person.needs.iter_mut().zip(NEEDS) {
@@ -341,5 +410,6 @@ fn end(
         }
         Place::Away => panic!("invariant house.orphan_event"),
     }
+    release(domain, household, (action.object, action.slot), entry, ctx);
     entry
 }

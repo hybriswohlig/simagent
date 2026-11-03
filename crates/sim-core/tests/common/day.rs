@@ -1,5 +1,6 @@
 //! A couple in a house (ADR-0024 to ADR-0026): a woman of 30 (sim 1) and a man of 32 (sim 2),
-//! moved in at 23:59:59 of day 0, their first morning at 6:00 of day 1.
+//! moved in at 23:59:59 of day 0, their first morning at 6:00 of day 1; and the parts of a
+//! test house.
 
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
@@ -13,6 +14,59 @@ use sim_core::world::{World, YearOut};
 
 /// The first morning, 6:00 of day 1.
 pub const MORNING: i64 = DAY.as_secs() + 6 * HOUR.as_secs();
+
+/// The rates of a test house, the same in every age band: hunger, energy and fun as given
+/// awake, bladder and hygiene still; asleep hunger falls 1 200 an hour and energy rises 1 200.
+pub fn rates(hunger: i32, energy: i32, fun: i32) -> String {
+    let bands = |rate: i32| [rate; 4];
+    serde_json::json!({
+        "awake": {
+            "hunger": bands(hunger),
+            "energy": bands(energy),
+            "bladder": bands(0),
+            "hygiene": bands(0),
+            "fun": bands(fun)
+        },
+        "asleep": {
+            "hunger": bands(-1200),
+            "energy": bands(1200),
+            "bladder": bands(0),
+            "hygiene": bands(0),
+            "fun": bands(0)
+        }
+    })
+    .to_string()
+}
+
+/// Every house needs the five kinds of `core:`; here they raise a need by 1 an hour for a
+/// minute, a gain of 0, so they never bring enough, and below anything that brings more when
+/// the need is critical. One place each.
+const ESSENTIAL_KINDS: &str = r#"
+  {"id": "core:dining_table", "slots": 1, "offers": [
+    {"id": "eat", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:fridge", "slots": 1, "offers": [
+    {"id": "snack", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:toilet", "slots": 1, "offers": [
+    {"id": "use", "rates": {"bladder": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:shower", "slots": 1, "offers": [
+    {"id": "shower", "rates": {"hygiene": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:sofa", "slots": 1, "offers": [
+    {"id": "sit", "rates": {"fun": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]}"#;
+
+/// The five kinds every house needs, in the hall; a house file names them `ESSENTIALS` after
+/// its own objects.
+const ESSENTIALS: &str = r#"{"kind": "core:dining_table", "room": "hall"},
+    {"kind": "core:fridge", "room": "hall"}, {"kind": "core:toilet", "room": "hall"},
+    {"kind": "core:shower", "room": "hall"}, {"kind": "core:sofa", "room": "hall"}"#;
+
+/// The data of a test house: `rates`, the kinds `kinds` (JSON objects, comma separated) with
+/// the five essential ones, and the house file `house`.
+pub fn house_data(rates: &str, kinds: &str, house: &str) -> Data {
+    let kinds = format!("[{kinds},{ESSENTIAL_KINDS}]");
+    let house = house.replace("ESSENTIALS", ESSENTIALS);
+    let houses = super::houses_from(rates, &kinds, &[&house]);
+    super::death_data(1e-9, None, serde_json::json!([])).with_houses(houses)
+}
 
 pub struct Run {
     pub world: World,
