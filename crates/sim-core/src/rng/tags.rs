@@ -142,6 +142,10 @@ pub const FIRST_NAME: PurposeTag = PurposeTag::from_pinned_list(29);
 /// of the paternal chain; occasion: 0; detail: 0; the world seed.
 pub const SURNAME: PurposeTag = PurposeTag::from_pinned_list(30);
 
+/// The work plan of a person, once in its life (ADR-0024 section 4): `uniform_below(100)`.
+/// subject: its lineage key; occasion: 0; detail: 0.
+pub const WORK_PLAN: PurposeTag = PurposeTag::from_pinned_list(31);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -174,6 +178,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (FOUNDER_ALLELE, "FOUNDER_ALLELE"),
     (FIRST_NAME, "FIRST_NAME"),
     (SURNAME, "SURNAME"),
+    (WORK_PLAN, "WORK_PLAN"),
 ];
 
 /// Values of deleted tags; they are never used again.

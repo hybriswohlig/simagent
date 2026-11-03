@@ -1,0 +1,15 @@
+{
+  "day_plan_at": 18000,
+  "wake_before": 2700,
+  "school": {"from_age": 6, "until_age": 18, "depart": 27600, "back": 55200},
+  "work": {
+    "from_age": 18,
+    "until_age": 67,
+    "full_time_below": 70,
+    "part_time_below": 90,
+    "full_time": {"depart": 31200, "back": 62400},
+    "part_time": {"depart": 27600, "back": 48000}
+  },
+  "return_jumps": {"hunger": -350, "energy": -200, "bladder": -400, "hygiene": -100, "fun": -150},
+  "young": {"until_age": 6, "kita_from": 28800, "kita_to": 54000, "bed_from": 68400, "bed_to": 25200}
+}

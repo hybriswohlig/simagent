@@ -105,8 +105,8 @@ pub fn repository_data(root: &Path) -> Result<Data> {
         .map_err(|e| format!("the repository's data: {e}"))
 }
 
-/// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the kinds with
-/// their offers without the offers' names, each house file in the order of the file names
+/// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the day, the kinds
+/// with their offers without the offers' names, each house file in the order of the file names
 /// with its rooms numbered in the file's order; the core checks the rest. The test
 /// `the_base_game_loads` of sim-cli reads the same files with its stricter reader.
 fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
@@ -118,6 +118,8 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
     let folder = root.join("data/house");
     let rates = serde_json::from_value(read(&folder.join("needs.json"))?)
         .map_err(|e| format!("needs.json: {e}"))?;
+    let day = serde_json::from_value(read(&folder.join("day.json"))?)
+        .map_err(|e| format!("day.json: {e}"))?;
     let small = |value: &Value, what: &str| {
         (value.as_u64())
             .and_then(|n| u8::try_from(n).ok())
@@ -207,7 +209,7 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    HouseData::new(rates, kinds, houses).map_err(|e| format!("the houses: {e}"))
+    HouseData::new(rates, day, kinds, houses).map_err(|e| format!("the houses: {e}"))
 }
 
 /// The shock templates of `data/shocks.json` without their text, as sim-cli reads them

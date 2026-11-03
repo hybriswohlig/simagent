@@ -1,12 +1,21 @@
-//! ADR-0025 sections 1 to 4 with the offers of ADR-0026 section 2, through the reader of the
-//! house files: three houses load, each check of the reader and of the core rejects a broken
-//! file with its code, the walking table of a test house by hand, and the house by the size
-//! of a household.
+//! ADR-0025 sections 1 to 4 with the offers of ADR-0026 section 2 and the day of ADR-0024
+//! section 4, through the reader of the house files: three houses load, each check of the
+//! reader and of the core rejects a broken file with its code, the walking table of a test
+//! house by hand, and the house by the size of a household.
 
 use serde_json::{Value, json};
 use sim_cli::house::house_data_from;
 use sim_core::data_id::DataId;
-use sim_core::house::data::{HouseData, HouseError};
+use sim_core::house::data::{
+    DayRules, Hours, HouseData, HouseError, NeedJumps, SchoolRules, WorkRules, YoungRules,
+};
+
+/// The repository's `day.json` (ADR-0024 section 4).
+const DAY: &str = include_str!("../../../data/house/day.json");
+
+fn day() -> Value {
+    serde_json::from_str(DAY).expect("the day")
+}
 
 /// The rates of ADR-0026 section 1 per age band (6 to 12, 13 to 17, 18 to 66, from 67).
 fn rates() -> Value {
@@ -106,7 +115,7 @@ fn house(id: &str, capacity: u8) -> Value {
 
 /// The house data of these files, or the code of their rejection (`house.…`), or the whole
 /// detail of another (a field the format does not know).
-fn load(rates: Value, kinds: Value, houses: Vec<Value>) -> Result<HouseData, String> {
+fn load(rates: Value, day: Value, kinds: Value, houses: Vec<Value>) -> Result<HouseData, String> {
     let texts: Vec<(String, String)> = (houses.iter())
         .map(|house| {
             (
@@ -118,7 +127,8 @@ fn load(rates: Value, kinds: Value, houses: Vec<Value>) -> Result<HouseData, Str
     let named: Vec<(&str, &str)> = (texts.iter())
         .map(|(name, text)| (name.as_str(), text.as_str()))
         .collect();
-    house_data_from(&rates.to_string(), &kinds.to_string(), &named).map_err(|error| {
+    let (rates, day, kinds) = (rates.to_string(), day.to_string(), kinds.to_string());
+    house_data_from(&rates, &day, &kinds, &named).map_err(|error| {
         let code = error.detail.rsplit(": ").next().unwrap_or_default();
         match code.starts_with("house.") {
             true => code.to_owned(),
@@ -133,7 +143,7 @@ fn checked(change: impl FnOnce(&mut Value, &mut Value)) -> String {
     let (mut kinds, mut flat) = (kinds(), house("core:flat", 3));
     change(&mut kinds, &mut flat);
     let houses = vec![flat, house("core:terraced", 5), house("core:house", 8)];
-    match load(rates(), kinds, houses) {
+    match load(rates(), day(), kinds, houses) {
         Ok(_) => "ok".to_owned(),
         Err(error) => error,
     }
@@ -239,18 +249,21 @@ fn house_data_loads_and_rejects() {
     // The houses (ADR-0025 section 2).
     let twice = load(
         rates(),
+        day(),
         kinds(),
         vec![house("core:flat", 3), house("core:flat", 5)],
     );
     assert_eq!(twice.err().as_deref(), Some("house.duplicate"));
     let same = load(
         rates(),
+        day(),
         kinds(),
         vec![house("core:flat", 3), house("core:big", 3)],
     );
     assert_eq!(same.err().as_deref(), Some("house.capacity"));
     let nine = load(
         rates(),
+        day(),
         kinds(),
         vec![house("core:flat", 3), house("core:big", 9)],
     );
@@ -367,10 +380,249 @@ fn house_data_loads_and_rejects() {
     assert!(unknown(checked(|_, flat| objects(flat)[0]["x"] = json!(1))));
     let mut extra = rates();
     extra["awake"]["thirst"] = json!([-1, -1, -1, -1]);
-    let thirst = load(extra, kinds(), vec![house("core:flat", 3)]);
+    let thirst = load(extra, day(), kinds(), vec![house("core:flat", 3)]);
     assert!(unknown(thirst.expect_err("rejected")));
 
     assert_eq!(HouseError::Disconnected.to_string(), "house.disconnected");
+}
+
+/// The check of the three houses with the repository's day after `change`, as its error
+/// code, another rejection's detail or "ok".
+fn day_checked(change: impl FnOnce(&mut Value)) -> String {
+    let mut changed = day();
+    change(&mut changed);
+    let houses = vec![
+        house("core:flat", 3),
+        house("core:terraced", 5),
+        house("core:house", 8),
+    ];
+    match load(rates(), changed, kinds(), houses) {
+        Ok(_) => "ok".to_owned(),
+        Err(error) => error,
+    }
+}
+
+/// The repository's day is that of ADR-0024 section 4, by hand.
+#[test]
+fn the_repository_day_loads() {
+    let at = |hours: u32, minutes: u32| hours * 3600 + minutes * 60;
+    let houses = vec![house("core:flat", 3)];
+    let data = load(rates(), day(), kinds(), houses).expect("loads");
+    let expected = DayRules {
+        // The day plan at 5:00, the wake 45 minutes before leaving.
+        day_plan_at: at(5, 0),
+        wake_before: at(0, 45),
+        // School from 6 to the day before the 18th birthday, 7:40 to 15:20.
+        school: SchoolRules {
+            from_age: 6,
+            until_age: 18,
+            depart: at(7, 40),
+            back: at(15, 20),
+        },
+        // Work from 18 to the day before the 67th: a draw below 70 full time, 8:40 to
+        // 17:20, below 90 part time, 7:40 to 13:20, else at home.
+        work: WorkRules {
+            from_age: 18,
+            until_age: 67,
+            full_time_below: 70,
+            part_time_below: 90,
+            full_time: Hours {
+                depart: at(8, 40),
+                back: at(17, 20),
+            },
+            part_time: Hours {
+                depart: at(7, 40),
+                back: at(13, 20),
+            },
+        },
+        return_jumps: NeedJumps {
+            hunger: -350,
+            energy: -200,
+            bladder: -400,
+            hygiene: -100,
+            fun: -150,
+        },
+        // Under 6 in the kindergarten 8:00 to 15:00, in bed 19:00 to 7:00.
+        young: YoungRules {
+            until_age: 6,
+            kita_from: at(8, 0),
+            kita_to: at(15, 0),
+            bed_from: at(19, 0),
+            bed_to: at(7, 0),
+        },
+    };
+    assert_eq!(*data.day(), expected);
+}
+
+#[test]
+fn the_day_rejects() {
+    assert_eq!(day_checked(|_| {}), "ok");
+
+    // Times within the day, each departure before its return, the small children's day in
+    // order: in bed until 7:00, the kindergarten, in bed again.
+    assert_eq!(
+        day_checked(|d| d["school"]["depart"] = json!(55_200)),
+        "house.day_time"
+    );
+    assert_eq!(day_checked(|d| d["school"]["depart"] = json!(55_199)), "ok");
+    assert_eq!(
+        day_checked(|d| d["work"]["part_time"]["back"] = json!(27_600)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["full_time"]["back"] = json!(86_400)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["day_plan_at"] = json!(86_400)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["young"]["bed_from"] = json!(86_400)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["young"]["bed_from"] = json!(86_399)),
+        "ok"
+    );
+    assert_eq!(
+        day_checked(|d| d["young"]["bed_to"] = json!(28_800)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["young"]["kita_to"] = json!(28_800)),
+        "house.day_time"
+    );
+    assert_eq!(
+        day_checked(|d| d["young"]["bed_from"] = json!(54_000)),
+        "house.day_time"
+    );
+
+    // The wake comes after the day plan: 7:40 less 2 h 40 min is 5:00, the plan's second.
+    assert_eq!(
+        day_checked(|d| d["wake_before"] = json!(10_000)),
+        "house.day_wake"
+    );
+    assert_eq!(
+        day_checked(|d| d["wake_before"] = json!(9_600)),
+        "house.day_wake"
+    );
+    assert_eq!(day_checked(|d| d["wake_before"] = json!(9_599)), "ok");
+    // No wake in the second of the departure (review: the departure would come first); one
+    // second before is fine.
+    assert_eq!(
+        day_checked(|d| d["wake_before"] = json!(0)),
+        "house.day_wake"
+    );
+    assert_eq!(day_checked(|d| d["wake_before"] = json!(1)), "ok");
+    // Longer than the night before a departure.
+    assert_eq!(
+        day_checked(|d| d["wake_before"] = json!(30_000)),
+        "house.day_wake"
+    );
+    let early_work = day_checked(|d| d["work"]["full_time"]["depart"] = json!(20_700));
+    assert_eq!(early_work, "house.day_wake");
+
+    // The ages follow each other: the repository's sit on the bounds (under 6, school from
+    // 6; school until 18, work from 18).
+    assert_eq!(
+        day_checked(|d| d["school"]["until_age"] = json!(19)),
+        "house.day_age"
+    );
+    assert_eq!(day_checked(|d| d["school"]["until_age"] = json!(17)), "ok");
+    assert_eq!(
+        day_checked(|d| d["young"]["until_age"] = json!(7)),
+        "house.day_age"
+    );
+    assert_eq!(
+        day_checked(|d| d["school"]["from_age"] = json!(18)),
+        "house.day_age"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["until_age"] = json!(18)),
+        "house.day_age"
+    );
+
+    // The shares of the work plan: 0 < full time < part time <= 100.
+    assert_eq!(
+        day_checked(|d| d["work"]["full_time_below"] = json!(90)),
+        "house.day_share"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["full_time_below"] = json!(0)),
+        "house.day_share"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["full_time_below"] = json!(1)),
+        "ok"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["part_time_below"] = json!(100)),
+        "ok"
+    );
+    assert_eq!(
+        day_checked(|d| d["work"]["part_time_below"] = json!(101)),
+        "house.day_share"
+    );
+
+    // Coming home only lowers a need, by at most 1000.
+    assert_eq!(
+        day_checked(|d| d["return_jumps"]["fun"] = json!(1)),
+        "house.day_jump"
+    );
+    assert_eq!(day_checked(|d| d["return_jumps"]["fun"] = json!(0)), "ok");
+    assert_eq!(
+        day_checked(|d| d["return_jumps"]["hunger"] = json!(-1000)),
+        "ok"
+    );
+    assert_eq!(
+        day_checked(|d| d["return_jumps"]["hunger"] = json!(-1001)),
+        "house.day_jump"
+    );
+
+    // The first check that fails decides, in the order time, wake, age, share, jump.
+    let broken = |checks: usize| {
+        day_checked(move |d| {
+            let breaks: [fn(&mut Value); 5] = [
+                |d| d["school"]["depart"] = json!(55_200),
+                |d| d["wake_before"] = json!(10_000),
+                |d| d["school"]["until_age"] = json!(19),
+                |d| d["work"]["full_time_below"] = json!(90),
+                |d| d["return_jumps"]["fun"] = json!(1),
+            ];
+            breaks.iter().skip(5 - checks).for_each(|change| change(d));
+        })
+    };
+    let codes: Vec<String> = (1..=5).map(broken).collect();
+    assert_eq!(
+        codes,
+        [
+            "house.day_jump",
+            "house.day_share",
+            "house.day_age",
+            "house.day_wake",
+            "house.day_time"
+        ]
+    );
+
+    // Unknown and missing fields.
+    let unknown = |text: String| text.contains("unknown field");
+    assert!(unknown(day_checked(|d| d["night_at"] = json!(0))));
+    assert!(unknown(day_checked(|d| d["school"]["grade"] = json!(1))));
+    assert!(unknown(day_checked(
+        |d| d["work"]["full_time"]["x"] = json!(1)
+    )));
+    assert!(unknown(day_checked(
+        |d| d["return_jumps"]["thirst"] = json!(-1)
+    )));
+    assert!(unknown(day_checked(|d| d["young"]["x"] = json!(1))));
+    let missing = day_checked(|d| {
+        d.as_object_mut().expect("the day").remove("wake_before");
+    });
+    assert!(missing.contains("missing field"), "{missing}");
+
+    assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
+    assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
 }
 
 /// Four rooms with a tie: hall to bath through the kitchen (doors 0 and 3) or through the
@@ -407,7 +659,7 @@ fn test_house() -> Value {
 
 #[test]
 fn walking_seconds() {
-    let data = load(rates(), kinds(), vec![test_house()]).expect("loads");
+    let data = load(rates(), day(), kinds(), vec![test_house()]).expect("loads");
     let house = data
         .house(&DataId::new("core:test").expect("id"))
         .expect("the house");
@@ -444,7 +696,7 @@ fn house_by_size() {
         house("core:flat", 3),
         house("core:terraced", 5),
     ];
-    let data = load(rates(), kinds(), houses).expect("loads");
+    let data = load(rates(), day(), kinds(), houses).expect("loads");
     let chosen: Vec<Option<&str>> = (1..=9)
         .map(|members| data.house_for(members).map(|house| house.id().as_str()))
         .collect();

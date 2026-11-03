@@ -254,8 +254,9 @@ fn data_with_one_place() -> Data {
     let mut flat = houses.defs()[0].clone();
     assert_eq!(flat.id.as_str(), "core:flat");
     flat.capacity = 1;
-    let one = HouseData::new(houses.rates().clone(), houses.kinds().to_vec(), vec![flat])
-        .expect("a house");
+    let (rates, day, kinds) = (houses.rates(), houses.day(), houses.kinds());
+    let one =
+        HouseData::new(rates.clone(), day.clone(), kinds.to_vec(), vec![flat]).expect("a house");
     common::death_data(1e-9, None, serde_json::json!([])).with_houses(one)
 }
 

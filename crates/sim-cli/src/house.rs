@@ -1,14 +1,14 @@
-//! The house files (ADR-0025 section 1, ADR-0026 sections 1 and 2): `needs.json`,
-//! `kinds.json` and one file per house. They name rooms and offers; this reader checks the
-//! names (each once, each named one there, one entrance) and hands the core numbers, which
-//! checks the rest.
+//! The house files (ADR-0025 section 1, ADR-0026 sections 1 and 2, ADR-0024 section 4):
+//! `needs.json`, `day.json`, `kinds.json` and one file per house. They name rooms and offers;
+//! this reader checks the names (each once, each named one there, one entrance) and hands the
+//! core numbers, which checks the rest.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use sim_core::data_id::DataId;
 use sim_core::house::data::{
-    DoorDef, HouseData, HouseDef, KindDef, Need, NeedRates, ObjectDef, OfferDef,
+    DayRules, DoorDef, HouseData, HouseDef, KindDef, Need, NeedRates, ObjectDef, OfferDef,
 };
 
 use crate::error::CliError;
@@ -71,14 +71,16 @@ struct ObjectFile {
     room: String,
 }
 
-/// The checked house data from the text of `needs.json`, of `kinds.json` (a list of kinds)
-/// and of each house file with its name.
+/// The checked house data from the text of `needs.json`, of `day.json`, of `kinds.json` (a
+/// list of kinds) and of each house file with its name.
 pub fn house_data_from(
     needs: &str,
+    day: &str,
     kinds: &str,
     houses: &[(&str, &str)],
 ) -> Result<HouseData, CliError> {
     let rates: NeedRates = parsed("needs.json", needs)?;
+    let day: DayRules = parsed("day.json", day)?;
     let kinds: Vec<KindFile> = parsed("kinds.json", kinds)?;
     let kinds = (kinds.into_iter())
         .map(|kind| {
@@ -109,7 +111,8 @@ pub fn house_data_from(
     let houses = (houses.iter())
         .map(|&(name, text)| house_def(name, parsed(name, text)?))
         .collect::<Result<Vec<_>, CliError>>()?;
-    HouseData::new(rates, kinds, houses).map_err(|error| rejected(&format!("house data: {error}")))
+    HouseData::new(rates, day, kinds, houses)
+        .map_err(|error| rejected(&format!("house data: {error}")))
 }
 
 /// The house with its rooms numbered in the file's order.

@@ -551,8 +551,8 @@ pub struct Data {
     pool: Option<Arc<PoolData>>,
     /// The shock templates, in the order of their ids (ADR-0023 section 3).
     shocks: Vec<ShockTemplate>,
-    /// The houses with the kinds of furniture and the rates of the needs, if the data hold
-    /// them (ADR-0025).
+    /// The houses with the kinds of furniture, the rates of the needs and the rules of the
+    /// day, if the data hold them (ADR-0024, ADR-0025).
     houses: Option<Arc<HouseData>>,
 }
 
@@ -1811,8 +1811,8 @@ impl Data {
     }
 
     /// The data with checked houses (ADR-0025). They enter the data hash after the
-    /// definitions, the pool and the shock templates as the postcard of `(rates, kinds by id,
-    /// houses by id)`.
+    /// definitions, the pool and the shock templates as the postcard of `(rates, day, kinds by
+    /// id, houses by id)`, the day's fields in the order of `DayRules` (ADR-0024 section 4).
     pub fn with_houses(mut self, houses: HouseData) -> Data {
         self.houses = Some(Arc::new(houses));
         self.hash = self.hashed();
@@ -1868,7 +1868,12 @@ impl Data {
             bytes.extend(encode(&self.shocks));
         }
         if let Some(houses) = &self.houses {
-            bytes.extend(encode(&(houses.rates(), houses.kinds(), houses.defs())));
+            bytes.extend(encode(&(
+                houses.rates(),
+                houses.day(),
+                houses.kinds(),
+                houses.defs(),
+            )));
         }
         stable_hash64(&bytes)
     }

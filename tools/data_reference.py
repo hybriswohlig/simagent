@@ -106,14 +106,16 @@ stays; the pool's check still compares with the hash of the definitions alone
 (`frozen_hash`). The CLI's data carry the repository's templates, so `repository_hash` is
 xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 
-The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2): data/house/needs.json (the
-rates per need and age band, awake and asleep), data/house/kinds.json (the kinds of furniture
-with their offers) and one file per house under data/house/houses/, which name rooms and
-offers. `houses_checked` repeats the checks of the reader (sim-cli: names once, one entrance,
-named rooms there) and of the core, each failure naming its code. Data that hold houses append
-`houses_suffix` after the templates: the rates, the kinds by ID, the houses by ID with their
-rooms as numbers in the file's order; names are not hashed. The CLI's data hold the
-repository's houses, so `repository_hash` ends with that suffix.
+The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
+data/house/needs.json (the rates per need and age band, awake and asleep), data/house/day.json
+(the rules of the day: school, work, the small children, the jumps on coming home),
+data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
+data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
+reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
+naming its code (the day's in `day_checked`). Data that hold houses append `houses_suffix`
+after the templates: the rates, the day, the kinds by ID, the houses by ID with their rooms as
+numbers in the file's order; names are not hashed. The CLI's data hold the repository's
+houses, so `repository_hash` ends with that suffix.
 
 Usage: python3 tools/data_reference.py [DATA_DIR]
        (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
@@ -847,9 +849,10 @@ def shocks_suffix(templates) -> bytes:
 
 
 # ---------------------------------------------------------------------------------------
-# The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2): data/house/needs.json,
-# data/house/kinds.json and data/house/houses/*.json, their own data set after the
-# definitions, the pool and the shock templates.
+# The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
+# data/house/needs.json, data/house/day.json, data/house/kinds.json and
+# data/house/houses/*.json, their own data set after the definitions, the pool and the shock
+# templates.
 
 NEEDS = ["hunger", "energy", "bladder", "hygiene", "fun"]
 OLDEST = 130
@@ -858,6 +861,26 @@ ESSENTIALS = ["core:dining_table", "core:fridge", "core:toilet", "core:shower", 
 SOFA = "core:sofa"
 OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age"}
 HOUSE_FIELDS = {"id", "capacity", "rooms", "child_day_room", "child_night_room", "doors", "objects"}
+# The fields of day.json in the order of `DayRules` (ADR-0024 section 4), every one required,
+# none other, each an integer of its type: u8, u32 or i32.
+U8, U32, I32 = (0, 2**8), (0, 2**32), (-(2**31), 2**31)
+HOURS_FORMAT = {"depart": U32, "back": U32}
+DAY_FORMAT = {
+    "day_plan_at": U32,
+    "wake_before": U32,
+    "school": {"from_age": U8, "until_age": U8, "depart": U32, "back": U32},
+    "work": {
+        "from_age": U8,
+        "until_age": U8,
+        "full_time_below": U8,
+        "part_time_below": U8,
+        "full_time": HOURS_FORMAT,
+        "part_time": HOURS_FORMAT,
+    },
+    "return_jumps": {need: I32 for need in NEEDS},
+    "young": {"until_age": U8, "kita_from": U32, "kita_to": U32, "bed_from": U32, "bed_to": U32},
+}
+SECONDS_OF_DAY = 86_400
 
 
 def zigzag(value: int) -> bytes:
@@ -871,15 +894,17 @@ def option(value, encode) -> bytes:
 
 
 def house_files(data_dir: Path):
-    """(needs, kinds, houses) of `data_dir/house/`, parsed JSON, the houses in the order of
-    their file names, or None without that folder (every fixture: test data hold no houses)."""
+    """(needs, day, kinds, houses) of `data_dir/house/`, parsed JSON, the houses in the order
+    of their file names, or None without that folder (every fixture: test data hold no
+    houses)."""
     folder = Path(data_dir) / "house"
     if not folder.exists():
         return None
     # A drawing `<name>.layout.json` is no house and not in the data hash (ADR-0025 section 1).
     paths = [path for path in sorted((folder / "houses").glob("*.json")) if not path.name.endswith(".layout.json")]
     houses = [json.loads(path.read_text()) for path in paths]
-    return json.loads((folder / "needs.json").read_text()), json.loads((folder / "kinds.json").read_text()), houses
+    needs, day, kinds = (json.loads((folder / name).read_text()) for name in ("needs.json", "day.json", "kinds.json"))
+    return needs, day, kinds, houses
 
 
 def band(age: int):
@@ -901,14 +926,49 @@ def raises(needs: dict, offer: dict, need: str, age: int) -> bool:
     return open_at and at is not None and offer_rate(needs, offer, need, at) > 0
 
 
-def houses_checked(needs, kinds, houses):
-    """The checks of ADR-0025 section 2 and of the offers' format (ADR-0026 section 2), in the
-    order of the reader and the core; a failed one names its code. Returns (needs, kinds by
-    ID, houses by ID) with the rooms numbered in each file's order."""
+def day_fields(entry, names: dict) -> None:
+    """The reader's part of day.json: every field of `names` and none other, each an integer
+    in the range of its type (`deny_unknown_fields`)."""
+    assert isinstance(entry, dict) and set(entry) == set(names), f"day fields {entry}"
+    for name, bounds in names.items():
+        if isinstance(bounds, dict):
+            day_fields(entry[name], bounds)
+        else:
+            value = entry[name]
+            assert type(value) is int and bounds[0] <= value < bounds[1], f"day {name} {value}"
+
+
+def day_checked(day: dict) -> None:
+    """The core's checks of the day (ADR-0024 section 4) in its order, after the reader's: the
+    times (each below 24 h, each departure before its return, the small children in bed until
+    `bed_to`, then in the kindergarten, in bed again from `bed_from`), the wake (after the day
+    plan, not before midnight), the ages (small children, school, work in turn), the shares of
+    the work plan (0 < full time < part time <= 100), the jumps on coming home (-1000 to 0)."""
+    day_fields(day, DAY_FORMAT)
+    school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
+    hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
+    young_times = [young["bed_to"], young["kita_from"], young["kita_to"], young["bed_from"]]
+    times = [time for pair in hours for time in pair] + young_times + [day["day_plan_at"]]
+    assert all(time < SECONDS_OF_DAY for time in times), "house.day_time"
+    assert all(depart < back for depart, back in hours), "house.day_time"
+    assert all(a < b for a, b in zip(young_times, young_times[1:])), "house.day_time"
+    wake = day["wake_before"]
+    assert wake > 0 and all(wake <= depart and depart - wake > day["day_plan_at"] for depart, _ in hours), "house.day_wake"
+    assert young["until_age"] <= school["from_age"] < school["until_age"] <= work["from_age"] < work["until_age"], "house.day_age"
+    assert 0 < work["full_time_below"] < work["part_time_below"] <= 100, "house.day_share"
+    assert all(-1000 <= jumps[need] <= 0 for need in NEEDS), "house.day_jump"
+
+
+def houses_checked(needs, day, kinds, houses):
+    """The checks of the day (ADR-0024 section 4), of ADR-0025 section 2 and of the offers'
+    format (ADR-0026 section 2), in the order of the reader and the core; a failed one names
+    its code. Returns (needs, day, kinds by ID, houses by ID) with the rooms numbered in each
+    file's order."""
     assert isinstance(needs, dict) and set(needs) == {"awake", "asleep"}, "needs fields"
     for column in needs.values():
         assert set(column) == set(NEEDS), "needs fields"
         assert all(len(rates) == 4 and all(isinstance(r, int) and -(2**31) <= r < 2**31 for r in rates) for rates in column.values()), "needs rates"
+    day_checked(day)
     for kind in kinds:
         assert set(kind) == {"id", "slots", "offers"}, f"kind fields {kind}"
         names = [offer["id"] for offer in kind["offers"]]
@@ -939,7 +999,7 @@ def houses_checked(needs, kinds, houses):
     assert len(set(capacities)) == len(capacities) and all(1 <= c <= 8 for c in capacities), "house.capacity"
     for house in numbered:
         house_checked(needs, by_id, house)
-    return needs, kinds, numbered
+    return needs, day, kinds, numbered
 
 
 def house_numbered(house: dict) -> dict:
@@ -1001,9 +1061,14 @@ def house_checked(needs: dict, kinds: dict, house: dict) -> None:
 
 
 def houses_suffix(files) -> bytes:
-    """The postcard that the data hash appends for the houses: `(rates, kinds, houses)` with
-    `NeedRates { awake, asleep }` (each `BandRates` the five needs in order, each four i32),
-    the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
+    """The postcard that the data hash appends for the houses: `(rates, day, kinds, houses)`
+    with `NeedRates { awake, asleep }` (each `BandRates` the five needs in order, each four
+    i32), the day as `DayRules { day_plan_at: u32, wake_before: u32, school: SchoolRules {
+    from_age: u8, until_age: u8, depart: u32, back: u32 }, work: WorkRules { from_age: u8,
+    until_age: u8, full_time_below: u8, part_time_below: u8, full_time: Hours { depart: u32,
+    back: u32 }, part_time: Hours }, return_jumps: NeedJumps { hunger: i32, energy: i32,
+    bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
+    kita_to: u32, bed_from: u32, bed_to: u32 } }` (ADR-0024 section 4), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
     i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
     bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
     by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
@@ -1012,11 +1077,18 @@ def houses_suffix(files) -> bytes:
     for data without houses (None)."""
     if files is None:
         return b""
-    needs, kinds, houses = houses_checked(*files)
+    needs, day, kinds, houses = houses_checked(*files)
     out = b""
     for column in ("awake", "asleep"):
         for need in NEEDS:
             out += b"".join(zigzag(rate) for rate in needs[column][need])
+    school, work, jumps, young = day["school"], day["work"], day["return_jumps"], day["young"]
+    out += varint(day["day_plan_at"]) + varint(day["wake_before"])
+    out += u8(school["from_age"]) + u8(school["until_age"]) + varint(school["depart"]) + varint(school["back"])
+    out += u8(work["from_age"]) + u8(work["until_age"]) + u8(work["full_time_below"]) + u8(work["part_time_below"])
+    out += b"".join(varint(work[hours][end]) for hours in ("full_time", "part_time") for end in ("depart", "back"))
+    out += b"".join(zigzag(jumps[need]) for need in NEEDS)
+    out += u8(young["until_age"]) + b"".join(varint(young[time]) for time in ("kita_from", "kita_to", "bed_from", "bed_to"))
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))
@@ -1155,7 +1227,7 @@ def main(argv):
         )
         # The houses (ADR-0025): the data hash above ends with them; the hash without them.
         files = house_files(data_dir)
-        listed = " ".join(f"{h['id']}:{h['capacity']}" for h in houses_checked(*files)[2]) if files else "none"
+        listed = " ".join(f"{h['id']}:{h['capacity']}" for h in houses_checked(*files)[3]) if files else "none"
         without = definitions_and_pool + shocks_suffix(templates)
         print(
             f"houses {listed} suffix_bytes {len(houses_suffix(files))}"

@@ -1,6 +1,7 @@
 //! The houses as data (ADR-0025 sections 1 to 4) with the kinds of furniture and their offers
-//! (ADR-0026 section 2) and the rates of the needs (ADR-0026 section 1): their types, their
-//! checks on load, the walking table of each house and the house for a household of a size.
+//! (ADR-0026 section 2), the rates of the needs (ADR-0026 section 1) and the rules of the day
+//! (ADR-0024 section 4): their types, their checks on load, the walking table of each house
+//! and the house for a household of a size.
 //! The files name rooms and offers; their reader turns the names into numbers, so the core
 //! holds no text (ADR-0004 section 7) and knows a room by its number (ADR-0025 section 5).
 
@@ -13,6 +14,7 @@ use core::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::time::DAY;
 
 /// The five needs, in the order of the log's arrays (ADR-0026 section 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -45,6 +47,8 @@ const DOOR_SECS: RangeInclusive<u32> = 1..=120;
 const MAX_CAPACITY: u8 = 8;
 const MAX_OBJECTS: usize = 32;
 const MAX_OFFERS: usize = 64;
+/// A jump on coming home only lowers a need, at most by its whole scale (ADR-0024 section 4).
+const JUMPS: RangeInclusive<i32> = -1000..=0;
 
 /// Walking to an object in one's own room, and through the entrance out of the house
 /// (ADR-0025 section 4).
@@ -88,6 +92,132 @@ impl BandRates {
             Need::Fun => &self.fun,
         };
         rates[band]
+    }
+}
+
+/// The rules of the day of `data/house/day.json` (ADR-0024 section 4), times in seconds of
+/// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DayRules {
+    pub day_plan_at: u32,
+    pub wake_before: u32,
+    pub school: SchoolRules,
+    pub work: WorkRules,
+    pub return_jumps: NeedJumps,
+    pub young: YoungRules,
+}
+
+/// School from `from_age` to the day before the birthday of `until_age`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchoolRules {
+    pub from_age: u8,
+    pub until_age: u8,
+    pub depart: u32,
+    pub back: u32,
+}
+
+/// Work from `from_age` to the day before the birthday of `until_age`, by the work plan's
+/// draw out of 100: full time below `full_time_below`, part time below `part_time_below`,
+/// else at home.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkRules {
+    pub from_age: u8,
+    pub until_age: u8,
+    pub full_time_below: u8,
+    pub part_time_below: u8,
+    pub full_time: Hours,
+    pub part_time: Hours,
+}
+
+/// When one leaves the house and comes back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hours {
+    pub depart: u32,
+    pub back: u32,
+}
+
+/// The fixed jump of each need on coming home.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeedJumps {
+    pub hunger: i32,
+    pub energy: i32,
+    pub bladder: i32,
+    pub hygiene: i32,
+    pub fun: i32,
+}
+
+/// Children under `until_age` on a weekday in the kindergarten from `kita_from` to
+/// `kita_to`, in bed from `bed_from` to `bed_to` of the next morning.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YoungRules {
+    pub until_age: u8,
+    pub kita_from: u32,
+    pub kita_to: u32,
+    pub bed_from: u32,
+    pub bed_to: u32,
+}
+
+impl DayRules {
+    /// The checks of the day, in this order: the times, the wake, the ages, the shares of
+    /// the work plan, the jumps.
+    fn checked(&self) -> Result<(), HouseError> {
+        let (school, work, young) = (&self.school, &self.work, &self.young);
+        let hours = [
+            (school.depart, school.back),
+            (work.full_time.depart, work.full_time.back),
+            (work.part_time.depart, work.part_time.back),
+        ];
+        let young_times = [young.bed_to, young.kita_from, young.kita_to, young.bed_from];
+        let mut times = (hours.iter().flat_map(|&(depart, back)| [depart, back]))
+            .chain(young_times)
+            .chain([self.day_plan_at]);
+        let in_day = times.all(|time| i64::from(time) < DAY.as_secs());
+        let ordered = hours.iter().all(|&(depart, back)| depart < back)
+            && young_times.windows(2).all(|pair| pair[0] < pair[1]);
+        if !in_day || !ordered {
+            return Err(HouseError::DayTime);
+        }
+        // The wake comes after the day plan that sets it, so on the day of the departure, and
+        // before the departure (review: at the same second the departure would come first).
+        let wakes_after_plan = |&(depart, _): &(u32, u32)| {
+            depart
+                .checked_sub(self.wake_before)
+                .is_some_and(|wake| wake > self.day_plan_at)
+        };
+        if self.wake_before == 0 || !hours.iter().all(wakes_after_plan) {
+            return Err(HouseError::DayWake);
+        }
+        if !(young.until_age <= school.from_age
+            && school.from_age < school.until_age
+            && school.until_age <= work.from_age
+            && work.from_age < work.until_age)
+        {
+            return Err(HouseError::DayAge);
+        }
+        if !(0 < work.full_time_below
+            && work.full_time_below < work.part_time_below
+            && work.part_time_below <= 100)
+        {
+            return Err(HouseError::DayShare);
+        }
+        let jumps = &self.return_jumps;
+        let jumps = [
+            jumps.hunger,
+            jumps.energy,
+            jumps.bladder,
+            jumps.hygiene,
+            jumps.fun,
+        ];
+        if !jumps.iter().all(|jump| JUMPS.contains(jump)) {
+            return Err(HouseError::DayJump);
+        }
+        Ok(())
     }
 }
 
@@ -193,6 +323,18 @@ pub struct ObjectDef {
 /// Why house data are not loaded; the code is stable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HouseError {
+    /// A time of the day not below 24 h, a departure not before its return, or the small
+    /// children's day out of the order bed, kindergarten, bed.
+    DayTime,
+    /// A wake before a departure that is not after the day plan, or that would fall before
+    /// midnight.
+    DayWake,
+    /// Ages that do not follow each other: small children, school, work.
+    DayAge,
+    /// Shares of the work plan outside `0 < full time < part time <= 100`.
+    DayShare,
+    /// A jump on coming home outside −1000 to 0.
+    DayJump,
     /// Two kinds with one id.
     KindDuplicate,
     /// A kind with no place or more than eight.
@@ -239,6 +381,11 @@ pub enum HouseError {
 impl fmt::Display for HouseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            HouseError::DayTime => "house.day_time",
+            HouseError::DayWake => "house.day_wake",
+            HouseError::DayAge => "house.day_age",
+            HouseError::DayShare => "house.day_share",
+            HouseError::DayJump => "house.day_jump",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
             HouseError::OfferLength => "house.offer_length",
@@ -309,23 +456,26 @@ impl House {
     }
 }
 
-/// The checked house data: the rates, the kinds in the order of their ids, the houses from
-/// the smallest.
+/// The checked house data: the rates, the rules of the day, the kinds in the order of their
+/// ids, the houses from the smallest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HouseData {
     rates: NeedRates,
+    day: DayRules,
     kinds: Vec<KindDef>,
     houses: Vec<House>,
 }
 
 impl HouseData {
-    /// The checks of ADR-0025 section 2 and of the offers' format (ADR-0026 section 2), then
-    /// the walking tables.
+    /// The checks of the day (ADR-0024 section 4), of ADR-0025 section 2 and of the offers'
+    /// format (ADR-0026 section 2), then the walking tables.
     pub fn new(
         rates: NeedRates,
+        day: DayRules,
         mut kinds: Vec<KindDef>,
         mut defs: Vec<HouseDef>,
     ) -> Result<HouseData, HouseError> {
+        day.checked()?;
         kinds.sort_by(|a, b| a.id.cmp(&b.id));
         if kinds.windows(2).any(|pair| pair[0].id == pair[1].id) {
             return Err(HouseError::KindDuplicate);
@@ -355,6 +505,7 @@ impl HouseData {
         houses.sort_by_key(House::capacity);
         Ok(HouseData {
             rates,
+            day,
             kinds,
             houses,
         })
@@ -362,6 +513,10 @@ impl HouseData {
 
     pub fn rates(&self) -> &NeedRates {
         &self.rates
+    }
+
+    pub fn day(&self) -> &DayRules {
+        &self.day
     }
 
     /// The kinds in the order of their ids.
