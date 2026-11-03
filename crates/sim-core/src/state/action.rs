@@ -8,7 +8,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::house::plan_crossings;
-use super::{DomainState, Slot, whole_years};
+use super::{DomainState, Slot};
 use crate::data::Data;
 use crate::house::choice::{CRITICAL, ENOUGH, Scored, best, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
@@ -42,7 +42,8 @@ fn age(domain: &DomainState, sim: SimId, now: SimTime) -> u8 {
     let Some(person) = domain.sims.get(&sim) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
-    u8::try_from(whole_years(person.born, now)).unwrap_or(u8::MAX)
+    crate::house::choice::age(person.born, now)
+        .unwrap_or_else(|| panic!("invariant age.out_of_range"))
 }
 
 /// The age band of a person with needs at `now`.

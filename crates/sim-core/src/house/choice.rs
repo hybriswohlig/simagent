@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use crate::house::data::{House, HouseData, NEEDS, age_band};
 use crate::house::need::FULL;
-use crate::time::HOUR;
+use crate::time::{HOUR, SimTime, YEAR};
 
 /// The best offer must bring at least this many points; below it the person idles.
 pub const ENOUGH: i64 = 40_000;
@@ -26,6 +26,13 @@ pub struct Scored {
     pub object: u16,
     pub offer: u16,
     pub points: i64,
+}
+
+/// The age a choice is made at (ADR-0026 section 3): whole years from `born` to `at`, at
+/// most 255; `None` before the birth.
+pub fn age(born: SimTime, at: SimTime) -> Option<u8> {
+    let years = (at.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
+    (years >= 0).then(|| u8::try_from(years).unwrap_or(u8::MAX))
 }
 
 /// The points of every offer of `house` open at `age`, for a person with the needs `values`

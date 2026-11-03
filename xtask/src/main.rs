@@ -570,13 +570,30 @@ fn server_answers(
         ask(port, "/api/runs/town/input", Some(&move_in), 200)?,
     ));
     let path = format!("/api/runs/town/house/{household}");
+    let mut houses = Vec::new();
     for step in [r#"{"step":"morning"}"#, r#"{"step":"minutes10"}"#] {
         answers.push((
             "AdvanceAnswer",
             ask(port, "/api/runs/town/advance", Some(step), 200)?,
         ));
-        answers.push(("HouseAnswer", get(port, &path)?));
+        houses.push(get(port, &path)?);
     }
+    // The first choice of the house's first person at its first morning, recomputed.
+    let sim = &houses[0]["persons"][0]["sim"];
+    let morning = &houses[0]["at"]["t"];
+    let events = get(
+        port,
+        &format!("/api/runs/town/events?subject={sim}&from={morning}"),
+    )?;
+    let entry = (events["events"].as_array().into_iter().flatten())
+        .find(|row| row["entry"]["payload"].get("core:action_started").is_some())
+        .map(|row| row["entry"]["id"].clone())
+        .ok_or("the house's first person did not choose at its first morning")?;
+    answers.push((
+        "WhyAnswer",
+        get(port, &format!("/api/runs/town/why/{entry}"))?,
+    ));
+    answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));
     // A fork with an override, so that the comparison shows its every shape: the town has
     // the switch on, the fork has it off from year 10.
     let off =

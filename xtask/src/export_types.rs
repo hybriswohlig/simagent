@@ -639,6 +639,40 @@ pub fn descriptor() -> Vec<Named> {
             ],
         },
         Named {
+            name: "WhyAnswer",
+            doc: "`GET /api/runs/{run}/why/{entry}`: the points of every offer of a choice, recomputed from its entry, the most first (ADR-0021, addendum of 2026-11-03).",
+            fields: vec![
+                field("format", Kind::Literal(&["simagent.view.why"])),
+                field("version", Integer),
+                field("entry", Integer),
+                field("sim", Integer),
+                field("at", Ref("DatedSecond")),
+                field("enough", Integer),
+                field("commanded", Bool),
+                field("chosen", nullable(Ref("WhyChoice"))),
+                field("offers", list(Ref("WhyOffer"))),
+            ],
+        },
+        Named {
+            name: "WhyChoice",
+            doc: "The offer chosen and its points.",
+            fields: vec![
+                field("object", Integer),
+                field("offer", Integer),
+                field("points", Integer),
+            ],
+        },
+        Named {
+            name: "WhyOffer",
+            doc: "An offer, its points, and whether its object had no free place.",
+            fields: vec![
+                field("object", Integer),
+                field("offer", Integer),
+                field("points", Integer),
+                field("busy", Bool),
+            ],
+        },
+        Named {
             name: "WorldAnswer",
             doc: "`GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i.",
             fields: vec![
