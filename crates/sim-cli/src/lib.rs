@@ -412,6 +412,94 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
     })))
 }
 
+/// "Warum?" for a choice (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): from an entry
+/// `core:action_started` or `core:idle`, the points of every offer recomputed with
+/// `house::choice::score` from the house, the room and the needs of the entry and the
+/// person's age in its second, the most first (a tie to the smaller object, then offer), each
+/// with whether its object had no free place. `None` for any other entry.
+pub fn why_answer(
+    world: &World,
+    entry: &sim_core::log::LogEntry,
+    id: u64,
+) -> Result<Option<serde_json::Value>, CliError> {
+    use sim_core::house::choice::{ENOUGH, age, score};
+    use sim_core::log::{LogPayload, Subject};
+    let (house, room, needs, busy, chosen, commanded) = match &entry.payload {
+        LogPayload::ActionStarted {
+            house,
+            object,
+            offer,
+            room,
+            needs,
+            busy,
+            commanded,
+            ..
+        } => (
+            house,
+            *room,
+            *needs,
+            busy,
+            Some((*object, *offer)),
+            *commanded,
+        ),
+        LogPayload::Idle {
+            house,
+            room,
+            needs,
+            busy,
+            ..
+        } => (house, *room, *needs, busy, None, false),
+        _ => return Ok(None),
+    };
+    let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
+        return Ok(None);
+    };
+    let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
+    let born = world
+        .state()
+        .born(*sim)
+        .ok_or_else(|| broken("an unknown person"))?;
+    let houses = (world.state().data().houses()).ok_or_else(|| broken("no house data"))?;
+    let house = houses
+        .house(house)
+        .ok_or_else(|| broken("an unknown house"))?;
+    let mut scored = score(house, houses, age(born, entry.t), needs, room);
+    scored.sort_by_key(|scored| {
+        (
+            core::cmp::Reverse(scored.points),
+            scored.object,
+            scored.offer,
+        )
+    });
+    let chosen = chosen.map(|(object, offer)| {
+        let points = (scored.iter())
+            .find(|scored| (scored.object, scored.offer) == (object, offer))
+            .map(|scored| scored.points);
+        serde_json::json!({"object": object, "offer": offer, "points": points})
+    });
+    let offers: Vec<serde_json::Value> = (scored.iter())
+        .map(|scored| {
+            serde_json::json!({
+                "object": scored.object,
+                "offer": scored.offer,
+                "points": scored.points,
+                "busy": busy.contains(&scored.object),
+            })
+        })
+        .collect();
+    Ok(Some(serde_json::json!({
+        "format": "simagent.view.why",
+        "version": 1,
+        "entry": id,
+        "sim": sim.get(),
+        "at": dated(entry.t),
+        "enough": ENOUGH,
+        "commanded": commanded,
+        "chosen": chosen,
+        "offers": offers,
+    })))
+}
+
 /// For each year X from 1 to the year of the clock, the switch of the hereditary diseases a
 /// fork from X keeps: the start's, changed by every input `fork_into` takes over (stamped
 /// before `fork_stamp(X)`), in the order of the log.

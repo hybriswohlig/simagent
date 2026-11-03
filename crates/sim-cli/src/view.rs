@@ -296,6 +296,9 @@ impl Server {
             ["api", "runs", run, "house", household] => {
                 self.read(run, |dir| house(self.world_of(dir), household))
             }
+            ["api", "runs", run, "why", entry] => {
+                self.read(run, |dir| why(dir, || self.world_of(dir), entry))
+            }
             ["api", "runs", a, "diff", b] => {
                 self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
             }
@@ -921,6 +924,30 @@ fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
     match world.and_then(|world| crate::house_answer(&world, id)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => Response::error(404, "not_in_house"),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/why/{entry}` (ADR-0021, addendum of 2026-11-03): the entry from the
+/// run's domain log, if it is a choice, recomputed.
+fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &str) -> Response {
+    use std::io::BufRead;
+    let no_choice = || Response::error(404, "not_a_choice");
+    let Ok(id) = entry.parse::<u64>() else {
+        return no_choice();
+    };
+    let Ok(file) = std::fs::File::open(dir.join(files::EVENTS)) else {
+        return Response::error(500, "events_invalid");
+    };
+    let line = (std::io::BufReader::new(file).lines())
+        .map_while(Result::ok)
+        .find(|line| leading_id(line) == Some(id));
+    let Some(found) = line.and_then(|line| serde_json::from_str(&line).ok()) else {
+        return no_choice();
+    };
+    match world().and_then(|world| crate::why_answer(&world, &found, id)) {
+        Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Ok(None) => no_choice(),
         Err(error) => Response::error(500, error.code),
     }
 }
