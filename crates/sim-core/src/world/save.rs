@@ -1244,7 +1244,10 @@ fn house_consistent(loaded: &LoadedState, data: &Data, now: i64) -> bool {
     // At the last second of time there is no next one (review); every bound of the checks
     // holds at the clock too, since nothing has run after it.
     let now = SimTime::try_from(now).unwrap_or(loaded.closed_through);
-    crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
+    // A held place lasts only the second of the choice it plans, and no choice is pending in a
+    // save (ADR-0026 section 5), so a save holds none.
+    loaded.house.holds.is_empty()
+        && crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
 }
 
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {

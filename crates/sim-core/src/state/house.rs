@@ -333,13 +333,19 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
         if let Some(from) = change.from
             && domain.house.households.contains_key(&from)
         {
+            let held = super::action::held_by(domain, from, change.sim);
             let doing = forget(domain, change.sim, ctx);
             let out = ctx.emit(
                 LogPayload::MovedOut { household: from },
                 alloc::vec![Subject::Sim(change.sim)],
                 because(),
             );
+            let used = doing.map(|(action, _)| (action.object, action.slot));
             left(change.sim, doing, out, ctx);
+            // The places it used or held go to the next who waits (ADR-0026 section 5).
+            for place in used.into_iter().chain(held) {
+                super::action::release(domain, from, place, out, ctx);
+            }
         }
         if let Some(to) = change.to
             && let Some(moved) = domain.house.households.get(&to)
