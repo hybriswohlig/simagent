@@ -693,8 +693,11 @@ FOUNDER_ALLELE = 28
 # house events at the end of `EventPayload`; a run without `MoveIn` holds them empty, so its
 # projection ends with four zero lengths (`EMPTY_HOUSE`) and every year hash changes once:
 # projection 19, core 53. No log entry changes.
+# The day's rules (ADR-0024 section 4) enter the repository's data: a new data hash, so a log
+# or save of the repository's data changes, no year hash and no log hash: core 54, the
+# projection stays 19.
 PROJECTION_VERSION = 19
-CORE_VERSION = 53
+CORE_VERSION = 54
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
