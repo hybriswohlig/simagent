@@ -8,6 +8,7 @@ import type { ChildrenAnswer, EventItem, KinAnswer, Kinship, Pedigree, Person, P
 import { CardView } from "./cardview.js";
 import { separation, timeTogether, togetherUntil } from "./cheat.js";
 import { FamilyView } from "./familyview.js";
+import { HouseLink } from "./house.js";
 import { bornText, captionYear, dateText } from "./dates.js";
 import { agesOf, kinChoices, offerLabel } from "./choices.js";
 import { kinNodeText, kinshipText } from "./kin.js";
@@ -613,6 +614,13 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
           {partner.sex === "female" ? TEXT.partner_female : TEXT.partner_male} <Name run={run} person={partner} />
         </p>
       )}
+      {person.died === null && person.emigrated === null ? (
+        <HouseLink
+          run={run}
+          household={person.household}
+          members={pedigree.persons.filter((p) => p.household === person.household && p.died === null && p.emigrated === null).length}
+        />
+      ) : null}
       {cheat && partner !== undefined
         ? (
             [

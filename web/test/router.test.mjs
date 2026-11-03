@@ -14,6 +14,7 @@ test("each known hash is its route, and back", () => {
     ["#/runs/town_1.fork/persons/17", { page: "person", run: "town_1.fork", sim: "17" }],
     ["#/runs/a/persons/1/tree", { page: "tree", run: "a", sim: "1" }],
     ["#/runs/town/diff/town.gabel", { page: "diff", a: "town", b: "town.gabel" }],
+    ["#/runs/town/house/12", { page: "house", run: "town", household: "12" }],
   ];
   for (const [hash, route] of known) {
     assert.deepEqual(parse(hash), route, hash);
@@ -43,6 +44,10 @@ test("anything else is not found and keeps its hash", () => {
     "#/runs/a/diff/.x",
     "#/runs/a/diff/b/c",
     "#/runs/a/diffs/b",
+    "#/runs/a/house",
+    "#/runs/a/house/0",
+    "#/runs/a/house/x",
+    "#/runs/a/house/1/2",
     "#runs/a",
     "#//runs/a",
     "#/portraits/",

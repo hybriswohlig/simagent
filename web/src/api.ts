@@ -45,6 +45,20 @@ export async function getJson(path: string, expected: Expected): Promise<Json> {
   return accept(await response.json(), expected);
 }
 
+/** Reads an answer like `getJson`; an error answer of the server becomes its refusal, so a
+ * page can tell a missing thing (404 with a code) from no answer. */
+export async function getJsonOrRefusal(path: string, expected: Expected): Promise<Json> {
+  if (!path.startsWith("/api/")) {
+    throw new Error(`not a route of the server: ${path}`);
+  }
+  const response = await fetch(path, { headers: { Accept: "application/json" } });
+  if (!response.ok) {
+    const refused = refusal(await response.json().catch(() => null));
+    throw refused ?? new Error(`${path}: ${response.status}`);
+  }
+  return accept(await response.json(), expected);
+}
+
 /** A refusal of the server: its code, and the core's code of a rejected input. */
 export class Refused extends Error {
   override name = "Refused";

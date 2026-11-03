@@ -293,6 +293,7 @@ impl Server {
                 self.read(run, |dir| children(|| self.world_of(dir), mother, father))
             }
             ["api", "runs", run, "world"] => self.read(run, |dir| world(self.world_of(dir))),
+            ["api", "runs", run, "houses"] => self.read(run, |dir| houses(self.world_of(dir))),
             ["api", "runs", run, "house", household] => {
                 self.read(run, |dir| house(self.world_of(dir), household))
             }
@@ -911,6 +912,14 @@ fn sheet() -> Response {
 /// `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands.
 fn world(world: Result<Rc<World>, CliError>) -> Response {
     match world.and_then(|world| crate::world_answer(&world)) {
+        Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
+        Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// `GET /api/runs/{run}/houses` (ADR-0021, addendum of 2026-11-03).
+fn houses(world: Result<Rc<World>, CliError>) -> Response {
+    match world.map(|world| crate::houses_answer(&world)) {
         Ok(answer) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Err(error) => Response::error(500, error.code),
     }

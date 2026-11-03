@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { AssumptionsPage } from "./assumptionspage.js";
 import { cheatOn, setCheat } from "./cheat.js";
 import { DiffPage } from "./diffpage.js";
+import { HousePage } from "./house.js";
 import { PeoplePage } from "./peopleview.js";
 import { PersonPage } from "./person.js";
 import { browserStorage } from "./pin.js";
@@ -31,6 +32,9 @@ function Page({ route, cheat }: { route: Route; cheat: boolean }) {
       return <PersonPage run={route.run} sim={route.sim} cheat={cheat} />;
     case "diff":
       return <DiffPage a={route.a} b={route.b} />;
+    case "house":
+      // A new house is a new page: no clock, timer or answer of the last one goes on (review).
+      return <HousePage key={`${route.run}/${route.household}`} run={route.run} household={route.household} />;
     case "not_found":
       return (
         <p>

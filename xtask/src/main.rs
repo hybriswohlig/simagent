@@ -569,6 +569,7 @@ fn server_answers(
         "InputAnswer",
         ask(port, "/api/runs/town/input", Some(&move_in), 200)?,
     ));
+    answers.push(("HousesAnswer", get(port, "/api/runs/town/houses")?));
     let path = format!("/api/runs/town/house/{household}");
     let mut houses = Vec::new();
     for step in [r#"{"step":"morning"}"#, r#"{"step":"minutes10"}"#] {
