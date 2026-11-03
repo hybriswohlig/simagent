@@ -457,6 +457,34 @@ export type HouseAction = {
   readonly until: DatedSecond | null;
 };
 
+/** `GET /api/runs/{run}/why/{entry}`: the points of every offer of a choice, recomputed from its entry, the most first (ADR-0021, addendum of 2026-11-03). */
+export type WhyAnswer = {
+  readonly format: "simagent.view.why";
+  readonly version: number;
+  readonly entry: number;
+  readonly sim: number;
+  readonly at: DatedSecond;
+  readonly enough: number;
+  readonly commanded: boolean;
+  readonly chosen: WhyChoice | null;
+  readonly offers: WhyOffer[];
+};
+
+/** The offer chosen and its points. */
+export type WhyChoice = {
+  readonly object: number;
+  readonly offer: number;
+  readonly points: number;
+};
+
+/** An offer, its points, and whether its object had no free place. */
+export type WhyOffer = {
+  readonly object: number;
+  readonly offer: number;
+  readonly points: number;
+  readonly busy: boolean;
+};
+
 /** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i. */
 export type WorldAnswer = {
   readonly format: "simagent.view.world";
