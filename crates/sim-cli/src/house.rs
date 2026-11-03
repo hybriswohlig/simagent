@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sim_core::data_id::DataId;
 use sim_core::house::data::{
     DoorDef, HouseData, HouseDef, KindDef, Need, NeedRates, ObjectDef, OfferDef,
@@ -166,4 +166,208 @@ fn parsed<T: serde::de::DeserializeOwned>(name: &str, text: &str) -> Result<T, C
 
 fn rejected(detail: &str) -> CliError {
     CliError::new("data_rejected", detail)
+}
+
+/// The drawing of a house (ADR-0025 section 1), `<name>.layout.json`: its rooms in the order
+/// of the house file, its doors, its objects in the order of the house file, with rectangles
+/// and points in metres from the top left. The core never reads it and it is not in the data
+/// hash; `simagent view` hands it to the house page.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Layout {
+    pub house: DataId,
+    pub rooms: Vec<RoomRect>,
+    pub doors: Vec<DoorPoint>,
+    pub objects: Vec<ObjectRect>,
+}
+
+/// A room on its floor (0 the ground floor).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomRect {
+    pub id: String,
+    pub floor: u8,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// A door: on the shared edge of its rooms, or a staircase between two floors, its point in
+/// both.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DoorPoint {
+    pub a: String,
+    pub b: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectRect {
+    pub kind: DataId,
+    pub room: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// How far a drawing may miss an edge, in metres.
+const SLACK: f64 = 0.001;
+/// Every number of a drawing lies from 0 to this, in metres (review: far out, a rectangle's
+/// end rounds back onto its start).
+const FARTHEST: f64 = 100.0;
+/// The smallest side of a room or an object, in metres (review: a side far below the slack
+/// adds nothing to its start).
+const SMALLEST: f64 = 0.01;
+/// How far a door between two rooms of a floor stays from either end of their shared wall.
+const DOOR_CLEARANCE: f64 = 0.4;
+
+/// The wall two rooms of one floor share, as (constant x, at, from, to): at `at` from `from`
+/// to `to` along the other axis, longer than the slack.
+fn shared_wall(a: &RoomRect, b: &RoomRect) -> Option<(bool, f64, f64, f64)> {
+    let near = |p: f64, q: f64| (p - q).abs() <= SLACK;
+    let along = |a0: f64, a1: f64, b0: f64, b1: f64| {
+        let from = if a0 > b0 { a0 } else { b0 };
+        let to = if a1 < b1 { a1 } else { b1 };
+        (to - from > SLACK).then_some((from, to))
+    };
+    if near(a.x + a.w, b.x) || near(b.x + b.w, a.x) {
+        let at = if near(a.x + a.w, b.x) { b.x } else { a.x };
+        along(a.y, a.y + a.h, b.y, b.y + b.h).map(|(from, to)| (true, at, from, to))
+    } else if near(a.y + a.h, b.y) || near(b.y + b.h, a.y) {
+        let at = if near(a.y + a.h, b.y) { b.y } else { a.y };
+        along(a.x, a.x + a.w, b.x, b.x + b.w).map(|(from, to)| (false, at, from, to))
+    } else {
+        None
+    }
+}
+
+/// The drawing `text` (named `name` in messages) checked against the text of its house file:
+/// the same house, the same rooms in order, each side at least 1 cm; every number from 0 to
+/// 100 m;
+/// no two rooms of a floor overlap; the same doors, each between two rooms of a floor on
+/// their shared wall, at least 0.4 m from its ends, or a staircase between floors with its
+/// point in both rooms; the same objects in order, each with an area inside its room
+/// (ADR-0025 section 2, the test in `sim-cli`).
+pub fn layout_from(name: &str, text: &str, house: &str) -> Result<Layout, CliError> {
+    let refused = |code: &str| rejected(&format!("{name}: {code}"));
+    let layout: Layout = parsed(name, text)?;
+    let house: HouseFile = parsed(name, house)?;
+    if layout.house != house.id {
+        return Err(refused("layout.house"));
+    }
+    let names = |rooms: &[RoomRect]| rooms.iter().map(|room| room.id.clone()).collect::<Vec<_>>();
+    let house_rooms: Vec<String> = house.rooms.iter().map(|room| room.id.clone()).collect();
+    if names(&layout.rooms) != house_rooms {
+        return Err(refused("layout.rooms"));
+    }
+    let sizes = (layout.rooms.iter().map(|room| (room.w, room.h)))
+        .chain(layout.objects.iter().map(|object| (object.w, object.h)));
+    if sizes.into_iter().any(|(w, h)| w < SMALLEST || h < SMALLEST) {
+        return Err(refused("layout.size"));
+    }
+    let ends = (layout
+        .rooms
+        .iter()
+        .map(|r| (r.x, r.y, r.x + r.w, r.y + r.h)))
+    .chain(
+        layout
+            .objects
+            .iter()
+            .map(|o| (o.x, o.y, o.x + o.w, o.y + o.h)),
+    )
+    .chain(layout.doors.iter().map(|d| (d.x, d.y, d.x, d.y)));
+    let inside = |v: f64| (0.0..=FARTHEST).contains(&v);
+    if !ends
+        .into_iter()
+        .all(|(x0, y0, x1, y1)| [x0, y0, x1, y1].into_iter().all(inside))
+    {
+        return Err(refused("layout.range"));
+    }
+    for (at, a) in layout.rooms.iter().enumerate() {
+        for b in &layout.rooms[at + 1..] {
+            let apart = a.x + a.w <= b.x + SLACK
+                || b.x + b.w <= a.x + SLACK
+                || a.y + a.h <= b.y + SLACK
+                || b.y + b.h <= a.y + SLACK;
+            if a.floor == b.floor && !apart {
+                return Err(refused("layout.overlap"));
+            }
+        }
+    }
+    let pair = |a: &str, b: &str| {
+        if a <= b {
+            (a.to_owned(), b.to_owned())
+        } else {
+            (b.to_owned(), a.to_owned())
+        }
+    };
+    let mut drawn: Vec<_> = layout
+        .doors
+        .iter()
+        .map(|door| pair(&door.a, &door.b))
+        .collect();
+    let mut joined: Vec<_> = house
+        .doors
+        .iter()
+        .map(|door| pair(&door.a, &door.b))
+        .collect();
+    drawn.sort();
+    joined.sort();
+    if drawn != joined {
+        return Err(refused("layout.doors"));
+    }
+    let room = |id: &str| layout.rooms.iter().find(|room| room.id == id);
+    let holds = |room: &RoomRect, x: f64, y: f64| {
+        room.x - SLACK <= x
+            && x <= room.x + room.w + SLACK
+            && room.y - SLACK <= y
+            && y <= room.y + room.h + SLACK
+    };
+    for door in &layout.doors {
+        let placed = match (room(&door.a), room(&door.b)) {
+            (Some(a), Some(b)) if a.floor == b.floor => {
+                shared_wall(a, b).is_some_and(|(constant_x, at, from, to)| {
+                    let (across, along) = if constant_x {
+                        (door.x, door.y)
+                    } else {
+                        (door.y, door.x)
+                    };
+                    (across - at).abs() <= SLACK
+                        && from + DOOR_CLEARANCE <= along + SLACK
+                        && along <= to - DOOR_CLEARANCE + SLACK
+                })
+            }
+            (Some(a), Some(b)) => holds(a, door.x, door.y) && holds(b, door.x, door.y),
+            _ => false,
+        };
+        if !placed {
+            return Err(refused("layout.door_place"));
+        }
+    }
+    let objects = |objects: &[ObjectRect]| {
+        objects
+            .iter()
+            .map(|object| (object.kind.clone(), object.room.clone()))
+            .collect::<Vec<_>>()
+    };
+    let house_objects: Vec<_> = (house.objects.iter())
+        .map(|object| (object.kind.clone(), object.room.clone()))
+        .collect();
+    if objects(&layout.objects) != house_objects {
+        return Err(refused("layout.objects"));
+    }
+    for object in &layout.objects {
+        let fits = room(&object.room).is_some_and(|room| {
+            holds(room, object.x, object.y) && holds(room, object.x + object.w, object.y + object.h)
+        });
+        if !fits {
+            return Err(refused("layout.object_place"));
+        }
+    }
+    Ok(layout)
 }

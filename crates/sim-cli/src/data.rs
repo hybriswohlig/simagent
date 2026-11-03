@@ -10,7 +10,7 @@ use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 
 use crate::error::CliError;
-use crate::house::house_data_from;
+use crate::house::{Layout, house_data_from, layout_from};
 
 const DEMOGRAPHY: &str = include_str!("../../../data/calibration/demography.json");
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
@@ -35,6 +35,33 @@ const HOUSES: [(&str, &str); 3] = [
         include_str!("../../../data/house/houses/terraced.json"),
     ),
 ];
+
+/// The drawings of the houses, in the order of `HOUSES` (ADR-0025 section 1): not part of the
+/// data, the core never reads them.
+const LAYOUTS: [(&str, &str); 3] = [
+    (
+        "house/houses/flat.layout.json",
+        include_str!("../../../data/house/houses/flat.layout.json"),
+    ),
+    (
+        "house/houses/house.layout.json",
+        include_str!("../../../data/house/houses/house.layout.json"),
+    ),
+    (
+        "house/houses/terraced.layout.json",
+        include_str!("../../../data/house/houses/terraced.layout.json"),
+    ),
+];
+
+/// The drawings of the repository's houses by house, each checked against its house file.
+pub fn layouts() -> Result<BTreeMap<DataId, Layout>, CliError> {
+    (HOUSES.iter().zip(LAYOUTS))
+        .map(|(&(_, house), (name, text))| {
+            let layout = layout_from(name, text, house)?;
+            Ok((layout.house.clone(), layout))
+        })
+        .collect()
+}
 
 /// The text fields of a calibration value, and of a trait or a locus (ADR-0007 section 2,
 /// ADR-0008 section 1).
