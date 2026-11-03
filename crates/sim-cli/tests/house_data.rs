@@ -508,6 +508,13 @@ fn the_day_rejects() {
         "house.day_wake"
     );
     assert_eq!(day_checked(|d| d["wake_before"] = json!(9_599)), "ok");
+    // No wake in the second of the departure (review: the departure would come first); one
+    // second before is fine.
+    assert_eq!(
+        day_checked(|d| d["wake_before"] = json!(0)),
+        "house.day_wake"
+    );
+    assert_eq!(day_checked(|d| d["wake_before"] = json!(1)), "ok");
     // Longer than the night before a departure.
     assert_eq!(
         day_checked(|d| d["wake_before"] = json!(30_000)),

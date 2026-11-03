@@ -183,13 +183,14 @@ impl DayRules {
         if !in_day || !ordered {
             return Err(HouseError::DayTime);
         }
-        // The wake comes after the day plan that sets it, so on the day of the departure.
+        // The wake comes after the day plan that sets it, so on the day of the departure, and
+        // before the departure (review: at the same second the departure would come first).
         let wakes_after_plan = |&(depart, _): &(u32, u32)| {
             depart
                 .checked_sub(self.wake_before)
                 .is_some_and(|wake| wake > self.day_plan_at)
         };
-        if !hours.iter().all(wakes_after_plan) {
+        if self.wake_before == 0 || !hours.iter().all(wakes_after_plan) {
             return Err(HouseError::DayWake);
         }
         if !(young.until_age <= school.from_age

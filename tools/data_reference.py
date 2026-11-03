@@ -953,7 +953,7 @@ def day_checked(day: dict) -> None:
     assert all(depart < back for depart, back in hours), "house.day_time"
     assert all(a < b for a, b in zip(young_times, young_times[1:])), "house.day_time"
     wake = day["wake_before"]
-    assert all(wake <= depart and depart - wake > day["day_plan_at"] for depart, _ in hours), "house.day_wake"
+    assert wake > 0 and all(wake <= depart and depart - wake > day["day_plan_at"] for depart, _ in hours), "house.day_wake"
     assert young["until_age"] <= school["from_age"] < school["until_age"] <= work["from_age"] < work["until_age"], "house.day_age"
     assert 0 < work["full_time_below"] < work["part_time_below"] <= 100, "house.day_share"
     assert all(-1000 <= jumps[need] <= 0 for need in NEEDS), "house.day_jump"
