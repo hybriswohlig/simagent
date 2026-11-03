@@ -217,11 +217,38 @@ pub struct ObjectRect {
 
 /// How far a drawing may miss an edge, in metres.
 const SLACK: f64 = 0.001;
+/// Every number of a drawing lies from 0 to this, in metres (review: far out, a rectangle's
+/// end rounds back onto its start).
+const FARTHEST: f64 = 100.0;
+/// How far a door between two rooms of a floor stays from either end of their shared wall.
+const DOOR_CLEARANCE: f64 = 0.4;
+
+/// The wall two rooms of one floor share, as (constant x, at, from, to): at `at` from `from`
+/// to `to` along the other axis, longer than the slack.
+fn shared_wall(a: &RoomRect, b: &RoomRect) -> Option<(bool, f64, f64, f64)> {
+    let near = |p: f64, q: f64| (p - q).abs() <= SLACK;
+    let along = |a0: f64, a1: f64, b0: f64, b1: f64| {
+        let from = if a0 > b0 { a0 } else { b0 };
+        let to = if a1 < b1 { a1 } else { b1 };
+        (to - from > SLACK).then_some((from, to))
+    };
+    if near(a.x + a.w, b.x) || near(b.x + b.w, a.x) {
+        let at = if near(a.x + a.w, b.x) { b.x } else { a.x };
+        along(a.y, a.y + a.h, b.y, b.y + b.h).map(|(from, to)| (true, at, from, to))
+    } else if near(a.y + a.h, b.y) || near(b.y + b.h, a.y) {
+        let at = if near(a.y + a.h, b.y) { b.y } else { a.y };
+        along(a.x, a.x + a.w, b.x, b.x + b.w).map(|(from, to)| (false, at, from, to))
+    } else {
+        None
+    }
+}
 
 /// The drawing `text` (named `name` in messages) checked against the text of its house file:
-/// the same house, the same rooms in order, each with an area; no two rooms of a floor
-/// overlap; the same doors, each point in both its rooms; the same objects in order, each
-/// with an area inside its room (ADR-0025 section 2, the test in `sim-cli`).
+/// the same house, the same rooms in order, each with an area; every number from 0 to 100 m;
+/// no two rooms of a floor overlap; the same doors, each between two rooms of a floor on
+/// their shared wall, at least 0.4 m from its ends, or a staircase between floors with its
+/// point in both rooms; the same objects in order, each with an area inside its room
+/// (ADR-0025 section 2, the test in `sim-cli`).
 pub fn layout_from(name: &str, text: &str, house: &str) -> Result<Layout, CliError> {
     let refused = |code: &str| rejected(&format!("{name}: {code}"));
     let layout: Layout = parsed(name, text)?;
@@ -238,6 +265,24 @@ pub fn layout_from(name: &str, text: &str, house: &str) -> Result<Layout, CliErr
         .chain(layout.objects.iter().map(|object| (object.w, object.h)));
     if sizes.into_iter().any(|(w, h)| w <= 0.0 || h <= 0.0) {
         return Err(refused("layout.size"));
+    }
+    let ends = (layout
+        .rooms
+        .iter()
+        .map(|r| (r.x, r.y, r.x + r.w, r.y + r.h)))
+    .chain(
+        layout
+            .objects
+            .iter()
+            .map(|o| (o.x, o.y, o.x + o.w, o.y + o.h)),
+    )
+    .chain(layout.doors.iter().map(|d| (d.x, d.y, d.x, d.y)));
+    let inside = |v: f64| (0.0..=FARTHEST).contains(&v);
+    if !ends
+        .into_iter()
+        .all(|(x0, y0, x1, y1)| [x0, y0, x1, y1].into_iter().all(inside))
+    {
+        return Err(refused("layout.range"));
     }
     for (at, a) in layout.rooms.iter().enumerate() {
         for b in &layout.rooms[at + 1..] {
@@ -280,8 +325,23 @@ pub fn layout_from(name: &str, text: &str, house: &str) -> Result<Layout, CliErr
             && y <= room.y + room.h + SLACK
     };
     for door in &layout.doors {
-        let inside = |id: &str| room(id).is_some_and(|room| holds(room, door.x, door.y));
-        if !(inside(&door.a) && inside(&door.b)) {
+        let placed = match (room(&door.a), room(&door.b)) {
+            (Some(a), Some(b)) if a.floor == b.floor => {
+                shared_wall(a, b).is_some_and(|(constant_x, at, from, to)| {
+                    let (across, along) = if constant_x {
+                        (door.x, door.y)
+                    } else {
+                        (door.y, door.x)
+                    };
+                    (across - at).abs() <= SLACK
+                        && from + DOOR_CLEARANCE <= along + SLACK
+                        && along <= to - DOOR_CLEARANCE + SLACK
+                })
+            }
+            (Some(a), Some(b)) => holds(a, door.x, door.y) && holds(b, door.x, door.y),
+            _ => false,
+        };
+        if !placed {
             return Err(refused("layout.door_place"));
         }
     }

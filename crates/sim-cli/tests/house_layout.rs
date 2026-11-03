@@ -1,8 +1,9 @@
 //! The drawings of the houses (ADR-0025 sections 1 and 2): `<name>.layout.json` names each
 //! room of its house in the house file's order, each door once and each object in the house
-//! file's order, with rectangles and points in metres. Rooms of one floor do not overlap, a
-//! door's point lies in both its rooms (on their shared edge, or a staircase between floors),
-//! and an object lies in its room.
+//! file's order, with rectangles and points in metres from 0 to 100. Rooms of one floor do not
+//! overlap, a door lies on the shared wall of its two rooms of a floor at least 0.4 m from its
+//! ends, or is a staircase between floors with its point in both, and an object lies in its
+//! room.
 
 use serde_json::{Value, json};
 use sim_cli::data::layouts;
@@ -102,10 +103,31 @@ fn a_drawing_is_checked() {
         }),
         "ok"
     );
-    // A door off the shared edge.
+    // A door off the shared wall, at its end (review: a corner), or closer than 0.4 m to it;
+    // 0.4 m is fine.
+    let door_at = |y: f64| checked(move |l| l["doors"][0]["y"] = json!(y));
+    assert_eq!(door_at(4.5), "layout.door_place");
+    assert_eq!(door_at(0.0), "layout.door_place");
+    assert_eq!(door_at(3.7), "layout.door_place");
+    assert_eq!(door_at(3.6), "ok");
+    // Two rooms that touch only at a corner share no wall: the bath moved below and right of
+    // the hall, its door to the hall at their corner.
     assert_eq!(
-        checked(|l| l["doors"][0]["y"] = json!(4.5)),
+        checked(|l| {
+            l["rooms"][3]["x"] = json!(6);
+            l["rooms"][3]["y"] = json!(10);
+            l["doors"][2]["x"] = json!(6);
+            l["doors"][2]["y"] = json!(10);
+        }),
         "layout.door_place"
+    );
+    // Every number from 0 to 100 m (review: at 1e20 a rectangle's end rounds back onto its
+    // start, and every check would pass).
+    assert_eq!(checked(|l| l["rooms"][0]["x"] = json!(-1)), "layout.range");
+    assert_eq!(checked(|l| l["rooms"][2]["w"] = json!(95)), "layout.range");
+    assert_eq!(
+        checked(|l| l["doors"][1]["x"] = json!(1e20)),
+        "layout.range"
     );
     // An object missing, of another kind, in another room, or outside its room.
     assert_eq!(
