@@ -734,12 +734,8 @@ fn a_save_keeps_the_crossings() {
         (six + secs, 0, 0, payload, None)
     };
     let hunger = |level: u16, secs: i64| crossing(1, 0, level, secs);
-    let person = still(
-        TestPlace::Room(0),
-        None,
-        [600, 900, 500, 700, 800],
-        (0, -100),
-    );
+    // The other needs are at 0 and cross nothing.
+    let person = seven(TestPlace::Room(0), None, [600, 0, 0, 0, 0], None);
     let saved = |clock: i64, crossings: Vec<QueueEntry>| {
         in_the_flat(&data, clock, person.clone(), crossings)
     };
@@ -793,15 +789,19 @@ fn a_save_keeps_the_crossings() {
 /// 6:00 of the first day of year 7.
 const SEVEN_SIX: i64 = 7 * Y + 6 * 3_600;
 
-/// A person with needs from 6:00 of year 7 at `values`, all still but one need with its rate.
-fn still(
+/// A person of 7 with needs from 6:00 of year 7 at `values`, at the awake rates of a child
+/// (`data/house/needs.json`) but the need an action sets with its rate.
+fn seven(
     place: TestPlace,
     action: Option<(u16, u16, u8)>,
     values: [u16; 5],
-    (moving, rate): (usize, i32),
+    set: Option<(usize, i32)>,
 ) -> TestInHouse {
-    let mut needs = values.map(|value| (value, SEVEN_SIX, 0));
-    needs[moving].2 = rate;
+    let awake = [-100, -50, -120, -30, -60];
+    let mut needs = [0, 1, 2, 3, 4].map(|at| (values[at], SEVEN_SIX, awake[at]));
+    if let Some((need, rate)) = set {
+        needs[need].2 = rate;
+    }
     TestInHouse {
         needs,
         place,
@@ -837,18 +837,19 @@ fn in_the_flat(data: &Data, clock: i64, person: TestInHouse, events: Vec<QueueEn
     })
 }
 
-/// A walk and an action (ADR-0026 section 4), she still in every need but the one an action
-/// raises. On the way from the hall to the fridge in the kitchen (4 s) her arrival is due at
-/// the walk's end; at the fridge from 6:00 (hunger +2 400 for 5 min) the end is due 300 s
-/// later; on the toilet from 6:00 with the bladder at 500 at +12 000 an hour it is full after
-/// 150 s, and at 990 after 3 s, but an action lasts at least 60 s. Any other second, a
-/// missing or doubled event, an arrival of someone not walking, a walk without an action and
-/// a pending choice are refused.
+/// A walk and an action (ADR-0026 section 4), every need she does not fill at 0, so that
+/// nothing crosses. On the way from the hall to the fridge in the kitchen (4 s) her arrival is
+/// due at the walk's end; at the fridge from 6:00 (hunger +2 400 for 5 min) the end is due
+/// 300 s later; on the toilet from 6:00 with the bladder at 500 at +12 000 an hour it is full
+/// after 150 s, and at 990 after 3 s, but an action lasts at least 60 s. Any other second, a
+/// missing or doubled event, an arrival of someone not walking, a walk without an action, a
+/// walk longer than the house makes it, a snack without its rate and a pending choice are
+/// refused.
 #[test]
 fn a_save_keeps_the_walk_and_the_action() {
     let data = common::data().with_houses(common::repository_houses());
     let six = SEVEN_SIX;
-    let values = [400, 900, 500, 700, 800];
+    let nothing = [0; 5];
     let at = |secs: i64, payload: Payload| (six + secs, 0, 0, payload, None);
     let arrive = |secs: i64| at(secs, Payload::Arrive { sim: 1 });
     let end = |secs: i64| at(secs, Payload::ActionEnd { sim: 1 });
@@ -859,17 +860,23 @@ fn a_save_keeps_the_walk_and_the_action() {
         arrive: six + 4,
     };
     let fridge = Some((1, 0, 0));
-    let walking = still(walk, fridge, values, (0, 0));
-    let snacking = still(TestPlace::Room(1), fridge, values, (0, 2_400));
+    let walking = seven(walk, fridge, nothing, None);
+    let hungry = [400, 0, 0, 0, 0];
+    let snacking = seven(TestPlace::Room(1), fridge, hungry, Some((0, 2_400)));
     let toilet = Some((5, 0, 0));
-    let flushing = still(TestPlace::Room(3), toilet, values, (2, 12_000));
-    let nearly = still(
+    let flushing = seven(
         TestPlace::Room(3),
         toilet,
-        [400, 900, 990, 700, 800],
-        (2, 12_000),
+        [0, 0, 500, 0, 0],
+        Some((2, 12_000)),
     );
-    let idle = still(TestPlace::Room(0), None, values, (0, 0));
+    let nearly = seven(
+        TestPlace::Room(3),
+        toilet,
+        [0, 0, 990, 0, 0],
+        Some((2, 12_000)),
+    );
+    let idle = seven(TestPlace::Room(0), None, nothing, None);
     let loads = |clock: i64, person: &TestInHouse, events: Vec<QueueEntry>| {
         load_error_with(
             data.clone(),
@@ -911,6 +918,16 @@ fn a_save_keeps_the_walk_and_the_action() {
     assert_eq!(loads(six + 2, &out, vec![arrive(4)]), refused);
     let decide = at(5, Payload::Decide { sim: 1 });
     assert_eq!(loads(six + 2, &idle, vec![decide]), refused);
+    let mut slow = walking.clone();
+    slow.place = TestPlace::Walking {
+        from: 0,
+        to: 1,
+        depart: six,
+        arrive: six + 40,
+    };
+    assert_eq!(loads(six + 2, &slow, vec![arrive(40)]), refused);
+    let still = seven(TestPlace::Room(1), fridge, hungry, Some((0, 0)));
+    assert_eq!(loads(six + 100, &still, vec![end(300)]), refused);
 }
 
 /// A save at the last second of time (review): the house checks have no next second, and

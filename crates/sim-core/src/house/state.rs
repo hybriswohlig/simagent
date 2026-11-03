@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need, OfferDef};
+use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::need::{FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
@@ -159,8 +159,9 @@ pub enum Broken {
     NeedValue,
     NeedTime,
     RoomUnknown,
-    /// A walk that ends before it begins, or that leads elsewhere than its object's room or,
-    /// without an action, the entrance; or an action done outside its object's room.
+    /// A walk not begun before the clock, not as long as the house makes it, or that leads
+    /// elsewhere than its object's room or, without an action, the entrance; or an action
+    /// done outside its object's room.
     Walk,
     ObjectUnknown,
     OfferUnknown,
@@ -169,6 +170,9 @@ pub enum Broken {
     SlotTaken,
     /// Away with a rate, an action or a duty.
     AwayBusy,
+    /// A rate other than the awake one, or at an object other than the offer's, by the age
+    /// band of its second; or the needs an action sets written down at different seconds.
+    Rate,
     DueOrder,
     Decisions,
     /// A waiter or holder without needs in that household, away, walking out or busy.
@@ -216,6 +220,7 @@ pub fn consistent(
         households.insert(sim, household);
         let home = homes[&household];
         person_consistent(person, home, data, now)?;
+        rates_consistent(person, home, data, born)?;
         if let Some(action) = person.action
             && !taken.insert((household, action.object, action.slot))
         {
@@ -331,7 +336,13 @@ fn person_consistent(
         } => {
             room(from)?;
             room(to)?;
-            if depart > arrive || to != goal {
+            // The walk the house gives, begun before the clock.
+            let secs = match person.action {
+                Some(action) => home.walk_to(from, action.object),
+                None => home.walk_out(from),
+            };
+            let walked = arrive.as_secs() - depart.as_secs();
+            if depart >= now || walked != i64::from(secs) || to != goal {
                 return Err(Broken::Walk);
             }
         }
@@ -350,6 +361,52 @@ fn person_consistent(
     let decisions = person.decisions;
     if decisions.count > MAX_DECISIONS || decisions.day > day_index(now) {
         return Err(Broken::Decisions);
+    }
+    Ok(())
+}
+
+/// The rates of a person with needs (ADR-0026 sections 1 and 4): at its object those the
+/// offer sets are the offer's, written down together when it arrived; every other is the
+/// awake rate; each by the age band at the second it was written down. Away, all are 0
+/// (checked with the place).
+fn rates_consistent(
+    person: &InHouse,
+    home: &House,
+    data: Option<&HouseData>,
+    born: SimTime,
+) -> Result<(), Broken> {
+    if person.place == Place::Away {
+        return Ok(());
+    }
+    let rates = data.ok_or(Broken::HouseUnknown)?.rates();
+    let doing = match (person.place, person.action) {
+        (Place::Room(_), Some(action)) => {
+            let object = &home.def().objects[usize::from(action.object)];
+            let kind = data.and_then(|data| data.kind(&object.kind));
+            kind.and_then(|kind| kind.offers.get(usize::from(action.offer)))
+        }
+        _ => None,
+    };
+    let band_at = |at: SimTime| {
+        let years = (at.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
+        u8::try_from(years).ok().and_then(age_band)
+    };
+    let mut begun = None;
+    for (need, sample) in NEEDS.into_iter().zip(person.needs) {
+        let band = band_at(sample.at()).ok_or(Broken::Rate)?;
+        let rate = match doing {
+            Some(offer) if offer.sets(need) => {
+                if begun.is_some_and(|begun| begun != sample.at()) {
+                    return Err(Broken::Rate);
+                }
+                begun = Some(sample.at());
+                offer.rate(rates, need, band)
+            }
+            _ => rates.awake.rate(need, band),
+        };
+        if sample.rate() != rate {
+            return Err(Broken::Rate);
+        }
     }
     Ok(())
 }
