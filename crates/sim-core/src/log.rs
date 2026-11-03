@@ -224,6 +224,54 @@ pub enum LogPayload {
     /// bladder, hygiene and fun (ADR-0024 section 1, ADR-0026 section 1).
     #[serde(rename = "core:day_started")]
     DayStarted { needs: [u16; 5] },
+    /// A person (the subject) chose `offer` of `object` in `house` and walks to it from
+    /// `room`, `walk_secs` long, holding its place `slot` (ADR-0026 sections 4 and 6): the
+    /// needs of the choice and the objects without a free place, so that "Why?" can compute
+    /// the choice again; `commanded` if a command chose it.
+    #[serde(rename = "core:action_started")]
+    ActionStarted {
+        house: DataId,
+        object: u16,
+        offer: u16,
+        slot: u8,
+        room: u8,
+        walk_secs: u32,
+        needs: [u16; 5],
+        busy: Vec<u16>,
+        commanded: bool,
+    },
+    /// A person reached the object of its action and begins it.
+    #[serde(rename = "core:reached")]
+    Reached { object: u16 },
+    /// A person's action ended for `reason`, with the needs of that second.
+    #[serde(rename = "core:action_ended")]
+    ActionEnded {
+        object: u16,
+        offer: u16,
+        reason: EndReason,
+        needs: [u16; 5],
+    },
+    /// A person chose nothing: no free offer brought enough points (ADR-0026 section 5). The
+    /// house, the room, the needs and the objects without a free place as for a start;
+    /// `waits` the object it waits for.
+    #[serde(rename = "core:idle")]
+    Idle {
+        house: DataId,
+        room: u8,
+        needs: [u16; 5],
+        busy: Vec<u16>,
+        waits: Option<u16>,
+    },
+}
+
+/// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was
+/// full, or the person left the house.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    Done,
+    Full,
+    Left,
 }
 
 /// One entry of the domain log.

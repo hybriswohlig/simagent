@@ -8,10 +8,10 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need};
+use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need, OfferDef};
 use crate::house::need::{FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
-use crate::time::{SimTime, YEAR, day_index};
+use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
 /// At most this many households live in a house at once (ADR-0024 section 6).
 pub const MAX_HOUSEHOLDS: usize = 64;
@@ -120,6 +120,31 @@ pub fn crossings(person: &InHouse, after: SimTime) -> impl Iterator<Item = (Need
     (NEEDS.into_iter().zip(person.needs))
         .flat_map(|(need, sample)| sample.crossings().map(move |(level, at)| (need, level, at)))
         .filter(move |&(_, _, at)| at > after)
+}
+
+/// The shortest action (ADR-0026 section 4).
+const SHORTEST_SECS: i64 = 60;
+
+/// The second the action of a person at its object ends (ADR-0026 section 4). It began when
+/// the needs its offer sets were written down: a fixed length after that, or when the need it
+/// fills is full, at least 60 s and at most `max_seconds` after it. None if that comes after
+/// the end of time, or for an offer that sets no need.
+pub fn action_end(person: &InHouse, offer: &OfferDef) -> Option<SimTime> {
+    let (_, sample) = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need))?;
+    let begun = sample.at();
+    let secs = match (offer.seconds, offer.until_full, offer.max_seconds) {
+        (Some(seconds), _, _) => i64::from(seconds),
+        (None, Some(need), Some(longest)) => {
+            let longest = i64::from(longest);
+            let at = NEEDS.iter().position(|&each| each == need)?;
+            match person.needs[at].full() {
+                Some(full) => (full - begun).as_secs().max(SHORTEST_SECS).min(longest),
+                None => longest,
+            }
+        }
+        _ => return None,
+    };
+    begun.checked_add(SimDuration::from_secs(secs))
 }
 
 /// The rule a loaded house part breaks (the addendum's list of checks).

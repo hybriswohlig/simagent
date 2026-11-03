@@ -9,10 +9,11 @@ use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
 use crate::house::data::{NEEDS, Need, age_band};
 use crate::house::need::NeedSample;
+use crate::house::state::Action;
 use crate::house::state::{Decisions, InHouse, MAX_HOUSEHOLDS, MovedIn, Place, crossings};
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::input::{InputRejected, MoveIn, MoveOut, RejectCode};
-use crate::log::{Cause, Causes, LogPayload, Subject};
+use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
 use crate::time::{DAY, HOUR, SimDuration, SimTime, calendar, day_index};
 use crate::world::{EventPayload, SimCtx};
 
@@ -140,17 +141,18 @@ pub(crate) fn check_move_out(
     Ok(())
 }
 
-/// The household leaves its house now, with all its members.
+/// The household leaves its house now, with all its members; what they were doing ends.
 pub(crate) fn apply_move_out(domain: &mut DomainState, input: &MoveOut, ctx: &mut SimCtx<'_, '_>) {
     let household = input.household;
     let members = members(domain, household);
-    ctx.emit(
+    let out = ctx.emit(
         LogPayload::MovedOut { household },
         members.iter().copied().map(Subject::Sim).collect(),
         Causes::new(ctx.trigger()),
     );
     for sim in members {
-        forget(domain, sim, ctx);
+        let doing = forget(domain, sim, ctx);
+        left(sim, doing, out, ctx);
     }
     end_house(domain, household, ctx);
 }
@@ -226,13 +228,24 @@ fn start_day(
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, sim, entry, ctx);
+    let decide = ctx.schedule(now, EventPayload::Decide { sim }, entry);
+    domain.pending.insert((sim, Slot::Decide), decide);
 }
 
 /// The person's crossings anew after a change of its rates in the handler that wrote `by`
 /// (ADR-0026 section 1): those still planned are cancelled, then each threshold below a
 /// falling value is planned.
-fn plan_crossings(domain: &mut DomainState, sim: SimId, by: EventId, ctx: &mut SimCtx<'_, '_>) {
-    cancel_crossings(domain, sim, ctx);
+pub(super) fn plan_crossings(
+    domain: &mut DomainState,
+    sim: SimId,
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let crossings_of = (
+        Slot::Crossing(Need::Hunger, 0),
+        Slot::Crossing(Need::Fun, u16::MAX),
+    );
+    cancel(domain, sim, crossings_of, ctx);
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
@@ -246,10 +259,14 @@ fn plan_crossings(domain: &mut DomainState, sim: SimId, by: EventId, ctx: &mut S
     }
 }
 
-fn cancel_crossings(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
-    let first = (sim, Slot::Crossing(Need::Hunger, 0));
-    let last = (sim, Slot::Crossing(Need::Fun, u16::MAX));
-    let slots: Vec<(SimId, Slot)> = (domain.pending.range(first..=last))
+/// Cancels the person's pending events with a slot from `first` to `last`.
+fn cancel(
+    domain: &mut DomainState,
+    sim: SimId,
+    (first, last): (Slot, Slot),
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let slots: Vec<(SimId, Slot)> = (domain.pending.range((sim, first)..=(sim, last)))
         .map(|(slot, _)| *slot)
         .collect();
     for slot in slots {
@@ -259,26 +276,41 @@ fn cancel_crossings(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '
     }
 }
 
-/// A falling need of a person reaches a threshold (ADR-0026 section 1); the person stays
-/// as it is.
-pub(crate) fn on_crossing(domain: &mut DomainState, sim: SimId, need: Need, level: u16) {
-    // The event that runs right now is no longer pending.
-    domain.pending.remove(&(sim, Slot::Crossing(need, level)));
-    if !domain.house.sims.contains_key(&sim) {
-        panic!("invariant house.orphan_event");
-    }
-}
-
 /// A person leaves the house part: its pending house events, its needs, its waiting
-/// positions and its holds.
-fn forget(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
-    cancel_crossings(domain, sim, ctx);
-    domain.house.sims.remove(&sim);
+/// positions and its holds. Returns what it was doing, with its needs now.
+fn forget(
+    domain: &mut DomainState,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Option<(Action, [u16; 5])> {
+    let house_events = (Slot::Crossing(Need::Hunger, 0), Slot::Decide);
+    cancel(domain, sim, house_events, ctx);
+    let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {
         waiters.retain(|(_, waiter)| *waiter != sim);
     }
     domain.house.waits.retain(|_, waiters| !waiters.is_empty());
     domain.house.holds.retain(|_, holder| *holder != sim);
+    let now = ctx.now();
+    person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
+}
+
+/// What a person who left the house was doing ends, caused by its `core:moved_out` (ADR-0026
+/// section 4, reason `left`).
+fn left(sim: SimId, doing: Option<(Action, [u16; 5])>, out: EventId, ctx: &mut SimCtx<'_, '_>) {
+    if let Some((action, needs)) = doing {
+        let ended = LogPayload::ActionEnded {
+            object: action.object,
+            offer: action.offer,
+            reason: EndReason::Left,
+            needs,
+        };
+        ctx.emit(
+            ended,
+            alloc::vec![Subject::Sim(sim)],
+            Causes::new(Cause::Event(out)),
+        );
+    }
 }
 
 /// A household's house ends: its entry, its morning if it has not come, its lists.
@@ -301,12 +333,13 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
         if let Some(from) = change.from
             && domain.house.households.contains_key(&from)
         {
-            forget(domain, change.sim, ctx);
-            ctx.emit(
+            let doing = forget(domain, change.sim, ctx);
+            let out = ctx.emit(
                 LogPayload::MovedOut { household: from },
                 alloc::vec![Subject::Sim(change.sim)],
                 because(),
             );
+            left(change.sim, doing, out, ctx);
         }
         if let Some(to) = change.to
             && let Some(moved) = domain.house.households.get(&to)

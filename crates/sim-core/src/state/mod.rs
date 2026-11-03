@@ -1,6 +1,7 @@
 //! The domain state (ADR-0003 section 4). Domain code changes it only inside a handler
 //! or an applied input and sees the rest of the world through `SimCtx`.
 
+pub(crate) mod action;
 pub(crate) mod arrival;
 pub(crate) mod birth;
 pub(crate) mod birthday;
@@ -289,6 +290,12 @@ pub(crate) enum Slot {
     /// The house events come last: leaving the house cancels them, not the archive
     /// (ADR-0024 section 2). A falling need reaching a threshold (ADR-0026 section 1).
     Crossing(Need, u16),
+    /// The end of the walk to the object of an action (ADR-0026 section 4).
+    Arrive,
+    /// The end of an action.
+    End,
+    /// A planned choice (ADR-0026 section 3).
+    Decide,
 }
 
 impl DomainState {
