@@ -672,9 +672,9 @@ impl File {
 /// The house part of the projection (ADR-0024, addendum of 2026-11-02): her household in
 /// the flat before its first morning, with that morning planned, and after it loads and
 /// saves to the same bytes; a missing or misplaced morning, a house the data lack and a
-/// household that has ended are refused. She is under 6 and has no needs, but her daily
-/// plan at 5:00 from moving in (ADR-0024 section 2); without it, at another second, twice or
-/// once only it is refused.
+/// household that has ended are refused. She has no needs (under 6), but like every member
+/// her daily plan at 5:00 from moving in (ADR-0024, addendum of 2026-11-04); without it, at
+/// another second, twice or once only it is refused.
 #[test]
 fn a_save_keeps_the_house() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1029,6 +1029,45 @@ fn a_save_holds_no_place() {
     );
 }
 
+/// Before the first morning every member of a household in a house has its plan at 5:00,
+/// whatever its age (ADR-0024, addendum of 2026-11-04): she is 7 at 4:00 of her day without
+/// school, her household in the flat, its first morning due at 6:00 and her plan at 5:00;
+/// without her plan the save is refused.
+#[test]
+fn a_save_keeps_the_plan_before_the_morning() {
+    let data = common::data().with_houses(common::repository_houses());
+    let clock = SEVEN_SIX - 2 * 3_600;
+    let save = |plan: bool| {
+        let hash = data.hash();
+        File::tiny().with(move |f| {
+            f.data_hash = hash;
+            f.closed_through = clock;
+            for entry in &mut f.queue {
+                if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
+                    entry.0 = 8 * Y - 1;
+                }
+            }
+            f.year_hashes = (0..7).map(|year| (year, 7)).collect();
+            f.house_households = vec![(1, ("core:flat".into(), false))];
+            let morning = Payload::HouseMorning { household: 1 };
+            let mut events = vec![(SEVEN_SIX, 0, 0, morning, None)];
+            if plan {
+                events.push(day_plan(clock));
+            }
+            for mut entry in events {
+                entry.2 = f.next_event_seq;
+                f.next_event_seq += 1;
+                insert_event(f, entry, (3, clock));
+            }
+        })
+    };
+    assert_eq!(load_error_with(data.clone(), &save(true)), None);
+    assert_eq!(
+        load_error_with(data.clone(), &save(false)),
+        Some(LoadError::Inconsistent)
+    );
+}
+
 /// The first day of year 7, weekday 0: a school day for her at 7 (ADR-0024 section 4), her
 /// wake at 6:55, her departure at 7:40, her return at 15:20.
 const SCHOOL_DAY: i64 = 7 * Y;
@@ -1050,13 +1089,19 @@ fn schoolgirl(place: TestPlace, action: Option<(u16, u16, u8)>, values: [u16; 5]
 /// Her school day in a save (ADR-0024 section 4): at 6:00:02 at home the wake, the
 /// departure and the return of her plan are due, each exactly once at its second with its
 /// place and return, besides her daily plan at 5:00; on her day without school none of them.
-/// Away at 12:00 with every need still, only her return is due; away before her departure is
-/// refused. At home at 12:00 she came after her departure: no return (one is refused). On her
-/// way out at 7:40:03 her arrival at the door and her return are due; a way out begun before
-/// her departure is refused. At 7:41 she snacks at the fridge since 7:39 with hunger 100 at
-/// +2 400 an hour, 140 and so critical at 7:40: her departure waits for the end at 7:44 with
-/// the place and seconds of the plan, her return due; another place or second, no return, or
-/// a hunger of 240 at 7:40 are refused, and so is a waiting departure while she idles.
+/// Away at 12:00 with every need still since her departure, only her return is due; away
+/// before her departure, with her needs written down before it or at two seconds, is refused.
+/// At home at 12:00 she can only have come after her departure, all five needs written down
+/// since: no return (one is refused); with her needs from 6:00 she would have left, refused.
+/// On her way out at 7:40:03 her arrival at the door and her return are due; a way out begun
+/// before her departure, or with her needs written down at another second, is refused. At
+/// 7:41 she snacks at the fridge since 7:39 with hunger 100 at +2 400 an hour, 140 and so
+/// critical at 7:40: her departure waits for the end at 7:44 with the place and seconds of the
+/// plan, her return due; another place or second, no return, or a hunger of 240 at 7:40 are
+/// refused, and so is a waiting departure while she idles; without the waiting departure and
+/// its return she would have left, refused. Come to the fridge at 7:40:05, after her
+/// departure, hunger only fell on the way (every awake rate of hunger is negative): with 140
+/// on arrival it may have been critical at 7:40, with 200 it was not, refused.
 #[test]
 fn a_save_keeps_the_day() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1143,6 +1188,22 @@ fn a_save_keeps_the_day() {
     assert_eq!(loads(noon, &away, std::slice::from_ref(&returns)), None);
     assert_eq!(loads(noon, &away, &[]), refused);
     assert_eq!(loads(noon, &away, &[back(SCHOOL_BACK, 1)]), refused);
+    let left_before = TestInHouse {
+        needs: still(SCHOOL_DEPART - 1),
+        ..away.clone()
+    };
+    let one_earlier = TestInHouse {
+        needs: [0, 1, 2, 3, 4].map(|at| (300, SCHOOL_DEPART - 60 * i64::from(at == 0), 0)),
+        ..away.clone()
+    };
+    let two_seconds = TestInHouse {
+        needs: [0, 1, 2, 3, 4].map(|at| (300, SCHOOL_DEPART + 10 * i64::from(at == 4), 0)),
+        ..away.clone()
+    };
+    for (index, broken) in [left_before, one_earlier, two_seconds].iter().enumerate() {
+        let events = std::slice::from_ref(&returns);
+        assert_eq!(loads(noon, broken, events), refused, "{index}");
+    }
     let away_early = TestInHouse {
         needs: still(SCHOOL_SIX),
         ..away.clone()
@@ -1152,8 +1213,18 @@ fn a_save_keeps_the_day() {
         loads(before, &away_early, &[depart.clone(), returns.clone()]),
         refused
     );
-    assert_eq!(loads(noon, &home, &[]), None);
-    assert_eq!(loads(noon, &home, std::slice::from_ref(&returns)), refused);
+    let joined = TestInHouse {
+        needs: home
+            .needs
+            .map(|(value, _, rate)| (value, SCHOOL_DAY + 10 * 3_600, rate)),
+        ..home.clone()
+    };
+    assert_eq!(loads(noon, &joined, &[]), None);
+    assert_eq!(
+        loads(noon, &joined, std::slice::from_ref(&returns)),
+        refused
+    );
+    assert_eq!(loads(noon, &home, &[]), refused);
 
     let walking_out = |depart: i64| TestInHouse {
         needs: still(depart),
@@ -1179,6 +1250,14 @@ fn a_save_keeps_the_day() {
     let door_soon = at_door(SCHOOL_DEPART - 1);
     assert_eq!(
         loads(out, &too_soon, &[door_soon, returns.clone()]),
+        refused
+    );
+    let written_later = TestInHouse {
+        needs: still(SCHOOL_DEPART + 1),
+        ..leaving.clone()
+    };
+    assert_eq!(
+        loads(out, &written_later, &[door.clone(), returns.clone()]),
         refused
     );
 
@@ -1207,10 +1286,23 @@ fn a_save_keeps_the_day() {
         assert_eq!(loads(late, &snacking(100, Some(other)), &events), refused);
     }
     assert_eq!(loads(late, &snacking(200, due), &waiting), refused);
-    assert_eq!(
-        loads(late, &snacking(200, None), std::slice::from_ref(&end)),
-        None
-    );
+    for hunger in [100, 200] {
+        let events = std::slice::from_ref(&end);
+        assert_eq!(
+            loads(late, &snacking(hunger, None), events),
+            refused,
+            "{hunger}"
+        );
+    }
+    let arrived = |hunger: u16| {
+        let mut person = snacking(hunger, due);
+        person.needs[0] = (hunger, SCHOOL_DEPART + 5, 2_400);
+        person
+    };
+    let arrived_end = event(SCHOOL_DEPART + 305, Payload::ActionEnd { sim: 1 });
+    let after_arrival = [arrived_end, returns.clone()];
+    assert_eq!(loads(late, &arrived(140), &after_arrival), None);
+    assert_eq!(loads(late, &arrived(200), &after_arrival), refused);
     let mut idle_waiting = home.clone();
     idle_waiting.due = due;
     assert_eq!(

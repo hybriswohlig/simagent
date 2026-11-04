@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::house::choice::CRITICAL;
 use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::need::{FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
@@ -172,6 +173,9 @@ pub enum Broken {
     SlotTaken,
     /// Away or on the way out with a rate, an action or a duty.
     AwayBusy,
+    /// Away or on the way out with needs not all written down at one second, on the way out
+    /// not at the start of the walk: leaving writes them down together (ADR-0024 section 4).
+    Left,
     /// A rate other than the awake one, or at an object other than the offer's, by the age
     /// band of its second; or the needs an action sets written down at different seconds.
     Rate,
@@ -354,11 +358,21 @@ fn person_consistent(
         }
         Place::Away => {}
     }
-    // Away and on the way out every need stands still (ADR-0024 section 4).
+    // Away and on the way out every need stands still since the second of leaving, the start
+    // of the walk out (ADR-0024 section 4).
     if out(person) {
         let still = person.needs.iter().all(|need| need.rate() == 0);
         if !still || person.action.is_some() || person.due.is_some() {
             return Err(Broken::AwayBusy);
+        }
+        let left = person.needs[0].at();
+        let together = person.needs.iter().all(|need| need.at() == left);
+        let walked = match person.place {
+            Place::Walking { depart, .. } => depart == left,
+            _ => true,
+        };
+        if !together || !walked {
+            return Err(Broken::Left);
         }
     }
     if let Some(due) = person.due
@@ -389,8 +403,11 @@ fn band_at(born: SimTime, at: SimTime) -> Option<usize> {
 
 /// A departure waits only for a walk or an action that raised a need critical at the
 /// departure (ADR-0024 section 4): on the way one the offer raises in the age band of the
-/// arrival, at the object one that rises. Where the need was written down after the
-/// departure, at the arrival, its value then is gone; that is taken as it is.
+/// arrival, at the object one that rises. After a waiting departure no walk begins, so on the
+/// way every need was written down before it; at the object only the needs the offer sets
+/// may have been written down after it, at the arrival. Such a need fell on the way at the
+/// awake rate: where that never rises, it was at least its value at the arrival when the
+/// person was due to leave; where it may rise, its value then is open.
 fn due_consistent(
     person: &InHouse,
     home: &House,
@@ -406,17 +423,30 @@ fn due_consistent(
     let kind = data.and_then(|data| data.kind(&object.kind));
     let offer = kind.and_then(|kind| kind.offers.get(usize::from(action.offer)));
     let offer = offer.ok_or(Broken::OfferUnknown)?;
+    let walking = matches!(person.place, Place::Walking { .. });
+    let after = |sample: NeedSample| sample.at() > due.depart;
+    let written_late =
+        |need: Need, sample: NeedSample| after(sample) && (walking || !offer.sets(need));
+    if (NEEDS.into_iter().zip(person.needs)).any(|(need, sample)| written_late(need, sample)) {
+        return Err(Broken::Due);
+    }
     let raises = |need: Need, sample: NeedSample| match person.place {
         Place::Walking { arrive, .. } => {
             band_at(born, arrive).is_some_and(|band| offer.rate(rates, need, band) > 0)
         }
         _ => sample.rate() > 0,
     };
-    let critical = |sample: NeedSample| {
-        sample.at() > due.depart || sample.value_at(due.depart) <= crate::house::choice::CRITICAL
+    let falls_awake =
+        |need: Need| (0..AGE_BANDS.len()).all(|band| rates.awake.rate(need, band) <= 0);
+    let critical = |need: Need, sample: NeedSample| {
+        if after(sample) {
+            !falls_awake(need) || sample.value() <= CRITICAL
+        } else {
+            sample.value_at(due.depart) <= CRITICAL
+        }
     };
     let waits = (NEEDS.into_iter().zip(person.needs))
-        .any(|(need, sample)| raises(need, sample) && critical(sample));
+        .any(|(need, sample)| raises(need, sample) && critical(need, sample));
     if waits { Ok(()) } else { Err(Broken::Due) }
 }
 

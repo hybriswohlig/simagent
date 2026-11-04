@@ -2452,10 +2452,12 @@ fn duty_today(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Day
 }
 
 /// The day of a person with needs at the clock (ADR-0024 section 4): away, on the way out or
-/// with a waiting departure only between the departure and the return of its duty, the walk
-/// out begun at the departure or later, a waiting departure with the plan's place and seconds.
-/// Its wake, departure and return as the queue must hold them: each that comes after the
-/// clock, the return also while it is out or waits.
+/// with a waiting departure only between the departure and the return of its duty; out with
+/// its needs written down at the second it left, not before the departure and not after the
+/// clock; a waiting departure with the plan's place and seconds. At home in that time without
+/// one only who came after the departure, whose needs its day started with then: every need
+/// written down at or after it. Its wake, departure and return as the queue must hold them:
+/// each that comes after the clock, the return also while it is out or waits.
 fn day_of(
     person: &crate::house::state::InHouse,
     today: Option<DayDuty>,
@@ -2465,49 +2467,30 @@ fn day_of(
         (person.place, person.action),
         (Place::Away | Place::Walking { .. }, None)
     );
+    let between = today.filter(|duty| duty.depart <= clock && clock < duty.back);
     if out || person.due.is_some() {
-        let duty = today.filter(|duty| duty.depart <= clock && clock < duty.back)?;
+        let duty = between?;
         let planned = Due {
             place: duty.place,
             depart: duty.depart,
             back: duty.back,
         };
-        let walked_late = match (person.place, person.action) {
-            (Place::Walking { depart, .. }, None) => depart >= duty.depart,
-            _ => true,
-        };
-        if person.due.is_some_and(|due| due != planned) || !walked_late {
+        // `consistent` has checked that out every need was written down at one second.
+        let left = person.needs[0].at();
+        let left_then = !out || (duty.depart <= left && left <= clock);
+        if person.due.is_some_and(|due| due != planned) || !left_then {
             return None;
         }
+    } else if let Some(duty) = between
+        && person.needs.iter().any(|need| need.at() < duty.depart)
+    {
+        return None;
     }
     let wake = today.map(|duty| duty.wake).filter(|&wake| wake > clock);
     let depart = today.filter(|duty| duty.depart > clock);
     let back = (today.filter(|duty| duty.back > clock))
         .filter(|duty| duty.depart > clock || out || person.due.is_some());
     Some((wake, depart, back))
-}
-
-/// Whether a living member of a household in a house has its plan at 5:00 (ADR-0024 sections 1
-/// and 2): `Some(true)` it must, `Some(false)` it must not, `None` it may. After the first
-/// morning everyone has one, before it a child under 6; one of 6 or more before it has one
-/// only if it came under 6, which a 6th birthday since the moving in leaves open.
-fn day_plan_rule(
-    born: SimTime,
-    morning: bool,
-    first_morning: Option<SimTime>,
-    clock: SimTime,
-) -> Option<bool> {
-    let six = born.checked_add(YEAR * i64::from(crate::house::data::AGE_BANDS[0].0));
-    let young = six.is_none_or(|six| six > clock);
-    if morning || young {
-        return Some(true);
-    }
-    // The household moved in less than a day before its first morning.
-    let moved_in = first_morning.and_then(|at| at.checked_sub(DAY));
-    match (six, moved_in) {
-        (Some(six), Some(moved_in)) if six > moved_in => None,
-        _ => Some(false),
-    }
 }
 
 /// One year end series, due at the next year end; one birthday per living sim, due at
@@ -2818,17 +2801,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 && back.is_none_or(|_| returns.contains(sim))
         })
     });
-    // The daily plans of the members of households in a house, as the rule gives them.
+    // Every member of a household in a house has its daily plan from moving in (ADR-0024,
+    // addendum of 2026-11-04), unless the next one is beyond the end of time.
     let all_plans_planned = loaded.sims.iter().all(|(sim, person)| {
-        let Some(moved) = loaded.house.households.get(&person.household) else {
-            return true;
-        };
-        let first = (!moved.morning).then_some(morning_due).flatten();
-        match day_plan_rule(person.born, moved.morning, first, clock) {
-            Some(true) => plans.contains(sim) || plan_due.is_none(),
-            Some(false) => !plans.contains(sim),
-            None => true,
-        }
+        !loaded.house.households.contains_key(&person.household)
+            || plans.contains(sim)
+            || plan_due.is_none()
     });
     year_end_seen
         && all_days_planned

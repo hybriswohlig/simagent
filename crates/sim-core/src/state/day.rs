@@ -23,7 +23,7 @@ fn rules(data: &Data) -> &DayRules {
 }
 
 /// Whether a person is under the age of needs at `now` (ADR-0024 section 2).
-pub(crate) fn young(domain: &DomainState, sim: SimId, now: SimTime) -> bool {
+fn young(domain: &DomainState, sim: SimId, now: SimTime) -> bool {
     let Some(person) = domain.sims.get(&sim) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
@@ -40,8 +40,9 @@ fn duty_of(domain: &DomainState, data: &Data, sim: SimId, day: i64) -> Option<Da
     duty(rules(data), day, person.born, || work_draw(seed, key))
 }
 
-/// The person's series of plans from the next 5:00 on, unless it has one (ADR-0024 sections 1
-/// and 2); `by` is the entry that sets it up.
+/// The person's series of plans from the next 5:00 on, set up by `by`, its `core:moved_in`
+/// (ADR-0024 section 2 and its addendum of 2026-11-04): leaving the house cancels it, so a
+/// person in a house has exactly one.
 pub(crate) fn plan_series(
     domain: &mut DomainState,
     data: &Data,
@@ -49,13 +50,16 @@ pub(crate) fn plan_series(
     by: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    if domain.pending.contains_key(&(sim, Slot::DayPlan)) {
-        return;
-    }
     // A plan beyond the end of time never comes.
     if let Some(at) = next_plan(rules(data), ctx.now()) {
         let handle = ctx.schedule_periodic(at, DAY, EventPayload::DayPlan { sim }, by);
-        domain.pending.insert((sim, Slot::DayPlan), handle);
+        if domain
+            .pending
+            .insert((sim, Slot::DayPlan), handle)
+            .is_some()
+        {
+            panic!("invariant house.day_plan_twice");
+        }
     }
 }
 

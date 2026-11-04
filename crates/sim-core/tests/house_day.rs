@@ -144,8 +144,9 @@ fn moving_out_ends_what_they_do() {
         );
         assert!(matches!(last.causes.as_slice(), [Cause::Event(id)] if number(id) == number(&out)));
     }
-    // The morning has come and gone, the crossings and walks are cancelled.
-    assert_eq!(run.world.pending_events(), before - 1);
+    // The morning has come and gone, the crossings, walks and days are cancelled, with the
+    // two series of plans at 5:00 that came with moving in (ADR-0024, addendum of 2026-11-04).
+    assert_eq!(run.world.pending_events(), before - 1 - 2);
     run.advance(MORNING + DAY.as_secs());
     assert!(run.world.state().house().is_empty());
 }

@@ -498,8 +498,9 @@ fn away_the_needs_stand_still() {
 }
 
 /// Days 5 and 6 are the weekend (weekdays 5 and 6): moved in on day 4, the couple's first
-/// morning plans nothing, nor do the plans of day 6; on day 7 (weekday 0) the plan at 5:00,
-/// the series the first morning set up, plans her full and his part time.
+/// morning plans nothing, nor do the plans of days 5 (before the morning) and 6; on day 7
+/// (weekday 0) the plan at 5:00, the series that came with their `core:moved_in` (ADR-0024,
+/// addendum of 2026-11-04), plans her full and his part time.
 #[test]
 fn a_weekend_has_no_duties() {
     let tag = tag_with(&[FULL_TIME, PART_TIME]);
@@ -521,14 +522,14 @@ fn a_weekend_has_no_duties() {
             back: t(7 * D + FULL_BACK),
         }
     );
-    // Planned at her first morning by its `core:day_started`.
+    // Planned at moving in by its `core:moved_in`.
     let [Cause::Plan(series)] = hers.causes.as_slice() else {
         panic!("{:?}", hers.causes);
     };
-    assert_eq!(series.planned_at, t(5 * D + 6 * 3_600));
+    assert_eq!(series.planned_at, t(5 * D - 1));
     assert!(matches!(
         family.entry(&series.by).payload,
-        LogPayload::DayStarted { .. }
+        LogPayload::MovedIn { .. }
     ));
     let his = family.of(2, |p| matches!(p, LogPayload::LeftHome { .. }));
     assert_eq!(his.len(), 1);
