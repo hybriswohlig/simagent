@@ -5,7 +5,9 @@
 
 use super::{DomainState, action};
 use crate::data::Data;
+use crate::house::data::Need;
 use crate::house::day::night;
+use crate::house::need::EMPTY;
 use crate::house::state::Place;
 use crate::input::{Command, InputRejected, RejectCode};
 use crate::log::{Causes, EndReason};
@@ -14,8 +16,10 @@ use crate::world::SimCtx;
 
 /// Pure check of a command at the stop `closed_through` (ADR-0024 section 5 and its addendum
 /// of 2026-11-04): first who and whether it lives in its house with needs, then what (object,
-/// offer, age, an offer of sleep only in the night), then the person's state (away, a critical
-/// need), then the place, and last the walk itself, which must arrive before the end of time.
+/// offer, age, an offer of sleep only in the night), then the person's state (lying on the
+/// floor, away, fun at 0 for an offer that does not raise it, a critical need; ADR-0026,
+/// addendum of 2026-11-04 on a need at 0), then the place, and last the walk itself, which must
+/// arrive before the end of time.
 pub(crate) fn check(
     domain: &DomainState,
     data: &Data,
@@ -58,6 +62,10 @@ fn rejection(
     if offer.sleep && night(houses.day(), born, now).is_none() {
         return Err(RejectCode::NotNight);
     }
+    // Lying on the floor, the person is as if asleep: nothing it is told reaches it.
+    if person.collapsed {
+        return Err(RejectCode::Collapsed);
+    }
     // Away, on the way out, or with a departure waiting: the departure stays first. On the
     // way to an object the walk ends back in the room it came from.
     let room = match (person.place, person.action) {
@@ -68,6 +76,12 @@ fn rejection(
         }
         _ => return Err(RejectCode::Away),
     };
+    // With fun at 0 only what raises fun is still done on command; the person's own choices
+    // go on.
+    let fun = person.needs[action::need_index(Need::Fun)].value_at(now);
+    if fun == EMPTY && !offer.raises(houses.rates(), Need::Fun, age) {
+        return Err(RejectCode::Listless);
+    }
     if action::for_critical(domain, data, sim, now) {
         return Err(RejectCode::CriticalNeed);
     }

@@ -328,10 +328,13 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// in ascending SimId with where it is, away at school or work until its return (version 2,
 /// ADR-0024 section 4), what it does and until when, and its needs at the clock (a need an
 /// input at the clock wrote down in the next second, as a command does, with that value); and
-/// each child without needs in ascending SimId where the clock puts it (version 3). `None` for
-/// a household without a house.
+/// each child without needs in ascending SimId where the clock puts it (version 3). Whether it
+/// lies on the floor, and whether it smells, hygiene at most 50 (version 4, ADR-0026, addendum
+/// of 2026-11-04 on a need at 0): read from the state, the smell from the need it exports.
+/// `None` for a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, young_place};
+    use sim_core::house::need::EMERGENCY;
     use sim_core::house::state::{Place, action_end};
     let state = world.state();
     let Ok(household) = sim_core::ids::HouseholdId::try_from(household) else {
@@ -413,13 +416,17 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
                 })
             }
         };
+        // An input at the clock acts in the next second (ADR-0004 section 4): what it wrote
+        // down has no value before.
+        let needs = person.needs.map(|need| need.value_at(at.max(need.at())));
         persons.push(serde_json::json!({
             "sim": sim.get(),
             "place": place,
             "action": action,
-            // An input at the clock acts in the next second (ADR-0004 section 4): what it wrote
-            // down has no value before.
-            "needs": person.needs.map(|need| need.value_at(at.max(need.at()))),
+            "needs": needs,
+            "collapsed": person.collapsed,
+            // Hygiene, the fourth need, at the emergency level or below.
+            "smells": needs[3] <= EMERGENCY,
         }));
     }
     // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
@@ -439,7 +446,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 3,
+        "version": 4,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,

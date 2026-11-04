@@ -392,7 +392,7 @@ export type HousesEntry = {
   readonly morning: boolean;
 };
 
-/** `GET /api/runs/{run}/house/{household}`, version 3: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4). */
+/** `GET /api/runs/{run}/house/{household}`, version 4: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
   readonly version: number;
@@ -442,12 +442,14 @@ export type LayoutObject = {
   readonly offers: string[];
 };
 
-/** A person with needs: where it is, what it does, its five needs at the clock. */
+/** A person with needs: where it is, what it does, its five needs at the clock, whether it lies on the floor and whether it smells (hygiene at most 50). */
 export type HousePerson = {
   readonly sim: number;
   readonly place: HousePlace;
   readonly action: HouseAction | null;
   readonly needs: number[];
+  readonly collapsed: boolean;
+  readonly smells: boolean;
 };
 
 /** In a room, walking from one room to another (or out), or away at school or work. */

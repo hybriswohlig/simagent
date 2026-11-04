@@ -236,6 +236,7 @@ pub(super) fn start_day(
             day: day_index(now),
             count: 0,
         },
+        collapsed: false,
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, sim, entry, ctx);
@@ -303,7 +304,7 @@ fn forget(
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::DayPlan, Slot::Bedtime);
+    let house_events = (Slot::DayPlan, Slot::StandUp);
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {

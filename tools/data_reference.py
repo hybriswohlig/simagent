@@ -108,7 +108,8 @@ xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 
 The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
 data/house/needs.json (the rates per need and age band, awake and asleep), data/house/day.json
-(the rules of the day: school, work, the small children, the jumps on coming home, the night),
+(the rules of the day: school, work, the small children, the jumps on coming home, the night,
+what a need at 0 does),
 data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
 data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
 reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
@@ -862,8 +863,8 @@ SOFA = "core:sofa"
 OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age"}
 HOUSE_FIELDS = {"id", "capacity", "rooms", "child_day_room", "child_night_room", "doors", "objects"}
 # The fields of day.json in the order of `DayRules` (ADR-0024 section 4), every one required,
-# none other, each an integer of its type: u8, u32 or i32.
-U8, U32, I32 = (0, 2**8), (0, 2**32), (-(2**31), 2**31)
+# none other, each an integer of its type: u8, u16, u32 or i32.
+U8, U16, U32, I32 = (0, 2**8), (0, 2**16), (0, 2**32), (-(2**31), 2**31)
 HOURS_FORMAT = {"depart": U32, "back": U32}
 DAY_FORMAT = {
     "day_plan_at": U32,
@@ -881,6 +882,8 @@ DAY_FORMAT = {
     "young": {"until_age": U8, "kita_from": U32, "kita_to": U32, "bed_from": U32, "bed_to": U32},
     # The night per age band (ADR-0026, addendum of 2026-11-04): four u32 each.
     "night": {"from": (U32, 4), "until": (U32, 4)},
+    # What a need at 0 does (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    "zero": {"collapse_energy_rate": I32, "stand_up_at": U16, "accident_hygiene_at_most": U16, "hygiene_empty_fun": I32},
 }
 SECONDS_OF_DAY = 86_400
 
@@ -953,7 +956,9 @@ def day_checked(day: dict) -> None:
     plan, not before midnight), the ages (small children, school, work in turn), the shares of
     the work plan (0 < full time < part time <= 100), the jumps on coming home (-1000 to 0), the
     night (ADR-0026, addendum of 2026-11-04: each bound below 24 h, each end at or after the day
-    plan and at or before every wake, each start after every return)."""
+    plan and at or before every wake, each start after every return), a need at 0 (its addendum
+    of 2026-11-04 on a need at 0: energy rising on the floor, the level to get up at from 1 to
+    1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -972,6 +977,13 @@ def day_checked(day: dict) -> None:
     assert all(time < SECONDS_OF_DAY for time in night["from"] + night["until"]), "house.day_night"
     assert all(day["day_plan_at"] <= until and all(until <= w for w in wakes) for until in night["until"]), "house.day_night"
     assert all(all(start > back for _, back in hours) for start in night["from"]), "house.day_night"
+    zero = day["zero"]
+    assert (
+        zero["collapse_energy_rate"] > 0
+        and 1 <= zero["stand_up_at"] <= 1000
+        and zero["accident_hygiene_at_most"] <= 1000
+        and -1000 <= zero["hygiene_empty_fun"] <= 0
+    ), "house.day_zero"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -1089,8 +1101,10 @@ def houses_suffix(files) -> bytes:
     back: u32 }, part_time: Hours }, return_jumps: NeedJumps { hunger: i32, energy: i32,
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
-    4] } }` (ADR-0024 section 4; the night of ADR-0026, its addendum of 2026-11-04: a fixed array
-    as its four elements, no length), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
+    4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
+    u16, hygiene_empty_fun: i32 } }` (ADR-0024 section 4; the night of ADR-0026, its addendum of
+    2026-11-04: a fixed array as its four elements, no length; a need at 0 of its addendum of
+    2026-11-04 on a need at 0), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
     i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
     bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
     by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
@@ -1112,6 +1126,9 @@ def houses_suffix(files) -> bytes:
     out += b"".join(zigzag(jumps[need]) for need in NEEDS)
     out += u8(young["until_age"]) + b"".join(varint(young[time]) for time in ("kita_from", "kita_to", "bed_from", "bed_to"))
     out += b"".join(varint(time) for bound in ("from", "until") for time in day["night"][bound])
+    zero = day["zero"]
+    out += zigzag(zero["collapse_energy_rate"]) + varint(zero["stand_up_at"])
+    out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))

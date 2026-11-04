@@ -390,6 +390,11 @@ pub enum RejectCode {
     /// A command for an offer of sleep outside the person's night (ADR-0026, addendum of
     /// 2026-11-04).
     NotNight,
+    /// A command for a person lying on the floor (ADR-0026, addendum of 2026-11-04 on a need
+    /// at 0).
+    Collapsed,
+    /// A command, while the person's fun is at 0, for an offer that does not raise fun.
+    Listless,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

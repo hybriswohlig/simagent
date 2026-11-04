@@ -68,6 +68,8 @@ pub enum EventPayload {
     Decide { sim: SimId },
     /// The start of a person's night (ADR-0026, addendum of 2026-11-04).
     Bedtime { sim: SimId },
+    /// A person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    StandUp { sim: SimId },
 }
 
 impl EventPayload {
@@ -92,6 +94,7 @@ impl EventPayload {
     pub const NEED_CROSSING: EventKind = EventKind(19);
     pub const DECIDE: EventKind = EventKind(20);
     pub const BEDTIME: EventKind = EventKind(21);
+    pub const STAND_UP: EventKind = EventKind(22);
 
     /// Whether this is a house event (ADR-0024, addendum of 2026-11-02).
     pub fn is_house(&self) -> bool {
@@ -107,6 +110,7 @@ impl EventPayload {
                 | EventPayload::NeedCrossing { .. }
                 | EventPayload::Decide { .. }
                 | EventPayload::Bedtime { .. }
+                | EventPayload::StandUp { .. }
         )
     }
 }
@@ -130,7 +134,8 @@ impl Payload for EventPayload {
             | EventPayload::ActionEnd { .. }
             | EventPayload::NeedCrossing { .. }
             | EventPayload::Decide { .. }
-            | EventPayload::Bedtime { .. } => EventClass::GENERAL,
+            | EventPayload::Bedtime { .. }
+            | EventPayload::StandUp { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
             EventPayload::Emigration { .. } => EventClass::EMIGRATION,
@@ -158,7 +163,8 @@ impl Payload for EventPayload {
             | EventPayload::ActionEnd { sim }
             | EventPayload::NeedCrossing { sim, .. }
             | EventPayload::Decide { sim }
-            | EventPayload::Bedtime { sim } => EventSubject::sim(sim.get()),
+            | EventPayload::Bedtime { sim }
+            | EventPayload::StandUp { sim } => EventSubject::sim(sim.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -189,6 +195,7 @@ impl Payload for EventPayload {
             EventPayload::NeedCrossing { .. } => EventPayload::NEED_CROSSING,
             EventPayload::Decide { .. } => EventPayload::DECIDE,
             EventPayload::Bedtime { .. } => EventPayload::BEDTIME,
+            EventPayload::StandUp { .. } => EventPayload::STAND_UP,
         }
     }
 }

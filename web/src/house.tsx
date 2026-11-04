@@ -16,7 +16,7 @@ import { format } from "./router.js";
 import { readable } from "./contract.js";
 import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
-const HOUSE = { format: "simagent.view.house", version: 3 } as const;
+const HOUSE = { format: "simagent.view.house", version: 4 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -89,8 +89,12 @@ function youngLine(layout: HouseLayout, child: HouseChild): string {
 }
 
 /** What a person does as one line: away where and until when, on the way where to (or out
- * of the house), at an object what and until when, or nothing. */
+ * of the house), lying on the floor of its room, at an object what and until when, or
+ * nothing. */
 function doing(layout: HouseLayout, person: HousePerson): string {
+  if (person.collapsed) {
+    return TEXT.house_lies.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
+  }
   const away = person.place.away;
   if (away !== undefined) {
     const text = away.place === "school" ? TEXT.house_away_school : TEXT.house_away_work;
@@ -161,6 +165,15 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
       return { text: school ? TEXT.house_came_school : TEXT.house_came_work, choice: false };
     case "core:missed":
       return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false };
+    // A need at 0 and what it brings (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    case "core:need_empty": {
+      const need = NEED_KEYS[String(fields["need"])];
+      return { text: TEXT.house_empty.replace("{need}", need === undefined ? String(fields["need"]) : TEXT[need]), choice: false };
+    }
+    case "core:collapsed":
+      return { text: TEXT.house_collapsed, choice: false };
+    case "core:accident":
+      return { text: TEXT.house_accident, choice: false };
     default:
       return null;
   }
@@ -465,6 +478,7 @@ function Resident({
           <a href={format({ page: "person", run, sim: String(sim) })}>{name}</a>
           {": "}
           {line}
+          {person !== null && person.smells && <Smell />}
         </p>
         {person !== null && (
           <>
@@ -475,6 +489,22 @@ function Resident({
         )}
       </div>
     </li>
+  );
+}
+
+/** The small cloud and the word beside one who smells, hygiene at most 50 by the server
+ * (ADR-0026, addendum of 2026-11-04 on a need at 0). */
+function Smell() {
+  return (
+    <span>
+      {" "}
+      <svg viewBox="0 0 24 16" width="1.5em" height="1em" aria-hidden="true" style={{ verticalAlign: "middle" }}>
+        <circle cx={7} cy={10} r={5} fill="#a3ad6b" />
+        <circle cx={13} cy={7} r={6} fill="#a3ad6b" />
+        <circle cx={18} cy={10} r={5} fill="#a3ad6b" />
+      </svg>{" "}
+      {TEXT.house_smells}
+    </span>
   );
 }
 

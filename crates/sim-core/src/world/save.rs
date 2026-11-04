@@ -320,6 +320,7 @@ pub(super) fn pending_index(
             EventPayload::HouseMorning { .. } => continue,
             EventPayload::Decide { sim } => (*sim, Slot::Decide),
             EventPayload::Bedtime { sim } => (*sim, Slot::Bedtime),
+            EventPayload::StandUp { sim } => (*sim, Slot::StandUp),
             EventPayload::DayPlan { sim } => (*sim, Slot::DayPlan),
             EventPayload::Return { sim, .. } => (*sim, Slot::Return),
             EventPayload::Depart { sim, .. } => (*sim, Slot::Depart),
@@ -2473,6 +2474,19 @@ fn action_due(loaded: &LoadedState, data: &Data, sim: SimId) -> Option<SimTime> 
     crate::house::state::action_end(person, offer, houses.day(), born)
 }
 
+/// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
+/// 0), recomputed from its energy and its night; `None` for one not lying or beyond the end of
+/// time.
+fn stand_due(loaded: &LoadedState, data: &Data, sim: SimId) -> Option<SimTime> {
+    let person = loaded
+        .house
+        .sims
+        .get(&sim)
+        .filter(|person| person.collapsed)?;
+    let born = loaded.sims.get(&sim)?.born;
+    crate::house::state::stand_up(person, data.houses()?.day(), born)
+}
+
 /// The bedtime still pending for a person with needs (ADR-0026, addendum of 2026-11-04): the
 /// start of the night of the day whose plan came last at the clock, if that lies after it.
 fn bedtime_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
@@ -2565,6 +2579,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut returns = BTreeSet::new();
     let mut choices = BTreeSet::new();
     let mut bedtimes = BTreeSet::new();
+    let mut stands = BTreeSet::new();
     let clock = loaded.closed_through;
     // Each person's day; `None` for one whose state its day does not allow.
     let days: BTreeMap<SimId, Option<_>> = (loaded.house.sims.iter())
@@ -2667,7 +2682,8 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             // part's checks).
             EventPayload::Decide { sim } => {
                 let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
-                    matches!((person.place, person.action), (Place::Room(_), None))
+                    let room = matches!((person.place, person.action), (Place::Room(_), None));
+                    room && !person.collapsed
                 });
                 rules.opened
                     && entry.period.is_none()
@@ -2682,6 +2698,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     .then(|| bedtime_due(loaded, rules, *sim))
                     .flatten();
                 entry.period.is_none() && bedtimes.insert(*sim) && due == Some(entry.time)
+            }
+            // Once per person lying on the floor, when it gets up (ADR-0026, addendum of
+            // 2026-11-04 on a need at 0).
+            EventPayload::StandUp { sim } => {
+                let due = stand_due(loaded, rules.data, *sim);
+                entry.period.is_none() && stands.insert(*sim) && due == Some(entry.time)
             }
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
@@ -2881,6 +2903,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     // Everyone with needs whose night of today is still to come has its bedtime.
     let all_bedtimes_planned = (loaded.house.sims.keys())
         .all(|sim| bedtime_due(loaded, rules, *sim).is_none() || bedtimes.contains(sim));
+    // Everyone lying on the floor gets up, unless after the end of time.
+    let all_stands_planned = (loaded.house.sims.keys())
+        .all(|sim| stand_due(loaded, rules.data, *sim).is_none() || stands.contains(sim));
     // Every member of a household in a house has its daily plan from moving in (ADR-0024,
     // addendum of 2026-11-04), unless the next one is beyond the end of time.
     let all_plans_planned = loaded.sims.iter().all(|(sim, person)| {
@@ -2892,6 +2917,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && all_days_planned
         && all_plans_planned
         && all_bedtimes_planned
+        && all_stands_planned
         && all_mornings_planned
         && crossings == due_crossings
         && crossings_in_order
