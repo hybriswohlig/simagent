@@ -1,6 +1,7 @@
 //! A person's duty of a day (ADR-0024 section 4): school or work on a weekday by the age at
-//! the day's plan at 5:00 and, for work, by the person's work plan, a draw once in its life.
-//! Pure functions of the day's rules, so the handlers, the loader and the page agree.
+//! the day's plan at 5:00 and, for work, by the person's work plan, a draw once in its life;
+//! and where a child under 6 is. Pure functions of the day's rules, so the handlers, the
+//! loader and the page agree.
 
 use crate::house::data::DayRules;
 use crate::house::state::Duty;
@@ -92,6 +93,36 @@ pub fn duty(
         depart: of_day(day, hours.0)?,
         back: of_day(day, hours.1)?,
     })
+}
+
+/// Where a child under 6 is (ADR-0024 section 4): at the kindergarten until the second it
+/// ends, in bed in the house's `child_night_room`, or in its `child_day_room`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YoungPlace {
+    Kita { until: SimTime },
+    Bed,
+    DayRoom,
+}
+
+/// Where a child under 6 is at `at`, a pure function of the second (ADR-0024 sections 2 and
+/// 4 and its addendum of 2026-11-04, slice 8c): on a weekday from `kita_from` to before
+/// `kita_to` at the kindergarten, every night from `bed_from` to before `bed_to` of the next
+/// morning in bed, else in the day room. The loader keeps the bed's end before the
+/// kindergarten and its start after it. Who is a child is the caller's: in a house, whoever
+/// has no needs.
+pub fn young_place(rules: &DayRules, at: SimTime) -> YoungPlace {
+    let young = &rules.young;
+    let date = calendar(at);
+    let second = date.second_of_day;
+    if date.weekday < WEEKDAYS && (young.kita_from..young.kita_to).contains(&second) {
+        // The end of time is a midnight, so the end of a kindergarten day that began is in it.
+        let left = SimDuration::from_secs(i64::from(young.kita_to - second));
+        return YoungPlace::Kita { until: at + left };
+    }
+    if second >= young.bed_from || second < young.bed_to {
+        return YoungPlace::Bed;
+    }
+    YoungPlace::DayRoom
 }
 
 #[cfg(test)]

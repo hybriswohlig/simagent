@@ -561,7 +561,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 2: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 3: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -571,6 +571,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("morning", Bool),
                 field("layout", Ref("HouseLayout")),
                 field("persons", list(Ref("HousePerson"))),
+                field("children", list(Ref("HouseChild"))),
             ],
         },
         Named {
@@ -642,6 +643,31 @@ pub fn descriptor() -> Vec<Named> {
             doc: "Away at school or work until the return, its second with its date.",
             fields: vec![
                 field("place", Kind::Literal(&["school", "work"])),
+                field("until", Ref("DatedSecond")),
+            ],
+        },
+        Named {
+            name: "HouseChild",
+            doc: "A child under 6, without needs: where the clock puts it (ADR-0024 section 4).",
+            fields: vec![
+                field("sim", Integer),
+                field("place", Ref("HouseChildPlace")),
+            ],
+        },
+        Named {
+            name: "HouseChildPlace",
+            doc: "In the house's day room, or asleep in its night room; or at the kindergarten.",
+            fields: vec![
+                optional("room", Integer),
+                optional("asleep", Bool),
+                optional("away", Ref("HouseKita")),
+            ],
+        },
+        Named {
+            name: "HouseKita",
+            doc: "At the kindergarten until it ends, its second with its date.",
+            fields: vec![
+                field("place", Kind::Literal(&["kita"])),
                 field("until", Ref("DatedSecond")),
             ],
         },

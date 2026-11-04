@@ -303,7 +303,8 @@ export const TEXT = {
   house_floor_0: "Erdgeschoss",
   house_floor_1: "Obergeschoss",
   house_people: "Bewohner",
-  house_young: "Kinder unter 6 sind noch nicht im Haus zu sehen.",
+  house_young_kita: "in der Kita bis {time}",
+  house_young_asleep: "schläft {room}",
   house_walks: "geht {where}",
   house_does: "{offer} {at}",
   house_until: "bis {time}",
@@ -344,21 +345,21 @@ export const TEXT = {
 } as const;
 
 /** The rooms of the houses by their names in `data/house/houses/` (ADR-0025), as the house
- * page shows them; "in" for a walk's goal. */
-export const ROOM_WORDS: { readonly [id: string]: readonly [string, string] } = {
-  hall: ["Flur", "in den Flur"],
-  kitchen: ["Küche", "in die Küche"],
-  living: ["Wohnzimmer", "ins Wohnzimmer"],
-  dining: ["Esszimmer", "ins Esszimmer"],
-  bath: ["Bad", "ins Bad"],
-  wc: ["WC", "aufs WC"],
-  bedroom: ["Schlafzimmer", "ins Schlafzimmer"],
-  kids: ["Kinderzimmer", "ins Kinderzimmer"],
-  kids_two: ["zweites Kinderzimmer", "ins zweite Kinderzimmer"],
-  small_room: ["kleines Zimmer", "ins kleine Zimmer"],
-  guest: ["Gästezimmer", "ins Gästezimmer"],
-  study: ["Arbeitszimmer", "ins Arbeitszimmer"],
-  landing: ["Flur oben", "in den Flur oben"],
+ * page shows them; "in" for a walk's goal; where one is, for a child under 6. */
+export const ROOM_WORDS: { readonly [id: string]: readonly [string, string, string] } = {
+  hall: ["Flur", "in den Flur", "im Flur"],
+  kitchen: ["Küche", "in die Küche", "in der Küche"],
+  living: ["Wohnzimmer", "ins Wohnzimmer", "im Wohnzimmer"],
+  dining: ["Esszimmer", "ins Esszimmer", "im Esszimmer"],
+  bath: ["Bad", "ins Bad", "im Bad"],
+  wc: ["WC", "aufs WC", "auf dem WC"],
+  bedroom: ["Schlafzimmer", "ins Schlafzimmer", "im Schlafzimmer"],
+  kids: ["Kinderzimmer", "ins Kinderzimmer", "im Kinderzimmer"],
+  kids_two: ["zweites Kinderzimmer", "ins zweite Kinderzimmer", "im zweiten Kinderzimmer"],
+  small_room: ["kleines Zimmer", "ins kleine Zimmer", "im kleinen Zimmer"],
+  guest: ["Gästezimmer", "ins Gästezimmer", "im Gästezimmer"],
+  study: ["Arbeitszimmer", "ins Arbeitszimmer", "im Arbeitszimmer"],
+  landing: ["Flur oben", "in den Flur oben", "im Flur oben"],
 };
 
 /** The kinds of furniture by their data IDs (`data/house/kinds.json`): the name, and where

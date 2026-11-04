@@ -604,6 +604,23 @@ fn server_answers(
         .ok_or("the town has no household with a child of school age")?;
     let move_in = format!(r#"{{"move_in":{{"household":{schooled}}}}}"#);
     ask(port, "/api/runs/town/input", Some(&move_in), 200)?;
+    // And a household with a child under 5 (ADR-0024 section 4), unless it is that one: at
+    // 6:00 of that weekday the child is asleep, at 11:00 at the kindergarten.
+    let young = (living.iter())
+        .find(|p| {
+            let years = p["born"]
+                .as_i64()
+                .map(|born| (clock - born).div_euclid(YEAR_SECS));
+            years.is_some_and(|years| (0..5).contains(&years))
+                && p["household"] != household
+                && members(&p["household"]) <= 8
+        })
+        .map(|p| p["household"].clone())
+        .ok_or("the town has no household with a child under 5")?;
+    if young != schooled {
+        let move_in = format!(r#"{{"move_in":{{"household":{young}}}}}"#);
+        ask(port, "/api/runs/town/input", Some(&move_in), 200)?;
+    }
     let morning = Some(r#"{"step":"morning"}"#);
     for _ in 0..7 {
         let advanced = ask(port, "/api/runs/town/advance", morning, 200)?;
@@ -614,11 +631,13 @@ fn server_answers(
             break;
         }
     }
+    houses.push(get(port, &format!("/api/runs/town/house/{young}"))?);
     for _ in 0..5 {
         let hour = Some(r#"{"step":"hour"}"#);
         ask(port, "/api/runs/town/advance", hour, 200)?;
     }
     houses.push(get(port, &format!("/api/runs/town/house/{schooled}"))?);
+    houses.push(get(port, &format!("/api/runs/town/house/{young}"))?);
     // The first choice of the house's first person at its first morning, recomputed.
     let sim = &houses[0]["persons"][0]["sim"];
     let morning = &houses[0]["at"]["t"];

@@ -354,6 +354,17 @@ impl WorldState {
         self.domain.sims.get(&id).map(|sim| sim.household)
     }
 
+    /// The living members of a household in ascending SimId; none once it has ended
+    /// (ADR-0018 section 4).
+    pub fn members(&self, household: crate::ids::HouseholdId) -> impl Iterator<Item = SimId> + '_ {
+        self.domain
+            .members
+            .get(&household)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+
     /// Birth time of a sim, living or archived; `None` for an ID never handed out.
     pub fn born(&self, id: SimId) -> Option<SimTime> {
         let living = self.domain.sims.get(&id).map(|sim| sim.born);
