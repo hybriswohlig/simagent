@@ -27,7 +27,7 @@ use sim_core::house::state::{Decisions, InHouse, Place, action_end};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input, InputRejected, RejectCode};
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
-use sim_core::time::{DAY, HOUR, SimTime, YEAR};
+use sim_core::time::{DAY, HOUR, MAX_ABS_SECS, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
 
 const D: i64 = DAY.as_secs();
@@ -258,7 +258,12 @@ fn the_night_by_the_clock() {
     let at = |day: i64, hours: i64, minutes: i64, seconds: i64| {
         t(day * D + hours * H + minutes * 60 + seconds)
     };
-    let span = |from: SimTime, until: SimTime| Some(Night { from, until });
+    let span = |from: SimTime, until: SimTime| {
+        Some(Night {
+            from,
+            until: Some(until),
+        })
+    };
     let adult = t(-30 * Y);
     let child = t(-8 * Y);
     let adults_first = span(at(1, 22, 0, 0), at(2, 6, 0, 0));
@@ -331,6 +336,59 @@ fn the_night_by_the_clock() {
         next_night(&rules, adult, at(2, 3, 0, 0)),
         span(at(2, 22, 0, 0), at(3, 6, 0, 0))
     );
+}
+
+/// The last night of time (the end of time `MAX_ABS_SECS` is a midnight, the first second of
+/// day `K`): an adult of 29 has the night of day `K − 1` from 22:00 on, its end, 6:00 of day
+/// `K + 1`, beyond time, so it lasts to the end, the last second included: `left` counts the
+/// seconds to it, and a sleep begun in it has no end, as an action that would end beyond time
+/// has none. Day `K` has no night (its plan at 5:00 lies beyond time). Time begins outside
+/// every night: nobody is born before its first second, so nobody is 6 in its first years.
+#[test]
+fn the_last_night_of_time_lasts_to_its_end() {
+    let rules = rules();
+    let end = MAX_ABS_SECS;
+    let last_day = end / D;
+    assert_eq!(end % D, 0);
+    let adult = t(end - 30 * Y);
+    let last = Some(Night {
+        from: t((last_day - 1) * D + 22 * H),
+        until: None,
+    });
+    assert_eq!(night_of(&rules, last_day - 1, adult), last);
+    assert_eq!(night_of(&rules, last_day, adult), None);
+    assert_eq!(night(&rules, adult, t(end - 2 * H - 1)), None);
+    assert_eq!(night(&rules, adult, t(end - 2 * H)), last);
+    assert_eq!(night(&rules, adult, t(end)), last);
+    assert_eq!(next_night(&rules, adult, t(end - 3 * H)), last);
+    let whole = last.expect("the last night");
+    assert_eq!(whole.left(t(end)), 1);
+    assert_eq!(whole.left(t(end - 2 * H)), 2 * H + 1);
+    assert!(whole.holds(t(end)) && !whole.holds(t(end - 2 * H - 1)));
+    let asleep = InHouse {
+        needs: [600, 420, 500, 700, 800].map(|value| NeedSample::new(value, t(end - H), 0)),
+        place: Place::Room(2),
+        action: None,
+        due: None,
+        decisions: Decisions {
+            day: last_day - 1,
+            count: 0,
+        },
+    };
+    let sleep = OfferDef {
+        rates: Default::default(),
+        seconds: None,
+        until_full: None,
+        max_seconds: None,
+        sleep: true,
+        min_age: 0,
+        max_age: 130,
+    };
+    assert_eq!(action_end(&asleep, &sleep, &rules, adult), None);
+    // The first second of time: whoever lives then was born at it, under 6, without a night.
+    let first = t(-end);
+    assert_eq!(night(&rules, first, first), None);
+    assert_eq!(night_of(&rules, -end / D, first), None);
 }
 
 /// A sleep ends with its night (`action_end`): begun at 22:00:04, or in the last second of the
