@@ -18,17 +18,56 @@ use crate::ids::{EventId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
 use crate::world::{EventPayload, SimCtx};
 
+/// The needs of `sim` at 0 now whose crossing at 0 in this second has not run yet.
+pub(super) fn empty_now(domain: &DomainState, sim: SimId, ctx: &SimCtx<'_, '_>) -> [bool; 5] {
+    let now = ctx.now();
+    let Some(person) = domain.house.sims.get(&sim) else {
+        panic!("invariant house.orphan_event");
+    };
+    let mut empty = [false; 5];
+    for ((at, need), sample) in NEEDS.into_iter().enumerate().zip(person.needs) {
+        let planned = domain.pending.get(&(sim, Slot::Crossing(need, EMPTY)));
+        let due = planned.is_some_and(|&handle| ctx.pending_time(handle) == Some(now));
+        empty[at] = due && sample.value_at(now) == EMPTY;
+    }
+    empty
+}
+
+/// The needs whose crossing at 0 falls into this second are settled before what would leave
+/// the house in it (a departure runs before the crossings of its second), and nothing is chosen
+/// (ADR-0026, addendum of 2026-11-04 on a need at 0). Returns whether the person lies on the
+/// floor then, so that the departure waits.
+pub(super) fn settle_first(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) -> bool {
+    let empty = empty_now(domain, sim, ctx);
+    if empty.contains(&true) {
+        settle(
+            domain,
+            data,
+            sim,
+            (empty, false),
+            Causes::new(ctx.trigger()),
+            ctx,
+        );
+    }
+    (domain.house.sims.get(&sim)).is_some_and(|person| person.collapsed)
+}
+
 /// The needs of `sim` marked in `reached` reach 0 now, each with its entry `core:need_empty` by
 /// `causes` and then its consequence, in the order of the needs; fun reaching 0 by the change
 /// that hygiene at 0 brings is settled as well. The crossing at 0 still planned for this second
-/// of a need settled here is cancelled, so no need is settled twice and none is dropped when
-/// the rates change. Then the crossings are planned anew if a need was written down, and one
-/// idle in a room and not lying chooses, or leaves if its departure waited, by the last entry.
+/// of a need settled here is cancelled, so no need is settled twice. Then the crossings are
+/// planned anew if a need was written down, and with `choose` one idle in a room and not lying
+/// chooses, or leaves if its departure waited, by the last entry.
 pub(super) fn settle(
     domain: &mut DomainState,
     data: &Data,
     sim: SimId,
-    mut reached: [bool; 5],
+    (mut reached, choose): ([bool; 5], bool),
     causes: Causes,
     ctx: &mut SimCtx<'_, '_>,
 ) {
@@ -74,7 +113,9 @@ pub(super) fn settle(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    if let (Place::Room(_), None, false) = (person.place, person.action, person.collapsed) {
+    if let (Place::Room(_), None, false) = (person.place, person.action, person.collapsed)
+        && choose
+    {
         action::next(domain, data, sim, last, ctx);
     }
 }
@@ -199,8 +240,9 @@ fn accident(
     (ended, true)
 }
 
-/// Hygiene at 0: fun changes once by the data's value, held at 0, unless an action going on at
-/// its object sets fun. Returns fun before and after, `None` if it was not written down.
+/// Hygiene at 0: fun changes once by the data's value, held at 0, and both are written down in
+/// this second, hygiene at its 0, so that a save shows the sting; nothing where an action going
+/// on at its object sets either. Returns fun before and after, `None` if nothing was written.
 fn sting(
     domain: &mut DomainState,
     data: &Data,
@@ -212,18 +254,18 @@ fn sting(
     let band = action::band(domain, sim, now);
     let fun = action::need_index(Need::Fun);
     let person = person_mut(domain, sim);
-    if (doing(person, house, houses)).is_some_and(|offer| offer.sets(Need::Fun)) {
+    let sets = |offer: &OfferDef| offer.sets(Need::Fun) || offer.sets(Need::Hygiene);
+    if (doing(person, house, houses)).is_some_and(sets) {
         return None;
     }
     let before = person.needs[fun].value_at(now);
     let changed = i32::from(before) + houses.day().zero.hygiene_empty_fun;
     let after = u16::try_from(changed.clamp(0, i32::from(FULL)))
         .unwrap_or_else(|_| panic!("invariant house.need_value"));
-    if after == before {
-        return None;
-    }
-    let rate = rate_now(person, houses, Need::Fun, band);
-    person.needs[fun] = NeedSample::new(after, now, rate);
+    let hygiene = action::need_index(Need::Hygiene);
+    let rates = [Need::Hygiene, Need::Fun].map(|need| rate_now(person, houses, need, band));
+    person.needs[hygiene] = person.needs[hygiene].with_rate(now, rates[0]);
+    person.needs[fun] = NeedSample::new(after, now, rates[1]);
     Some((before, after))
 }
 

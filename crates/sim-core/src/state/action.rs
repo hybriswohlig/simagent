@@ -422,8 +422,9 @@ pub(crate) fn on_decide(
 /// critical: an entry, then a person idle in a room chooses, and a walk to an offer that will
 /// not raise the need, or an action under way, ends with reason `critical` and the person
 /// chooses again. At 0 every need of the person at 0 in this second has its consequence
-/// (`state::zero::settle`). One lying on the floor chooses at none of them: at 150 the entry is
-/// all, at 50 it gets up (ADR-0026, addendum of 2026-11-04 on a need at 0).
+/// (`state::zero::settle`): those whose crossing at 0 is still to run in it too, and the need of
+/// this one. One lying on the floor chooses at none of them: at 150 the entry is all, at 50 it
+/// gets up if its energy is above 0 again (ADR-0026, addendum of 2026-11-04 on a need at 0).
 pub(crate) fn on_crossing(
     domain: &mut DomainState,
     data: &Data,
@@ -436,12 +437,14 @@ pub(crate) fn on_crossing(
         panic!("invariant house.orphan_event");
     };
     let (place, action, lying) = (person.place, person.action, person.collapsed);
+    let now = ctx.now();
+    let rested = person.needs[need_index(Need::Energy)].value_at(now) > EMPTY;
     if level == EMPTY {
-        // Each need whose crossing at 0 is this second, so those still planned for it as well.
-        let now = ctx.now();
-        let reached = person.needs.map(|need| need.crossing(EMPTY) == Some(now));
+        let at_zero = person.needs[need_index(need)].value_at(now) == EMPTY;
+        let mut reached = super::zero::empty_now(domain, sim, ctx);
+        reached[need_index(need)] |= at_zero;
         let causes = Causes::new(ctx.trigger());
-        super::zero::settle(domain, data, sim, reached, causes, ctx);
+        super::zero::settle(domain, data, sim, (reached, true), causes, ctx);
         return;
     }
     let mut causes = Causes::new(ctx.trigger());
@@ -453,8 +456,9 @@ pub(crate) fn on_crossing(
         critical = Some(entry);
     }
     if lying {
-        // Lying raises energy alone, and energy that rises crosses nothing.
-        if let Some(entry) = critical.filter(|_| level == EMERGENCY) {
+        // Lying raises energy alone, and energy that rises crosses nothing; with energy still at
+        // 0 the person cannot get up.
+        if let Some(entry) = critical.filter(|_| level == EMERGENCY && rested) {
             super::zero::rise(domain, data, sim, entry, causes, ctx);
         }
         return;
@@ -511,6 +515,8 @@ pub(super) fn follow(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     match domain.house.sims.get(&sim).and_then(|person| person.due) {
+        // A need at 0 in this second comes first; lying, the departure waits on.
+        Some(_) if super::zero::settle_first(domain, data, sim, ctx) => {}
         Some(due) => {
             let late = (ctx.now() - due.depart).as_secs();
             let late = u32::try_from(late).unwrap_or_else(|_| panic!("invariant house.late"));

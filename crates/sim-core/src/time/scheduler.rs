@@ -449,6 +449,11 @@ impl<P: Payload, M: Clone> Ctx<'_, P, M> {
         self.current
     }
 
+    /// The second a pending event is due; `None` if it has run or was cancelled.
+    pub fn pending_time(&self, handle: EventHandle) -> Option<SimTime> {
+        self.sched.pending_handle_time(handle)
+    }
+
     /// Plans an event. In a handler of second t: before t, or at t in an earlier
     /// phase, is `scheduler.schedule_in_past`; at t in the same phase it runs in the next
     /// micro step. In the input context nothing may be planned before `now`.

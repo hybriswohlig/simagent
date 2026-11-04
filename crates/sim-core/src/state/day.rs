@@ -203,7 +203,8 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
 
 /// The departure (ADR-0024 section 4): a walk or an action that raises a critical need makes
 /// it wait, the person due at `back`, and so does lying on the floor (ADR-0026, addendum of
-/// 2026-11-04 on a need at 0) until the person gets up; otherwise the person leaves now.
+/// 2026-11-04 on a need at 0) until the person gets up; otherwise the person leaves now. A need
+/// whose crossing at 0 falls into this second is settled first: the departure runs before it.
 pub(crate) fn on_depart(
     domain: &mut DomainState,
     data: &Data,
@@ -213,7 +214,7 @@ pub(crate) fn on_depart(
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::Depart));
     let now = ctx.now();
-    let lying = (domain.house.sims.get(&sim)).is_some_and(|person| person.collapsed);
+    let lying = super::zero::settle_first(domain, data, sim, ctx);
     if lying || action::for_critical(domain, data, sim, now) {
         let depart = now;
         person_mut(domain, sim).due = Some(Due {
@@ -348,7 +349,7 @@ pub(crate) fn on_return(
     plan_crossings(domain, sim, entry, ctx);
     let causes = Causes::new(Cause::Event(entry));
     if emptied.contains(&true) {
-        super::zero::settle(domain, data, sim, emptied, causes, ctx);
+        super::zero::settle(domain, data, sim, (emptied, true), causes, ctx);
     } else {
         action::decide(domain, data, sim, causes, ctx);
     }

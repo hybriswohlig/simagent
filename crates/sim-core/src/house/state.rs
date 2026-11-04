@@ -178,11 +178,13 @@ pub fn lying_rate(rates: &NeedRates, rules: &DayRules, need: Need, band: usize) 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need
 /// at 0), of a person born at `born` by `rules`: when its energy, written down at 0 in the
 /// second it fell there and rising since, is at `stand_up_at`, or when the night it fell in
-/// ends, whichever comes first. None if both lie beyond the end of time.
+/// ends, whichever comes first; the night's end only with its energy above 0 by then, as nothing
+/// gets up one with none. None if both lie beyond the end of time.
 pub fn stand_up(person: &InHouse, rules: &DayRules, born: SimTime) -> Option<SimTime> {
     let energy = person.needs[1];
     let up = energy.rises_to(rules.zero.stand_up_at);
-    let ends = night(rules, born, energy.at()).and_then(|night| night.until);
+    let ends = (night(rules, born, energy.at()).and_then(|night| night.until))
+        .filter(|&until| energy.value_at(until) > EMPTY);
     match (up, ends) {
         (Some(up), Some(ends)) => Some(up.min(ends)),
         (up, ends) => up.or(ends),
@@ -474,9 +476,10 @@ fn band_at(born: SimTime, at: SimTime) -> Option<usize> {
 /// may have been written down after it, at the arrival. Such a need fell on the way at the
 /// awake rate: where that never rises, it was at least its value at the arrival when the
 /// person was due to leave; where it may rise, its value then is open. A need at 0 (ADR-0026,
-/// addendum of 2026-11-04 on a need at 0) may write down others later while the walk or action
-/// goes on: the accident the bladder full and hygiene at most its value, hygiene reaching 0 fun;
-/// their values at the departure are open too.
+/// addendum of 2026-11-04 on a need at 0) may write down others later only as a run does while
+/// the walk or action goes on: an accident only where it raises hygiene, the bladder full and,
+/// on the way, hygiene at most the cap in the same second; hygiene reaching 0 its 0 and fun in
+/// one second. Their values at the departure are open.
 fn due_consistent(
     person: &InHouse,
     home: &House,
@@ -501,27 +504,40 @@ fn due_consistent(
     let after = |sample: NeedSample| sample.at() > due.depart;
     let written_late =
         |need: Need, sample: NeedSample| after(sample) && (walking || !offer.sets(need));
-    let zero = &data.ok_or(Broken::HouseUnknown)?.day().zero;
-    let hygiene = person.needs[3];
-    // Hygiene was at 0 when fun was written down, unless an accident wrote it down after.
-    let stung = |at: SimTime| hygiene.at() > at || hygiene.value_at(at) == EMPTY;
-    let consequence = |need: Need, sample: NeedSample| match need {
-        Need::Bladder => sample.value() == FULL,
-        Need::Hygiene => sample.value() <= zero.accident_hygiene_at_most,
-        Need::Fun => stung(sample.at()),
-        Need::Hunger | Need::Energy => false,
-    };
-    let unexplained =
-        |need: Need, sample: NeedSample| written_late(need, sample) && !consequence(need, sample);
-    if (NEEDS.into_iter().zip(person.needs)).any(|(need, sample)| unexplained(need, sample)) {
-        return Err(Broken::Due);
-    }
     let raises = |need: Need, sample: NeedSample| match person.place {
         Place::Walking { arrive, .. } => {
             band_at(born, arrive).is_some_and(|band| offer.rate(rates, need, band) > 0)
         }
         _ => sample.rate() > 0,
     };
+    let cap = data
+        .ok_or(Broken::HouseUnknown)?
+        .day()
+        .zero
+        .accident_hygiene_at_most;
+    let [_, _, bladder, hygiene, fun] = person.needs;
+    // The accident goes on only where the walk or the action raises hygiene, the shower: the
+    // bladder full and, on the way, hygiene at most the cap in the same second.
+    let wet = written_late(Need::Bladder, bladder)
+        && bladder.value() == FULL
+        && raises(Need::Hygiene, hygiene)
+        && (!walking || (hygiene.at() == bladder.at() && hygiene.value() <= cap));
+    // The sting writes hygiene's 0 and fun in one second; on the way to the shower an accident
+    // may write hygiene's 0 again after it.
+    let stung = written_late(Need::Fun, fun)
+        && hygiene.value() == EMPTY
+        && (hygiene.at() == fun.at() || (wet && hygiene.at() > fun.at()));
+    let explained = |need: Need| match need {
+        Need::Bladder => wet,
+        Need::Hygiene => (walking && wet) || (stung && hygiene.at() == fun.at()),
+        Need::Fun => stung,
+        Need::Hunger | Need::Energy => false,
+    };
+    let unexplained =
+        |need: Need, sample: NeedSample| written_late(need, sample) && !explained(need);
+    if (NEEDS.into_iter().zip(person.needs)).any(|(need, sample)| unexplained(need, sample)) {
+        return Err(Broken::Due);
+    }
     let falls_awake =
         |need: Need| (0..AGE_BANDS.len()).all(|band| rates.awake.rate(need, band) <= 0);
     let critical = |need: Need, sample: NeedSample| {
