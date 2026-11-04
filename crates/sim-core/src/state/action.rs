@@ -225,7 +225,8 @@ pub(crate) fn decide(
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
     let left = tonight.map(|night| night.left(now));
-    let moods = |object, offer| mood(seed, key, now, object, offer);
+    let percent = houses.day().choice_mood_percent;
+    let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
     let scored = score(house, houses, age, needs, room, left, moods);
     let choice = choose(
         (house, houses),

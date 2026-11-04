@@ -37,6 +37,9 @@ use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
 use sim_core::time::{DAY, HOUR, MAX_ABS_SECS, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
 
+/// The mood of the repository's day, `choice_mood_percent` of `data/house/day.json`.
+const MOOD: u8 = 10;
+
 const D: i64 = DAY.as_secs();
 const H: i64 = HOUR.as_secs();
 const Y: i64 = YEAR.as_secs();
@@ -800,7 +803,8 @@ fn commands_of_sleep_and_in_the_night() {
 #[test]
 fn a_wake_at_the_nights_end_ends_the_sleep() {
     let key = LineageKey::founder(&DataId::new("test:night").expect("id"), 2);
-    let moods = [BED, COT].map(|object| i64::from(mood(7, key, t(2 * D + 6 * H), object, 0)));
+    let moods =
+        [BED, COT].map(|object| i64::from(mood(7, key, t(2 * D + 6 * H), (object, 0), MOOD)));
     assert_eq!(moods, [-4, -7]);
     let [bed, cot] = moods.map(|mood| 9_100 * (100 + mood) / 100);
     assert_eq!((bed, cot), (8_736, 8_463));

@@ -21,6 +21,9 @@ use sim_core::params::WorldParams;
 use sim_core::time::{DAY, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
 
+/// The mood of the repository's day, `choice_mood_percent` of `data/house/day.json`.
+const MOOD: u8 = 10;
+
 #[test]
 fn why_recomputes_the_choice() {
     let founder = |years: i64, sex: Sex| Founder {
@@ -102,7 +105,7 @@ fn why_recomputes_the_choice() {
         // Sims 1 and 2 are the founders 0 and 1 of `test:why`.
         let founder = LineageKey::founder(&DataId::new("test:why").expect("valid"), sim.get() - 1);
         for each in &scored {
-            let drawn = mood(7, founder, entry.t, each.object, each.offer);
+            let drawn = mood(7, founder, entry.t, (each.object, each.offer), MOOD);
             assert_eq!(each.mood, drawn, "{answer}");
         }
         let born = world.state().born(*sim).expect("born");

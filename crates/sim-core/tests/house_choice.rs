@@ -14,11 +14,15 @@
 mod common;
 
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{Choice, ENOUGH, MOOD, Scored, best, choose, mood, score};
+use sim_core::house::choice::{Choice, ENOUGH, Scored, best, choose, mood, score};
 use sim_core::house::data::{House, HouseData};
 use sim_core::lineage::LineageKey;
 use sim_core::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use sim_core::time::SimTime;
+
+/// The mood of the repository's day, `choice_mood_percent` of `data/house/day.json` (ADR-0026,
+/// addendum of 2026-11-04 on the mood): from −10 to +10 percent.
+const MOOD: u8 = 10;
 
 /// The seconds of a whole night: 8 hours from 22:00 for 18 to 66, 10 from 20:00 for 6 to 17,
 /// 8.5 from 21:30 from 67 on.
@@ -322,7 +326,7 @@ type Change = (&'static str, fn(Case) -> Case);
 /// The mood of `case`.
 fn mood_of((seed, founder, second, object, offer): Case) -> i8 {
     let key = LineageKey::founder(&DataId::new("test:mood").expect("id"), founder);
-    mood(seed, key, SimTime::from_secs(second), object, offer)
+    mood(seed, key, SimTime::from_secs(second), (object, offer), MOOD)
 }
 
 /// The mood of `case` from its address as the addendum on the mood gives it, the specification
@@ -346,7 +350,9 @@ fn specified((seed, founder, second, object, offer): Case) -> i64 {
 /// it changes the mood of at least one of four fixed cases.
 #[test]
 fn the_mood_is_an_addressed_draw() {
-    assert_eq!(MOOD, 10);
+    let day: sim_core::house::data::DayRules =
+        serde_json::from_str(include_str!("../../../data/house/day.json")).expect("the day");
+    assert_eq!(day.choice_mood_percent, MOOD);
     let cases: [Case; 4] = [
         (7, 0, 93_600, 5, 0),
         (7, 1, 93_600, 0, 0),

@@ -2865,7 +2865,8 @@ fn why_over_http() {
         let key = LineageKey::founder(&tag, sim - 1);
         let mut scored: Vec<(u16, i8, i64)> = (filled.iter())
             .map(|&(object, filled, walk)| {
-                let mood = mood(7, key, SimTime::from_secs(MORNING), object, 0);
+                // The repository's day moves the points by at most 10 percent either way.
+                let mood = mood(7, key, SimTime::from_secs(MORNING), (object, 0), 10);
                 (object, mood, filled * (100 + i64::from(mood)) / 100 - walk)
             })
             .collect();

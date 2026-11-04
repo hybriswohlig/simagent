@@ -109,7 +109,7 @@ xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
 data/house/needs.json (the rates per need and age band, awake and asleep), data/house/day.json
 (the rules of the day: school, work, the small children, the jumps on coming home, the night,
-what a need at 0 does),
+what a need at 0 does, the mood of a choice),
 data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
 data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
 reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
@@ -884,6 +884,8 @@ DAY_FORMAT = {
     "night": {"from": (U32, 4), "until": (U32, 4)},
     # What a need at 0 does (ADR-0026, addendum of 2026-11-04 on a need at 0).
     "zero": {"collapse_energy_rate": I32, "stand_up_at": U16, "accident_hygiene_at_most": U16, "hygiene_empty_fun": I32},
+    # The most the mood moves the points of a choice, in percent (its addendum on the mood).
+    "choice_mood_percent": U8,
 }
 SECONDS_OF_DAY = 86_400
 
@@ -958,7 +960,8 @@ def day_checked(day: dict) -> None:
     night (ADR-0026, addendum of 2026-11-04: each bound below 24 h, each end at or after the day
     plan and at or before every wake, each start after every return), a need at 0 (its addendum
     of 2026-11-04 on a need at 0: energy rising on the floor, the level to get up at from 1 to
-    1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0)."""
+    1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0),
+    the mood (at most 50 percent either way)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -984,6 +987,7 @@ def day_checked(day: dict) -> None:
         and zero["accident_hygiene_at_most"] <= 1000
         and -1000 <= zero["hygiene_empty_fun"] <= 0
     ), "house.day_zero"
+    assert day["choice_mood_percent"] <= 50, "house.day_mood"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -1102,9 +1106,9 @@ def houses_suffix(files) -> bytes:
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
     4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
-    u16, hygiene_empty_fun: i32 } }` (ADR-0024 section 4; the night of ADR-0026, its addendum of
-    2026-11-04: a fixed array as its four elements, no length; a need at 0 of its addendum of
-    2026-11-04 on a need at 0), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
+    u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8 }` (ADR-0024 section 4; the night of
+    ADR-0026, its addendum of 2026-11-04: a fixed array as its four elements, no length; a need
+    at 0 and the mood of its addenda of 2026-11-04), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
     i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
     bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
     by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
@@ -1129,6 +1133,7 @@ def houses_suffix(files) -> bytes:
     zero = day["zero"]
     out += zigzag(zero["collapse_energy_rate"]) + varint(zero["stand_up_at"])
     out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
+    out += u8(day["choice_mood_percent"])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))

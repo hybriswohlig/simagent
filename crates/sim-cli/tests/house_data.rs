@@ -489,6 +489,9 @@ fn the_repository_day_loads() {
             accident_hygiene_at_most: 50,
             hygiene_empty_fun: -150,
         },
+        // The mood of a choice (ADR-0026, addendum of 2026-11-04 on the mood): at most 10
+        // percent either way.
+        choice_mood_percent: 10,
     };
     assert_eq!(*data.day(), expected);
 }
@@ -668,13 +671,19 @@ fn the_day_rejects() {
     assert_eq!(zero("hygiene_empty_fun", -1001), "house.day_zero");
     assert_eq!(zero("hygiene_empty_fun", 1), "house.day_zero");
     assert!(zero("stand_up_at", -1).contains("invalid value"));
+    // The mood moves the points at most by half.
+    let mood = |value: i64| day_checked(move |d| d["choice_mood_percent"] = json!(value));
+    assert_eq!(mood(0), "ok");
+    assert_eq!(mood(50), "ok");
+    assert_eq!(mood(51), "house.day_mood");
+    assert!(mood(256).contains("invalid value"));
     assert!(zero("stand_up_at", 65_536).contains("invalid value"));
 
     // The first check that fails decides, in the order time, wake, age, share, jump, night,
-    // a need at 0.
+    // a need at 0, the mood.
     let broken = |checks: usize| {
         day_checked(move |d| {
-            let breaks: [fn(&mut Value); 7] = [
+            let breaks: [fn(&mut Value); 8] = [
                 |d| d["school"]["depart"] = json!(55_200),
                 |d| d["wake_before"] = json!(10_000),
                 |d| d["school"]["until_age"] = json!(19),
@@ -682,14 +691,16 @@ fn the_day_rejects() {
                 |d| d["return_jumps"]["fun"] = json!(1),
                 |d| d["night"]["until"][2] = json!(0),
                 |d| d["zero"]["stand_up_at"] = json!(0),
+                |d| d["choice_mood_percent"] = json!(51),
             ];
-            breaks.iter().skip(7 - checks).for_each(|change| change(d));
+            breaks.iter().skip(8 - checks).for_each(|change| change(d));
         })
     };
-    let codes: Vec<String> = (1..=7).map(broken).collect();
+    let codes: Vec<String> = (1..=8).map(broken).collect();
     assert_eq!(
         codes,
         [
+            "house.day_mood",
             "house.day_zero",
             "house.day_night",
             "house.day_jump",
@@ -726,11 +737,18 @@ fn the_day_rejects() {
         d.as_object_mut().expect("the day").remove("zero");
     });
     assert!(no_zero.contains("missing field"), "{no_zero}");
+    let no_mood = day_checked(|d| {
+        d.as_object_mut()
+            .expect("the day")
+            .remove("choice_mood_percent");
+    });
+    assert!(no_mood.contains("missing field"), "{no_mood}");
 
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
     assert_eq!(HouseError::DayNight.to_string(), "house.day_night");
     assert_eq!(HouseError::DayZero.to_string(), "house.day_zero");
+    assert_eq!(HouseError::DayMood.to_string(), "house.day_mood");
 }
 
 /// Four rooms with a tie: hall to bath through the kitchen (doors 0 and 3) or through the

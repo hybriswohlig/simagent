@@ -18,11 +18,6 @@ pub const ENOUGH: i64 = 40_000;
 /// A need at or below this value is critical.
 pub const CRITICAL: u16 = 150;
 
-/// The mood moves the points an offer brings for the needs by at most this many percent either
-/// way (ADR-0026, addendum of 2026-11-04 on the mood). A play value, in the code until the next
-/// change of the data takes it in.
-pub const MOOD: u8 = 10;
-
 /// The points one second of walking costs (ADR-0025 section 4).
 const PER_WALKING_SECOND: i64 = 50;
 
@@ -46,11 +41,18 @@ pub fn age(born: SimTime, at: SimTime) -> Option<u8> {
 }
 
 /// The mood of the person with the lineage key `key` for offer `offer` of object `object` in its
-/// choice at `at`, in percent from −`MOOD` to +`MOOD` (ADR-0026, addendum of 2026-11-04 on the
-/// mood): `uniform_below(2 · MOOD + 1) − MOOD` of `CHOICE_MOOD` with the world seed, subject
-/// the lineage key, occasion the second `at`, detail `(object << 32) | offer` (ADR-0001 section
-/// 1). The same address gives the same mood, so "Why?" finds it again.
-pub fn mood(seed: u64, key: LineageKey, at: SimTime, object: u16, offer: u16) -> i8 {
+/// choice at `at`, in percent from −`percent` to +`percent`, the day's `choice_mood_percent`
+/// (ADR-0026, addendum of 2026-11-04 on the mood; its amplitude in the data since the addendum
+/// on a need at 0): `uniform_below(2 · percent + 1) − percent` of `CHOICE_MOOD` with the world
+/// seed, subject the lineage key, occasion the second `at`, detail `(object << 32) | offer`
+/// (ADR-0001 section 1). The same address gives the same mood, so "Why?" finds it again.
+pub fn mood(
+    seed: u64,
+    key: LineageKey,
+    at: SimTime,
+    (object, offer): (u16, u16),
+    percent: u8,
+) -> i8 {
     let second =
         u64::try_from(at.as_secs()).unwrap_or_else(|_| panic!("invariant house.before_start"));
     let address = DrawKey {
@@ -59,10 +61,10 @@ pub fn mood(seed: u64, key: LineageKey, at: SimTime, object: u16, offer: u16) ->
         occasion: second,
         detail: (u64::from(object) << 32) | u64::from(offer),
     };
-    let span = 2 * u64::from(MOOD) + 1;
+    let span = 2 * u64::from(percent) + 1;
     let drawn = Draws::new(WorldSeed::new(seed)).uniform_below(address, span);
     (i8::try_from(drawn).ok())
-        .and_then(|drawn| drawn.checked_sub_unsigned(MOOD))
+        .and_then(|drawn| drawn.checked_sub_unsigned(percent))
         .unwrap_or_else(|| panic!("invariant house.mood"))
 }
 

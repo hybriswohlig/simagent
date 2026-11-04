@@ -30,6 +30,9 @@ use sim_core::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use sim_core::time::{DAY, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
 
+/// The mood of the repository's day, `choice_mood_percent` of `data/house/day.json`.
+const MOOD: u8 = 10;
+
 const D: i64 = DAY.as_secs();
 const Y: i64 = YEAR.as_secs();
 
@@ -669,7 +672,7 @@ fn six_and_sixty_seven() {
 /// the world seed 7, for the feast and the gruel of the far house at `second`, only read.
 fn far_moods(index: u64, second: i64) -> [i64; 2] {
     let key = LineageKey::founder(&DataId::new("test:house").expect("id"), index);
-    [0, 1].map(|object| i64::from(mood(7, key, t(second), object, 0)))
+    [0, 1].map(|object| i64::from(mood(7, key, t(second), (object, 0), MOOD)))
 }
 
 /// Two who work full time in the far house (sims 1 and 2 of `common::day`, their draws 30

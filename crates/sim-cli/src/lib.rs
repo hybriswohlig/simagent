@@ -525,7 +525,13 @@ pub fn why_answer(
         if commanded {
             0
         } else {
-            mood(seed, key, entry.t, object, offer)
+            mood(
+                seed,
+                key,
+                entry.t,
+                (object, offer),
+                houses.day().choice_mood_percent,
+            )
         }
     };
     let mut scored = score(house, houses, age, needs, room, left, moods);

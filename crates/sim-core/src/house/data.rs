@@ -50,6 +50,8 @@ const MAX_OBJECTS: usize = 32;
 const MAX_OFFERS: usize = 64;
 /// A jump on coming home only lowers a need, at most by its whole scale (ADR-0024 section 4).
 const JUMPS: RangeInclusive<i32> = -1000..=0;
+/// The mood moves the points of a choice at most by this many percent either way.
+const MOST_MOOD: u8 = 50;
 
 /// Walking to an object in one's own room, and through the entrance out of the house
 /// (ADR-0025 section 4).
@@ -98,8 +100,9 @@ impl BandRates {
 
 /// The rules of the day of `data/house/day.json` (ADR-0024 section 4), times in seconds of
 /// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
-/// (ADR-0026, addendum of 2026-11-04) and what a need at 0 does (its addendum of 2026-11-04
-/// on a need at 0) last.
+/// (ADR-0026, addendum of 2026-11-04), what a need at 0 does and the most the mood moves the
+/// points of a choice, in percent either way (its addenda of 2026-11-04 on a need at 0 and on
+/// the mood), last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -111,6 +114,7 @@ pub struct DayRules {
     pub young: YoungRules,
     pub night: NightRules,
     pub zero: ZeroRules,
+    pub choice_mood_percent: u8,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -209,7 +213,7 @@ impl ZeroRules {
 
 impl DayRules {
     /// The checks of the day, in this order: the times, the wake, the ages, the shares of
-    /// the work plan, the jumps, the night, a need at 0.
+    /// the work plan, the jumps, the night, a need at 0, the mood.
     fn checked(&self) -> Result<(), HouseError> {
         let (school, work, young) = (&self.school, &self.work, &self.young);
         let hours = [
@@ -262,7 +266,13 @@ impl DayRules {
             return Err(HouseError::DayJump);
         }
         self.night_checked(&hours)?;
-        self.zero.checked()
+        self.zero.checked()?;
+        // The mood moves the points at most by half, so an offer keeps them and its mood fits
+        // the log.
+        if self.choice_mood_percent > MOST_MOOD {
+            return Err(HouseError::DayMood);
+        }
+        Ok(())
     }
 
     /// The night (ADR-0026, addendum of 2026-11-04), each bound below 24 h. Each end at or
@@ -414,6 +424,8 @@ pub enum HouseError {
     /// get up at outside 1 to 1000, an accident's hygiene above 1000, or a change of fun
     /// outside −1000 to 0.
     DayZero,
+    /// A mood of more than 50 percent either way.
+    DayMood,
     /// Two kinds with one id.
     KindDuplicate,
     /// A kind with no place or more than eight.
@@ -468,6 +480,7 @@ impl fmt::Display for HouseError {
             HouseError::DayJump => "house.day_jump",
             HouseError::DayNight => "house.day_night",
             HouseError::DayZero => "house.day_zero",
+            HouseError::DayMood => "house.day_mood",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
             HouseError::OfferLength => "house.offer_length",

@@ -18,6 +18,9 @@ use sim_core::log::{EndReason, LogEntry, LogPayload};
 use sim_core::time::{HOUR, SimTime};
 use sim_core::world::{World, YearOut};
 
+/// The mood of the repository's day, `choice_mood_percent` of `data/house/day.json`.
+const MOOD: u8 = 10;
+
 /// A television (fun +1 200 for 2 h), a fridge (hunger +6 000 until full, at most 10 min), a
 /// snack (hunger +600 for 2 min) and a bed; two places each.
 const KINDS: &str = r#"
@@ -156,7 +159,13 @@ fn critical_interrupts_the_television_not_the_way_to_the_fridge() {
 /// television of the far house `second` seconds after the morning, only read.
 fn television_mood(index: u64, second: i64) -> i64 {
     let key = LineageKey::founder(&DataId::new("test:house").expect("id"), index);
-    i64::from(mood(7, key, SimTime::from_secs(MORNING + second), 0, 0))
+    i64::from(mood(
+        7,
+        key,
+        SimTime::from_secs(MORNING + second),
+        (0, 0),
+        MOOD,
+    ))
 }
 
 /// The far house: at 6:00 nothing brings enough (the television 200 · 200 − 50 · 330, the snack
