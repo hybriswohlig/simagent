@@ -76,3 +76,87 @@ test("a second of the day as a clock reads it", async () => {
   assert.equal(wholeMinutes(59), 0);
   assert.equal(wholeMinutes(60), 1);
 });
+
+test("nobody covers another, also near one another", () => {
+  // The kids' room of the terraced house upstairs: a single bed at 1.6 to 2.5 by 4.3 to 6.3,
+  // its middle 0.21 m from the room's (4, 5.5) in the plan. One at the bed and a child in the
+  // room: the child, too near, stands to the right of its place, still too near (0.63 m), so to
+  // the left. Three at one place: the second to the right, the third to the left.
+  const kids = {
+    rooms: [{ id: "kids", floor: 0, x: 2, y: 4, w: 4, h: 3 }],
+    doors: [],
+    objects: [{ kind: "core:single_bed", room: "kids", x: 3.6, y: 4.3, w: 0.9, h: 2, slots: 1, offers: ["sleep"] }],
+  };
+  const sleeper = { place: { room: 0 }, action: { object: 0 } };
+  const child = { place: { room: 0 } };
+  assert.deepEqual(spots(kids, [sleeper, child], 0), [
+    { x: 3.6 + 0.9 / 2, y: 4.3 + 2 / 2 },
+    { x: 4 - SPREAD, y: 5.5 },
+  ]);
+  assert.deepEqual(spots(kids, [child, child, child, child, child], 0), [
+    { x: 4, y: 5.5 },
+    { x: 4 + SPREAD, y: 5.5 },
+    { x: 4 - SPREAD, y: 5.5 },
+    { x: 4, y: 5.5 + SPREAD },
+    { x: 4, y: 5.5 - SPREAD },
+  ]);
+});
+
+test("a name below its object, the room's at the bottom of the room", async () => {
+  const { labels, ROOM_SIZES, OBJECT_SIZES, textWidth } = await import("../dist/render/plan.js");
+  // A room of 4 by 3 m with a table of 1 by 1 m at (1, 1). "Esstisch" at the size 0.24 is
+  // (0.75 + 3 · 0.62 + 2 · 0.35 + 0.62 + 0.62) · 0.24 = 1.092 m wide (a capital, s, s, s, two
+  // narrow letters t and i, c, h), wider than the table: below it from its left, 0.04 under
+  // it, a line of 1.05 of the size high (0.252), the base line at 0.8 of it. "Küche" at the
+  // size 0.34 is (0.75 + 4 · 0.62) · 0.34 = 1.0982 m wide and 0.357 m high, with its light edge
+  // of 0.07 on either side: in the middle of the bottom, 0.05 from the wall, clear of the table
+  // and its name.
+  const room = { rooms: [{ id: "kitchen", floor: 0, x: 0, y: 0, w: 4, h: 3 }], doors: [], objects: [{ kind: "core:dining_table", room: "kitchen", x: 1, y: 1, w: 1, h: 1 }] };
+  const { objects, rooms } = labels(room, plan(room), ["Esstisch"], ["Küche"]);
+  const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} is not ${b}`);
+  assert.equal(objects[0].size, OBJECT_SIZES[0]);
+  close(objects[0].x, 1);
+  close(objects[0].y, 2.04 + 0.8 * 0.252);
+  assert.equal(rooms[0].size, ROOM_SIZES[0]);
+  close(rooms[0].x, (4 - 1.0982 - 0.14) / 2 + 0.07);
+  close(textWidth("Esstisch", 0.24), 1.092);
+  close(objects[0].box.right, 1 + 1.092);
+  close(rooms[0].y, 3 - 0.05 - 0.357 + 0.8 * 0.357);
+  assert.ok(objects[0].fits && rooms[0].fits);
+});
+
+test("in each house every name inside its room, none over another or over furniture", async () => {
+  const { labels, overlap } = await import("../dist/render/plan.js");
+  const { KIND_WORDS, ROOM_WORDS } = await import("../dist/text.js");
+  const { readFileSync } = await import("node:fs");
+  // The drawings of `data/house/houses/*.layout.json`.
+  const houses = JSON.parse(readFileSync(new URL("./fixtures/layouts.json", import.meta.url), "utf8"));
+  for (const [name, layout] of Object.entries(houses)) {
+    const drawn = plan(layout);
+    const { objects, rooms } = labels(
+      layout,
+      drawn,
+      layout.objects.map((object) => KIND_WORDS[object.kind][0]),
+      layout.rooms.map((room) => ROOM_WORDS[room.id][0]),
+    );
+    const boxOf = (thing) => {
+      const room = layout.rooms.find((each) => each.id === (thing.room ?? thing.id));
+      const left = drawn.offsets[room.floor] + thing.x;
+      return { left, top: thing.y, right: left + thing.w, bottom: thing.y + thing.h };
+    };
+    const all = [...objects, ...rooms];
+    const rooms_of = [...layout.objects.map((object) => object.room), ...layout.rooms.map((room) => room.id)];
+    all.forEach((label, i) => {
+      assert.ok(label.fits, `${name}: ${label.text}`);
+      const room = boxOf(layout.rooms.find((each) => each.id === rooms_of[i]));
+      const { box } = label;
+      assert.ok(box.left >= room.left && box.right <= room.right && box.top >= room.top && box.bottom <= room.bottom, `${name}: ${label.text} past its wall`);
+      all.forEach((other, j) => {
+        assert.ok(i === j || overlap(box, other.box) === 0, `${name}: ${label.text} over ${other.text}`);
+      });
+      layout.objects.forEach((object, j) => {
+        assert.ok(i === j || overlap(box, boxOf(object)) === 0, `${name}: ${label.text} over the ${object.kind}`);
+      });
+    });
+  }
+});

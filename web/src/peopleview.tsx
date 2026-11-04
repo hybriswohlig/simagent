@@ -6,6 +6,7 @@ import type { Looks, PeopleAnswer, Pedigree, Person, Traits } from "./generated/
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName } from "./names.js";
 import { found, NO_FILTER, toggled, type Filter, type Found, type Word } from "./people.js";
+import { Families } from "./house.js";
 import { usePedigree } from "./person.js";
 import { Portrait } from "./portrait.js";
 import { format } from "./router.js";
@@ -235,6 +236,7 @@ export function PeoplePage({ run }: { run: string }) {
         {TEXT.people_found.replace("{n}", String(kept.length)).replace("{all}", String(people.value.people.length))}
       </p>
       <PeopleList run={run} people={kept} />
+      <Families run={run} pedigree={pedigree.value as Pedigree} people={people.value} />
     </section>
   );
 }

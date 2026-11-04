@@ -66,7 +66,7 @@ fn why_recomputes_the_choice() {
     let houses = world.state().data().houses().expect("houses");
     let (mut starts, mut idles, mut nights) = (0, 0, 0);
     for entry in &log {
-        let Some(answer) = why_answer(&world, entry, 0).expect("recomputes") else {
+        let Some(answer) = why_answer(&world, entry, 0, false).expect("recomputes") else {
             continue;
         };
         let number = |value: &serde_json::Value| value.as_i64().expect("a number");

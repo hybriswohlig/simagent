@@ -938,35 +938,78 @@ fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
 }
 
 /// `GET /api/runs/{run}/why/{entry}` (ADR-0021, addendum of 2026-11-03): the entry from the
-/// run's domain log, if it is a choice, recomputed.
+/// run's domain log, if it is a choice, recomputed; an idle entry with whether a later choice of
+/// its person follows it in the log (version 4: if none does, "Warum?" adds the comparison at
+/// the clock).
 fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &str) -> Response {
+    use sim_core::log::{LogPayload, Subject};
     let no_choice = || Response::error(404, "not_a_choice");
     let Ok(id) = entry.parse::<u64>() else {
         return no_choice();
     };
-    let found = match find_entry(&dir.join(files::EVENTS), id) {
+    let log = dir.join(files::EVENTS);
+    let (found, end) = match find_entry(&log, id) {
         Err(()) => return Response::error(500, "events_invalid"),
         Ok(None) => return no_choice(),
-        Ok(Some(line)) => line,
+        Ok(Some(found)) => found,
     };
-    let Ok(found) = serde_json::from_str(&found) else {
+    let Ok(found) = serde_json::from_str::<sim_core::log::LogEntry>(&found) else {
         return Response::error(500, "events_invalid");
     };
-    match world().and_then(|world| crate::why_answer(&world, &found, id)) {
+    let latest = match (&found.payload, found.subjects.as_slice()) {
+        (LogPayload::Idle { .. }, [Subject::Sim(sim)]) => match later_choice(&log, end, *sim) {
+            Err(()) => return Response::error(500, "events_invalid"),
+            Ok(later) => !later,
+        },
+        _ => false,
+    };
+    match world().and_then(|world| crate::why_answer(&world, &found, id, latest)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => no_choice(),
         Err(error) => Response::error(500, error.code),
     }
 }
 
+/// Whether a choice of `sim`, an entry `core:action_started` or `core:idle` about it alone,
+/// stands in the complete lines of the domain log at `path` from the byte `from` on. Only lines
+/// that name one of the two codes are parsed; `Err` for a log it cannot read or a line it
+/// cannot parse.
+fn later_choice(path: &Path, from: u64, sim: sim_core::ids::SimId) -> Result<bool, ()> {
+    use sim_core::log::{LogPayload, Subject};
+    use std::io::{BufRead, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(drop)?;
+    file.seek(SeekFrom::Start(from)).map_err(drop)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).map_err(drop)?;
+        if !line.ends_with('\n') {
+            return Ok(false);
+        }
+        if !(line.contains("\"core:idle\"") || line.contains("\"core:action_started\"")) {
+            continue;
+        }
+        let entry: sim_core::log::LogEntry = serde_json::from_str(&line).map_err(drop)?;
+        let choice = matches!(
+            entry.payload,
+            LogPayload::Idle { .. } | LogPayload::ActionStarted { .. }
+        );
+        if choice && entry.subjects.as_slice() == [Subject::Sim(sim)] {
+            return Ok(true);
+        }
+    }
+}
+
 /// How many bytes of the domain log the search for an entry reads one line after the other.
 const SEARCH_WINDOW: u64 = 1 << 16;
 
-/// The line of the domain log at `path` with the entry `id`: only a complete line (the command
-/// line appends whole lines, a last one without its line end it is still writing), found by
-/// halving, since the ids grow along the log (review: no scan from the start per request).
-/// `Err` for a log it cannot read, or whose ids do not grow around the entry.
-fn find_entry(path: &Path, id: u64) -> Result<Option<String>, ()> {
+/// The line of the domain log at `path` with the entry `id` and the byte after it: only a
+/// complete line (the command line appends whole lines, a last one without its line end it is
+/// still writing), found by halving, since the ids grow along the log (review: no scan from the
+/// start per request). `Err` for a log it cannot read, or whose ids do not grow around the
+/// entry.
+fn find_entry(path: &Path, id: u64) -> Result<Option<(String, u64)>, ()> {
     use std::io::{BufRead, Seek, SeekFrom};
     let file = std::fs::File::open(path).map_err(drop)?;
     let len = file.metadata().map_err(drop)?.len();
@@ -1013,7 +1056,7 @@ fn find_entry(path: &Path, id: u64) -> Result<Option<String>, ()> {
             return match next {
                 Some(Some(next)) if next <= id => Err(()),
                 Some(None) => Err(()),
-                _ => Ok(Some(line)),
+                _ => Ok(Some((line, at))),
             };
         }
         before = Some(here);
@@ -1285,8 +1328,9 @@ mod tests {
     use super::*;
 
     /// The search for an entry by halving (review): a log of 20 000 entries with the odd ids
-    /// 1 to 39 999, far beyond the window; each id found or not, a last line not yet ended left
-    /// out, a doubled id and ids that do not grow around the entry refused.
+    /// 1 to 39 999, far beyond the window; each id found with the byte after its line, or not,
+    /// a last line not yet ended left out, a doubled id and ids that do not grow around the
+    /// entry refused.
     #[test]
     fn an_entry_is_found_by_halving() {
         let base = std::env::temp_dir().join(format!("simagent-find-{}", std::process::id()));
@@ -1298,11 +1342,16 @@ mod tests {
                 "x".repeat(40)
             )
         };
+        // The line of id k ends after the lines of the ids 1, 3, …, k.
+        let found = |id: u64| {
+            let lines: String = (0..=(id - 1) / 2).map(|n| line(2 * n + 1)).collect();
+            Ok(Some((line(id), u64::try_from(lines.len()).expect("fits"))))
+        };
         let lines: String = (0..20_000).map(|n| line(2 * n + 1)).collect();
         assert!(u64::try_from(lines.len()).expect("fits") > 10 * SEARCH_WINDOW);
         std::fs::write(&log, &lines).expect("written");
         for id in [1, 3, 2_001, 19_999, 20_001, 39_997, 39_999] {
-            assert_eq!(find_entry(&log, id), Ok(Some(line(id))), "{id}");
+            assert_eq!(find_entry(&log, id), found(id), "{id}");
         }
         for id in [0, 2, 20_000, 39_998, 40_000, 1 << 40] {
             assert_eq!(find_entry(&log, id), Ok(None), "{id}");
@@ -1310,7 +1359,7 @@ mod tests {
         let unended = line(40_001);
         std::fs::write(&log, format!("{lines}{}", unended.trim_end())).expect("written");
         assert_eq!(find_entry(&log, 40_001), Ok(None));
-        assert_eq!(find_entry(&log, 39_999), Ok(Some(line(39_999))));
+        assert_eq!(find_entry(&log, 39_999), found(39_999));
         std::fs::write(&log, format!("{lines}{}", line(39_999))).expect("written");
         assert_eq!(find_entry(&log, 39_999), Err(()));
         let shuffled = lines.replacen(&line(20_001), &line(20_005), 1);
