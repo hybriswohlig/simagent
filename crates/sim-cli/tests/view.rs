@@ -2671,7 +2671,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(3), &dated(at))
+            (&json!("simagent.view.house"), &json!(4), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"]),
@@ -2720,9 +2720,11 @@ fn a_house_over_http() {
         at_six["persons"],
         json!([
             {"sim": 1, "place": walking(3, MORNING + 3),
-             "action": {"object": 5, "offer": 0, "slot": 0, "until": null}, "needs": morning},
+             "action": {"object": 5, "offer": 0, "slot": 0, "until": null}, "needs": morning,
+             "collapsed": false, "smells": false},
             {"sim": 2, "place": walking(1, MORNING + 4),
-             "action": {"object": 0, "offer": 0, "slot": 0, "until": null}, "needs": morning},
+             "action": {"object": 0, "offer": 0, "slot": 0, "until": null}, "needs": morning,
+             "collapsed": false, "smells": false},
         ])
     );
     step("minutes10", MORNING + 600);
@@ -2731,10 +2733,10 @@ fn a_house_over_http() {
         json!([
             {"sim": 1, "place": {"room": 1},
              "action": {"object": 0, "offer": 0, "slot": 1, "until": dated(MORNING + 1_360)},
-             "needs": [816, 894, 986, 695, 790]},
+             "needs": [816, 894, 986, 695, 790], "collapsed": false, "smells": false},
             {"sim": 2, "place": {"room": 1},
              "action": {"object": 0, "offer": 0, "slot": 0, "until": dated(MORNING + 1_204)},
-             "needs": [898, 894, 480, 695, 790]},
+             "needs": [898, 894, 480, 695, 790], "collapsed": false, "smells": false},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -2757,7 +2759,7 @@ fn a_house_over_http() {
     step("morning", MORNING + 2 * DAY);
 }
 
-/// Children under 6 in the house over HTTP (ADR-0024 sections 2 and 4, version 3): the foster
+/// Children under 6 in the house over HTTP (ADR-0024 sections 2 and 4, since version 3): the foster
 /// child of `YOUNG` has no needs, so it is no person; before the first morning no child is
 /// shown either. From it, where the child is by the clock: on Tuesday (day 1) at 6:00 asleep
 /// in the flat's night room, at 9:00 at the kindergarten until 15:00 of that day, at 16:00 in
@@ -2777,7 +2779,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(3), &dated(at), &json!("core:flat"))
+            (&json!(4), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -2863,7 +2865,8 @@ fn why_over_http() {
         let key = LineageKey::founder(&tag, sim - 1);
         let mut scored: Vec<(u16, i8, i64)> = (filled.iter())
             .map(|&(object, filled, walk)| {
-                let mood = mood(7, key, SimTime::from_secs(MORNING), object, 0);
+                // The repository's day moves the points by at most 10 percent either way.
+                let mood = mood(7, key, SimTime::from_secs(MORNING), (object, 0), 10);
                 (object, mood, filled * (100 + i64::from(mood)) / 100 - walk)
             })
             .collect();
@@ -2993,7 +2996,7 @@ fn a_command_over_http() {
         json_of(&body)["persons"][0],
         json!({"sim": 1, "place": walking,
                "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
-               "needs": [600, 900, 500, 700, 800]})
+               "needs": [600, 900, 500, 700, 800], "collapsed": false, "smells": false})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3043,7 +3046,7 @@ fn a_command_over_http() {
         json_of(&body)["persons"][1],
         json!({"sim": 2, "place": walking,
                "action": {"object": 3, "offer": 0, "slot": 1, "until": null},
-               "needs": [898, 894, 480, 695, 790]})
+               "needs": [898, 894, 480, 695, 790], "collapsed": false, "smells": false})
     );
 }
 
@@ -3112,8 +3115,128 @@ fn the_house_answer_after_a_command() {
         answer["persons"][0],
         json!({"sim": 1, "place": walking,
                "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
-               "needs": [598, 899, 826, 700, 799]})
+               "needs": [598, 899, 826, 700, 799], "collapsed": false, "smells": false})
     );
+}
+
+/// The couple of `the_house_answer_after_a_command` (born −943 488 000 and −1 006 387 200, both
+/// at work full time, ADR-0024 section 4) moved in at 23:59:59 of day 0, in the flat, on the
+/// repository's data with its house data changed by `change` (needs, day): the world and the
+/// household.
+fn couple_in_the_flat(
+    change: impl FnOnce(&mut Value, &mut Value),
+) -> (sim_core::world::World, u64) {
+    use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
+    use sim_core::log::LogPayload;
+    use sim_core::world::{World, YearOut};
+    let mut needs: Value =
+        serde_json::from_str(include_str!("../../../data/house/needs.json")).expect("json");
+    let mut day: Value =
+        serde_json::from_str(include_str!("../../../data/house/day.json")).expect("json");
+    change(&mut needs, &mut day);
+    let houses = sim_cli::house::house_data_from(
+        &needs.to_string(),
+        &day.to_string(),
+        include_str!("../../../data/house/kinds.json"),
+        &[
+            ("flat", include_str!("../../../data/house/houses/flat.json")),
+            (
+                "house",
+                include_str!("../../../data/house/houses/house.json"),
+            ),
+            (
+                "terraced",
+                include_str!("../../../data/house/houses/terraced.json"),
+            ),
+        ],
+    )
+    .expect("the houses");
+    let data = sim_cli::data::core_data()
+        .expect("the data")
+        .with_houses(houses);
+    let founder = |born: i64, sex: sim_core::genome::Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let mut world = World::new(data);
+    let start = Start {
+        world_seed: 7,
+        founder_tag: sim_core::data_id::DataId::new("test:house").expect("valid"),
+        world_params: sim_core::params::WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            founder(-943_488_000, sim_core::genome::Sex::Female),
+            founder(-1_006_387_200, sim_core::genome::Sex::Male),
+        ],
+        couples: vec![Couple { woman: 0, man: 1 }],
+        capacity: None,
+        pool: None,
+    };
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(DAY - 2), &mut |_| false);
+    let household = (world.take_log().into_iter())
+        .find_map(|entry| match entry.payload {
+            LogPayload::HouseholdFormed { household } => Some(household),
+            _ => None,
+        })
+        .expect("their household");
+    world
+        .submit(Input::MoveIn(MoveIn { household }))
+        .expect("moves in");
+    (world, household.get())
+}
+
+/// The house answer of one lying and of one who smells (version 4, ADR-0026, addendum of
+/// 2026-11-04 on a need at 0), called directly. With energy falling 900 an hour from 18 to 66
+/// both lie down at 7:00, wherever the first hour took them: no offer but sleep sets energy, so
+/// it is at 0 3 600 s after the morning. On the floor no other need comes near 50 in five hours
+/// (the bladder from at least 380, hunger from at least 500, hygiene from at least 670, falling
+/// 40, 40 and 10 an hour), so both get up at 12:00. At 6:59:59 neither lies, at 7:00 and at
+/// 11:59:59 both do, at 12:00 neither, and neither smells. With the jump of hygiene on coming
+/// home at −1 000, both are home at 17:20 with hygiene 0 and smell; away the second before, with
+/// hygiene above 50, they do not.
+#[test]
+fn the_house_answer_of_one_lying_and_of_one_who_smells() {
+    use sim_core::world::YearOut;
+    let at = |world: &mut sim_core::world::World, until: i64| {
+        let mut out = YearOut::default();
+        world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
+        world.take_log();
+    };
+    let field = |world: &sim_core::world::World, household: u64, name: &str| -> Vec<Value> {
+        let answer = sim_cli::house_answer(world, household)
+            .expect("answers")
+            .expect("a house");
+        assert_eq!(answer["version"], json!(4));
+        (answer["persons"].as_array().expect("persons").iter())
+            .map(|person| person[name].clone())
+            .collect()
+    };
+    let (mut world, household) = couple_in_the_flat(|needs, _| {
+        needs["awake"]["energy"][2] = json!(-900);
+    });
+    let both = |value: bool| [json!(value), json!(value)];
+    at(&mut world, MORNING + 3_599);
+    assert_eq!(field(&world, household, "collapsed"), both(false));
+    at(&mut world, MORNING + 3_600);
+    assert_eq!(field(&world, household, "collapsed"), both(true));
+    assert_eq!(field(&world, household, "smells"), both(false));
+    at(&mut world, MORNING + 21_599);
+    assert_eq!(field(&world, household, "collapsed"), both(true));
+    at(&mut world, MORNING + 21_600);
+    assert_eq!(field(&world, household, "collapsed"), both(false));
+    let (mut world, household) = couple_in_the_flat(|_, day| {
+        day["return_jumps"]["hygiene"] = json!(-1000);
+    });
+    at(&mut world, DAY + 62_399);
+    assert_eq!(field(&world, household, "smells"), both(false));
+    at(&mut world, DAY + 62_400);
+    assert_eq!(field(&world, household, "smells"), both(true));
+    assert_eq!(field(&world, household, "collapsed"), both(false));
 }
 
 /// The households with a house (ADR-0021, addendum of 2026-11-03): none, then the couple's,

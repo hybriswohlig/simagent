@@ -20,6 +20,7 @@ pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod start;
 pub(crate) mod together;
+pub(crate) mod zero;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -308,6 +309,8 @@ pub(crate) enum Slot {
     Decide,
     /// The start of the night (ADR-0026, addendum of 2026-11-04).
     Bedtime,
+    /// Getting up from the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    StandUp,
 }
 
 impl DomainState {

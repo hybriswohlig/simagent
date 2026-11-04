@@ -33,6 +33,9 @@ payload 25 core:day_planned
 payload 26 core:left_home
 payload 27 core:came_home
 payload 28 core:missed
+payload 29 core:need_empty
+payload 30 core:collapsed
+payload 31 core:accident
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -99,6 +102,8 @@ reject 46 offer_unknown
 reject 47 slot_busy
 reject 48 critical_need
 reject 49 not_night
+reject 50 collapsed
+reject 51 listless
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
@@ -192,3 +197,4 @@ end_reason 2 left
 end_reason 3 critical
 end_reason 4 obligation
 end_reason 5 command
+end_reason 6 collapse

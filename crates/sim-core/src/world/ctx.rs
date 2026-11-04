@@ -264,6 +264,11 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         self.ctx.schedule_periodic(first, period, payload, meta)
     }
 
+    /// The second a pending event is due; `None` if it has run or was cancelled.
+    pub(crate) fn pending_time(&self, handle: EventHandle) -> Option<SimTime> {
+        self.ctx.pending_time(handle)
+    }
+
     /// Removes a pending event; `false` if it has run or was cancelled before.
     pub(crate) fn cancel(&mut self, handle: EventHandle) -> bool {
         self.ctx.cancel(handle)

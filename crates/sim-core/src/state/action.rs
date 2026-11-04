@@ -2,7 +2,7 @@
 //! room, walks to the chosen object holding one of its places, arrives and takes the offer's
 //! rates, and at the end takes the awake rates again and chooses anew, or leaves if its
 //! departure waited for the end (ADR-0024 section 4). A need turning critical ends what does
-//! not raise it.
+//! not raise it; one reaching 0 has its consequence (`state::zero`).
 
 use alloc::collections::BTreeSet;
 use alloc::vec;
@@ -14,7 +14,7 @@ use crate::data::Data;
 use crate::house::choice::{CRITICAL, Choice, choose, mood, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::day::night;
-use crate::house::need::FULL;
+use crate::house::need::{EMERGENCY, EMPTY, FULL};
 use crate::house::state::{Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end};
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
@@ -72,13 +72,13 @@ fn offer_of<'a>(house: &House, houses: &'a HouseData, action: Action) -> &'a Off
         .unwrap_or_else(|| panic!("invariant house.unknown"))
 }
 
-fn need_index(need: Need) -> usize {
+pub(super) fn need_index(need: Need) -> usize {
     (NEEDS.iter().position(|&each| each == need)).unwrap_or_else(|| panic!("invariant house.need"))
 }
 
 /// Whether a person's walk or action raises `need` (ADR-0026 section 4): at the object the
 /// need rises, on the way the offer's rate for it is positive in the age band of the arrival.
-fn raises(domain: &DomainState, data: &Data, sim: SimId, need: Need) -> bool {
+pub(super) fn raises(domain: &DomainState, data: &Data, sim: SimId, need: Need) -> bool {
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
@@ -209,7 +209,7 @@ pub(crate) fn decide(
     let taken = taken(domain, household, sim);
     let busy = busy(house, houses, &taken);
     let person = person_mut(domain, sim);
-    let (Place::Room(room), None) = (person.place, person.action) else {
+    let (Place::Room(room), None, false) = (person.place, person.action, person.collapsed) else {
         panic!("invariant house.choice_busy");
     };
     let today = day_index(now);
@@ -225,7 +225,8 @@ pub(crate) fn decide(
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
     let left = tonight.map(|night| night.left(now));
-    let moods = |object, offer| mood(seed, key, now, object, offer);
+    let percent = houses.day().choice_mood_percent;
+    let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
     let scored = score(house, houses, age, needs, room, left, moods);
     let choice = choose(
         (house, houses),
@@ -281,7 +282,7 @@ pub(crate) fn decide(
 /// The person stops waiting before what it does next (ADR-0026 sections 3 and 5): its planned
 /// choice is cancelled, it leaves every waiting list, and a place held for it is held no more.
 /// Returns that place.
-fn stop_waiting(
+pub(super) fn stop_waiting(
     domain: &mut DomainState,
     household: HouseholdId,
     sim: SimId,
@@ -420,7 +421,10 @@ pub(crate) fn on_decide(
 /// a person idle in a room chooses, otherwise nothing happens. At 150 and 50 the need is
 /// critical: an entry, then a person idle in a room chooses, and a walk to an offer that will
 /// not raise the need, or an action under way, ends with reason `critical` and the person
-/// chooses again.
+/// chooses again. At 0 every need of the person at 0 in this second has its consequence
+/// (`state::zero::settle`): those whose crossing at 0 is still to run in it too, and the need of
+/// this one. One lying on the floor chooses at none of them: at 150 the entry is all, at 50 it
+/// gets up if its energy is above 0 again (ADR-0026, addendum of 2026-11-04 on a need at 0).
 pub(crate) fn on_crossing(
     domain: &mut DomainState,
     data: &Data,
@@ -432,12 +436,32 @@ pub(crate) fn on_crossing(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    let (place, action) = (person.place, person.action);
+    let (place, action, lying) = (person.place, person.action, person.collapsed);
+    let now = ctx.now();
+    let rested = person.needs[need_index(Need::Energy)].value_at(now) > EMPTY;
+    if level == EMPTY {
+        let at_zero = person.needs[need_index(need)].value_at(now) == EMPTY;
+        let mut reached = super::zero::empty_now(domain, sim, ctx);
+        reached[need_index(need)] |= at_zero;
+        let causes = Causes::new(ctx.trigger());
+        super::zero::settle(domain, data, sim, (reached, true), causes, ctx);
+        return;
+    }
     let mut causes = Causes::new(ctx.trigger());
+    let mut critical = None;
     if level <= CRITICAL {
-        let critical = LogPayload::NeedCritical { need, level };
-        let entry = ctx.emit(critical, vec![Subject::Sim(sim)], causes);
+        let payload = LogPayload::NeedCritical { need, level };
+        let entry = ctx.emit(payload, vec![Subject::Sim(sim)], causes);
         causes = Causes::new(Cause::Event(entry));
+        critical = Some(entry);
+    }
+    if lying {
+        // Lying raises energy alone, and energy that rises crosses nothing; with energy still at
+        // 0 the person cannot get up.
+        if let Some(entry) = critical.filter(|_| level == EMERGENCY && rested) {
+            super::zero::rise(domain, data, sim, entry, causes, ctx);
+        }
+        return;
     }
     match (place, action) {
         (Place::Room(_), None) => decide(domain, data, sim, causes, ctx),
@@ -478,8 +502,21 @@ pub(super) fn next(
     entry: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let causes = Causes::new(Cause::Event(entry));
+    follow(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
+}
+
+/// What comes next for a person idle in a room, by `causes`: a departure that waited leaves
+/// now, late against its plan (ADR-0024 section 4); otherwise a choice.
+pub(super) fn follow(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     match domain.house.sims.get(&sim).and_then(|person| person.due) {
+        // A need at 0 in this second comes first; lying, the departure waits on.
+        Some(_) if super::zero::settle_first(domain, data, sim, ctx) => {}
         Some(due) => {
             let late = (ctx.now() - due.depart).as_secs();
             let late = u32::try_from(late).unwrap_or_else(|_| panic!("invariant house.late"));

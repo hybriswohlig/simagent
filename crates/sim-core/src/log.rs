@@ -284,11 +284,23 @@ pub enum LogPayload {
     /// A person never left for `place`: its departure still waited at its return.
     #[serde(rename = "core:missed")]
     Missed { place: Duty },
+    /// A person's need fell to 0, or a jump on coming home or a change of fun put it there
+    /// (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    #[serde(rename = "core:need_empty")]
+    NeedEmpty { need: Need },
+    /// A person whose energy reached 0 lies on the floor of `room` until it gets up.
+    #[serde(rename = "core:collapsed")]
+    Collapsed { room: u8 },
+    /// A person's bladder reached 0: its needs after, the bladder full and hygiene at most
+    /// the data's value.
+    #[serde(rename = "core:accident")]
+    Accident { needs: [u16; 5] },
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was
 /// full, the person left the house, a need it does not raise turned critical, the day's
-/// duty came (the departure, or the wake during sleep), or a command (ADR-0024 section 5).
+/// duty came (the departure, or the wake during sleep), a command (ADR-0024 section 5), or
+/// the person's energy reached 0 (ADR-0026, addendum of 2026-11-04 on a need at 0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndReason {
@@ -298,6 +310,7 @@ pub enum EndReason {
     Critical,
     Obligation,
     Command,
+    Collapse,
 }
 
 /// One entry of the domain log.

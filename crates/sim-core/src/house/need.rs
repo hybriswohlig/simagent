@@ -11,8 +11,15 @@ use crate::time::{SimDuration, SimTime};
 pub const FULL: u16 = 1000;
 
 /// The levels at which a falling need is planned as an event, highest first (ADR-0026
-/// section 1): could, low, critical, emergency.
-pub const THRESHOLDS: [u16; 4] = [700, 400, 150, 50];
+/// section 1 and its addendum of 2026-11-04 on a need at 0): could, low, critical, emergency,
+/// empty.
+pub const THRESHOLDS: [u16; 5] = [700, 400, 150, EMERGENCY, EMPTY];
+
+/// The last chance: a need here ends what does not raise it (ADR-0026 section 4).
+pub const EMERGENCY: u16 = 50;
+
+/// A need at 0 has its consequence (ADR-0026, addendum of 2026-11-04 on a need at 0).
+pub const EMPTY: u16 = 0;
 
 const HOUR_SECS: i128 = 3600;
 
@@ -85,13 +92,20 @@ impl NeedSample {
     /// `at + ⌈3600 · (1000 − value) / rate⌉` for a rising value. None if it does not rise or
     /// gets there only after the end of time.
     pub fn full(self) -> Option<SimTime> {
-        if self.value >= FULL {
+        self.rises_to(FULL)
+    }
+
+    /// The first second at which the value is at or above `level`: `at` if it is, otherwise
+    /// `at + ⌈3600 · (level − value) / rate⌉` for a rising value. None if it does not rise or
+    /// gets there only after the end of time.
+    pub fn rises_to(self, level: u16) -> Option<SimTime> {
+        if self.value >= level {
             return Some(self.at);
         }
         if self.rate <= 0 {
             return None;
         }
-        let distance = i64::from(FULL - self.value) * 3600;
+        let distance = i64::from(level - self.value) * 3600;
         let speed = i64::from(self.rate);
         self.at
             .checked_add(SimDuration::from_secs((distance + speed - 1) / speed))
@@ -149,7 +163,8 @@ mod tests {
 
     #[test]
     fn the_crossings_below_the_value() {
-        // 800 at −100: 700 after 1 h, 400 after 4 h, 150 after 6.5 h, 50 after 7.5 h.
+        // 800 at −100: 700 after 1 h, 400 after 4 h, 150 after 6.5 h, 50 after 7.5 h, 0 after
+        // 8 h.
         let hunger = NeedSample::new(800, SimTime::START, -100);
         let all: Vec<(u16, SimTime)> = hunger.crossings().collect();
         assert_eq!(
@@ -158,13 +173,19 @@ mod tests {
                 (700, t(3_600)),
                 (400, t(14_400)),
                 (150, t(23_400)),
-                (50, t(27_000))
+                (50, t(27_000)),
+                (0, t(28_800))
             ]
         );
-        // A value at 400 crosses only 150 and 50.
+        // A value at 400 crosses only 150, 50 and 0; one at 1 crosses 0 after ⌈3600 / 7⌉ s, and
+        // one at 0 nothing.
         let at_low = NeedSample::new(400, SimTime::START, -10);
         let levels: Vec<u16> = at_low.crossings().map(|(level, _)| level).collect();
-        assert_eq!(levels, [150, 50]);
+        assert_eq!(levels, [150, 50, 0]);
+        let last: Vec<(u16, SimTime)> = NeedSample::new(1, t(9), -7).crossings().collect();
+        assert_eq!(last, [(0, t(9 + 515))]);
+        assert_eq!(NeedSample::new(1, t(9), -7).value_at(t(9 + 514)), 1);
+        assert_eq!(NeedSample::new(0, t(9), -7).crossings().count(), 0);
         assert_eq!(
             NeedSample::new(800, SimTime::START, 5).crossings().count(),
             0
@@ -230,6 +251,25 @@ mod tests {
         assert_eq!(NeedSample::new(400, t(0), -10).full(), None);
         let end = crate::time::MAX_ABS_SECS;
         assert_eq!(NeedSample::new(0, t(end - 10), 1).full(), None);
+    }
+
+    #[test]
+    fn rising_to_a_level_by_hand() {
+        // 0 at +50: 250 after exactly 18 000 s, 249 the second before; 100 at +40: 300 after
+        // 18 000 s; at or above the level at once; still, falling or beyond time never.
+        let lying = NeedSample::new(0, t(100), 50);
+        assert_eq!(lying.rises_to(250), Some(t(18_100)));
+        assert_eq!(lying.value_at(t(18_099)), 249);
+        assert_eq!(lying.value_at(t(18_100)), 250);
+        assert_eq!(
+            NeedSample::new(100, t(0), 40).rises_to(300),
+            Some(t(18_000))
+        );
+        assert_eq!(NeedSample::new(250, t(7), -5).rises_to(250), Some(t(7)));
+        assert_eq!(NeedSample::new(249, t(7), 0).rises_to(250), None);
+        assert_eq!(NeedSample::new(249, t(7), -5).rises_to(250), None);
+        let end = crate::time::MAX_ABS_SECS;
+        assert_eq!(NeedSample::new(0, t(end - 10), 50).rises_to(250), None);
     }
 
     #[test]

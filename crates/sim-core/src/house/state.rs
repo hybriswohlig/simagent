@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::house::choice::CRITICAL;
-use crate::house::data::{AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, OfferDef, age_band};
+use crate::house::data::{
+    AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
+};
 use crate::house::day::night;
-use crate::house::need::{FULL, NeedSample};
+use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
@@ -29,7 +31,8 @@ pub struct MovedIn {
 }
 
 /// A person with needs (ADR-0024 sections 1, 2 and 4, ADR-0026), in the order hunger,
-/// energy, bladder, hygiene, fun.
+/// energy, bladder, hygiene, fun; `collapsed` while it lies on the floor of its room after its
+/// energy reached 0 (ADR-0026, addendum of 2026-11-04 on a need at 0).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InHouse {
     pub needs: [NeedSample; 5],
@@ -37,6 +40,7 @@ pub struct InHouse {
     pub action: Option<Action>,
     pub due: Option<Due>,
     pub decisions: Decisions,
+    pub collapsed: bool,
 }
 
 /// Where a person with needs is (ADR-0025 section 5). A walk with an action leads to its
@@ -162,6 +166,31 @@ pub fn action_end(
     begun.checked_add(SimDuration::from_secs(secs))
 }
 
+/// The rates of a person lying on the floor in the age band `band` (ADR-0026, addendum of
+/// 2026-11-04 on a need at 0): the sleeping ones, energy at the collapse's rate of the day.
+pub fn lying_rate(rates: &NeedRates, rules: &DayRules, need: Need, band: usize) -> i32 {
+    match need {
+        Need::Energy => rules.zero.collapse_energy_rate,
+        _ => rates.asleep.rate(need, band),
+    }
+}
+
+/// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need
+/// at 0), of a person born at `born` by `rules`: when its energy, written down at 0 in the
+/// second it fell there and rising since, is at `stand_up_at`, or when the night it fell in
+/// ends, whichever comes first; the night's end only with its energy above 0 by then, as nothing
+/// gets up one with none. None if both lie beyond the end of time.
+pub fn stand_up(person: &InHouse, rules: &DayRules, born: SimTime) -> Option<SimTime> {
+    let energy = person.needs[1];
+    let up = energy.rises_to(rules.zero.stand_up_at);
+    let ends = (night(rules, born, energy.at()).and_then(|night| night.until))
+        .filter(|&until| energy.value_at(until) > EMPTY);
+    match (up, ends) {
+        (Some(up), Some(ends)) => Some(up.min(ends)),
+        (up, ends) => up.or(ends),
+    }
+}
+
 /// The rule a loaded house part breaks (the addendum's list of checks).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Broken {
@@ -200,7 +229,8 @@ pub enum Broken {
     /// it (ADR-0026, addendum of 2026-11-04).
     Sleep,
     Decisions,
-    /// A waiter or holder without needs in that household, away, walking out or busy.
+    /// A waiter or holder without needs in that household, away, walking out, busy or lying
+    /// on the floor.
     Waiter,
     WaitOrder,
     /// A person on two waiting lists, or waiting and holding.
@@ -210,6 +240,9 @@ pub enum Broken {
     /// A held place without its holder's choice due in the next second after an input at the
     /// clock, or a choice due for one who waits (ADR-0026 section 5).
     Choice,
+    /// Lying on the floor elsewhere than in a room, with an action, or with its energy not at
+    /// 0 when it was last written down (it fell there in that second and only rises since).
+    Collapse,
 }
 
 /// The checks on load of the house part (ADR-0024, addendum of 2026-11-02) at `now`, the
@@ -252,6 +285,7 @@ pub fn consistent(
         households.insert(sim, household);
         let home = homes[&household];
         person_consistent(person, home, data, (now, choices.is_some()))?;
+        collapse_consistent(person)?;
         rates_consistent(person, home, data, born)?;
         due_consistent(person, home, data, born)?;
         sleep_consistent(person, home, data, born)?;
@@ -270,7 +304,8 @@ pub fn consistent(
         person.is_some_and(|person| {
             let walking_out =
                 matches!(person.place, Place::Walking { .. }) && person.action.is_none();
-            person.place != Place::Away && !walking_out && person.action.is_none()
+            let free = person.action.is_none() && !person.collapsed;
+            person.place != Place::Away && !walking_out && free
         })
     };
     for (&(household, object, slot), &sim) in &house.holds {
@@ -440,7 +475,11 @@ fn band_at(born: SimTime, at: SimTime) -> Option<usize> {
 /// way every need was written down before it; at the object only the needs the offer sets
 /// may have been written down after it, at the arrival. Such a need fell on the way at the
 /// awake rate: where that never rises, it was at least its value at the arrival when the
-/// person was due to leave; where it may rise, its value then is open.
+/// person was due to leave; where it may rise, its value then is open. A need at 0 (ADR-0026,
+/// addendum of 2026-11-04 on a need at 0) may write down others later only as a run does while
+/// the walk or action goes on: an accident only where it raises hygiene, the bladder full and,
+/// on the way, hygiene at most the cap in the same second; hygiene reaching 0 its 0 and fun in
+/// one second. Their values at the departure are open.
 fn due_consistent(
     person: &InHouse,
     home: &House,
@@ -450,6 +489,11 @@ fn due_consistent(
     let Some(due) = person.due else {
         return Ok(());
     };
+    // A departure waits for one lying on the floor too, until it gets up (ADR-0026, addendum
+    // of 2026-11-04 on a need at 0); or it waited for an action the collapse ended.
+    if person.collapsed {
+        return Ok(());
+    }
     let action = person.action.ok_or(Broken::Due)?;
     let rates = data.ok_or(Broken::HouseUnknown)?.rates();
     let object = &home.def().objects[usize::from(action.object)];
@@ -460,19 +504,46 @@ fn due_consistent(
     let after = |sample: NeedSample| sample.at() > due.depart;
     let written_late =
         |need: Need, sample: NeedSample| after(sample) && (walking || !offer.sets(need));
-    if (NEEDS.into_iter().zip(person.needs)).any(|(need, sample)| written_late(need, sample)) {
-        return Err(Broken::Due);
-    }
     let raises = |need: Need, sample: NeedSample| match person.place {
         Place::Walking { arrive, .. } => {
             band_at(born, arrive).is_some_and(|band| offer.rate(rates, need, band) > 0)
         }
         _ => sample.rate() > 0,
     };
+    let cap = data
+        .ok_or(Broken::HouseUnknown)?
+        .day()
+        .zero
+        .accident_hygiene_at_most;
+    let [_, _, bladder, hygiene, fun] = person.needs;
+    // The accident goes on only where the walk or the action raises hygiene, the shower: the
+    // bladder full and, on the way, hygiene at most the cap in the same second.
+    let wet = written_late(Need::Bladder, bladder)
+        && bladder.value() == FULL
+        && raises(Need::Hygiene, hygiene)
+        && (!walking || (hygiene.at() == bladder.at() && hygiene.value() <= cap));
+    // The sting writes hygiene's 0 and fun in one second; on the way to the shower an accident
+    // may write hygiene's 0 again after it.
+    let stung = written_late(Need::Fun, fun)
+        && hygiene.value() == EMPTY
+        && (hygiene.at() == fun.at() || (wet && hygiene.at() > fun.at()));
+    let explained = |need: Need| match need {
+        Need::Bladder => wet,
+        Need::Hygiene => (walking && wet) || (stung && hygiene.at() == fun.at()),
+        Need::Fun => stung,
+        Need::Hunger | Need::Energy => false,
+    };
+    let unexplained =
+        |need: Need, sample: NeedSample| written_late(need, sample) && !explained(need);
+    if (NEEDS.into_iter().zip(person.needs)).any(|(need, sample)| unexplained(need, sample)) {
+        return Err(Broken::Due);
+    }
     let falls_awake =
         |need: Need| (0..AGE_BANDS.len()).all(|band| rates.awake.rate(need, band) <= 0);
     let critical = |need: Need, sample: NeedSample| {
-        if after(sample) {
+        if written_late(need, sample) {
+            true
+        } else if after(sample) {
             !falls_awake(need) || sample.value() <= CRITICAL
         } else {
             sample.value_at(due.depart) <= CRITICAL
@@ -485,8 +556,8 @@ fn due_consistent(
 
 /// The rates of a person with needs (ADR-0026 sections 1 and 4): at its object those the
 /// offer sets are the offer's, written down together when it arrived; every other is the
-/// awake rate; each by the age band at the second it was written down. Away and on the way
-/// out, all are 0 (checked with the place).
+/// awake rate; lying on the floor all are those of `lying_rate`; each by the age band at the
+/// second it was written down. Away and on the way out, all are 0 (checked with the place).
 fn rates_consistent(
     person: &InHouse,
     home: &House,
@@ -496,7 +567,17 @@ fn rates_consistent(
     if out(person) {
         return Ok(());
     }
-    let rates = data.ok_or(Broken::HouseUnknown)?.rates();
+    let houses = data.ok_or(Broken::HouseUnknown)?;
+    let rates = houses.rates();
+    if person.collapsed {
+        for (need, sample) in NEEDS.into_iter().zip(person.needs) {
+            let band = band_at(born, sample.at()).ok_or(Broken::Rate)?;
+            if sample.rate() != lying_rate(rates, houses.day(), need, band) {
+                return Err(Broken::Rate);
+            }
+        }
+        return Ok(());
+    }
     let doing = match (person.place, person.action) {
         (Place::Room(_), Some(action)) => {
             let object = &home.def().objects[usize::from(action.object)];
@@ -523,6 +604,21 @@ fn rates_consistent(
         }
     }
     Ok(())
+}
+
+/// One lying on the floor (ADR-0026, addendum of 2026-11-04 on a need at 0) is in a room without
+/// an action, its energy written down at 0 when it fell there: nothing writes it down again
+/// before it gets up.
+fn collapse_consistent(person: &InHouse) -> Result<(), Broken> {
+    if !person.collapsed {
+        return Ok(());
+    }
+    let in_room = matches!(person.place, Place::Room(_)) && person.action.is_none();
+    if in_room && person.needs[1].value() == EMPTY {
+        Ok(())
+    } else {
+        Err(Broken::Collapse)
+    }
 }
 
 /// A sleep only in the person's night (ADR-0026, addendum of 2026-11-04): a walk to an offer of

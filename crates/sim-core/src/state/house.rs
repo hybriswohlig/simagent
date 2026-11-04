@@ -14,7 +14,7 @@ use crate::house::state::{Decisions, InHouse, MAX_HOUSEHOLDS, MovedIn, Place, cr
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::input::{InputRejected, MoveIn, MoveOut, RejectCode};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
-use crate::time::{DAY, HOUR, SimDuration, SimTime, calendar, day_index};
+use crate::time::{DAY, EventHandle, HOUR, SimDuration, SimTime, calendar, day_index};
 use crate::world::{EventPayload, SimCtx};
 
 /// The needs at the first morning and when someone comes after it (ADR-0026 section 1):
@@ -236,6 +236,7 @@ pub(super) fn start_day(
             day: day_index(now),
             count: 0,
         },
+        collapsed: false,
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, sim, entry, ctx);
@@ -249,25 +250,46 @@ pub(super) fn start_day(
 /// (ADR-0026 section 1): those still planned are cancelled, then each threshold below a
 /// falling value is planned. An input, a command, acts before the events of its second, so a
 /// crossing in that second of a need it did not write down still comes after it and is planned
-/// again (ADR-0024, addendum of 2026-11-04); a handler plans those after its second.
+/// again (ADR-0024, addendum of 2026-11-04); a handler plans those after its second. A crossing
+/// of the handler's own second that has not run yet stays planned while its need is still at or
+/// below its level: the change wrote the value of that second down as it was, so the need has
+/// reached the level all the same, and no other need's crossing of a second is lost to the
+/// handler that runs first in it (ADR-0026, addendum of 2026-11-04 on a need at 0).
 pub(super) fn plan_crossings(
     domain: &mut DomainState,
     sim: SimId,
     by: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let crossings_of = (
-        Slot::Crossing(Need::Hunger, 0),
-        Slot::Crossing(Need::Fun, u16::MAX),
-    );
-    cancel(domain, sim, crossings_of, ctx);
+    let now = ctx.now();
+    let Some(person) = domain.house.sims.get(&sim) else {
+        panic!("invariant house.orphan_event");
+    };
+    let first = (sim, Slot::Crossing(Need::Hunger, 0));
+    let last = (sim, Slot::Crossing(Need::Fun, u16::MAX));
+    let still_due = |slot: &Slot, handle: EventHandle| match slot {
+        Slot::Crossing(need, level) if !ctx.in_input() => {
+            let reached = person.needs[super::action::need_index(*need)].value_at(now) <= *level;
+            reached && ctx.pending_time(handle) == Some(now)
+        }
+        _ => false,
+    };
+    let gone: Vec<(SimId, Slot)> = (domain.pending.range(first..=last))
+        .filter(|&(&(_, slot), &handle)| !still_due(&slot, handle))
+        .map(|(key, _)| *key)
+        .collect();
+    for key in gone {
+        if let Some(handle) = domain.pending.remove(&key) {
+            ctx.cancel(handle);
+        }
+    }
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
     let after = if ctx.in_input() {
-        ctx.now() - SimDuration::from_secs(1)
+        now - SimDuration::from_secs(1)
     } else {
-        ctx.now()
+        now
     };
     let planned: Vec<(Need, u16, SimTime)> = crossings(person, after).collect();
     for (need, level, at) in planned {
@@ -303,7 +325,7 @@ fn forget(
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::DayPlan, Slot::Bedtime);
+    let house_events = (Slot::DayPlan, Slot::StandUp);
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {

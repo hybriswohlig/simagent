@@ -12,7 +12,7 @@ use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
 use crate::house::data::{AGE_BANDS, DayRules, HouseData, NEEDS};
 use crate::house::day::{DayDuty, duty, next_plan, night_of, plan_day, work_draw};
-use crate::house::need::{FULL, NeedSample};
+use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::house::state::{Due, Duty, Place};
 use crate::ids::{EventId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
@@ -132,7 +132,8 @@ pub(super) fn plan_bedtime(
 
 /// The start of a person's night (ADR-0026, addendum of 2026-11-04): one idle in a room
 /// chooses, in its night now; anyone else goes on, and chooses in the night when what it does
-/// ends. No entry of its own: the choice's has this event as its cause.
+/// ends or it gets up from the floor. No entry of its own: the choice's has this event as its
+/// cause.
 pub(crate) fn on_bedtime(
     domain: &mut DomainState,
     data: &Data,
@@ -144,7 +145,7 @@ pub(crate) fn on_bedtime(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    if let (Place::Room(_), None) = (person.place, person.action) {
+    if let (Place::Room(_), None, false) = (person.place, person.action, person.collapsed) {
         action::decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
     }
 }
@@ -181,7 +182,7 @@ pub(crate) fn on_day_plan(
 
 /// The wake before a departure (ADR-0024 section 4, ADR-0026 section 3): it ends sleep with
 /// reason `obligation`, and the person chooses; one idle in a room chooses too; anyone else
-/// goes on.
+/// goes on, one lying on the floor too (ADR-0026, addendum of 2026-11-04 on a need at 0).
 pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::Wake));
@@ -190,6 +191,7 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
     };
     let causes = Causes::new(ctx.trigger());
     match (person.place, person.action) {
+        _ if person.collapsed => {}
         (Place::Room(_), None) => action::decide(domain, data, sim, causes, ctx),
         (Place::Room(_), Some(_)) if action::asleep(domain, data, sim) => {
             let ended = action::interrupt(domain, data, sim, EndReason::Obligation, causes, ctx);
@@ -200,7 +202,9 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
 }
 
 /// The departure (ADR-0024 section 4): a walk or an action that raises a critical need makes
-/// it wait, the person due at `back`; otherwise the person leaves now.
+/// it wait, the person due at `back`, and so does lying on the floor (ADR-0026, addendum of
+/// 2026-11-04 on a need at 0) until the person gets up; otherwise the person leaves now. A need
+/// whose crossing at 0 falls into this second is settled first: the departure runs before it.
 pub(crate) fn on_depart(
     domain: &mut DomainState,
     data: &Data,
@@ -210,7 +214,8 @@ pub(crate) fn on_depart(
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::Depart));
     let now = ctx.now();
-    if action::for_critical(domain, data, sim, now) {
+    let lying = super::zero::settle_first(domain, data, sim, ctx);
+    if lying || action::for_critical(domain, data, sim, now) {
         let depart = now;
         person_mut(domain, sim).due = Some(Due {
             place,
@@ -291,7 +296,9 @@ pub(crate) fn leave(
 
 /// The return (ADR-0024 section 4): a person whose departure still waits has missed its duty
 /// and goes on; one away or on its way out comes in at the entrance, each need jumps by the
-/// data, clamped to 0 to 1000, the awake rates hold again, and it chooses.
+/// data, clamped to 0 to 1000, the awake rates hold again, and it chooses; a need the jump puts
+/// at 0 has its consequence first (ADR-0026, addendum of 2026-11-04 on a need at 0), and one
+/// lying on the floor then does not choose.
 pub(crate) fn on_return(
     domain: &mut DomainState,
     data: &Data,
@@ -327,14 +334,23 @@ pub(crate) fn on_return(
     let came = LogPayload::CameHome { place };
     let entry = ctx.emit(came, subject, Causes::new(ctx.trigger()));
     person.place = Place::Room(house.def().entrance);
-    for ((sample, need), jump) in person.needs.iter_mut().zip(NEEDS).zip(jumps) {
-        let value = (i32::from(sample.value_at(now)) + jump).clamp(0, i32::from(FULL));
+    let mut emptied = [false; 5];
+    let samples = person.needs.iter_mut().zip(NEEDS).zip(jumps);
+    for (((sample, need), jump), emptied) in samples.zip(&mut emptied) {
+        let before = sample.value_at(now);
+        let value = (i32::from(before) + jump).clamp(0, i32::from(FULL));
         let value = u16::try_from(value).unwrap_or_else(|_| panic!("invariant house.need_value"));
+        *emptied = before > EMPTY && value == EMPTY;
         *sample = NeedSample::new(value, now, houses.rates().awake.rate(need, band));
     }
     if let Some(handle) = domain.pending.remove(&(sim, Slot::Arrive)) {
         ctx.cancel(handle);
     }
     plan_crossings(domain, sim, entry, ctx);
-    action::decide(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
+    let causes = Causes::new(Cause::Event(entry));
+    if emptied.contains(&true) {
+        super::zero::settle(domain, data, sim, (emptied, true), causes, ctx);
+    } else {
+        action::decide(domain, data, sim, causes, ctx);
+    }
 }

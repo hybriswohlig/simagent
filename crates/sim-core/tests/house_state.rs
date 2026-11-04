@@ -81,6 +81,7 @@ fn person(place: Place, action: Option<Action>) -> InHouse {
             day: day_index(t(NOW)),
             count: 3,
         },
+        collapsed: false,
     }
 }
 
@@ -605,6 +606,215 @@ fn away_due_and_decisions_are_checked() {
     assert_eq!(decisions(today + 1, 0), Err(Broken::Decisions));
 }
 
+/// One lying on the floor (ADR-0026, addendum of 2026-11-04 on a need at 0): sim 1 fell in the
+/// living room ten minutes ago, every need written down then at the repository's sleeping rates
+/// of an adult (hunger −40, bladder −40, hygiene −10, fun 0) and energy at 0 rising 50 an hour,
+/// off the waiting list. That passes, with a waiting departure too; waiting or holding a place,
+/// with an action, away, with energy not at 0 when written down, or at the awake rates is
+/// refused.
+#[test]
+fn one_lying_is_checked() {
+    let fell = t(NOW - 600);
+    let lying = |change: fn(&mut InHouse)| {
+        checked(move |s| {
+            s.waits.clear();
+            let one = in_house(s, 1);
+            one.collapsed = true;
+            one.needs = [(600, -40), (0, 50), (500, -40), (700, -10), (800, 0)]
+                .map(|(value, rate)| NeedSample::new(value, fell, rate));
+            change(one);
+        })
+    };
+    assert_eq!(lying(|_| {}), Ok(()));
+    let due = lying(|one| {
+        one.due = Some(Due {
+            place: Duty::Work,
+            depart: t(NOW - 300),
+            back: t(NOW + 3_600),
+        });
+    });
+    assert_eq!(due, Ok(()));
+    let waiting = checked(|s| {
+        let one = in_house(s, 1);
+        one.collapsed = true;
+        one.needs = [(600, -40), (0, 50), (500, -40), (700, -10), (800, 0)]
+            .map(|(value, rate)| NeedSample::new(value, fell, rate));
+    });
+    assert_eq!(waiting, Err(Broken::Waiter));
+    let holding = checked_after(&houses(), Some(&[1]), |s| {
+        s.waits.clear();
+        s.holds.insert((household(1), 7, 1), sim(1));
+        let one = in_house(s, 1);
+        one.collapsed = true;
+        one.needs = [(600, -40), (0, 50), (500, -40), (700, -10), (800, 0)]
+            .map(|(value, rate)| NeedSample::new(value, fell, rate));
+    });
+    assert_eq!(holding, Err(Broken::Waiter));
+    let busy = lying(|one| {
+        one.action = Some(Action {
+            object: 3,
+            offer: 0,
+            slot: 1,
+        });
+    });
+    assert_eq!(busy, Err(Broken::Collapse));
+    let away = lying(|one| {
+        one.place = Place::Away;
+        one.needs = (one.needs).map(|need| NeedSample::new(need.value(), t(NOW - 600), 0));
+    });
+    assert_eq!(away, Err(Broken::Collapse));
+    let rested = lying(|one| one.needs[1] = NeedSample::new(5, t(NOW - 600), 50));
+    assert_eq!(rested, Err(Broken::Collapse));
+    let awake = lying(|one| one.needs[2] = NeedSample::new(500, t(NOW - 600), -120));
+    assert_eq!(awake, Err(Broken::Rate));
+    let slow = lying(|one| one.needs[1] = NeedSample::new(0, t(NOW - 600), 85));
+    assert_eq!(slow, Err(Broken::Rate));
+}
+
+/// While a departure waits (ADR-0024 section 4), a need at 0 may write down other needs later,
+/// but only as a run does (ADR-0026, addendum of 2026-11-04 on a need at 0). The accident goes on
+/// only on the way to the shower or at it, where the walk or the action raises hygiene: the
+/// bladder full and, on the way, hygiene at most 50, both in one second. The sting writes
+/// hygiene's 0 and fun in one second. Sim 1 walks from the living room to the shower with
+/// hygiene critical at the departure (136 then), or showers since five minutes; sim 2 watches
+/// with fun critical then; sim 3 walks to the fridge with hunger at 0. Everything else written
+/// after the departure is refused.
+#[test]
+fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
+    let flat = DataId::new("core:flat").expect("id");
+    let walk = i64::from(houses().house(&flat).expect("the flat").walk_to(2, 6));
+    let due = |depart: i64| Due {
+        place: Duty::Work,
+        depart: t(depart),
+        back: t(NOW + 3_600),
+    };
+    // On the way to the shower since 6 s, the departure 5 s ago.
+    let to_shower = |change: fn(&mut InHouse)| {
+        checked(move |s| {
+            s.waits.clear();
+            let one = in_house(s, 1);
+            one.place = Place::Walking {
+                from: 2,
+                to: 3,
+                depart: t(NOW - 6),
+                arrive: t(NOW - 6 + walk),
+            };
+            one.action = Some(Action {
+                object: 6,
+                offer: 0,
+                slot: 0,
+            });
+            one.needs[3] = NeedSample::new(140, t(NOW - 600), -30);
+            one.due = Some(due(NOW - 5));
+            change(one);
+        })
+    };
+    assert_eq!(to_shower(|_| {}), Ok(()));
+    let wet = to_shower(|one| {
+        one.needs[2] = NeedSample::new(1000, t(NOW), -120);
+        one.needs[3] = NeedSample::new(50, t(NOW), -30);
+    });
+    assert_eq!(wet, Ok(()));
+    let not_full = to_shower(|one| {
+        one.needs[2] = NeedSample::new(999, t(NOW), -120);
+        one.needs[3] = NeedSample::new(50, t(NOW), -30);
+    });
+    assert_eq!(not_full, Err(Broken::Due));
+    let apart = to_shower(|one| {
+        one.needs[2] = NeedSample::new(1000, t(NOW), -120);
+        one.needs[3] = NeedSample::new(50, t(NOW - 2), -30);
+    });
+    assert_eq!(apart, Err(Broken::Due));
+    let dirty = to_shower(|one| {
+        one.needs[2] = NeedSample::new(1000, t(NOW), -120);
+        one.needs[3] = NeedSample::new(51, t(NOW), -30);
+    });
+    assert_eq!(dirty, Err(Broken::Due));
+    // The sting on the way, then the accident: hygiene's 0 written again by the accident, later.
+    let stung_then_wet = to_shower(|one| {
+        one.needs[4] = NeedSample::new(650, t(NOW - 3), -60);
+        one.needs[2] = NeedSample::new(1000, t(NOW - 1), -120);
+        one.needs[3] = NeedSample::new(0, t(NOW - 1), -30);
+    });
+    assert_eq!(stung_then_wet, Ok(()));
+    // Showering since five minutes, the departure ten minutes ago: the accident there writes only
+    // the bladder.
+    let showering = |bladder: NeedSample| {
+        checked(move |s| {
+            s.waits.clear();
+            let one = in_house(s, 1);
+            one.place = Place::Room(3);
+            one.action = Some(Action {
+                object: 6,
+                offer: 0,
+                slot: 0,
+            });
+            one.needs[3] = NeedSample::new(100, t(NOW - 300), 2_800);
+            one.needs[2] = bladder;
+            one.due = Some(due(NOW - 600));
+        })
+    };
+    let morning = in_house(&mut legal(), 1).needs[2];
+    assert_eq!(showering(morning), Ok(()));
+    assert_eq!(showering(NeedSample::new(1000, t(NOW), -120)), Ok(()));
+    assert_eq!(
+        showering(NeedSample::new(999, t(NOW), -120)),
+        Err(Broken::Due)
+    );
+    // Watching television the accident would have ended the watching, and the departure left.
+    let watching = |need: usize, sample: NeedSample| {
+        checked(move |s| {
+            let two = in_house(s, 2);
+            two.needs[4] = NeedSample::new(100, t(NOW - 600), 400);
+            two.needs[need] = sample;
+            two.due = Some(Due {
+                place: Duty::School,
+                depart: t(NOW - 600),
+                back: t(NOW + 3_600),
+            });
+        })
+    };
+    let now = t(NOW);
+    assert_eq!(
+        watching(2, NeedSample::new(1000, now, -120)),
+        Err(Broken::Due)
+    );
+    assert_eq!(watching(3, NeedSample::new(50, now, -30)), Err(Broken::Due));
+    assert_eq!(
+        watching(0, NeedSample::new(300, now, -100)),
+        Err(Broken::Due)
+    );
+    // Hygiene reaching 0 on the way to the fridge: its 0 and fun in one second.
+    let to_fridge = |hygiene: NeedSample, fun: NeedSample| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+            three.needs[3] = hygiene;
+            three.needs[4] = fun;
+            three.due = Some(due(NOW - 1));
+        })
+    };
+    let stung = NeedSample::new(650, now, -60);
+    assert_eq!(to_fridge(NeedSample::new(0, now, -30), stung), Ok(()));
+    let earlier = NeedSample::new(0, t(NOW - 3_600), -30);
+    assert_eq!(to_fridge(earlier, stung), Err(Broken::Due));
+    assert_eq!(
+        to_fridge(NeedSample::new(520, now, -30), stung),
+        Err(Broken::Due)
+    );
+    // An accident on the way to the fridge would have ended the walk.
+    let wet = |s: &mut HouseState| {
+        s.waits.clear();
+        let three = in_house(s, 3);
+        three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+        three.needs[2] = NeedSample::new(1000, t(NOW), -120);
+        three.needs[3] = NeedSample::new(50, t(NOW), -30);
+        three.due = Some(due(NOW - 1));
+    };
+    assert_eq!(checked(wet), Err(Broken::Due));
+}
+
 #[test]
 fn waiters_and_holds_are_checked() {
     let waits = |list: Vec<(i64, u64)>| {
@@ -706,10 +916,11 @@ fn waiters_and_holds_are_checked() {
     assert_eq!(held_free, Ok(()));
 }
 
-/// The crossings a change plans (ADR-0026 section 1), by hand: the morning values at 6:00
-/// with an adult's awake rates fall past every threshold below them, `at + ⌈3600 · (value −
-/// level) / |rate|⌉`, in the order of the needs and of the thresholds; two hours later those
-/// at or before that second are gone; a rising need and a person away plan none.
+/// The crossings a change plans (ADR-0026 section 1 and its addendum of 2026-11-04 on a need at
+/// 0), by hand: the morning values at 6:00 with an adult's awake rates fall past every threshold
+/// below them, 0 included, `at + ⌈3600 · (value − level) / |rate|⌉`, in the order of the needs
+/// and of the thresholds; two hours later those at or before that second are gone; a rising need
+/// and a person away plan none.
 #[test]
 fn the_crossings_after_a_change() {
     let six = t(NOW - 6 * 3_600);
@@ -720,33 +931,38 @@ fn the_crossings_after_a_change() {
         (Need::Hunger, 400, 7_200),
         (Need::Hunger, 150, 16_200),
         (Need::Hunger, 50, 19_800),
+        (Need::Hunger, 0, 21_600),
         (Need::Energy, 700, 18_000),
         (Need::Energy, 400, 45_000),
         (Need::Energy, 150, 67_500),
         (Need::Energy, 50, 76_500),
+        (Need::Energy, 0, 81_000),
         (Need::Bladder, 400, 3_000),
         (Need::Bladder, 150, 10_500),
         (Need::Bladder, 50, 13_500),
+        (Need::Bladder, 0, 15_000),
         (Need::Hygiene, 400, 36_000),
         (Need::Hygiene, 150, 66_000),
         (Need::Hygiene, 50, 78_000),
+        (Need::Hygiene, 0, 84_000),
         (Need::Fun, 700, 6_000),
         (Need::Fun, 400, 24_000),
         (Need::Fun, 150, 39_000),
         (Need::Fun, 50, 45_000),
+        (Need::Fun, 0, 48_000),
     ]
     .map(|(need, level, secs)| (need, level, at(secs)));
     assert_eq!(all, expected);
     // At 8:00 hunger is at 400 in that very second; it, bladder at 400 and fun at 700 have
     // come.
     let later: Vec<_> = crossings(&morning, at(7_200)).collect();
-    assert_eq!(later.len(), 14);
+    assert_eq!(later.len(), 19);
     assert_eq!(
         later,
-        expected[1..7]
+        expected[1..9]
             .iter()
-            .chain(&expected[8..13])
-            .chain(&expected[14..])
+            .chain(&expected[10..17])
+            .chain(&expected[18..])
             .copied()
             .collect::<Vec<_>>()
     );
@@ -754,7 +970,7 @@ fn the_crossings_after_a_change() {
     let mut eating = morning.clone();
     eating.needs[0] = eating.needs[0].with_rate(at(7_200), 2_400);
     let fed: Vec<_> = crossings(&eating, at(7_200)).collect();
-    assert_eq!(fed, later[2..]);
+    assert_eq!(fed, later[3..]);
     // Away every rate is 0.
     let mut away = person(Place::Away, None);
     away.needs = away.needs.map(|need| need.with_rate(six, 0));

@@ -561,7 +561,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 3: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 4: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -621,12 +621,14 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousePerson",
-            doc: "A person with needs: where it is, what it does, its five needs at the clock.",
+            doc: "A person with needs: where it is, what it does, its five needs at the clock, whether it lies on the floor and whether it smells (hygiene at most 50).",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HousePlace")),
                 field("action", nullable(Ref("HouseAction"))),
                 field("needs", list(Integer)),
+                field("collapsed", Bool),
+                field("smells", Bool),
             ],
         },
         Named {

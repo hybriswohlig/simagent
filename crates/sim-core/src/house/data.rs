@@ -14,6 +14,7 @@ use core::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::house::need::FULL;
 use crate::time::DAY;
 
 /// The five needs, in the order of the log's arrays (ADR-0026 section 1).
@@ -49,6 +50,8 @@ const MAX_OBJECTS: usize = 32;
 const MAX_OFFERS: usize = 64;
 /// A jump on coming home only lowers a need, at most by its whole scale (ADR-0024 section 4).
 const JUMPS: RangeInclusive<i32> = -1000..=0;
+/// The mood moves the points of a choice at most by this many percent either way.
+const MOST_MOOD: u8 = 50;
 
 /// Walking to an object in one's own room, and through the entrance out of the house
 /// (ADR-0025 section 4).
@@ -97,7 +100,9 @@ impl BandRates {
 
 /// The rules of the day of `data/house/day.json` (ADR-0024 section 4), times in seconds of
 /// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
-/// (ADR-0026, addendum of 2026-11-04) last.
+/// (ADR-0026, addendum of 2026-11-04), what a need at 0 does and the most the mood moves the
+/// points of a choice, in percent either way (its addenda of 2026-11-04 on a need at 0 and on
+/// the mood), last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -108,6 +113,8 @@ pub struct DayRules {
     pub return_jumps: NeedJumps,
     pub young: YoungRules,
     pub night: NightRules,
+    pub zero: ZeroRules,
+    pub choice_mood_percent: u8,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -175,9 +182,38 @@ pub struct NightRules {
     pub until: [u32; 4],
 }
 
+/// What a need at 0 does (ADR-0026, addendum of 2026-11-04 on a need at 0): energy at 0 lays the
+/// person on the floor, its energy rising `collapse_energy_rate` an hour until it is at
+/// `stand_up_at`; the bladder at 0 leaves hygiene at most `accident_hygiene_at_most`; hygiene
+/// reaching 0 changes fun once by `hygiene_empty_fun`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZeroRules {
+    pub collapse_energy_rate: i32,
+    pub stand_up_at: u16,
+    pub accident_hygiene_at_most: u16,
+    pub hygiene_empty_fun: i32,
+}
+
+impl ZeroRules {
+    /// One lying gets up, rising to a level it has not reached at 0; the accident's hygiene is
+    /// a value; the change of fun only lowers it, at most by its whole scale.
+    fn checked(&self) -> Result<(), HouseError> {
+        let rises = self.collapse_energy_rate > 0;
+        let up = (1..=FULL).contains(&self.stand_up_at);
+        let hygiene = self.accident_hygiene_at_most <= FULL;
+        let fun = JUMPS.contains(&self.hygiene_empty_fun);
+        if rises && up && hygiene && fun {
+            Ok(())
+        } else {
+            Err(HouseError::DayZero)
+        }
+    }
+}
+
 impl DayRules {
     /// The checks of the day, in this order: the times, the wake, the ages, the shares of
-    /// the work plan, the jumps, the night.
+    /// the work plan, the jumps, the night, a need at 0, the mood.
     fn checked(&self) -> Result<(), HouseError> {
         let (school, work, young) = (&self.school, &self.work, &self.young);
         let hours = [
@@ -229,7 +265,14 @@ impl DayRules {
         if !jumps.iter().all(|jump| JUMPS.contains(jump)) {
             return Err(HouseError::DayJump);
         }
-        self.night_checked(&hours)
+        self.night_checked(&hours)?;
+        self.zero.checked()?;
+        // The mood moves the points at most by half, so an offer keeps them and its mood fits
+        // the log.
+        if self.choice_mood_percent > MOST_MOOD {
+            return Err(HouseError::DayMood);
+        }
+        Ok(())
     }
 
     /// The night (ADR-0026, addendum of 2026-11-04), each bound below 24 h. Each end at or
@@ -377,6 +420,12 @@ pub enum HouseError {
     /// A night with a bound not below 24 h, an end before the day plan or after the earliest
     /// wake, or a start not after the last return.
     DayNight,
+    /// What a need at 0 does, out of range: energy that does not rise on the floor, a level to
+    /// get up at outside 1 to 1000, an accident's hygiene above 1000, or a change of fun
+    /// outside −1000 to 0.
+    DayZero,
+    /// A mood of more than 50 percent either way.
+    DayMood,
     /// Two kinds with one id.
     KindDuplicate,
     /// A kind with no place or more than eight.
@@ -430,6 +479,8 @@ impl fmt::Display for HouseError {
             HouseError::DayShare => "house.day_share",
             HouseError::DayJump => "house.day_jump",
             HouseError::DayNight => "house.day_night",
+            HouseError::DayZero => "house.day_zero",
+            HouseError::DayMood => "house.day_mood",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
             HouseError::OfferLength => "house.offer_length",
