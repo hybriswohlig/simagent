@@ -202,8 +202,9 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
     .join(", ");
   // Idle while waiting for a taken object, as its entry says (ADR-0026 section 5).
   const waited = why.waits === null ? undefined : why.offers.find((offer) => offer.object === why.waits);
+  const ends = why.night?.until ?? null;
   const night = why.night !== null && why.night.now && !why.commanded
-    ? `${TEXT.house_why_night.replace("{time}", timeOfDay(why.night.until.date.second_of_day))} `
+    ? `${ends === null ? TEXT.house_why_night_last : TEXT.house_why_night.replace("{time}", timeOfDay(ends.date.second_of_day))} `
     : "";
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>

@@ -134,7 +134,8 @@ const SHORTEST_SECS: i64 = 60;
 /// fills is full, at least 60 s and at most `max_seconds` after it. A sleep ends with the
 /// night it began in, of a person born at `born` by `rules`, and at once if it began after
 /// the night it was chosen in had ended (ADR-0026, addendum of 2026-11-04). None if that comes
-/// after the end of time, or for an offer that sets no need.
+/// after the end of time (the last night of time has no end), or for an offer that sets no
+/// need.
 pub fn action_end(
     person: &InHouse,
     offer: &OfferDef,
@@ -144,7 +145,7 @@ pub fn action_end(
     let (_, sample) = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need))?;
     let begun = sample.at();
     if offer.sleep {
-        return Some(night(rules, born, begun).map_or(begun, |night| night.until));
+        return night(rules, born, begun).map_or(Some(begun), |night| night.until);
     }
     let secs = match (offer.seconds, offer.until_full, offer.max_seconds) {
         (Some(seconds), _, _) => i64::from(seconds),

@@ -219,7 +219,7 @@ pub(crate) fn decide(
     }
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
-    let left = tonight.map(|night| (night.until - now).as_secs());
+    let left = tonight.map(|night| night.left(now));
     let scored = score(house, houses, age, needs, room, left);
     let choice = choose(
         (house, houses),

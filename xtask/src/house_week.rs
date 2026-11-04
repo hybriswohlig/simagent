@@ -246,8 +246,7 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         let years = age(born, entry.t).ok_or("a choice before the birth")?;
         let house = houses.house(house).ok_or("a choice in no house")?;
         // In the night the offers of sleep are open too (ADR-0026, addendum of 2026-11-04).
-        let left =
-            night(houses.day(), born, entry.t).map(|night| (night.until - entry.t).as_secs());
+        let left = night(houses.day(), born, entry.t).map(|night| night.left(entry.t));
         let weighed = score(house, houses, years, needs, room, left).len();
         counted.most_offers = counted.most_offers.max(weighed);
     }

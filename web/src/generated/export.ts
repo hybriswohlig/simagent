@@ -513,10 +513,10 @@ export type WhyAnswer = {
   readonly offers: WhyOffer[];
 };
 
-/** A person's night, from its start to its end; `now` if the choice lay in it, else it is the next. */
+/** A person's night, from its start to its end (none for the last night of time, which lasts to its end); `now` if the choice lay in it, else it is the next. */
 export type WhyNight = {
   readonly from: DatedSecond;
-  readonly until: DatedSecond;
+  readonly until: DatedSecond | null;
   readonly now: boolean;
 };
 

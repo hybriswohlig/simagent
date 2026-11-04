@@ -508,7 +508,7 @@ pub fn why_answer(
         .ok_or_else(|| broken("an unknown house"))?;
     let age = age(born, entry.t).ok_or_else(|| broken("a choice before the birth"))?;
     let tonight = night(houses.day(), born, entry.t);
-    let left = tonight.map(|night| (night.until - entry.t).as_secs());
+    let left = tonight.map(|night| night.left(entry.t));
     let mut scored = score(house, houses, age, needs, room, left);
     scored.sort_by_key(|scored| {
         (
@@ -557,7 +557,8 @@ pub fn why_answer(
         .map(|night| (night, true))
         .or_else(|| next_night(houses.day(), born, entry.t).map(|night| (night, false)));
     let night = shown.map(|(night, now)| {
-        serde_json::json!({"from": dated(night.from), "until": dated(night.until), "now": now})
+        let until = night.until.map(dated);
+        serde_json::json!({"from": dated(night.from), "until": until, "now": now})
     });
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",

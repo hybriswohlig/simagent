@@ -336,6 +336,7 @@ export const TEXT = {
   house_why_busy: "(besetzt)",
   house_why_closed: "{what} zu, ab {time}",
   house_why_night: "Nachtruhe bis {time}: erst was dringend ist, dann ein Bett.",
+  house_why_night_last: "Nachtruhe bis zum Ende der Zeit: erst was dringend ist, dann ein Bett.",
   house_why_commanded: "Befohlen.",
   house_command_for: "Befehl für {name}",
   house_command_what: "Was tun?",

@@ -710,10 +710,10 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyNight",
-            doc: "A person's night, from its start to its end; `now` if the choice lay in it, else it is the next.",
+            doc: "A person's night, from its start to its end (none for the last night of time, which lasts to its end); `now` if the choice lay in it, else it is the next.",
             fields: vec![
                 field("from", Ref("DatedSecond")),
-                field("until", Ref("DatedSecond")),
+                field("until", nullable(Ref("DatedSecond"))),
                 field("now", Bool),
             ],
         },
