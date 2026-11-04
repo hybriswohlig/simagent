@@ -42,7 +42,8 @@ pub(crate) fn persons_in(history: &[InputRecord]) -> u64 {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => None,
+            | Input::MoveOut(_)
+            | Input::Command(_) => None,
         })
         .unwrap_or(0)
 }

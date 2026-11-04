@@ -111,7 +111,11 @@ pub(super) fn asleep(domain: &DomainState, data: &Data, sim: SimId) -> bool {
 
 /// The places of the household's objects taken by an action or held for another than `sim`,
 /// as (object, place): in its choice a place held for `sim` counts as free (ADR-0026 section 5).
-fn taken(domain: &DomainState, household: HouseholdId, sim: SimId) -> BTreeSet<(u16, u8)> {
+pub(super) fn taken(
+    domain: &DomainState,
+    household: HouseholdId,
+    sim: SimId,
+) -> BTreeSet<(u16, u8)> {
     let members = domain.members.get(&household).into_iter().flatten();
     let actions = members.filter_map(|sim| domain.house.sims.get(sim)?.action);
     let mut taken: BTreeSet<(u16, u8)> = actions.map(|a| (a.object, a.slot)).collect();
@@ -186,20 +190,10 @@ pub(crate) fn decide(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let now = ctx.now();
-    if let Some(handle) = domain.pending.remove(&(sim, Slot::Decide)) {
-        ctx.cancel(handle);
-    }
     let (household, houses, house) = home(domain, data, sim);
     let age = age(domain, sim, now);
     // Who chooses leaves every waiting list (ADR-0026 section 5).
-    for waiters in domain.house.waits.values_mut() {
-        waiters.retain(|&(_, waiter)| waiter != sim);
-    }
-    domain.house.waits.retain(|_, waiters| !waiters.is_empty());
-    let held = held_by(domain, household, sim);
-    if let Some((object, slot)) = held {
-        domain.house.holds.remove(&(household, object, slot));
-    }
+    let held = stop_waiting(domain, household, sim, ctx);
     let taken = taken(domain, household, sim);
     let busy = busy(house, houses, &taken);
     let person = person_mut(domain, sim);
@@ -249,36 +243,142 @@ pub(crate) fn decide(
         }
         return;
     };
-    let object = chosen.object;
+    let walk = Walk {
+        object: chosen.object,
+        offer: chosen.offer,
+        room,
+        walk_secs,
+        arrive,
+    };
+    let seen = (needs, &taken, busy);
+    let (entry, slot) = begin(domain, house, sim, walk, seen, (false, causes), ctx);
+    // A held place the choice did not take goes on to the next who waits.
+    if let Some(place) = held.filter(|&place| place != (chosen.object, slot)) {
+        release(domain, household, place, entry, ctx);
+    }
+}
+
+/// The person stops waiting before what it does next (ADR-0026 sections 3 and 5): its planned
+/// choice is cancelled, it leaves every waiting list, and a place held for it is held no more.
+/// Returns that place.
+fn stop_waiting(
+    domain: &mut DomainState,
+    household: HouseholdId,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Option<(u16, u8)> {
+    if let Some(handle) = domain.pending.remove(&(sim, Slot::Decide)) {
+        ctx.cancel(handle);
+    }
+    for waiters in domain.house.waits.values_mut() {
+        waiters.retain(|&(_, waiter)| waiter != sim);
+    }
+    domain.house.waits.retain(|_, waiters| !waiters.is_empty());
+    let held = held_by(domain, household, sim);
+    if let Some((object, slot)) = held {
+        domain.house.holds.remove(&(household, object, slot));
+    }
+    held
+}
+
+/// A walk that begins now (ADR-0026 section 4): to `object` for `offer` from `room`,
+/// `walk_secs` long, arriving at `arrive`.
+struct Walk {
+    object: u16,
+    offer: u16,
+    room: u8,
+    walk_secs: u32,
+    arrive: SimTime,
+}
+
+/// The person walks as `walk` says, holding the object's free place with the smallest number,
+/// `taken` the places taken or held for others: its entry `core:action_started` by `causes`
+/// with the needs and the objects without a free place it saw and whether a command chose it,
+/// then its arrival planned by that entry. Returns the entry and the place.
+fn begin(
+    domain: &mut DomainState,
+    house: &House,
+    sim: SimId,
+    walk: Walk,
+    (needs, taken, busy): ([u16; 5], &BTreeSet<(u16, u8)>, Vec<u16>),
+    (commanded, causes): (bool, Causes),
+    ctx: &mut SimCtx<'_, '_>,
+) -> (EventId, u8) {
+    let Walk {
+        object,
+        offer,
+        room,
+        walk_secs,
+        arrive,
+    } = walk;
     let slot = (0..u8::MAX)
         .find(|slot| !taken.contains(&(object, *slot)))
         .unwrap_or_else(|| panic!("invariant house.slot_twice"));
     let started = LogPayload::ActionStarted {
         house: house.id().clone(),
         object,
-        offer: chosen.offer,
+        offer,
         slot,
         room,
         walk_secs,
         needs,
         busy,
-        commanded: false,
+        commanded,
     };
     let entry = ctx.emit(started, vec![Subject::Sim(sim)], causes);
+    let depart = ctx.now();
+    let person = person_mut(domain, sim);
     person.place = Place::Walking {
         from: room,
         to: house.def().objects[usize::from(object)].room,
-        depart: now,
+        depart,
         arrive,
     };
     person.action = Some(Action {
         object,
-        offer: chosen.offer,
+        offer,
         slot,
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
-    // A held place the choice did not take goes on to the next who waits.
+    (entry, slot)
+}
+
+/// The commanded walk (ADR-0024 section 5): the person, in a room once what it did has ended,
+/// stops waiting and walks to offer `offer` of `object` as after a choice, on the place held
+/// for it or a free one, its entry `core:action_started` by `causes` with `commanded`; a held
+/// place it does not take goes on to the next who waits. A command is no choice and counts
+/// against no budget of choices.
+pub(super) fn obey(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    (object, offer): (u16, u16),
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let (household, houses, house) = home(domain, data, sim);
+    let held = stop_waiting(domain, household, sim, ctx);
+    let taken = taken(domain, household, sim);
+    let busy = busy(house, houses, &taken);
+    let person = person_mut(domain, sim);
+    let (Place::Room(room), None) = (person.place, person.action) else {
+        panic!("invariant house.command_busy");
+    };
+    let needs = person.needs.map(|need| need.value_at(now));
+    let walk_secs = house.walk_to(room, object);
+    let arrive = (now.checked_add(SimDuration::from_secs(i64::from(walk_secs))))
+        .unwrap_or_else(|| panic!("invariant house.command_checked"));
+    let walk = Walk {
+        object,
+        offer,
+        room,
+        walk_secs,
+        arrive,
+    };
+    let seen = (needs, &taken, busy);
+    let (entry, slot) = begin(domain, house, sim, walk, seen, (true, causes), ctx);
     if let Some(place) = held.filter(|&place| place != (object, slot)) {
         release(domain, household, place, entry, ctx);
     }

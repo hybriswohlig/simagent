@@ -287,8 +287,8 @@ pub enum LogPayload {
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was
-/// full, the person left the house, a need it does not raise turned critical, or the day's
-/// duty came (the departure, or the wake during sleep).
+/// full, the person left the house, a need it does not raise turned critical, the day's
+/// duty came (the departure, or the wake during sleep), or a command (ADR-0024 section 5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndReason {
@@ -297,6 +297,7 @@ pub enum EndReason {
     Left,
     Critical,
     Obligation,
+    Command,
 }
 
 /// One entry of the domain log.

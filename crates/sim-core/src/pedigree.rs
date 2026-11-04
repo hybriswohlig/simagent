@@ -154,7 +154,8 @@ pub(crate) fn switch_at(log: &[InputRecord], at: SimTime) -> bool {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => {}
+            | Input::MoveOut(_)
+            | Input::Command(_) => {}
         }
     }
     on

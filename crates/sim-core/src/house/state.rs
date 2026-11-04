@@ -162,9 +162,10 @@ pub enum Broken {
     NeedValue,
     NeedTime,
     RoomUnknown,
-    /// A walk not begun before the clock, not as long as the house makes it, or that leads
-    /// elsewhere than its object's room or, without an action, the entrance; or an action
-    /// done outside its object's room.
+    /// A walk not begun before the clock (an input at the clock begins one to an object in the
+    /// next second, never one out), not as long as the house makes it, or that leads elsewhere
+    /// than its object's room or, without an action, the entrance; or an action done outside
+    /// its object's room.
     Walk,
     ObjectUnknown,
     OfferUnknown,
@@ -191,15 +192,22 @@ pub enum Broken {
     QueuedTwice,
     /// Waiting for an object with a place neither taken nor held.
     WaitFree,
+    /// A held place without its holder's choice due in the next second after an input at the
+    /// clock, or a choice due for one who waits (ADR-0026 section 5).
+    Choice,
 }
 
 /// The checks on load of the house part (ADR-0024, addendum of 2026-11-02) at `now`, the
-/// second the loaded world runs next. `alive` says whether a household has not ended;
-/// `member` gives a living sim's household and birth.
+/// second the loaded world runs next. `choices` are the persons whose choice is due at `now`
+/// if an input acted at the clock, `None` if none did: an advance runs every event of a
+/// second, so only such an input leaves a walk begun, a place held or a choice due in the
+/// second after the clock (ADR-0024, addendum of 2026-11-04). `alive` says whether a household
+/// has not ended; `member` gives a living sim's household and birth.
 pub fn consistent(
     house: &HouseState,
     data: Option<&HouseData>,
     now: SimTime,
+    choices: Option<&BTreeSet<SimId>>,
     alive: impl Fn(HouseholdId) -> bool,
     member: impl Fn(SimId) -> Option<(HouseholdId, SimTime)>,
 ) -> Result<(), Broken> {
@@ -228,7 +236,7 @@ pub fn consistent(
         }
         households.insert(sim, household);
         let home = homes[&household];
-        person_consistent(person, home, data, now)?;
+        person_consistent(person, home, data, (now, choices.is_some()))?;
         rates_consistent(person, home, data, born)?;
         due_consistent(person, home, data, born)?;
         if let Some(action) = person.action
@@ -290,15 +298,21 @@ pub fn consistent(
             return Err(Broken::WaitFree);
         }
     }
+    // A place is held for one whose choice is due, and whoever chooses has left every list.
+    let due = |sim: &SimId| choices.is_some_and(|due| due.contains(sim));
+    let mut waiters = house.waits.values().flatten().map(|(_, waiter)| waiter);
+    if !house.holds.values().all(due) || waiters.any(due) {
+        return Err(Broken::Choice);
+    }
     Ok(())
 }
 
-/// The checks of one person with needs in its house.
+/// The checks of one person with needs in its house; `opened` if an input acted at the clock.
 fn person_consistent(
     person: &InHouse,
     home: &House,
     data: Option<&HouseData>,
-    now: SimTime,
+    (now, opened): (SimTime, bool),
 ) -> Result<(), Broken> {
     for need in &person.needs {
         if need.value() > FULL {
@@ -346,13 +360,16 @@ fn person_consistent(
         } => {
             room(from)?;
             room(to)?;
-            // The walk the house gives, begun before the clock.
+            // The walk the house gives, begun before the clock or, by an input at it (a
+            // command, ADR-0024 section 5), in the second the loaded world runs next; no input
+            // begins a walk out (leaving is an event).
             let secs = match person.action {
                 Some(action) => home.walk_to(from, action.object),
                 None => home.walk_out(from),
             };
             let walked = arrive.as_secs() - depart.as_secs();
-            if depart >= now || walked != i64::from(secs) || to != goal {
+            let begun = depart < now || (depart == now && opened && person.action.is_some());
+            if !begun || walked != i64::from(secs) || to != goal {
                 return Err(Broken::Walk);
             }
         }

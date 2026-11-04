@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
+import { commandChoices, offerWords, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, WhyAnswer } from "./generated/export.js";
+import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName } from "./names.js";
 import { usePedigree } from "./person.js";
@@ -15,7 +16,7 @@ import { format } from "./router.js";
 import { readable } from "./contract.js";
 import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
-const HOUSE = { format: "simagent.view.house", version: 2 } as const;
+const HOUSE = { format: "simagent.view.house", version: 3 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -70,10 +71,21 @@ function useHouse(run: string, household: string, at: string): Loaded<HouseAnswe
   return current(loaded, key);
 }
 
-/** The words of a room, its name and "into" it. */
-function roomWords(layout: HouseLayout, index: number): readonly [string, string] {
+/** The words of a room, its name, "into" it and "in" it. */
+function roomWords(layout: HouseLayout, index: number): readonly [string, string, string] {
   const id = layout.rooms[index]?.id ?? "";
-  return ROOM_WORDS[id] ?? [id, id];
+  return ROOM_WORDS[id] ?? [id, id, id];
+}
+
+/** Where a child under 6 is as one line, all from the server (ADR-0024 section 4): at the
+ * kindergarten until when, asleep in its room, or in its room. */
+function youngLine(layout: HouseLayout, child: HouseChild): string {
+  const away = child.place.away;
+  if (away !== undefined) {
+    return TEXT.house_young_kita.replace("{time}", timeOfDay(away.until.date.second_of_day));
+  }
+  const room = roomWords(layout, child.place.room ?? 0)[2];
+  return child.place.asleep === true ? TEXT.house_young_asleep.replace("{room}", room) : room;
 }
 
 /** What a person does as one line: away where and until when, on the way where to (or out
@@ -105,14 +117,6 @@ function doing(layout: HouseLayout, person: HousePerson): string {
   return `${does}${until}`;
 }
 
-/** What an offer of an object is, as a person does it: "isst am Esstisch". */
-function offerWords(layout: HouseLayout, object: number, offer: number): string {
-  const drawn = layout.objects[object];
-  const name = drawn?.offers[offer] ?? "";
-  const kind = KIND_WORDS[drawn?.kind ?? ""];
-  return TEXT.house_does.replace("{offer}", OFFER_WORDS[name] ?? name).replace("{at}", kind?.[1] ?? drawn?.kind ?? "");
-}
-
 /** The line of a house entry of the day, or null for one the day leaves out (an arrival). */
 function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: boolean } | null {
   const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
@@ -120,8 +124,11 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
   const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
   const school = fields["place"] === "school";
   switch (code) {
-    case "core:action_started":
-      return { text: TEXT.house_choice.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
+    case "core:action_started": {
+      // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it.
+      const said = fields["commanded"] === true ? TEXT.house_commanded : TEXT.house_choice;
+      return { text: said.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
+    }
     case "core:action_ended": {
       const codes: Record<string, string> = CODES;
       const reason = codes[`end_reason ${String(fields["reason"])}`] ?? String(fields["reason"]);
@@ -266,9 +273,14 @@ function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number
 function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number, string> }) {
   const { layout } = house;
   const drawn = plan(layout);
-  // Who is away at school or work is not in the house.
+  // Who is away at school, work or the kindergarten is not in the house.
   const inside = house.persons.filter((person) => person.place.away === undefined);
-  const placed = spots(layout, inside, house.at.t);
+  const young = house.children.filter((child) => child.place.away === undefined);
+  const placed = spots(layout, [...inside, ...young], house.at.t);
+  const dots = [
+    ...inside.map((person) => ({ sim: person.sim, fill: person.action === null ? "#8a6d3b" : "#2f6f73", line: doing(layout, person) })),
+    ...young.map((child) => ({ sim: child.sim, fill: "#9a5a8c", line: youngLine(layout, child) })),
+  ];
   const pad = 0.6;
   // Room on the right for the names of objects at the wall.
   const view = `${-pad} ${-pad - 0.8} ${drawn.width + 2 * pad + 1.2} ${drawn.height + 2 * pad + 0.8}`;
@@ -315,16 +327,16 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
           </text>
         );
       })}
-      {inside.map((person, index) => {
+      {dots.map((dot, index) => {
         const spot = placed[index] ?? { x: 0, y: 0 };
-        const name = names.get(person.sim) ?? String(person.sim);
+        const name = names.get(dot.sim) ?? String(dot.sim);
         return (
-          <g key={`person-${person.sim}`}>
-            <circle cx={spot.x} cy={spot.y} r={0.3} fill={person.action === null ? "#8a6d3b" : "#2f6f73"} stroke="#fff" stroke-width={0.05} />
+          <g key={`person-${dot.sim}`}>
+            <circle cx={spot.x} cy={spot.y} r={0.3} fill={dot.fill} stroke="#fff" stroke-width={0.05} />
             <text x={spot.x} y={spot.y + 0.11} text-anchor="middle" font-size={0.32} fill="#fff">
               {name.slice(0, 1)}
             </text>
-            <title>{`${name}: ${doing(layout, person)}`}</title>
+            <title>{`${name}: ${dot.line}`}</title>
           </g>
         );
       })}
@@ -332,24 +344,107 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
   );
 }
 
-/** A person's portrait, name, what it does and its five needs as bars. */
+/** Whether a person can be given a command from the page: at home, neither away nor on its
+ * way out (the core refuses the rest with its reason, ADR-0024 section 5). */
+function commandable(person: HousePerson): boolean {
+  return person.place.away === undefined && (person.place.walking === undefined || person.action !== null);
+}
+
+/** The key of a choice in its list. */
+function choiceKey(choice: CommandChoice): string {
+  return `${choice.object}:${choice.offer}`;
+}
+
+/** A command for a person with needs at home (ADR-0024 section 5): an offer of an object of
+ * the house and "Befehlen", an input over the server. Once it is taken the house is read
+ * again (`given`); a refusal stands beside it with the core's reason. */
+function Command({
+  run,
+  layout,
+  sim,
+  name,
+  given,
+}: {
+  run: string;
+  layout: HouseLayout;
+  sim: number;
+  name: string;
+  given: () => void;
+}) {
+  const choices = commandChoices(layout);
+  const [chosen, setChosen] = useState("");
+  const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const choice = choices.find((each) => choiceKey(each) === chosen) ?? choices[0];
+  if (choice === undefined) {
+    return null;
+  }
+  const give = () => {
+    setSending(true);
+    setRefused(null);
+    postJson(`/api/runs/${run}/input`, { command: { sim, object: choice.object, offer: choice.offer } }, INPUT)
+      .then(() => {
+        if (mounted.current) {
+          setSending(false);
+          given();
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted.current) {
+          setSending(false);
+          setRefused(inputFailureText(error));
+        }
+      });
+  };
+  return (
+    <div role="group" aria-label={TEXT.house_command_for.replace("{name}", name)}>
+      <select aria-label={TEXT.house_command_what} value={choiceKey(choice)} onChange={(event) => setChosen(event.currentTarget.value)}>
+        {choices.map((each) => (
+          <option key={choiceKey(each)} value={choiceKey(each)}>
+            {each.label}
+          </option>
+        ))}
+      </select>{" "}
+      <button type="button" disabled={sending} onClick={give}>
+        {TEXT.house_command}
+      </button>
+      {refused !== null && <span role="status"> {refused}</span>}
+    </div>
+  );
+}
+
+/** A resident's portrait, name and line; for a person with needs its five needs as bars, its
+ * day and, at home, a command; for a child under 6 (`person` null) nothing more. */
 function Resident({
   run,
   house,
+  sim,
+  line,
   person,
   pedigree,
   people,
+  given,
 }: {
   run: string;
   house: HouseAnswer;
-  person: HousePerson;
+  sim: number;
+  line: string;
+  person: HousePerson | null;
   pedigree: Pedigree;
   people: PeopleAnswer | null;
+  given: () => void;
 }) {
-  const known = pedigree.persons.find((p) => p.sim === person.sim);
-  const name = known === undefined ? String(person.sim) : fullName(known);
+  const known = pedigree.persons.find((p) => p.sim === sim);
+  const name = known === undefined ? String(sim) : fullName(known);
   const shown = people !== null && readable(people.contract_version)
-    ? people.people.find((p) => p.sim === person.sim)?.shown
+    ? people.people.find((p) => p.sim === sim)?.shown
     : undefined;
   return (
     <li style={{ display: "flex", gap: "1em", alignItems: "flex-start", listStyle: "none", marginBottom: "1em" }}>
@@ -358,41 +453,53 @@ function Resident({
       )}
       <div>
         <p>
-          <a href={format({ page: "person", run, sim: String(person.sim) })}>{name}</a>
+          <a href={format({ page: "person", run, sim: String(sim) })}>{name}</a>
           {": "}
-          {doing(house.layout, person)}
+          {line}
         </p>
-        <dl style={{ margin: 0 }}>
-          {NEEDS.map((need, index) => {
-            const value = person.needs[index] ?? 0;
-            return (
-              <div key={need} style={{ display: "flex", gap: "0.5em" }}>
-                <dt style={{ width: "5em" }} id={`need-${person.sim}-${index}`}>{TEXT[need]}</dt>
-                <dd style={{ margin: 0 }}>
-                  <meter
-                    min={0}
-                    max={1000}
-                    low={150}
-                    high={400}
-                    optimum={1000}
-                    value={value}
-                    aria-labelledby={`need-${person.sim}-${index}`}
-                  />{" "}
-                  {value}
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
-        <Day run={run} house={house} sim={person.sim} />
+        {person !== null && (
+          <>
+            <Needs person={person} />
+            <Day run={run} house={house} sim={sim} />
+            {commandable(person) && <Command run={run} layout={house.layout} sim={sim} name={name} given={given} />}
+          </>
+        )}
       </div>
     </li>
   );
 }
 
+/** A person's five needs as bars. */
+function Needs({ person }: { person: HousePerson }) {
+  return (
+    <dl style={{ margin: 0 }}>
+      {NEEDS.map((need, index) => {
+        const value = person.needs[index] ?? 0;
+        return (
+          <div key={need} style={{ display: "flex", gap: "0.5em" }}>
+            <dt style={{ width: "5em" }} id={`need-${person.sim}-${index}`}>{TEXT[need]}</dt>
+            <dd style={{ margin: 0 }}>
+              <meter
+                min={0}
+                max={1000}
+                low={150}
+                high={400}
+                optimum={1000}
+                value={value}
+                aria-labelledby={`need-${person.sim}-${index}`}
+              />{" "}
+              {value}
+            </dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
 /** The house of a household (ADR-0021, addendum of 2026-11-03): its plan with the people
  * where they are, the clock in steps of minutes and hours, each person with what it does
- * and its needs. */
+ * and its needs, each child under 6 with where it is. */
 export function HousePage({ run, household }: { run: string; household: string }) {
   const [at, setAt] = useState(0);
   const loaded = useHouse(run, household, String(at));
@@ -468,6 +575,12 @@ export function HousePage({ run, household }: { run: string; household: string }
   const names = new Map<number, string>(
     pedigree.state === "ready" ? pedigree.value.persons.map((p) => [p.sim, fullName(p)]) : [],
   );
+  // A command changed the house: read it again at the same clock.
+  const reload = () => {
+    if (live.current) {
+      setAt((count) => count + 1);
+    }
+  };
   return (
     <section>
       <h1>{TEXT.house_of_household.replace("{n}", household)}</h1>
@@ -497,7 +610,7 @@ export function HousePage({ run, household }: { run: string; household: string }
       {pedigree.state === "failed" && <p role="alert">{TEXT[pedigree.text]}</p>}
       {!house.morning && <p>{TEXT.house_before_morning}</p>}
       <Plan house={house} names={names} />
-      {pedigree.state === "ready" && house.persons.length > 0 && (
+      {pedigree.state === "ready" && house.persons.length + house.children.length > 0 && (
         <>
           <h2>{TEXT.house_people}</h2>
           <ul style={{ padding: 0 }}>
@@ -506,13 +619,28 @@ export function HousePage({ run, household }: { run: string; household: string }
                 key={person.sim}
                 run={run}
                 house={house}
+                sim={person.sim}
+                line={doing(house.layout, person)}
                 person={person}
                 pedigree={pedigree.value}
                 people={people.state === "ready" ? people.value : null}
+                given={reload}
+              />
+            ))}
+            {house.children.map((child) => (
+              <Resident
+                key={child.sim}
+                run={run}
+                house={house}
+                sim={child.sim}
+                line={youngLine(house.layout, child)}
+                person={null}
+                pedigree={pedigree.value}
+                people={people.state === "ready" ? people.value : null}
+                given={reload}
               />
             ))}
           </ul>
-          <p>{TEXT.house_young}</p>
         </>
       )}
     </section>

@@ -41,13 +41,16 @@ pub(crate) fn next_morning(at: SimTime) -> Option<SimTime> {
     at.checked_add(SimDuration::from_secs(wait))
 }
 
-/// A started world with a second after the clock.
-fn running(domain: &DomainState, closed_through: SimTime) -> Result<(), RejectCode> {
+/// A started world with a second after the clock: that second, in which an input acts.
+pub(super) fn running(
+    domain: &DomainState,
+    closed_through: SimTime,
+) -> Result<SimTime, RejectCode> {
     let next = closed_through.checked_add(SimDuration::from_secs(1));
     match (domain.world_seed, next) {
         (None, _) => Err(RejectCode::NotStarted),
         (Some(_), None) => Err(RejectCode::EndOfTime),
-        (Some(_), Some(_)) => Ok(()),
+        (Some(_), Some(next)) => Ok(next),
     }
 }
 
@@ -242,7 +245,9 @@ pub(super) fn start_day(
 
 /// The person's crossings anew after a change of its rates in the handler that wrote `by`
 /// (ADR-0026 section 1): those still planned are cancelled, then each threshold below a
-/// falling value is planned.
+/// falling value is planned. An input, a command, acts before the events of its second, so a
+/// crossing in that second of a need it did not write down still comes after it and is planned
+/// again (ADR-0024, addendum of 2026-11-04); a handler plans those after its second.
 pub(super) fn plan_crossings(
     domain: &mut DomainState,
     sim: SimId,
@@ -257,7 +262,12 @@ pub(super) fn plan_crossings(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    let planned: Vec<(Need, u16, SimTime)> = crossings(person, ctx.now()).collect();
+    let after = if ctx.in_input() {
+        ctx.now() - SimDuration::from_secs(1)
+    } else {
+        ctx.now()
+    };
+    let planned: Vec<(Need, u16, SimTime)> = crossings(person, after).collect();
     for (need, level, at) in planned {
         let crossing = EventPayload::NeedCrossing { sim, need, level };
         let handle = ctx.schedule(at, crossing, by);

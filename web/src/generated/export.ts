@@ -392,7 +392,7 @@ export type HousesEntry = {
   readonly morning: boolean;
 };
 
-/** `GET /api/runs/{run}/house/{household}`, version 2: the household's house at the clock: its drawing and each person with needs (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4). */
+/** `GET /api/runs/{run}/house/{household}`, version 3: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
   readonly version: number;
@@ -402,6 +402,7 @@ export type HouseAnswer = {
   readonly morning: boolean;
   readonly layout: HouseLayout;
   readonly persons: HousePerson[];
+  readonly children: HouseChild[];
 };
 
 /** The drawing of a house in metres from the top left: the rooms in the house file's order, the doors, the objects in their order. */
@@ -459,6 +460,25 @@ export type HousePlace = {
 /** Away at school or work until the return, its second with its date. */
 export type HouseAway = {
   readonly place: "school" | "work";
+  readonly until: DatedSecond;
+};
+
+/** A child under 6, without needs: where the clock puts it (ADR-0024 section 4). */
+export type HouseChild = {
+  readonly sim: number;
+  readonly place: HouseChildPlace;
+};
+
+/** In the house's day room, or asleep in its night room; or at the kindergarten. */
+export type HouseChildPlace = {
+  readonly room?: number;
+  readonly asleep?: boolean;
+  readonly away?: HouseKita;
+};
+
+/** At the kindergarten until it ends, its second with its date. */
+export type HouseKita = {
+  readonly place: "kita";
   readonly until: DatedSecond;
 };
 

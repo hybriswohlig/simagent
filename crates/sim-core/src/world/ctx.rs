@@ -141,6 +141,12 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         self.ctx.now()
     }
 
+    /// Whether this is an applied input: it acts in `now` before every event of that second
+    /// (ADR-0004 section 4), a handler after the events of `now` before it.
+    pub(crate) fn in_input(&self) -> bool {
+        self.ctx.current_key().is_none()
+    }
+
     /// Why this handler runs: the plan of the running event or the applied input.
     pub(crate) fn trigger(&self) -> Cause {
         self.trigger.clone()

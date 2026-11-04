@@ -326,9 +326,12 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
 /// drawing with each object's places and the names of its offers, and each person with needs
 /// in ascending SimId with where it is, away at school or work until its return (version 2,
-/// ADR-0024 section 4), what it does and until when, and its needs at the clock. `None` for a
-/// household without a house.
+/// ADR-0024 section 4), what it does and until when, and its needs at the clock (a need an
+/// input at the clock wrote down in the next second, as a command does, with that value); and
+/// each child without needs in ascending SimId where the clock puts it (version 3). `None` for
+/// a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
+    use sim_core::house::day::{YoungPlace, young_place};
     use sim_core::house::state::{Place, action_end};
     let state = world.state();
     let Ok(household) = sim_core::ids::HouseholdId::try_from(household) else {
@@ -413,18 +416,36 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             "sim": sim.get(),
             "place": place,
             "action": action,
-            "needs": person.needs.map(|need| need.value_at(at)),
+            // An input at the clock acts in the next second (ADR-0004 section 4): what it wrote
+            // down has no value before.
+            "needs": person.needs.map(|need| need.value_at(at.max(need.at()))),
         }));
     }
+    // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
+    // after it exactly the children whose plan at 5:00 has not found them 6 yet, so a child
+    // who turned 6 at noon stands here until its next plan.
+    let def = house.def();
+    let place = match young_place(houses.day(), at) {
+        YoungPlace::Kita { until } => {
+            serde_json::json!({"away": {"place": "kita", "until": dated(until)}})
+        }
+        YoungPlace::Bed => serde_json::json!({"room": def.child_night_room, "asleep": true}),
+        YoungPlace::DayRoom => serde_json::json!({"room": def.child_day_room, "asleep": false}),
+    };
+    let children: Vec<serde_json::Value> = (state.members(household))
+        .filter(|sim| moved.morning && !state.house().sims.contains_key(sim))
+        .map(|sim| serde_json::json!({"sim": sim.get(), "place": place}))
+        .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 2,
+        "version": 3,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
         "morning": moved.morning,
         "layout": {"rooms": layout.rooms, "doors": layout.doors, "objects": objects},
         "persons": persons,
+        "children": children,
     })))
 }
 
@@ -546,7 +567,8 @@ fn fork_keeps_diseases(world: &World) -> Vec<bool> {
                     | Input::SeparatePartnership(_)
                     | Input::TimeTogether(_)
                     | Input::MoveIn(_)
-                    | Input::MoveOut(_) => {}
+                    | Input::MoveOut(_)
+                    | Input::Command(_) => {}
                 }
             }
             on

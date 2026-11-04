@@ -184,7 +184,8 @@ fn switches(history: &[InputRecord]) -> Vec<(SimTime, bool)> {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => Vec::new(),
+            | Input::MoveOut(_)
+            | Input::Command(_) => Vec::new(),
         })
         .collect()
 }
@@ -201,7 +202,8 @@ fn by_start(history: &[InputRecord]) -> u64 {
         | Input::SeparatePartnership(_)
         | Input::TimeTogether(_)
         | Input::MoveIn(_)
-        | Input::MoveOut(_) => None,
+        | Input::MoveOut(_)
+        | Input::Command(_) => None,
     });
     super::start::persons(start.unwrap_or_else(|| panic!("invariant onset.no_start")))
 }

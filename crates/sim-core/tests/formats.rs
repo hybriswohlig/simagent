@@ -149,6 +149,15 @@ fn sample_move_out() -> Input {
     })
 }
 
+/// The first woman of a world told to take offer 0 of object 3 (ADR-0024 section 5).
+fn sample_command() -> Input {
+    Input::Command(sim_core::input::Command {
+        sim: sim(1),
+        object: 3,
+        offer: 0,
+    })
+}
+
 fn sample_shock() -> Input {
     Input::TriggerShock(sim_core::input::TriggerShock {
         shock: data_id("core:hunger_one_year"),
@@ -173,6 +182,7 @@ fn all_inputs() -> Vec<Input> {
         sample_together(),
         sample_move_in(),
         sample_move_out(),
+        sample_command(),
     ];
     for input in &inputs {
         match input {
@@ -184,7 +194,8 @@ fn all_inputs() -> Vec<Input> {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => {}
+            | Input::MoveOut(_)
+            | Input::Command(_) => {}
         }
     }
     inputs
@@ -479,6 +490,17 @@ fn partnership_forms_are_pinned() {
     let move_out_json = r#"{"move_out":{"household":1}}"#;
     assert_eq!(json(&sample_move_out()), move_out_json);
     assert_eq!(postcard_round_trip(&sample_move_out()), hex("0801"));
+    // A command: variant 9 with the sim, the object and the offer, each a varint (ADR-0024
+    // section 5).
+    let command_json = r#"{"command":{"sim":1,"object":3,"offer":0}}"#;
+    assert_eq!(json(&sample_command()), command_json);
+    assert_eq!(
+        from_json::<Input>(command_json).expect("parses"),
+        sample_command()
+    );
+    assert_eq!(postcard_round_trip(&sample_command()), hex("09010300"));
+    assert!(from_json::<Input>(r#"{"command":{"sim":1,"object":3}}"#).is_err());
+    assert!(from_json::<Input>(r#"{"command":{"sim":1,"object":3,"offer":0,"slot":0}}"#).is_err());
 
     let partnered = LogPayload::Partnered {
         partnership: PartnershipId::try_from(1).expect("valid"),
@@ -811,7 +833,8 @@ fn formats_roundtrip_rejects_malformed_hex() {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => panic!("a start"),
+            | Input::MoveOut(_)
+            | Input::Command(_) => panic!("a start"),
         })
     };
     assert_eq!(with_seed("00000000000000ff").ok(), Some(0xff));
@@ -1172,6 +1195,12 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::HouseLimit,
         RejectCode::NoHouse,
         RejectCode::NotInHouse,
+        RejectCode::WrongAge,
+        RejectCode::Away,
+        RejectCode::ObjectUnknown,
+        RejectCode::OfferUnknown,
+        RejectCode::SlotBusy,
+        RejectCode::CriticalNeed,
     ];
     for code in &codes {
         match code {
@@ -1217,7 +1246,13 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::AlreadyInHouse
             | RejectCode::HouseLimit
             | RejectCode::NoHouse
-            | RejectCode::NotInHouse => {}
+            | RejectCode::NotInHouse
+            | RejectCode::WrongAge
+            | RejectCode::Away
+            | RejectCode::ObjectUnknown
+            | RejectCode::OfferUnknown
+            | RejectCode::SlotBusy
+            | RejectCode::CriticalNeed => {}
         }
     }
     codes
@@ -1589,6 +1624,7 @@ fn log_codes_are_stable() {
         EndReason::Left,
         EndReason::Critical,
         EndReason::Obligation,
+        EndReason::Command,
     ];
     for reason in &reasons {
         match reason {
@@ -1596,7 +1632,8 @@ fn log_codes_are_stable() {
             | EndReason::Full
             | EndReason::Left
             | EndReason::Critical
-            | EndReason::Obligation => {}
+            | EndReason::Obligation
+            | EndReason::Command => {}
         }
     }
     actual.extend(reasons.iter().map(|r| line("end_reason", r)));
