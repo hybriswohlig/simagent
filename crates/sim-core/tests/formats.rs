@@ -1112,6 +1112,11 @@ fn all_payloads() -> Vec<LogPayload> {
         },
         LogPayload::CameHome { place: Duty::Work },
         LogPayload::Missed { place: Duty::Work },
+        LogPayload::NeedEmpty { need: Need::Energy },
+        LogPayload::Collapsed { room: 2 },
+        LogPayload::Accident {
+            needs: [600, 900, 1000, 50, 800],
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1144,7 +1149,10 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::DayPlanned { .. }
             | LogPayload::LeftHome { .. }
             | LogPayload::CameHome { .. }
-            | LogPayload::Missed { .. } => {}
+            | LogPayload::Missed { .. }
+            | LogPayload::NeedEmpty { .. }
+            | LogPayload::Collapsed { .. }
+            | LogPayload::Accident { .. } => {}
         }
     }
     payloads
@@ -1202,6 +1210,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::SlotBusy,
         RejectCode::CriticalNeed,
         RejectCode::NotNight,
+        RejectCode::Collapsed,
+        RejectCode::Listless,
     ];
     for code in &codes {
         match code {
@@ -1254,7 +1264,9 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::OfferUnknown
             | RejectCode::SlotBusy
             | RejectCode::CriticalNeed
-            | RejectCode::NotNight => {}
+            | RejectCode::NotNight
+            | RejectCode::Collapsed
+            | RejectCode::Listless => {}
         }
     }
     codes
@@ -1627,6 +1639,7 @@ fn log_codes_are_stable() {
         EndReason::Critical,
         EndReason::Obligation,
         EndReason::Command,
+        EndReason::Collapse,
     ];
     for reason in &reasons {
         match reason {
@@ -1635,7 +1648,8 @@ fn log_codes_are_stable() {
             | EndReason::Left
             | EndReason::Critical
             | EndReason::Obligation
-            | EndReason::Command => {}
+            | EndReason::Command
+            | EndReason::Collapse => {}
         }
     }
     actual.extend(reasons.iter().map(|r| line("end_reason", r)));

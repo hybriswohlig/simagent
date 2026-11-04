@@ -295,6 +295,7 @@ fn the_first_morning_gives_the_needs() {
             day: day_index(at),
             count: 1,
         },
+        collapsed: false,
     };
     let house = run.world.state().house();
     assert!(house.households[&home].morning);
@@ -386,7 +387,8 @@ fn a_house_is_saved_and_loaded() {
 }
 
 /// The first morning plans each member's crossings (ADR-0026 section 1): an adult at the
-/// morning values has 17 thresholds below its needs; each then chooses and walks to it (the
+/// morning values has 22 thresholds below its needs (17, and 0 for each of the five since the
+/// addendum of 2026-11-04 on a need at 0); each then chooses and walks to it (the
 /// toilet, the table). It plans their day too (ADR-0024 section 4): both working full time
 /// (their draws of `WORK_PLAN` 30 and 3, day 1 a weekday) the wake, the departure and the
 /// return of today, and the bedtime of tonight (ADR-0026, addendum of 2026-11-04); their series
@@ -409,7 +411,7 @@ fn the_morning_plans_the_crossings() {
     // The morning is gone; two adults' crossings, days, bedtimes and walks have come.
     assert_eq!(
         run.world.pending_events(),
-        before - 1 + 2 * (17 + 3 + 1) + 2
+        before - 1 + 2 * (22 + 3 + 1) + 2
     );
 
     let (mut run, home, before) = moved_in();

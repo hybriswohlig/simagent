@@ -8,7 +8,7 @@ use sim_cli::house::house_data_from;
 use sim_core::data_id::DataId;
 use sim_core::house::data::{
     DayRules, Hours, HouseData, HouseError, NeedJumps, NightRules, SchoolRules, WorkRules,
-    YoungRules,
+    YoungRules, ZeroRules,
 };
 
 /// The repository's `day.json` (ADR-0024 section 4).
@@ -480,6 +480,15 @@ fn the_repository_day_loads() {
             from: [at(20, 0), at(20, 0), at(22, 0), at(21, 30)],
             until: [at(6, 0); 4],
         },
+        // A need at 0 (ADR-0026, addendum of 2026-11-04 on a need at 0): on the floor energy
+        // rises 50 an hour, the sofa's poor sleep, up at 250; an accident leaves hygiene at most
+        // 50; hygiene reaching 0 takes 150 from fun once.
+        zero: ZeroRules {
+            collapse_energy_rate: 50,
+            stand_up_at: 250,
+            accident_hygiene_at_most: 50,
+            hygiene_empty_fun: -150,
+        },
     };
     assert_eq!(*data.day(), expected);
 }
@@ -639,24 +648,49 @@ fn the_day_rejects() {
             .contains("invalid length")
     );
 
-    // The first check that fails decides, in the order time, wake, age, share, jump, night.
+    // A need at 0 (ADR-0026, addendum of 2026-11-04 on a need at 0): on the floor energy rises,
+    // and the level to get up at is above 0 and at most full; the accident's hygiene is a
+    // value; hygiene at 0 lowers fun by at most 1000 or leaves it.
+    let zero =
+        |field: &'static str, value: i64| day_checked(move |d| d["zero"][field] = json!(value));
+    assert_eq!(zero("collapse_energy_rate", 0), "house.day_zero");
+    assert_eq!(zero("collapse_energy_rate", -50), "house.day_zero");
+    assert_eq!(zero("collapse_energy_rate", 1), "ok");
+    assert_eq!(zero("stand_up_at", 0), "house.day_zero");
+    assert_eq!(zero("stand_up_at", 1), "ok");
+    assert_eq!(zero("stand_up_at", 1000), "ok");
+    assert_eq!(zero("stand_up_at", 1001), "house.day_zero");
+    assert_eq!(zero("accident_hygiene_at_most", 0), "ok");
+    assert_eq!(zero("accident_hygiene_at_most", 1000), "ok");
+    assert_eq!(zero("accident_hygiene_at_most", 1001), "house.day_zero");
+    assert_eq!(zero("hygiene_empty_fun", 0), "ok");
+    assert_eq!(zero("hygiene_empty_fun", -1000), "ok");
+    assert_eq!(zero("hygiene_empty_fun", -1001), "house.day_zero");
+    assert_eq!(zero("hygiene_empty_fun", 1), "house.day_zero");
+    assert!(zero("stand_up_at", -1).contains("invalid value"));
+    assert!(zero("stand_up_at", 65_536).contains("invalid value"));
+
+    // The first check that fails decides, in the order time, wake, age, share, jump, night,
+    // a need at 0.
     let broken = |checks: usize| {
         day_checked(move |d| {
-            let breaks: [fn(&mut Value); 6] = [
+            let breaks: [fn(&mut Value); 7] = [
                 |d| d["school"]["depart"] = json!(55_200),
                 |d| d["wake_before"] = json!(10_000),
                 |d| d["school"]["until_age"] = json!(19),
                 |d| d["work"]["full_time_below"] = json!(90),
                 |d| d["return_jumps"]["fun"] = json!(1),
                 |d| d["night"]["until"][2] = json!(0),
+                |d| d["zero"]["stand_up_at"] = json!(0),
             ];
-            breaks.iter().skip(6 - checks).for_each(|change| change(d));
+            breaks.iter().skip(7 - checks).for_each(|change| change(d));
         })
     };
-    let codes: Vec<String> = (1..=6).map(broken).collect();
+    let codes: Vec<String> = (1..=7).map(broken).collect();
     assert_eq!(
         codes,
         [
+            "house.day_zero",
             "house.day_night",
             "house.day_jump",
             "house.day_share",
@@ -678,6 +712,7 @@ fn the_day_rejects() {
     )));
     assert!(unknown(day_checked(|d| d["young"]["x"] = json!(1))));
     assert!(unknown(day_checked(|d| d["night"]["x"] = json!(1))));
+    assert!(unknown(day_checked(|d| d["zero"]["x"] = json!(1))));
     let missing = day_checked(|d| {
         d.as_object_mut().expect("the day").remove("wake_before");
     });
@@ -687,10 +722,15 @@ fn the_day_rejects() {
         d.as_object_mut().expect("the day").remove("night");
     });
     assert!(no_night.contains("missing field"), "{no_night}");
+    let no_zero = day_checked(|d| {
+        d.as_object_mut().expect("the day").remove("zero");
+    });
+    assert!(no_zero.contains("missing field"), "{no_zero}");
 
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
     assert_eq!(HouseError::DayNight.to_string(), "house.day_night");
+    assert_eq!(HouseError::DayZero.to_string(), "house.day_zero");
 }
 
 /// Four rooms with a tie: hall to bath through the kitchen (doors 0 and 3) or through the

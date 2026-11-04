@@ -96,8 +96,9 @@ struct Week {
     log: Vec<LogEntry>,
     /// After each second with events.
     seen: Vec<(i64, Seen)>,
-    /// The action a departure waited for, by person and planned departure (ADR-0024 section 4).
-    waited: BTreeMap<(SimId, i64), Action>,
+    /// The action a departure waited for, by person and planned departure (ADR-0024 section 4);
+    /// none for one lying on the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    waited: BTreeMap<(SimId, i64), Option<Action>>,
 }
 
 /// The week of family `i`, one second with events at a time.
@@ -107,8 +108,10 @@ fn week(data: &Data, i: u64) -> Week {
     run.step(END, |world, second| {
         seen.push((second, observe(world, second)));
         for (&sim, person) in &world.state().house().sims {
-            if let (Some(due), Some(action)) = (person.due, person.action) {
-                waited.entry((sim, due.depart.as_secs())).or_insert(action);
+            if let Some(due) = person.due {
+                waited
+                    .entry((sim, due.depart.as_secs()))
+                    .or_insert(person.action);
             }
         }
     });
@@ -302,7 +305,12 @@ fn punctual(duties: &Duties) -> bool {
 /// 0 (on time) or more (late), or `core:missed` at its return (not on time). A late departure's
 /// cause is the `core:action_ended` of its second that ended the action it waited for; a
 /// missed one's cause is the plan of its duty, and its reason the action it waited for: begun
-/// before the departure (its `core:action_started`), not ended before the return.
+/// before the departure (its `core:action_started`), not ended before the return. Since a need
+/// at 0 (ADR-0026, addendum of 2026-11-04 on a need at 0) a departure also waits for one lying
+/// on the floor: then a late one's cause is getting up, the plan its `core:collapsed` made or a
+/// `core:need_critical` at 50 of its second, and a missed one lay from the departure on, or the
+/// action it waited for ended in a collapse before the return. Each reason needs the state's
+/// record of what the departure waited for.
 fn duties(week: &Week) -> Duties {
     let by_id: BTreeMap<u64, &LogEntry> = (week.log.iter())
         .map(|entry| (number(&entry.id), entry))
@@ -334,7 +342,20 @@ fn duties(week: &Week) -> Duties {
         });
         let waited = week.waited.get(&(sim, depart));
         let is_waited = |object: u16, offer: u16| {
-            waited.is_some_and(|action| (action.object, action.offer) == (object, offer))
+            waited.is_some_and(|action| {
+                action.is_some_and(|action| (action.object, action.offer) == (object, offer))
+            })
+        };
+        let lay = waited.is_some_and(Option::is_none);
+        // Getting up from the floor in the second of `left`: the event its collapse planned, or
+        // a need at 50 (ADR-0026, addendum of 2026-11-04 on a need at 0).
+        let got_up = |left: &LogEntry| match left.causes.as_slice() {
+            [Cause::Plan(plan)] => (by_id.get(&number(&plan.by)))
+                .is_some_and(|by| matches!(by.payload, LogPayload::Collapsed { .. })),
+            [Cause::Event(id)] => by_id.get(&number(id)).is_some_and(|by| {
+                by.t == left.t && matches!(by.payload, LogPayload::NeedCritical { level: 50, .. })
+            }),
+            _ => false,
         };
         let explained = match (left, missed) {
             (Some((_, 0)), None) => {
@@ -347,14 +368,15 @@ fn duties(week: &Week) -> Duties {
                     [Cause::Event(id)] => by_id.get(&number(id)),
                     _ => None,
                 };
-                cause.is_some_and(|ended| {
+                let ended = cause.is_some_and(|ended| {
                     let same = ended.t == left.t && ended.subjects == left.subjects;
                     let ended = match ended.payload {
                         LogPayload::ActionEnded { object, offer, .. } => is_waited(object, offer),
                         _ => false,
                     };
                     same && ended
-                })
+                });
+                ended || (waited.is_some() && got_up(left))
             }
             (None, Some(missed)) => {
                 duties.missed += 1;
@@ -366,11 +388,20 @@ fn duties(week: &Week) -> Duties {
                         _ => None,
                     })
                     .next_back();
-                let ran_on = !of().any(|entry| {
-                    (depart..back).contains(&entry.t.as_secs())
-                        && matches!(entry.payload, LogPayload::ActionEnded { .. })
-                });
-                by_plan && begun.is_some_and(|(object, offer)| is_waited(object, offer)) && ran_on
+                let ended = |collapse: bool| {
+                    of().any(|entry| {
+                        let reason = match entry.payload {
+                            LogPayload::ActionEnded { reason, .. } => Some(reason),
+                            _ => None,
+                        };
+                        (depart..back).contains(&entry.t.as_secs())
+                            && reason.is_some_and(|reason| {
+                                !collapse || reason == sim_core::log::EndReason::Collapse
+                            })
+                    })
+                };
+                let waited_on = begun.is_some_and(|(object, offer)| is_waited(object, offer));
+                by_plan && ((waited_on && (!ended(false) || ended(true))) || lay)
             }
             _ => false,
         };
@@ -398,8 +429,23 @@ fn the_week_of_the_test_family() {
     let data = common::repository_data();
     let (mut failures, mut total, mut worst) = (Vec::new(), Duties::default(), 0);
     let mut least: Option<(u64, usize, usize)> = None;
+    // A normal week never brings a need to 0 (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    let mut emptied = 0;
     for i in 0..FAMILIES {
         let week = week(&data, i);
+        let consequences = (week.log.iter()).filter(|entry| {
+            matches!(
+                entry.payload,
+                LogPayload::NeedEmpty { .. }
+                    | LogPayload::Collapsed { .. }
+                    | LogPayload::Accident { .. }
+            )
+        });
+        let count = consequences.count();
+        emptied += count;
+        if count > 0 {
+            failures.push(format!("family {i}: {count} entries of a need at 0"));
+        }
         let longest = hungry(&week);
         let duties = duties(&week);
         for (sim, &secs) in &longest {
@@ -445,7 +491,7 @@ fn the_week_of_the_test_family() {
             .extend(unexplained.map(|what| format!("family {i}: {what}")));
     }
     println!(
-        "all: worst hunger stretch {}; duties {}/{} on time, {} late, {} missed; the least punctual (family, on time, planned) {least:?}",
+        "all: worst hunger stretch {}; duties {}/{} on time, {} late, {} missed; the least punctual (family, on time, planned) {least:?}; entries of a need at 0 {emptied}",
         hm(worst),
         total.on_time,
         total.planned,

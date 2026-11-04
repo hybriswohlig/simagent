@@ -207,6 +207,10 @@ enum Payload {
     Bedtime {
         sim: u64,
     },
+    /// One lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at 0).
+    StandUp {
+        sim: u64,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -474,7 +478,8 @@ type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 
 /// A person with needs (ADR-0024, addendum of 2026-11-02): each need as (value, at, rate),
 /// the place, the action as (object, offer, place), a departure that waits as (place,
-/// depart, back), the choices of a day as (day, count).
+/// depart, back), the choices of a day as (day, count), whether it lies on the floor (ADR-0026,
+/// addendum of 2026-11-04 on a need at 0).
 #[derive(Clone, Serialize)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
@@ -482,6 +487,7 @@ struct TestInHouse {
     action: Option<(u16, u16, u8)>,
     due: Option<(u8, i64, i64)>,
     decisions: (i64, u16),
+    collapsed: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -787,12 +793,12 @@ fn a_save_keeps_the_house() {
     assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
 }
 
-/// The crossings of a person with needs (ADR-0026 section 1): she is 7 and in the flat since a
-/// morning at 6:00, hunger falling from 600 by 100 an hour and the others still, so 400, 150
-/// and 50 come 2, 4.5 and 5.5 hours later. At 7:59:59 the save with all three loads; one
-/// missing, doubled, at another second or as a series is refused, as are the three planned in
-/// another order, one above the value, one of a still need and one of a sim without needs. At
-/// 8:00 the first has come.
+/// The crossings of a person with needs (ADR-0026 section 1 and its addendum of 2026-11-04 on a
+/// need at 0): she is 7 and in the flat since a morning at 6:00, hunger falling from 600 by 100
+/// an hour and the others still, so 400, 150, 50 and 0 come 2, 4.5, 5.5 and 6 hours later. At
+/// 7:59:59 the save with all four loads; one missing, doubled, at another second or as a series
+/// is refused, as are the four planned in another order, one above the value, one of a still
+/// need and one of a sim without needs. At 8:00 the first has come.
 #[test]
 fn a_save_keeps_the_crossings() {
     let data = common::data().with_houses(common::repository_houses());
@@ -807,7 +813,12 @@ fn a_save_keeps_the_crossings() {
     let saved = |clock: i64, crossings: Vec<QueueEntry>| {
         in_the_flat(&data, clock, person.clone(), crossings)
     };
-    let all = vec![hunger(400, 7_200), hunger(150, 16_200), hunger(50, 19_800)];
+    let all = vec![
+        hunger(400, 7_200),
+        hunger(150, 16_200),
+        hunger(50, 19_800),
+        hunger(0, 21_600),
+    ];
     let before = six + 7_199;
     assert_eq!(
         load_error_with(data.clone(), &saved(before, all.clone())),
@@ -819,7 +830,7 @@ fn a_save_keeps_the_crossings() {
             Some(LoadError::Inconsistent)
         );
     };
-    for missing in 0..3 {
+    for missing in 0..4 {
         let mut fewer = all.clone();
         fewer.remove(missing);
         refused(before, fewer);
@@ -837,7 +848,7 @@ fn a_save_keeps_the_crossings() {
     later[1].0 += 1;
     refused(before, later);
     let mut series = all.clone();
-    series[2].4 = Some(Y);
+    series[3].4 = Some(Y);
     refused(before, series);
     // Planned at once, by need and level: the insertion numbers follow that order.
     let mut reversed = all.clone();
@@ -852,6 +863,70 @@ fn a_save_keeps_the_crossings() {
         load_error_with(data.clone(), &saved(six + 7_200, all[1..].to_vec())),
         None
     );
+}
+
+/// One lying on the floor in a save (ADR-0026, addendum of 2026-11-04 on a need at 0): at 7 in
+/// the hall since 7:00 of her Saturday, `SEVEN_SIX` + 1 h, every need written down then at the
+/// sleeping rates of 6 to 12 (hunger, bladder −40, hygiene −10, fun 0) and energy at 0 rising 50
+/// an hour, the others at 0 so nothing crosses. She gets up at 12:00, 250 after exactly 5 h: at
+/// 9:00 the save with that event loads; without it, with it a second off, twice, as a series,
+/// or for one not lying, it is refused. Fallen at 2:00 in her night (from 20:00 to 6:00), she
+/// gets up at its end, 6:00, not at 7:00. With hunger at 100 her crossings at 50 and 0 (4 500
+/// and 9 000 s on) are planned like any other, one missing is refused.
+#[test]
+fn a_save_keeps_one_lying() {
+    let data = common::data().with_houses(common::repository_houses());
+    let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
+    let fell = SEVEN_SIX + 3_600;
+    let lying = |since: i64, hunger: u16| TestInHouse {
+        needs: [(hunger, -40), (0, 50), (0, -40), (0, -10), (0, 0)]
+            .map(|(value, rate)| (value, since, rate)),
+        collapsed: true,
+        ..seven(TestPlace::Room(0), None, [0; 5], None)
+    };
+    let up = |at: i64| event(at, Payload::StandUp { sim: 1 });
+    let loads = |clock: i64, person: &TestInHouse, events: Vec<QueueEntry>| {
+        load_error_with(
+            data.clone(),
+            &in_the_flat(&data, clock, person.clone(), events),
+        )
+    };
+    let refused = Some(LoadError::Inconsistent);
+    let nine = SEVEN_SIX + 3 * 3_600;
+    let down = lying(fell, 0);
+    assert_eq!(loads(nine, &down, vec![up(fell + 18_000)]), None);
+    assert_eq!(loads(nine, &down, vec![]), refused);
+    assert_eq!(loads(nine, &down, vec![up(fell + 18_001)]), refused);
+    assert_eq!(loads(nine, &down, vec![up(fell + 17_999)]), refused);
+    assert_eq!(
+        loads(nine, &down, vec![up(fell + 18_000), up(fell + 18_000)]),
+        refused
+    );
+    let series = (fell + 18_000, 0, 0, Payload::StandUp { sim: 1 }, Some(DAY));
+    assert_eq!(loads(nine, &down, vec![series]), refused);
+    let upright = seven(TestPlace::Room(0), None, [0; 5], None);
+    assert_eq!(loads(nine, &upright, vec![up(fell + 18_000)]), refused);
+    // In her night: fallen at 2:00 of Sunday, up at its end, 6:00.
+    let two = SEVEN_SIX + 20 * 3_600;
+    let morning = SEVEN_SIX + DAY;
+    let at_night = lying(two, 0);
+    let three = two + 3_600;
+    assert_eq!(loads(three, &at_night, vec![up(morning)]), None);
+    assert_eq!(loads(three, &at_night, vec![up(two + 18_000)]), refused);
+    // Hunger at 100 falling 40 an hour: 50 after 4 500 s, 0 after 9 000 s.
+    let hungry = lying(fell, 100);
+    let crossing = |level: u16, secs: i64| {
+        let payload = Payload::NeedCrossing {
+            sim: 1,
+            need: 0,
+            level,
+        };
+        event(fell + secs, payload)
+    };
+    let both = vec![crossing(50, 4_500), crossing(0, 9_000), up(fell + 18_000)];
+    assert_eq!(loads(fell + 60, &hungry, both), None);
+    let no_zero = vec![crossing(50, 4_500), up(fell + 18_000)];
+    assert_eq!(loads(fell + 60, &hungry, no_zero), refused);
 }
 
 /// 6:00 of day 5 of year 7, weekday 5: a day without school (ADR-0024 section 4).
@@ -884,6 +959,7 @@ fn seven(
             sim_core::time::day_index(sim_core::time::SimTime::from_secs(SEVEN_SIX)),
             0,
         ),
+        collapsed: false,
     }
 }
 
@@ -1117,6 +1193,7 @@ fn a_save_keeps_the_night() {
         action: Some((8, 0, 0)),
         due: None,
         decisions: idle.decisions,
+        collapsed: false,
     };
     let end = |at: i64| event(at, Payload::ActionEnd { sim: 1 });
     let asleep = slept(eight + 2 * 3_600);
@@ -1480,6 +1557,7 @@ fn a_save_keeps_the_day() {
         action: None,
         due: None,
         decisions: home.decisions,
+        collapsed: false,
     };
     let noon = SCHOOL_DAY + 12 * 3_600;
     assert_eq!(loads(noon, &away, std::slice::from_ref(&returns)), None);

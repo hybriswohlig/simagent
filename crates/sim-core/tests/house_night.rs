@@ -374,6 +374,7 @@ fn the_last_night_of_time_lasts_to_its_end() {
             day: last_day - 1,
             count: 0,
         },
+        collapsed: false,
     };
     let sleep = OfferDef {
         rates: Default::default(),
@@ -404,6 +405,7 @@ fn a_sleep_ends_with_its_night() {
         action: None,
         due: None,
         decisions: Decisions { day: 1, count: 0 },
+        collapsed: false,
     };
     let sleep = OfferDef {
         rates: Default::default(),
@@ -666,8 +668,11 @@ fn no_free_bed_means_the_sofa() {
 
 /// Nobody sleeps by day, even with low energy: falling 300 an hour from 900, it is 700 at
 /// 6:40, 400 at 7:40, critical at 150 at 8:30 and at 50 at 8:50, each time a choice, and
-/// nothing raises it while sofa and beds are closed; idle (the television 39 850). At 0 from
-/// 9:00, they go to bed at 22:00, by the critical need (151 · 10⁹ + 1 000 · 800 − 50 · 4).
+/// nothing raises it while sofa and beds are closed; idle (the television 39 850). At 0, at
+/// 9:00, they lie on the floor (ADR-0026, addendum of 2026-11-04 on a need at 0) until 14:00,
+/// energy 250, by day again: idle, critical at 14:20 and 14:40, on the floor from 14:50 to
+/// 19:50, then 20:10 and 20:30, on the floor again from 20:40, so their bedtime at 22:00 finds
+/// them lying and does nothing.
 #[test]
 fn nobody_sleeps_by_day() {
     let mut run = family(data_with(DAY_FILE, (-300, 0), false), &[], 4);
@@ -693,7 +698,16 @@ fn nobody_sleeps_by_day() {
             (9_000, idle(0, at(150), &[])),
             (10_200, critical(50)),
             (10_200, idle(0, at(50), &[])),
-            (TEN_PM, started((BED, 0), (0, 4), at(0), &[], false)),
+            (28_800, idle(0, at(250), &[])),
+            (30_000, critical(150)),
+            (30_000, idle(0, at(150), &[])),
+            (31_200, critical(50)),
+            (31_200, idle(0, at(50), &[])),
+            (49_800, idle(0, at(250), &[])),
+            (51_000, critical(150)),
+            (51_000, idle(0, at(150), &[])),
+            (52_200, critical(50)),
+            (52_200, idle(0, at(50), &[])),
         ]
     );
     assert_mirrored(&run, SATURDAY);

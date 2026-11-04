@@ -580,6 +580,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
         ),
         ("decide", EventPayload::Decide { sim }),
         ("bedtime", EventPayload::Bedtime { sim }),
+        ("stand_up", EventPayload::StandUp { sim }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -604,7 +605,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::ActionEnd { .. }
                 | EventPayload::NeedCrossing { .. }
                 | EventPayload::Decide { .. }
-                | EventPayload::Bedtime { .. } => {}
+                | EventPayload::Bedtime { .. }
+                | EventPayload::StandUp { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -642,10 +644,13 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::LeftHome { .. } => "core:left_home",
         LogPayload::CameHome { .. } => "core:came_home",
         LogPayload::Missed { .. } => "core:missed",
+        LogPayload::NeedEmpty { .. } => "core:need_empty",
+        LogPayload::Collapsed { .. } => "core:collapsed",
+        LogPayload::Accident { .. } => "core:accident",
     }
 }
 
-const LOG_KINDS: [&str; 29] = [
+const LOG_KINDS: [&str; 32] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -675,10 +680,13 @@ const LOG_KINDS: [&str; 29] = [
     "core:left_home",
     "core:came_home",
     "core:missed",
+    "core:need_empty",
+    "core:collapsed",
+    "core:accident",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 12] = [
+const HOUSE_LOGS: [&str; 15] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -691,6 +699,9 @@ const HOUSE_LOGS: [&str; 12] = [
     "core:left_home",
     "core:came_home",
     "core:missed",
+    "core:need_empty",
+    "core:collapsed",
+    "core:accident",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -709,9 +720,9 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
     missing
 }
 
-/// The house events (ADR-0024, addendum of 2026-11-02; the bedtime of ADR-0026, addendum of
-/// 2026-11-04): no golden scenario moves in yet, so none of them runs.
-const HOUSE_EVENTS: [&str; 10] = [
+/// The house events (ADR-0024, addendum of 2026-11-02; the bedtime and getting up of ADR-0026,
+/// addenda of 2026-11-04): no golden scenario moves in yet, so none of them runs.
+const HOUSE_EVENTS: [&str; 11] = [
     "house_morning",
     "day_plan",
     "return",
@@ -722,6 +733,7 @@ const HOUSE_EVENTS: [&str; 10] = [
     "need_crossing",
     "decide",
     "bedtime",
+    "stand_up",
 ];
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
@@ -746,6 +758,7 @@ fn golden_scenarios_cover_every_kind() {
             "event need_crossing",
             "event decide",
             "event bedtime",
+            "event stand_up",
             "log core:param_changed",
             "log core:arrived",
             "log core:disease_onset",
@@ -762,7 +775,10 @@ fn golden_scenarios_cover_every_kind() {
             "log core:day_planned",
             "log core:left_home",
             "log core:came_home",
-            "log core:missed"
+            "log core:missed",
+            "log core:need_empty",
+            "log core:collapsed",
+            "log core:accident"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, and nobody moves into a house"
@@ -809,7 +825,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 21);
+    assert_eq!(kinds.len(), 22);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -817,7 +833,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 29);
+    assert_eq!(logs.len(), 32);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -889,6 +905,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event need_crossing",
             "event decide",
             "event bedtime",
+            "event stand_up",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -916,7 +933,10 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:day_planned",
             "log core:left_home",
             "log core:came_home",
-            "log core:missed"
+            "log core:missed",
+            "log core:need_empty",
+            "log core:collapsed",
+            "log core:accident"
         ]
     );
 }
