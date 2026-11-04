@@ -198,6 +198,19 @@ impl World {
         self.sched.pending_len()
     }
 
+    /// The second the action of a person at its object ends as the queue holds it (ADR-0026
+    /// section 4; a time-filler at its next choice, ADR-0026, addendum of 2026-11-04 on comfort
+    /// and the time-filler); `None` for anyone else, or one whose end lies beyond the end of time.
+    pub fn action_until(&self, sim: SimId) -> Option<SimTime> {
+        use crate::house::state::Place;
+        let person = self.state.domain.house.sims.get(&sim)?;
+        if !matches!((person.place, person.action), (Place::Room(_), Some(_))) {
+            return None;
+        }
+        let handle = *self.state.domain.pending.get(&(sim, state::Slot::End))?;
+        self.pending_time(handle)
+    }
+
     /// Where a person away or on its way out is and until when: the place and the second of
     /// its return (ADR-0024 section 4); `None` for anyone else.
     pub fn away(&self, sim: SimId) -> Option<(crate::house::state::Duty, SimTime)> {

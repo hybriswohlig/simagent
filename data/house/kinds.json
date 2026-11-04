@@ -11,7 +11,7 @@
     "id": "core:bookshelf",
     "slots": 2,
     "offers": [
-      {"id": "read", "rates": {"fun": 300}, "seconds": 3600, "min_age": 0, "max_age": 130}
+      {"id": "read", "rates": {"fun": 300}, "seconds": 3600, "min_age": 0, "max_age": 130, "fallback": true}
     ]
   },
   {
@@ -47,7 +47,8 @@
     "id": "core:sofa",
     "slots": 3,
     "offers": [
-      {"id": "sleep", "rates": {"energy": 50}, "sleep": true, "min_age": 0, "max_age": 130}
+      {"id": "sleep", "rates": {"energy": 50}, "sleep": true, "min_age": 0, "max_age": 130},
+      {"id": "sit", "rates": {"fun": 120}, "seconds": 1800, "min_age": 0, "max_age": 130, "fallback": true}
     ]
   },
   {
@@ -68,14 +69,14 @@
     "id": "core:toy_chest",
     "slots": 2,
     "offers": [
-      {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 6, "max_age": 12}
+      {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 6, "max_age": 12, "fallback": true}
     ]
   },
   {
     "id": "core:tv",
     "slots": 3,
     "offers": [
-      {"id": "watch", "rates": {"fun": 400}, "seconds": 2700, "min_age": 0, "max_age": 130}
+      {"id": "watch", "rates": {"fun": 400}, "seconds": 2700, "min_age": 0, "max_age": 130, "fallback": true}
     ]
   }
 ]

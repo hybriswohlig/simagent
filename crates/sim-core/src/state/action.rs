@@ -11,9 +11,9 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, Choice, choose, in_tier, mood, score, tier};
+use crate::house::choice::{CRITICAL, Choice, choose, filler, in_tier, mood, score, tier};
 use crate::house::data::{BedFor, House, HouseData, NEEDS, Need, OfferDef, age_band};
-use crate::house::day::night;
+use crate::house::day::{departure, night, work_draw};
 use crate::house::need::{EMERGENCY, EMPTY, FULL};
 use crate::house::state::{
     Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end, child_held, dwell_walk,
@@ -274,9 +274,11 @@ fn busy(house: &House, houses: &HouseData, taken: &BTreeSet<(u16, u8)>) -> Vec<u
 
 /// A person idle in a room chooses now (ADR-0026 section 3, and in its night as its addendum
 /// of 2026-11-04 says, `choose`), with its mood for each offer in this second (the addendum
-/// of 2026-11-04 on the mood): it walks to the chosen offer, holding the smallest free place
-/// of its object; or it idles, waiting for an object if the choice says so. Each choice counts
-/// against the day's budget and cancels a pending `Decide`.
+/// of 2026-11-04 on the mood), an offer that would run into today's departure closed: it walks
+/// to the chosen offer, holding the smallest free place of its object; or it idles, waiting for
+/// an object if the choice says so. By day one idle and waiting for nothing walks to its
+/// time-filler instead, if one is free (the addendum on comfort and the time-filler). Each choice
+/// counts against the day's budget and cancels a pending `Decide`.
 pub(crate) fn decide(
     domain: &mut DomainState,
     data: &Data,
@@ -323,7 +325,14 @@ pub(crate) fn decide(
     let left = tonight.map(|night| night.left(now));
     let percent = houses.day().choice_mood_percent;
     let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
-    let scored = score(house, houses, age, needs, room, left, moods);
+    let leaves = departure(
+        houses.day(),
+        born(domain, sim),
+        || work_draw(seed, key),
+        now,
+    );
+    let depart_in = leaves.map(|leaves| (leaves - now).as_secs());
+    let scored = score(house, houses, (age, needs, room), (left, depart_in), moods);
     let choice = choose(
         (house, houses),
         (age, needs),
@@ -331,11 +340,17 @@ pub(crate) fn decide(
         &busy,
         tonight.map(|_| beds.as_slice()),
     );
-    let chosen = match choice {
-        Choice::Take(chosen) => Some(chosen),
-        Choice::Wait(_) | Choice::Idle => None,
+    // By day one idle and waiting for nothing takes its time-filler.
+    let filled = match (choice, tonight) {
+        (Choice::Idle, None) => filler((house, houses), (age, room), &busy),
+        _ => None,
     };
-    let walk = chosen.map(|chosen| house.walk_to(room, chosen.object));
+    let chosen = match (choice, filled) {
+        (Choice::Take(chosen), _) => Some((chosen.object, chosen.offer)),
+        (_, Some(filled)) => Some(filled),
+        (Choice::Wait(_) | Choice::Idle, None) => None,
+    };
+    let walk = chosen.map(|(object, _)| house.walk_to(room, object));
     let arrive = walk.and_then(|walk| now.checked_add(SimDuration::from_secs(i64::from(walk))));
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
         let waits = match choice {
@@ -384,18 +399,31 @@ pub(crate) fn decide(
         return;
     };
     let walk = Walk {
-        object: chosen.object,
-        offer: chosen.offer,
+        object: chosen.0,
+        offer: chosen.1,
         room,
         walk_secs,
         arrive,
     };
     let seen = (needs, &taken, busy, (children, beds));
-    let (entry, slot) = begin(domain, house, sim, walk, seen, (false, causes), ctx);
+    let how = (
+        Begun::Chosen {
+            filler: filled.is_some(),
+        },
+        causes,
+    );
+    let (entry, slot) = begin(domain, house, sim, walk, seen, how, ctx);
     // A held place the choice did not take goes on to the next who waits.
-    if let Some(place) = held.filter(|&place| place != (chosen.object, slot)) {
+    if let Some(place) = held.filter(|&place| place != (chosen.0, slot)) {
         release(domain, household, place, entry, ctx);
     }
+}
+
+/// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).
+#[derive(Clone, Copy)]
+enum Begun {
+    Chosen { filler: bool },
+    Commanded,
 }
 
 /// The next choices of the idle persons of each household whose free places changed in this
@@ -403,7 +431,9 @@ pub(crate) fn decide(
 /// households and their members: each idle in a room or on its walk to the room one stays in,
 /// not lying and waiting for nothing, chooses at `next_choice_of` from now on, planned by the
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
-/// due in this second stays: it comes anyway, and plans the next.
+/// due in this second stays: it comes anyway, and plans the next. The end of a time-filler at
+/// its object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler).
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for (household, by) in core::mem::take(&mut domain.house_changed) {
         if !domain.house.households.contains_key(&household) {
@@ -430,6 +460,12 @@ fn plan_next(
     let Some(person) = domain.house.sims.get(&sim) else {
         return;
     };
+    let filling =
+        matches!((person.place, person.action), (Place::Room(_), Some(action)) if action.filler);
+    if filling {
+        plan_filler_end(domain, data, (household, sim), by, ctx);
+        return;
+    }
     let pending = domain.pending.get(&(sim, Slot::Decide)).copied();
     let due = pending.and_then(|handle| ctx.pending_time(handle));
     if due == Some(now) {
@@ -462,6 +498,53 @@ fn plan_next(
         let handle = ctx.schedule(at, EventPayload::Decide { sim }, by);
         domain.pending.insert((sim, Slot::Decide), handle);
     }
+}
+
+/// The end of the time-filler of `sim` of `household` at its object anew (`plan_idle`): at the
+/// second `filler_end_of` gives from now on, planned by `by`; one due in this second stays.
+fn plan_filler_end(
+    domain: &mut DomainState,
+    data: &Data,
+    (household, sim): (HouseholdId, SimId),
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let pending = domain.pending.get(&(sim, Slot::End)).copied();
+    let due = pending.and_then(|handle| ctx.pending_time(handle));
+    if due == Some(now) {
+        return;
+    }
+    let next = filler_end(domain, data, (household, sim), now);
+    if next == due {
+        return;
+    }
+    if let Some(handle) = domain.pending.remove(&(sim, Slot::End)) {
+        ctx.cancel(handle);
+    }
+    if let Some(at) = next {
+        let handle = ctx.schedule(at, EventPayload::ActionEnd { sim }, by);
+        domain.pending.insert((sim, Slot::End), handle);
+    }
+}
+
+/// The second the time-filler of `sim` of `household` at its object ends from `now` on
+/// (`house::state::filler_end_of`), with the places of the household taken or held for others.
+fn filler_end(
+    domain: &DomainState,
+    data: &Data,
+    (household, sim): (HouseholdId, SimId),
+    now: SimTime,
+) -> Option<SimTime> {
+    let (_, houses, house) = home(domain, data, sim);
+    let seed = (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
+    let Some(key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
+        panic!("invariant unknown_entity_id: sim {}", sim.get());
+    };
+    let person = domain.house.sims.get(&sim)?;
+    let taken = taken(domain, data, household, sim, now);
+    let who = (born(domain, sim), key, seed);
+    crate::house::state::filler_end_of((house, houses), who, person, &taken, now)
 }
 
 /// The person stops waiting before what it does next (ADR-0026 sections 3 and 5): its planned
@@ -509,17 +592,22 @@ struct Walk {
 
 /// The person walks as `walk` says, holding the object's free place with the smallest number,
 /// `taken` the places taken or held for others: its entry `core:action_started` by `causes`
-/// with the needs and the objects without a free place it saw and whether a command chose it,
-/// then its arrival planned by that entry. Returns the entry and the place.
+/// with the needs and the objects without a free place it saw, whether a command chose it and
+/// whether it is a time-filler, then its arrival planned by that entry. Returns the entry and the
+/// place.
 fn begin(
     domain: &mut DomainState,
     house: &House,
     sim: SimId,
     walk: Walk,
     (needs, taken, busy, (held, tier)): Seen<'_>,
-    (commanded, causes): (bool, Causes),
+    (begun, causes): (Begun, Causes),
     ctx: &mut SimCtx<'_, '_>,
 ) -> (EventId, u8) {
+    let (commanded, filler) = match begun {
+        Begun::Chosen { filler } => (false, filler),
+        Begun::Commanded => (true, false),
+    };
     let Walk {
         object,
         offer,
@@ -542,6 +630,7 @@ fn begin(
         commanded,
         held,
         tier,
+        filler,
     };
     let entry = ctx.emit(started, vec![Subject::Sim(sim)], causes);
     let depart = ctx.now();
@@ -559,6 +648,7 @@ fn begin(
         object,
         offer,
         slot,
+        filler,
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
@@ -604,7 +694,15 @@ pub(super) fn obey(
     };
     // A command is no choice: it has no tier.
     let seen = (needs, &taken, busy, (children, Vec::new()));
-    let (entry, slot) = begin(domain, house, sim, walk, seen, (true, causes), ctx);
+    let (entry, slot) = begin(
+        domain,
+        house,
+        sim,
+        walk,
+        seen,
+        (Begun::Commanded, causes),
+        ctx,
+    );
     if let Some(place) = held.filter(|&place| place != (object, slot)) {
         release(domain, household, place, entry, ctx);
     }
@@ -623,7 +721,8 @@ pub(crate) fn on_decide(
 }
 
 /// A falling need of a person reaches a threshold (ADR-0026 sections 1 and 4). At 700 and 400
-/// a person idle in a room chooses, otherwise nothing happens. At 150 and 50 the need is
+/// a person idle in a room chooses, unless it waits for an object (ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler), otherwise nothing happens. At 150 and 50 the need is
 /// critical: an entry, then a person idle in a room chooses, and a walk to an offer that will
 /// not raise the need, or an action under way, ends with reason `critical` and the person
 /// chooses again. At 0 every need of the person at 0 in this second has its consequence
@@ -668,7 +767,11 @@ pub(crate) fn on_crossing(
         }
         return;
     }
+    // A waiter keeps its place at 700 and 400; 150, 50 and 0 still make it choose (ADR-0026,
+    // addendum of 2026-11-04 on comfort and the time-filler).
+    let waits = (domain.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
     match (place, action) {
+        (Place::Room(_), None) if waits && level > CRITICAL => {}
         (Place::Room(_), None) => decide(domain, data, sim, causes, ctx),
         // On the way to the room one stays in, 700 and 400 do nothing (the planned choice is
         // the wakeup); 150 and 50 end the walk back in the room it came from, and it chooses.
@@ -811,7 +914,16 @@ pub(crate) fn on_arrive(
             *sample = sample.with_rate(now, offer.rate(houses.rates(), need, band));
         }
     }
-    let end = action_end(person, offer, houses.day(), born);
+    let end = match action.filler {
+        // A time-filler ends at the next choice from here (ADR-0026, addendum of 2026-11-04 on
+        // comfort and the time-filler).
+        true => {
+            let household = (domain.sims.get(&sim)).map(|person| person.household);
+            let household = household.unwrap_or_else(|| panic!("invariant house.orphan_event"));
+            filler_end(domain, data, (household, sim), now)
+        }
+        false => action_end(person, offer, houses.day(), born),
+    };
     plan_crossings(domain, sim, entry, ctx);
     if let Some(end) = end {
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);

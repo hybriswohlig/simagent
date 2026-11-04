@@ -36,6 +36,9 @@ struct OfferFile {
     sleep: bool,
     min_age: u8,
     max_age: u8,
+    /// Whether the offer is also a time-filler; it is not unless it says so.
+    #[serde(default)]
+    fallback: bool,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +112,7 @@ pub fn house_data_from(
                     sleep: offer.sleep,
                     min_age: offer.min_age,
                     max_age: offer.max_age,
+                    fallback: offer.fallback,
                 })
                 .collect();
             Ok(KindDef {

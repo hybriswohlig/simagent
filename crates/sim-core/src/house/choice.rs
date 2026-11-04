@@ -2,13 +2,15 @@
 //! age and the second, by object and offer, with the person's mood for it, and the best one
 //! among the objects with a free place; in the night first what is critical, then a bed of the
 //! person's tier, then any bed (ADR-0026, addenda of 2026-11-04). The second an idle person
-//! chooses next (its addendum after the playtest). Pure functions, so that "Why?" can compute a
-//! choice again from its entry and the loader the next choice from a save.
+//! chooses next (its addendum after the playtest). A need weighs below its comfort, an offer that
+//! would run into today's departure is closed, and one idle by day takes a time-filler (its
+//! addendum on comfort and the time-filler). Pure functions, so that "Why?" can compute a choice
+//! again from its entry and the loader the next choice from a save.
 
 use alloc::vec::Vec;
 
 use crate::house::data::{
-    AGE_BANDS, BedFor, House, HouseData, KindDef, NEEDS, NeedRates, OfferDef, age_band,
+    AGE_BANDS, BedFor, House, HouseData, KindDef, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
 use crate::house::day::{next_night, night};
 use crate::house::need::{FULL, NeedSample};
@@ -27,6 +29,9 @@ const PER_WALKING_SECOND: i64 = 50;
 
 /// Per point a critical need lies below 151, more than any other sum can bring.
 const PER_CRITICAL_POINT: i64 = 1_000_000_000;
+
+/// The shortest action (ADR-0026 section 4).
+const SHORTEST_SECS: i64 = 60;
 
 /// An offer of an object with the person's mood for it, in percent, and its points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,21 +79,21 @@ pub fn mood(
 
 /// The points of every offer of `house` open at `age` and now, for a person with the needs
 /// `values` in `room`, by object and then offer, each with its mood `moods(object, offer)` in
-/// percent: `(Σ (1000 − v) · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated
-/// toward zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales
-/// neither the walk nor that (ADR-0026, addendum of 2026-11-04 on the mood). The gain of a need
-/// the offer raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or
-/// `max_seconds` and the rates of the age band of `age`. An offer of sleep is open only in the
-/// person's night, `night_left` the seconds of it still to come, and that is its length
-/// (ADR-0026, addendum of 2026-11-04 on the night); outside it, `None`, it is closed and not
-/// scored. Nothing for an age without needs.
+/// percent: `(Σ weight · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated toward
+/// zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales neither
+/// the walk nor that (ADR-0026, addendum of 2026-11-04 on the mood). The gain of a need the offer
+/// raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or `max_seconds`
+/// and the rates of the age band of `age`; its weight `max(0, comfort − v)` (the addendum on
+/// comfort and the time-filler). An offer of sleep is open only in the person's night,
+/// `night_left` the seconds of it still to come, and that is its length (ADR-0026, addendum of
+/// 2026-11-04 on the night); outside it, `None`, it is closed and not scored. An offer that would
+/// still run at today's departure, `depart_in` seconds away, is closed too (`crosses_departure`).
+/// Nothing for an age without needs.
 pub fn score(
     house: &House,
     data: &HouseData,
-    age: u8,
-    values: [u16; 5],
-    room: u8,
-    night_left: Option<i64>,
+    (age, values, room): (u8, [u16; 5], u8),
+    (night_left, depart_in): (Option<i64>, Option<i64>),
     moods: impl Fn(u16, u16) -> i8,
 ) -> Vec<Scored> {
     let Some(band) = age_band(age) else {
@@ -97,7 +102,8 @@ pub fn score(
     let mut scored = Vec::new();
     for (object, _) in (0_u16..).zip(&house.def().objects) {
         let kind = kind_of(house, data, object);
-        let walk = i64::from(house.walk_to(room, object)) * PER_WALKING_SECOND;
+        let walk_secs = house.walk_to(room, object);
+        let walk = i64::from(walk_secs) * PER_WALKING_SECOND;
         for (offer, def) in (0_u16..).zip(&kind.offers) {
             if !(def.min_age..=def.max_age).contains(&age) {
                 continue;
@@ -110,6 +116,9 @@ pub fn score(
                 (false, Some(length)) => i64::from(length),
                 (false, None) => panic!("invariant house.offer_length"),
             };
+            if crosses_departure(def, data.rates(), (age, values), walk_secs, depart_in) {
+                continue;
+            }
             let mood = moods(object, offer);
             let points = points(def, (data.rates(), band, length), values, walk, mood);
             scored.push(Scored {
@@ -139,12 +148,88 @@ fn points(
             continue;
         }
         let missing = i64::from(FULL.saturating_sub(value));
-        filled += missing * (rate * length / HOUR.as_secs()).min(missing);
+        let weight = i64::from(rates.comfort(need).saturating_sub(value));
+        filled += weight * (rate * length / HOUR.as_secs()).min(missing);
         if value <= CRITICAL {
             critical += i64::from(CRITICAL + 1 - value) * PER_CRITICAL_POINT;
         }
     }
     filled * (100 + i64::from(mood)) / 100 - walk + critical
+}
+
+/// The seconds offer `def` lasts when chosen with the needs `values` in the age band `band`, as
+/// its action would (`house::state::action_end`): its `seconds`, or until the need it fills is
+/// full from its value in the choice, at least 60 s and at most `max_seconds`. `None` for an
+/// offer of sleep, which lasts its night.
+pub fn lasts(def: &OfferDef, rates: &NeedRates, band: usize, values: [u16; 5]) -> Option<i64> {
+    match (def.seconds, def.until_full, def.max_seconds) {
+        (Some(seconds), _, _) => Some(i64::from(seconds)),
+        (None, Some(need), Some(longest)) => {
+            let at = NEEDS.iter().position(|&each| each == need)?;
+            let missing = i64::from(FULL.saturating_sub(values[at])) * HOUR.as_secs();
+            let rate = i64::from(def.rate(rates, need, band));
+            let full = match rate > 0 {
+                true => (missing + rate - 1) / rate,
+                false => i64::from(longest),
+            };
+            Some(full.max(SHORTEST_SECS).min(i64::from(longest)))
+        }
+        _ => None,
+    }
+}
+
+/// Whether offer `def`, chosen at `age` with the needs `values` and `walk_secs` from its object,
+/// would still run at today's departure, `depart_in` seconds after the choice: its walk and its
+/// length (`lasts`) reach it; unless it raises a need critical now (ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler). Never without a departure still to come today.
+pub fn crosses_departure(
+    def: &OfferDef,
+    rates: &NeedRates,
+    (age, values): (u8, [u16; 5]),
+    walk_secs: u32,
+    depart_in: Option<i64>,
+) -> bool {
+    let (Some(depart_in), Some(band)) = (depart_in, age_band(age)) else {
+        return false;
+    };
+    let Some(length) = lasts(def, rates, band, values) else {
+        return false;
+    };
+    let urgent = (NEEDS.into_iter().zip(values))
+        .any(|(need, value)| value <= CRITICAL && def.raises(rates, need, age));
+    !urgent && i64::from(walk_secs) + length >= depart_in
+}
+
+/// The time-filler of one idle by day (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler): among the `fallback` offers open at `age` of the objects not in `busy`, the one
+/// whose fun rises most in the age band, then the one with the shortest walk from `room`, then
+/// the smaller object and the smaller offer; the mood does not reorder them, and today's
+/// departure does not close them. None if no such offer is free.
+pub fn filler(
+    (house, data): (&House, &HouseData),
+    (age, room): (u8, u8),
+    busy: &[u16],
+) -> Option<(u16, u16)> {
+    let band = age_band(age)?;
+    let mut best: Option<((i64, u32), (u16, u16))> = None;
+    for (object, _) in (0_u16..).zip(&house.def().objects) {
+        if busy.contains(&object) {
+            continue;
+        }
+        let kind = kind_of(house, data, object);
+        let walk = house.walk_to(room, object);
+        for (offer, def) in (0_u16..).zip(&kind.offers) {
+            if !def.fallback || def.sleep || !(def.min_age..=def.max_age).contains(&age) {
+                continue;
+            }
+            let fun = i64::from(def.rate(data.rates(), Need::Fun, band));
+            let rank = (-fun, walk);
+            if best.is_none_or(|(best, _)| rank < best) {
+                best = Some((rank, (object, offer)));
+            }
+        }
+    }
+    best.map(|(_, chosen)| chosen)
 }
 
 /// The offer with the most points among the objects not in `busy`; a tie goes to the smaller
@@ -298,21 +383,27 @@ pub fn choose(
 /// (`choice_mood_percent`) to the first it surely does at the least, which counts if no
 /// minute before it does; the earliest over the offers. Not at or after the person's next
 /// bedtime, which makes it choose anyway; its next birthday, where the offers and their rates
-/// may change, comes first if it is earlier. `None` if nothing comes, or beyond the end of time.
-/// The needs keep the rates of their samples; the sample of a need that rises is weighed at its
-/// value at `start` for the most and full for the least, so both bounds only grow with time.
+/// may change, comes first if it is earlier. An offer is weighed only before the first second
+/// at which it would still run at today's departure (`crosses_departure`), `departure(start)`
+/// the departure still to come after the search's start (ADR-0026, addendum of 2026-11-04 on
+/// comfort and the time-filler); a need it raises turning critical makes the person choose at its
+/// crossing anyway. `None` if nothing comes, or beyond the end of time. The needs keep the rates
+/// of their samples; the sample of a need that rises is weighed at its value at `start` for the
+/// most and full for the least, so both bounds only grow with time.
 pub fn next_choice(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
     free: impl Fn(u16) -> bool,
     start: SimTime,
     moods: impl Fn(SimTime, u16, u16) -> i8,
+    departure: impl Fn(SimTime) -> Option<SimTime>,
 ) -> Option<SimTime> {
     let rules = data.day();
     let start = match night(rules, born, start) {
         Some(night) => night.until?,
         None => start,
     };
+    let depart = departure(start);
     let age = age(born, start)?;
     let band = age_band(age)?;
     let bedtime = next_night(rules, born, start).map(|night| night.from);
@@ -324,13 +415,15 @@ pub fn next_choice(
     let limit = bound(bedtime).min(bound(birthday));
     let percent =
         i8::try_from(rules.choice_mood_percent).unwrap_or_else(|_| panic!("invariant house.mood"));
+    let values_at = |at: i64| needs.map(|need| need.value_at(SimTime::from_secs(at)));
     let mut first: Option<i64> = None;
     for (object, _) in (0_u16..).zip(&house.def().objects) {
         if !free(object) {
             continue;
         }
         let kind = kind_of(house, data, object);
-        let walk = i64::from(house.walk_to(room, object)) * PER_WALKING_SECOND;
+        let walk_secs = house.walk_to(room, object);
+        let walk = i64::from(walk_secs) * PER_WALKING_SECOND;
         for (offer, def) in (0_u16..).zip(&kind.offers) {
             // By day an offer of sleep is closed, and the search ends before the night.
             if def.sleep || !(def.min_age..=def.max_age).contains(&age) {
@@ -349,7 +442,14 @@ pub fn next_choice(
                 });
                 points(def, weighed, values, walk, mood) >= ENOUGH
             };
-            let until = first.unwrap_or(limit).min(limit);
+            // Only before the departure closes it; it runs longer the later it is chosen.
+            let closes = |at: i64| {
+                let depart_in = depart.map(|depart| depart.as_secs() - at);
+                let lasts = lasts(def, data.rates(), band, values_at(at)).unwrap_or(0);
+                depart_in.is_some_and(|depart_in| i64::from(walk_secs) + lasts >= depart_in)
+            };
+            let open = first_at(start.as_secs(), limit, closes).unwrap_or(limit);
+            let until = first.unwrap_or(limit).min(limit).min(open);
             let most = |at: i64| reaches(at, percent, None);
             let Some(from) = first_at(start.as_secs(), until, most) else {
                 continue;
@@ -363,17 +463,7 @@ pub fn next_choice(
             let mut found = surely;
             while minute < surely.unwrap_or(until) {
                 let mood = moods(SimTime::from_secs(minute), object, offer);
-                let exact = |at: i64| {
-                    let at = SimTime::from_secs(at);
-                    points(
-                        def,
-                        weighed,
-                        needs.map(|need| need.value_at(at)),
-                        walk,
-                        mood,
-                    )
-                };
-                if exact(minute) >= ENOUGH {
+                if points(def, weighed, values_at(minute), walk, mood) >= ENOUGH {
                     found = Some(minute);
                     break;
                 }
