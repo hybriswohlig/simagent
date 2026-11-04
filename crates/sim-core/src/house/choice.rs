@@ -8,7 +8,7 @@
 use alloc::vec::Vec;
 
 use crate::house::data::{
-    AGE_BANDS, BedFor, House, HouseData, KindDef, NEEDS, NeedRates, OfferDef, SOFA, age_band,
+    AGE_BANDS, BedFor, House, HouseData, KindDef, NEEDS, NeedRates, OfferDef, age_band,
 };
 use crate::house::day::{next_night, night};
 use crate::house::need::{FULL, NeedSample};
@@ -261,7 +261,7 @@ pub fn choose(
         (NEEDS.into_iter().zip(values))
             .any(|(need, value)| value <= CRITICAL && offer.raises(rates, need, age))
     };
-    let sofa = |scored: &Scored| kind_of(house, data, scored.object).id.as_str() == SOFA;
+    let sofa = |scored: &Scored| kind_of(house, data, scored.object).is_sofa();
     let sleeps = |sofa_too: bool| {
         move |scored: &&Scored| offer_of(house, data, scored).sleep && sofa(scored) == sofa_too
     };

@@ -337,13 +337,16 @@ pub enum BedFor {
     Children,
 }
 
-/// The kind of the sofa: it sleeps too, but its places are no beds (ADR-0025 section 3).
-pub const SOFA: &str = "core:sofa";
-
 impl KindDef {
+    /// Whether the kind is the sofa: it sleeps too, but its places are no beds (ADR-0025
+    /// section 3).
+    pub fn is_sofa(&self) -> bool {
+        self.id.as_str() == "core:sofa"
+    }
+
     /// Whether the kind is a bed: a kind with an offer of sleep other than the sofa.
     pub fn is_bed(&self) -> bool {
-        self.id.as_str() != SOFA && self.offers.iter().any(|offer| offer.sleep)
+        !self.is_sofa() && self.offers.iter().any(|offer| offer.sleep)
     }
 }
 
