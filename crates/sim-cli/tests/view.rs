@@ -2819,12 +2819,13 @@ fn young_children_in_the_house() {
     assert_eq!(house(5 * DAY + 32_400)["children"], at_home(false));
 }
 
-/// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): the first
-/// choices of the couple at 6:00 in the hall at the morning values, recomputed (the points by
-/// hand in `sim-core/tests/house_choice.rs`): the toilet 249 850, the table 159 800, the
-/// shower 89 850, the fridge 79 800, television and bookshelf 39 850, the sofa 9 850, the beds
-/// 9 750; she takes the toilet, for him it is taken and he takes the table. Any other entry
-/// is no choice.
+/// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6, version 2 of its
+/// addendum of 2026-11-04): the first choices of the couple at 6:00 in the hall at the morning
+/// values, recomputed (the points by hand in `sim-core/tests/house_choice.rs`): the toilet
+/// 249 850, the table 159 800, the shower 89 850, the fridge 79 800, television and bookshelf
+/// 39 850; sofa and beds are closed by day, listed after them without points, and their night
+/// is the next, from 22:00 to 6:00. She takes the toilet, for him it is taken and he takes the
+/// table. Any other entry is no choice.
 #[test]
 fn why_over_http() {
     let (server, home, run) = couple("why");
@@ -2849,16 +2850,23 @@ fn why_over_http() {
             (1, 79_800),
             (3, 39_850),
             (4, 39_850),
-            (2, 9_850),
-            (7, 9_750),
-            (8, 9_750),
         ];
-        (points.iter())
+        let mut offers: Vec<serde_json::Value> = (points.iter())
             .map(|&(object, points)| {
-                json!({"object": object, "offer": 0, "points": points, "busy": Some(object) == busy})
+                json!({"object": object, "offer": 0, "points": points,
+                       "busy": Some(object) == busy, "closed": false})
             })
-            .collect::<Vec<_>>()
+            .collect();
+        offers.extend([2, 7, 8].map(|object| {
+            json!({"object": object, "offer": 0, "points": null, "busy": false, "closed": true})
+        }));
+        offers
     };
+    let night = json!({
+        "from": dated(MORNING + 16 * 3_600),
+        "until": dated(MORNING + 24 * 3_600),
+        "now": false,
+    });
     for (sim, chosen, busy) in [(1, (5, 249_850), None), (2, (0, 159_800), Some(5))] {
         let entry = starts(sim)[0];
         let (status, _, body) = get(port, &format!("/api/runs/couple/why/{entry}"));
@@ -2867,13 +2875,15 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 1,
+                "version": 2,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
                 "enough": 40_000,
                 "commanded": false,
+                "night": night,
                 "chosen": {"object": chosen.0, "offer": 0, "points": chosen.1},
+                "waits": null,
                 "offers": offers(busy),
             }),
             "{sim}"

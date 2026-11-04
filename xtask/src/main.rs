@@ -14,6 +14,7 @@ mod contract;
 mod contract_base;
 mod criteria;
 mod export_types;
+mod house_week;
 mod kat;
 mod map4;
 mod ordered;
@@ -59,6 +60,12 @@ fn main() -> ExitCode {
             return report(
                 "bench",
                 workspace_root().and_then(|root| bench::bench(&root)),
+            );
+        }
+        Some("house-week") => {
+            return report(
+                "house-week",
+                workspace_root().and_then(|root| house_week::command(&root)),
             );
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
@@ -144,7 +151,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the tests and runs (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the tests and runs (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  house-week            50 households a week in their houses: counted limits, release time\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -652,6 +659,32 @@ fn server_answers(
     answers.push((
         "WhyAnswer",
         get(port, &format!("/api/runs/town/why/{entry}"))?,
+    ));
+    // A choice that waits for a taken object (ADR-0026 section 5), the first in the town's
+    // log from that morning on, page by page.
+    let mut after = String::new();
+    let waited = loop {
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?from={morning}{after}"),
+        )?;
+        let rows = page["events"].as_array().into_iter().flatten();
+        let found = rows
+            .filter(|row| {
+                let idle = &row["entry"]["payload"]["core:idle"];
+                idle.is_object() && !idle["waits"].is_null()
+            })
+            .map(|row| row["entry"]["id"].clone())
+            .next();
+        match (found, page["next"].as_u64()) {
+            (Some(entry), _) => break entry,
+            (None, Some(next)) => after = format!("&after={next}"),
+            (None, None) => return Err("no choice in the town's houses waited".to_owned()),
+        }
+    };
+    answers.push((
+        "WhyAnswer",
+        get(port, &format!("/api/runs/town/why/{waited}"))?,
     ));
     answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));
     // A fork with an override, so that the comparison shows its every shape: the town has

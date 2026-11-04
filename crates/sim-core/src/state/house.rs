@@ -192,8 +192,9 @@ pub(crate) fn on_morning(
 
 /// A member's needs from now, if it is 6 or older: its entry `core:day_started`, the
 /// morning values with the awake rates of its age, in the entrance (ADR-0025 section 5); by
-/// that entry its crossings, what is still to come of its duty today and a choice now
-/// (ADR-0024 sections 1, 2 and 4). Its series of plans at 5:00 came with its moving in.
+/// that entry its crossings, what is still to come of its duty today, its bedtime if tonight
+/// is still to come (ADR-0026, addendum of 2026-11-04) and a choice now (ADR-0024 sections 1,
+/// 2 and 4). Its series of plans at 5:00 came with its moving in.
 pub(super) fn start_day(
     domain: &mut DomainState,
     data: &Data,
@@ -239,6 +240,7 @@ pub(super) fn start_day(
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, sim, entry, ctx);
     super::day::plan_today(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
+    super::day::plan_bedtime(domain, data, sim, entry, ctx);
     let decide = ctx.schedule(now, EventPayload::Decide { sim }, entry);
     domain.pending.insert((sim, Slot::Decide), decide);
 }
@@ -301,7 +303,7 @@ fn forget(
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::DayPlan, Slot::Decide);
+    let house_events = (Slot::DayPlan, Slot::Bedtime);
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {

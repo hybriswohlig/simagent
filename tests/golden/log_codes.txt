@@ -98,6 +98,7 @@ reject 45 object_unknown
 reject 46 offer_unknown
 reject 47 slot_busy
 reject 48 critical_need
+reject 49 not_night
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic

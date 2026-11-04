@@ -30,7 +30,7 @@ const KINDS: &str = r#"
   {"id": "test:tv", "slots": 2, "offers": [
     {"id": "watch", "rates": {"fun": 1200}, "seconds": 7200, "min_age": 0, "max_age": 130}]},
   {"id": "test:bed", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]},
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
   {"id": "test:pantry", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 6000}, "until_full": "hunger", "max_seconds": 600, "min_age": 0, "max_age": 130}]},
   {"id": "test:toys", "slots": 1, "offers": [
@@ -55,6 +55,8 @@ const PANTRY: u16 = 0;
 const TV: u16 = 1;
 const BED: u16 = 2;
 const TOYS: u16 = 3;
+/// The essential shower in the hall (hygiene +1 an hour for a minute): it raises no hunger.
+const SHOWER: u16 = 7;
 
 /// Hunger falls 1 200 an hour awake and asleep, fun 600 awake; energy stands awake and rises
 /// 1 200 an hour asleep.
@@ -241,6 +243,8 @@ fn command_rejections_and_effect() {
         (command(1, 9, 0), RejectCode::ObjectUnknown),
         (command(1, PANTRY, 1), RejectCode::OfferUnknown),
         (command(1, TOYS, 0), RejectCode::WrongAge),
+        // Sleep only in her night, from 22:00 (ADR-0026, addendum of 2026-11-04).
+        (command(1, BED, 0), RejectCode::NotNight),
         // Her walk takes the pantry's only place.
         (command(2, PANTRY, 0), RejectCode::SlotBusy),
         // Her own place frees when her walk ends, and goes to him, who waits.
@@ -340,62 +344,45 @@ fn command_rejections_and_effect() {
     );
 }
 
-/// A command while idle and while asleep. He waits for the pantry at 6:00 (as above); told to
-/// sleep he leaves the waiting list and walks from the hall to the bed, there at 6:00:04 with
-/// hunger 599 (600 − 1.3) and every need at the sleeping rates. Told at 6:01:40 to watch
-/// television he wakes in the second it acts, 6:01:41: hunger 567 (599 − 32.3), energy 932
-/// (900 + 32.3), the rest as in the morning, each written down then at its awake rate; he walks
-/// from the bedroom to the den, 6 s, while she still eats at the pantry (hers until full at
-/// 6:04:04).
+/// A command while idle. He waits for the pantry at 6:00 (as above); told to sleep he is
+/// refused, it is not his night (from 22:00, ADR-0026, addendum of 2026-11-04), and waits on;
+/// told to watch television he leaves the waiting list and walks from the hall to the den, 3 s,
+/// with the morning values (1 s at −1 200 an hour truncates to 0). There at 6:00:04: hunger
+/// stands as from 6:00 (the television does not set it), fun is written down then, 800 (4 s at
+/// −600 an hour truncate to 0), at +1 200; she still walks to the pantry. A command while
+/// asleep is in `tests/house_night.rs`.
 #[test]
-fn a_command_while_idle_and_while_asleep() {
+fn a_command_while_idle() {
     let (mut run, _) = Run::moved_in(data());
     run.advance(MORNING);
-    let (to_bed, made) = obey(&mut run, command(2, BED, 0));
+    assert_eq!(
+        rejected(&mut run.world, command(2, BED, 0)),
+        Some(RejectCode::NotNight)
+    );
+    let (to_tv, made) = obey(&mut run, command(2, TV, 0));
     assert_eq!(made.len(), 1);
     assert_eq!(
-        by_input(&made[0], 2, 1, to_bed),
-        started((BED, 0), 0, 3, MORNING_NEEDS, &[PANTRY], true)
+        by_input(&made[0], 2, 1, to_tv),
+        started((TV, 0), 0, 3, MORNING_NEEDS, &[PANTRY], true)
     );
     let house = run.world.state().house();
     assert!(house.waits.is_empty() && house.holds.is_empty());
-    run.advance(MORNING + 100);
-    let (to_tv, made) = obey(&mut run, command(2, TV, 0));
-    let woken = [567, 932, 500, 700, 800];
-    assert_eq!(made.len(), 2);
-    assert_eq!(
-        by_input(&made[0], 2, 101, to_tv),
-        ended(BED, EndReason::Command, woken)
-    );
-    assert_eq!(
-        by_input(&made[1], 2, 101, to_tv),
-        started((TV, 0), 3, 6, woken, &[PANTRY], true)
-    );
+    run.advance(MORNING + 4);
     let him = &run.world.state().house().sims[&sim(2)];
-    let at = t(MORNING + 101);
-    let awake = [-1200, 0, 0, 0, -600];
-    let needs: [NeedSample; 5] =
-        core::array::from_fn(|need| NeedSample::new(woken[need], at, awake[need]));
-    assert_eq!(him.needs, needs);
+    assert_eq!(him.place, Place::Room(2));
+    let at = t(MORNING + 4);
     assert_eq!(
-        him.place,
-        Place::Walking {
-            from: 3,
-            to: 2,
-            depart: at,
-            arrive: t(MORNING + 107),
-        }
+        him.needs[0],
+        NeedSample::new(600, t(MORNING), -1200),
+        "hunger"
     );
-    run.advance(MORNING + 107);
+    assert_eq!(him.needs[4], NeedSample::new(800, at, 1200), "fun");
     assert_eq!(
         run.doings(2),
         [
             (0, waits_for_the_pantry()),
-            (1, started((BED, 0), 0, 3, MORNING_NEEDS, &[PANTRY], true)),
-            (4, LogPayload::Reached { object: BED }),
-            (101, ended(BED, EndReason::Command, woken)),
-            (101, started((TV, 0), 3, 6, woken, &[PANTRY], true)),
-            (107, LogPayload::Reached { object: TV }),
+            (1, started((TV, 0), 0, 3, MORNING_NEEDS, &[PANTRY], true)),
+            (4, LogPayload::Reached { object: TV }),
         ]
     );
 }
@@ -408,7 +395,7 @@ const FAR_KINDS: &str = r#"
   {"id": "test:gruel", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 180}, "seconds": 1200, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]},
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
   {"id": "test:loo", "slots": 1, "offers": [
     {"id": "use", "rates": {"bladder": 720}, "seconds": 300, "min_age": 0, "max_age": 130}]}"#;
 
@@ -520,8 +507,9 @@ fn runs_on(mut loaded: World, run: &mut Run, then: Option<Input>, until: i64) {
 /// A command is an input like the others: saved right after it the world loads and runs on as
 /// the uninterrupted one, an hour after the morning. After her command of the first test his
 /// choice is due in the next second for the place held for him: on load that choice is pending
-/// again, and his own command cancels it as before. After both commands, and after waking him
-/// to watch television. A run replayed from its input log is the same, entry for entry.
+/// again, and his own command cancels it as before. After both commands, and after taking him
+/// off the waiting list to watch television. A run replayed from its input log is the same,
+/// entry for entry.
 #[test]
 fn a_command_is_saved_loaded_and_replayed() {
     let until = HOUR.as_secs();
@@ -540,8 +528,6 @@ fn a_command_is_saved_loaded_and_replayed() {
 
     let (mut run, _) = Run::moved_in(data());
     run.advance(MORNING);
-    obey(&mut run, command(2, BED, 0));
-    run.advance(MORNING + 100);
     obey(&mut run, command(2, TV, 0));
     runs_on(reloaded(&run), &mut run, None, until);
 }
@@ -559,8 +545,9 @@ fn both_commanded() -> Run {
 }
 
 /// A command acts before the events of its second (ADR-0004 section 4), so a crossing in that
-/// second still comes after it: told at 6:09:59 to sleep, she stops watching at 6:10:00 with
-/// hunger 400 (600 − 200), fun 998 (800 + 198.7) and walks from the den to the bed, 6 s; her
+/// second still comes after it: told at 6:09:59 to shower (not to sleep, which is closed by
+/// day, ADR-0026, addendum of 2026-11-04), she stops watching at 6:10:00 with hunger 400 (600 −
+/// 200), fun 998 (800 + 198.7) and walks from the den to the shower in the hall, 3 s; her
 /// hunger, which watching never rewrote, crosses 400 in that second, after the command, and
 /// does nothing on the way. The crossing stays planned: a save right after the command loads,
 /// saves to the same bytes and runs on as the uninterrupted world, and a replay is the same.
@@ -568,7 +555,7 @@ fn both_commanded() -> Run {
 fn a_crossing_in_the_second_of_a_command_stays_planned() {
     let mut run = both_commanded();
     run.advance(MORNING + 599);
-    let (seq, made) = obey(&mut run, command(1, BED, 0));
+    let (seq, made) = obey(&mut run, command(1, SHOWER, 0));
     let watched = [400, 900, 500, 700, 998];
     assert_eq!(made.len(), 2);
     assert_eq!(
@@ -577,32 +564,32 @@ fn a_crossing_in_the_second_of_a_command_stays_planned() {
     );
     assert_eq!(
         by_input(&made[1], 1, 600, seq),
-        started((BED, 0), 2, 6, watched, &[], true)
+        started((SHOWER, 0), 2, 3, watched, &[], true)
     );
     runs_on(reloaded(&run), &mut run, None, HOUR.as_secs());
     assert_eq!(
         run.doings(1)[4..7],
         [
             (600, ended(TV, EndReason::Command, watched)),
-            (600, started((BED, 0), 2, 6, watched, &[], true)),
-            (606, LogPayload::Reached { object: BED }),
+            (600, started((SHOWER, 0), 2, 3, watched, &[], true)),
+            (603, LogPayload::Reached { object: SHOWER }),
         ]
     );
     replays(&run);
 }
 
-/// The same for a critical need: told at 6:22:29 to sleep, she stops watching at 6:22:30 with
+/// The same for a critical need: told at 6:22:29 to shower, she stops watching at 6:22:30 with
 /// hunger 150 (600 − 450) and fun 1 000 (800 + 448.7, capped), and walks from the den to the
-/// bed; in that second, after the command, her hunger crosses 150, which sleep does not raise
-/// (−1 200 an hour asleep): the walk ends on the spot and she walks to the pantry for her
-/// critical hunger (10⁹ + 850 · 850 − 50 · 6), there at 6:22:36. The critical entry is planned
-/// by the end the command wrote. A save right after the command loads and runs on alike, and a
-/// replay is the same.
+/// shower; in that second, after the command, her hunger crosses 150, which the shower does not
+/// raise (it sets hygiene only): the walk ends on the spot, in the den, and she walks to the
+/// pantry for her critical hunger (10⁹ + 850 · 850 − 50 · 6), there at 6:22:36. The critical
+/// entry is planned by the end the command wrote. A save right after the command loads and runs
+/// on alike, and a replay is the same.
 #[test]
 fn a_critical_crossing_in_the_second_of_a_command_cuts_its_walk_short() {
     let mut run = both_commanded();
     run.advance(MORNING + 1_349);
-    let (seq, made) = obey(&mut run, command(1, BED, 0));
+    let (seq, made) = obey(&mut run, command(1, SHOWER, 0));
     let critical = [150, 900, 500, 700, 1000];
     assert_eq!(made.len(), 2);
     assert_eq!(
@@ -615,7 +602,7 @@ fn a_critical_crossing_in_the_second_of_a_command_cuts_its_walk_short() {
         run.doings(1)[4..10],
         [
             (1_350, ended(TV, EndReason::Command, critical)),
-            (1_350, started((BED, 0), 2, 6, critical, &[], true)),
+            (1_350, started((SHOWER, 0), 2, 3, critical, &[], true)),
             (
                 1_350,
                 LogPayload::NeedCritical {
@@ -623,7 +610,7 @@ fn a_critical_crossing_in_the_second_of_a_command_cuts_its_walk_short() {
                     level: 150
                 }
             ),
-            (1_350, ended(BED, EndReason::Critical, critical)),
+            (1_350, ended(SHOWER, EndReason::Critical, critical)),
             (1_350, started((PANTRY, 0), 2, 6, critical, &[], false)),
             (1_356, LogPayload::Reached { object: PANTRY }),
         ]

@@ -331,6 +331,30 @@ fn moving_out_ends_the_house() {
     assert!(run.world.state().house().is_empty());
 }
 
+/// Moved in by an input at 4:59:59, which acts at 5:00:00, the second of the day's plan
+/// (ADR-0024, addendum of 2026-11-04): the series of the members begins with the plan of day 2,
+/// since day 1's comes in the second they move in. Saved right after the input, the world
+/// loads, saves to the same bytes and runs on as the uninterrupted one, with the same entries,
+/// through the first morning at 6:00 and the plans of days 2 and 3.
+#[test]
+fn a_move_in_in_the_second_of_the_plan_is_saved_and_loaded() {
+    let five = DAY.as_secs() + 5 * HOUR.as_secs();
+    let mut run = Run::new(data(), 1);
+    let home = run.homes()[&sim(1)];
+    run.advance(five - 1);
+    run.submit(move_in(home));
+    let bytes = run.world.save(&run.out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&bytes, data()).expect("loads");
+    assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
+    let until = SimTime::from_secs(4 * DAY.as_secs());
+    let from = run.log.len();
+    loaded.advance_until(&mut YearOut::default(), until, &mut |_| false);
+    run.advance(until.as_secs());
+    assert_eq!(loaded.state_hash(), run.world.state_hash());
+    let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
+    assert_eq!(entries(&loaded.take_log()), entries(&run.log[from..]));
+}
+
 /// A save before the morning and one after it load, and the loaded world runs on as the
 /// uninterrupted one.
 #[test]
@@ -365,8 +389,9 @@ fn a_house_is_saved_and_loaded() {
 /// morning values has 17 thresholds below its needs; each then chooses and walks to it (the
 /// toilet, the table). It plans their day too (ADR-0024 section 4): both working full time
 /// (their draws of `WORK_PLAN` 30 and 3, day 1 a weekday) the wake, the departure and the
-/// return of today; their series of plans at 5:00 came with moving in (addendum of
-/// 2026-11-04). Moving out cancels all of it, the series too.
+/// return of today, and the bedtime of tonight (ADR-0026, addendum of 2026-11-04); their series
+/// of plans at 5:00 came with moving in (addendum of 2026-11-04). Moving out cancels all of
+/// it, the series too.
 #[test]
 fn the_morning_plans_the_crossings() {
     let morning = DAY.as_secs() + SIX;
@@ -381,8 +406,11 @@ fn the_morning_plans_the_crossings() {
     };
     let (mut run, _, before) = moved_in();
     run.advance(morning);
-    // The morning is gone; two adults' crossings, days and walks have come.
-    assert_eq!(run.world.pending_events(), before - 1 + 2 * (17 + 3) + 2);
+    // The morning is gone; two adults' crossings, days, bedtimes and walks have come.
+    assert_eq!(
+        run.world.pending_events(),
+        before - 1 + 2 * (17 + 3 + 1) + 2
+    );
 
     let (mut run, home, before) = moved_in();
     run.advance(morning + 60);

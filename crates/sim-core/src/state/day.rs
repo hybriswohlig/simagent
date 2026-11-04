@@ -1,7 +1,8 @@
 //! The day of a person in a house (ADR-0024 section 4): its plan at 5:00 every day, on a
 //! weekday its duty by age and work plan, the wake that ends sleep, the departure that ends
 //! what it does or waits for an action for a critical need, away with every need still, and
-//! the return at the entrance with the jumps of the data and a choice.
+//! the return at the entrance with the jumps of the data and a choice; every day its bedtime
+//! at the start of its night (ADR-0026, addendum of 2026-11-04).
 
 use alloc::vec;
 
@@ -10,7 +11,7 @@ use super::house::{plan_crossings, start_day};
 use super::{DomainState, Slot, whole_years};
 use crate::data::Data;
 use crate::house::data::{AGE_BANDS, DayRules, HouseData, NEEDS};
-use crate::house::day::{DayDuty, duty, next_plan, plan_day, work_draw};
+use crate::house::day::{DayDuty, duty, next_plan, night_of, plan_day, work_draw};
 use crate::house::need::{FULL, NeedSample};
 use crate::house::state::{Due, Duty, Place};
 use crate::ids::{EventId, SimId};
@@ -103,9 +104,55 @@ pub(crate) fn plan_today(
     domain.pending.insert((sim, Slot::Return), handle);
 }
 
+/// The bedtime of a person with needs (ADR-0026, addendum of 2026-11-04): at the start of the
+/// night of the day whose plan came last, if that has not begun before now, planned by `by`.
+/// One planned for now runs after the choice its day begins with, which is in the night then.
+pub(super) fn plan_bedtime(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let rules = rules(data);
+    let tonight = night_of(rules, plan_day(rules, now), action::born(domain, sim));
+    let Some(night) = tonight.filter(|night| night.from >= now) else {
+        return;
+    };
+    let handle = ctx.schedule(night.from, EventPayload::Bedtime { sim }, by);
+    if domain
+        .pending
+        .insert((sim, Slot::Bedtime), handle)
+        .is_some()
+    {
+        panic!("invariant house.bedtime_twice");
+    }
+}
+
+/// The start of a person's night (ADR-0026, addendum of 2026-11-04): one idle in a room
+/// chooses, in its night now; anyone else goes on, and chooses in the night when what it does
+/// ends. No entry of its own: the choice's has this event as its cause.
+pub(crate) fn on_bedtime(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    // The event that runs right now is no longer pending.
+    domain.pending.remove(&(sim, Slot::Bedtime));
+    let Some(person) = domain.house.sims.get(&sim) else {
+        panic!("invariant house.orphan_event");
+    };
+    if let (Place::Room(_), None) = (person.place, person.action) {
+        action::decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
+    }
+}
+
 /// The plan of the day at 5:00 (ADR-0024 sections 2 and 4): nothing before the household's
-/// first morning; a person with needs plans its duty; a child who is 6 now gets its needs and
-/// its day, its series running on.
+/// first morning; a person with needs plans its duty and its bedtime, the latter by the
+/// series' own reason, its `core:moved_in` (ADR-0026, addendum of 2026-11-04); a child who is 6
+/// now gets its needs and its day, its series running on.
 pub(crate) fn on_day_plan(
     domain: &mut DomainState,
     data: &Data,
@@ -125,6 +172,8 @@ pub(crate) fn on_day_plan(
     let causes = Causes::new(ctx.trigger());
     if domain.house.sims.contains_key(&sim) {
         plan_today(domain, data, sim, causes, ctx);
+        let by = (ctx.planned_by()).unwrap_or_else(|| panic!("invariant house.day_plan_planned"));
+        plan_bedtime(domain, data, sim, by, ctx);
     } else if !young(domain, sim, ctx.now()) {
         start_day(domain, data, sim, household, causes, ctx);
     }

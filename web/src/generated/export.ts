@@ -498,7 +498,7 @@ export type HouseAction = {
   readonly until: DatedSecond | null;
 };
 
-/** `GET /api/runs/{run}/why/{entry}`: the points of every offer of a choice, recomputed from its entry, the most first (ADR-0021, addendum of 2026-11-03). */
+/** `GET /api/runs/{run}/why/{entry}` (version 2): the points of every offer of a choice, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addendum of 2026-11-04). */
 export type WhyAnswer = {
   readonly format: "simagent.view.why";
   readonly version: number;
@@ -507,8 +507,17 @@ export type WhyAnswer = {
   readonly at: DatedSecond;
   readonly enough: number;
   readonly commanded: boolean;
+  readonly night: WhyNight | null;
   readonly chosen: WhyChoice | null;
+  readonly waits: number | null;
   readonly offers: WhyOffer[];
+};
+
+/** A person's night, from its start to its end (none for the last night of time, which lasts to its end); `now` if the choice lay in it, else it is the next. */
+export type WhyNight = {
+  readonly from: DatedSecond;
+  readonly until: DatedSecond | null;
+  readonly now: boolean;
 };
 
 /** The offer chosen and its points. */
@@ -518,12 +527,13 @@ export type WhyChoice = {
   readonly points: number;
 };
 
-/** An offer, its points, and whether its object had no free place. */
+/** An offer, its points, whether its object had no free place, and whether it was closed (sleep outside the night, without points). */
 export type WhyOffer = {
   readonly object: number;
   readonly offer: number;
-  readonly points: number;
+  readonly points: number | null;
   readonly busy: boolean;
+  readonly closed: boolean;
 };
 
 /** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i. */

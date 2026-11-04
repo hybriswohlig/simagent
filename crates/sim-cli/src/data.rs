@@ -521,7 +521,7 @@ mod tests {
     fn the_base_game_loads() {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
         // shock templates and the houses, from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0x9b9c_bcf6_ef2d_5fb1);
+        assert_eq!(core_data().expect("data").hash(), 0x7e76_a949_dcb9_91ac);
     }
 
     fn puberty_ramp(data: &Data) -> f64 {

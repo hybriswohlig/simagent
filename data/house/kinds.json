@@ -3,7 +3,7 @@
     "id": "core:bed",
     "slots": 2,
     "offers": [
-      {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}
+      {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}
     ]
   },
   {
@@ -38,22 +38,14 @@
     "id": "core:single_bed",
     "slots": 1,
     "offers": [
-      {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}
+      {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}
     ]
   },
   {
     "id": "core:sofa",
     "slots": 3,
     "offers": [
-      {
-        "id": "sleep",
-        "rates": {"energy": 50},
-        "sleep": true,
-        "until_full": "energy",
-        "max_seconds": 43200,
-        "min_age": 0,
-        "max_age": 130
-      }
+      {"id": "sleep", "rates": {"energy": 50}, "sleep": true, "min_age": 0, "max_age": 130}
     ]
   },
   {

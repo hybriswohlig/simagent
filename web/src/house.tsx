@@ -25,7 +25,7 @@ const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
 const DAY_PAGES = 10;
 /** The most members a household with a house has (ADR-0025 section 3). */
 const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 1 } as const;
+const WHY = { format: "simagent.view.why", version: 2 } as const;
 const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
   hunger: "need_hunger",
   energy: "need_energy",
@@ -167,7 +167,8 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
 }
 
 /** "Warum?" for a choice: what it chose with its points and what came behind, from the
- * server (ADR-0026 section 6). */
+ * server (ADR-0026 section 6); in the night that the bed comes first, and by day the beds
+ * closed until the night (ADR-0026, addendum of 2026-11-04). */
 function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: number }) {
   const [why, setWhy] = useState<WhyAnswer | null | "failed">(null);
   const ask = () => {
@@ -187,24 +188,32 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
   }
   const points = (n: number) => n.toLocaleString("de-DE");
   const chosen = why.chosen;
+  const opens = why.night === null ? "" : timeOfDay(why.night.from.date.second_of_day);
   const behind = why.offers
     .filter((offer) => chosen === null || offer.object !== chosen.object || offer.offer !== chosen.offer)
     .slice(0, chosen === null ? 4 : 3)
-    .map((offer) =>
-      `${TEXT.house_why_offer.replace("{what}", offerWords(layout, offer.object, offer.offer)).replace("{points}", points(offer.points))}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`,
-    )
+    .map((offer) => {
+      const what = offerWords(layout, offer.object, offer.offer);
+      if (offer.points === null) {
+        return TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens);
+      }
+      return `${TEXT.house_why_offer.replace("{what}", what).replace("{points}", points(offer.points))}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`;
+    })
     .join(", ");
-  // Idle while the best that brings enough is taken: it waits for it (ADR-0026 section 5).
-  const waited = why.offers.find((offer) => !offer.busy && offer.points >= why.enough) === undefined
-    ? why.offers.find((offer) => offer.busy && offer.points >= why.enough)
-    : undefined;
+  // Idle while waiting for a taken object, as its entry says (ADR-0026 section 5).
+  const waited = why.waits === null ? undefined : why.offers.find((offer) => offer.object === why.waits);
+  const ends = why.night?.until ?? null;
+  const night = why.night !== null && why.night.now && !why.commanded
+    ? `${ends === null ? TEXT.house_why_night_last : TEXT.house_why_night.replace("{time}", timeOfDay(ends.date.second_of_day))} `
+    : "";
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>
       {why.commanded ? `${TEXT.house_why_commanded} ` : ""}
+      {night}
       {chosen === null && waited !== undefined
         ? TEXT.house_why_waits
             .replace("{what}", offerWords(layout, waited.object, waited.offer))
-            .replace("{points}", points(waited.points))
+            .replace("{points}", waited.points === null ? "" : points(waited.points))
         : chosen === null
         ? TEXT.house_why_none.replace("{enough}", points(why.enough))
         : TEXT.house_why_chosen

@@ -1,13 +1,13 @@
 //! A person's duty of a day (ADR-0024 section 4): school or work on a weekday by the age at
 //! the day's plan at 5:00 and, for work, by the person's work plan, a draw once in its life;
-//! and where a child under 6 is. Pure functions of the day's rules, so the handlers, the
-//! loader and the page agree.
+//! its night (ADR-0026, addendum of 2026-11-04) by the same age; and where a child under 6
+//! is. Pure functions of the day's rules, so the handlers, the loader and the page agree.
 
-use crate::house::data::DayRules;
+use crate::house::data::{DayRules, age_band};
 use crate::house::state::Duty;
 use crate::lineage::LineageKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
-use crate::time::{DAY, SimDuration, SimTime, YEAR, calendar};
+use crate::time::{DAY, MAX_ABS_SECS, SimDuration, SimTime, YEAR, calendar, day_index};
 
 /// The weekdays 0 to 4 have duties (ADR-0024 section 4).
 const WEEKDAYS: u16 = 5;
@@ -93,6 +93,67 @@ pub fn duty(
         depart: of_day(day, hours.0)?,
         back: of_day(day, hours.1)?,
     })
+}
+
+/// A person's night (ADR-0026, addendum of 2026-11-04): from `from` included to `until`
+/// excluded; `until` is `None` for the last night of time, whose end lies beyond the end of
+/// time: it lasts to the end, its last second included, and a sleep in it has no end, as an
+/// action that would end beyond time has none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Night {
+    pub from: SimTime,
+    pub until: Option<SimTime>,
+}
+
+impl Night {
+    /// Whether `at` lies in the night.
+    pub fn holds(&self, at: SimTime) -> bool {
+        self.from <= at && self.until.is_none_or(|until| at < until)
+    }
+
+    /// The seconds of the night from `at` on, `at` included: to its end, for the last night of
+    /// time to the end of time.
+    pub fn left(&self, at: SimTime) -> i64 {
+        match self.until {
+            Some(until) => (until - at).as_secs(),
+            None => MAX_ABS_SECS + 1 - at.as_secs(),
+        }
+    }
+}
+
+/// The night of the day `day` of a person born at `born`: from `night.from` of that day to
+/// `night.until` of the next, of the age band at the day's plan (as its duty). `None` at an
+/// age without needs (under 6, above `OLDEST`) or if the day's plan or the night's start lies
+/// beyond the end of time; a night that would end beyond it ends with time. Time begins outside
+/// every night: a night before the first second has no plan in time, and nobody is 6 there, as
+/// nobody is born before it.
+pub fn night_of(rules: &DayRules, day: i64, born: SimTime) -> Option<Night> {
+    let plan = of_day(day, rules.day_plan_at)?;
+    let years = (plan.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
+    let band = u8::try_from(years).ok().and_then(age_band)?;
+    let next = day.checked_add(1);
+    Some(Night {
+        from: of_day(day, rules.night.from[band])?,
+        until: next.and_then(|next| of_day(next, rules.night.until[band])),
+    })
+}
+
+/// The night `at` lies in for a person born at `born`: that of its day once it has begun, else
+/// that of the day before until it ends; `None` between two nights. The data put every end
+/// before every start, so no second lies in two.
+pub fn night(rules: &DayRules, born: SimTime, at: SimTime) -> Option<Night> {
+    let day = day_index(at);
+    let inside = |night: &Night| night.holds(at);
+    let today = night_of(rules, day, born).filter(inside);
+    today.or_else(|| night_of(rules, day.checked_sub(1)?, born).filter(inside))
+}
+
+/// The night that follows `at` for a person born at `born`: that of its day if it has not
+/// begun, else that of the next day.
+pub fn next_night(rules: &DayRules, born: SimTime, at: SimTime) -> Option<Night> {
+    let day = day_index(at);
+    let today = night_of(rules, day, born).filter(|night| night.from > at);
+    today.or_else(|| night_of(rules, day.checked_add(1)?, born))
 }
 
 /// Where a child under 6 is (ADR-0024 section 4): at the kindergarten until the second it

@@ -458,6 +458,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Wake { sim } => {
                 state::day::on_wake(&mut self.domain, &self.data, sim, &mut ctx);
             }
+            EventPayload::Bedtime { sim } => {
+                state::day::on_bedtime(&mut self.domain, &self.data, sim, &mut ctx);
+            }
             EventPayload::Depart { sim, place, back } => {
                 let departure = (sim, place, back);
                 state::day::on_depart(&mut self.domain, &self.data, departure, &mut ctx);
@@ -525,7 +528,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Arrive { .. }
             | EventPayload::ActionEnd { .. }
             | EventPayload::NeedCrossing { .. }
-            | EventPayload::Decide { .. } => {
+            | EventPayload::Decide { .. }
+            | EventPayload::Bedtime { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }

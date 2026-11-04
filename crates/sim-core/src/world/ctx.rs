@@ -152,6 +152,14 @@ impl<'a, 'q> SimCtx<'a, 'q> {
         self.trigger.clone()
     }
 
+    /// The entry that gave the reason of the running event's plan; `None` for an input.
+    pub(crate) fn planned_by(&self) -> Option<EventId> {
+        match &self.trigger {
+            Cause::Plan(plan) => Some(plan.by),
+            _ => None,
+        }
+    }
+
     /// Writes one log entry with `t = now`.
     pub(crate) fn emit(
         &mut self,

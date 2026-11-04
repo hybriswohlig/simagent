@@ -387,6 +387,9 @@ pub enum RejectCode {
     /// A command for a person whose walk or action raises a need that is critical
     /// (ADR-0026 section 4).
     CriticalNeed,
+    /// A command for an offer of sleep outside the person's night (ADR-0026, addendum of
+    /// 2026-11-04).
+    NotNight,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

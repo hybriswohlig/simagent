@@ -100,15 +100,15 @@ fn rates(hunger: i32, energy: i32, asleep_energy: i32) -> String {
 
 /// A loo for three (bladder +12 000 an hour until full, at most 5 min), a pot for two adults
 /// (hunger +100 an hour for 3 h) and a bed for three: a child's sleep with fun +3 000, an older
-/// person's doze, both until energy is full.
+/// person's doze, both for the night.
 const HOME_KINDS: &str = r#"
   {"id": "test:loo", "slots": 3, "offers": [
     {"id": "use", "rates": {"bladder": 12000}, "until_full": "bladder", "max_seconds": 300, "min_age": 0, "max_age": 130}]},
   {"id": "test:pot", "slots": 2, "offers": [
     {"id": "cook", "rates": {"hunger": 100}, "seconds": 10800, "min_age": 18, "max_age": 130}]},
   {"id": "test:bed", "slots": 3, "offers": [
-    {"id": "sleep", "sleep": true, "rates": {"fun": 3000}, "until_full": "energy", "max_seconds": 43200, "min_age": 6, "max_age": 12},
-    {"id": "doze", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 13, "max_age": 130}]}"#;
+    {"id": "sleep", "sleep": true, "rates": {"fun": 3000}, "min_age": 6, "max_age": 12},
+    {"id": "doze", "sleep": true, "min_age": 13, "max_age": 130}]}"#;
 
 /// Rooms hall 0 (the entrance) and bedroom 1, 3 s apart. Objects: loo 0 and pot 1 in the hall,
 /// bed 2 in the bedroom, the five essential ones 3 to 7 in the hall.
@@ -134,7 +134,7 @@ const FAR_KINDS: &str = r#"
   {"id": "test:gruel", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 180}, "seconds": 1200, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]},
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
   {"id": "test:loo", "slots": 1, "offers": [
     {"id": "use", "rates": {"bladder": 720}, "seconds": 300, "min_age": 0, "max_age": 130}]}"#;
 
@@ -325,19 +325,17 @@ fn school_and_work() -> Family {
 
 /// The first morning, at 6:00 of day 1, plans the day of each (only what comes after 6:00).
 /// All three take the loo first (bladder 500 to full: 500 · 500 − 50 · 5 = 249 750; the pot
-/// 400 · 300 = 120 000, the child's bed 200 · 200 + 100 · 100 = 50 000, each less its walk),
-/// there at 6:00:05 and full 150 s later (bladder +12 000 an hour), energy 899 (900 − 1.29
-/// truncated). Then the adults cook (119 750), she on place 0, he on 1, from 6:02:40; the
-/// child, with the pot taken and too young for it, sleeps (40 000 + 101 · 101 − 150 = 50 051),
-/// there at 6:02:38. Its wake at 6:55 ends the sleep (reason `obligation`): energy 899 + 26.18,
-/// fun full long since; nothing is enough then (the bed 75 · 75 − 250), it idles in the
-/// bedroom. His wake at 6:55 and hers at 7:55 find them cooking and do nothing. At 7:40 he
-/// leaves the pot (hunger 600 + 100 · 5 840 / 3 600 = 762, energy 850) and the child the
-/// bedroom (energy 925 − 22.5 = 903), each with `core:left_home` and no choice; she leaves at
-/// 8:40 (hunger 862, energy 820). Back at 13:20, 15:20 and 17:20 each comes in at the entrance
-/// with the jumps and chooses: he the pot (hunger 412: 588 · 300 = 176 400 beats the loo's
-/// 400 · 400 = 160 000 and the doze's 350 · 350), the child and she the loo (the child's bed
-/// 150 · 150 + 297 · 297 = 110 709; her pot 488 · 300, her doze 380 · 360).
+/// 400 · 300 = 120 000 less its walk; the bed is closed by day, ADR-0026, addendum of
+/// 2026-11-04), there at 6:00:05 and full 150 s later (bladder +12 000 an hour), energy 899
+/// (900 − 1.29 truncated). Then the adults cook (119 750), she on place 0, he on 1, from
+/// 6:02:40; the child, with the pot taken and too young for it and the bed closed, idles in the
+/// hall. Its wake at 6:55 finds it idle: it chooses and idles again (energy 900 − 27.5
+/// truncated). His wake at 6:55 and hers at 7:55 find them cooking and do nothing. At 7:40 he
+/// leaves the pot (hunger 600 + 100 · 5 840 / 3 600 = 762, energy 850) and the child the hall
+/// (energy 850), each with `core:left_home` and no choice; she leaves at 8:40 (hunger 862,
+/// energy 820). Back at 13:20, 15:20 and 17:20 each comes in at the entrance with the jumps and
+/// chooses: he the pot (hunger 412: 588 · 300 = 176 400 beats the loo's 400 · 400 = 160 000),
+/// the child and she the loo (her pot 488 · 300).
 #[test]
 fn a_day_of_school_and_work() {
     let mut family = school_and_work();
@@ -399,17 +397,12 @@ fn a_day_of_school_and_work() {
         ),
     ]);
     assert_eq!(family.day(2)[..his.len()], his);
-    let woken = [600, 925, 1000, 700, 1000];
+    let at_wake = [600, 873, 1000, 700, 800];
     let mut child = common(2);
     child.insert(1, (0, plan(Duty::School, EARLY, SCHOOL_BACK)));
     child.extend([
-        (155, started(home, (2, 0, 0), 0, 3)(after_loo, vec![1])),
-        (158, LogPayload::Reached { object: 2 }),
-        (
-            after_morning(WAKE_EARLY),
-            ended(2, EndReason::Obligation, woken),
-        ),
-        (after_morning(WAKE_EARLY), idle(home, 1, woken, vec![1])),
+        (155, idle(home, 0, after_loo, vec![1])),
+        (after_morning(WAKE_EARLY), idle(home, 0, at_wake, vec![1])),
         (after_morning(EARLY), left(Duty::School, 0)),
         (
             after_morning(SCHOOL_BACK),
@@ -419,12 +412,12 @@ fn a_day_of_school_and_work() {
         ),
         (
             after_morning(SCHOOL_BACK),
-            loo(0)([250, 703, 600, 600, 850], Vec::new()),
+            loo(0)([250, 650, 600, 600, 650], Vec::new()),
         ),
     ]);
     assert_eq!(family.day(3)[..child.len()], child);
-    // The causes: the plan by the morning's `core:day_started`, the wake's end by the wake
-    // that plan made, the departure after an end by that end; the return by the plan.
+    // The causes: the plan by the morning's `core:day_started`, the choice at the wake by the
+    // wake that plan made, the departure after an end by that end; the return by the plan.
     let causes = |entry: &LogEntry| entry.causes.as_slice().to_vec();
     let by = |entry: &LogEntry| match causes(entry).as_slice() {
         [Cause::Plan(plan)] => family.entry(&plan.by).payload.clone(),
@@ -436,16 +429,10 @@ fn a_day_of_school_and_work() {
         by(first(3, planned)),
         LogPayload::DayStarted { .. }
     ));
-    let woke = |p: &LogPayload| {
-        matches!(
-            p,
-            LogPayload::ActionEnded {
-                reason: EndReason::Obligation,
-                ..
-            }
-        )
-    };
-    assert!(matches!(by(first(3, woke)), LogPayload::DayPlanned { .. }));
+    let idled = |p: &LogPayload| matches!(p, LogPayload::Idle { .. });
+    let woke = family.of(3, idled)[1];
+    assert_eq!(woke.t, t(D + WAKE_EARLY));
+    assert!(matches!(by(woke), LogPayload::DayPlanned { .. }));
     let away = |p: &LogPayload| matches!(p, LogPayload::LeftHome { .. });
     assert!(matches!(by(first(1, away)), LogPayload::ActionEnded { .. }));
     assert!(matches!(by(first(3, away)), LogPayload::DayPlanned { .. }));
@@ -455,7 +442,7 @@ fn a_day_of_school_and_work() {
 
 /// Away every need stands still from the departure on (ADR-0024 section 4): at 12:00 she, he
 /// and the child are away with the values of their departures at rate 0 and nothing to do.
-/// On the way out (the hall to the door 5 s, the bedroom 3 + 5 s) the needs already stand.
+/// On the way out (the hall to the door 5 s) the needs already stand.
 #[test]
 fn away_the_needs_stand_still() {
     let mut family = school_and_work();
@@ -467,19 +454,19 @@ fn away_the_needs_stand_still() {
     assert_eq!(
         child.place,
         Place::Walking {
-            from: 1,
+            from: 0,
             to: 0,
             depart: t(D + EARLY),
-            arrive: t(D + EARLY + 8),
+            arrive: t(D + EARLY + 5),
         }
     );
-    assert_eq!(child.needs, still([600, 903, 1000, 700, 1000], EARLY));
+    assert_eq!(child.needs, still([600, 850, 1000, 700, 800], EARLY));
     family.advance(D + 12 * 3_600);
     let house = family.world.state().house();
     for (id, values, at, decisions) in [
         (1, [862, 820, 1000, 700, 800], LATE, 2),
         (2, [762, 850, 1000, 700, 800], EARLY, 2),
-        (3, [600, 903, 1000, 700, 1000], EARLY, 3),
+        (3, [600, 850, 1000, 700, 800], EARLY, 3),
     ] {
         let person = &house.sims[&sim(id)];
         assert_eq!(person.place, Place::Away, "{id}");

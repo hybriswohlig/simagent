@@ -696,8 +696,11 @@ FOUNDER_ALLELE = 28
 # The day's rules (ADR-0024 section 4) enter the repository's data: a new data hash, so a log
 # or save of the repository's data changes, no year hash and no log hash: core 54, the
 # projection stays 19.
+# The night in the house (ADR-0026, addendum of 2026-11-04) changes the repository's day, needs
+# and kinds: a new data hash, so a log or save of the repository's data changes, no year hash
+# and no log hash of a run without a household in a house: core 55, the projection stays 19.
 PROJECTION_VERSION = 19
-CORE_VERSION = 54
+CORE_VERSION = 55
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

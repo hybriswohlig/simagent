@@ -24,7 +24,7 @@ const KINDS: &str = r#"
   {"id": "test:snack", "slots": 2, "offers": [
     {"id": "nibble", "rates": {"hunger": 600}, "seconds": 120, "min_age": 0, "max_age": 130}]},
   {"id": "test:bed", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]}"#;
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}"#;
 
 /// Rooms hall 0, den 1, kitchen 2, bedroom 3; the den and the bedroom 3 s from the hall, the
 /// kitchen 120 s. Objects: television 0 in the den, fridge 1 in the kitchen, bed 2 in the

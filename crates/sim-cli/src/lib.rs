@@ -400,8 +400,9 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
                     .and_then(|object| houses.kind(&object.kind))
                     .and_then(|kind| kind.offers.get(usize::from(action.offer)))
                     .ok_or_else(|| broken("an unknown offer"))?;
+                let born = state.born(sim).ok_or_else(|| broken("an unknown person"))?;
                 let until = match person.place {
-                    Place::Room(_) => action_end(person, offer).map(dated),
+                    Place::Room(_) => action_end(person, offer, houses.day(), born).map(dated),
                     _ => None,
                 };
                 serde_json::json!({
@@ -452,16 +453,20 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
 /// "Warum?" for a choice (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): from an entry
 /// `core:action_started` or `core:idle`, the points of every offer recomputed with
 /// `house::choice::score` from the house, the room and the needs of the entry and the
-/// person's age in its second, the most first (a tie to the smaller object, then offer), each
-/// with whether its object had no free place. `None` for any other entry.
+/// person's age and night in its second, the most first (a tie to the smaller object, then
+/// offer), each with whether its object had no free place; after them each offer of sleep
+/// closed then, outside the person's night, without points (version 2, ADR-0026, addendum of
+/// 2026-11-04). With the night the choice lay in, or else the next, and the object an idle
+/// person waited for. `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
     id: u64,
 ) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::choice::{ENOUGH, age, score};
+    use sim_core::house::day::{next_night, night};
     use sim_core::log::{LogPayload, Subject};
-    let (house, room, needs, busy, chosen, commanded) = match &entry.payload {
+    let (house, room, needs, busy, chosen, commanded, waits) = match &entry.payload {
         LogPayload::ActionStarted {
             house,
             object,
@@ -478,14 +483,15 @@ pub fn why_answer(
             busy,
             Some((*object, *offer)),
             *commanded,
+            None,
         ),
         LogPayload::Idle {
             house,
             room,
             needs,
             busy,
-            ..
-        } => (house, *room, *needs, busy, None, false),
+            waits,
+        } => (house, *room, *needs, busy, None, false, *waits),
         _ => return Ok(None),
     };
     let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
@@ -501,7 +507,9 @@ pub fn why_answer(
         .house(house)
         .ok_or_else(|| broken("an unknown house"))?;
     let age = age(born, entry.t).ok_or_else(|| broken("a choice before the birth"))?;
-    let mut scored = score(house, houses, age, needs, room);
+    let tonight = night(houses.day(), born, entry.t);
+    let left = tonight.map(|night| night.left(entry.t));
+    let mut scored = score(house, houses, age, needs, room, left);
     scored.sort_by_key(|scored| {
         (
             core::cmp::Reverse(scored.points),
@@ -515,25 +523,54 @@ pub fn why_answer(
             .map(|scored| scored.points);
         serde_json::json!({"object": object, "offer": offer, "points": points})
     });
-    let offers: Vec<serde_json::Value> = (scored.iter())
+    let mut offers: Vec<serde_json::Value> = (scored.iter())
         .map(|scored| {
             serde_json::json!({
                 "object": scored.object,
                 "offer": scored.offer,
                 "points": scored.points,
                 "busy": busy.contains(&scored.object),
+                "closed": false,
             })
         })
         .collect();
+    // Outside the night every offer of sleep open at the age is closed.
+    if tonight.is_none() {
+        for (object, def) in (0_u16..).zip(&house.def().objects) {
+            let kind = houses
+                .kind(&def.kind)
+                .ok_or_else(|| broken("an unknown kind"))?;
+            for (offer, def) in (0_u16..).zip(&kind.offers) {
+                if def.sleep && (def.min_age..=def.max_age).contains(&age) {
+                    offers.push(serde_json::json!({
+                        "object": object,
+                        "offer": offer,
+                        "points": null,
+                        "busy": busy.contains(&object),
+                        "closed": true,
+                    }));
+                }
+            }
+        }
+    }
+    let shown = tonight
+        .map(|night| (night, true))
+        .or_else(|| next_night(houses.day(), born, entry.t).map(|night| (night, false)));
+    let night = shown.map(|(night, now)| {
+        let until = night.until.map(dated);
+        serde_json::json!({"from": dated(night.from), "until": until, "now": now})
+    });
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 1,
+        "version": 2,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
         "enough": ENOUGH,
         "commanded": commanded,
+        "night": night,
         "chosen": chosen,
+        "waits": waits,
         "offers": offers,
     })))
 }
