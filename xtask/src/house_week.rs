@@ -1,15 +1,17 @@
 //! `cargo xtask house-week`: the budget of a week in houses (plan of phase 2, sections 4.8 and
 //! 5 item 6; ADR-0024 section 6). Two starts, each with 50 households that move in at 23:59:59
-//! of day 0 and live the week from their first morning to 6:00 of day 8: a town founded from
-//! the repository's pool, its first 50 households (by id) that a house holds; and 50 founder
-//! families of 200 persons, a couple of 30 to 45 each and 100 children of 6 to 15 whom the
-//! couples take in (ADR-0018 section 4). For each it prints the households and persons, the
-//! events, entries and choices of the week, the most choices of one person in one day, the most
-//! offers one choice weighs, the most entries of one person in one day, and the seconds the
-//! week took. It is red when a counted limit breaks: 48 choices per person and day and 32
-//! offers per choice (plan section 4.8), 150 entries per person and day (ADR-0024 section 6).
-//! The time is reported against its target of 5 s, never a reason to be red. Outside the gate;
-//! a debug build runs the release build of itself, so the time is the release time.
+//! of day 0 and live until 6:00 of day 8, their first morning at 6:00 of day 1. The budget run:
+//! 50 founder families, a couple of 30 to 45 each and 100 children of 6 to 15 whom the couples
+//! take in (ADR-0018 section 4), 200 persons with needs at the first morning. A second, smaller
+//! sample: a town founded from the repository's pool, its first 50 households (by id) that a
+//! house holds. For each it prints the households and persons, the events, entries and choices
+//! after moving in, the most choices of one person in one day, the most offers one choice weighs,
+//! the most entries of one person in one day, and the seconds it took. It is red when fewer
+//! than 200 persons with needs live in the families' houses at the first morning, or when a
+//! counted limit breaks: 48 choices per person and day and 32 offers per choice (plan section
+//! 4.8), 150 entries per person and day (ADR-0024 section 6). The time is reported against its
+//! target of 5 s, never a reason to be red. Outside the gate; a debug build runs the release
+//! build of itself, so the time is the release time.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -36,8 +38,9 @@ const N_START: u64 = 250;
 /// households a house holds each, within `TRIES`: a couple may take in up to six children.
 pub const SEED_FAMILIES: u64 = 0x5eed_0002_0006_0101;
 const TRIES: u64 = 20;
-/// The households that move in.
+/// The households that move in, and the persons with needs the founder families bring.
 pub const HOUSEHOLDS: usize = 50;
+pub const PERSONS: usize = 200;
 /// The counted limits: choices per person and day, offers per choice (plan section 4.8),
 /// entries per person and day (ADR-0024 section 6).
 pub const CHOICES_PER_DAY: usize = 48;
@@ -51,7 +54,8 @@ const TARGET_SECS: f64 = 5.0;
 pub struct Counted {
     pub households: usize,
     pub persons: usize,
-    /// Persons who had needs in the week (6 or older).
+    /// Persons with needs in their houses at the first morning: a `core:day_started` at 6:00
+    /// of day 1.
     pub with_needs: usize,
     pub events: u64,
     pub entries: usize,
@@ -87,6 +91,16 @@ pub fn broken(counted: &Counted) -> Vec<String> {
         }
     }
     broken
+}
+
+/// Fewer than `PERSONS` persons with needs at the founder families' first morning.
+pub fn too_few(families: &Counted) -> Option<String> {
+    (families.with_needs < PERSONS).then(|| {
+        format!(
+            "{} persons with needs at the founder families' first morning, below {PERSONS}",
+            families.with_needs
+        )
+    })
 }
 
 /// The town of `SEED_TOWN` from the pool of `data`, `N_START` persons.
@@ -143,7 +157,8 @@ fn start(
 
 /// The world of `start` on `data`: the first `households` of its households (by id) that a
 /// house holds move in at 23:59:59 of day 0, then the week runs to 6:00 of day 8 in one call.
-/// What it counted, and the seconds of that call; `None` if fewer households fit a house.
+/// What it counted after moving in, and the seconds of that call; `None` if fewer households
+/// fit a house.
 pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Counted, f64)>> {
     let mut world = World::new(data);
     world
@@ -180,6 +195,7 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
     }
     drop(world.take_log());
     let before = world.stats().domain_calls;
+    let morning = SimTime::from_secs(day + 6 * HOUR.as_secs());
     let end = SimTime::from_secs(8 * day + 6 * HOUR.as_secs());
     let started = Instant::now();
     world.advance_until(&mut out, end, &mut |_| false);
@@ -210,7 +226,9 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         };
         let (house, room, needs) = match &entry.payload {
             LogPayload::DayStarted { .. } => {
-                with_needs.insert(sim);
+                if entry.t == morning {
+                    with_needs.insert(sim);
+                }
                 continue;
             }
             LogPayload::ActionStarted {
@@ -269,15 +287,17 @@ pub fn command(root: &Path) -> Result {
         }
     }
     let (seed, families) = found.ok_or("no seed within the tries")?;
-    let mut broken = Vec::new();
+    let mut broken: Vec<String> = too_few(&families.0).into_iter().collect();
     for (name, (counted, secs)) in [
-        (
-            format!("a town of {N_START} from the pool, seed {SEED_TOWN:016x}"),
-            town,
-        ),
         (
             format!("{HOUSEHOLDS} founder families, seed {seed:016x}"),
             families,
+        ),
+        (
+            format!(
+                "a town of {N_START} from the pool, seed {SEED_TOWN:016x}, a second, smaller sample"
+            ),
+            town,
         ),
     ] {
         print(&name, &counted, secs);
@@ -296,11 +316,11 @@ pub fn command(root: &Path) -> Result {
 
 fn print(name: &str, counted: &Counted, secs: f64) {
     println!(
-        "house-week, {name}: {} households with {} persons ({} with needs) moved in",
+        "house-week, {name}: {} households with {} persons moved in, {} with needs at the first morning",
         counted.households, counted.persons, counted.with_needs
     );
     println!(
-        "  the week from the first morning: {} events, {} entries, {} choices",
+        "  after moving in (23:59:59 of day 0) to 6:00 of day 8: {} events, {} entries, {} choices",
         counted.events, counted.entries, counted.choices
     );
     println!(
@@ -315,7 +335,8 @@ fn print(name: &str, counted: &Counted, secs: f64) {
 mod tests {
     use super::*;
 
-    /// A limit holds at its value and breaks one above it; each break is named.
+    /// A limit holds at its value and breaks one above it; each break is named. The founder
+    /// families need 200 persons with needs.
     #[test]
     fn a_limit_breaks_above_its_value() {
         let at = Counted {
@@ -331,6 +352,18 @@ mod tests {
             most_entries: ENTRIES_PER_DAY + 1,
             ..at
         };
+        assert_eq!(
+            too_few(&at),
+            Some(
+                "0 persons with needs at the founder families' first morning, below 200"
+                    .to_string()
+            )
+        );
+        let full = Counted {
+            with_needs: PERSONS,
+            ..at
+        };
+        assert_eq!(too_few(&full), None);
         assert_eq!(
             broken(&above),
             [
