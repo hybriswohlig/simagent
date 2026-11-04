@@ -35,6 +35,8 @@ fn started(object: u16, slot: u8, room: u8, walk_secs: u32, needs: [u16; 5]) -> 
         needs,
         busy: Vec::new(),
         commanded: false,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 

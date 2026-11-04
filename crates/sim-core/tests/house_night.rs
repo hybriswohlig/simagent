@@ -3,7 +3,9 @@
 //! `night.until` of the next, and a sleep lasts to the night's end. At its bedtime a person idle
 //! in a room chooses; in the night a choice takes what raises a critical need first, then a
 //! free bed, then a free place on the sofa, then waits for a bed. The night function at its
-//! edges; then a couple (and once a child) in a test house on a weekend, the values by hand.
+//! edges; then a couple (and once a child) in a test house on a weekend, the values by hand,
+//! the night ending at 6:00 on the weekend too (`common::weekday_mornings`; the weekend's later
+//! end is in `house_rules.rs`).
 //!
 //! The test house: rooms hall 0 (the entrance), living 1, bedroom 2, bath 3; the bedroom 4 s,
 //! the living room 3 s and the bath 2 s from the hall (bath to bedroom 6 s, living room to
@@ -45,8 +47,14 @@ const H: i64 = HOUR.as_secs();
 const Y: i64 = YEAR.as_secs();
 
 /// The repository's day: the night from 20:00 for 6 to 17, from 22:00 for 18 to 66, from 21:30
-/// from 67 on, each until 6:00.
+/// from 67 on, each until 6:00 on a weekday.
 const DAY_FILE: &str = include_str!("../../../data/house/day.json");
+
+/// The repository's day with weekday mornings (`common::weekday_mornings`): the runs here begin
+/// on a Saturday to have no duty, and their nights end at 6:00 as on a weekday.
+fn day_file() -> String {
+    common::weekday_mornings(DAY_FILE)
+}
 
 /// The first morning of a household moved in at 23:59:59 of day 4: 6:00 of day 5, a Saturday
 /// (weekday 5), so no duty that weekend.
@@ -119,7 +127,7 @@ fn house(loo: bool) -> String {
         "id": "test:night", "capacity": 3,
         "rooms": [{"id": "hall", "entrance": true}, {"id": "living"}, {"id": "bedroom"},
             {"id": "bath"}],
-        "child_day_room": "living", "child_night_room": "bedroom",
+        "child_day_room": "living", "child_night_room": "bedroom", "dwell_room": "living",
         "doors": [
             {"a": "hall", "b": "living", "seconds": 3},
             {"a": "hall", "b": "bedroom", "seconds": 4},
@@ -150,7 +158,7 @@ fn data_with(day: &str, (energy, bladder): (i32, i32), loo: bool) -> Data {
 
 /// Energy falls 30 an hour awake; no loo, the bladder still asleep.
 fn quiet() -> Data {
-    data_with(DAY_FILE, (-30, 0), false)
+    data_with(&day_file(), (-30, 0), false)
 }
 
 /// A woman of 30 (sim 1) and a man of 32 (sim 2), and the children born `children` years ago
@@ -201,6 +209,8 @@ fn started(
         needs,
         busy: busy.to_vec(),
         commanded,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -220,6 +230,8 @@ fn idle(room: u8, needs: [u16; 5], busy: &[u16]) -> LogPayload {
         needs,
         busy: busy.to_vec(),
         waits: None,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -574,7 +586,7 @@ fn a_person_watching_at_bedtime_finishes_then_goes_to_bed() {
 /// the bladder at 266 when the night ends (1 000 − 734.8). He mirrors her on the second places.
 #[test]
 fn a_bladder_at_night_wakes_the_sleeper_who_goes_back_to_bed() {
-    let data = data_with(DAY_FILE, (-30, -200), true);
+    let data = data_with(&day_file(), (-30, -200), true);
     let mut run = family(data, &[], 4);
     run.advance(SATURDAY + SUNDAY);
     let after_loo = [600, 899, 1000, 700, 800];
@@ -685,7 +697,7 @@ fn no_free_bed_means_the_sofa() {
 /// floor again from 20:40, so their bedtime at 22:00 finds them lying and does nothing.
 #[test]
 fn nobody_sleeps_by_day() {
-    let mut run = family(data_with(DAY_FILE, (-300, 0), false), &[], 4);
+    let mut run = family(data_with(&day_file(), (-300, 0), false), &[], 4);
     run.advance(SATURDAY + TEN_PM);
     let critical = |level: u16| LogPayload::NeedCritical {
         need: Need::Energy,
@@ -808,7 +820,7 @@ fn a_wake_at_the_nights_end_ends_the_sleep() {
     assert_eq!(moods, [-4, -7]);
     let [bed, cot] = moods.map(|mood| 9_100 * (100 + mood) / 100);
     assert_eq!((bed, cot), (8_736, 8_463));
-    let mut day: serde_json::Value = serde_json::from_str(DAY_FILE).expect("the day");
+    let mut day: serde_json::Value = serde_json::from_str(&day_file()).expect("the day");
     day["night"]["until"][0] = json!(24_900);
     let data = data_with(&day.to_string(), (-30, 0), true);
     let mut run = family(data, &[10], 1);
@@ -878,6 +890,6 @@ fn a_save_in_the_night_runs_on_the_same() {
     }
     check(quiet(), TEN_PM - 1, Some(command(1, BED)));
     for second in bladder_seconds {
-        check(data_with(DAY_FILE, (-30, -200), true), second, None);
+        check(data_with(&day_file(), (-30, -200), true), second, None);
     }
 }

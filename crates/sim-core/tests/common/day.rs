@@ -65,9 +65,14 @@ const ESSENTIALS: &str = r#"{"kind": "core:dining_table", "room": "hall"},
 /// The data of a test house: `rates`, the repository's day, the kinds `kinds` (JSON objects,
 /// comma separated) with the five essential ones, and the house file `house`.
 pub fn house_data(rates: &str, kinds: &str, house: &str) -> Data {
+    house_data_on(super::REPOSITORY_DAY, rates, kinds, house)
+}
+
+/// As `house_data` with the day `day`.
+pub fn house_data_on(day: &str, rates: &str, kinds: &str, house: &str) -> Data {
     let kinds = format!("[{kinds},{ESSENTIAL_KINDS}]");
     let house = house.replace("ESSENTIALS", ESSENTIALS);
-    let houses = super::houses_from(rates, super::REPOSITORY_DAY, &kinds, &[&house]);
+    let houses = super::houses_from(rates, day, &kinds, &[&house]);
     super::death_data(1e-9, None, serde_json::json!([])).with_houses(houses)
 }
 

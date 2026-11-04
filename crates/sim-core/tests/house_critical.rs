@@ -39,7 +39,7 @@ const KINDS: &str = r#"
 const DEN: &str = r#"{
   "id": "test:den", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}, {"id": "kitchen"}, {"id": "bedroom"}],
-  "child_day_room": "den", "child_night_room": "bedroom",
+  "child_day_room": "den", "child_night_room": "bedroom", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "den", "seconds": 3},
     {"a": "hall", "b": "kitchen", "seconds": 120},
@@ -55,7 +55,7 @@ const FAR: &str = r#"{
   "id": "test:far", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "a"}, {"id": "b"}, {"id": "den"},
     {"id": "kitchen"}],
-  "child_day_room": "den", "child_night_room": "den",
+  "child_day_room": "den", "child_night_room": "den", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "a", "seconds": 110},
     {"a": "a", "b": "b", "seconds": 110},
@@ -90,6 +90,8 @@ fn started(house: &str, object: u16, room: u8, walk_secs: u32, needs: [u16; 5]) 
         needs,
         busy: Vec::new(),
         commanded: false,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -175,13 +177,20 @@ fn television_mood(index: u64, second: i64) -> i64 {
 /// takes the snack (critical); there at 543 s with hunger 148, 120 s at +600 to 168. From the
 /// kitchen the television (fun 690: 310 · 310 at her mood −7, 89 373 − 50 · 333); hunger reaches
 /// 150 again 22 s later (18 at −3 000 an hour), the walk ends in the kitchen, the snack again.
-/// He idles at 240 s, the television at his mood −5 bringing 54 720 − 16 500 = 38 220; at 540 s,
-/// critical, he takes the snack on its second place, and from there does as she does, on the
-/// second places (the television at his mood +1 at 663 s).
+/// He idles at 240 s, the television at his mood −5 bringing 54 720 − 16 500 = 38 220. His next
+/// choice (ADR-0026, addendum of 2026-11-04 after the playtest) comes at the first whole minute
+/// at which the television brings 40 000 at his mood of that second: at +10 % it already does at
+/// 240 s (240 · 240 · 110 / 100 − 16 500 = 46 860), at −10 % only from fun 749 (251 · 251 · 90 /
+/// 100 − 16 500 = 40 200) at 1 506 s; 240 s itself is the choice he made, and at 300 s, fun 750,
+/// his mood +10 brings 250 · 250 · 110 / 100 − 16 500 = 52 250. So he walks to the television on
+/// its second place at 300 s; at 540 s, critical, that walk ends in the hall and he takes the
+/// snack on its second place, and from there does as she does, on the second places (the
+/// television at his mood +1 at 663 s).
 #[test]
 fn critical_ends_a_walk_where_it_began() {
     assert_eq!((television_mood(0, 240), television_mood(1, 240)), (3, -5));
     assert_eq!((television_mood(0, 663), television_mood(1, 663)), (-7, 1));
+    assert_eq!(television_mood(1, 300), 10);
     let television = |mood: i64| 57_600 * (100 + mood) / 100 - 16_500;
     assert!(television(3) >= ENOUGH && television(-5) < ENOUGH);
     let (mut run, _) = Run::moved_in(far());
@@ -195,6 +204,8 @@ fn critical_ends_a_walk_where_it_began() {
         needs: [600, 900, 500, 700, 800],
         busy: Vec::new(),
         waits: None,
+        held: Vec::new(),
+        tier: Vec::new(),
     };
     let hers = [
         (0, idle.clone()),
@@ -217,9 +228,16 @@ fn critical_ends_a_walk_where_it_began() {
         needs: [400, 900, 500, 700, 760],
         busy: Vec::new(),
         waits: None,
+        held: Vec::new(),
+        tier: Vec::new(),
     };
-    let mut his = vec![(0, idle), (240, waiting), (540, critical(150))];
-    his.extend(hers[4..].iter().cloned().map(|(second, mut payload)| {
+    let walked = [350, 900, 500, 700, 750];
+    let mut his = vec![(0, idle), (240, waiting)];
+    his.extend(hers[1..].iter().cloned().map(|(second, payload)| {
+        let (second, mut payload) = match second {
+            240 => (300, started(far, 0, 0, 330, walked)),
+            _ => (second, payload),
+        };
         if let LogPayload::ActionStarted { slot, .. } = &mut payload {
             *slot = 1;
         }

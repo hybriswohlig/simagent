@@ -399,6 +399,23 @@ const REPOSITORY_HOUSES: [&str; 3] = [
     include_str!("../../../../data/house/houses/terraced.json"),
 ];
 
+/// The day `day` (a `day.json`) with every morning's end of the night that of a weekday: the
+/// weekend's later end (ADR-0026, addendum of 2026-11-04 after the playtest) as `until`. The
+/// tests that begin on a Saturday only to have no duty use it, so that their first morning at
+/// 6:00 lies in no night; `house_rules.rs` tests the weekend's end.
+#[allow(dead_code, reason = "only the tests that begin on a Saturday need it")]
+pub fn weekday_mornings(day: &str) -> String {
+    let mut day: Value = serde_json::from_str(day).expect("the day");
+    day["night"]["until_weekend"] = day["night"]["until"].clone();
+    day.to_string()
+}
+
+/// The repository's `day.json` with weekday mornings (`weekday_mornings`).
+#[allow(dead_code, reason = "only the tests that begin on a Saturday need it")]
+pub fn repository_day_on_weekdays() -> String {
+    weekday_mornings(REPOSITORY_DAY)
+}
+
 /// The houses of `data/house/` as sim-cli reads them (ADR-0025): the offers without their
 /// names, the rooms numbered in each file's order.
 #[allow(
@@ -409,6 +426,20 @@ pub fn repository_houses() -> sim_core::house::data::HouseData {
     houses_from(
         REPOSITORY_NEEDS,
         REPOSITORY_DAY,
+        REPOSITORY_KINDS,
+        &REPOSITORY_HOUSES,
+    )
+}
+
+/// The houses of `data/house/` with weekday mornings (`weekday_mornings`).
+#[allow(
+    dead_code,
+    reason = "only the tests that begin on a Saturday need them"
+)]
+pub fn repository_houses_on_weekdays() -> sim_core::house::data::HouseData {
+    houses_from(
+        REPOSITORY_NEEDS,
+        &weekday_mornings(REPOSITORY_DAY),
         REPOSITORY_KINDS,
         &REPOSITORY_HOUSES,
     )
@@ -463,6 +494,9 @@ pub fn houses_from(
                     max_age: small(&offer["max_age"]),
                 })
                 .collect(),
+            bed_for: kind
+                .get("bed_for")
+                .map(|value| serde_json::from_value(value.clone()).expect("whom a bed is for")),
         })
         .collect();
     let houses = (houses.iter().map(|text| parse(text)))
@@ -483,6 +517,10 @@ pub fn houses_from(
                 entrance: u8::try_from(entrance.expect("an entrance")).expect("fits"),
                 child_day_room: room(&house["child_day_room"]),
                 child_night_room: room(&house["child_night_room"]),
+                dwell_room: room(&house["dwell_room"]),
+                dwell: (rooms.iter())
+                    .map(|room| room["dwell"].as_bool().unwrap_or(true))
+                    .collect(),
                 doors: (house["doors"].as_array().expect("the doors").iter())
                     .map(|door| DoorDef {
                         a: room(&door["a"]),

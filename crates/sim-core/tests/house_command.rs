@@ -44,7 +44,7 @@ const KINDS: &str = r#"
 const HOUSE: &str = r#"{
   "id": "test:command", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "kitchen"}, {"id": "den"}, {"id": "bedroom"}],
-  "child_day_room": "den", "child_night_room": "bedroom",
+  "child_day_room": "den", "child_night_room": "bedroom", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "kitchen", "seconds": 3},
     {"a": "hall", "b": "den", "seconds": 3},
@@ -103,6 +103,8 @@ fn started(
         needs,
         busy: busy.to_vec(),
         commanded,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -123,6 +125,8 @@ fn waits_for_the_pantry() -> LogPayload {
         needs: MORNING_NEEDS,
         busy: vec![PANTRY],
         waits: Some(PANTRY),
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -389,11 +393,11 @@ fn a_command_while_idle() {
     );
 }
 
-/// A feast for one (hunger +7 an hour for 10 h), a gruel for one (+180 for 20 min), a cot for
+/// A feast for one (hunger +6 an hour for 10 h), a gruel for one (+180 for 20 min), a cot for
 /// two and a small loo (bladder +720 for 5 min): `tests/house_rhythm.rs`.
 const FAR_KINDS: &str = r#"
   {"id": "test:feast", "slots": 1, "offers": [
-    {"id": "eat", "rates": {"hunger": 7}, "seconds": 36000, "min_age": 0, "max_age": 130}]},
+    {"id": "eat", "rates": {"hunger": 6}, "seconds": 36000, "min_age": 0, "max_age": 130}]},
   {"id": "test:gruel", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 180}, "seconds": 1200, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
@@ -406,7 +410,7 @@ const FAR_KINDS: &str = r#"
 const FAR: &str = r#"{
   "id": "test:far", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "a"}, {"id": "b"}, {"id": "den"}],
-  "child_day_room": "hall", "child_night_room": "a",
+  "child_day_room": "hall", "child_night_room": "a", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "a", "seconds": 110},
     {"a": "a", "b": "b", "seconds": 110},

@@ -14,7 +14,9 @@ use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
+use sim_core::house::choice::mood;
 use sim_core::input::{ForkOverride, Founder, Input, Start, TriggerShock};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, log_hash};
 use sim_core::mortality::{StepHazard, disease_hazard_used};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
@@ -711,7 +713,7 @@ impl File {
 /// another second, twice or once only it is refused.
 #[test]
 fn a_save_keeps_the_house() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let plan_at = |f: &mut File, at: i64, period: Option<i64>| {
         let seq = f.next_event_seq;
         f.next_event_seq += 1;
@@ -795,13 +797,14 @@ fn a_save_keeps_the_house() {
 
 /// The crossings of a person with needs (ADR-0026 section 1 and its addendum of 2026-11-04 on a
 /// need at 0): she is 7 and in the flat since a morning at 6:00, hunger falling from 600 by 100
-/// an hour and the others still, so 400, 150, 50 and 0 come 2, 4.5, 5.5 and 6 hours later. At
+/// an hour and the others at 0, so 400, 150, 50 and 0 come 2, 4.5, 5.5 and 6 hours later; idle
+/// with critical needs, her next choice is due in the next second. At
 /// 7:59:59 the save with all four loads; one missing, doubled, at another second or as a series
 /// is refused, as are the four planned in another order, one above the value, one of a still
 /// need and one of a sim without needs. At 8:00 the first has come.
 #[test]
 fn a_save_keeps_the_crossings() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let six = SEVEN_SIX;
     let crossing = |sim: u64, need: u8, level: u16, secs: i64| {
         let payload = Payload::NeedCrossing { sim, need, level };
@@ -810,8 +813,12 @@ fn a_save_keeps_the_crossings() {
     let hunger = |level: u16, secs: i64| crossing(1, 0, level, secs);
     // The other needs are at 0 and cross nothing.
     let person = seven(TestPlace::Room(0), None, [600, 0, 0, 0, 0], None);
+    // Idle with needs at 0, critical, her next choice is due in the next second (ADR-0026,
+    // addendum of 2026-11-04 after the playtest).
     let saved = |clock: i64, crossings: Vec<QueueEntry>| {
-        in_the_flat(&data, clock, person.clone(), crossings)
+        let mut events = crossings;
+        events.push((clock + 1, 0, 0, Payload::Decide { sim: 1 }, None));
+        in_the_flat(&data, clock, person.clone(), events)
     };
     let all = vec![
         hunger(400, 7_200),
@@ -843,7 +850,8 @@ fn a_save_keeps_the_crossings() {
     refused(before, with(hunger(150, 16_200)));
     refused(before, with(hunger(700, 8_000)));
     refused(before, with(crossing(1, 1, 700, 8_000)));
-    refused(before, with(crossing(2, 0, 400, 7_200)));
+    // One second later than hers, so that the queue stays in order beside her choice.
+    refused(before, with(crossing(2, 0, 400, 7_201)));
     let mut later = all.clone();
     later[1].0 += 1;
     refused(before, later);
@@ -865,6 +873,89 @@ fn a_save_keeps_the_crossings() {
     );
 }
 
+/// The next choice of one idle in a save (ADR-0026, addendum of 2026-11-04 after the playtest):
+/// at 7 in the hall of the flat at 7:00 of her Saturday, `SEVEN_SIX` + 1 h, every need written
+/// down then at the awake rates of 6 to 12, hunger 820 (−100 an hour), the others full, with
+/// their crossings. Her deficit of hunger `s` seconds on is 180 + ⌊s / 36⌋; the table (it fills
+/// 600) and the fridge (200) bring its square, less 4 s of walking (200): 40 000 at her most mood,
+/// +10, from the deficit 192, 432 s on; surely at the least, −10, at the table from 212, 1 152 s
+/// on (211 · 211 · 90 / 100 − 200 = 39 868, 212 · 212 · 90 / 100 − 200 = 40 249). The whole
+/// minutes between at her moods (the draw `mood`): at 7:08 the table +6 (193 · 193 · 106 / 100 −
+/// 200 = 39 283), the fridge −7; at 7:09 the fridge +7, 195 · 195 · 107 / 100 − 200 = 40 486. Her
+/// other needs bring nothing near: the toilet at bladder 1 000 − 120 an hour no sooner than 1.6
+/// h. So her choice is due at 7:09:00, after a run as well as after an input; at 7:10:00, at
+/// 7:09:01, in the next second, missing or twice it is refused.
+#[test]
+fn a_save_keeps_the_next_choice() {
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
+    let seven_am = SEVEN_SIX + 3_600;
+    let key = LineageKey::founder(&DataId::new("test:tiny").expect("id"), 0);
+    let mood_at = |secs: i64, object: u16| {
+        i64::from(mood(
+            0xff,
+            key,
+            SimTime::from_secs(seven_am + secs),
+            (object, 0),
+            10,
+        ))
+    };
+    assert_eq!(
+        [mood_at(480, 0), mood_at(480, 1), mood_at(540, 1)],
+        [6, -7, 7]
+    );
+    let brings = |deficit: i64, mood: i64| deficit * deficit * (100 + mood) / 100 - 200;
+    assert!(brings(191, 10) < 40_000 && brings(192, 10) >= 40_000);
+    assert!(brings(211, -10) < 40_000 && brings(212, -10) >= 40_000);
+    assert_eq!((brings(193, 6), brings(195, 7)), (39_283, 40_486));
+    let awake = [-100, -50, -120, -30, -60];
+    let values = [820, 1000, 1000, 1000, 1000];
+    let person = TestInHouse {
+        needs: [0, 1, 2, 3, 4].map(|at| (values[at], seven_am, awake[at])),
+        ..seven(TestPlace::Room(0), None, [0; 5], None)
+    };
+    // Every crossing below each value: ⌈3 600 · (value − level) / |rate|⌉ after 7:00, by need
+    // and then from the highest level down.
+    let mut crossings = Vec::new();
+    for (need, (&value, &rate)) in (0_u8..).zip(values.iter().zip(&awake)) {
+        for level in [700, 400, 150, 50, 0_u16]
+            .into_iter()
+            .filter(|&level| level < value)
+        {
+            let (distance, speed) = (3_600 * i64::from(value - level), i64::from(-rate));
+            let secs = (distance + speed - 1) / speed;
+            let payload = Payload::NeedCrossing {
+                sim: 1,
+                need,
+                level,
+            };
+            crossings.push((seven_am + secs, 0, 0, payload, None));
+        }
+    }
+    let decide = |at: i64| (seven_am + at, 0, 0, Payload::Decide { sim: 1 }, None);
+    let saved = |choices: Vec<QueueEntry>| {
+        let mut events = crossings.clone();
+        events.extend(choices);
+        load_error_with(
+            data.clone(),
+            &in_the_flat(&data, seven_am, person.clone(), events),
+        )
+    };
+    assert_eq!(saved(vec![decide(540)]), None);
+    let refused = Some(LoadError::Inconsistent);
+    for (index, wrong) in [
+        vec![decide(600)],
+        vec![decide(541)],
+        vec![decide(1)],
+        vec![],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(saved(wrong), refused, "{index}");
+    }
+    assert_eq!(saved(vec![decide(540), decide(540)]), refused);
+}
+
 /// One lying on the floor in a save (ADR-0026, addendum of 2026-11-04 on a need at 0): at 7 in
 /// the hall since 7:00 of her Saturday, `SEVEN_SIX` + 1 h, every need written down then at the
 /// sleeping rates of 6 to 12 (hunger, bladder −40, hygiene −10, fun 0) and energy at 0 rising 50
@@ -875,7 +966,7 @@ fn a_save_keeps_the_crossings() {
 /// and 9 000 s on) are planned like any other, one missing is refused.
 #[test]
 fn a_save_keeps_one_lying() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
     let fell = SEVEN_SIX + 3_600;
     let lying = |since: i64, hunger: u16| TestInHouse {
@@ -929,7 +1020,9 @@ fn a_save_keeps_one_lying() {
     assert_eq!(loads(fell + 60, &hungry, no_zero), refused);
 }
 
-/// 6:00 of day 5 of year 7, weekday 5: a day without school (ADR-0024 section 4).
+/// 6:00 of day 5 of year 7, weekday 5: a day without school (ADR-0024 section 4). The saves of a
+/// house here hold the repository's houses with weekday mornings
+/// (`common::repository_houses_on_weekdays`), so that this second lies in no night.
 const SEVEN_SIX: i64 = 7 * Y + 5 * DAY + 6 * 3_600;
 
 /// The first 5:00 after `clock`: when a daily plan is due (ADR-0024 section 4).
@@ -1056,7 +1149,7 @@ fn flat_file(
 /// the next second are refused.
 #[test]
 fn a_save_keeps_the_walk_and_the_action() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let six = SEVEN_SIX;
     let nothing = [0; 5];
     let at = |secs: i64, payload: Payload| (six + secs, 0, 0, payload, None);
@@ -1142,7 +1235,8 @@ fn a_save_keeps_the_walk_and_the_action() {
 /// Her night in a save (ADR-0026, addendum of 2026-11-04): at 7 from 20:00 of her Saturday,
 /// `SEVEN_SIX`, to 6:00. Idle at 19:59:59 her bedtime is due at 20:00, exactly once, by
 /// itself and for her alone; at 20:00 itself it has come, and the next is the plan's of
-/// tomorrow. Asleep at 23:00 in the single bed (object 8 in the kids' room) since 22:00, every
+/// tomorrow. Idle with every need at 0, her next choice is due at the end of the night she is
+/// in from 20:00 (ADR-0026, addendum of 2026-11-04 after the playtest), without it refused. Asleep at 23:00 in the single bed (object 8 in the kids' room) since 22:00, every
 /// need at the sleeping rate of 6 to 12, her sleep ends at 6:00, not when energy is full
 /// (4:15) nor at another second; at 5:59:59 Sunday's bedtime, planned at 5:00, is due as well.
 /// Begun at 19:00, by day, the sleep is refused, and so is a walk to the bed begun by day,
@@ -1150,7 +1244,7 @@ fn a_save_keeps_the_walk_and_the_action() {
 /// command in the input log.
 #[test]
 fn a_save_keeps_the_night() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
     let eight = SEVEN_SIX + 14 * 3_600;
     let morning = SEVEN_SIX + DAY;
@@ -1163,11 +1257,14 @@ fn a_save_keeps_the_night() {
     };
     let refused = Some(LoadError::Inconsistent);
     let idle = seven(TestPlace::Room(0), None, [0; 5], None);
+    // Idle with needs at 0, critical, from 20:00 in her night: her next choice is due at its
+    // end (ADR-0026, addendum of 2026-11-04 after the playtest).
+    let next = event(morning, Payload::Decide { sim: 1 });
     let before = eight - 1;
-    assert_eq!(loads(before, &idle, vec![bed.clone()]), None);
-    assert_eq!(loads(before, &idle, vec![]), refused);
+    assert_eq!(loads(before, &idle, vec![bed.clone(), next.clone()]), None);
+    assert_eq!(loads(before, &idle, vec![next.clone()]), refused);
     assert_eq!(
-        loads(before, &idle, vec![bed.clone(), bed.clone()]),
+        loads(before, &idle, vec![bed.clone(), bed.clone(), next.clone()]),
         refused
     );
     let wrong = [
@@ -1176,13 +1273,21 @@ fn a_save_keeps_the_night() {
         event(eight, Payload::Bedtime { sim: 2 }),
     ];
     for (index, other) in wrong.into_iter().enumerate() {
-        assert_eq!(loads(before, &idle, vec![other]), refused, "{index}");
+        assert_eq!(
+            loads(before, &idle, vec![other, next.clone()]),
+            refused,
+            "{index}"
+        );
     }
     let tomorrow = event(eight + DAY, Payload::Bedtime { sim: 1 });
-    assert_eq!(loads(eight, &idle, vec![]), None);
-    assert_eq!(loads(eight, &idle, vec![tomorrow.clone()]), refused);
+    assert_eq!(loads(eight, &idle, vec![next.clone()]), None);
+    assert_eq!(loads(eight, &idle, vec![]), refused);
     assert_eq!(
-        loads(eight, &idle, vec![bed.clone()]),
+        loads(eight, &idle, vec![tomorrow.clone(), next.clone()]),
+        refused
+    );
+    assert_eq!(
+        loads(eight, &idle, vec![bed.clone(), next.clone()]),
         Some(LoadError::InvalidQueue)
     );
 
@@ -1256,13 +1361,15 @@ fn a_save_keeps_the_night() {
 }
 
 /// A held place lasts only the second of the choice it plans (ADR-0026 section 5): she idles in
-/// the hall of the flat and the fridge (object 1, one place) is free; held for her without a
-/// choice of hers pending, the same save is refused.
+/// the hall of the flat, her next choice due in the next second, and the fridge (object 1, one
+/// place) is free; held for her without an input at the clock, the same save is refused.
 #[test]
 fn a_save_holds_no_place() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let idle = seven(TestPlace::Room(0), None, [0; 5], None);
-    let save = |holds| holding_in_the_flat(&data, SEVEN_SIX + 2, idle.clone(), Vec::new(), holds);
+    // Idle with needs at 0, critical, her next choice is due in the next second.
+    let next = vec![(SEVEN_SIX + 3, 0, 0, Payload::Decide { sim: 1 }, None)];
+    let save = |holds| holding_in_the_flat(&data, SEVEN_SIX + 2, idle.clone(), next.clone(), holds);
     assert_eq!(load_error_with(data.clone(), &save(Vec::new())), None);
     assert_eq!(
         load_error_with(data.clone(), &save(vec![((1, 1, 0), 1)])),
@@ -1277,14 +1384,16 @@ fn a_save_holds_no_place() {
 /// begins there. She idles in the hall of the flat. After a command of hers at the clock her
 /// choice due in the open second loads, with the fridge (object 1, one place) held for her or
 /// without, and so does her walk to the fridge (4 s) begun then; her choice due later, twice, or
-/// while she walks is refused. Without an input at the clock her choice due in the open second,
-/// the held place with it and the walk begun then are refused each. (A walk out begun then, and
+/// while she walks is refused. Without an input at the clock the held place and the walk begun
+/// then are refused each; her choice due in the open second loads only as her next choice, which
+/// it is with every need at 0 (ADR-0026, addendum of 2026-11-04 after the playtest). (A walk out
+/// begun then, and
 /// a choice due for one who waits, are refused by the checks of the house part,
 /// `tests/house_state.rs`: with one person a save holds no walk out on a day without duty, and
 /// nobody else to take the place she would wait for.)
 #[test]
 fn a_save_after_an_input_keeps_its_choice() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let clock = SEVEN_SIX + 2;
     let idle = seven(TestPlace::Room(0), None, [0; 5], None);
     let walk = |depart: i64| TestPlace::Walking {
@@ -1332,11 +1441,14 @@ fn a_save_after_an_input_keeps_its_choice() {
     assert_eq!(loads(true, &idle, twice, held()), refused);
     let walks = vec![arrive(SEVEN_SIX + 4), decide(clock + 1)];
     assert_eq!(loads(true, &walking, walks, Vec::new()), refused);
-    // Without an input at the clock.
+    // Without an input at the clock: idle with every need at 0, critical, her next choice is due
+    // in the open second anyway (ADR-0026, addendum of 2026-11-04 after the playtest), and
+    // without it the save is refused.
     assert_eq!(
         loads(false, &idle, vec![decide(clock + 1)], Vec::new()),
-        refused
+        None
     );
+    assert_eq!(loads(false, &idle, Vec::new(), Vec::new()), refused);
     assert_eq!(
         loads(false, &idle, vec![decide(clock + 1)], held()),
         refused
@@ -1353,7 +1465,7 @@ fn a_save_after_an_input_keeps_its_choice() {
 /// without her plan the save is refused.
 #[test]
 fn a_save_keeps_the_plan_before_the_morning() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let clock = SEVEN_SIX - 2 * 3_600;
     let save = |plan: bool| {
         let hash = data.hash();
@@ -1394,7 +1506,7 @@ fn a_save_keeps_the_plan_before_the_morning() {
 /// move in at the clock is refused, and so is tomorrow's without it.
 #[test]
 fn a_save_after_a_move_in_in_the_second_of_the_plan() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let clock = SEVEN_SIX - 3_600 - 1;
     let tomorrow = next_five(clock + 1);
     assert_eq!(tomorrow, next_five(clock) + DAY);
@@ -1459,7 +1571,9 @@ fn schoolgirl(place: TestPlace, action: Option<(u16, u16, u8)>, values: [u16; 5]
 
 /// Her school day in a save (ADR-0024 section 4): at 6:00:02 at home the wake, the
 /// departure and the return of her plan are due, each exactly once at its second with its
-/// place and return, besides her daily plan at 5:00; on her day without school none of them.
+/// place and return, besides her daily plan at 5:00 and her next choice in the next second (idle
+/// with every need at 0, ADR-0026, addendum of 2026-11-04 after the playtest); on her day
+/// without school none of the three.
 /// Away at 12:00 with every need still since her departure, only her return is due; away
 /// before her departure, with her needs written down before it or at two seconds, is refused.
 /// At home at 12:00 she can only have come after her departure, all five needs written down
@@ -1475,7 +1589,7 @@ fn schoolgirl(place: TestPlace, action: Option<(u16, u16, u8)>, values: [u16; 5]
 /// on arrival it may have been critical at 7:40, with 200 it was not, refused.
 #[test]
 fn a_save_keeps_the_day() {
-    let data = common::data().with_houses(common::repository_houses());
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
     let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
     let wake = event(SCHOOL_WAKE, Payload::Wake { sim: 1 });
     let departure = |at: i64, place: u8, back: i64| {
@@ -1501,7 +1615,15 @@ fn a_save_keeps_the_day() {
     let refused = Some(LoadError::Inconsistent);
     let home = schoolgirl(TestPlace::Room(0), None, [0; 5]);
     let early = SCHOOL_SIX + 2;
-    let day = vec![wake.clone(), depart.clone(), returns.clone()];
+    // Idle with needs at 0, critical, her next choice is due in the next second (ADR-0026,
+    // addendum of 2026-11-04 after the playtest).
+    let decide = |at: i64| event(at, Payload::Decide { sim: 1 });
+    let day = vec![
+        wake.clone(),
+        depart.clone(),
+        returns.clone(),
+        decide(early + 1),
+    ];
     assert_eq!(loads(early, &home, &day), None);
     for missing in 0..3 {
         let mut fewer = day.clone();
@@ -1544,8 +1666,10 @@ fn a_save_keeps_the_day() {
     assert_eq!(loads(early, &home, &another), refused);
     let weekend = seven(TestPlace::Room(0), None, [0; 5], None);
     let saturday_wake = SEVEN_SIX - 6 * 3_600 + 24_900;
-    let saved =
-        |events: Vec<QueueEntry>| in_the_flat(&data, SEVEN_SIX + 2, weekend.clone(), events);
+    let saved = |mut events: Vec<QueueEntry>| {
+        events.push(decide(SEVEN_SIX + 3));
+        in_the_flat(&data, SEVEN_SIX + 2, weekend.clone(), events)
+    };
     assert_eq!(load_error_with(data.clone(), &saved(Vec::new())), None);
     let woken = saved(vec![event(saturday_wake, Payload::Wake { sim: 1 })]);
     assert_eq!(load_error_with(data.clone(), &woken), refused);
@@ -1594,7 +1718,8 @@ fn a_save_keeps_the_day() {
             .map(|(value, _, rate)| (value, SCHOOL_DAY + 10 * 3_600, rate)),
         ..home.clone()
     };
-    assert_eq!(loads(noon, &joined, &[]), None);
+    assert_eq!(loads(noon, &joined, &[decide(noon + 1)]), None);
+    assert_eq!(loads(noon, &joined, &[]), refused);
     assert_eq!(
         loads(noon, &joined, std::slice::from_ref(&returns)),
         refused

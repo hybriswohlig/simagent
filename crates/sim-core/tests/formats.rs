@@ -1082,6 +1082,8 @@ fn all_payloads() -> Vec<LogPayload> {
             needs: [600, 900, 500, 700, 800],
             busy: vec![1],
             commanded: false,
+            held: Vec::new(),
+            tier: Vec::new(),
         },
         LogPayload::Reached { object: 5 },
         LogPayload::ActionEnded {
@@ -1096,6 +1098,8 @@ fn all_payloads() -> Vec<LogPayload> {
             needs: [990, 900, 950, 700, 800],
             busy: Vec::new(),
             waits: None,
+            held: vec![8],
+            tier: vec![7],
         },
         LogPayload::NeedCritical {
             need: Need::Hunger,

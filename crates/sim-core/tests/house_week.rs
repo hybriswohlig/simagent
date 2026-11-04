@@ -90,12 +90,18 @@ fn family(data: &Data, i: u64) -> Run {
 /// home and awake with an eating place free, and its hunger.
 type Seen = BTreeMap<SimId, (bool, NeedSample)>;
 
+/// Where a person with needs stood after a second with events: its place and action, whether it
+/// lay on the floor and whether it waited for an object.
+type Stood = BTreeMap<SimId, (Place, Option<Action>, bool, bool)>;
+
 /// A family's week: the world at its end, its log, and what the state showed.
 struct Week {
     world: World,
     log: Vec<LogEntry>,
     /// After each second with events.
     seen: Vec<(i64, Seen)>,
+    /// After each second with events, for the measures of the playtest.
+    stood: Vec<(i64, Stood)>,
     /// The action a departure waited for, by person and planned departure (ADR-0024 section 4);
     /// none for one lying on the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
     waited: BTreeMap<(SimId, i64), Option<Action>>,
@@ -104,10 +110,21 @@ struct Week {
 /// The week of family `i`, one second with events at a time.
 fn week(data: &Data, i: u64) -> Week {
     let mut run = family(data, i);
-    let (mut seen, mut waited) = (Vec::new(), BTreeMap::new());
+    let (mut seen, mut stood, mut waited) = (Vec::new(), Vec::new(), BTreeMap::new());
     run.step(END, |world, second| {
         seen.push((second, observe(world, second)));
-        for (&sim, person) in &world.state().house().sims {
+        let house = world.state().house();
+        let waiting: BTreeSet<SimId> = (house.waits.values().flatten())
+            .map(|&(_, sim)| sim)
+            .collect();
+        let now = (house.sims.iter())
+            .map(|(&sim, person)| {
+                let shown = (person.place, person.action, person.collapsed);
+                (sim, (shown.0, shown.1, shown.2, waiting.contains(&sim)))
+            })
+            .collect();
+        stood.push((second, now));
+        for (&sim, person) in &house.sims {
             if let Some(due) = person.due {
                 waited
                     .entry((sim, due.depart.as_secs()))
@@ -119,6 +136,7 @@ fn week(data: &Data, i: u64) -> Week {
         world: run.world,
         log: run.log,
         seen,
+        stood,
         waited,
     }
 }
@@ -695,4 +713,222 @@ fn a_save_mid_walk_and_mid_sleep_runs_on_the_same() {
         assert_eq!(continued, entries(&after), "{saved_at}");
         assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
     }
+}
+
+/// The terraced house as its file names its rooms and objects, for the playtest's measures.
+const TERRACED: &str = include_str!("../../../data/house/houses/terraced.json");
+
+/// The numbers of the rooms of the terraced house named `names`, in the file's order.
+fn rooms_named(names: &[&str]) -> BTreeSet<u8> {
+    let file: serde_json::Value = serde_json::from_str(TERRACED).expect("json");
+    let rooms = file["rooms"].as_array().expect("the rooms");
+    (0_u8..)
+        .zip(rooms)
+        .filter(|(_, room)| names.iter().any(|name| room["id"] == *name))
+        .map(|(at, _)| at)
+        .collect()
+}
+
+/// The measures of the playtest of 2026-11-04 for one family's week, from the state after every
+/// second with events and from the log.
+#[derive(Debug, Default)]
+struct Lived {
+    /// The longest stretch one person stood idle at home, awake (no action, not lying, not
+    /// away or on its way out), waiting for an object or not.
+    longest_idle: i64,
+    /// The seconds at home and awake, and those of them idle, over the whole family.
+    awake: i64,
+    idle: i64,
+    /// The seconds a person stood idle and waited for nothing in the WC or the bath, and those it
+    /// waited there.
+    idle_in_wc_or_bath: i64,
+    waiting_in_wc_or_bath: i64,
+    /// The nights 1 to 7 in which both adults lay in the double bed at 3:00 of the next morning.
+    couple_nights: usize,
+    /// The nights in which the father lay in a single bed at that hour.
+    father_single: usize,
+    /// Per morning of days 2 to 8, the earliest and the latest end of a night's sleep, in
+    /// seconds of the day.
+    mornings: BTreeMap<i64, (i64, i64)>,
+    /// The most choices one person made in one day.
+    most_choices: usize,
+}
+
+/// What `week` lived through, measured as the playtest saw it.
+fn lived(week: &Week) -> Lived {
+    let houses = week.world.data().houses().expect("houses");
+    let house = houses
+        .house(&DataId::new("core:terraced").expect("id"))
+        .expect("the terraced house");
+    let def = house.def();
+    let kind = |object: u16| {
+        let id = &def.objects[usize::from(object)].kind;
+        houses.kind(id).expect("a kind")
+    };
+    let sleeping = |action: Option<Action>| {
+        action.is_some_and(|action| kind(action.object).offers[usize::from(action.offer)].sleep)
+    };
+    let wet = rooms_named(&["wc", "bath"]);
+    let mut lived = Lived::default();
+    let ends = (week.stood.iter().skip(1).map(|(second, _)| *second)).chain([END + 1]);
+    let mut open: BTreeMap<SimId, i64> = BTreeMap::new();
+    for ((from, stood), to) in week.stood.iter().zip(ends) {
+        let span = to - from;
+        for (&sim, &(place, action, lying, waiting)) in stood {
+            let home = match place {
+                Place::Room(_) => true,
+                Place::Walking { to, .. } => action.is_some() || to != def.entrance,
+                Place::Away => false,
+            };
+            let at_object = matches!(place, Place::Room(_));
+            let awake = home && !lying && !(at_object && sleeping(action));
+            let idle = awake && action.is_none();
+            if awake {
+                lived.awake += span;
+            }
+            if idle {
+                lived.idle += span;
+                let begun = *open.entry(sim).or_insert(*from);
+                lived.longest_idle = lived.longest_idle.max(to - begun);
+                if let Place::Room(room) = place
+                    && wet.contains(&room)
+                {
+                    if waiting {
+                        lived.waiting_in_wc_or_bath += span;
+                    } else {
+                        lived.idle_in_wc_or_bath += span;
+                    }
+                }
+            } else {
+                open.remove(&sim);
+            }
+        }
+    }
+    let (woman, man) = (
+        SimId::try_from(1).expect("id"),
+        SimId::try_from(2).expect("id"),
+    );
+    for night in 1..=7 {
+        let three = (night + 1) * D + 3 * H;
+        let Some((_, stood)) = week.stood.iter().rev().find(|(second, _)| *second <= three) else {
+            continue;
+        };
+        let bed = |sim: SimId| {
+            stood.get(&sim).and_then(|&(place, action, _, _)| {
+                let action = action.filter(|_| matches!(place, Place::Room(_)))?;
+                sleeping(Some(action)).then_some(action.object)
+            })
+        };
+        let double = |object: u16| def.objects[usize::from(object)].kind.as_str() == "core:bed";
+        if let (Some(a), Some(b)) = (bed(woman), bed(man))
+            && a == b
+            && double(a)
+        {
+            lived.couple_nights += 1;
+        }
+        if bed(man).is_some_and(|object| !double(object)) {
+            lived.father_single += 1;
+        }
+    }
+    let mut chosen: BTreeMap<SimId, bool> = BTreeMap::new();
+    let mut choices: BTreeMap<(SimId, i64), usize> = BTreeMap::new();
+    for entry in &week.log {
+        let &[Subject::Sim(sim)] = entry.subjects.as_slice() else {
+            continue;
+        };
+        let at = entry.t.as_secs();
+        match &entry.payload {
+            LogPayload::ActionStarted { object, offer, .. } => {
+                *choices.entry((sim, at.div_euclid(D))).or_default() += 1;
+                let offers = &kind(*object).offers;
+                chosen.insert(sim, offers[usize::from(*offer)].sleep);
+            }
+            LogPayload::Idle { .. } => *choices.entry((sim, at.div_euclid(D))).or_default() += 1,
+            LogPayload::ActionEnded { .. } => {
+                let slept = chosen.remove(&sim) == Some(true);
+                let (day, second) = (at.div_euclid(D), at.rem_euclid(D));
+                if slept && (2..=8).contains(&day) && (4 * H..10 * H).contains(&second) {
+                    let (low, high) = lived.mornings.entry(day).or_insert((second, second));
+                    *low = (*low).min(second);
+                    *high = (*high).max(second);
+                }
+            }
+            _ => {}
+        }
+    }
+    lived.most_choices = choices.values().copied().max().unwrap_or(0);
+    lived
+}
+
+/// The playtest's findings of 2026-11-04 for the 20 families (`--nocapture` shows them): the
+/// longest idle stretch per family and the share of the waking time at home spent idle; nobody
+/// idle in the WC or the bath unless it waits there; the nights the couple shares the double bed
+/// (all seven); the father never in a single bed; the weekend mornings at 7:00, the others at
+/// 6:00 (by the night's end in `day.json`, weekday 1 being day 1, so days 5 and 6 are Saturday
+/// and Sunday).
+#[test]
+fn the_week_the_playtest_saw() {
+    let data = common::repository_data();
+    let mut failures = Vec::new();
+    let (mut longest, mut awake, mut idle, mut wet, mut waiting) = (0, 0, 0, 0, 0);
+    let mut mornings: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
+    let mut most_choices = 0;
+    for i in 0..FAMILIES {
+        let lived = lived(&week(&data, i));
+        println!(
+            "family {i:2}: longest idle {}, idle {}% of {} awake at home; idle in the WC or bath {} s, waiting there {} s; couple in the double bed {}/7 nights, father in a single bed {}; most choices of one person in a day {}; mornings {:?}",
+            hm(lived.longest_idle),
+            lived.idle * 100 / lived.awake.max(1),
+            hm(lived.awake),
+            lived.idle_in_wc_or_bath,
+            lived.waiting_in_wc_or_bath,
+            lived.couple_nights,
+            lived.father_single,
+            lived.most_choices,
+            lived
+                .mornings
+                .iter()
+                .map(|(day, (low, high))| format!("{day}: {} to {}", hm(*low), hm(*high)))
+                .collect::<Vec<_>>()
+        );
+        longest = longest.max(lived.longest_idle);
+        (awake, idle) = (awake + lived.awake, idle + lived.idle);
+        (wet, waiting) = (
+            wet + lived.idle_in_wc_or_bath,
+            waiting + lived.waiting_in_wc_or_bath,
+        );
+        most_choices = most_choices.max(lived.most_choices);
+        for (day, (low, high)) in lived.mornings {
+            let seen = mornings.entry(day).or_insert((low, high));
+            *seen = (seen.0.min(low), seen.1.max(high));
+        }
+        if lived.idle_in_wc_or_bath > 0 {
+            failures.push(format!("family {i}: idle in the WC or bath"));
+        }
+        if lived.couple_nights != 7 || lived.father_single > 0 {
+            failures.push(format!(
+                "family {i}: the couple in the double bed {} nights, the father in a single {}",
+                lived.couple_nights, lived.father_single
+            ));
+        }
+    }
+    println!(
+        "all: longest idle {}, idle {}% of the waking time at home; idle in the WC or bath {wet} s, waiting there {waiting} s; most choices of one person in a day {most_choices}",
+        hm(longest),
+        idle * 100 / awake.max(1)
+    );
+    for (day, (low, high)) in &mornings {
+        println!(
+            "morning of day {day}: the nights end {} to {}",
+            hm(*low),
+            hm(*high)
+        );
+        // Days 5 and 6 are Saturday and Sunday: the night ends at 7:00 for every age band of
+        // the families (6.5 h for those of 67 and more, none here).
+        let expected = if [5, 6].contains(day) { 7 * H } else { 6 * H };
+        if *high != expected {
+            failures.push(format!("day {day}: the last night ends at {}", hm(*high)));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

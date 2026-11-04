@@ -10,8 +10,8 @@ use sim_core::data_id::DataId;
 use sim_core::house::data::{HouseData, Need};
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{
-    Action, Broken, Decisions, Due, Duty, HouseState, InHouse, MovedIn, Place, consistent,
-    crossings,
+    Action, Broken, Decisions, Due, Duty, HouseState, InHouse, MovedIn, Place, children_consistent,
+    consistent, crossings,
 };
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::time::{SimTime, YEAR, day_index};
@@ -975,4 +975,68 @@ fn the_crossings_after_a_change() {
     let mut away = person(Place::Away, None);
     away.needs = away.needs.map(|need| need.with_rate(six, 0));
     assert_eq!(crossings(&away, six).count(), 0);
+}
+
+/// Rooms one does not stay in (ADR-0026, addendum of 2026-11-04 after the playtest): in the
+/// flat the bath (room 3), from which one goes to the living room (room 2), 3 + 3 = 6 s through
+/// the hall. Waiting in the bath for the fridge she may stand there; idle and waiting for nothing
+/// she may not, unless her choice is due in the next second after an input at the clock. Her
+/// walk to the living room without an action loads from the bath with its 6 s, begun before the
+/// clock; from the kitchen, a room one stays in, with its 4 + 3 = 7 s it is refused, as is one of
+/// 5 s from the bath or one begun in the next second.
+#[test]
+fn rooms_one_does_not_stay_in_are_checked() {
+    let in_bath = |state: &mut HouseState| in_house(state, 1).place = Place::Room(3);
+    assert_eq!(checked(in_bath), Ok(()));
+    let alone_in_bath = |state: &mut HouseState| {
+        in_bath(state);
+        state.waits.clear();
+    };
+    assert_eq!(checked(alone_in_bath), Err(Broken::Dwell));
+    assert_eq!(checked_after(&houses(), Some(&[1]), alone_in_bath), Ok(()));
+    let walking = |from: u8, depart: i64, secs: i64| {
+        move |state: &mut HouseState| {
+            state.waits.clear();
+            in_house(state, 1).place = Place::Walking {
+                from,
+                to: 2,
+                depart: t(depart),
+                arrive: t(depart + secs),
+            };
+        }
+    };
+    assert_eq!(checked(walking(3, NOW - 2, 6)), Ok(()));
+    assert_eq!(checked(walking(1, NOW - 2, 7)), Err(Broken::Dwell));
+    assert_eq!(checked(walking(3, NOW - 2, 5)), Err(Broken::Walk));
+    assert_eq!(
+        checked_after(&houses(), Some(&[]), walking(3, NOW, 6)),
+        Err(Broken::Walk)
+    );
+}
+
+/// A small child holds a place in its bed (ADR-0026, addendum of 2026-11-04 after the playtest):
+/// sim 5, 5 years, the first place of the flat's beds in the kids' room, the single bed 8, from
+/// 19:00 to before 7:00. Sim 3 asleep on it at 23:00 is refused, at 6:59:59 too; at the clock
+/// 7:00:00 the hold is over; with no small child in the household it loads at night.
+#[test]
+fn a_bed_a_young_child_holds_is_checked() {
+    let night = NOW + 11 * 3_600;
+    let morning = NOW + 19 * 3_600;
+    let mut state = legal();
+    state.waits.clear();
+    let sleeper = in_house(&mut state, 3);
+    sleeper.place = Place::Room(5);
+    sleeper.action = Some(Action {
+        object: 8,
+        offer: 0,
+        slot: 0,
+    });
+    let houses = houses();
+    let check = |now: i64, young: usize| {
+        children_consistent(&state, Some(&houses), t(now), |_| young, member)
+    };
+    assert_eq!(check(night, 1), Err(Broken::ChildBed));
+    assert_eq!(check(morning, 1), Err(Broken::ChildBed));
+    assert_eq!(check(morning + 1, 1), Ok(()));
+    assert_eq!(check(night, 0), Ok(()));
 }
