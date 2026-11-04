@@ -137,6 +137,10 @@ if (browser !== undefined) {
         return now !== undefined && now !== before;
       }, all),
     );
+    // The families for a house beside them (the playtest of 2026-11-04), with children by default.
+    await step("the families", page.getByRole("heading", { level: 2, name: "Familien" }).waitFor());
+    await step("with children", page.getByRole("checkbox", { name: "nur mit Kindern" }).waitFor());
+    await step("the families counted", page.getByRole("status").filter({ hasText: /^\d+ Familien$/ }).waitFor());
     await step("back to the run", page.goBack());
     await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
@@ -441,8 +445,10 @@ if (browser !== undefined) {
     await page.unrouteAll();
     await step("the silence over by itself", silence.waitFor({ state: "detached" }));
     // The house (ADR-0021, addendum of 2026-11-03): a person of a household of two moves in from
-    // its page; the house waits for its first morning, then the clock moves an hour, and a
-    // choice of the day tells why it was made, its points with the mood in them.
+    // its page; the house, named by its family, waits for its first morning with its members
+    // moving in, then the clock moves an hour, and a choice of the day tells why it was made, its
+    // points with the mood in them. No name of the plan stands over another, no dot over another
+    // (the playtest of 2026-11-04).
     const town = await api("GET", "/api/runs/neu/pedigree");
     const living = town.persons.filter((p) => p.died === null && p.emigrated === null);
     const sizes = new Map();
@@ -456,19 +462,37 @@ if (browser !== undefined) {
     await step("a person of a household of two", page.goto(`${url}#/runs/neu/persons/${mover.sim}`));
     await step("into the house", page.getByRole("button", { name: "Ins Haus" }).click());
     await step("the house before its morning", page.getByText("Der erste Morgen im Haus beginnt um 6:00.").waitFor());
+    await step("named by its family", page.getByRole("heading", { level: 1, name: new RegExp(`^Familie .*${mover.surname}`) }).waitFor());
+    await step("its members moving in", page.getByText(/: zieht ein, der erste Morgen kommt um 6:00$/).first().waitFor());
     const time = page.getByRole("group", { name: "Zeit" });
     await step("to the morning", time.getByRole("button", { name: "Bis morgen früh" }).click());
     await step("its people", page.getByRole("heading", { name: "Bewohner" }).waitFor());
     await step("an hour", time.getByRole("button", { name: "Eine Stunde" }).click());
     await step("an hour on", page.getByText(/Jetzt: .*, 7:00$/).waitFor());
-    await step("the day", page.getByText("Heute").first().click());
+    const apart = await page.evaluate(() => {
+      const plan = document.querySelector('svg[role="img"][aria-label="Bewohner"]');
+      const boxes = [...(plan?.querySelectorAll("text[data-label]") ?? [])].map((text) => text.getBBox());
+      const dots = [...(plan?.querySelectorAll("circle") ?? [])].map((dot) => [dot.cx.baseVal.value, dot.cy.baseVal.value]);
+      const over = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      const names = boxes.every((a, i) => boxes.every((b, j) => i === j || !over(a, b)));
+      const covered = dots.every(([x, y], i) => dots.every(([u, v], j) => i === j || Math.hypot(x - u, y - v) >= 0.6));
+      return boxes.length > 0 && names && dots.length > 0 && covered;
+    });
+    if (!apart) {
+      throw new Error("the plan: a name over another, or a dot over another");
+    }
+    await step("the day", page.getByText("Die letzten 24 Stunden").first().click());
     await step("why", page.getByRole("button", { name: "Warum?" }).first().click());
     await step("why told", page.getByText(/Gewählt: .*, [\d.]+ Punkte \(Laune (?:[+−]\d+|0) %\)\./).first().waitFor());
     // A command (ADR-0024 section 5): the first person with needs is told to watch television
-    // and, in the second the command acts, walks into the living room; its line says so.
+    // and, in the second the command acts, walks into the living room; its line says so, its day
+    // tells the command at once, and the choice stays. By day no bed is offered.
     const order = page.getByRole("group", { name: /^Befehl für / }).first();
     await step("a command to give", order.waitFor());
     const who = (await order.getAttribute("aria-label")).slice("Befehl für ".length);
+    if ((await order.locator("option", { hasText: /^schläft / }).count()) > 0) {
+      throw new Error("a bed offered by day");
+    }
     const television = await order.locator("option", { hasText: "Fernseher" }).first().getAttribute("value");
     await step("television chosen", order.getByRole("combobox").selectOption(television));
     await step("the command", order.getByRole("button", { name: "Befehlen" }).click());
@@ -476,10 +500,14 @@ if (browser !== undefined) {
     const resident = page.getByRole("listitem").filter({ has: order });
     const name = who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     await step("the command in the line", resident.getByText(new RegExp(`${name}: geht ins Wohnzimmer$`)).waitFor());
+    await step("the command in its day", resident.getByText(/^\d+:\d\d Befehl: sieht fern vor dem Fernseher/).waitFor());
+    if ((await order.getByRole("combobox").inputValue()) !== television) {
+      throw new Error("the command's choice did not stay");
+    }
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, and a household moved into its house, an hour on, why a choice was made with the mood in its points, and a command given");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, the families with children, and a household moved into its house named by its family with its members moving in, an hour on with no name or dot of the plan over another, why a choice was made with the mood in its points, and a command given that shows in its day at once and keeps its choice");
   } catch (error) {
     fail(error.message);
   } finally {
