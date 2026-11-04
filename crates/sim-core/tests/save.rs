@@ -1309,6 +1309,59 @@ fn a_save_keeps_the_plan_before_the_morning() {
     );
 }
 
+/// Her household moved in by an input at 4:59:59 (the clock), which acts at 5:00:00, the
+/// second of the day's plan (ADR-0024, addendum of 2026-11-04): her series begins with
+/// tomorrow's plan, as `MoveIn` plans it, so the save right after it holds her plan at 5:00 of
+/// the next day and her first morning at 6:00. Without that input at the clock, or with another
+/// one there (a command), the plan due is today's at 5:00:00, as before; today's plan with the
+/// move in at the clock is refused, and so is tomorrow's without it.
+#[test]
+fn a_save_after_a_move_in_in_the_second_of_the_plan() {
+    let data = common::data().with_houses(common::repository_houses());
+    let clock = SEVEN_SIX - 3_600 - 1;
+    let tomorrow = next_five(clock + 1);
+    assert_eq!(tomorrow, next_five(clock) + DAY);
+    let save = |input: Option<TestInput>, plan: i64| {
+        let mut file = File::tiny();
+        let f = &mut file;
+        f.data_hash = data.hash();
+        f.closed_through = clock;
+        for entry in &mut f.queue {
+            if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
+                entry.0 = 8 * Y - 1;
+            }
+        }
+        f.year_hashes = (0..7).map(|year| (year, 7)).collect();
+        f.house_households = vec![(1, ("core:flat".into(), false))];
+        let morning = Payload::HouseMorning { household: 1 };
+        let series = (plan, 0, 0, Payload::DayPlan { sim: 1 }, Some(DAY));
+        for mut entry in [(SEVEN_SIX, 0, 0, morning, None), series] {
+            entry.2 = f.next_event_seq;
+            f.next_event_seq += 1;
+            insert_event(f, entry, (3, clock + 1));
+        }
+        if let Some(input) = input {
+            file.input_log.push((clock, 2, input));
+        }
+        load_error_with(data.clone(), &file.bytes())
+    };
+    let moved_in = || Some(TestInput::MoveIn { household: 1 });
+    let command = || {
+        Some(TestInput::Command {
+            sim: 1,
+            object: 1,
+            offer: 0,
+        })
+    };
+    let refused = Some(LoadError::Inconsistent);
+    assert_eq!(save(moved_in(), tomorrow), None);
+    assert_eq!(save(moved_in(), clock + 1), refused);
+    assert_eq!(save(None, tomorrow), refused);
+    assert_eq!(save(None, clock + 1), None);
+    assert_eq!(save(command(), tomorrow), refused);
+    assert_eq!(save(command(), clock + 1), None);
+}
+
 /// The first day of year 7, weekday 0: a school day for her at 7 (ADR-0024 section 4), her
 /// wake at 6:55, her departure at 7:40, her return at 15:20.
 const SCHOOL_DAY: i64 = 7 * Y;
