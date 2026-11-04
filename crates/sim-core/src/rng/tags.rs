@@ -143,7 +143,7 @@ pub const FIRST_NAME: PurposeTag = PurposeTag::from_pinned_list(29);
 pub const SURNAME: PurposeTag = PurposeTag::from_pinned_list(30);
 
 /// The work plan of a person, once in its life (ADR-0024 section 4): `uniform_below(100)`.
-/// subject: its lineage key; occasion: 0; detail: 0.
+/// subject: its lineage key; occasion: 0; detail: 0; the world seed.
 pub const WORK_PLAN: PurposeTag = PurposeTag::from_pinned_list(31);
 
 /// Every tag in use with its name.

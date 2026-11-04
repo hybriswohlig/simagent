@@ -579,6 +579,46 @@ fn server_answers(
         ));
         houses.push(get(port, &path)?);
     }
+    // A household with a child of school age moves in too (ADR-0024 section 4): at 11:00 of
+    // its next weekday the child is away at school.
+    let clock = houses[1]["at"]["t"]
+        .as_i64()
+        .ok_or("a house without its second")?;
+    let town = get(port, "/api/runs/town/pedigree")?;
+    let living: Vec<&serde_json::Value> = (town["persons"].as_array().into_iter().flatten())
+        .filter(|p| p["died"].is_null() && p["emigrated"].is_null())
+        .collect();
+    let members =
+        |home: &serde_json::Value| living.iter().filter(|p| &p["household"] == home).count();
+    const YEAR_SECS: i64 = 364 * 86_400;
+    let schooled = (living.iter())
+        .find(|p| {
+            let years = p["born"]
+                .as_i64()
+                .map(|born| (clock - born).div_euclid(YEAR_SECS));
+            years.is_some_and(|years| (7..=16).contains(&years))
+                && p["household"] != household
+                && members(&p["household"]) <= 8
+        })
+        .map(|p| p["household"].clone())
+        .ok_or("the town has no household with a child of school age")?;
+    let move_in = format!(r#"{{"move_in":{{"household":{schooled}}}}}"#);
+    ask(port, "/api/runs/town/input", Some(&move_in), 200)?;
+    let morning = Some(r#"{"step":"morning"}"#);
+    for _ in 0..7 {
+        let advanced = ask(port, "/api/runs/town/advance", morning, 200)?;
+        if advanced["date"]["weekday"]
+            .as_u64()
+            .is_some_and(|weekday| weekday < 5)
+        {
+            break;
+        }
+    }
+    for _ in 0..5 {
+        let hour = Some(r#"{"step":"hour"}"#);
+        ask(port, "/api/runs/town/advance", hour, 200)?;
+    }
+    houses.push(get(port, &format!("/api/runs/town/house/{schooled}"))?);
     // The first choice of the house's first person at its first morning, recomputed.
     let sim = &houses[0]["persons"][0]["sim"];
     let morning = &houses[0]["at"]["t"];

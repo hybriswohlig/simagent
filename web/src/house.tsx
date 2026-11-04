@@ -10,12 +10,12 @@ import { usePedigree } from "./person.js";
 import { usePeople } from "./peopleview.js";
 import { Portrait } from "./portrait.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
-import { plan, spots, timeOfDay } from "./render/plan.js";
+import { plan, spots, timeOfDay, wholeMinutes } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
 import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
-const HOUSE = { format: "simagent.view.house", version: 1 } as const;
+const HOUSE = { format: "simagent.view.house", version: 2 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -76,11 +76,19 @@ function roomWords(layout: HouseLayout, index: number): readonly [string, string
   return ROOM_WORDS[id] ?? [id, id];
 }
 
-/** What a person does as one line: on the way where to, at an object what and until when,
- * or nothing. */
+/** What a person does as one line: away where and until when, on the way where to (or out
+ * of the house), at an object what and until when, or nothing. */
 function doing(layout: HouseLayout, person: HousePerson): string {
+  const away = person.place.away;
+  if (away !== undefined) {
+    const text = away.place === "school" ? TEXT.house_away_school : TEXT.house_away_work;
+    return text.replace("{time}", timeOfDay(away.until.date.second_of_day));
+  }
   const walking = person.place.walking;
   if (walking !== undefined) {
+    if (person.action === null) {
+      return TEXT.house_leaves;
+    }
     return TEXT.house_walks.replace("{where}", roomWords(layout, walking.to)[1]);
   }
   const action = person.action;
@@ -110,6 +118,7 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
   const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
   const fields = body as { [key: string]: unknown };
   const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
+  const school = fields["place"] === "school";
   switch (code) {
     case "core:action_started":
       return { text: TEXT.house_choice.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
@@ -133,6 +142,18 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
         choice: false,
       };
     }
+    // The day's duty (ADR-0024 section 4): where, when; leaving, late; back; missed.
+    case "core:day_planned":
+      return { text: school ? TEXT.house_planned_school : TEXT.house_planned_work, choice: false };
+    case "core:left_home": {
+      const minutes = wholeMinutes(number("late_secs"));
+      const late = minutes > 0 ? ` ${TEXT.house_late.replace("{minutes}", String(minutes))}` : "";
+      return { text: `${school ? TEXT.house_left_school : TEXT.house_left_work}${late}`, choice: false };
+    }
+    case "core:came_home":
+      return { text: school ? TEXT.house_came_school : TEXT.house_came_work, choice: false };
+    case "core:missed":
+      return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false };
     default:
       return null;
   }
@@ -245,7 +266,9 @@ function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number
 function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number, string> }) {
   const { layout } = house;
   const drawn = plan(layout);
-  const placed = spots(layout, house.persons, house.at.t);
+  // Who is away at school or work is not in the house.
+  const inside = house.persons.filter((person) => person.place.away === undefined);
+  const placed = spots(layout, inside, house.at.t);
   const pad = 0.6;
   // Room on the right for the names of objects at the wall.
   const view = `${-pad} ${-pad - 0.8} ${drawn.width + 2 * pad + 1.2} ${drawn.height + 2 * pad + 0.8}`;
@@ -292,7 +315,7 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
           </text>
         );
       })}
-      {house.persons.map((person, index) => {
+      {inside.map((person, index) => {
         const spot = placed[index] ?? { x: 0, y: 0 };
         const name = names.get(person.sim) ?? String(person.sim);
         return (

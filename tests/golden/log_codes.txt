@@ -29,6 +29,10 @@ payload 21 core:reached
 payload 22 core:action_ended
 payload 23 core:idle
 payload 24 core:need_critical
+payload 25 core:day_planned
+payload 26 core:left_home
+payload 27 core:came_home
+payload 28 core:missed
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -178,3 +182,4 @@ end_reason 0 done
 end_reason 1 full
 end_reason 2 left
 end_reason 3 critical
+end_reason 4 obligation

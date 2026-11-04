@@ -325,8 +325,9 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 
 /// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
 /// drawing with each object's places and the names of its offers, and each person with needs
-/// in ascending SimId with where it is, what it does and until when, and its needs at the
-/// clock. `None` for a household without a house.
+/// in ascending SimId with where it is, away at school or work until its return (version 2,
+/// ADR-0024 section 4), what it does and until when, and its needs at the clock. `None` for a
+/// household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::state::{Place, action_end};
     let state = world.state();
@@ -382,8 +383,12 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
                 "depart": dated(depart),
                 "arrive": dated(arrive),
             }}),
-            // Away comes with work and school, in version 2.
-            Place::Away => return Err(broken("a person away")),
+            Place::Away => {
+                let (place, back) = world
+                    .away(sim)
+                    .ok_or_else(|| broken("away without a return"))?;
+                serde_json::json!({"away": {"place": place, "until": dated(back)}})
+            }
         };
         let action = match person.action {
             None => serde_json::Value::Null,
@@ -413,7 +418,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
     }
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 1,
+        "version": 2,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,

@@ -14,6 +14,7 @@ use crate::genome::SexChromosome;
 use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
 use crate::house::data::Need;
+use crate::house::state::Duty;
 use crate::ids::{EventId, HouseholdId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
@@ -266,10 +267,28 @@ pub enum LogPayload {
     /// A person's need fell to `level`, 150 or 50 (ADR-0026 section 4).
     #[serde(rename = "core:need_critical")]
     NeedCritical { need: Need, level: u16 },
+    /// A person's duty of the day: it leaves for `place` at `depart` and is back at `back`
+    /// (ADR-0024 section 4); the reason of its wake, departure and return.
+    #[serde(rename = "core:day_planned")]
+    DayPlanned {
+        place: Duty,
+        depart: SimTime,
+        back: SimTime,
+    },
+    /// A person left the house for `place`, `late_secs` after its plan.
+    #[serde(rename = "core:left_home")]
+    LeftHome { place: Duty, late_secs: u32 },
+    /// A person came back from `place`, at the entrance.
+    #[serde(rename = "core:came_home")]
+    CameHome { place: Duty },
+    /// A person never left for `place`: its departure still waited at its return.
+    #[serde(rename = "core:missed")]
+    Missed { place: Duty },
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was
-/// full, the person left the house, or a need it does not raise turned critical.
+/// full, the person left the house, a need it does not raise turned critical, or the day's
+/// duty came (the departure, or the wake during sleep).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndReason {
@@ -277,6 +296,7 @@ pub enum EndReason {
     Full,
     Left,
     Critical,
+    Obligation,
 }
 
 /// One entry of the domain log.

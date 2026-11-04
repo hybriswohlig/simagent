@@ -129,9 +129,30 @@ fn legal() -> HouseState {
 }
 
 fn checked(change: impl FnOnce(&mut HouseState)) -> Result<(), Broken> {
+    checked_with(&houses(), change)
+}
+
+fn checked_with(houses: &HouseData, change: impl FnOnce(&mut HouseState)) -> Result<(), Broken> {
     let mut state = legal();
     change(&mut state);
-    consistent(&state, Some(&houses()), t(NOW), alive, member)
+    consistent(&state, Some(houses), t(NOW), alive, member)
+}
+
+/// The repository's houses, but fun rising awake from 67 on (+10 an hour).
+fn houses_with_rising_fun() -> HouseData {
+    let mut needs: serde_json::Value =
+        serde_json::from_str(include_str!("../../../data/house/needs.json")).expect("json");
+    needs["awake"]["fun"][3] = serde_json::json!(10);
+    common::houses_from(
+        &needs.to_string(),
+        include_str!("../../../data/house/day.json"),
+        include_str!("../../../data/house/kinds.json"),
+        &[
+            include_str!("../../../data/house/houses/flat.json"),
+            include_str!("../../../data/house/houses/house.json"),
+            include_str!("../../../data/house/houses/terraced.json"),
+        ],
+    )
 }
 
 fn in_house(state: &mut HouseState, id: u64) -> &mut InHouse {
@@ -262,8 +283,8 @@ fn places_and_actions_are_checked() {
     });
     assert_eq!(astray, Err(Broken::Walk));
     // Walking out instead of to the fridge, which sim 1 then no longer waits for: to the
-    // entrance 3 s, out 5 s.
-    let out = |to: u8| {
+    // entrance 3 s, out 5 s, every need still from the departure on (ADR-0024 section 4).
+    let out = |to: u8, rate: i32| {
         checked(move |s| {
             s.waits.clear();
             let three = in_house(s, 3);
@@ -274,10 +295,30 @@ fn places_and_actions_are_checked() {
                 depart: t(NOW - 3),
                 arrive: t(NOW + 5),
             };
+            three.needs = three
+                .needs
+                .map(|need| NeedSample::new(need.value(), t(NOW - 3), rate));
         })
     };
-    assert_eq!(out(0), Ok(()));
-    assert_eq!(out(1), Err(Broken::Walk));
+    assert_eq!(out(0, 0), Ok(()));
+    assert_eq!(out(1, 0), Err(Broken::Walk));
+    assert_eq!(out(0, -30), Err(Broken::AwayBusy));
+    // Leaving writes down all five needs at the second of the departure, the start of the walk.
+    let late_need = checked(|s| {
+        s.waits.clear();
+        let three = in_house(s, 3);
+        three.action = None;
+        three.place = Place::Walking {
+            from: 2,
+            to: 0,
+            depart: t(NOW - 3),
+            arrive: t(NOW + 5),
+        };
+        three.needs = three
+            .needs
+            .map(|need| NeedSample::new(need.value(), t(NOW - 2), 0));
+    });
+    assert_eq!(late_need, Err(Broken::Left));
     // Reading (fun +300) or watching (+400) in the living room.
     let action = |object: u16, offer: u16, slot: u8| {
         checked(move |s| {
@@ -393,18 +434,75 @@ fn away_due_and_decisions_are_checked() {
         });
     });
     assert_eq!(duty, Err(Broken::AwayBusy));
-    // A postponed departure of someone at home: before its return.
-    let postponed = |depart: i64, back: i64| {
+    // Away all five needs are written down at one second, that of leaving.
+    let apart = away(|one| one.needs[3] = NeedSample::new(700, t(NOW - 1), 0));
+    assert_eq!(apart, Err(Broken::Left));
+    // A postponed departure of someone at home: before its return, while an action raises a
+    // need that was critical at the departure (ADR-0024 section 4). Sim 2 watches with fun
+    // at 100 then, rising by 400 an hour: 126 four minutes later, 166 at the clock; once she
+    // came to the television after it, her fun's second is after the departure.
+    let postponed = |depart: i64, back: i64, fun: u16| {
         checked(move |s| {
-            in_house(s, 2).due = Some(Due {
+            let two = in_house(s, 2);
+            two.needs[4] = NeedSample::new(fun, t(NOW - 600), 400);
+            two.due = Some(Due {
                 place: Duty::School,
                 depart: t(depart),
                 back: t(back),
             });
         })
     };
-    assert_eq!(postponed(NOW - 600, NOW + 3_600), Ok(()));
-    assert_eq!(postponed(NOW + 3_600, NOW + 3_600), Err(Broken::DueOrder));
+    assert_eq!(postponed(NOW - 600, NOW + 3_600, 100), Ok(()));
+    assert_eq!(postponed(NOW - 360, NOW + 3_600, 100), Ok(()));
+    assert_eq!(postponed(NOW - 900, NOW + 3_600, 100), Ok(()));
+    assert_eq!(
+        postponed(NOW + 3_600, NOW + 3_600, 100),
+        Err(Broken::DueOrder)
+    );
+    assert_eq!(postponed(NOW - 600, NOW + 3_600, 151), Err(Broken::Due));
+    assert_eq!(postponed(NOW, NOW + 3_600, 100), Err(Broken::Due));
+    // Came to the television after the departure with fun 200: fun only fell on the way
+    // (awake −60 an hour at every age), so it was at least 200 then, not critical. Where fun
+    // may rise awake (from 67 on, in other data), its value then is open.
+    assert_eq!(postponed(NOW - 900, NOW + 3_600, 200), Err(Broken::Due));
+    let rising = houses_with_rising_fun();
+    let open = checked_with(&rising, |s| {
+        let two = in_house(s, 2);
+        two.needs[4] = NeedSample::new(200, t(NOW - 600), 400);
+        two.due = Some(Due {
+            place: Duty::School,
+            depart: t(NOW - 900),
+            back: t(NOW + 3_600),
+        });
+    });
+    assert_eq!(open, Ok(()));
+    // On the way to the fridge (sim 3, a child) since 3 s with hunger at 0 since the morning:
+    // its departure 1 s ago may wait; a need written down after it may not, a walk does not
+    // begin after a waiting departure.
+    let on_the_way = |hunger_at: i64| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = NeedSample::new(0, t(hunger_at), -100);
+            three.due = Some(Due {
+                place: Duty::School,
+                depart: t(NOW - 1),
+                back: t(NOW + 3_600),
+            });
+        })
+    };
+    assert_eq!(on_the_way(NOW - 3_600), Ok(()));
+    assert_eq!(on_the_way(NOW), Err(Broken::Due));
+    // Idle, or walking out, nothing postpones a departure.
+    let idle = checked(|s| {
+        s.waits.clear();
+        in_house(s, 1).due = Some(Due {
+            place: Duty::Work,
+            depart: t(NOW - 600),
+            back: t(NOW + 3_600),
+        });
+    });
+    assert_eq!(idle, Err(Broken::Due));
     // At most 200 choices on a day not after today.
     let decisions = |day: i64, count: u16| {
         checked(move |s| in_house(s, 1).decisions = Decisions { day, count })
@@ -450,12 +548,16 @@ fn waiters_and_holds_are_checked() {
     });
     assert_eq!(gone, Err(Broken::Waiter));
     let leaving = checked(|s| {
-        in_house(s, 1).place = Place::Walking {
+        let one = in_house(s, 1);
+        one.place = Place::Walking {
             from: 2,
             to: 0,
             depart: t(NOW - 3),
             arrive: t(NOW + 5),
         };
+        one.needs = one
+            .needs
+            .map(|need| NeedSample::new(need.value(), t(NOW - 3), 0));
     });
     assert_eq!(leaving, Err(Broken::Waiter));
     // An object the house lacks, a waiting list out of order, a person queued twice.

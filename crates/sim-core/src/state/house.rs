@@ -123,6 +123,11 @@ pub(crate) fn apply_move_in(
         let morning = ctx.schedule(at, EventPayload::HouseMorning { household }, entry);
         domain.house_mornings.insert(household, morning);
     }
+    // Every member has its plan at 5:00 from its `core:moved_in` (ADR-0024 section 2 and its
+    // addendum of 2026-11-04).
+    for sim in members {
+        super::day::plan_series(domain, data, sim, entry, ctx);
+    }
 }
 
 /// Pure check of `MoveOut`.
@@ -183,8 +188,10 @@ pub(crate) fn on_morning(
 }
 
 /// A member's needs from now, if it is 6 or older: its entry `core:day_started`, the
-/// morning values with the awake rates of its age, in the entrance (ADR-0025 section 5).
-fn start_day(
+/// morning values with the awake rates of its age, in the entrance (ADR-0025 section 5); by
+/// that entry its crossings, what is still to come of its duty today and a choice now
+/// (ADR-0024 sections 1, 2 and 4). Its series of plans at 5:00 came with its moving in.
+pub(super) fn start_day(
     domain: &mut DomainState,
     data: &Data,
     sim: SimId,
@@ -228,6 +235,7 @@ fn start_day(
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, sim, entry, ctx);
+    super::day::plan_today(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
     let decide = ctx.schedule(now, EventPayload::Decide { sim }, entry);
     domain.pending.insert((sim, Slot::Decide), decide);
 }
@@ -283,7 +291,7 @@ fn forget(
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::Crossing(Need::Hunger, 0), Slot::Decide);
+    let house_events = (Slot::DayPlan, Slot::Decide);
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {
@@ -324,9 +332,9 @@ fn end_house(domain: &mut DomainState, household: HouseholdId, ctx: &mut SimCtx<
 }
 
 /// The moves of this handler, in their order (ADR-0024 section 2): one who leaves a
-/// household in a house moves out of it, one who comes into one moves in, and after its
-/// first morning starts the day at once; a household that has ended leaves its house
-/// without an entry.
+/// household in a house moves out of it, one who comes into one moves in with its plan at
+/// 5:00, and from 6 after the first morning starts the day at once; a household that has
+/// ended leaves its house without an entry.
 pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for change in core::mem::take(&mut domain.house_moves) {
         let because = || Causes::new(Cause::Event(change.cause));
@@ -359,6 +367,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
                 alloc::vec![Subject::Sim(change.sim)],
                 because(),
             );
+            super::day::plan_series(domain, data, change.sim, entry, ctx);
             if morning {
                 let causes = Causes::new(Cause::Event(entry));
                 start_day(domain, data, change.sim, to, causes, ctx);

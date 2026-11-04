@@ -254,6 +254,12 @@ impl<P: Payload, M: Clone> Scheduler<P, M> {
         self.pending_key(handle).map(|key| key.time)
     }
 
+    /// The payload of a pending event; `None` if it is not pending.
+    pub fn pending_payload(&self, handle: EventHandle) -> Option<&P> {
+        let key = self.pending_key(handle)?;
+        self.queue.get(&key).map(|entry| &entry.payload)
+    }
+
     pub fn stats(&self) -> &RunStats {
         &self.stats
     }

@@ -76,6 +76,11 @@ export function spots(layout: HouseLayout, persons: readonly HousePerson[], at: 
   });
 }
 
+/** The whole minutes of a span of seconds, as a delay reads: 1 295 s are 21 minutes. */
+export function wholeMinutes(seconds: number): number {
+  return Math.floor(seconds / 60);
+}
+
 /** A second of the day as a clock reads it, "6:05". */
 export function timeOfDay(secondOfDay: number): string {
   const minutes = Math.floor(secondOfDay / 60);

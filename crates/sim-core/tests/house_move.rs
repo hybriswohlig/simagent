@@ -363,7 +363,10 @@ fn a_house_is_saved_and_loaded() {
 
 /// The first morning plans each member's crossings (ADR-0026 section 1): an adult at the
 /// morning values has 17 thresholds below its needs; each then chooses and walks to it (the
-/// toilet, the table). Moving out cancels all of it.
+/// toilet, the table). It plans their day too (ADR-0024 section 4): both working full time
+/// (their draws of `WORK_PLAN` 30 and 3, day 1 a weekday) the wake, the departure and the
+/// return of today; their series of plans at 5:00 came with moving in (addendum of
+/// 2026-11-04). Moving out cancels all of it, the series too.
 #[test]
 fn the_morning_plans_the_crossings() {
     let morning = DAY.as_secs() + SIX;
@@ -378,13 +381,13 @@ fn the_morning_plans_the_crossings() {
     };
     let (mut run, _, before) = moved_in();
     run.advance(morning);
-    // The morning is gone; two adults' crossings and their walks have come.
-    assert_eq!(run.world.pending_events(), before - 1 + 2 * 17 + 2);
+    // The morning is gone; two adults' crossings, days and walks have come.
+    assert_eq!(run.world.pending_events(), before - 1 + 2 * (17 + 3) + 2);
 
     let (mut run, home, before) = moved_in();
     run.advance(morning + 60);
     run.submit(move_out(home));
-    assert_eq!(run.world.pending_events(), before - 1);
+    assert_eq!(run.world.pending_events(), before - 1 - 2);
 }
 
 /// The dynasty does not see the house (ADR-0024 section 3): the same run with and without
@@ -419,6 +422,11 @@ fn house_entry(payload: &LogPayload) -> bool {
             | LogPayload::Reached { .. }
             | LogPayload::ActionEnded { .. }
             | LogPayload::Idle { .. }
+            | LogPayload::NeedCritical { .. }
+            | LogPayload::DayPlanned { .. }
+            | LogPayload::LeftHome { .. }
+            | LogPayload::CameHome { .. }
+            | LogPayload::Missed { .. }
     )
 }
 
