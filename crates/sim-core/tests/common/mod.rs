@@ -414,6 +414,23 @@ pub fn repository_houses() -> sim_core::house::data::HouseData {
     )
 }
 
+/// The houses of `data/house/` with their kinds (the JSON array of `kinds.json`) changed by
+/// `change` first.
+#[allow(
+    dead_code,
+    reason = "only the tests of a week in a house change the kinds"
+)]
+pub fn repository_houses_with(change: impl FnOnce(&mut Value)) -> sim_core::house::data::HouseData {
+    let mut kinds: Value = serde_json::from_str(REPOSITORY_KINDS).expect("json");
+    change(&mut kinds);
+    houses_from(
+        REPOSITORY_NEEDS,
+        REPOSITORY_DAY,
+        &kinds.to_string(),
+        &REPOSITORY_HOUSES,
+    )
+}
+
 /// House data from the texts of a `needs.json`, a `day.json`, a `kinds.json` and house files,
 /// read as sim-cli reads `data/house/`.
 #[allow(dead_code, reason = "only the tests on houses need it")]
