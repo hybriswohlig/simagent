@@ -686,6 +686,59 @@ fn server_answers(
         "WhyAnswer",
         get(port, &format!("/api/runs/town/why/{waited}"))?,
     ));
+    // An idle entry that is still its person's state (version 4 of "Warum?"): hour by hour
+    // until someone of the three households stands idle in a room, then its last choice, which
+    // is idle, compared at the clock.
+    let mut idle = None;
+    for _ in 0..24 {
+        for home in [&household, &schooled, &young] {
+            let house = get(port, &format!("/api/runs/town/house/{home}"))?;
+            let found = (house["persons"].as_array().into_iter().flatten()).find(|p| {
+                p["action"].is_null() && p["place"]["room"].is_u64() && p["collapsed"] == false
+            });
+            if let Some(person) = found {
+                idle = Some((person["sim"].clone(), house["at"]["t"].clone()));
+                break;
+            }
+        }
+        if idle.is_some() {
+            break;
+        }
+        ask(
+            port,
+            "/api/runs/town/advance",
+            Some(r#"{"step":"hour"}"#),
+            200,
+        )?;
+    }
+    let (sim, clock) = idle.ok_or("nobody in the town's houses stood idle within a day")?;
+    let mut after = String::new();
+    let mut last = None;
+    loop {
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?subject={sim}&from={morning}{after}"),
+        )?;
+        let rows = page["events"].as_array().into_iter().flatten();
+        for row in rows {
+            let payload = &row["entry"]["payload"];
+            if payload.get("core:idle").is_some() || payload.get("core:action_started").is_some() {
+                last = Some(row["entry"]["id"].clone());
+            }
+        }
+        match page["next"].as_u64() {
+            Some(next) => after = format!("&after={next}"),
+            None => break,
+        }
+    }
+    let last = last.ok_or("the idle person never chose")?;
+    let compared = get(port, &format!("/api/runs/town/why/{last}"))?;
+    if compared["now"]["at"]["t"] != clock {
+        return Err(format!(
+            "the last choice of {sim} is not compared at the clock {clock}: {compared}"
+        ));
+    }
+    answers.push(("WhyAnswer", compared));
     answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));
     // A fork with an override, so that the comparison shows its every shape: the town has
     // the switch on, the fork has it off from year 10.
