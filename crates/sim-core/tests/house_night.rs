@@ -351,17 +351,17 @@ fn the_last_night_of_time_lasts_to_its_end() {
     let last_day = end / D;
     assert_eq!(end % D, 0);
     let adult = t(end - 30 * Y);
-    let last = Some(Night {
+    let whole = Night {
         from: t((last_day - 1) * D + 22 * H),
         until: None,
-    });
+    };
+    let last = Some(whole);
     assert_eq!(night_of(&rules, last_day - 1, adult), last);
     assert_eq!(night_of(&rules, last_day, adult), None);
     assert_eq!(night(&rules, adult, t(end - 2 * H - 1)), None);
     assert_eq!(night(&rules, adult, t(end - 2 * H)), last);
     assert_eq!(night(&rules, adult, t(end)), last);
     assert_eq!(next_night(&rules, adult, t(end - 3 * H)), last);
-    let whole = last.expect("the last night");
     assert_eq!(whole.left(t(end)), 1);
     assert_eq!(whole.left(t(end - 2 * H)), 2 * H + 1);
     assert!(whole.holds(t(end)) && !whole.holds(t(end - 2 * H - 1)));
