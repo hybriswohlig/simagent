@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
+import { commandChoices, offerWords, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
@@ -116,14 +117,6 @@ function doing(layout: HouseLayout, person: HousePerson): string {
   return `${does}${until}`;
 }
 
-/** What an offer of an object is, as a person does it: "isst am Esstisch". */
-function offerWords(layout: HouseLayout, object: number, offer: number): string {
-  const drawn = layout.objects[object];
-  const name = drawn?.offers[offer] ?? "";
-  const kind = KIND_WORDS[drawn?.kind ?? ""];
-  return TEXT.house_does.replace("{offer}", OFFER_WORDS[name] ?? name).replace("{at}", kind?.[1] ?? drawn?.kind ?? "");
-}
-
 /** The line of a house entry of the day, or null for one the day leaves out (an arrival). */
 function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: boolean } | null {
   const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
@@ -131,8 +124,11 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
   const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
   const school = fields["place"] === "school";
   switch (code) {
-    case "core:action_started":
-      return { text: TEXT.house_choice.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
+    case "core:action_started": {
+      // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it.
+      const said = fields["commanded"] === true ? TEXT.house_commanded : TEXT.house_choice;
+      return { text: said.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
+    }
     case "core:action_ended": {
       const codes: Record<string, string> = CODES;
       const reason = codes[`end_reason ${String(fields["reason"])}`] ?? String(fields["reason"]);
@@ -348,8 +344,84 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
   );
 }
 
-/** A resident's portrait, name and line; for a person with needs its five needs as bars and
- * its day, for a child under 6 (`person` null) nothing more. */
+/** Whether a person can be given a command from the page: at home, neither away nor on its
+ * way out (the core refuses the rest with its reason, ADR-0024 section 5). */
+function commandable(person: HousePerson): boolean {
+  return person.place.away === undefined && (person.place.walking === undefined || person.action !== null);
+}
+
+/** The key of a choice in its list. */
+function choiceKey(choice: CommandChoice): string {
+  return `${choice.object}:${choice.offer}`;
+}
+
+/** A command for a person with needs at home (ADR-0024 section 5): an offer of an object of
+ * the house and "Befehlen", an input over the server. Once it is taken the house is read
+ * again (`given`); a refusal stands beside it with the core's reason. */
+function Command({
+  run,
+  layout,
+  sim,
+  name,
+  given,
+}: {
+  run: string;
+  layout: HouseLayout;
+  sim: number;
+  name: string;
+  given: () => void;
+}) {
+  const choices = commandChoices(layout);
+  const [chosen, setChosen] = useState("");
+  const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const choice = choices.find((each) => choiceKey(each) === chosen) ?? choices[0];
+  if (choice === undefined) {
+    return null;
+  }
+  const give = () => {
+    setSending(true);
+    setRefused(null);
+    postJson(`/api/runs/${run}/input`, { command: { sim, object: choice.object, offer: choice.offer } }, INPUT)
+      .then(() => {
+        if (mounted.current) {
+          setSending(false);
+          given();
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted.current) {
+          setSending(false);
+          setRefused(inputFailureText(error));
+        }
+      });
+  };
+  return (
+    <div role="group" aria-label={TEXT.house_command_for.replace("{name}", name)}>
+      <select aria-label={TEXT.house_command_what} value={choiceKey(choice)} onChange={(event) => setChosen(event.currentTarget.value)}>
+        {choices.map((each) => (
+          <option key={choiceKey(each)} value={choiceKey(each)}>
+            {each.label}
+          </option>
+        ))}
+      </select>{" "}
+      <button type="button" disabled={sending} onClick={give}>
+        {TEXT.house_command}
+      </button>
+      {refused !== null && <span role="status"> {refused}</span>}
+    </div>
+  );
+}
+
+/** A resident's portrait, name and line; for a person with needs its five needs as bars, its
+ * day and, at home, a command; for a child under 6 (`person` null) nothing more. */
 function Resident({
   run,
   house,
@@ -358,6 +430,7 @@ function Resident({
   person,
   pedigree,
   people,
+  given,
 }: {
   run: string;
   house: HouseAnswer;
@@ -366,6 +439,7 @@ function Resident({
   person: HousePerson | null;
   pedigree: Pedigree;
   people: PeopleAnswer | null;
+  given: () => void;
 }) {
   const known = pedigree.persons.find((p) => p.sim === sim);
   const name = known === undefined ? String(sim) : fullName(known);
@@ -387,6 +461,7 @@ function Resident({
           <>
             <Needs person={person} />
             <Day run={run} house={house} sim={sim} />
+            {commandable(person) && <Command run={run} layout={house.layout} sim={sim} name={name} given={given} />}
           </>
         )}
       </div>
@@ -500,6 +575,12 @@ export function HousePage({ run, household }: { run: string; household: string }
   const names = new Map<number, string>(
     pedigree.state === "ready" ? pedigree.value.persons.map((p) => [p.sim, fullName(p)]) : [],
   );
+  // A command changed the house: read it again at the same clock.
+  const reload = () => {
+    if (live.current) {
+      setAt((count) => count + 1);
+    }
+  };
   return (
     <section>
       <h1>{TEXT.house_of_household.replace("{n}", household)}</h1>
@@ -543,6 +624,7 @@ export function HousePage({ run, household }: { run: string; household: string }
                 person={person}
                 pedigree={pedigree.value}
                 people={people.state === "ready" ? people.value : null}
+                given={reload}
               />
             ))}
             {house.children.map((child) => (
@@ -555,6 +637,7 @@ export function HousePage({ run, household }: { run: string; household: string }
                 person={null}
                 pedigree={pedigree.value}
                 people={people.state === "ready" ? people.value : null}
+                given={reload}
               />
             ))}
           </ul>

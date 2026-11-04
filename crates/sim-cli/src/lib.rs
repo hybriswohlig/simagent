@@ -326,9 +326,10 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
 /// drawing with each object's places and the names of its offers, and each person with needs
 /// in ascending SimId with where it is, away at school or work until its return (version 2,
-/// ADR-0024 section 4), what it does and until when, and its needs at the clock; and each
-/// child without needs in ascending SimId where the clock puts it (version 3). `None` for a
-/// household without a house.
+/// ADR-0024 section 4), what it does and until when, and its needs at the clock (a need an
+/// input at the clock wrote down in the next second, as a command does, with that value); and
+/// each child without needs in ascending SimId where the clock puts it (version 3). `None` for
+/// a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, young_place};
     use sim_core::house::state::{Place, action_end};
@@ -415,7 +416,9 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             "sim": sim.get(),
             "place": place,
             "action": action,
-            "needs": person.needs.map(|need| need.value_at(at)),
+            // An input at the clock acts in the next second (ADR-0004 section 4): what it wrote
+            // down has no value before.
+            "needs": person.needs.map(|need| need.value_at(at.max(need.at()))),
         }));
     }
     // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
@@ -564,7 +567,8 @@ fn fork_keeps_diseases(world: &World) -> Vec<bool> {
                     | Input::SeparatePartnership(_)
                     | Input::TimeTogether(_)
                     | Input::MoveIn(_)
-                    | Input::MoveOut(_) => {}
+                    | Input::MoveOut(_)
+                    | Input::Command(_) => {}
                 }
             }
             on

@@ -37,6 +37,8 @@ pub enum Input {
     MoveIn(MoveIn),
     /// A household moves out of its house (ADR-0024 section 1).
     MoveOut(MoveOut),
+    /// A person with needs takes an offer of an object of its house now (ADR-0024 section 5).
+    Command(Command),
 }
 
 /// The start of a run (ADR-0004 section 4 and its addendum of 2026-10-30). The data's hash
@@ -182,6 +184,16 @@ pub struct MoveIn {
 #[serde(deny_unknown_fields)]
 pub struct MoveOut {
     pub household: HouseholdId,
+}
+
+/// A person told to take the offer `offer` of the object `object` of its house, both by
+/// their numbers in the data (ADR-0024 section 5, ADR-0025 section 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Command {
+    pub sim: SimId,
+    pub object: u16,
+    pub offer: u16,
 }
 
 /// One world parameter with its new value, set at a stop of the run (ADR-0023 section 2).
@@ -358,8 +370,23 @@ pub enum RejectCode {
     HouseLimit,
     /// No house holds the household's members (ADR-0025 section 3).
     NoHouse,
-    /// The household lives in no house.
+    /// The household lives in no house; for a command, the person has no needs in one
+    /// (ADR-0024 section 5).
     NotInHouse,
+    /// A command for an offer the person's age is outside of.
+    WrongAge,
+    /// A command for a person away, on its way out or whose departure waits (ADR-0024
+    /// section 4).
+    Away,
+    /// A command for an object the house does not have.
+    ObjectUnknown,
+    /// A command for an offer the object's kind does not have.
+    OfferUnknown,
+    /// A command for an object with no place free for the person (ADR-0026 section 5).
+    SlotBusy,
+    /// A command for a person whose walk or action raises a need that is critical
+    /// (ADR-0026 section 4).
+    CriticalNeed,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

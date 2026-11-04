@@ -316,8 +316,9 @@ pub(super) fn pending_index(
             | EventPayload::Immigration { .. } => {
                 continue;
             }
-            // The first morning has its own index, a choice is never pending in a save.
-            EventPayload::HouseMorning { .. } | EventPayload::Decide { .. } => continue,
+            // The first morning has its own index.
+            EventPayload::HouseMorning { .. } => continue,
+            EventPayload::Decide { sim } => (*sim, Slot::Decide),
             EventPayload::DayPlan { sim } => (*sim, Slot::DayPlan),
             EventPayload::Return { sim, .. } => (*sim, Slot::Return),
             EventPayload::Depart { sim, .. } => (*sim, Slot::Depart),
@@ -935,9 +936,11 @@ fn input_log_consistent(
             }
             // Time together names an open partnership (`state::together::rebuilt`).
             (Input::TimeTogether(_), Some(kept)) => started = Some(kept),
-            // Moving in and out leave the house part, which the projection holds and its own
-            // checks judge (ADR-0024, addendum of 2026-11-02).
-            (Input::MoveIn(_) | Input::MoveOut(_), Some(kept)) => started = Some(kept),
+            // Moving in and out and commands leave the house part, which the projection holds
+            // and its own checks judge (ADR-0024, addendum of 2026-11-02).
+            (Input::MoveIn(_) | Input::MoveOut(_) | Input::Command(_), Some(kept)) => {
+                started = Some(kept);
+            }
             // A world rule passes the check of the input against the parameters at its
             // place in the log (ADR-0023 section 1) and acts in the next second.
             (Input::SetWorldParam(rule), Some((before, start))) => {
@@ -973,7 +976,8 @@ fn input_log_consistent(
                 | Input::SeparatePartnership(_)
                 | Input::TimeTogether(_)
                 | Input::MoveIn(_)
-                | Input::MoveOut(_),
+                | Input::MoveOut(_)
+                | Input::Command(_),
                 None,
             ) => return None,
         }
@@ -1243,9 +1247,18 @@ fn house_consistent(loaded: &LoadedState, data: &Data, now: i64) -> bool {
     // At the last second of time there is no next one (review); every bound of the checks
     // holds at the clock too, since nothing has run after it.
     let now = SimTime::try_from(now).unwrap_or(loaded.closed_through);
-    // A held place lasts only the second of the choice it plans, and no choice is pending in a
-    // save (ADR-0026 section 5), so a save holds none.
-    loaded.house.holds.is_empty()
+    // A held place lasts only the second of the choice it plans (ADR-0026 section 5): after
+    // a run no choice is pending and no place held; after an input that freed one (a command,
+    // ADR-0024 section 5) it is held for one whose choice is due in the next second.
+    let next = loaded.closed_through.checked_add(SimDuration::from_secs(1));
+    let deciding: BTreeSet<SimId> = (loaded.queue.iter())
+        .filter_map(|entry| match entry.payload {
+            EventPayload::Decide { sim } if Some(entry.time) == next => Some(sim),
+            _ => None,
+        })
+        .collect();
+    let held_for_a_choice = (loaded.house.holds.values()).all(|sim| deciding.contains(sim));
+    held_for_a_choice
         && crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
 }
 
@@ -2520,6 +2533,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut wakes = BTreeSet::new();
     let mut departures = BTreeSet::new();
     let mut returns = BTreeSet::new();
+    let mut choices = BTreeSet::new();
     let clock = loaded.closed_through;
     // Each person's day; `None` for one whose state its day does not allow.
     let days: BTreeMap<SimId, Option<_>> = (loaded.house.sims.iter())
@@ -2604,8 +2618,19 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && ends.insert(*sim)
                     && action_due(loaded, rules.data, *sim) == Some(entry.time)
             }
-            // A choice runs in the second it was planned for (ADR-0026 section 3).
-            EventPayload::Decide { .. } => false,
+            // A choice runs in the second it was planned for (ADR-0026 section 3), so after a
+            // run none is pending. An input plans one for the next second, once per person idle
+            // in a room: a command or another input that freed a place held for a waiter, or a
+            // day begun (ADR-0024 sections 2 and 5).
+            EventPayload::Decide { sim } => {
+                let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
+                    matches!((person.place, person.action), (Place::Room(_), None))
+                });
+                entry.period.is_none()
+                    && idle
+                    && clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time)
+                    && choices.insert(*sim)
+            }
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
                 let first = !year_end_seen;

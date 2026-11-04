@@ -240,6 +240,7 @@ fn check(
         Input::TimeTogether(pair) => state::together::check(domain, data, closed_through, pair),
         Input::MoveIn(input) => state::house::check_move_in(domain, data, closed_through, input),
         Input::MoveOut(input) => state::house::check_move_out(domain, closed_through, input),
+        Input::Command(input) => state::command::check(domain, data, closed_through, input),
     }
 }
 
@@ -294,6 +295,9 @@ impl WorldState {
             }
             Input::MoveOut(input) => {
                 state::house::apply_move_out(&mut self.domain, input, &mut ctx);
+            }
+            Input::Command(input) => {
+                state::command::apply(&mut self.domain, &self.data, input, &mut ctx);
             }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);

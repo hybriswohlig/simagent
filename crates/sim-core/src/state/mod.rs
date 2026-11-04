@@ -6,6 +6,7 @@ pub(crate) mod arrival;
 pub(crate) mod birth;
 pub(crate) mod birthday;
 pub(crate) mod census;
+pub(crate) mod command;
 pub(crate) mod conception;
 pub(crate) mod day;
 pub(crate) mod death;

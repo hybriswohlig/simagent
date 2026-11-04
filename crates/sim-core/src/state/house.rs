@@ -41,13 +41,16 @@ pub(crate) fn next_morning(at: SimTime) -> Option<SimTime> {
     at.checked_add(SimDuration::from_secs(wait))
 }
 
-/// A started world with a second after the clock.
-fn running(domain: &DomainState, closed_through: SimTime) -> Result<(), RejectCode> {
+/// A started world with a second after the clock: that second, in which an input acts.
+pub(super) fn running(
+    domain: &DomainState,
+    closed_through: SimTime,
+) -> Result<SimTime, RejectCode> {
     let next = closed_through.checked_add(SimDuration::from_secs(1));
     match (domain.world_seed, next) {
         (None, _) => Err(RejectCode::NotStarted),
         (Some(_), None) => Err(RejectCode::EndOfTime),
-        (Some(_), Some(_)) => Ok(()),
+        (Some(_), Some(next)) => Ok(next),
     }
 }
 

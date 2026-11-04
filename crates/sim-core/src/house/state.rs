@@ -162,9 +162,10 @@ pub enum Broken {
     NeedValue,
     NeedTime,
     RoomUnknown,
-    /// A walk not begun before the clock, not as long as the house makes it, or that leads
-    /// elsewhere than its object's room or, without an action, the entrance; or an action
-    /// done outside its object's room.
+    /// A walk begun after the second the loaded world runs next (an input at the clock begins
+    /// one in it), not as long as the house makes it, or that leads elsewhere than its
+    /// object's room or, without an action, the entrance; or an action done outside its
+    /// object's room.
     Walk,
     ObjectUnknown,
     OfferUnknown,
@@ -346,13 +347,14 @@ fn person_consistent(
         } => {
             room(from)?;
             room(to)?;
-            // The walk the house gives, begun before the clock.
+            // The walk the house gives, begun before the clock or, by an input at it (a
+            // command, ADR-0024 section 5), in the second the loaded world runs next.
             let secs = match person.action {
                 Some(action) => home.walk_to(from, action.object),
                 None => home.walk_out(from),
             };
             let walked = arrive.as_secs() - depart.as_secs();
-            if depart >= now || walked != i64::from(secs) || to != goal {
+            if depart > now || walked != i64::from(secs) || to != goal {
                 return Err(Broken::Walk);
             }
         }
