@@ -561,7 +561,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 4: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 5: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -621,7 +621,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousePerson",
-            doc: "A person with needs: where it is, what it does, its five needs at the clock, whether it lies on the floor and whether it smells (hygiene at most 50).",
+            doc: "A person with needs: where it is, what it does, its five needs at the clock, whether it lies on the floor, whether it smells (hygiene at most 50), and the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5).",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HousePlace")),
@@ -629,7 +629,13 @@ pub fn descriptor() -> Vec<Named> {
                 field("needs", list(Integer)),
                 field("collapsed", Bool),
                 field("smells", Bool),
+                field("commands", list(Ref("HouseOffer"))),
             ],
+        },
+        Named {
+            name: "HouseOffer",
+            doc: "An offer of an object of the house, by the core's numbers.",
+            fields: vec![field("object", Integer), field("offer", Integer)],
         },
         Named {
             name: "HousePlace",
@@ -695,7 +701,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 3): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 4): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, what an idle person waited for, the needs of the choice, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -704,9 +710,20 @@ pub fn descriptor() -> Vec<Named> {
                 field("at", Ref("DatedSecond")),
                 field("enough", Integer),
                 field("commanded", Bool),
+                field("needs", list(Integer)),
                 field("night", nullable(Ref("WhyNight"))),
                 field("chosen", nullable(Ref("WhyChoice"))),
                 field("waits", nullable(Integer)),
+                field("offers", list(Ref("WhyOffer"))),
+                field("now", nullable(Ref("WhyNow"))),
+            ],
+        },
+        Named {
+            name: "WhyNow",
+            doc: "The comparison of an idle person's choice at the clock: the second, its needs then, and the offers open then with their points, the mood of that second, whether their object has no free place, and the critical needs they raise, the most first.",
+            fields: vec![
+                field("at", Ref("DatedSecond")),
+                field("needs", list(Integer)),
                 field("offers", list(Ref("WhyOffer"))),
             ],
         },
@@ -721,17 +738,18 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyChoice",
-            doc: "The offer chosen, its points and the mood in them in percent; no mood for a command, which is no choice.",
+            doc: "The offer chosen, its points and the mood in them in percent; no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
                 field("points", Integer),
                 field("mood", nullable(Integer)),
+                field("urgent", list(Text)),
             ],
         },
         Named {
             name: "WhyOffer",
-            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice.",
+            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
@@ -739,6 +757,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("mood", nullable(Integer)),
                 field("busy", Bool),
                 field("closed", Bool),
+                field("urgent", list(Text)),
             ],
         },
         Named {

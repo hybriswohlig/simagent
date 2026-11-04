@@ -26,3 +26,14 @@ test("a pedigree's names and sims by lineage key", () => {
     ["00000000000000bb", { name: "Günter Stolz", sim: 7 }],
   ]);
 });
+
+// The family of a household by its members' surnames, each once, in their order (the playtest of
+// 2026-11-04: "Haushalt 224" named a household by its number).
+test("a family by its surnames", async () => {
+  const { surnames } = await import("../dist/names.js");
+  const person = (sim, surname) => ({ sim, first_name: "X", surname });
+  assert.equal(surnames([person(1, "Brenner")]), "Brenner");
+  assert.equal(surnames([person(1, "Brenner"), person(2, "Hesse"), person(3, "Brenner")]), "Brenner und Hesse");
+  assert.equal(surnames([person(1, "Brenner"), person(2, "Hesse"), person(3, "Wolf")]), "Brenner, Hesse und Wolf");
+  assert.equal(surnames([]), "");
+});

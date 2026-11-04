@@ -2,38 +2,37 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
-import { commandChoices, offerWords, type CommandChoice } from "./command.js";
+import { commandChoices, placedOfferWords, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, WhyAnswer } from "./generated/export.js";
+import { dayGroups, dayLine, type DayLine } from "./day.js";
+import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
-import { fullName } from "./names.js";
+import { fullName, surnames } from "./names.js";
 import { usePedigree } from "./person.js";
 import { usePeople } from "./peopleview.js";
 import { Portrait } from "./portrait.js";
+import { families } from "./families.js";
+import { SCROLLED } from "./lines.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
-import { plan, spots, timeOfDay, wholeMinutes } from "./render/plan.js";
+import { labels, plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
-import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
-import { moodWords } from "./why.js";
+import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
+import { whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 4 } as const;
+const HOUSE = { format: "simagent.view.house", version: 5 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
 const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
 /** How many pages of a person's day the page reads at most (a day has some hundred entries). */
 const DAY_PAGES = 10;
+/** How far back a person's day list reaches from the clock, in seconds: the last 24 hours, so
+ * that after "Bis morgen früh" the evening before is still there (the playtest of 2026-11-04). */
+const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
-const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 3 } as const;
-const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
-  hunger: "need_hunger",
-  energy: "need_energy",
-  bladder: "need_bladder",
-  hygiene: "need_hygiene",
-  fun: "need_fun",
-};
+export const LARGEST = 8;
+const WHY = { format: "simagent.view.why", version: 4 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -90,8 +89,8 @@ function youngLine(layout: HouseLayout, child: HouseChild): string {
 }
 
 /** What a person does as one line: away where and until when, on the way where to (or out
- * of the house), lying on the floor of its room, at an object what and until when, or
- * nothing. */
+ * of the house), lying on the floor of its room, at an object what and until when (the object
+ * told apart from others of its kind), or nothing and where. */
 function doing(layout: HouseLayout, person: HousePerson): string {
   if (person.collapsed) {
     return TEXT.house_lies.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
@@ -110,87 +109,30 @@ function doing(layout: HouseLayout, person: HousePerson): string {
   }
   const action = person.action;
   if (action === null) {
-    return TEXT.house_idle;
+    return TEXT.house_idle.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
   }
-  const object = layout.objects[action.object];
-  const offer = object?.offers[action.offer] ?? "";
-  const kind = KIND_WORDS[object?.kind ?? ""];
-  const does = TEXT.house_does
-    .replace("{offer}", OFFER_WORDS[offer] ?? offer)
-    .replace("{at}", kind?.[1] ?? object?.kind ?? "");
+  const does = placedOfferWords(layout, action.object, action.offer);
   const until = action.until === null ? "" : ` ${TEXT.house_until.replace("{time}", timeOfDay(action.until.date.second_of_day))}`;
   return `${does}${until}`;
 }
 
-/** The line of a house entry of the day, or null for one the day leaves out (an arrival). */
-function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: boolean } | null {
-  const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
-  const fields = body as { [key: string]: unknown };
-  const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
-  const school = fields["place"] === "school";
-  switch (code) {
-    case "core:action_started": {
-      // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it.
-      const said = fields["commanded"] === true ? TEXT.house_commanded : TEXT.house_choice;
-      return { text: said.replace("{what}", offerWords(layout, number("object"), number("offer"))), choice: true };
-    }
-    case "core:action_ended": {
-      const codes: Record<string, string> = CODES;
-      const reason = codes[`end_reason ${String(fields["reason"])}`] ?? String(fields["reason"]);
-      return { text: TEXT.house_end.replace("{why}", reason), choice: false };
-    }
-    case "core:idle": {
-      const waits = fields["waits"];
-      if (typeof waits === "number") {
-        const kind = KIND_WORDS[layout.objects[waits]?.kind ?? ""];
-        return { text: TEXT.house_waits.replace("{object}", kind?.[0] ?? String(waits)), choice: true };
-      }
-      return { text: TEXT.house_idle, choice: true };
-    }
-    case "core:need_critical": {
-      const need = NEED_KEYS[String(fields["need"])];
-      return {
-        text: TEXT.house_critical.replace("{need}", need === undefined ? String(fields["need"]) : TEXT[need]).replace("{level}", String(number("level"))),
-        choice: false,
-      };
-    }
-    // The day's duty (ADR-0024 section 4): where, when; leaving, late; back; missed.
-    case "core:day_planned":
-      return { text: school ? TEXT.house_planned_school : TEXT.house_planned_work, choice: false };
-    case "core:left_home": {
-      const minutes = wholeMinutes(number("late_secs"));
-      const late = minutes > 0 ? ` ${TEXT.house_late.replace("{minutes}", String(minutes))}` : "";
-      return { text: `${school ? TEXT.house_left_school : TEXT.house_left_work}${late}`, choice: false };
-    }
-    case "core:came_home":
-      return { text: school ? TEXT.house_came_school : TEXT.house_came_work, choice: false };
-    case "core:missed":
-      return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false };
-    // A need at 0 and what it brings (ADR-0026, addendum of 2026-11-04 on a need at 0).
-    case "core:need_empty": {
-      const need = NEED_KEYS[String(fields["need"])];
-      return { text: TEXT.house_empty.replace("{need}", need === undefined ? String(fields["need"]) : TEXT[need]), choice: false };
-    }
-    case "core:collapsed":
-      return { text: TEXT.house_collapsed, choice: false };
-    case "core:accident":
-      return { text: TEXT.house_accident, choice: false };
-    default:
-      return null;
-  }
-}
-
-/** "Warum?" for a choice: what it chose with its points and what came behind, from the
- * server (ADR-0026 section 6); in the night that the bed comes first, and by day the beds
- * closed until the night (ADR-0026, addendum of 2026-11-04 on the night); beside each points
- * the mood in them, as the server gives it (the addendum of 2026-11-04 on the mood). */
-function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: number }) {
+/** "Warum?" for a choice: what it chose with its worth and what came behind, from the server
+ * (ADR-0026 section 6 and its addenda of 2026-11-04, `whyText`); for an idle choice that is
+ * still the person's state also the comparison at the clock, asked again with each house answer
+ * (`house`, after a step or a command). */
+function Why({ run, house, entry }: { run: string; house: HouseAnswer; entry: number }) {
   const [why, setWhy] = useState<WhyAnswer | null | "failed">(null);
   const ask = () => {
     getJson(`/api/runs/${run}/why/${entry}`, WHY)
       .then((json) => setWhy(json as unknown as WhyAnswer))
       .catch(() => setWhy("failed"));
   };
+  // The comparison at the clock goes with the house: asked again with each of its answers.
+  useEffect(() => {
+    if (why !== null && why !== "failed" && why.now !== null) {
+      ask();
+    }
+  }, [house]);
   if (why === null) {
     return (
       <button type="button" onClick={ask}>
@@ -201,61 +143,36 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
   if (why === "failed") {
     return <span>{TEXT.failed_network}</span>;
   }
-  const points = (n: number) => n.toLocaleString("de-DE");
-  const chosen = why.chosen;
-  const opens = why.night === null ? "" : timeOfDay(why.night.from.date.second_of_day);
-  const behind = why.offers
-    .filter((offer) => chosen === null || offer.object !== chosen.object || offer.offer !== chosen.offer)
-    .slice(0, chosen === null ? 4 : 3)
-    .map((offer) => {
-      const what = offerWords(layout, offer.object, offer.offer);
-      if (offer.points === null) {
-        return TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens);
-      }
-      const told = TEXT.house_why_offer.replace("{what}", what).replace("{points}", points(offer.points)).replace("{mood}", moodWords(offer.mood));
-      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`;
-    })
-    .join(", ");
-  // Idle while waiting for a taken object, as its entry says (ADR-0026 section 5).
-  const waited = why.waits === null ? undefined : why.offers.find((offer) => offer.object === why.waits);
-  const ends = why.night?.until ?? null;
-  const night = why.night !== null && why.night.now && !why.commanded
-    ? `${ends === null ? TEXT.house_why_night_last : TEXT.house_why_night.replace("{time}", timeOfDay(ends.date.second_of_day))} `
-    : "";
+  const { told, now } = whyText(why, house.layout);
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>
-      {why.commanded ? `${TEXT.house_why_commanded} ` : ""}
-      {night}
-      {chosen === null && waited !== undefined
-        ? TEXT.house_why_waits
-            .replace("{what}", offerWords(layout, waited.object, waited.offer))
-            .replace("{points}", waited.points === null ? "" : points(waited.points))
-            .replace("{mood}", moodWords(waited.mood))
-        : chosen === null
-        ? TEXT.house_why_none.replace("{enough}", points(why.enough))
-        : TEXT.house_why_chosen
-            .replace("{what}", offerWords(layout, chosen.object, chosen.offer))
-            .replace("{points}", points(chosen.points))
-            .replace("{mood}", moodWords(chosen.mood))}{" "}
-      {behind === "" ? "" : TEXT.house_why_behind.replace("{list}", behind)}
+      {told}
+      {now === null ? null : (
+        <>
+          <br />
+          {now}
+        </>
+      )}
     </div>
   );
 }
 
-/** A person's house entries of the day so far, from the run's log, each choice with its
- * "Warum?". */
+/** A person's house entries of the last 24 hours up to the second after the clock, in which an
+ * input given at the clock acts (ADR-0004 section 4), from the run's log, by day, each choice
+ * with its "Warum?"; read again with each house answer, so a command shows at once. */
 function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number }) {
   const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
-  const dayStart = house.at.t - house.at.date.second_of_day;
+  const from = house.at.t - DAY_SECONDS;
+  const to = house.at.t + 1;
   useEffect(() => {
     let live = true;
-    // The day up to the second the house shows, page by page (500 entries each).
+    // The window, page by page (500 entries each).
     const read = async () => {
       const all: EventItem[] = [];
       let after: number | null = null;
       for (let page = 0; page < DAY_PAGES; page += 1) {
-        const from = after === null ? "" : `&after=${after}`;
-        const json = await getJson(`/api/runs/${run}/events?subject=${sim}&from=${dayStart}&to=${house.at.t}${from}`, EVENTS);
+        const next = after === null ? "" : `&after=${after}`;
+        const json = await getJson(`/api/runs/${run}/events?subject=${sim}&from=${from}&to=${to}${next}`, EVENTS);
         const answer = json as unknown as EventsAnswer;
         all.push(...answer.events);
         if (answer.next === null) {
@@ -271,32 +188,40 @@ function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number
     return () => {
       live = false;
     };
-  }, [run, sim, house.at.t]);
+  }, [run, sim, house]);
   if (items === "failed") {
     return <p>{TEXT.failed_network}</p>;
   }
   const lines = items
-    .map((item) => [item, dayLine(house.layout, item)] as const)
-    .filter((pair): pair is readonly [EventItem, { text: string; choice: boolean }] => pair[1] !== null);
+    .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item) }))
+    .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null);
   if (lines.length === 0) {
     return null;
   }
   return (
     <details>
-      <summary>{TEXT.house_today}</summary>
-      <ol style={{ paddingLeft: "1.2em" }}>
-        {lines.map(([item, line]) => (
-          <li key={item.entry.id}>
-            {timeOfDay(item.date.second_of_day)} {line.text}{" "}
-            {line.choice && <Why run={run} layout={house.layout} entry={item.entry.id} />}
-          </li>
-        ))}
-      </ol>
+      <summary>{TEXT.house_day}</summary>
+      {dayGroups(lines).map((group) => (
+        <div key={`${group.date.year}-${group.date.day_of_year}`}>
+          <p style={{ margin: "0.4em 0 0" }}>
+            <strong>{group.title}</strong>
+          </p>
+          <ol style={{ paddingLeft: "1.2em", margin: 0 }}>
+            {group.items.map(({ item, line }) => (
+              <li key={item.entry.id}>
+                {timeOfDay(item.date.second_of_day)} {line.text}{" "}
+                {line.choice && <Why run={run} house={house} entry={item.entry.id} />}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
     </details>
   );
 }
 
-/** The floor plan from above, each floor beside the other, with the people where they are. */
+/** The floor plan from above, each floor beside the other, with the people where they are; the
+ * names of objects and rooms where `labels` puts them, none over another or past its wall. */
 function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number, string> }) {
   const { layout } = house;
   const drawn = plan(layout);
@@ -308,9 +233,14 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
     ...inside.map((person) => ({ sim: person.sim, fill: person.action === null ? "#8a6d3b" : "#2f6f73", line: doing(layout, person) })),
     ...young.map((child) => ({ sim: child.sim, fill: "#9a5a8c", line: youngLine(layout, child) })),
   ];
+  const named = labels(
+    layout,
+    drawn,
+    layout.objects.map((object) => KIND_WORDS[object.kind]?.[0] ?? object.kind),
+    layout.rooms.map((room) => (ROOM_WORDS[room.id] ?? [room.id])[0]),
+  );
   const pad = 0.6;
-  // Room on the right for the names of objects at the wall.
-  const view = `${-pad} ${-pad - 0.8} ${drawn.width + 2 * pad + 1.2} ${drawn.height + 2 * pad + 0.8}`;
+  const view = `${-pad} ${-pad - 0.8} ${drawn.width + 2 * pad} ${drawn.height + 2 * pad + 0.8}`;
   return (
     <svg viewBox={view} role="img" aria-label={TEXT.house_people} style={{ width: "100%", maxWidth: "60em" }}>
       {drawn.offsets.map((left, floor) => (
@@ -328,32 +258,29 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
         const room = layout.rooms.find((room) => room.id === object.room);
         const left = drawn.offsets[room?.floor ?? 0] ?? 0;
         return (
-          <g key={`object-${index}`}>
-            <rect x={left + object.x} y={object.y} width={object.w} height={object.h} fill="#d9d4c7" stroke="#8a8270" stroke-width={0.03} />
-            <text x={left + object.x + 0.05} y={object.y + object.h + 0.28} font-size={0.24} fill="#6b6455">
-              {KIND_WORDS[object.kind]?.[0] ?? object.kind}
-            </text>
-          </g>
+          <rect key={`object-${index}`} x={left + object.x} y={object.y} width={object.w} height={object.h} fill="#d9d4c7" stroke="#8a8270" stroke-width={0.03} />
         );
       })}
-      {layout.rooms.map((room) => {
-        const left = drawn.offsets[room.floor] ?? 0;
-        return (
-          <text
-            key={`name-${room.id}`}
-            x={left + room.x + room.w / 2}
-            y={room.y + room.h - 0.2}
-            text-anchor="middle"
-            font-size={0.34}
-            fill="#555"
-            stroke="#f7f5ef"
-            stroke-width={0.12}
-            paint-order="stroke"
-          >
-            {(ROOM_WORDS[room.id] ?? [room.id])[0]}
-          </text>
-        );
-      })}
+      {named.objects.map((label, index) => (
+        <text key={`object-name-${index}`} data-label="object" x={label.x} y={label.y} font-size={label.size} fill="#6b6455">
+          {label.text}
+        </text>
+      ))}
+      {named.rooms.map((label, index) => (
+        <text
+          key={`room-name-${index}`}
+          data-label="room"
+          x={label.x}
+          y={label.y}
+          font-size={label.size}
+          fill="#555"
+          stroke="#f7f5ef"
+          stroke-width={0.12}
+          paint-order="stroke"
+        >
+          {label.text}
+        </text>
+      ))}
       {dots.map((dot, index) => {
         const spot = placed[index] ?? { x: 0, y: 0 };
         const name = names.get(dot.sim) ?? String(dot.sim);
@@ -383,22 +310,24 @@ function choiceKey(choice: CommandChoice): string {
 }
 
 /** A command for a person with needs at home (ADR-0024 section 5): an offer of an object of
- * the house and "Befehlen", an input over the server. Once it is taken the house is read
- * again (`given`); a refusal stands beside it with the core's reason. */
+ * the house among those the server allows the person now (version 5: by its age, sleep only in
+ * its night) and "Befehlen", an input over the server. Once it is taken the house is read
+ * again (`given`) and the choice stays; a refusal stands beside it with the core's reason. */
 function Command({
   run,
   layout,
-  sim,
+  person,
   name,
   given,
 }: {
   run: string;
   layout: HouseLayout;
-  sim: number;
+  person: HousePerson;
   name: string;
   given: () => void;
 }) {
-  const choices = commandChoices(layout);
+  const sim = person.sim;
+  const choices = commandChoices(layout, person.commands);
   const [chosen, setChosen] = useState("");
   const [sending, setSending] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -487,9 +416,9 @@ function Resident({
         </p>
         {person !== null && (
           <>
-            <Needs person={person} />
+            <Needs person={person} name={known?.first_name ?? name} />
             <Day run={run} house={house} sim={sim} />
-            {commandable(person) && <Command run={run} layout={house.layout} sim={sim} name={name} given={given} />}
+            {commandable(person) && <Command run={run} layout={house.layout} person={person} name={name} given={given} />}
           </>
         )}
       </div>
@@ -513,9 +442,12 @@ function Smell() {
   );
 }
 
-/** A person's five needs as bars. */
-function Needs({ person }: { person: HousePerson }) {
+/** A person's five needs as bars; away, that they stand still meanwhile (away every rate is 0,
+ * ADR-0024 section 4; the playtest of 2026-11-04). */
+function Needs({ person, name }: { person: HousePerson; name: string }) {
   return (
+    <>
+    {person.place.away !== undefined && <p style={{ margin: 0 }}>{TEXT.house_needs_still.replace("{name}", name)}</p>}
     <dl style={{ margin: 0 }}>
       {NEEDS.map((need, index) => {
         const value = person.needs[index] ?? 0;
@@ -538,12 +470,14 @@ function Needs({ person }: { person: HousePerson }) {
         );
       })}
     </dl>
+    </>
   );
 }
 
-/** The house of a household (ADR-0021, addendum of 2026-11-03): its plan with the people
- * where they are, the clock in steps of minutes and hours, each person with what it does
- * and its needs, each child under 6 with where it is. */
+/** The house of a household (ADR-0021, addendum of 2026-11-03), named by the surnames of its
+ * members: its plan with the people where they are, the clock in steps of minutes and hours,
+ * each person with what it does and its needs, each child under 6 with where it is; before the
+ * first morning the members moving in. */
 export function HousePage({ run, household }: { run: string; household: string }) {
   const [at, setAt] = useState(0);
   const loaded = useHouse(run, household, String(at));
@@ -565,6 +499,18 @@ export function HousePage({ run, household }: { run: string; household: string }
     last.current = loaded.value;
   }
   const house = loaded.state === "ready" ? loaded.value : last.current;
+  // So too the last pedigree and people: the residents, their open days, answers and chosen
+  // commands stay while the next load after a step or a command (the playtest of 2026-11-04).
+  const lastPedigree = useRef<Pedigree | null>(null);
+  if (pedigree.state === "ready") {
+    lastPedigree.current = pedigree.value;
+  }
+  const lastPeople = useRef<PeopleAnswer | null>(null);
+  if (people.state === "ready") {
+    lastPeople.current = people.value;
+  }
+  const persons = lastPedigree.current;
+  const looks = lastPeople.current;
   useEffect(() => {
     if (house !== null && latest.current === null) {
       const start = standing(house.at.t, house.at.date);
@@ -616,9 +562,13 @@ export function HousePage({ run, household }: { run: string; household: string }
       </p>
     );
   }
-  const names = new Map<number, string>(
-    pedigree.state === "ready" ? pedigree.value.persons.map((p) => [p.sim, fullName(p)]) : [],
-  );
+  const names = new Map<number, string>(persons === null ? [] : persons.persons.map((p) => [p.sim, fullName(p)]));
+  // The living members of the household, as the person page counts them.
+  const members: Person[] =
+    persons === null
+      ? []
+      : persons.persons.filter((p) => p.household === house.household && p.died === null && p.emigrated === null);
+  const family = surnames(members);
   // A command changed the house: read it again at the same clock.
   const reload = () => {
     if (live.current) {
@@ -627,7 +577,7 @@ export function HousePage({ run, household }: { run: string; household: string }
   };
   return (
     <section>
-      <h1>{TEXT.house_of_household.replace("{n}", household)}</h1>
+      <h1>{family === "" ? TEXT.house_of_household.replace("{n}", household) : TEXT.house_family.replace("{names}", family)}</h1>
       <p>
         {back} · {TEXT.house_now} {dateText(house.at.date)}, {timeOfDay(house.at.date.second_of_day)}
       </p>
@@ -654,7 +604,21 @@ export function HousePage({ run, household }: { run: string; household: string }
       {pedigree.state === "failed" && <p role="alert">{TEXT[pedigree.text]}</p>}
       {!house.morning && <p>{TEXT.house_before_morning}</p>}
       <Plan house={house} names={names} />
-      {pedigree.state === "ready" && house.persons.length + house.children.length > 0 && (
+      {!house.morning && members.length > 0 && (
+        <>
+          <h2>{TEXT.house_people}</h2>
+          <ul>
+            {members.map((member) => (
+              <li key={member.sim}>
+                <a href={format({ page: "person", run, sim: String(member.sim) })}>{fullName(member)}</a>
+                {": "}
+                {TEXT.house_moving}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {persons !== null && house.persons.length + house.children.length > 0 && (
         <>
           <h2>{TEXT.house_people}</h2>
           <ul style={{ padding: 0 }}>
@@ -666,8 +630,8 @@ export function HousePage({ run, household }: { run: string; household: string }
                 sim={person.sim}
                 line={doing(house.layout, person)}
                 person={person}
-                pedigree={pedigree.value}
-                people={people.state === "ready" ? people.value : null}
+                pedigree={persons}
+                people={looks}
                 given={reload}
               />
             ))}
@@ -679,8 +643,8 @@ export function HousePage({ run, household }: { run: string; household: string }
                 sim={child.sim}
                 line={youngLine(house.layout, child)}
                 person={null}
-                pedigree={pedigree.value}
-                people={people.state === "ready" ? people.value : null}
+                pedigree={persons}
+                people={looks}
                 given={reload}
               />
             ))}
@@ -691,10 +655,28 @@ export function HousePage({ run, household }: { run: string; household: string }
   );
 }
 
-/** On a person's page, the way to its household's house: there if it has one, else "Ins
- * Haus", which moves the household in (an input, ADR-0024) and opens the house. */
-export function HouseLink({ run, household, members }: { run: string; household: number; members: number }) {
-  const [state, setState] = useState<"asking" | "in" | "out" | "moving" | "failed">("asking");
+/** The households of a run with a house, from the server, asked again for each `again`: `null`
+ * while asked, "failed" without an answer. The list of houses, not each house: a household
+ * without one is no error. */
+export function useHouses(run: string, again = ""): ReadonlySet<number> | null | "failed" {
+  const [houses, setHouses] = useState<ReadonlySet<number> | null | "failed">(null);
+  useEffect(() => {
+    let live = true;
+    setHouses(null);
+    getJson(`/api/runs/${run}/houses`, HOUSES)
+      .then((json) => live && setHouses(new Set((json as unknown as HousesAnswer).households.map((entry) => entry.household))))
+      .catch(() => live && setHouses("failed"));
+    return () => {
+      live = false;
+    };
+  }, [run, again]);
+  return houses;
+}
+
+/** "Ins Haus" for a household without a house: it moves the household in (an input, ADR-0024)
+ * and opens its house; a refusal stands beside it with the core's reason. */
+export function MoveIn({ run, household }: { run: string; household: number }) {
+  const [moving, setMoving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -703,42 +685,9 @@ export function HouseLink({ run, household, members }: { run: string; household:
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    let live = true;
-    setState("asking");
-    setRefused(null);
-    // The list of houses, not the house itself: a household without one is no error.
-    getJson(`/api/runs/${run}/houses`, HOUSES)
-      .then((json) => {
-        const listed = (json as unknown as HousesAnswer).households.some((entry) => entry.household === household);
-        if (live) {
-          setState(listed ? "in" : "out");
-        }
-      })
-      .catch(() => live && setState("failed"));
-    return () => {
-      live = false;
-    };
-  }, [run, household]);
   const to = format({ page: "house", run, household: String(household) });
-  if (state === "asking") {
-    return null;
-  }
-  if (state === "failed") {
-    return <p>{TEXT.failed_network}</p>;
-  }
-  if (state === "in") {
-    return (
-      <p>
-        <a href={to}>{TEXT.house_to_house}</a>
-      </p>
-    );
-  }
-  if (members > LARGEST) {
-    return null;
-  }
   const moveIn = () => {
-    setState("moving");
+    setMoving(true);
     setRefused(null);
     postJson(`/api/runs/${run}/input`, { move_in: { household } }, INPUT)
       .then(() => {
@@ -750,17 +699,86 @@ export function HouseLink({ run, household, members }: { run: string; household:
       })
       .catch((error: unknown) => {
         if (mounted.current) {
-          setState("out");
+          setMoving(false);
           setRefused(inputFailureText(error));
         }
       });
   };
   return (
-    <p>
-      <button type="button" disabled={state === "moving"} onClick={moveIn}>
-        {state === "moving" ? TEXT.house_moving_in : TEXT.house_move_in}
+    <>
+      <button type="button" disabled={moving} onClick={moveIn}>
+        {moving ? TEXT.house_moving_in : TEXT.house_move_in}
       </button>
       {refused !== null && <span role="status"> {refused}</span>}
+    </>
+  );
+}
+
+/** On a person's page, the way to its household's house: there if it has one, else "Ins
+ * Haus" for a household a house can hold. */
+export function HouseLink({ run, household, members }: { run: string; household: number; members: number }) {
+  const houses = useHouses(run, String(household));
+  if (houses === null) {
+    return null;
+  }
+  if (houses === "failed") {
+    return <p>{TEXT.failed_network}</p>;
+  }
+  if (houses.has(household)) {
+    return (
+      <p>
+        <a href={format({ page: "house", run, household: String(household) })}>{TEXT.house_to_house}</a>
+      </p>
+    );
+  }
+  if (members > LARGEST) {
+    return null;
+  }
+  return (
+    <p>
+      <MoveIn key={household} run={run} household={household} />
     </p>
+  );
+}
+
+/** The families of a run for finding one to move into a house (the playtest of 2026-11-04):
+ * each household a house can hold with its members and their ages now, from the pedigree and
+ * the people answer, by default only those with children; each with the way to its house, or
+ * "Ins Haus". */
+export function Families({ run, pedigree, people }: { run: string; pedigree: Pedigree; people: PeopleAnswer }) {
+  const [children, setChildren] = useState(true);
+  const houses = useHouses(run);
+  const kept = families(pedigree, people.people, children, LARGEST);
+  return (
+    <>
+      <h2>{TEXT.families}</h2>
+      <p>
+        <label>
+          <input type="checkbox" checked={children} onChange={() => setChildren(!children)} /> {TEXT.families_children}
+        </label>
+      </p>
+      <p role="status">{TEXT.families_found.replace("{n}", String(kept.length))}</p>
+      {kept.length === 0 ? <p>{TEXT.families_none}</p> : null}
+      <ul style={SCROLLED} tabIndex={0} aria-label={TEXT.families}>
+        {kept.map((family) => (
+          <li key={family.household}>
+            <strong>{TEXT.house_family.replace("{names}", surnames(family.members.map((member) => member.person)))}</strong>
+            {": "}
+            {family.members.map((member, index) => (
+              <span key={member.person.sim}>
+                {index > 0 ? ", " : ""}
+                <a href={format({ page: "person", run, sim: String(member.person.sim) })}>{fullName(member.person)}</a>
+                {` ${member.age} ${TEXT.years}`}
+              </span>
+            ))}{" "}
+            {houses === null || houses === "failed" ? null : houses.has(family.household) ? (
+              <a href={format({ page: "house", run, household: String(family.household) })}>{TEXT.house_to_house}</a>
+            ) : (
+              <MoveIn run={run} household={family.household} />
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
