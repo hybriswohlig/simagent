@@ -2909,6 +2909,66 @@ fn why_over_http() {
     assert_eq!((status, code_of(&body)), (500, "events_invalid".to_owned()));
 }
 
+/// A command over HTTP (ADR-0024 section 5): the input route takes `command` like any input.
+/// At 6:00 she walks from the hall to the toilet (`a_house_over_http`). Told to play at the toy
+/// chest (object 9, from 6 to 12 only) she is refused for her age, and nothing is written; told
+/// to watch television (object 3) she stops in the second the command acts, back in the hall,
+/// and walks to the living room, 3 s, on its first place, with the morning values. At 6:10 he
+/// eats at the table (`a_house_over_http`); told to watch as well he stops in the second the
+/// command acts and walks from the kitchen, 7 s, to the television's second place. His hunger,
+/// written down then, stands in the answer at 6:10 with that value (600 + 1 800 · 597 / 3 600,
+/// truncated), his other needs as at 6:10.
+#[test]
+fn a_command_over_http() {
+    let (server, home, run) = couple("command");
+    let port = server.port;
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
+    let morning = r#"{"step":"morning"}"#;
+    assert_eq!(post(port, "/api/runs/couple/advance", morning).0, 200);
+    let inputs = || fs::read_to_string(run.join("input.ndjson")).expect("the input log");
+    let before = inputs();
+    let toys = r#"{"command":{"sim":1,"object":9,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", toys);
+    assert_eq!(
+        (status, code_of(&body), &json_of(&body)["reason"]),
+        (409, "input_rejected".to_owned(), &json!("wrong_age"))
+    );
+    assert_eq!(inputs(), before);
+    let television = r#"{"command":{"sim":1,"object":3,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", television);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        json_of(&body),
+        json!({"format": "simagent.view.input", "version": 1, "t": MORNING, "seq": 3})
+    );
+    assert!(inputs().contains(r#""input":{"command":{"sim":1,"object":3,"offer":0}}"#));
+    let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
+    assert_eq!(status, 200);
+    let walking = json!({"walking": {"from": 0, "to": 2, "depart": dated(MORNING + 1), "arrive": dated(MORNING + 4)}});
+    assert_eq!(
+        json_of(&body)["persons"][0],
+        json!({"sim": 1, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
+               "needs": [600, 900, 500, 700, 800]})
+    );
+    let minutes = r#"{"step":"minutes10"}"#;
+    assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
+    let his = r#"{"command":{"sim":2,"object":3,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", his);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(json_of(&body)["seq"], json!(4));
+    let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let walking = json!({"walking": {"from": 1, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 608)}});
+    assert_eq!(
+        json_of(&body)["persons"][1],
+        json!({"sim": 2, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 1, "until": null},
+               "needs": [898, 894, 480, 695, 790]})
+    );
+}
+
 /// The households with a house (ADR-0021, addendum of 2026-11-03): none, then the couple's,
 /// before and after its first morning.
 #[test]

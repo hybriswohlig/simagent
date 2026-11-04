@@ -927,8 +927,8 @@ fn flat_save(
 /// 300 s later; on the toilet from 6:00 with the bladder at 500 at +12 000 an hour it is full
 /// after 150 s, and at 990 after 3 s, but an action lasts at least 60 s. Any other second, a
 /// missing or doubled event, an arrival of someone not walking, a walk without an action, a
-/// walk longer than the house makes it, a snack without its rate and a pending choice are
-/// refused.
+/// walk longer than the house makes it, a snack without its rate and a choice pending after
+/// the next second are refused.
 #[test]
 fn a_save_keeps_the_walk_and_the_action() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1014,9 +1014,9 @@ fn a_save_keeps_the_walk_and_the_action() {
     assert_eq!(loads(six + 100, &still, vec![end(300)]), refused);
 }
 
-/// A held place lasts only the second of the choice it plans (ADR-0026 section 5), and no
-/// choice is pending in a save: she idles in the hall of the flat and the fridge (object 1, one
-/// place) is free; held for her, the same save is refused.
+/// A held place lasts only the second of the choice it plans (ADR-0026 section 5): she idles in
+/// the hall of the flat and the fridge (object 1, one place) is free; held for her without a
+/// choice of hers pending, the same save is refused.
 #[test]
 fn a_save_holds_no_place() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1026,6 +1026,46 @@ fn a_save_holds_no_place() {
     assert_eq!(
         load_error_with(data.clone(), &save(vec![((1, 1, 0), 1)])),
         Some(LoadError::Inconsistent)
+    );
+}
+
+/// A choice an input plans comes in the second the input acts (ADR-0024, addendum of 2026-11-04
+/// for commands): a command that frees a place holds it for the first who waits, with that
+/// one's choice due at the next second, and so does a save right after it. She idles in the
+/// hall of the flat; her choice due at the next second loads, with the fridge (object 1, one
+/// place) held for her or without; due later, twice, or while she walks to the fridge it is
+/// refused.
+#[test]
+fn a_save_after_an_input_keeps_its_choice() {
+    let data = common::data().with_houses(common::repository_houses());
+    let clock = SEVEN_SIX + 2;
+    let idle = seven(TestPlace::Room(0), None, [0; 5], None);
+    let walk = TestPlace::Walking {
+        from: 0,
+        to: 1,
+        depart: SEVEN_SIX,
+        arrive: SEVEN_SIX + 4,
+    };
+    let walking = seven(walk, Some((1, 0, 0)), [0; 5], None);
+    let arrive: QueueEntry = (SEVEN_SIX + 4, 0, 0, Payload::Arrive { sim: 1 }, None);
+    let decide = |at: i64| -> QueueEntry { (at, 0, 0, Payload::Decide { sim: 1 }, None) };
+    let held = || vec![((1, 1, 0), 1)];
+    let loads = |person: &TestInHouse, events: Vec<QueueEntry>, holds| {
+        let bytes = holding_in_the_flat(&data, clock, person.clone(), events, holds);
+        load_error_with(data.clone(), &bytes)
+    };
+    assert_eq!(loads(&idle, vec![decide(clock + 1)], Vec::new()), None);
+    assert_eq!(loads(&idle, vec![decide(clock + 1)], held()), None);
+    assert_eq!(loads(&walking, vec![arrive.clone()], Vec::new()), None);
+    let refused = Some(LoadError::Inconsistent);
+    assert_eq!(loads(&idle, vec![decide(clock + 2)], held()), refused);
+    assert_eq!(
+        loads(&idle, vec![decide(clock + 1), decide(clock + 1)], held()),
+        refused
+    );
+    assert_eq!(
+        loads(&walking, vec![arrive, decide(clock + 1)], Vec::new()),
+        refused
     );
 }
 

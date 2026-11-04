@@ -345,9 +345,10 @@ fn places_and_actions_are_checked() {
     assert_eq!(held, Err(Broken::SlotTaken));
 }
 
-/// A walk is as long as the house makes it and began before the clock; the rates are the
-/// awake ones, at an object those the offer sets the offer's, written down together, each by
-/// the age band of its second (ADR-0026 sections 1 and 4).
+/// A walk is as long as the house makes it and began before the clock or, begun by an input
+/// at the clock (a command, ADR-0024 section 5), in the next second; the rates are the awake
+/// ones, at an object those the offer sets the offer's, written down together, each by the age
+/// band of its second (ADR-0026 sections 1 and 4).
 #[test]
 fn walks_and_rates_are_checked() {
     let walk = |depart: i64, arrive: i64| {
@@ -362,7 +363,8 @@ fn walks_and_rates_are_checked() {
     };
     assert_eq!(walk(NOW - 1, NOW + 6), Ok(()));
     assert_eq!(walk(NOW - 3, NOW + 5), Err(Broken::Walk));
-    assert_eq!(walk(NOW, NOW + 7), Err(Broken::Walk));
+    assert_eq!(walk(NOW, NOW + 7), Ok(()));
+    assert_eq!(walk(NOW + 1, NOW + 8), Err(Broken::Walk));
     let rate = |change: fn(&mut HouseState)| checked(change);
     // Idle with another hunger rate; a child with an adult's energy.
     let hungry = rate(|s| in_house(s, 1).needs[0] = NeedSample::new(600, t(NOW - 60), -90));
