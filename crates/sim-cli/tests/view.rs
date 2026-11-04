@@ -2680,7 +2680,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(5), &dated(at))
+            (&json!("simagent.view.house"), &json!(6), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"]),
@@ -2722,7 +2722,7 @@ fn a_house_over_http() {
     };
     step("morning", MORNING);
     let morning = [600, 900, 500, 700, 800];
-    let walking = |to: u8, arrive: i64| json!({"walking": {"from": 0, "to": to, "depart": dated(MORNING), "arrive": dated(arrive)}});
+    let walking = |to: u8, arrive: i64| json!({"walking": {"from": 0, "to": to, "depart": dated(MORNING), "arrive": dated(arrive), "out": false}});
     let at_six = house(MORNING);
     assert_eq!(at_six["morning"], json!(true));
     assert_eq!(
@@ -2790,7 +2790,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(5), &dated(at), &json!("core:flat"))
+            (&json!(6), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -2885,19 +2885,26 @@ fn why_over_http() {
         scored.sort_by_key(|&(object, _, points)| (std::cmp::Reverse(points), object));
         scored
     };
-    let offers = |sim: u64, busy: Option<u16>| {
-        let mut offers: Vec<serde_json::Value> = (scored(sim).into_iter())
-            .map(|(object, mood, points)| {
-                json!({"object": object, "offer": 0, "points": points, "mood": mood,
-                       "busy": Some(object) == busy, "closed": false, "urgent": []})
-            })
-            .collect();
-        offers.extend([2, 7, 8].map(|object| {
-            json!({"object": object, "offer": 0, "points": null, "mood": null, "busy": false,
-                   "closed": true, "urgent": []})
-        }));
-        offers
-    };
+    let offers =
+        |sim: u64, busy: Option<u16>| {
+            let mut offers: Vec<serde_json::Value> = (scored(sim).into_iter())
+                .map(|(object, mood, points)| {
+                    json!({"object": object, "offer": 0, "points": points, "mood": mood,
+                       "busy": Some(object) == busy, "closed": false, "urgent": [],
+                       "held": false, "outside": false, "bed_for": null})
+                })
+                .collect();
+            // By day the beds are closed: the sofa for nobody in particular, the bed for couples,
+            // the single bed for children (`data/house/kinds.json`).
+            offers.extend([(2, json!(null)), (7, json!("couples")), (8, json!("children"))].map(
+            |(object, bed_for)| {
+                json!({"object": object, "offer": 0, "points": null, "mood": null, "busy": false,
+                       "closed": true, "urgent": [], "held": false, "outside": false,
+                       "bed_for": bed_for})
+            },
+        ));
+            offers
+        };
     let chosen = |sim: u64, object: u16| {
         let (_, mood, points) = (scored(sim).into_iter())
             .find(|&(each, _, _)| each == object)
@@ -2917,7 +2924,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 4,
+                "version": 5,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -2927,6 +2934,7 @@ fn why_over_http() {
                 "night": night,
                 "chosen": chosen(sim, object),
                 "waits": null,
+                "goes_to": null,
                 "offers": offers(sim, busy),
                 "now": null,
             }),
@@ -3005,7 +3013,7 @@ fn a_command_over_http() {
     assert!(inputs().contains(r#""input":{"command":{"sim":1,"object":3,"offer":0}}"#));
     let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
     assert_eq!(status, 200);
-    let walking = json!({"walking": {"from": 0, "to": 2, "depart": dated(MORNING + 1), "arrive": dated(MORNING + 4)}});
+    let walking = json!({"walking": {"from": 0, "to": 2, "depart": dated(MORNING + 1), "arrive": dated(MORNING + 4), "out": false}});
     assert_eq!(
         json_of(&body)["persons"][0],
         json!({"sim": 1, "place": walking,
@@ -3056,7 +3064,7 @@ fn a_command_over_http() {
     assert_eq!(json_of(&body)["seq"], json!(4));
     let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
-    let walking = json!({"walking": {"from": 1, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 608)}});
+    let walking = json!({"walking": {"from": 1, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 608), "out": false}});
     assert_eq!(
         json_of(&body)["persons"][1],
         json!({"sim": 2, "place": walking,
@@ -3125,7 +3133,7 @@ fn the_house_answer_after_a_command() {
     let answer = sim_cli::house_answer(&world, household.get())
         .expect("answers")
         .expect("a house");
-    let walking = json!({"walking": {"from": 3, "to": 2, "depart": dated(MORNING + 101), "arrive": dated(MORNING + 107)}});
+    let walking = json!({"walking": {"from": 3, "to": 2, "depart": dated(MORNING + 101), "arrive": dated(MORNING + 107), "out": false}});
     assert_eq!(answer["at"], dated(MORNING + 100));
     assert_eq!(
         answer["persons"][0],
@@ -3228,7 +3236,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(5));
+        assert_eq!(answer["version"], json!(6));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3282,7 +3290,7 @@ fn the_offers_a_command_may_name_follow_the_night() {
         let answer = sim_cli::house_answer(&world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(5));
+        assert_eq!(answer["version"], json!(6));
         let persons = answer["persons"].as_array().expect("persons");
         assert_eq!(persons.len(), 2);
         for person in persons {
@@ -3325,13 +3333,15 @@ fn why_names_what_is_urgent() {
             needs,
             busy: Vec::new(),
             waits: None,
+            held: Vec::new(),
+            tier: Vec::new(),
         },
         ..hers
     };
     let why = sim_cli::why_answer(&world, &entry, 7, false)
         .expect("answers")
         .expect("a choice");
-    assert_eq!(why["version"], json!(4));
+    assert_eq!(why["version"], json!(5));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -3457,7 +3467,7 @@ fn why_compares_an_idle_person_at_the_clock() {
     let mut asked = (*last).clone();
     asked["t"] = json!(clock);
     asked["payload"] = json!({"core:idle": {"house": "core:flat", "room": room,
-        "needs": person["needs"], "busy": busy, "waits": null}});
+        "needs": person["needs"], "busy": busy, "waits": null, "held": [], "tier": []}});
     let asked: sim_core::log::LogEntry = serde_json::from_value(asked).expect("an entry");
     let world = sim_cli::load_world(&run).expect("the world");
     let same = sim_cli::why_answer(&world, &asked, 0, false)

@@ -45,18 +45,19 @@ const LAYOUT = {
     object("core:shower", "bath", ["shower"]),
     object("core:tv", "living", ["watch"]),
     object("core:bed", "bedroom", ["sleep"]),
+    object("core:single_bed", "kids", ["sleep"]),
   ],
 };
 
 const date = (second_of_day) => ({ year: 1, day_of_year: 0, month: 0, day_of_month: 0, week: 0, weekday: 0, season: 0, second_of_day });
 const dated = (second) => ({ t: second, date: date(second) });
-const offer = (object, points, mood, extra = {}) => ({ object, offer: 0, points, mood, busy: false, closed: false, urgent: [], ...extra });
+const offer = (object, points, mood, extra = {}) => ({ object, offer: 0, points, mood, busy: false, closed: false, urgent: [], held: false, outside: false, bed_for: null, ...extra });
 const night = { from: dated(79_200), until: dated(21_600), now: false };
 
 function why(fields) {
   return {
-    format: "simagent.view.why", version: 4, entry: 1, sim: 1, at: dated(61_200), enough: 40_000, commanded: false,
-    needs: [600, 900, 500, 50, 800], night, chosen: null, waits: null, offers: [], now: null, ...fields,
+    format: "simagent.view.why", version: 5, entry: 1, sim: 1, at: dated(61_200), enough: 40_000, commanded: false,
+    needs: [600, 900, 500, 50, 800], night, chosen: null, waits: null, goes_to: null, offers: [], now: null, ...fields,
   };
 }
 
@@ -68,7 +69,7 @@ test("an urgent choice by its need, the others by their points", () => {
         offer(2, 101_000_631_000, -5, { urgent: ["hygiene"] }),
         offer(0, 269_900, 8),
         offer(1, -250, 3, { busy: true }),
-        { object: 4, offer: 0, points: null, mood: null, busy: false, closed: true, urgent: [] },
+        { object: 4, offer: 0, points: null, mood: null, busy: false, closed: true, urgent: [], held: false, outside: false, bed_for: "couples" },
       ],
     }),
     LAYOUT,
@@ -120,4 +121,45 @@ test("in the night the bed first", () => {
     LAYOUT,
   );
   assert.equal(told.told, "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %).");
+});
+
+// The rules after the playtest (ADR-0026, addendum of 2026-11-04 after the playtest).
+const NIGHT = { from: dated(79_200), until: dated(21_600), now: true };
+
+test("a bed a small child holds, and a bed of another tier", () => {
+  const held = whyText(
+    why({
+      night: NIGHT,
+      chosen: { object: 4, offer: 0, points: 350_464, mood: 0, urgent: [] },
+      offers: [offer(4, 350_464, 0, { bed_for: "couples" }), offer(5, 9_000, 1, { busy: true, held: true, bed_for: "children" })],
+    }),
+    LAYOUT,
+  );
+  assert.equal(
+    held.told,
+    "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %). " +
+      "Dahinter: schläft im Einzelbett 9.000 (Laune +1 %) (besetzt) (hier schläft ein Kind).",
+  );
+  const child = whyText(
+    why({
+      night: NIGHT,
+      chosen: { object: 5, offer: 0, points: 300_000, mood: 0, urgent: [] },
+      offers: [offer(5, 300_000, 0, { bed_for: "children" }), offer(4, 299_000, -1, { outside: true, bed_for: "couples" })],
+    }),
+    LAYOUT,
+  );
+  assert.equal(
+    child.told,
+    "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Einzelbett, 300.000 Punkte (Laune 0 %). " +
+      "Dahinter: schläft im Bett 299.000 (Laune −1 %) (das Bett eines Paares).",
+  );
+});
+
+test("idle in a room one does not stay in, the room it went to", () => {
+  const rooms = [{ id: "living", floor: 0, x: 0, y: 0, w: 4, h: 4 }];
+  const told = whyText(why({ goes_to: 0, offers: [offer(3, 38_710, 2)] }), { ...LAYOUT, rooms });
+  assert.equal(
+    told.told,
+    "Nichts brachte genug (40.000 Punkte nötig). Hier bleibt niemand stehen: geht ins Wohnzimmer. Dahinter: sieht fern vor dem Fernseher 38.710 (Laune +2 %).",
+  );
 });
