@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, Choice, choose, score};
+use crate::house::choice::{CRITICAL, Choice, choose, mood, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::day::night;
 use crate::house::need::FULL;
@@ -185,9 +185,10 @@ fn busy(house: &House, houses: &HouseData, taken: &BTreeSet<(u16, u8)>) -> Vec<u
 }
 
 /// A person idle in a room chooses now (ADR-0026 section 3, and in its night as its addendum
-/// of 2026-11-04 says, `choose`): it walks to the chosen offer, holding the smallest free
-/// place of its object; or it idles, waiting for an object if the choice says so. Each choice
-/// counts against the day's budget and cancels a pending `Decide`.
+/// of 2026-11-04 says, `choose`), with its mood for each offer in this second (the addendum
+/// of 2026-11-04 on the mood): it walks to the chosen offer, holding the smallest free place
+/// of its object; or it idles, waiting for an object if the choice says so. Each choice counts
+/// against the day's budget and cancels a pending `Decide`.
 pub(crate) fn decide(
     domain: &mut DomainState,
     data: &Data,
@@ -199,6 +200,10 @@ pub(crate) fn decide(
     let (household, houses, house) = home(domain, data, sim);
     let age = age(domain, sim, now);
     let tonight = night(houses.day(), born(domain, sim), now);
+    let seed = (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
+    let Some(key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
+        panic!("invariant unknown_entity_id: sim {}", sim.get());
+    };
     // Who chooses leaves every waiting list (ADR-0026 section 5).
     let held = stop_waiting(domain, household, sim, ctx);
     let taken = taken(domain, household, sim);
@@ -220,7 +225,8 @@ pub(crate) fn decide(
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
     let left = tonight.map(|night| night.left(now));
-    let scored = score(house, houses, age, needs, room, left);
+    let moods = |object, offer| mood(seed, key, now, object, offer);
+    let scored = score(house, houses, age, needs, room, left, moods);
     let choice = choose(
         (house, houses),
         (age, needs),

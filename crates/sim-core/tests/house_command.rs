@@ -4,7 +4,9 @@
 //! the rates having worked until then, and the commanded walk begins in the same second with
 //! `commanded: true`, both caused by the input; from there it goes on like any other. A place
 //! held for the commanded person counts as free for it, one held for another as taken. The
-//! couple of `common::day` in a test house; the values by hand.
+//! couple of `common::day` in a test house; the values by hand. The points are those without the
+//! mood (ADR-0026, addendum of 2026-11-04 on the mood); the moods of these runs turn no choice
+//! but the one of the far house (`tests/house_rhythm.rs`).
 
 mod common;
 
@@ -426,10 +428,10 @@ fn far() -> Data {
 }
 
 /// The departure stays first (ADR-0024 section 5): in the far house both work full time and at
-/// 8:40 walk to the feast and the gruel for their critical hunger, so their departures wait
-/// (`tests/house_rhythm.rs`); told to use the loo they are refused as away. He leaves at
-/// 9:01:35 and walks out for 335 s: on the way and once away he is refused the same, and so is
-/// she, still waiting at the feast.
+/// 8:40 walk to the gruel and the feast for their critical hunger, she to the gruel by her mood
+/// there (`tests/house_rhythm.rs`), so their departures wait; told to use the loo they are
+/// refused as away. She leaves at 9:01:35 and walks out for 335 s: on the way and once away she
+/// is refused the same, and so is he, still waiting at the feast.
 #[test]
 fn a_command_for_one_away_or_due() {
     const LOO: u16 = 3;
@@ -446,14 +448,14 @@ fn a_command_for_one_away_or_due() {
         );
     }
     run.advance(MORNING + 11_000);
-    let him = &run.world.state().house().sims[&sim(2)];
-    assert!(matches!(him.place, Place::Walking { .. }) && him.action.is_none());
+    let her = &run.world.state().house().sims[&sim(1)];
+    assert!(matches!(her.place, Place::Walking { .. }) && her.action.is_none());
     assert_eq!(
-        rejected(&mut run.world, command(2, LOO, 0)),
+        rejected(&mut run.world, command(1, LOO, 0)),
         Some(RejectCode::Away)
     );
     run.advance(MORNING + 12_000);
-    assert_eq!(run.world.state().house().sims[&sim(2)].place, Place::Away);
+    assert_eq!(run.world.state().house().sims[&sim(1)].place, Place::Away);
     for id in [1, 2] {
         assert_eq!(
             rejected(&mut run.world, command(id, LOO, 0)),

@@ -2,18 +2,23 @@
 //! kitchen 1, living 2, bath 3, bedroom 4, kids 5, every room 3 to 5 s from the hall (kitchen 4,
 //! living 3, bath 3, bedroom 5, kids 5) and 5 s to an object in one's own room; objects table 0,
 //! fridge 1, sofa 2, tv 3, bookshelf 4, toilet 5, shower 6, bed 7, single bed 8, toy chest 9.
-//! Points: `Σ (1000 − v) · gain − 50 · walking seconds`, the gain `min(rate · length / 3600,
-//! 1000 − v)` for a need the offer raises, and `(151 − v) · 10⁹` for each critical need
-//! (at most 150) it raises. An offer of sleep (sofa 2, bed 7, single bed 8) is open only in the
-//! night, its length what is left of it (ADR-0026, addendum of 2026-11-04); in the night the
-//! choice takes what raises a critical need first, then a bed, then the sofa, then waits for a
-//! bed.
+//! Points: `(Σ (1000 − v) · gain) · (100 + mood) / 100 − 50 · walking seconds`, the gain
+//! `min(rate · length / 3600, 1000 − v)` for a need the offer raises, and `(151 − v) · 10⁹` for
+//! each critical need (at most 150) it raises. An offer of sleep (sofa 2, bed 7, single bed 8)
+//! is open only in the night, its length what is left of it (ADR-0026, addendum of 2026-11-04,
+//! the night); in the night the choice takes what raises a critical need first, then a bed,
+//! then the sofa, then waits for a bed. The mood of an offer (the addendum of 2026-11-04 on the
+//! mood) comes to `score` from outside: the hand values without it pass `no_mood`, those with it
+//! give it by offer; the mood itself is the addressed draw `mood`, tested by its properties.
 
 mod common;
 
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{Choice, ENOUGH, Scored, best, choose, score};
+use sim_core::house::choice::{Choice, ENOUGH, MOOD, Scored, best, choose, mood, score};
 use sim_core::house::data::{House, HouseData};
+use sim_core::lineage::LineageKey;
+use sim_core::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
+use sim_core::time::SimTime;
 
 /// The seconds of a whole night: 8 hours from 22:00 for 18 to 66, 10 from 20:00 for 6 to 17,
 /// 8.5 from 21:30 from 67 on.
@@ -29,6 +34,11 @@ fn flat(houses: &HouseData) -> &House {
     houses
         .house(&DataId::new("core:flat").expect("id"))
         .expect("the flat")
+}
+
+/// No mood for any offer: the hand values of the points as the needs and the walk give them.
+fn no_mood(_: u16, _: u16) -> i8 {
+    0
 }
 
 fn points(scored: &[Scored]) -> Vec<(u16, i64)> {
@@ -47,7 +57,7 @@ fn points(scored: &[Scored]) -> Vec<(u16, i64)> {
 fn an_adult_at_the_morning_values() {
     let houses = houses();
     let morning = [600, 900, 500, 700, 800];
-    let scored = score(flat(&houses), &houses, 30, morning, 0, None);
+    let scored = score(flat(&houses), &houses, 30, morning, 0, None, no_mood);
     let expected = [
         // Table: hunger +1 800 for 20 min, 600 but 400 to full: 400 · 400, 4 s.
         (0, 160_000 - 200),
@@ -66,6 +76,7 @@ fn an_adult_at_the_morning_values() {
     let toilet = Scored {
         object: 5,
         offer: 0,
+        mood: 0,
         points: 249_850,
     };
     assert_eq!(best(&scored, &[]), Some(toilet));
@@ -104,7 +115,15 @@ fn an_adult_at_the_morning_values() {
 fn in_the_night_a_bed_comes_first() {
     let houses = houses();
     let morning = [600, 900, 500, 700, 800];
-    let scored = score(flat(&houses), &houses, 30, morning, 0, Some(ADULT_NIGHT));
+    let scored = score(
+        flat(&houses),
+        &houses,
+        30,
+        morning,
+        0,
+        Some(ADULT_NIGHT),
+        no_mood,
+    );
     let expected = [
         (0, 160_000 - 200),
         (1, 80_000 - 200),
@@ -122,6 +141,7 @@ fn in_the_night_a_bed_comes_first() {
         Choice::Take(Scored {
             object,
             offer: 0,
+            mood: 0,
             points,
         })
     };
@@ -156,10 +176,18 @@ fn a_critical_need_comes_first() {
         // Toy chest: fun +600 for 30 min, 300: 900 · 300, 5 s.
         (9, critical + 270_000 - 250),
     ];
-    let scored = score(flat(&houses), &houses, 8, needs, 5, None);
+    let scored = score(flat(&houses), &houses, 8, needs, 5, None, no_mood);
     assert_eq!(points(&scored), day);
     assert_eq!(best(&scored, &[]).map(|chosen| chosen.object), Some(9));
-    let scored = score(flat(&houses), &houses, 8, needs, 5, Some(CHILD_NIGHT));
+    let scored = score(
+        flat(&houses),
+        &houses,
+        8,
+        needs,
+        5,
+        Some(CHILD_NIGHT),
+        no_mood,
+    );
     let mut night = day.to_vec();
     // Sofa: energy +50 for 10 h, 500, 300 to full: 300 · 300, 8 s; bed: +80 asleep (6 to 12)
     // for 10 h, 300 to full, 10 s; the single bed in her room, 5 s.
@@ -170,6 +198,7 @@ fn a_critical_need_comes_first() {
     let toys = Scored {
         object: 9,
         offer: 0,
+        mood: 0,
         points: critical + 270_000 - 250,
     };
     assert_eq!(chosen, Choice::Take(toys));
@@ -179,6 +208,7 @@ fn a_critical_need_comes_first() {
     let bed = Scored {
         object: 8,
         offer: 0,
+        mood: 0,
         points: 90_000 - 250,
     };
     assert_eq!(chosen, Choice::Take(bed));
@@ -191,7 +221,15 @@ fn a_critical_need_comes_first() {
 fn the_lower_critical_need_wins() {
     let houses = houses();
     let needs = [120, 40, 700, 700, 700];
-    let scored = score(flat(&houses), &houses, 40, needs, 2, Some(ADULT_NIGHT));
+    let scored = score(
+        flat(&houses),
+        &houses,
+        40,
+        needs,
+        2,
+        Some(ADULT_NIGHT),
+        no_mood,
+    );
     let hungry = 31_000_000_000;
     let tired = 111_000_000_000;
     let expected = [
@@ -225,7 +263,7 @@ fn the_lower_critical_need_wins() {
         other => panic!("{other:?}"),
     };
     assert_eq!(chose(&scored, true), 7);
-    let by_day = score(flat(&houses), &houses, 40, needs, 2, None);
+    let by_day = score(flat(&houses), &houses, 40, needs, 2, None, no_mood);
     assert_eq!(chose(&by_day, false), 0);
 }
 
@@ -236,6 +274,7 @@ fn ties_and_taken_objects() {
     let scored = |object: u16, offer: u16, points: i64| Scored {
         object,
         offer,
+        mood: 0,
         points,
     };
     let all = [
@@ -267,9 +306,216 @@ fn the_sleeping_rates_follow_the_age_band() {
         (70, OLD_NIGHT, 765),
     ] {
         let needs = [700, 0, 700, 700, 700];
-        let scored = score(flat(&houses), &houses, age, needs, 4, Some(night));
+        let scored = score(flat(&houses), &houses, age, needs, 4, Some(night), no_mood);
         let bed = scored.iter().find(|scored| scored.object == 7);
         let expected = 151_000_000_000 + 1_000 * gain - 250;
         assert_eq!(bed.map(|bed| bed.points), Some(expected), "{age}");
     }
+}
+
+/// A case of the mood: world seed, founder of `test:mood`, second, object, offer.
+type Case = (u64, u64, i64, u16, u16);
+
+/// A part of the address, named, and how a case changes in it alone.
+type Change = (&'static str, fn(Case) -> Case);
+
+/// The mood of `case`.
+fn mood_of((seed, founder, second, object, offer): Case) -> i8 {
+    let key = LineageKey::founder(&DataId::new("test:mood").expect("id"), founder);
+    mood(seed, key, SimTime::from_secs(second), object, offer)
+}
+
+/// The mood of `case` from its address as the addendum on the mood gives it, the specification
+/// of the draw: `uniform_below(21)` of `CHOICE_MOOD` with the world seed, subject the lineage
+/// key, occasion the second, detail `(object << 32) | offer`, less 10.
+fn specified((seed, founder, second, object, offer): Case) -> i64 {
+    let key = LineageKey::founder(&DataId::new("test:mood").expect("id"), founder);
+    let address = DrawKey {
+        tag: tags::CHOICE_MOOD,
+        subject: SubjectKey::from(key),
+        occasion: u64::try_from(second).expect("after the start"),
+        detail: (u64::from(object) << 32) | u64::from(offer),
+    };
+    let drawn = Draws::new(WorldSeed::new(seed)).uniform_below(address, 21);
+    i64::try_from(drawn).expect("small") - 10
+}
+
+/// The mood is an addressed draw (ADR-0026, addendum of 2026-11-04 on the mood; ADR-0001): from
+/// −10 to +10 percent, every value of it; the same address gives the same mood, whatever is
+/// drawn in between; the address is the addendum's; and each of its parts counts, changed alone
+/// it changes the mood of at least one of four fixed cases.
+#[test]
+fn the_mood_is_an_addressed_draw() {
+    assert_eq!(MOOD, 10);
+    let cases: [Case; 4] = [
+        (7, 0, 93_600, 5, 0),
+        (7, 1, 93_600, 0, 0),
+        (0x5eed, 2, 1_000_000, 9, 0),
+        (1, 3, 0, 2, 1),
+    ];
+    for case in cases {
+        let (seed, founder, second, object, offer) = case;
+        let first = mood_of(case);
+        let _ = mood_of((seed + 1, founder + 1, second + 1, object, offer));
+        assert_eq!(mood_of(case), first, "{case:?}");
+        assert_eq!(i64::from(first), specified(case), "{case:?}");
+    }
+    let changes: [Change; 5] = [
+        ("seed", |(seed, f, s, o, n)| (seed + 1, f, s, o, n)),
+        ("lineage key", |(seed, f, s, o, n)| (seed, f + 10, s, o, n)),
+        ("second", |(seed, f, s, o, n)| (seed, f, s + 1, o, n)),
+        ("object", |(seed, f, s, o, n)| (seed, f, s, o + 1, n)),
+        ("offer", |(seed, f, s, o, n)| (seed, f, s, o, n + 1)),
+    ];
+    for (part, change) in changes {
+        let moved = cases
+            .iter()
+            .any(|&case| mood_of(change(case)) != mood_of(case));
+        assert!(moved, "the {part} changes no mood");
+    }
+    let mut seen = [0_u32; 21];
+    for second in 0..2_000 {
+        for object in 0..10 {
+            let drawn = mood_of((7, 0, second, object, 0));
+            assert!((-10..=10).contains(&drawn), "{drawn}");
+            seen[usize::try_from(drawn + 10).expect("in range")] += 1;
+        }
+    }
+    assert!(seen.iter().all(|&count| count > 0), "{seen:?}");
+}
+
+/// The mood scales what an offer fills, truncated toward zero, never the walk nor what a
+/// critical need adds. A child of 8 in the bedroom with fun at 600 and the rest full, by day:
+/// television, bookshelf and toy chest each fill fun by 300 of 400, 400 · 300 = 120 000; the
+/// television and the bookshelf stand in the living room, 8 s, the toy chest in the kids' room,
+/// 10 s. At the moods −10, +10 and +7: 108 000 − 400, 132 000 − 400 and 128 400 − 500 =
+/// 127 900. The table fills nothing: 0 − 450 (kitchen, 9 s) at its mood +10, like the fridge at
+/// 0; toilet and shower 0 − 400 (bath, 8 s). Without the moods television and bookshelf tie at
+/// 119 600 and the television wins; with them the bookshelf. With fun critical at 100 each fills
+/// 900 · 300 = 270 000: 243 000, 297 000 and 288 900, each with `51 · 10⁹` unscaled. At fun 997
+/// each fills 3 · 3 = 9: 8.1, 9.9 and 9.63, truncated 8, 9 and 9.
+#[test]
+fn the_mood_scales_what_the_offer_fills() {
+    let houses = houses();
+    let moods = |object: u16, _: u16| match object {
+        0 | 4 => 10,
+        3 => -10,
+        9 => 7,
+        _ => 0,
+    };
+    let at_fun = |fun: u16| [1_000, 1_000, 1_000, 1_000, fun];
+    let scored = score(flat(&houses), &houses, 8, at_fun(600), 4, None, moods);
+    let expected = [
+        (0, -450),
+        (1, -450),
+        (3, 108_000 - 400),
+        (4, 132_000 - 400),
+        (5, -400),
+        (6, -400),
+        (9, 128_400 - 500),
+    ];
+    assert_eq!(points(&scored), expected);
+    let by_object: Vec<(u16, i8)> = (scored.iter())
+        .map(|scored| (scored.object, scored.mood))
+        .collect();
+    let moods_by_object = [(0, 10), (1, 0), (3, -10), (4, 10), (5, 0), (6, 0), (9, 7)];
+    assert_eq!(by_object, moods_by_object);
+    assert_eq!(best(&scored, &[]).map(|chosen| chosen.object), Some(4));
+    let plain = score(flat(&houses), &houses, 8, at_fun(600), 4, None, no_mood);
+    let plain_best = best(&plain, &[]).map(|chosen| (chosen.object, chosen.points));
+    assert_eq!(plain_best, Some((3, 119_600)));
+    let fun = |values: [u16; 5]| -> Vec<(u16, i64)> {
+        let scored = score(flat(&houses), &houses, 8, values, 4, None, moods);
+        (points(&scored).into_iter())
+            .filter(|(object, _)| [3, 4, 9].contains(object))
+            .collect()
+    };
+    let critical = 51_000_000_000;
+    assert_eq!(
+        fun(at_fun(100)),
+        [
+            (3, 243_000 - 400 + critical),
+            (4, 297_000 - 400 + critical),
+            (9, 288_900 - 500 + critical),
+        ]
+    );
+    assert_eq!(fun(at_fun(997)), [(3, 8 - 400), (4, 9 - 400), (9, 9 - 500)]);
+}
+
+/// A critical need still always wins, whatever the moods: an adult in the hall at hunger 150,
+/// critical by one point, and bladder 151, not critical. The toilet fills 849 of 849, 720 801,
+/// at the mood +10 792 881 (truncated) − 150; the table fills 600 of 850, 510 000, at −10
+/// 459 000 − 200, with `1 · 10⁹` for the hunger; the fridge 200 of 850 at −10, 153 000 − 200 and
+/// the same `10⁹`.
+#[test]
+fn a_critical_need_wins_whatever_the_mood() {
+    let houses = houses();
+    let needs = [150, 1_000, 151, 1_000, 1_000];
+    let moods = |object: u16, _: u16| if object == 5 { 10 } else { -10 };
+    let scored = score(flat(&houses), &houses, 30, needs, 0, None, moods);
+    let of = |object: u16| (scored.iter()).find(|scored| scored.object == object);
+    let critical = 1_000_000_000;
+    assert_eq!(
+        of(0).map(|table| table.points),
+        Some(459_000 - 200 + critical)
+    );
+    assert_eq!(
+        of(1).map(|fridge| fridge.points),
+        Some(153_000 - 200 + critical)
+    );
+    assert_eq!(of(5).map(|toilet| toilet.points), Some(792_881 - 150));
+    let table = Scored {
+        object: 0,
+        offer: 0,
+        mood: -10,
+        points: 459_000 - 200 + critical,
+    };
+    let chosen = choose((flat(&houses), &houses), (30, needs), &scored, &[], false);
+    assert_eq!(chosen, Choice::Take(table));
+}
+
+/// The floor of 40 000 and the night's order read the points with the mood. The adult of 30 at
+/// the morning values in the hall, by day, with all but television and bookshelf taken: at the
+/// mood +1 the television brings 40 000 · 101 / 100 − 150 = 40 250, enough to get up for, where
+/// without a mood it waits for the toilet (`an_adult_at_the_morning_values`). In the night, 8
+/// hours of it left, bed and single bed tie at 9 750 without a mood; the single bed at +1
+/// brings 10 100 − 250 = 9 850 and comes first; the sofa at +10, 11 000 − 150 = 10 850, still
+/// comes only when every bed is taken.
+#[test]
+fn the_floor_and_the_beds_take_the_mood() {
+    let houses = houses();
+    let morning = [600, 900, 500, 700, 800];
+    let moods = |object: u16, _: u16| match object {
+        2 => 10,
+        3 | 8 => 1,
+        _ => 0,
+    };
+    let chose = |scored: &[Scored], busy: &[u16], night: bool| {
+        choose((flat(&houses), &houses), (30, morning), scored, busy, night)
+    };
+    let at = |object: u16, mood: i8, points: i64| {
+        Choice::Take(Scored {
+            object,
+            offer: 0,
+            mood,
+            points,
+        })
+    };
+    let by_day = score(flat(&houses), &houses, 30, morning, 0, None, moods);
+    assert_eq!(
+        chose(&by_day, &[0, 1, 2, 5, 6, 7, 8], false),
+        at(3, 1, 40_250)
+    );
+    let night = score(
+        flat(&houses),
+        &houses,
+        30,
+        morning,
+        0,
+        Some(ADULT_NIGHT),
+        moods,
+    );
+    assert_eq!(chose(&night, &[], true), at(8, 1, 9_850));
+    assert_eq!(chose(&night, &[8], true), at(7, 0, 9_750));
+    assert_eq!(chose(&night, &[7, 8], true), at(2, 10, 10_850));
 }

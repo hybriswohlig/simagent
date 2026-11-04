@@ -2,14 +2,18 @@
 //! person's log gets `core:need_critical`; a walk or an action whose offer does not raise the
 //! need ends with reason `critical`, the rates having worked until then, on the way back in the
 //! room it came from, and the person chooses again; what raises the need goes on. The couple of
-//! `common::day` in two test houses whose rates make hunger fall fast; the values by hand.
+//! `common::day` in two test houses whose rates make hunger fall fast; the values by hand. The
+//! points are those without the mood (ADR-0026, addendum of 2026-11-04 on the mood) where it
+//! turns no choice; where it does, the test says so.
 
 mod common;
 
 use common::day::{self, MORNING, Run};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
+use sim_core::house::choice::{ENOUGH, mood};
 use sim_core::house::data::Need;
+use sim_core::lineage::LineageKey;
 use sim_core::log::{EndReason, LogEntry, LogPayload};
 use sim_core::time::{HOUR, SimTime};
 use sim_core::world::{World, YearOut};
@@ -148,14 +152,29 @@ fn critical_interrupts_the_television_not_the_way_to_the_fridge() {
     assert_mirrored(&run, 11);
 }
 
+/// The mood of founder `index` of `test:house` (sim `index + 1`), the world seed 7, for the
+/// television of the far house `second` seconds after the morning, only read.
+fn television_mood(index: u64, second: i64) -> i64 {
+    let key = LineageKey::founder(&DataId::new("test:house").expect("id"), index);
+    i64::from(mood(7, key, SimTime::from_secs(MORNING + second), 0, 0))
+}
+
 /// The far house: at 6:00 nothing brings enough (the television 200 · 200 − 50 · 330, the snack
-/// 400 · 20), she idles in the hall. Hunger 400 at 240 s: the television (fun 760: 240 · 240 −
-/// 16 500 = 41 100) beats the snack. On the way hunger reaches 150 at 540 s: the walk ends, she
-/// is in the hall again and takes the snack (critical); there at 543 s with hunger 148, 120 s at
-/// +600 to 168. From the kitchen the television (fun 690: 310 · 310 − 50 · 333); hunger reaches
+/// 400 · 20, at any mood), she idles in the hall. Hunger 400 at 240 s: the television (fun 760:
+/// 240 · 240 = 57 600, at her mood +3 there, the draw `mood`, 59 328 − 16 500 = 42 828) beats
+/// the snack. On the way hunger reaches 150 at 540 s: the walk ends, she is in the hall again and
+/// takes the snack (critical); there at 543 s with hunger 148, 120 s at +600 to 168. From the
+/// kitchen the television (fun 690: 310 · 310 at her mood −7, 89 373 − 50 · 333); hunger reaches
 /// 150 again 22 s later (18 at −3 000 an hour), the walk ends in the kitchen, the snack again.
+/// He idles at 240 s, the television at his mood −5 bringing 54 720 − 16 500 = 38 220; at 540 s,
+/// critical, he takes the snack on its second place, and from there does as she does, on the
+/// second places (the television at his mood +1 at 663 s).
 #[test]
 fn critical_ends_a_walk_where_it_began() {
+    assert_eq!((television_mood(0, 240), television_mood(1, 240)), (3, -5));
+    assert_eq!((television_mood(0, 663), television_mood(1, 663)), (-7, 1));
+    let television = |mood: i64| 57_600 * (100 + mood) / 100 - 16_500;
+    assert!(television(3) >= ENOUGH && television(-5) < ENOUGH);
     let (mut run, _) = Run::moved_in(far());
     run.advance(MORNING + 690);
     let far = "test:far";
@@ -168,24 +187,36 @@ fn critical_ends_a_walk_where_it_began() {
         busy: Vec::new(),
         waits: None,
     };
-    assert_eq!(
-        run.doings(1),
-        [
-            (0, idle),
-            (240, started(far, 0, 0, 330, [400, 900, 500, 700, 760])),
-            (540, critical(150)),
-            (540, ended(0, EndReason::Critical, first)),
-            (540, started(far, 1, 0, 3, first)),
-            (543, LogPayload::Reached { object: 1 }),
-            (663, ended(1, EndReason::Done, [168, 900, 500, 700, 690])),
-            (663, started(far, 0, 4, 333, [168, 900, 500, 700, 690])),
-            (685, critical(150)),
-            (685, ended(0, EndReason::Critical, second)),
-            (685, started(far, 1, 4, 5, second)),
-            (690, LogPayload::Reached { object: 1 }),
-        ]
-    );
-    assert_mirrored(&run, 12);
+    let hers = [
+        (0, idle.clone()),
+        (240, started(far, 0, 0, 330, [400, 900, 500, 700, 760])),
+        (540, critical(150)),
+        (540, ended(0, EndReason::Critical, first)),
+        (540, started(far, 1, 0, 3, first)),
+        (543, LogPayload::Reached { object: 1 }),
+        (663, ended(1, EndReason::Done, [168, 900, 500, 700, 690])),
+        (663, started(far, 0, 4, 333, [168, 900, 500, 700, 690])),
+        (685, critical(150)),
+        (685, ended(0, EndReason::Critical, second)),
+        (685, started(far, 1, 4, 5, second)),
+        (690, LogPayload::Reached { object: 1 }),
+    ];
+    assert_eq!(run.doings(1), hers);
+    let waiting = LogPayload::Idle {
+        house: DataId::new(far).expect("id"),
+        room: 0,
+        needs: [400, 900, 500, 700, 760],
+        busy: Vec::new(),
+        waits: None,
+    };
+    let mut his = vec![(0, idle), (240, waiting), (540, critical(150))];
+    his.extend(hers[4..].iter().cloned().map(|(second, mut payload)| {
+        if let LogPayload::ActionStarted { slot, .. } = &mut payload {
+            *slot = 1;
+        }
+        (second, payload)
+    }));
+    assert_eq!(run.doings(2), his);
 }
 
 /// Saved in the seconds a need turns critical and right after: the save loads, saves to the

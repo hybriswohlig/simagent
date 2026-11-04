@@ -498,7 +498,7 @@ export type HouseAction = {
   readonly until: DatedSecond | null;
 };
 
-/** `GET /api/runs/{run}/why/{entry}` (version 2): the points of every offer of a choice, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addendum of 2026-11-04). */
+/** `GET /api/runs/{run}/why/{entry}` (version 3): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04). */
 export type WhyAnswer = {
   readonly format: "simagent.view.why";
   readonly version: number;
@@ -520,18 +520,20 @@ export type WhyNight = {
   readonly now: boolean;
 };
 
-/** The offer chosen and its points. */
+/** The offer chosen, its points and the mood in them in percent; no mood for a command, which is no choice. */
 export type WhyChoice = {
   readonly object: number;
   readonly offer: number;
   readonly points: number;
+  readonly mood: number | null;
 };
 
-/** An offer, its points, whether its object had no free place, and whether it was closed (sleep outside the night, without points). */
+/** An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice. */
 export type WhyOffer = {
   readonly object: number;
   readonly offer: number;
   readonly points: number | null;
+  readonly mood: number | null;
   readonly busy: boolean;
   readonly closed: boolean;
 };
