@@ -226,7 +226,9 @@ pub fn places_hold(world: &World, second: i64) {
         |home: HouseholdId| (1..=allocated).any(|id| state.household_of(sim(id)) == Some(home));
     let member = |sim: SimId| state.household_of(sim).zip(state.born(sim));
     let now = SimTime::from_secs(second + 1);
-    let checked = consistent(house, world.data().houses(), now, alive, member);
+    // After a second with events no input has acted at the clock (ADR-0024, addendum of
+    // 2026-11-04): nothing may be due in the next second but what those events planned.
+    let checked = consistent(house, world.data().houses(), now, None, alive, member);
     assert_eq!(checked, Ok(()), "the state after {second}");
 }
 

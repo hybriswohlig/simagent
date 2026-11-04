@@ -17,9 +17,7 @@ use sim_core::house::data::Need;
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{Action, Place};
 use sim_core::ids::SimId;
-use sim_core::input::{
-    Command, Couple, Founder, Input, InputRecord, InputRejected, MoveOut, RejectCode, Start,
-};
+use sim_core::input::{Command, Couple, Founder, Input, InputRejected, MoveOut, RejectCode, Start};
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
 use sim_core::params::WorldParams;
 use sim_core::time::{HOUR, SimTime, YEAR};
@@ -57,6 +55,8 @@ const PANTRY: u16 = 0;
 const TV: u16 = 1;
 const BED: u16 = 2;
 const TOYS: u16 = 3;
+/// The essential shower in the hall (hygiene +1 an hour for a minute): it raises no hunger.
+const SHOWER: u16 = 7;
 
 /// Hunger falls 1 200 an hour awake and asleep, fun 600 awake; energy stands awake and rises
 /// 1 200 an hour asleep.
@@ -192,7 +192,10 @@ fn by_input(entry: &LogEntry, id: u64, second: i64, seq: u64) -> LogPayload {
 /// 6:22:30 (3 600 · 450 / 1 200 s), which the television does not raise: it ends with fun
 /// 1 000 (800 + 448.7 since 6:00:04, capped) and she walks from the den to the pantry for her
 /// critical hunger (10⁹ + 850 · 850 − 50 · 6). A command then is refused, and so is any once
-/// the household has moved out.
+/// the household has moved out. Not here: `end_of_time`, for the second the command would act
+/// in and for a walk whose arrival lies beyond the last second. No world reaches the last
+/// second (a million years, ADR-0023 section 1), and no save there loads: the loader wants a
+/// year hash for every year and a person with needs is at most 130.
 #[test]
 fn command_rejections_and_effect() {
     let mut never = World::new(data());
@@ -467,6 +470,25 @@ fn reloaded(run: &Run) -> World {
     loaded
 }
 
+/// A world replayed from the input log of `run` to its clock (ADR-0004 section 4): the same
+/// stamps, the same entries from the start and the same state hash.
+fn replays(run: &Run) {
+    let mut replayed = World::new(data());
+    let mut out = YearOut::default();
+    let mut log = Vec::new();
+    for record in run.world.input_log().to_vec() {
+        replayed.advance_until(&mut out, record.t, &mut |_| false);
+        let stamp = replayed.submit(record.input).expect("accepted");
+        assert_eq!((stamp.t, stamp.seq), (record.t, record.seq));
+        log.extend(replayed.take_log());
+    }
+    replayed.advance_until(&mut out, run.world.closed_through(), &mut |_| false);
+    log.extend(replayed.take_log());
+    assert_eq!(replayed.state_hash(), run.world.state_hash());
+    let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
+    assert_eq!(entries(&log), entries(&run.log));
+}
+
 /// `loaded` and `run`, given `then` both, run on until `until` after the morning as one: the
 /// same state hash and the same entries.
 fn runs_on(mut loaded: World, run: &mut Run, then: Option<Input>, until: i64) {
@@ -501,25 +523,105 @@ fn a_command_is_saved_loaded_and_replayed() {
     run.advance(MORNING);
     obey(&mut run, command(1, TV, 0));
     runs_on(reloaded(&run), &mut run, Some(command(2, PANTRY, 0)), until);
-    let records: Vec<InputRecord> = run.world.input_log().to_vec();
-    assert_eq!(records.len(), 4);
-    let mut replayed = World::new(data());
-    let mut out = YearOut::default();
-    let mut log = Vec::new();
-    for record in records {
-        replayed.advance_until(&mut out, record.t, &mut |_| false);
-        let stamp = replayed.submit(record.input).expect("accepted");
-        assert_eq!((stamp.t, stamp.seq), (record.t, record.seq));
-        log.extend(replayed.take_log());
-    }
-    replayed.advance_until(&mut out, t(MORNING + until), &mut |_| false);
-    log.extend(replayed.take_log());
-    assert_eq!(replayed.state_hash(), run.world.state_hash());
-    let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
-    assert_eq!(entries(&log), entries(&run.log));
+    assert_eq!(run.world.input_log().len(), 4);
+    replays(&run);
 
     let (mut run, _) = Run::moved_in(data());
     run.advance(MORNING);
     obey(&mut run, command(2, TV, 0));
     runs_on(reloaded(&run), &mut run, None, until);
+}
+
+/// The couple after both commands of the first test: she watches television from 6:00:04 on
+/// its first place, her hunger falling from 600 at 6:00 at −1 200 an hour (400 at 6:10:00, 150
+/// at 6:22:30), fun rising from 800 at +1 200; he eats at the pantry, then from 6:04:11 watches
+/// on the second place.
+fn both_commanded() -> Run {
+    let (mut run, _) = Run::moved_in(data());
+    run.advance(MORNING);
+    obey(&mut run, command(1, TV, 0));
+    obey(&mut run, command(2, PANTRY, 0));
+    run
+}
+
+/// A command acts before the events of its second (ADR-0004 section 4), so a crossing in that
+/// second still comes after it: told at 6:09:59 to shower (not to sleep, which is closed by
+/// day, ADR-0026, addendum of 2026-11-04), she stops watching at 6:10:00 with hunger 400 (600 −
+/// 200), fun 998 (800 + 198.7) and walks from the den to the shower in the hall, 3 s; her
+/// hunger, which watching never rewrote, crosses 400 in that second, after the command, and
+/// does nothing on the way. The crossing stays planned: a save right after the command loads,
+/// saves to the same bytes and runs on as the uninterrupted world, and a replay is the same.
+#[test]
+fn a_crossing_in_the_second_of_a_command_stays_planned() {
+    let mut run = both_commanded();
+    run.advance(MORNING + 599);
+    let (seq, made) = obey(&mut run, command(1, SHOWER, 0));
+    let watched = [400, 900, 500, 700, 998];
+    assert_eq!(made.len(), 2);
+    assert_eq!(
+        by_input(&made[0], 1, 600, seq),
+        ended(TV, EndReason::Command, watched)
+    );
+    assert_eq!(
+        by_input(&made[1], 1, 600, seq),
+        started((SHOWER, 0), 2, 3, watched, &[], true)
+    );
+    runs_on(reloaded(&run), &mut run, None, HOUR.as_secs());
+    assert_eq!(
+        run.doings(1)[4..7],
+        [
+            (600, ended(TV, EndReason::Command, watched)),
+            (600, started((SHOWER, 0), 2, 3, watched, &[], true)),
+            (603, LogPayload::Reached { object: SHOWER }),
+        ]
+    );
+    replays(&run);
+}
+
+/// The same for a critical need: told at 6:22:29 to shower, she stops watching at 6:22:30 with
+/// hunger 150 (600 − 450) and fun 1 000 (800 + 448.7, capped), and walks from the den to the
+/// shower; in that second, after the command, her hunger crosses 150, which the shower does not
+/// raise (it sets hygiene only): the walk ends on the spot, in the den, and she walks to the
+/// pantry for her critical hunger (10⁹ + 850 · 850 − 50 · 6), there at 6:22:36. The critical
+/// entry is planned by the end the command wrote. A save right after the command loads and runs
+/// on alike, and a replay is the same.
+#[test]
+fn a_critical_crossing_in_the_second_of_a_command_cuts_its_walk_short() {
+    let mut run = both_commanded();
+    run.advance(MORNING + 1_349);
+    let (seq, made) = obey(&mut run, command(1, SHOWER, 0));
+    let critical = [150, 900, 500, 700, 1000];
+    assert_eq!(made.len(), 2);
+    assert_eq!(
+        by_input(&made[0], 1, 1_350, seq),
+        ended(TV, EndReason::Command, critical)
+    );
+    let commanded_end = day::number(&made[0].id);
+    runs_on(reloaded(&run), &mut run, None, HOUR.as_secs());
+    assert_eq!(
+        run.doings(1)[4..10],
+        [
+            (1_350, ended(TV, EndReason::Command, critical)),
+            (1_350, started((SHOWER, 0), 2, 3, critical, &[], true)),
+            (
+                1_350,
+                LogPayload::NeedCritical {
+                    need: Need::Hunger,
+                    level: 150
+                }
+            ),
+            (1_350, ended(SHOWER, EndReason::Critical, critical)),
+            (1_350, started((PANTRY, 0), 2, 6, critical, &[], false)),
+            (1_356, LogPayload::Reached { object: PANTRY }),
+        ]
+    );
+    let entry = (run.log.iter())
+        .find(|entry| matches!(entry.payload, LogPayload::NeedCritical { .. }))
+        .expect("the critical entry");
+    assert!(
+        matches!(entry.causes.as_slice(), [Cause::Plan(plan)] if day::number(&plan.by) == commanded_end),
+        "{:?}",
+        entry.causes
+    );
+    replays(&run);
 }

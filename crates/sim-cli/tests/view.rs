@@ -2927,7 +2927,9 @@ fn why_over_http() {
 /// eats at the table (`a_house_over_http`); told to watch as well he stops in the second the
 /// command acts and walks from the kitchen, 7 s, to the television's second place. His hunger,
 /// written down then, stands in the answer at 6:10 with that value (600 + 1 800 · 597 / 3 600,
-/// truncated), his other needs as at 6:10.
+/// truncated), his other needs as at 6:10. Here the clock and the next second give the same
+/// hunger: the table adds 1 every 2 s and every stop of the steps lies an even number of
+/// seconds after his arrival; `the_house_answer_after_a_command` tells the two apart.
 #[test]
 fn a_command_over_http() {
     let (server, home, run) = couple("command");
@@ -2976,6 +2978,75 @@ fn a_command_over_http() {
         json!({"sim": 2, "place": walking,
                "action": {"object": 3, "offer": 0, "slot": 1, "until": null},
                "needs": [898, 894, 480, 695, 790]})
+    );
+}
+
+/// The house answer right after a command (ADR-0024 section 5, the answer called directly at a
+/// stop the steps never reach): what the command wrote down in the second it acts stands with
+/// that value. The couple of `COUPLE` in the flat with the data `simagent` uses: at 6:00 she
+/// walks to the toilet, there at 6:00:03 with the bladder at 500, +12 000 an hour. Told at
+/// 6:01:40 to watch television (object 3) she stops at 6:01:41 with the bladder at 826 (500 +
+/// 326.7), where the clock would give 823 (500 + 323.3), and walks from the bath to the living
+/// room, 6 s; her other needs at the clock: hunger 598 (600 − 2.8), energy 899 (900 − 1.1),
+/// hygiene 700 (700 − 0.8), fun 799 (800 − 1.7).
+#[test]
+fn the_house_answer_after_a_command() {
+    use sim_core::input::{Command as Order, Couple, Founder, Input, MoveIn, Start};
+    use sim_core::log::LogPayload;
+    use sim_core::world::{World, YearOut};
+    let founder = |born: i64, sex: sim_core::genome::Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let mut world = World::new(sim_cli::data::core_data().expect("the data"));
+    let start = Start {
+        world_seed: 7,
+        founder_tag: sim_core::data_id::DataId::new("test:house").expect("valid"),
+        world_params: sim_core::params::WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            founder(-943_488_000, sim_core::genome::Sex::Female),
+            founder(-1_006_387_200, sim_core::genome::Sex::Male),
+        ],
+        couples: vec![Couple { woman: 0, man: 1 }],
+        capacity: None,
+        pool: None,
+    };
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut out = YearOut::default();
+    let mut advance = |world: &mut World, until: i64| {
+        world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
+        world.take_log()
+    };
+    let household = (advance(&mut world, DAY - 2).into_iter())
+        .find_map(|entry| match entry.payload {
+            LogPayload::HouseholdFormed { household } => Some(household),
+            _ => None,
+        })
+        .expect("their household");
+    world
+        .submit(Input::MoveIn(MoveIn { household }))
+        .expect("moves in");
+    advance(&mut world, MORNING + 100);
+    let television = Order {
+        sim: sim_core::ids::SimId::try_from(1).expect("valid"),
+        object: 3,
+        offer: 0,
+    };
+    world.submit(Input::Command(television)).expect("accepted");
+    let answer = sim_cli::house_answer(&world, household.get())
+        .expect("answers")
+        .expect("a house");
+    let walking = json!({"walking": {"from": 3, "to": 2, "depart": dated(MORNING + 101), "arrive": dated(MORNING + 107)}});
+    assert_eq!(answer["at"], dated(MORNING + 100));
+    assert_eq!(
+        answer["persons"][0],
+        json!({"sim": 1, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
+               "needs": [598, 899, 826, 700, 799]})
     );
 }
 

@@ -396,6 +396,9 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         pairs: &history.pairs,
         parted: &history.parted,
         together: &together,
+        opened: (exceptions.input_log.last()).is_some_and(|record| {
+            record.t == loaded.closed_through && !matches!(record.input, Input::Start(_))
+        }),
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -417,7 +420,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && conceptions_consistent(loaded, &rules)
         && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
-        && house_consistent(loaded, data, now)
+        && house_consistent(loaded, data, now, rules.opened)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
@@ -1241,26 +1244,25 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 /// share a household only as the two partners of an open partnership (a village's persons
 /// arrive alone, ADR-0020 section 8; nothing else joins two who left home).
 /// The house part (ADR-0024, addendum of 2026-11-02): its checks on the living households
-/// and sims of the save, at the second it runs next.
-fn house_consistent(loaded: &LoadedState, data: &Data, now: i64) -> bool {
+/// and sims of the save, at the second it runs next; `opened` if an input acted at the clock.
+fn house_consistent(loaded: &LoadedState, data: &Data, now: i64, opened: bool) -> bool {
     let alive = |id: HouseholdId| (loaded.households.get(&id)).is_some_and(|h| h.ended.is_none());
     let member = |id: SimId| loaded.sims.get(&id).map(|sim| (sim.household, sim.born));
     // At the last second of time there is no next one (review); every bound of the checks
     // holds at the clock too, since nothing has run after it.
     let now = SimTime::try_from(now).unwrap_or(loaded.closed_through);
-    // A held place lasts only the second of the choice it plans (ADR-0026 section 5): after
-    // a run no choice is pending and no place held; after an input that freed one (a command,
-    // ADR-0024 section 5) it is held for one whose choice is due in the next second.
+    // The choices due in the next second, which only an input at the clock plans (ADR-0024,
+    // addendum of 2026-11-04); `queue_consistent` checks each.
     let next = loaded.closed_through.checked_add(SimDuration::from_secs(1));
-    let deciding: BTreeSet<SimId> = (loaded.queue.iter())
+    let choices: BTreeSet<SimId> = (loaded.queue.iter())
         .filter_map(|entry| match entry.payload {
             EventPayload::Decide { sim } if Some(entry.time) == next => Some(sim),
             _ => None,
         })
         .collect();
-    let held_for_a_choice = (loaded.house.holds.values()).all(|sim| deciding.contains(sim));
-    held_for_a_choice
-        && crate::house::state::consistent(&loaded.house, data.houses(), now, alive, member).is_ok()
+    let choices = opened.then_some(&choices);
+    crate::house::state::consistent(&loaded.house, data.houses(), now, choices, alive, member)
+        .is_ok()
 }
 
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
@@ -1539,6 +1541,11 @@ struct Rules<'a> {
     parted: &'a [(SimId, SimId, SimTime, u64)],
     /// Each input of "Zeit zu zweit": the woman, the second it acted in, its window.
     together: &'a [(SimId, SimTime, state::together::Window)],
+    /// Whether an input acted in the second after the clock: the input log's last record, not
+    /// `Start`, is stamped at the clock. Only then may a walk begin, a place be held or a choice
+    /// be due in that second; an advance runs every event of a second (ADR-0024, addendum of
+    /// 2026-11-04).
+    opened: bool,
 }
 
 impl Rules<'_> {
@@ -2633,14 +2640,16 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && action_due(loaded, rules.data, *sim) == Some(entry.time)
             }
             // A choice runs in the second it was planned for (ADR-0026 section 3), so after a
-            // run none is pending. An input plans one for the next second, once per person idle
-            // in a room: a command or another input that freed a place held for a waiter, or a
-            // day begun (ADR-0024 sections 2 and 5).
+            // run none is pending. An input at the clock plans one for the next second, once per
+            // person idle in a room: a command or another input that freed a place held for a
+            // waiter, or a day begun (ADR-0024 sections 2 and 5); a waiter has none (the house
+            // part's checks).
             EventPayload::Decide { sim } => {
                 let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
                     matches!((person.place, person.action), (Place::Room(_), None))
                 });
-                entry.period.is_none()
+                rules.opened
+                    && entry.period.is_none()
                     && idle
                     && clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time)
                     && choices.insert(*sim)
