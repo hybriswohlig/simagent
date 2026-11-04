@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::house::choice::CRITICAL;
-use crate::house::data::{AGE_BANDS, House, HouseData, NEEDS, Need, OfferDef, age_band};
+use crate::house::data::{AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, OfferDef, age_band};
+use crate::house::day::night;
 use crate::house::need::{FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
@@ -130,11 +131,21 @@ const SHORTEST_SECS: i64 = 60;
 
 /// The second the action of a person at its object ends (ADR-0026 section 4). It began when
 /// the needs its offer sets were written down: a fixed length after that, or when the need it
-/// fills is full, at least 60 s and at most `max_seconds` after it. None if that comes after
-/// the end of time, or for an offer that sets no need.
-pub fn action_end(person: &InHouse, offer: &OfferDef) -> Option<SimTime> {
+/// fills is full, at least 60 s and at most `max_seconds` after it. A sleep ends with the
+/// night it began in, of a person born at `born` by `rules`, and at once if it began after
+/// the night it was chosen in had ended (ADR-0026, addendum of 2026-11-04). None if that comes
+/// after the end of time, or for an offer that sets no need.
+pub fn action_end(
+    person: &InHouse,
+    offer: &OfferDef,
+    rules: &DayRules,
+    born: SimTime,
+) -> Option<SimTime> {
     let (_, sample) = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need))?;
     let begun = sample.at();
+    if offer.sleep {
+        return Some(night(rules, born, begun).map_or(begun, |night| night.until));
+    }
     let secs = match (offer.seconds, offer.until_full, offer.max_seconds) {
         (Some(seconds), _, _) => i64::from(seconds),
         (None, Some(need), Some(longest)) => {
@@ -184,6 +195,9 @@ pub enum Broken {
     /// A departure waiting without a walk or an action that raised a need critical at the
     /// departure (ADR-0024 section 4).
     Due,
+    /// A walk to an offer of sleep begun outside the person's night, or a sleep begun outside
+    /// it (ADR-0026, addendum of 2026-11-04).
+    Sleep,
     Decisions,
     /// A waiter or holder without needs in that household, away, walking out or busy.
     Waiter,
@@ -232,6 +246,7 @@ pub fn consistent(
         person_consistent(person, home, data, now)?;
         rates_consistent(person, home, data, born)?;
         due_consistent(person, home, data, born)?;
+        sleep_consistent(person, home, data, born)?;
         if let Some(action) = person.action
             && !taken.insert((household, action.object, action.slot))
         {
@@ -492,6 +507,37 @@ fn rates_consistent(
         }
     }
     Ok(())
+}
+
+/// A sleep only in the person's night (ADR-0026, addendum of 2026-11-04): a walk to an offer of
+/// sleep began inside one, and so did a sleep at its object, when the needs it sets were
+/// written down. A sleep whose walk ended after the night it was chosen in ends in the second
+/// it begins, so no save holds one.
+fn sleep_consistent(
+    person: &InHouse,
+    home: &House,
+    data: Option<&HouseData>,
+    born: SimTime,
+) -> Result<(), Broken> {
+    let Some(action) = person.action else {
+        return Ok(());
+    };
+    let data = data.ok_or(Broken::HouseUnknown)?;
+    let object = &home.def().objects[usize::from(action.object)];
+    let kind = data.kind(&object.kind).ok_or(Broken::ObjectUnknown)?;
+    let offer = (kind.offers.get(usize::from(action.offer))).ok_or(Broken::OfferUnknown)?;
+    if !offer.sleep {
+        return Ok(());
+    }
+    let begun = match person.place {
+        Place::Walking { depart, .. } => depart,
+        Place::Room(_) => person.needs[0].at(),
+        Place::Away => return Ok(()),
+    };
+    match night(data.day(), born, begun) {
+        Some(_) => Ok(()),
+        None => Err(Broken::Sleep),
+    }
 }
 
 /// The places of an object of the house.

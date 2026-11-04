@@ -96,7 +96,8 @@ impl BandRates {
 }
 
 /// The rules of the day of `data/house/day.json` (ADR-0024 section 4), times in seconds of
-/// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure.
+/// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
+/// (ADR-0026, addendum of 2026-11-04) last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -106,6 +107,7 @@ pub struct DayRules {
     pub work: WorkRules,
     pub return_jumps: NeedJumps,
     pub young: YoungRules,
+    pub night: NightRules,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -163,9 +165,19 @@ pub struct YoungRules {
     pub bed_to: u32,
 }
 
+/// The night per age band of `AGE_BANDS` (ADR-0026, addendum of 2026-11-04): the night of a
+/// day runs from `from` of that day to `until` of the next, for the band of the age at the
+/// day's plan.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NightRules {
+    pub from: [u32; 4],
+    pub until: [u32; 4],
+}
+
 impl DayRules {
     /// The checks of the day, in this order: the times, the wake, the ages, the shares of
-    /// the work plan, the jumps.
+    /// the work plan, the jumps, the night.
     fn checked(&self) -> Result<(), HouseError> {
         let (school, work, young) = (&self.school, &self.work, &self.young);
         let hours = [
@@ -217,6 +229,31 @@ impl DayRules {
         if !jumps.iter().all(|jump| JUMPS.contains(jump)) {
             return Err(HouseError::DayJump);
         }
+        self.night_checked(&hours)
+    }
+
+    /// The night (ADR-0026, addendum of 2026-11-04), each bound below 24 h. Each end at or
+    /// before the earliest wake, so that no wake falls into a night and every morning's
+    /// choices are awake ones; at or after the day plan, which sets up the next bedtime. Each
+    /// start after the last return, so that everyone with a duty is home at bedtime. The wake
+    /// comes before its departure and that before its return, so each start then lies after
+    /// every end and after the plan of its day: the plan at 5:00 always plans a bedtime still
+    /// to come, and no second lies in two nights.
+    fn night_checked(&self, hours: &[(u32, u32); 3]) -> Result<(), HouseError> {
+        let night = &self.night;
+        // The wake check before keeps each wake after the plan, so nothing saturates here.
+        let wakes = hours
+            .iter()
+            .map(|&(depart, _)| depart.saturating_sub(self.wake_before));
+        let returns = hours.iter().map(|&(_, back)| back);
+        let in_day =
+            (night.from.iter().chain(&night.until)).all(|&time| i64::from(time) < DAY.as_secs());
+        let ends = (night.until.iter())
+            .all(|&until| self.day_plan_at <= until && wakes.clone().all(|wake| until <= wake));
+        let begins = (night.from.iter()).all(|&from| returns.clone().all(|back| from > back));
+        if !(in_day && ends && begins) {
+            return Err(HouseError::DayNight);
+        }
         Ok(())
     }
 }
@@ -230,9 +267,10 @@ pub struct KindDef {
 }
 
 /// An offer of a kind (ADR-0026 section 2): a fixed length in `seconds`, or until the need
-/// `until_full` is full but at most `max_seconds`. A sleeping offer takes the rates of all
-/// needs from the sleep column and `rates` names only what differs; any other sets the rates
-/// it names and leaves the others awake.
+/// `until_full` is full but at most `max_seconds`. A sleeping offer has neither: it lasts
+/// the night (ADR-0026, addendum of 2026-11-04). It takes the rates of all needs from the
+/// sleep column and `rates` names only what differs; any other sets the rates it names and
+/// leaves the others awake.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct OfferDef {
     pub rates: BTreeMap<Need, i32>,
@@ -267,12 +305,13 @@ impl OfferDef {
     }
 
     fn checked(&self, rates: &NeedRates) -> Result<(), HouseError> {
-        let length = match (self.seconds, self.until_full, self.max_seconds) {
-            (Some(seconds), None, None) => seconds,
-            (None, Some(_), Some(max_seconds)) => max_seconds,
+        let length = match (self.sleep, self.seconds, self.until_full, self.max_seconds) {
+            (true, None, None, None) => None,
+            (false, Some(seconds), None, None) => Some(seconds),
+            (false, None, Some(_), Some(max_seconds)) => Some(max_seconds),
             _ => return Err(HouseError::OfferLength),
         };
-        if !LENGTH_SECS.contains(&length) {
+        if length.is_some_and(|length| !LENGTH_SECS.contains(&length)) {
             return Err(HouseError::OfferLength);
         }
         if self.min_age > self.max_age || self.max_age > OLDEST {
@@ -335,12 +374,16 @@ pub enum HouseError {
     DayShare,
     /// A jump on coming home outside −1000 to 0.
     DayJump,
+    /// A night with a bound not below 24 h, an end before the day plan or after the earliest
+    /// wake, or a start not after the last return.
+    DayNight,
     /// Two kinds with one id.
     KindDuplicate,
     /// A kind with no place or more than eight.
     KindSlots,
-    /// An offer with neither a fixed length nor a full need with its longest, or with both,
-    /// or a length outside 60 s to 12 h.
+    /// An offer that does not sleep with neither a fixed length nor a full need with its
+    /// longest, or with both, or a length outside 60 s to 12 h; a sleeping offer with any of
+    /// them (it lasts the night).
     OfferLength,
     /// An offer whose youngest age is above its oldest, or whose oldest is above 130.
     OfferAges,
@@ -386,6 +429,7 @@ impl fmt::Display for HouseError {
             HouseError::DayAge => "house.day_age",
             HouseError::DayShare => "house.day_share",
             HouseError::DayJump => "house.day_jump",
+            HouseError::DayNight => "house.day_night",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
             HouseError::OfferLength => "house.offer_length",

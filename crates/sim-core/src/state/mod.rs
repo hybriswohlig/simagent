@@ -306,6 +306,8 @@ pub(crate) enum Slot {
     End,
     /// A planned choice (ADR-0026 section 3).
     Decide,
+    /// The start of the night (ADR-0026, addendum of 2026-11-04).
+    Bedtime,
 }
 
 impl DomainState {

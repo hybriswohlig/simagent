@@ -66,6 +66,8 @@ pub enum EventPayload {
     NeedCrossing { sim: SimId, need: Need, level: u16 },
     /// A person chooses (ADR-0026 sections 3 and 5).
     Decide { sim: SimId },
+    /// The start of a person's night (ADR-0026, addendum of 2026-11-04).
+    Bedtime { sim: SimId },
 }
 
 impl EventPayload {
@@ -89,6 +91,7 @@ impl EventPayload {
     pub const ACTION_END: EventKind = EventKind(18);
     pub const NEED_CROSSING: EventKind = EventKind(19);
     pub const DECIDE: EventKind = EventKind(20);
+    pub const BEDTIME: EventKind = EventKind(21);
 
     /// Whether this is a house event (ADR-0024, addendum of 2026-11-02).
     pub fn is_house(&self) -> bool {
@@ -103,6 +106,7 @@ impl EventPayload {
                 | EventPayload::ActionEnd { .. }
                 | EventPayload::NeedCrossing { .. }
                 | EventPayload::Decide { .. }
+                | EventPayload::Bedtime { .. }
         )
     }
 }
@@ -125,7 +129,8 @@ impl Payload for EventPayload {
             | EventPayload::Arrive { .. }
             | EventPayload::ActionEnd { .. }
             | EventPayload::NeedCrossing { .. }
-            | EventPayload::Decide { .. } => EventClass::GENERAL,
+            | EventPayload::Decide { .. }
+            | EventPayload::Bedtime { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
             EventPayload::Emigration { .. } => EventClass::EMIGRATION,
@@ -152,7 +157,8 @@ impl Payload for EventPayload {
             | EventPayload::Arrive { sim }
             | EventPayload::ActionEnd { sim }
             | EventPayload::NeedCrossing { sim, .. }
-            | EventPayload::Decide { sim } => EventSubject::sim(sim.get()),
+            | EventPayload::Decide { sim }
+            | EventPayload::Bedtime { sim } => EventSubject::sim(sim.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -182,6 +188,7 @@ impl Payload for EventPayload {
             EventPayload::ActionEnd { .. } => EventPayload::ACTION_END,
             EventPayload::NeedCrossing { .. } => EventPayload::NEED_CROSSING,
             EventPayload::Decide { .. } => EventPayload::DECIDE,
+            EventPayload::Bedtime { .. } => EventPayload::BEDTIME,
         }
     }
 }

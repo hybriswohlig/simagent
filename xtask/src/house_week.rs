@@ -22,6 +22,7 @@ use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
 use sim_core::house::choice::{age, score};
+use sim_core::house::day::night;
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, MoveIn, PoolStart, Start};
 use sim_core::log::{LogPayload, Subject};
@@ -244,7 +245,10 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         let born = state.born(sim).ok_or("a choice of nobody")?;
         let years = age(born, entry.t).ok_or("a choice before the birth")?;
         let house = houses.house(house).ok_or("a choice in no house")?;
-        let weighed = score(house, houses, years, needs, room).len();
+        // In the night the offers of sleep are open too (ADR-0026, addendum of 2026-11-04).
+        let left =
+            night(houses.day(), born, entry.t).map(|night| (night.until - entry.t).as_secs());
+        let weighed = score(house, houses, years, needs, room, left).len();
         counted.most_offers = counted.most_offers.max(weighed);
     }
     counted.with_needs = with_needs.len();

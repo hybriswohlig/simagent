@@ -660,6 +660,32 @@ fn server_answers(
         "WhyAnswer",
         get(port, &format!("/api/runs/town/why/{entry}"))?,
     ));
+    // A choice that waits for a taken object (ADR-0026 section 5), the first in the town's
+    // log from that morning on, page by page.
+    let mut after = String::new();
+    let waited = loop {
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?from={morning}{after}"),
+        )?;
+        let rows = page["events"].as_array().into_iter().flatten();
+        let found = rows
+            .filter(|row| {
+                let idle = &row["entry"]["payload"]["core:idle"];
+                idle.is_object() && !idle["waits"].is_null()
+            })
+            .map(|row| row["entry"]["id"].clone())
+            .next();
+        match (found, page["next"].as_u64()) {
+            (Some(entry), _) => break entry,
+            (None, Some(next)) => after = format!("&after={next}"),
+            (None, None) => return Err("no choice in the town's houses waited".to_owned()),
+        }
+    };
+    answers.push((
+        "WhyAnswer",
+        get(port, &format!("/api/runs/town/why/{waited}"))?,
+    ));
     answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));
     // A fork with an override, so that the comparison shows its every shape: the town has
     // the switch on, the fork has it off from year 10.

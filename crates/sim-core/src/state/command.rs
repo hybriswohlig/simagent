@@ -5,6 +5,7 @@
 
 use super::{DomainState, action};
 use crate::data::Data;
+use crate::house::day::night;
 use crate::house::state::Place;
 use crate::input::{Command, InputRejected, RejectCode};
 use crate::log::{Causes, EndReason};
@@ -12,8 +13,8 @@ use crate::time::{SimDuration, SimTime};
 use crate::world::SimCtx;
 
 /// Pure check of a command at the stop `closed_through` (ADR-0024 section 5): first who and
-/// whether it lives in its house with needs, then what (object, offer, age), then the person's
-/// state (away, a critical need) and last the place.
+/// whether it lives in its house with needs, then what (object, offer, age, an offer of sleep
+/// only in the night), then the person's state (away, a critical need) and last the place.
 pub(crate) fn check(
     domain: &DomainState,
     data: &Data,
@@ -50,6 +51,11 @@ fn rejection(
         .unwrap_or_else(|| panic!("invariant age.out_of_range"));
     if !(offer.min_age..=offer.max_age).contains(&age) {
         return Err(RejectCode::WrongAge);
+    }
+    // Sleep only in the person's night (ADR-0026, addendum of 2026-11-04); in it the sleep lasts
+    // to the night's end.
+    if offer.sleep && night(houses.day(), born, now).is_none() {
+        return Err(RejectCode::NotNight);
     }
     // Away, on the way out, or with a departure waiting: the departure stays first. On the
     // way to an object the walk ends back in the room it came from.

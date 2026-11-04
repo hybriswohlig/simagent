@@ -693,7 +693,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}`: the points of every offer of a choice, recomputed from its entry, the most first (ADR-0021, addendum of 2026-11-03).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 2): the points of every offer of a choice, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addendum of 2026-11-04).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -702,8 +702,19 @@ pub fn descriptor() -> Vec<Named> {
                 field("at", Ref("DatedSecond")),
                 field("enough", Integer),
                 field("commanded", Bool),
+                field("night", nullable(Ref("WhyNight"))),
                 field("chosen", nullable(Ref("WhyChoice"))),
+                field("waits", nullable(Integer)),
                 field("offers", list(Ref("WhyOffer"))),
+            ],
+        },
+        Named {
+            name: "WhyNight",
+            doc: "A person's night, from its start to its end; `now` if the choice lay in it, else it is the next.",
+            fields: vec![
+                field("from", Ref("DatedSecond")),
+                field("until", Ref("DatedSecond")),
+                field("now", Bool),
             ],
         },
         Named {
@@ -717,12 +728,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyOffer",
-            doc: "An offer, its points, and whether its object had no free place.",
+            doc: "An offer, its points, whether its object had no free place, and whether it was closed (sleep outside the night, without points).",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
-                field("points", Integer),
+                field("points", nullable(Integer)),
                 field("busy", Bool),
+                field("closed", Bool),
             ],
         },
         Named {

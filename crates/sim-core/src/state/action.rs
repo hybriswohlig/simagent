@@ -11,8 +11,9 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, ENOUGH, Scored, best, score};
+use crate::house::choice::{CRITICAL, Choice, choose, score};
 use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
+use crate::house::day::night;
 use crate::house::need::FULL;
 use crate::house::state::{Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end};
 use crate::ids::{EventId, HouseholdId, SimId};
@@ -38,12 +39,17 @@ pub(super) fn home<'a>(
     (person.household, houses, house)
 }
 
-/// A person's age in whole years at `now`.
-fn age(domain: &DomainState, sim: SimId, now: SimTime) -> u8 {
+/// A person's birth.
+pub(super) fn born(domain: &DomainState, sim: SimId) -> SimTime {
     let Some(person) = domain.sims.get(&sim) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
     };
-    crate::house::choice::age(person.born, now)
+    person.born
+}
+
+/// A person's age in whole years at `now`.
+fn age(domain: &DomainState, sim: SimId, now: SimTime) -> u8 {
+    crate::house::choice::age(born(domain, sim), now)
         .unwrap_or_else(|| panic!("invariant age.out_of_range"))
 }
 
@@ -178,10 +184,10 @@ fn busy(house: &House, houses: &HouseData, taken: &BTreeSet<(u16, u8)>) -> Vec<u
         .collect()
 }
 
-/// A person idle in a room chooses now (ADR-0026 section 3): it walks to the offer with the
-/// most points among the objects with a free place, holding the smallest free place, if that
-/// brings enough; otherwise it idles. Each choice counts against the day's budget and
-/// cancels a pending `Decide`.
+/// A person idle in a room chooses now (ADR-0026 section 3, and in its night as its addendum
+/// of 2026-11-04 says, `choose`): it walks to the chosen offer, holding the smallest free
+/// place of its object; or it idles, waiting for an object if the choice says so. Each choice
+/// counts against the day's budget and cancels a pending `Decide`.
 pub(crate) fn decide(
     domain: &mut DomainState,
     data: &Data,
@@ -192,6 +198,7 @@ pub(crate) fn decide(
     let now = ctx.now();
     let (household, houses, house) = home(domain, data, sim);
     let age = age(domain, sim, now);
+    let tonight = night(houses.day(), born(domain, sim), now);
     // Who chooses leaves every waiting list (ADR-0026 section 5).
     let held = stop_waiting(domain, household, sim, ctx);
     let taken = taken(domain, household, sim);
@@ -212,19 +219,26 @@ pub(crate) fn decide(
     }
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
-    let scored = score(house, houses, age, needs, room);
-    let chosen = best(&scored, &busy).filter(|chosen| chosen.points >= ENOUGH);
+    let left = tonight.map(|night| (night.until - now).as_secs());
+    let scored = score(house, houses, age, needs, room, left);
+    let choice = choose(
+        (house, houses),
+        (age, needs),
+        &scored,
+        &busy,
+        tonight.is_some(),
+    );
+    let chosen = match choice {
+        Choice::Take(chosen) => Some(chosen),
+        Choice::Wait(_) | Choice::Idle => None,
+    };
     let walk = chosen.map(|chosen| house.walk_to(room, chosen.object));
     let arrive = walk.and_then(|walk| now.checked_add(SimDuration::from_secs(i64::from(walk))));
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
-        // The best of a fully taken object, if it brings enough, is waited for.
-        let taken_offers: Vec<Scored> = (scored.iter())
-            .filter(|scored| busy.contains(&scored.object))
-            .copied()
-            .collect();
-        let waits = best(&taken_offers, &[])
-            .filter(|best| best.points >= ENOUGH)
-            .map(|best| best.object);
+        let waits = match choice {
+            Choice::Wait(object) => Some(object),
+            Choice::Take(_) | Choice::Idle => None,
+        };
         if let Some(object) = waits {
             let waiters = domain.house.waits.entry((household, object)).or_default();
             let at = waiters.partition_point(|&waiter| waiter < (now, sim));
@@ -470,8 +484,9 @@ pub(super) fn next(
 }
 
 /// A person reaches the object of its action (ADR-0026 section 4): it begins, the needs the
-/// offer sets take its rates, the crossings are planned anew and the end is planned. At the
-/// end of the walk out the person is away (ADR-0024 section 4).
+/// offer sets take its rates, the crossings are planned anew and the end is planned, for a
+/// sleep at the end of its night. At the end of the walk out the person is away (ADR-0024
+/// section 4).
 pub(crate) fn on_arrive(
     domain: &mut DomainState,
     data: &Data,
@@ -483,6 +498,7 @@ pub(crate) fn on_arrive(
     let now = ctx.now();
     let (_, houses, house) = home(domain, data, sim);
     let band = band(domain, sim, now);
+    let born = born(domain, sim);
     let person = person_mut(domain, sim);
     let (Place::Walking { to, .. }, action) = (person.place, person.action) else {
         panic!("invariant house.orphan_event");
@@ -504,7 +520,7 @@ pub(crate) fn on_arrive(
             *sample = sample.with_rate(now, offer.rate(houses.rates(), need, band));
         }
     }
-    let end = action_end(person, offer);
+    let end = action_end(person, offer, houses.day(), born);
     plan_crossings(domain, sim, entry, ctx);
     if let Some(end) = end {
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);

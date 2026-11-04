@@ -108,7 +108,7 @@ xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 
 The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
 data/house/needs.json (the rates per need and age band, awake and asleep), data/house/day.json
-(the rules of the day: school, work, the small children, the jumps on coming home),
+(the rules of the day: school, work, the small children, the jumps on coming home, the night),
 data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
 data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
 reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
@@ -879,6 +879,8 @@ DAY_FORMAT = {
     },
     "return_jumps": {need: I32 for need in NEEDS},
     "young": {"until_age": U8, "kita_from": U32, "kita_to": U32, "bed_from": U32, "bed_to": U32},
+    # The night per age band (ADR-0026, addendum of 2026-11-04): four u32 each.
+    "night": {"from": (U32, 4), "until": (U32, 4)},
 }
 SECONDS_OF_DAY = 86_400
 
@@ -933,6 +935,12 @@ def day_fields(entry, names: dict) -> None:
     for name, bounds in names.items():
         if isinstance(bounds, dict):
             day_fields(entry[name], bounds)
+        elif isinstance(bounds[0], tuple):
+            # An array of fixed length (serde reads `[u32; 4]` only with exactly four).
+            (low, high), length = bounds
+            values = entry[name]
+            assert isinstance(values, list) and len(values) == length, f"day {name} {values}"
+            assert all(type(value) is int and low <= value < high for value in values), f"day {name} {values}"
         else:
             value = entry[name]
             assert type(value) is int and bounds[0] <= value < bounds[1], f"day {name} {value}"
@@ -943,7 +951,9 @@ def day_checked(day: dict) -> None:
     times (each below 24 h, each departure before its return, the small children in bed until
     `bed_to`, then in the kindergarten, in bed again from `bed_from`), the wake (after the day
     plan, not before midnight), the ages (small children, school, work in turn), the shares of
-    the work plan (0 < full time < part time <= 100), the jumps on coming home (-1000 to 0)."""
+    the work plan (0 < full time < part time <= 100), the jumps on coming home (-1000 to 0), the
+    night (ADR-0026, addendum of 2026-11-04: each bound below 24 h, each end at or after the day
+    plan and at or before every wake, each start after every return)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -957,6 +967,11 @@ def day_checked(day: dict) -> None:
     assert young["until_age"] <= school["from_age"] < school["until_age"] <= work["from_age"] < work["until_age"], "house.day_age"
     assert 0 < work["full_time_below"] < work["part_time_below"] <= 100, "house.day_share"
     assert all(-1000 <= jumps[need] <= 0 for need in NEEDS), "house.day_jump"
+    night = day["night"]
+    wakes = [depart - wake for depart, _ in hours]
+    assert all(time < SECONDS_OF_DAY for time in night["from"] + night["until"]), "house.day_night"
+    assert all(day["day_plan_at"] <= until and all(until <= w for w in wakes) for until in night["until"]), "house.day_night"
+    assert all(all(start > back for _, back in hours) for start in night["from"]), "house.day_night"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -983,9 +998,14 @@ def houses_checked(needs, day, kinds, houses):
         assert 1 <= kind["slots"] <= 8, "house.kind_slots"
         for offer in kind["offers"]:
             shape = (offer.get("seconds") is not None, offer.get("until_full") is not None, offer.get("max_seconds") is not None)
-            assert shape in ((True, False, False), (False, True, True)), "house.offer_length"
-            length = offer["seconds"] if shape[0] else offer["max_seconds"]
-            assert 60 <= length <= 43_200, "house.offer_length"
+            # A sleep has no length of its own: it lasts the night (ADR-0026, addendum of
+            # 2026-11-04).
+            sleeps = offer.get("sleep", False)
+            allowed = ((False, False, False),) if sleeps else ((True, False, False), (False, True, True))
+            assert shape in allowed, "house.offer_length"
+            if not sleeps:
+                length = offer["seconds"] if shape[0] else offer["max_seconds"]
+                assert 60 <= length <= 43_200, "house.offer_length"
             assert offer["min_age"] <= offer["max_age"] <= OLDEST, "house.offer_ages"
             if shape[1]:
                 ages = range(max(offer["min_age"], AGE_BANDS[0][0]), offer["max_age"] + 1)
@@ -1068,7 +1088,9 @@ def houses_suffix(files) -> bytes:
     until_age: u8, full_time_below: u8, part_time_below: u8, full_time: Hours { depart: u32,
     back: u32 }, part_time: Hours }, return_jumps: NeedJumps { hunger: i32, energy: i32,
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
-    kita_to: u32, bed_from: u32, bed_to: u32 } }` (ADR-0024 section 4), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
+    kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
+    4] } }` (ADR-0024 section 4; the night of ADR-0026, its addendum of 2026-11-04: a fixed array
+    as its four elements, no length), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
     i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
     bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
     by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
@@ -1089,6 +1111,7 @@ def houses_suffix(files) -> bytes:
     out += b"".join(varint(work[hours][end]) for hours in ("full_time", "part_time") for end in ("depart", "back"))
     out += b"".join(zigzag(jumps[need]) for need in NEEDS)
     out += u8(young["until_age"]) + b"".join(varint(young[time]) for time in ("kita_from", "kita_to", "bed_from", "bed_to"))
+    out += b"".join(varint(time) for bound in ("from", "until") for time in day["night"][bound])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))
