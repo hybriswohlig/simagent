@@ -399,6 +399,13 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         opened: (exceptions.input_log.last()).is_some_and(|record| {
             record.t == loaded.closed_through && !matches!(record.input, Input::Start(_))
         }),
+        moved_in: (exceptions.input_log.iter())
+            .filter(|record| record.t == loaded.closed_through)
+            .filter_map(|record| match &record.input {
+                Input::MoveIn(move_in) => Some(move_in.household),
+                _ => None,
+            })
+            .collect(),
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
     // keeps building the index from a panic.
@@ -1546,6 +1553,9 @@ struct Rules<'a> {
     /// be due in that second; an advance runs every event of a second (ADR-0024, addendum of
     /// 2026-11-04).
     opened: bool,
+    /// The households a `MoveIn` stamped at the clock moved into their house: it acted in the
+    /// second after the clock, so their members' series of plans was set up in that second.
+    moved_in: Vec<HouseholdId>,
 }
 
 impl Rules<'_> {
@@ -2561,8 +2571,18 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         .map(|(&sim, person)| (sim, day_of(person, duty_today(loaded, rules, sim), clock)))
         .collect();
     let day = |sim: &SimId| days.get(sim).copied().flatten();
-    // The daily plan of everyone in a house is due at the first 5:00 after the clock.
-    let plan_due = (rules.data.houses()).and_then(|houses| next_plan(houses.day(), clock));
+    // The daily plan of everyone in a house is due at the first 5:00 after the clock; for the
+    // members of a household moved in by an input at the clock, at the first plan after the
+    // second it acted in (`next_plan`): a move in at 5:00:00 itself begins with tomorrow's
+    // (ADR-0024, addendum of 2026-11-04).
+    let plan_due = |household: HouseholdId| {
+        let houses = rules.data.houses()?;
+        let set_up = match rules.moved_in.contains(&household) {
+            true => clock.checked_add(SimDuration::from_secs(1))?,
+            false => clock,
+        };
+        next_plan(houses.day(), set_up)
+    };
     // Per crossing: the sim, the insertion number, the need and the level downwards.
     let mut planned_crossings = Vec::new();
     // The first morning of a household in a house comes at the first 6:00 after the clock.
@@ -2607,11 +2627,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             // Once per living member of a household in a house that has its daily plan
             // (ADR-0024 sections 1 and 2), checked as a whole below.
             EventPayload::DayPlan { sim } => {
-                let in_house = (loaded.sims.get(sim))
-                    .is_some_and(|person| loaded.house.households.contains_key(&person.household));
+                let household = loaded.sims.get(sim).map(|person| person.household);
+                let in_house =
+                    household.is_some_and(|home| loaded.house.households.contains_key(&home));
                 in_house
                     && entry.period == Some(DAY)
-                    && Some(entry.time) == plan_due
+                    && household.and_then(plan_due) == Some(entry.time)
                     && plans.insert(*sim)
             }
             // The wake, departure and return of a person's duty of the day, each once.
@@ -2865,7 +2886,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let all_plans_planned = loaded.sims.iter().all(|(sim, person)| {
         !loaded.house.households.contains_key(&person.household)
             || plans.contains(sim)
-            || plan_due.is_none()
+            || plan_due(person.household).is_none()
     });
     year_end_seen
         && all_days_planned
