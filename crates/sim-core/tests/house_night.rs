@@ -16,7 +16,8 @@
 //! the television never brings enough by itself: fun stands at 800 unless one watches, and it
 //! fills at most 200 · 180 = 36 000, at the best mood (ADR-0026, addendum of 2026-11-04 on the
 //! mood) 39 600, less the walk. The other points here are without the mood; the moods of these
-//! runs turn none of the choices.
+//! runs turn none of the choices, and where two offers would tie without them the test names
+//! the moods that order them.
 
 mod common;
 
@@ -24,12 +25,14 @@ use common::day::Run;
 use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
+use sim_core::house::choice::mood;
 use sim_core::house::data::{DayRules, Need, OfferDef};
 use sim_core::house::day::{Night, next_night, night, night_of};
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{Decisions, InHouse, Place, action_end};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input, InputRejected, RejectCode};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
 use sim_core::time::{DAY, HOUR, MAX_ABS_SECS, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
@@ -773,12 +776,20 @@ fn commands_of_sleep_and_in_the_night() {
 /// A night that ends at a wake (here a child's, 6:55, for 6 to 12): the wake comes before the
 /// sleep's end in that second (its kind first) and ends the sleep with reason `obligation`. The
 /// family moves in on Tuesday, day 1, so its first morning, Wednesday 6:00, lies in the night
-/// of the boy of 10: he goes to bed then (the bed and the cot tie at 100 · 91 − 50 · 4; the bed
-/// is the smaller object), while the adults take the loo (both places); there at 6:00:04 with
-/// energy 900, at 6:55 energy 991 (900 + 91.6) when the wake ends his sleep, and outside the
-/// night he takes the loo (500 · 500 − 50 · 6), from the bedroom.
+/// of the boy of 10 (sim 3, founder 2 of `test:night`): he goes to bed then. The bed and the cot
+/// each fill 100 · 91 = 9 100, less 50 · 4; his moods there (the draw `mood`, ADR-0026, addendum
+/// of 2026-11-04 on the mood), −4 for the bed and −7 for the cot, give the bed 8 736 − 200
+/// against 8 463 − 200 (without the moods they tie and the bed is the smaller object). The
+/// adults take the loo (both places); he is there at 6:00:04 with energy 900, at 6:55 energy 991
+/// (900 + 91.6) when the wake ends his sleep, and outside the night he takes the loo (500 · 500
+/// − 50 · 6), from the bedroom.
 #[test]
 fn a_wake_at_the_nights_end_ends_the_sleep() {
+    let key = LineageKey::founder(&DataId::new("test:night").expect("id"), 2);
+    let moods = [BED, COT].map(|object| i64::from(mood(7, key, t(2 * D + 6 * H), object, 0)));
+    assert_eq!(moods, [-4, -7]);
+    let [bed, cot] = moods.map(|mood| 9_100 * (100 + mood) / 100);
+    assert_eq!((bed, cot), (8_736, 8_463));
     let mut day: serde_json::Value = serde_json::from_str(DAY_FILE).expect("the day");
     day["night"]["until"][0] = json!(24_900);
     let data = data_with(&day.to_string(), (-30, 0), true);
