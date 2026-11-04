@@ -1,7 +1,7 @@
 {
  "format_version": 1,
  "written_by": "tools/census_reference.py (independent of crates/)",
- "core_version_modelled": 57,
+ "core_version_modelled": 58,
  "projection_version_modelled": 19,
  "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
  "clamped_keys": [
