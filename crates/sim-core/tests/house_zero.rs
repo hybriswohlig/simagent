@@ -29,7 +29,8 @@ use serde_json::{Value, json};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::house::data::Need;
-use sim_core::house::state::{Due, Duty, Place};
+use sim_core::house::need::NeedSample;
+use sim_core::house::state::{Decisions, Due, Duty, InHouse, Place, stand_up};
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{Command, Input, InputRejected, RejectCode};
 use sim_core::lineage::LineageKey;
@@ -1052,6 +1053,179 @@ fn coming_home_dirty_takes_the_last_fun() {
         &started((SHOWER, 0), (HALL, 2), at_door, &[], false),
     );
     assert!(caused_by(chose, &last.id));
+}
+
+/// No crossing of the second is lost around a collapse. The toilet runs 12 hours (+1 an hour)
+/// and the man is sent to it at 6:00:01; the shower is +480 an hour for 15 min. Her energy falls
+/// 900 an hour, her bladder 450: energy at 700 and the bladder at 400 both after 800 s (each a
+/// choice), energy 400 after 2 000 s, the bladder at 150 after 2 800 s, energy at 150 and 50
+/// after 3 000 and 3 400 s; she waits for the toilet once the bladder is critical. At 3 600 s
+/// energy is at 0 and the bladder at 50 in one second: energy first, she lies down in the hall;
+/// the bladder's 50 still comes and writes its entry, but with energy still at 0 she cannot get
+/// up (0 + 50 · 0 / 3 600). On the floor the bladder falls 40 an hour: 0 after 4 500 s, at 8 100
+/// s, the accident (energy 62 by then, hygiene to 50). She gets up at 21 600 s with energy 250
+/// and the bladder at 850 (1 000 − 40 · 13 500 / 3 600), and takes the shower.
+#[test]
+fn a_need_at_50_in_the_second_of_the_collapse_is_not_lost() {
+    let kinds = with(kinds(), "core:toilet", offer("use", "bladder", 1, 43_200));
+    let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
+    let rates = rates([0, -900, -450, 0, 0], [0, 100, -40, 0, 0], [0; 5]);
+    let script =
+        Script::saturday(data(&rates, DAY_FILE, &kinds)).input(SATURDAY, command(2, TOILET));
+    let run = script.run(SATURDAY + 21_600);
+    let both = |energy: u16, bladder: u16| [600, energy, bladder, 700, 800];
+    let toilet = [TOILET];
+    let waits = Some(TOILET);
+    assert_eq!(
+        doings(&run, 1, SATURDAY),
+        [
+            (0, idle(HALL, START, &[], None)),
+            (800, idle(HALL, both(700, 400), &toilet, None)),
+            (800, idle(HALL, both(700, 400), &toilet, None)),
+            (2_000, idle(HALL, both(400, 250), &toilet, None)),
+            (2_800, critical(Need::Bladder, 150)),
+            (2_800, idle(HALL, both(200, 150), &toilet, waits)),
+            (3_000, critical(Need::Energy, 150)),
+            (3_000, idle(HALL, both(150, 125), &toilet, waits)),
+            (3_400, critical(Need::Energy, 50)),
+            (3_400, idle(HALL, both(50, 75), &toilet, waits)),
+            (3_600, empty(Need::Energy)),
+            (3_600, collapsed(HALL)),
+            (3_600, critical(Need::Bladder, 50)),
+            (8_100, empty(Need::Bladder)),
+            (8_100, accident([600, 62, 1000, 50, 800])),
+            (
+                21_600,
+                started(
+                    (SHOWER, 0),
+                    (HALL, 2),
+                    [600, 250, 850, 50, 800],
+                    &toilet,
+                    false
+                )
+            ),
+        ]
+    );
+}
+
+/// No collapse is lost when another need of its second ends an action first. The bookshelf is
+/// +150 an hour for an hour. Her hunger falls 450 an hour and her energy 900: energy at 700
+/// after 800 s, hunger at 400 after 1 600 s, energy at 400, 150 and 50 after 2 000, 3 000 and 3
+/// 400 s, each a choice and idle. Sent to the bookshelf at 3 401 s (hunger 175, energy 50), she
+/// reads from 3 404 s. At 3 600 s hunger is at 150 and energy at 0: hunger first, the book ends
+/// with reason `critical` (fun 808: 800 + 150 · 196 / 3 600) and she walks to the table for her
+/// critical hunger (table and fridge tie at the bonus, the table is the smaller object, 3 s
+/// from the living room); then energy's 0 still comes: the walk ends with reason `collapse` and
+/// she lies down in the living room.
+#[test]
+fn an_action_ended_in_the_second_of_a_collapse_does_not_hide_it() {
+    let kinds = with(kinds(), "test:book", offer("read", "fun", 150, 3_600));
+    let rates = rates([-450, -900, 0, 0, 0], [0, 100, 0, 0, 0], [0; 5]);
+    let script =
+        Script::saturday(data(&rates, DAY_FILE, &kinds)).input(SATURDAY + 3_400, command(1, BOOK));
+    let run = script.run(SATURDAY + 3_700);
+    let at = |hunger: u16, energy: u16| [hunger, energy, 500, 700, 800];
+    let after = [150, 0, 500, 700, 808];
+    assert_eq!(
+        doings(&run, 1, SATURDAY),
+        [
+            (0, idle(HALL, START, &[], None)),
+            (800, idle(HALL, at(500, 700), &[], None)),
+            (1_600, idle(HALL, at(400, 500), &[], None)),
+            (2_000, idle(HALL, at(350, 400), &[], None)),
+            (3_000, critical(Need::Energy, 150)),
+            (3_000, idle(HALL, at(225, 150), &[], None)),
+            (3_400, critical(Need::Energy, 50)),
+            (3_400, idle(HALL, at(175, 50), &[], None)),
+            (3_401, started((BOOK, 0), (HALL, 3), at(175, 50), &[], true)),
+            (3_404, reached(BOOK)),
+            (3_600, critical(Need::Hunger, 150)),
+            (3_600, ended(BOOK, EndReason::Critical, after)),
+            (3_600, started((TABLE, 0), (LIVING, 3), after, &[], false)),
+            (3_600, empty(Need::Energy)),
+            (3_600, ended(TABLE, EndReason::Collapse, after)),
+            (3_600, collapsed(LIVING)),
+        ]
+    );
+    assert!(lying(&run).0);
+}
+
+/// A departure in the second of a collapse waits. Tuesday, part time (7:40 to 13:20), the man
+/// sent to the toilet of 12 hours at 6:00:01. Her energy falls 540 and her bladder 300 an hour:
+/// both at 0 after 6 000 s, at 7:40, the second of her departure, which runs before the
+/// crossings of that second. It settles them first: energy, she lies down in the hall; the
+/// bladder, the accident on the floor (hygiene to 50); then the departure waits for her lying.
+/// She gets up after five hours, at 12:40, and leaves 18 000 s late.
+#[test]
+fn a_departure_in_the_second_of_a_collapse_waits() {
+    let tag = part_time();
+    let kinds = with(kinds(), "core:toilet", offer("use", "bladder", 1, 43_200));
+    let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
+    let rates = rates([0, -540, -300, 0, 0], [0, 100, 0, 0, 0], [0; 5]);
+    let script =
+        Script::on(data(&rates, DAY_FILE, &kinds), &tag, 0).input(MORNING, command(2, TOILET));
+    let run = script.run(MORNING + DEPART);
+    let her = &run.world.state().house().sims[&sim(1)];
+    let due = Due {
+        place: Duty::Work,
+        depart: t(D + 27_600),
+        back: t(D + 48_000),
+    };
+    assert_eq!(
+        (her.collapsed, her.due, her.place),
+        (true, Some(due), Place::Room(HALL))
+    );
+    let run = script.run(MORNING + DEPART + 18_000);
+    assert_eq!(
+        doings(&run, 1, MORNING + DEPART),
+        [
+            (0, empty(Need::Energy)),
+            (0, collapsed(HALL)),
+            (0, empty(Need::Bladder)),
+            (0, accident([600, 0, 1000, 50, 800])),
+            (
+                18_000,
+                LogPayload::LeftHome {
+                    place: Duty::Work,
+                    late_secs: 18_000
+                }
+            ),
+        ]
+    );
+}
+
+/// Getting up needs energy above 0 (0 + 50 an hour is 1 after 72 s): fallen in the night of an
+/// adult (22:00 to 6:00) 72 s before its end, she gets up at 6:00 with energy 1; fallen 71 s
+/// before it (energy 0.99 at 6:00, so 0), or 30 s, the night's end does not get her up, 250
+/// does, 18 000 s after the fall.
+#[test]
+fn getting_up_needs_energy_above_0() {
+    let rules: sim_core::house::data::DayRules = serde_json::from_str(DAY_FILE).expect("the day");
+    let born = t(-30 * Y);
+    let six = 2 * D + 6 * H;
+    let lying = |fell: i64| InHouse {
+        needs: [(600, 0), (0, 50), (500, 0), (700, 0), (800, 0)]
+            .map(|(value, rate)| NeedSample::new(value, t(fell), rate)),
+        place: Place::Room(HALL),
+        action: None,
+        due: None,
+        decisions: Decisions { day: 1, count: 0 },
+        collapsed: true,
+    };
+    assert_eq!(stand_up(&lying(six - 72), &rules, born), Some(t(six)));
+    assert_eq!(
+        stand_up(&lying(six - 71), &rules, born),
+        Some(t(six - 71 + 18_000))
+    );
+    assert_eq!(
+        stand_up(&lying(six - 30), &rules, born),
+        Some(t(six - 30 + 18_000))
+    );
+    // In the middle of the night, 250 comes first, at 3:00 with a fall at 22:00.
+    assert_eq!(
+        stand_up(&lying(six - 8 * H), &rules, born),
+        Some(t(six - 3 * H))
+    );
 }
 
 /// Saved while she lies, in the seconds of each consequence and right after: each save loads,
