@@ -14,5 +14,9 @@
   "zero": {"collapse_energy_rate": 50, "stand_up_at": 250, "accident_hygiene_at_most": 50, "hygiene_empty_fun": -150},
   "choice_mood_percent": 10,
   "young": {"until_age": 6, "kita_from": 28800, "kita_to": 54000, "bed_from": 68400, "bed_to": 25200},
-  "night": {"from": [72000, 72000, 79200, 77400], "until": [21600, 21600, 21600, 21600]}
+  "night": {
+    "from": [72000, 72000, 79200, 77400],
+    "until": [21600, 21600, 21600, 21600],
+    "until_weekend": [25200, 25200, 25200, 23400]
+  }
 }

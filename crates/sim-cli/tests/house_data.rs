@@ -104,6 +104,7 @@ fn house(id: &str, capacity: u8) -> Value {
         ],
         "child_day_room": "kids",
         "child_night_room": "kids",
+        "dwell_room": "living",
         "doors": [
             { "a": "hall", "b": "kitchen", "seconds": 4 },
             { "a": "hall", "b": "living", "seconds": 3 },
@@ -327,6 +328,56 @@ fn house_data_loads_and_rejects() {
     let child_night = checked(|_, flat| flat["child_night_room"] = json!("garden"));
     assert_eq!(child_night, "house.child_room");
 
+    // The room one goes to from a room one does not stay in (ADR-0026, addendum of 2026-11-04
+    // after the playtest): a room of the house, one stays in it, not the entrance.
+    let dwell = |room: &'static str| checked(move |_, flat| flat["dwell_room"] = json!(room));
+    assert_eq!(dwell("garden"), "house.dwell_room");
+    assert_eq!(dwell("hall"), "house.dwell_room");
+    assert_eq!(dwell("kitchen"), "ok");
+    let wet_living = checked(|_, flat| flat["rooms"][2]["dwell"] = json!(false));
+    assert_eq!(wet_living, "house.dwell_room");
+    assert_eq!(rooms(|r| r[3]["dwell"] = json!(false)), "ok");
+    assert!(rooms(|r| r[3]["dwell"] = json!(0)).contains("invalid type"));
+    let no_dwell = checked(|_, flat| {
+        flat.as_object_mut().expect("a house").remove("dwell_room");
+    });
+    assert!(no_dwell.contains("missing field"), "{no_dwell}");
+
+    // Whom a bed is for: only a bed names it, and a bed only sleeps.
+    let bed_kind = |id: &'static str, change: fn(&mut Value)| {
+        checked(move |kinds, _| {
+            let kinds = kinds.as_array_mut().expect("the kinds");
+            let kind = kinds
+                .iter_mut()
+                .find(|kind| kind["id"] == id)
+                .expect("a kind");
+            change(kind);
+        })
+    };
+    assert_eq!(
+        bed_kind("core:bed", |k| k["bed_for"] = json!("couples")),
+        "ok"
+    );
+    assert_eq!(
+        bed_kind("core:single_bed", |k| k["bed_for"] = json!("children")),
+        "ok"
+    );
+    assert_eq!(
+        bed_kind("core:sofa", |k| k["bed_for"] = json!("couples")),
+        "house.bed_for"
+    );
+    assert_eq!(
+        bed_kind("core:tv", |k| k["bed_for"] = json!("children")),
+        "house.bed_for"
+    );
+    assert!(bed_kind("core:bed", |k| k["bed_for"] = json!("guests")).contains("unknown variant"));
+    let reading_in_bed = bed_kind("core:bed", |k| {
+        let read = json!({ "id": "read", "rates": { "fun": 300 }, "seconds": 3600,
+            "min_age": 0, "max_age": 130 });
+        k["offers"].as_array_mut().expect("the offers").push(read);
+    });
+    assert_eq!(reading_in_bed, "house.bed_for");
+
     let piano = checked(|_, flat| objects(flat)[3]["kind"] = json!("core:piano"));
     assert_eq!(piano, "house.object_kind");
     let garden = checked(|_, flat| objects(flat)[3]["room"] = json!("garden"));
@@ -475,10 +526,12 @@ fn the_repository_day_loads() {
             bed_to: at(7, 0),
         },
         // The night (ADR-0026, addendum of 2026-11-04): from 20:00 for 6 to 17, from 22:00 for
-        // 18 to 66, from 21:30 from 67 on, each until 6:00.
+        // 18 to 66, from 21:30 from 67 on, each until 6:00; before a Saturday or a Sunday
+        // morning until 7:00, from 67 on 6:30 (its addendum after the playtest).
         night: NightRules {
             from: [at(20, 0), at(20, 0), at(22, 0), at(21, 30)],
             until: [at(6, 0); 4],
+            until_weekend: [at(7, 0), at(7, 0), at(7, 0), at(6, 30)],
         },
         // A need at 0 (ADR-0026, addendum of 2026-11-04 on a need at 0): on the floor energy
         // rises 50 an hour, the sofa's poor sleep, up at 250; an accident leaves hygiene at most
@@ -523,9 +576,11 @@ fn the_day_rejects() {
         day_checked(|d| d["young"]["bed_from"] = json!(86_400)),
         "house.day_time"
     );
+    // Within the day, but after the children's night begins at 20:00, which the small children's
+    // bed must not (ADR-0026, addendum of 2026-11-04 after the playtest).
     assert_eq!(
         day_checked(|d| d["young"]["bed_from"] = json!(86_399)),
-        "ok"
+        "house.day_night"
     );
     assert_eq!(
         day_checked(|d| d["young"]["bed_to"] = json!(28_800)),
@@ -639,8 +694,17 @@ fn the_day_rejects() {
     assert_eq!(night(0, "until", 18_000), "ok");
     assert_eq!(night(3, "until", 24_900), "ok");
     assert_eq!(night(3, "until", 24_901), "house.day_night");
-    assert_eq!(night(1, "from", 62_400), "house.day_night");
-    assert_eq!(night(1, "from", 62_401), "ok");
+    // With the small children's bed from the same second, as every night begins at or after it
+    // (ADR-0026, addendum of 2026-11-04 after the playtest); without, 17:20:01 is before 19:00.
+    let early = |second: u32| {
+        day_checked(move |d| {
+            d["night"]["from"][1] = json!(second);
+            d["young"]["bed_from"] = json!(second);
+        })
+    };
+    assert_eq!(early(62_400), "house.day_night");
+    assert_eq!(early(62_401), "ok");
+    assert_eq!(night(1, "from", 62_401), "house.day_night");
     // An earlier departure moves the earliest wake (6:40 to 5:55), a later return the last.
     let earlier_wake = day_checked(|d| d["work"]["part_time"]["depart"] = json!(24_000));
     assert_eq!(earlier_wake, "house.day_night");
@@ -648,6 +712,22 @@ fn the_day_rejects() {
     assert_eq!(later_return, "house.day_night");
     assert!(
         day_checked(|d| d["night"]["from"] = json!([72_000, 72_000, 79_200]))
+            .contains("invalid length")
+    );
+    // A weekend morning has no wake, so its end only comes at or after the day plan (ADR-0026,
+    // addendum of 2026-11-04 after the playtest); and the small children's bed holds its places
+    // from 19:00, so every night starts at or after it and every end comes at or before it.
+    assert_eq!(night(1, "until_weekend", 17_999), "house.day_night");
+    assert_eq!(night(1, "until_weekend", 18_000), "ok");
+    assert_eq!(night(2, "until_weekend", 43_200), "ok");
+    assert_eq!(night(2, "until_weekend", 68_400), "ok");
+    assert_eq!(night(2, "until_weekend", 68_401), "house.day_night");
+    assert_eq!(night(0, "until_weekend", 86_400), "house.day_night");
+    let bedtime = |second: u32| day_checked(move |d| d["young"]["bed_from"] = json!(second));
+    assert_eq!(bedtime(72_000), "ok");
+    assert_eq!(bedtime(72_001), "house.day_night");
+    assert!(
+        day_checked(|d| d["night"]["until_weekend"] = json!([25_200, 25_200, 25_200]))
             .contains("invalid length")
     );
 
@@ -749,6 +829,8 @@ fn the_day_rejects() {
     assert_eq!(HouseError::DayNight.to_string(), "house.day_night");
     assert_eq!(HouseError::DayZero.to_string(), "house.day_zero");
     assert_eq!(HouseError::DayMood.to_string(), "house.day_mood");
+    assert_eq!(HouseError::BedFor.to_string(), "house.bed_for");
+    assert_eq!(HouseError::DwellRoom.to_string(), "house.dwell_room");
 }
 
 /// Four rooms with a tie: hall to bath through the kitchen (doors 0 and 3) or through the
@@ -764,6 +846,7 @@ fn test_house() -> Value {
         ],
         "child_day_room": "living",
         "child_night_room": "living",
+        "dwell_room": "living",
         "doors": [
             { "a": "hall", "b": "kitchen", "seconds": 5 },
             { "a": "hall", "b": "living", "seconds": 3 },

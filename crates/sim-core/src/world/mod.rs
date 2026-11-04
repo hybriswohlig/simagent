@@ -369,6 +369,34 @@ impl WorldState {
             .copied()
     }
 
+    /// The places of its house's beds the small children of a household hold at `at`
+    /// (ADR-0026, addendum of 2026-11-04 after the playtest); none for a household in no house.
+    pub fn held_by_children(
+        &self,
+        household: crate::ids::HouseholdId,
+        at: SimTime,
+    ) -> Vec<(u16, u8)> {
+        state::action::young_held(&self.domain, &self.data, household, at)
+    }
+
+    /// The beds of the tier of a person with needs at `at` (ADR-0026, addendum of 2026-11-04
+    /// after the playtest): its partner's bed for couples, the beds for couples or for children,
+    /// or every bed, as its choice in the night takes them; `None` for one without needs.
+    pub fn night_beds(&self, sim: SimId, at: SimTime) -> Option<Vec<u16>> {
+        let houses = self.data.houses()?;
+        let moved = self.domain.house.households.get(&self.household_of(sim)?)?;
+        let house = houses.house(&moved.house)?;
+        self.domain.house.sims.get(&sim)?;
+        let age = crate::house::choice::age(self.born(sim)?, at)?;
+        Some(state::action::tier_beds(
+            &self.domain,
+            house,
+            houses,
+            sim,
+            age,
+        ))
+    }
+
     /// Birth time of a sim, living or archived; `None` for an ID never handed out.
     pub fn born(&self, id: SimId) -> Option<SimTime> {
         let living = self.domain.sims.get(&id).map(|sim| sim.born);

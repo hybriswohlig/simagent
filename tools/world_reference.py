@@ -703,8 +703,12 @@ FOUNDER_ALLELE = 28
 # repository's day (its zero rules and the mood's amplitude) and runs with a household in a
 # house: a new data hash, no year hash and no log hash of a run without one: core 56, the
 # projection stays 19 (the house part is empty in every run here).
+# The rules of the house after the playtest (ADR-0026, addendum of 2026-11-04 after the
+# playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
+# a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
+# no year hash and no log hash of a run without one: core 57, the projection stays 19.
 PROJECTION_VERSION = 19
-CORE_VERSION = 56
+CORE_VERSION = 57
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

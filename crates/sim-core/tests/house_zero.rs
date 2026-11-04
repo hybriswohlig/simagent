@@ -5,8 +5,8 @@
 //! night it fell in ends; the bladder at 0 is full at once and leaves hygiene at most 50, and
 //! what does not raise hygiene ends; hygiene reaching 0 takes 150 from fun once; with fun at 0
 //! a command for anything that does not raise fun is refused. The zero values are the
-//! repository's `day.json`; everything else is a test house with rates chosen so that each
-//! value can be done by hand.
+//! repository's `day.json`, with weekday mornings on the weekend (`common::weekday_mornings`);
+//! everything else is a test house with rates chosen so that each value can be done by hand.
 //!
 //! The test house: rooms hall 0 (the entrance), living 1, bath 2, bedroom 3; the living room
 //! 3 s, the bath 2 s and the bedroom 4 s from the hall, 5 s to an object in one's own room.
@@ -47,7 +47,7 @@ const Y: i64 = YEAR.as_secs();
 /// hygiene at most 50, hygiene at 0 taking 150 from fun; the night of an adult from 22:00, of
 /// one from 67 from 21:30, until 6:00; part time from 7:40 to 13:20, its wake at 6:55; the
 /// jumps on coming home hunger −350, energy −200, bladder −400, hygiene −100, fun −150.
-const DAY_FILE: &str = include_str!("../../../data/house/day.json");
+const REPOSITORY_DAY: &str = include_str!("../../../data/house/day.json");
 
 /// The first morning of a household moved in at 23:59:59 of day 4: 6:00 of day 5, a Saturday,
 /// without duties that weekend; Sunday 6:00 is a day later.
@@ -118,7 +118,7 @@ fn house() -> String {
         "id": "test:zero", "capacity": 2,
         "rooms": [{"id": "hall", "entrance": true}, {"id": "living"}, {"id": "bath"},
             {"id": "bedroom"}],
-        "child_day_room": "living", "child_night_room": "bedroom",
+        "child_day_room": "living", "child_night_room": "bedroom", "dwell_room": "living",
         "doors": [
             {"a": "hall", "b": "living", "seconds": 3},
             {"a": "hall", "b": "bath", "seconds": 2},
@@ -145,6 +145,12 @@ fn rates(awake: [i32; 5], asleep: [i32; 5], his: [i32; 5]) -> String {
     json!({"awake": column(awake, his), "asleep": column(asleep, [0, 100, 0, 0, 0])}).to_string()
 }
 
+/// The repository's day with weekday mornings (`common::weekday_mornings`): the runs here begin
+/// on a Saturday to have no duty, and their nights end at 6:00 as on a weekday.
+fn day_file() -> String {
+    common::weekday_mornings(REPOSITORY_DAY)
+}
+
 /// The data of the test house with `rates`, the day `day` and the kinds `kinds`.
 fn data(rates: &str, day: &str, kinds: &Value) -> Data {
     let houses = common::houses_from(rates, day, &kinds.to_string(), &[&house()]);
@@ -153,7 +159,7 @@ fn data(rates: &str, day: &str, kinds: &Value) -> Data {
 
 /// The repository's day changed by `change`.
 fn day_with(change: impl FnOnce(&mut Value)) -> String {
-    let mut day: Value = serde_json::from_str(DAY_FILE).expect("the day");
+    let mut day: Value = serde_json::from_str(&day_file()).expect("the day");
     change(&mut day);
     day.to_string()
 }
@@ -310,6 +316,8 @@ fn started(
         needs,
         busy: busy.to_vec(),
         commanded,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -329,6 +337,8 @@ fn idle(room: u8, needs: [u16; 5], busy: &[u16], waits: Option<u16>) -> LogPaylo
         needs,
         busy: busy.to_vec(),
         waits,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -366,7 +376,7 @@ fn tiring() -> Data {
     let asleep = [-30, 100, -40, 0, -25];
     data(
         &rates([0, -900, 0, 0, 0], asleep, [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds(),
     )
 }
@@ -497,7 +507,7 @@ fn the_night_ends_the_floor_sooner() {
     );
     let data = data(
         &rates([0, -45, 0, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds,
     );
     let run = Script::saturday(data).run(SATURDAY + D + 60);
@@ -539,7 +549,7 @@ fn the_night_ends_the_floor_sooner() {
 fn lying_through_bedtime_and_up_into_bed() {
     let data = data(
         &rates([0, -60, 0, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds(),
     );
     let run = Script::saturday(data).run(SATURDAY + D + 60);
@@ -590,7 +600,7 @@ fn weary(day: &str) -> Data {
 #[test]
 fn a_departure_waits_for_one_lying_and_leaves_late() {
     let tag = part_time();
-    let script = Script::on(weary(DAY_FILE), &tag, 0);
+    let script = Script::on(weary(&day_file()), &tag, 0);
     let run = script.run(MORNING + DEPART);
     let due = Due {
         place: Duty::Work,
@@ -693,7 +703,7 @@ fn a_need_at_50_gets_her_up() {
     );
     let data = data(
         &rates([0, -900, 0, 0, 0], [-200, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds,
     );
     let run = Script::saturday(data).run(SATURDAY + 20_700);
@@ -746,7 +756,7 @@ fn the_bladder_at_0_in_a_book() {
     let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
     let data = data(
         &rates([0, 0, -120, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds,
     );
     let script = Script::saturday(data)
@@ -815,7 +825,7 @@ fn fun_kinds() -> Value {
 fn fun_at_0_refuses_what_is_no_fun() {
     let data = data(
         &rates([0, 0, 0, 0, -1_200], [0, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &fun_kinds(),
     );
     let script = Script::saturday(data).input(SATURDAY, command(2, TV));
@@ -875,7 +885,7 @@ fn hygiene_at_0_takes_fun_once() {
     let kinds = with(kinds, "test:book", offer("read", "fun", 150, 3_600));
     let data = data(
         &rates([0; 5], [0, 100, 0, 0, 0], [0, 0, 0, -700, 0]),
-        DAY_FILE,
+        &day_file(),
         &kinds,
     );
     let run = Script::saturday(data).run(SATURDAY + 7_203);
@@ -931,7 +941,7 @@ fn two_needs_at_0_in_one_second() {
     let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
     let data = data(
         &rates([0, -900, -500, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
-        DAY_FILE,
+        &day_file(),
         &kinds,
     );
     let script = Script::saturday(data).input(SATURDAY, command(2, TOILET));
@@ -1071,7 +1081,7 @@ fn a_need_at_50_in_the_second_of_the_collapse_is_not_lost() {
     let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
     let rates = rates([0, -900, -450, 0, 0], [0, 100, -40, 0, 0], [0; 5]);
     let script =
-        Script::saturday(data(&rates, DAY_FILE, &kinds)).input(SATURDAY, command(2, TOILET));
+        Script::saturday(data(&rates, &day_file(), &kinds)).input(SATURDAY, command(2, TOILET));
     let run = script.run(SATURDAY + 21_600);
     let both = |energy: u16, bladder: u16| [600, energy, bladder, 700, 800];
     let toilet = [TOILET];
@@ -1121,8 +1131,8 @@ fn a_need_at_50_in_the_second_of_the_collapse_is_not_lost() {
 fn an_action_ended_in_the_second_of_a_collapse_does_not_hide_it() {
     let kinds = with(kinds(), "test:book", offer("read", "fun", 150, 3_600));
     let rates = rates([-450, -900, 0, 0, 0], [0, 100, 0, 0, 0], [0; 5]);
-    let script =
-        Script::saturday(data(&rates, DAY_FILE, &kinds)).input(SATURDAY + 3_400, command(1, BOOK));
+    let script = Script::saturday(data(&rates, &day_file(), &kinds))
+        .input(SATURDAY + 3_400, command(1, BOOK));
     let run = script.run(SATURDAY + 3_700);
     let at = |hunger: u16, energy: u16| [hunger, energy, 500, 700, 800];
     let after = [150, 0, 500, 700, 808];
@@ -1163,7 +1173,7 @@ fn a_departure_in_the_second_of_a_collapse_waits() {
     let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
     let rates = rates([0, -540, -300, 0, 0], [0, 100, 0, 0, 0], [0; 5]);
     let script =
-        Script::on(data(&rates, DAY_FILE, &kinds), &tag, 0).input(MORNING, command(2, TOILET));
+        Script::on(data(&rates, &day_file(), &kinds), &tag, 0).input(MORNING, command(2, TOILET));
     let run = script.run(MORNING + DEPART);
     let her = &run.world.state().house().sims[&sim(1)];
     let due = Due {
@@ -1200,7 +1210,8 @@ fn a_departure_in_the_second_of_a_collapse_waits() {
 /// does, 18 000 s after the fall.
 #[test]
 fn getting_up_needs_energy_above_0() {
-    let rules: sim_core::house::data::DayRules = serde_json::from_str(DAY_FILE).expect("the day");
+    let rules: sim_core::house::data::DayRules =
+        serde_json::from_str(&day_file()).expect("the day");
     let born = t(-30 * Y);
     let six = 2 * D + 6 * H;
     let lying = |fell: i64| InHouse {
@@ -1261,14 +1272,14 @@ fn saves_while_lying_and_after_each_consequence_run_on_the_same() {
             40_000,
         ),
         (
-            Script::on(weary(DAY_FILE), &tag, 0),
+            Script::on(weary(&day_file()), &tag, 0),
             vec![3_240, WAKE, DEPART, 21_240, 21_245],
             BACK + 10,
         ),
         (
             Script::saturday(data(
                 &rates([0, 0, -120, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
-                DAY_FILE,
+                &day_file(),
                 &accident_kinds,
             ))
             .input(SATURDAY, command(2, TOILET))
@@ -1279,7 +1290,7 @@ fn saves_while_lying_and_after_each_consequence_run_on_the_same() {
         (
             Script::saturday(data(
                 &rates([0, 0, 0, 0, -1_200], [0, 100, 0, 0, 0], [0; 5]),
-                DAY_FILE,
+                &day_file(),
                 &fun_kinds(),
             ))
             .input(SATURDAY, command(2, TV)),
@@ -1289,7 +1300,7 @@ fn saves_while_lying_and_after_each_consequence_run_on_the_same() {
         (
             Script::saturday(data(
                 &rates([0; 5], [0, 100, 0, 0, 0], [0, 0, 0, -700, 0]),
-                DAY_FILE,
+                &day_file(),
                 &sting_kinds,
             )),
             vec![3_600, 3_601],

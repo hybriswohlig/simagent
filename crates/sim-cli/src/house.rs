@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sim_core::data_id::DataId;
 use sim_core::house::data::{
-    DayRules, DoorDef, HouseData, HouseDef, KindDef, Need, NeedRates, ObjectDef, OfferDef,
+    BedFor, DayRules, DoorDef, HouseData, HouseDef, KindDef, Need, NeedRates, ObjectDef, OfferDef,
 };
 
 use crate::error::CliError;
@@ -19,6 +19,8 @@ struct KindFile {
     id: DataId,
     slots: u8,
     offers: Vec<OfferFile>,
+    #[serde(default)]
+    bed_for: Option<BedFor>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +46,7 @@ struct HouseFile {
     rooms: Vec<RoomFile>,
     child_day_room: String,
     child_night_room: String,
+    dwell_room: String,
     doors: Vec<DoorFile>,
     objects: Vec<ObjectFile>,
 }
@@ -54,6 +57,13 @@ struct RoomFile {
     id: String,
     #[serde(default)]
     entrance: bool,
+    /// Whether one stays idle in the room; one does unless it says not.
+    #[serde(default = "stays")]
+    dwell: bool,
+}
+
+fn stays() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -105,6 +115,7 @@ pub fn house_data_from(
                 id: kind.id,
                 slots: kind.slots,
                 offers,
+                bed_for: kind.bed_for,
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
@@ -154,6 +165,8 @@ fn house_def(name: &str, file: HouseFile) -> Result<HouseDef, CliError> {
     Ok(HouseDef {
         child_day_room: room(&file.child_day_room, "house.child_room")?,
         child_night_room: room(&file.child_night_room, "house.child_room")?,
+        dwell_room: room(&file.dwell_room, "house.dwell_room")?,
+        dwell: file.rooms.iter().map(|room| room.dwell).collect(),
         id: file.id,
         capacity: file.capacity,
         rooms,

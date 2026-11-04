@@ -5,15 +5,16 @@
     {"id": "hall", "entrance": true},
     {"id": "kitchen"},
     {"id": "living"},
-    {"id": "wc"},
+    {"id": "wc", "dwell": false},
     {"id": "landing"},
-    {"id": "bath"},
+    {"id": "bath", "dwell": false},
     {"id": "bedroom"},
     {"id": "kids"},
     {"id": "small_room"}
   ],
   "child_day_room": "kids",
   "child_night_room": "kids",
+  "dwell_room": "living",
   "doors": [
     {"a": "hall", "b": "kitchen", "seconds": 4},
     {"a": "hall", "b": "living", "seconds": 3},

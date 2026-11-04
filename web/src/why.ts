@@ -1,7 +1,7 @@
 import { placedOfferWords } from "./command.js";
 import type { HouseLayout, WhyAnswer, WhyChoice, WhyOffer } from "./generated/export.js";
 import { timeOfDay } from "./render/plan.js";
-import { TEXT } from "./text.js";
+import { ROOM_WORDS, TEXT } from "./text.js";
 
 /** The mood in the points of an offer of "Warum?", the server's number in percent with its sign
  * (ADR-0026, addendum of 2026-11-04 on the mood): " (Laune +6 %)", " (Laune −3 %)", zero as
@@ -65,9 +65,33 @@ function listed(layout: HouseLayout, offers: readonly WhyOffer[], needs: readonl
         return TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens);
       }
       const told = TEXT.house_why_offer.replace("{what}", what).replace("{score}", score(offer, needs, true));
-      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`;
+      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}${bedWords(offer)}`;
     })
     .join(", ");
+}
+
+/** Why a bed of "Warum?" was not the person's (ADR-0026, addendum of 2026-11-04 after the
+ * playtest), as the server says: a small child held a place of it, or in the night it was a bed
+ * outside the person's tier, named by whom it is for. */
+export function bedWords(offer: WhyOffer): string {
+  if (offer.held) {
+    return ` ${TEXT.house_why_held}`;
+  }
+  if (!offer.outside) {
+    return "";
+  }
+  const whose = offer.bed_for === "couples" ? TEXT.house_why_couples : offer.bed_for === "children" ? TEXT.house_why_children : TEXT.house_why_other_bed;
+  return ` ${whose}`;
+}
+
+/** Where an idle person went from a room one does not stay in (ADR-0026, addendum of
+ * 2026-11-04 after the playtest), the room the server names. */
+function goesWords(why: WhyAnswer, layout: HouseLayout): string {
+  if (why.goes_to === null) {
+    return "";
+  }
+  const id = layout.rooms[why.goes_to]?.id ?? "";
+  return ` ${TEXT.house_why_goes.replace("{where}", ROOM_WORDS[id]?.[1] ?? id)}`;
 }
 
 /** "Warum?" for a choice as text, all from the server's answer (ADR-0026 section 6 and its
@@ -99,7 +123,7 @@ export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: s
       ? said(why.commanded ? TEXT.house_why_commanded : TEXT.house_why_chosen, chosen)
       : waited !== undefined
         ? said(TEXT.house_why_waits, waited)
-        : TEXT.house_why_none.replace("{enough}", pointsText(why.enough));
+        : `${TEXT.house_why_none.replace("{enough}", pointsText(why.enough))}${goesWords(why, layout)}`;
   const told = `${night}${head}${behind === "" ? "" : ` ${TEXT.house_why_behind.replace("{list}", behind)}`}`;
   const now =
     why.now === null || why.now.offers.length === 0

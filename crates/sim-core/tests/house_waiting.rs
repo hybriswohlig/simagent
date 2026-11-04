@@ -33,7 +33,7 @@ const KINDS: &str = r#"
 const HOUSE: &str = r#"{
   "id": "test:queue", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "kitchen"}, {"id": "den"}, {"id": "bedroom"}],
-  "child_day_room": "den", "child_night_room": "bedroom",
+  "child_day_room": "den", "child_night_room": "bedroom", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "kitchen", "seconds": 3},
     {"a": "hall", "b": "den", "seconds": 3},
@@ -73,6 +73,8 @@ fn started(
         needs,
         busy: busy.to_vec(),
         commanded: false,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -115,6 +117,8 @@ fn a_waiter_gets_the_place_that_frees() {
         needs: MORNING_NEEDS,
         busy: vec![0],
         waits: Some(0),
+        held: Vec::new(),
+        tier: Vec::new(),
     };
     let his = run.doings(2);
     assert_eq!(
@@ -170,6 +174,8 @@ fn a_holder_who_chooses_otherwise_passes_the_place_on() {
         needs: MORNING_NEEDS,
         busy: vec![0],
         waits: Some(0),
+        held: Vec::new(),
+        tier: Vec::new(),
     };
     assert_eq!(
         run.doings(2),

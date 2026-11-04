@@ -174,12 +174,14 @@ pub struct YoungRules {
 
 /// The night per age band of `AGE_BANDS` (ADR-0026, addendum of 2026-11-04): the night of a
 /// day runs from `from` of that day to `until` of the next, for the band of the age at the
-/// day's plan.
+/// day's plan; to `until_weekend` when the next morning is a Saturday or a Sunday (weekday 5
+/// or 6), the lie-in of its addendum after the playtest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NightRules {
     pub from: [u32; 4],
     pub until: [u32; 4],
+    pub until_weekend: [u32; 4],
 }
 
 /// What a need at 0 does (ADR-0026, addendum of 2026-11-04 on a need at 0): energy at 0 lays the
@@ -277,11 +279,15 @@ impl DayRules {
 
     /// The night (ADR-0026, addendum of 2026-11-04), each bound below 24 h. Each end at or
     /// before the earliest wake, so that no wake falls into a night and every morning's
-    /// choices are awake ones; at or after the day plan, which sets up the next bedtime. Each
-    /// start after the last return, so that everyone with a duty is home at bedtime. The wake
-    /// comes before its departure and that before its return, so each start then lies after
-    /// every end and after the plan of its day: the plan at 5:00 always plans a bedtime still
-    /// to come, and no second lies in two nights.
+    /// choices are awake ones; at or after the day plan, which sets up the next bedtime. A
+    /// weekend morning has no wake, so its end (`until_weekend`, the addendum after the
+    /// playtest) only comes at or after the plan. Each start after the last return, so that
+    /// everyone with a duty is home at bedtime. The wake comes before its departure and that
+    /// before its return, so each start then lies after every end and after the plan of its
+    /// day: the plan at 5:00 always plans a bedtime still to come, and no second lies in two
+    /// nights. The small children's bed holds its places from `bed_from` (the addendum after
+    /// the playtest), so every night starts at or after it and every end comes at or before
+    /// it: nobody sleeps on a place when a child's hold of it begins.
     fn night_checked(&self, hours: &[(u32, u32); 3]) -> Result<(), HouseError> {
         let night = &self.night;
         // The wake check before keeps each wake after the plan, so nothing saturates here.
@@ -289,24 +295,59 @@ impl DayRules {
             .iter()
             .map(|&(depart, _)| depart.saturating_sub(self.wake_before));
         let returns = hours.iter().map(|&(_, back)| back);
-        let in_day =
-            (night.from.iter().chain(&night.until)).all(|&time| i64::from(time) < DAY.as_secs());
+        let bounds = || {
+            night
+                .from
+                .iter()
+                .chain(&night.until)
+                .chain(&night.until_weekend)
+        };
+        let in_day = bounds().all(|&time| i64::from(time) < DAY.as_secs());
         let ends = (night.until.iter())
             .all(|&until| self.day_plan_at <= until && wakes.clone().all(|wake| until <= wake));
+        let weekend = (night.until_weekend.iter()).all(|&until| self.day_plan_at <= until);
         let begins = (night.from.iter()).all(|&from| returns.clone().all(|back| from > back));
-        if !(in_day && ends && begins) {
+        let bed = self.young.bed_from;
+        let young = (night.from.iter()).all(|&from| bed <= from)
+            && (night.until.iter().chain(&night.until_weekend)).all(|&until| until <= bed);
+        if !(in_day && ends && weekend && begins && young) {
             return Err(HouseError::DayNight);
         }
         Ok(())
     }
 }
 
-/// A kind of furniture (ADR-0025 section 1); an offer's number is its place in `offers`.
+/// A kind of furniture (ADR-0025 section 1); an offer's number is its place in `offers`. A bed
+/// may say whom it is for (ADR-0026, addendum of 2026-11-04 after the playtest): a couple sleeps
+/// in a bed for couples, a child in one for children.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KindDef {
     pub id: DataId,
     pub slots: u8,
     pub offers: Vec<OfferDef>,
+    pub bed_for: Option<BedFor>,
+}
+
+/// Whom a bed is for in the night's order (ADR-0026, addendum of 2026-11-04 after the
+/// playtest).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BedFor {
+    Couples,
+    Children,
+}
+
+impl KindDef {
+    /// Whether the kind is the sofa: it sleeps too, but its places are no beds (ADR-0025
+    /// section 3).
+    pub fn is_sofa(&self) -> bool {
+        self.id.as_str() == "core:sofa"
+    }
+
+    /// Whether the kind is a bed: a kind with an offer of sleep other than the sofa.
+    pub fn is_bed(&self) -> bool {
+        !self.is_sofa() && self.offers.iter().any(|offer| offer.sleep)
+    }
 }
 
 /// An offer of a kind (ADR-0026 section 2): a fixed length in `seconds`, or until the need
@@ -375,7 +416,9 @@ impl OfferDef {
 }
 
 /// A house (ADR-0025 section 1) with its rooms numbered from 0 to `rooms − 1`; an object's
-/// number is its place in `objects`.
+/// number is its place in `objects`. Per room whether one stays there idle (`dwell`), and the
+/// room one goes to from a room one does not (`dwell_room`, ADR-0026, addendum of 2026-11-04
+/// after the playtest).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct HouseDef {
     pub id: DataId,
@@ -384,6 +427,8 @@ pub struct HouseDef {
     pub entrance: u8,
     pub child_day_room: u8,
     pub child_night_room: u8,
+    pub dwell_room: u8,
+    pub dwell: Vec<bool>,
     pub doors: Vec<DoorDef>,
     pub objects: Vec<ObjectDef>,
 }
@@ -468,6 +513,13 @@ pub enum HouseError {
     SleepPlaces,
     /// A need at an age with needs that no offer of the house raises.
     NeedUnserved,
+    /// A kind that names whom it is for and is no bed, or a bed that offers more than sleep
+    /// (ADR-0026, addendum of 2026-11-04 after the playtest).
+    BedFor,
+    /// A room to go to from a room one does not stay in that the house does not have, that one
+    /// does not stay in itself, or that is the entrance; or not one word per room whether one
+    /// stays there.
+    DwellRoom,
 }
 
 impl fmt::Display for HouseError {
@@ -501,6 +553,8 @@ impl fmt::Display for HouseError {
             HouseError::Essentials => "house.essentials",
             HouseError::SleepPlaces => "house.sleep_places",
             HouseError::NeedUnserved => "house.need_unserved",
+            HouseError::BedFor => "house.bed_for",
+            HouseError::DwellRoom => "house.dwell_room",
         })
     }
 }
@@ -549,6 +603,28 @@ impl House {
     pub fn walk_out(&self, from: u8) -> u32 {
         self.seconds(from, self.def.entrance) + OUT_SECS
     }
+
+    /// Whether one stays idle in `room` (ADR-0026, addendum of 2026-11-04 after the playtest).
+    pub fn dwells(&self, room: u8) -> bool {
+        self.def.dwell[usize::from(room)]
+    }
+
+    /// The walk from a room one does not stay in to the house's `dwell_room`.
+    pub fn walk_to_dwell(&self, from: u8) -> u32 {
+        self.seconds(from, self.def.dwell_room)
+    }
+
+    /// The places of beds in the house's `child_night_room`, by object and then place: the
+    /// `n`-th is held by the `n`-th small child in its bed (ADR-0026, addendum of 2026-11-04
+    /// after the playtest).
+    pub fn child_beds<'a>(&'a self, data: &'a HouseData) -> impl Iterator<Item = (u16, u8)> + 'a {
+        (0_u16..)
+            .zip(&self.def.objects)
+            .filter(|(_, object)| object.room == self.def.child_night_room)
+            .filter_map(|(at, object)| Some((at, data.kind(&object.kind)?)))
+            .filter(|(_, kind)| kind.is_bed())
+            .flat_map(|(at, kind)| (0..kind.slots).map(move |slot| (at, slot)))
+    }
 }
 
 /// The checked house data: the rates, the rules of the day, the kinds in the order of their
@@ -581,6 +657,12 @@ impl HouseData {
             }
             for offer in &kind.offers {
                 offer.checked(&rates)?;
+            }
+            // A bed only sleeps, so a small child's hold of its place in the night meets no
+            // other action on it; only a bed says whom it is for.
+            let sleeps_only = kind.offers.iter().all(|offer| offer.sleep);
+            if (kind.is_bed() && !sleeps_only) || (kind.bed_for.is_some() && !kind.is_bed()) {
+                return Err(HouseError::BedFor);
             }
         }
         defs.sort_by(|a, b| a.id.cmp(&b.id));
@@ -672,6 +754,13 @@ fn checked_house(def: HouseDef, kinds: &[KindDef], rates: &NeedRates) -> Result<
     if !is_room(def.child_day_room) || !is_room(def.child_night_room) {
         return Err(HouseError::ChildRoom);
     }
+    // One goes from a room one does not stay in to a room one stays in, other than the entrance:
+    // a walk without an action leads out of the house only to the entrance.
+    let one_each = def.dwell.len() == usize::from(def.rooms);
+    let stays = one_each && is_room(def.dwell_room) && def.dwell[usize::from(def.dwell_room)];
+    if !stays || def.dwell_room == def.entrance {
+        return Err(HouseError::DwellRoom);
+    }
 
     let mut objects: Vec<&KindDef> = Vec::new();
     for object in &def.objects {
@@ -698,7 +787,7 @@ fn checked_house(def: HouseDef, kinds: &[KindDef], rates: &NeedRates) -> Result<
     }
     // The sofa sleeps too, but its places are no beds.
     let beds: usize = (objects.iter())
-        .filter(|kind| kind.id.as_str() != "core:sofa" && kind.offers.iter().any(|o| o.sleep))
+        .filter(|kind| kind.is_bed())
         .map(|kind| usize::from(kind.slots))
         .sum();
     if beds < usize::from(def.capacity) {

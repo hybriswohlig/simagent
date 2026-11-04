@@ -368,7 +368,8 @@ fn end_house(domain: &mut DomainState, household: HouseholdId, ctx: &mut SimCtx<
 /// The moves of this handler, in their order (ADR-0024 section 2): one who leaves a
 /// household in a house moves out of it, one who comes into one moves in with its plan at
 /// 5:00, and from 6 after the first morning starts the day at once; a household that has
-/// ended leaves its house without an entry.
+/// ended leaves its house without an entry. Then the idle persons of each household whose free
+/// places changed get their next choice (`action::plan_idle`).
 pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for change in core::mem::take(&mut domain.house_moves) {
         let because = || Causes::new(Cause::Event(change.cause));
@@ -415,6 +416,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
     for household in ended {
         end_house(domain, household, ctx);
     }
+    super::action::plan_idle(domain, data, ctx);
 }
 
 #[cfg(test)]

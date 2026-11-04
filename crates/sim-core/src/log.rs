@@ -229,7 +229,9 @@ pub enum LogPayload {
     /// A person (the subject) chose `offer` of `object` in `house` and walks to it from
     /// `room`, `walk_secs` long, holding its place `slot` (ADR-0026 sections 4 and 6): the
     /// needs of the choice and the objects without a free place, so that "Why?" can compute
-    /// the choice again; `commanded` if a command chose it.
+    /// the choice again; `commanded` if a command chose it. In the person's night the objects
+    /// with a place a small child holds, `held`, and the beds of its tier, `tier` (none for a
+    /// command; ADR-0026, addendum of 2026-11-04 after the playtest); by day both are empty.
     #[serde(rename = "core:action_started")]
     ActionStarted {
         house: DataId,
@@ -241,6 +243,8 @@ pub enum LogPayload {
         needs: [u16; 5],
         busy: Vec<u16>,
         commanded: bool,
+        held: Vec<u16>,
+        tier: Vec<u16>,
     },
     /// A person reached the object of its action and begins it.
     #[serde(rename = "core:reached")]
@@ -255,7 +259,7 @@ pub enum LogPayload {
     },
     /// A person chose nothing: no free offer brought enough points (ADR-0026 section 5). The
     /// house, the room, the needs and the objects without a free place as for a start;
-    /// `waits` the object it waits for.
+    /// `waits` the object it waits for; `held` and `tier` as for a start.
     #[serde(rename = "core:idle")]
     Idle {
         house: DataId,
@@ -263,6 +267,8 @@ pub enum LogPayload {
         needs: [u16; 5],
         busy: Vec<u16>,
         waits: Option<u16>,
+        held: Vec<u16>,
+        tier: Vec<u16>,
     },
     /// A person's need fell to `level`, 150 or 50 (ADR-0026 section 4).
     #[serde(rename = "core:need_critical")]

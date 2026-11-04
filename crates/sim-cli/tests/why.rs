@@ -89,13 +89,21 @@ fn why_recomputes_the_choice() {
             .collect();
         let night = answer["night"]["now"] == true;
         assert_eq!(night, closed.is_empty(), "{answer}");
-        let (house, needs, busy) = match &entry.payload {
+        let (house, needs, busy, tier) = match &entry.payload {
             LogPayload::ActionStarted {
-                house, needs, busy, ..
+                house,
+                needs,
+                busy,
+                tier,
+                ..
             }
             | LogPayload::Idle {
-                house, needs, busy, ..
-            } => (house, *needs, busy),
+                house,
+                needs,
+                busy,
+                tier,
+                ..
+            } => (house, *needs, busy, tier),
             other => panic!("no choice: {other:?}"),
         };
         let house = houses.house(house).expect("its house");
@@ -110,11 +118,13 @@ fn why_recomputes_the_choice() {
         }
         let born = world.state().born(*sim).expect("born");
         let years = age(born, entry.t).expect("an age");
+        // In the night the beds of the person's tier, as its entry names them.
+        let night = night.then_some(tier.as_slice());
         let choice = choose((house, houses), (years, needs), &scored, busy, night);
         match &entry.payload {
             LogPayload::ActionStarted { object, offer, .. } => {
                 starts += 1;
-                nights += usize::from(night);
+                nights += usize::from(night.is_some());
                 let chosen = &answer["chosen"];
                 let expected = Scored {
                     object: *object,

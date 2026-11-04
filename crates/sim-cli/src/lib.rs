@@ -333,12 +333,15 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// of 2026-11-04 on a need at 0): read from the state, the smell from the need it exports.
 /// And each person's offers a command may name, by object and then offer (version 5): those
 /// the core's check of a command opens in the second it acts, the one after the clock (ADR-0024
-/// section 5): at the person's age then, an offer of sleep only in its night; none at the end
-/// of time. `None` for a household without a house.
+/// section 5): at the person's age then, an offer of sleep only in its night, no object whose
+/// every place a small child holds then; none at the end of time. Each walk says whether it
+/// leads out of the house (version 6, ADR-0026, addendum of 2026-11-04 after the playtest): a
+/// walk without an action leads out or to the room one stays in. `None` for a household
+/// without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, night, young_place};
     use sim_core::house::need::EMERGENCY;
-    use sim_core::house::state::{Place, action_end};
+    use sim_core::house::state::{Place, action_end, dwell_walk};
     let state = world.state();
     let Ok(household) = sim_core::ids::HouseholdId::try_from(household) else {
         return Ok(None);
@@ -387,12 +390,19 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             let age = sim_core::house::choice::age(born, acts)
                 .ok_or_else(|| broken("a person before its birth"))?;
             let tonight = night(houses.day(), born, acts).is_some();
+            // A bed whose every place a small child holds then is refused as taken by the
+            // clock alone (ADR-0026, addendum of 2026-11-04 after the playtest); the beds'
+            // tiers order a choice, not a command.
+            let held = state.held_by_children(household, acts);
             for (object, def) in (0_u16..).zip(&house.def().objects) {
                 let kind = houses
                     .kind(&def.kind)
                     .ok_or_else(|| broken("an unknown kind"))?;
+                let all_held = (0..kind.slots).all(|slot| held.contains(&(object, slot)));
                 for (offer, def) in (0_u16..).zip(&kind.offers) {
-                    if (def.min_age..=def.max_age).contains(&age) && (!def.sleep || tonight) {
+                    let open =
+                        (def.min_age..=def.max_age).contains(&age) && (!def.sleep || tonight);
+                    if open && !all_held {
                         commands.push(serde_json::json!({"object": object, "offer": offer}));
                     }
                 }
@@ -410,6 +420,9 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
                 "to": to,
                 "depart": dated(depart),
                 "arrive": dated(arrive),
+                // Without an action out to the entrance, or to the room one stays in (ADR-0026,
+                // addendum of 2026-11-04 after the playtest).
+                "out": person.action.is_none() && !dwell_walk(person, house),
             }}),
             Place::Away => {
                 let (place, back) = world
@@ -468,7 +481,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 5,
+        "version": 6,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
@@ -493,7 +506,10 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
 /// offer and the chosen one with the needs critical then that it raises, the urgent part of its
 /// points; and for an idle entry that is the person's `latest` choice in the log while the person
 /// is still idle in a room of the same house, the same comparison at the clock, `now` (version
-/// 4). `None` for any other entry.
+/// 4). Each offer says whether a small child held a place of its object, whether it was a bed
+/// outside the person's tier in the night and whom its kind is for; an idle choice waiting for
+/// nothing in a room one does not stay in names the room the person went to (version 5, ADR-0026,
+/// addendum of 2026-11-04 after the playtest). `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -503,7 +519,7 @@ pub fn why_answer(
     use sim_core::house::choice::ENOUGH;
     use sim_core::house::day::{next_night, night};
     use sim_core::log::{LogPayload, Subject};
-    let (house, room, needs, busy, chosen, commanded, waits) = match &entry.payload {
+    let (house, room, needs, busy, chosen, commanded, waits, (held, tier)) = match &entry.payload {
         LogPayload::ActionStarted {
             house,
             object,
@@ -512,6 +528,8 @@ pub fn why_answer(
             needs,
             busy,
             commanded,
+            held,
+            tier,
             ..
         } => (
             house,
@@ -521,6 +539,7 @@ pub fn why_answer(
             Some((*object, *offer)),
             *commanded,
             None,
+            (held, tier),
         ),
         LogPayload::Idle {
             house,
@@ -528,7 +547,18 @@ pub fn why_answer(
             needs,
             busy,
             waits,
-        } => (house, *room, *needs, busy, None, false, *waits),
+            held,
+            tier,
+        } => (
+            house,
+            *room,
+            *needs,
+            busy,
+            None,
+            false,
+            *waits,
+            (held, tier),
+        ),
         _ => return Ok(None),
     };
     let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
@@ -553,6 +583,8 @@ pub fn why_answer(
         needs,
         busy,
         commanded,
+        held,
+        tier,
     };
     let scored = scored_offers(world, (house, houses), &choice)?;
     let chosen = match chosen {
@@ -586,6 +618,9 @@ pub fn why_answer(
                         "busy": busy.contains(&object),
                         "closed": true,
                         "urgent": urgent(houses, def, age, needs)?,
+                        "held": held.contains(&object),
+                        "outside": false,
+                        "bed_for": kind.bed_for,
                     }));
                 }
             }
@@ -604,9 +639,13 @@ pub fn why_answer(
     } else {
         None
     };
+    // Idle and waiting for nothing in a room one does not stay in, the person went to the room
+    // one does (ADR-0026, addendum of 2026-11-04 after the playtest).
+    let goes_to =
+        (idle && waits.is_none() && !house.dwells(room)).then_some(house.def().dwell_room);
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 4,
+        "version": 5,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -616,13 +655,15 @@ pub fn why_answer(
         "night": night,
         "chosen": chosen,
         "waits": waits,
+        "goes_to": goes_to,
         "offers": offers,
         "now": now,
     })))
 }
 
 /// A choice to compute again: who, in which second, from which room, with which needs and
-/// which objects without a free place, and whether a command made it.
+/// which objects without a free place, whether a command made it, and in the night the objects
+/// with a place a small child held and the beds of the person's tier.
 struct ChoiceAt<'a> {
     sim: SimId,
     at: SimTime,
@@ -630,6 +671,8 @@ struct ChoiceAt<'a> {
     needs: [u16; 5],
     busy: &'a [u16],
     commanded: bool,
+    held: &'a [u16],
+    tier: &'a [u16],
 }
 
 /// The points of every offer open in `choice` recomputed with `house::choice::score` from its
@@ -675,7 +718,9 @@ fn scored_offers(
 
 /// The offers of `scored` as "Warum?" sends them: object, offer, points, the mood (none for a
 /// command), whether the object was in `choice.busy`, open, and the needs critical in `choice`
-/// that the offer raises at `age`.
+/// that the offer raises at `age`; whether a small child held a place of the object, whether the
+/// offer is a bed's sleep outside the person's tier, and whom the object's kind is for (version
+/// 5, ADR-0026, addendum of 2026-11-04 after the playtest).
 fn offer_values(
     house: &sim_core::house::data::House,
     houses: &sim_core::house::data::HouseData,
@@ -686,6 +731,13 @@ fn offer_values(
     (scored.iter())
         .map(|scored| {
             let def = offer_def(house, houses, scored.object, scored.offer)?;
+            let kind = (house.def().objects.get(usize::from(scored.object)))
+                .and_then(|object| houses.kind(&object.kind))
+                .ok_or_else(|| CliError::new("save_rejected", "the choice: an unknown kind"))?;
+            let outside = def.sleep
+                && kind.is_bed()
+                && !choice.tier.is_empty()
+                && !choice.tier.contains(&scored.object);
             Ok(serde_json::json!({
                 "object": scored.object,
                 "offer": scored.offer,
@@ -694,6 +746,9 @@ fn offer_values(
                 "busy": choice.busy.contains(&scored.object),
                 "closed": false,
                 "urgent": urgent(houses, def, age, choice.needs)?,
+                "held": choice.held.contains(&scored.object),
+                "outside": outside,
+                "bed_for": kind.bed_for,
             }))
         })
         .collect()
@@ -771,6 +826,12 @@ fn compared_now(
             taken.insert((object, slot));
         }
     }
+    // And those a small child holds in its bed (ADR-0026, addendum of 2026-11-04 after the
+    // playtest), with the beds of the person's tier in its night.
+    let children = state.held_by_children(household, at);
+    taken.extend(children.iter().copied());
+    let mut held: Vec<u16> = children.iter().map(|&(object, _)| object).collect();
+    held.dedup();
     let busy: Vec<u16> = (0_u16..)
         .zip(&house.def().objects)
         .filter(|(object, def)| {
@@ -784,6 +845,12 @@ fn compared_now(
         .ok_or_else(|| CliError::new("save_rejected", "the choice: an unknown person"))?;
     let age = sim_core::house::choice::age(born, at)
         .ok_or_else(|| CliError::new("save_rejected", "the choice: before the birth"))?;
+    let tonight = sim_core::house::day::night(houses.day(), born, at).is_some();
+    let tier = match tonight {
+        true => state.night_beds(sim, at).unwrap_or_default(),
+        false => Vec::new(),
+    };
+    let held = if tonight { held } else { Vec::new() };
     let choice = ChoiceAt {
         sim,
         at,
@@ -791,6 +858,8 @@ fn compared_now(
         needs,
         busy: &busy,
         commanded: false,
+        held: &held,
+        tier: &tier,
     };
     let scored = scored_offers(world, (house, houses), &choice)?;
     let offers = offer_values(house, houses, &choice, &scored, age)?;

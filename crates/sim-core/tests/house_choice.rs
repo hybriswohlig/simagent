@@ -14,8 +14,8 @@
 mod common;
 
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{Choice, ENOUGH, Scored, best, choose, mood, score};
-use sim_core::house::data::{House, HouseData};
+use sim_core::house::choice::{Choice, ENOUGH, Scored, Tier, best, choose, in_tier, mood, score};
+use sim_core::house::data::{BedFor, House, HouseData};
 use sim_core::lineage::LineageKey;
 use sim_core::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use sim_core::time::SimTime;
@@ -38,6 +38,16 @@ fn flat(houses: &HouseData) -> &House {
     houses
         .house(&DataId::new("core:flat").expect("id"))
         .expect("the flat")
+}
+
+/// The beds of `tier` in the flat (ADR-0026, addendum of 2026-11-04 after the playtest): any bed
+/// for one without a partner of 18 or more, the bed 7 and the single bed 8; the single bed for a
+/// child.
+fn beds(houses: &HouseData, tier: Tier) -> Vec<u16> {
+    let flat = flat(houses);
+    (0..10)
+        .filter(|&object| in_tier(flat, houses, tier, object))
+        .collect()
 }
 
 /// No mood for any offer: the hand values of the points as the needs and the walk give them.
@@ -92,21 +102,13 @@ fn an_adult_at_the_morning_values() {
     let tv = best(&scored, &taken).expect("a free offer");
     assert_eq!((tv.object, tv.points), (3, 39_850));
     assert!(tv.points < ENOUGH);
-    let chose = |busy: &[u16]| {
-        choose(
-            (flat(&houses), &houses),
-            (30, morning),
-            &scored,
-            busy,
-            false,
-        )
-    };
+    let chose = |busy: &[u16]| choose((flat(&houses), &houses), (30, morning), &scored, busy, None);
     assert_eq!(chose(&[]), Choice::Take(toilet));
     // By day, nothing free that brings enough: waiting for the best taken object that would
     // (the toilet), or idle if none would (only television and bookshelf).
     assert_eq!(chose(&taken), Choice::Wait(5));
     let low = &scored[2..4];
-    let idle = choose((flat(&houses), &houses), (30, morning), low, &[], false);
+    let idle = choose((flat(&houses), &houses), (30, morning), low, &[], None);
     assert_eq!(idle, Choice::Idle);
 }
 
@@ -140,7 +142,18 @@ fn in_the_night_a_bed_comes_first() {
         (8, 10_000 - 250),
     ];
     assert_eq!(points(&scored), expected);
-    let chose = |busy: &[u16]| choose((flat(&houses), &houses), (30, morning), &scored, busy, true);
+    let any = beds(&houses, Tier::Any);
+    assert_eq!(any, [7, 8]);
+    let night = Some(any.as_slice());
+    let chose = |busy: &[u16]| {
+        choose(
+            (flat(&houses), &houses),
+            (30, morning),
+            &scored,
+            busy,
+            night,
+        )
+    };
     let at = |object: u16, points: i64| {
         Choice::Take(Scored {
             object,
@@ -198,7 +211,10 @@ fn a_critical_need_comes_first() {
     night.extend([(2, 90_000 - 400), (7, 90_000 - 500), (8, 90_000 - 250)]);
     night.sort_unstable();
     assert_eq!(points(&scored), night);
-    let chosen = choose((flat(&houses), &houses), (8, needs), &scored, &[], true);
+    let children = beds(&houses, Tier::For(BedFor::Children));
+    assert_eq!(children, [8]);
+    let night = Some(children.as_slice());
+    let chosen = choose((flat(&houses), &houses), (8, needs), &scored, &[], night);
     let toys = Scored {
         object: 9,
         offer: 0,
@@ -208,7 +224,7 @@ fn a_critical_need_comes_first() {
     assert_eq!(chosen, Choice::Take(toys));
     // With what raises fun taken, the single bed; the critical need waits for no object.
     let busy = [3, 4, 9];
-    let chosen = choose((flat(&houses), &houses), (8, needs), &scored, &busy, true);
+    let chosen = choose((flat(&houses), &houses), (8, needs), &scored, &busy, night);
     let bed = Scored {
         object: 8,
         offer: 0,
@@ -256,12 +272,13 @@ fn the_lower_critical_need_wins() {
     assert_eq!(points(&scored), expected);
     assert_eq!(best(&scored, &[]).map(|chosen| chosen.object), Some(7));
     assert_eq!(best(&scored, &[7]).map(|chosen| chosen.object), Some(8));
+    let any = beds(&houses, Tier::Any);
     let chose = |scored: &[Scored], night: bool| match choose(
         (flat(&houses), &houses),
         (40, needs),
         scored,
         &[],
-        night,
+        night.then_some(any.as_slice()),
     ) {
         Choice::Take(chosen) => chosen.object,
         other => panic!("{other:?}"),
@@ -476,7 +493,7 @@ fn a_critical_need_wins_whatever_the_mood() {
         mood: -10,
         points: 459_000 - 200 + critical,
     };
-    let chosen = choose((flat(&houses), &houses), (30, needs), &scored, &[], false);
+    let chosen = choose((flat(&houses), &houses), (30, needs), &scored, &[], None);
     assert_eq!(chosen, Choice::Take(table));
 }
 
@@ -496,7 +513,9 @@ fn the_floor_and_the_beds_take_the_mood() {
         3 | 8 => 1,
         _ => 0,
     };
+    let any = beds(&houses, Tier::Any);
     let chose = |scored: &[Scored], busy: &[u16], night: bool| {
+        let night = night.then_some(any.as_slice());
         choose((flat(&houses), &houses), (30, morning), scored, busy, night)
     };
     let at = |object: u16, mood: i8, points: i64| {

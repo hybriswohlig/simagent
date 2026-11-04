@@ -48,6 +48,8 @@ fn started(
         needs,
         busy: busy.to_vec(),
         commanded: false,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -67,6 +69,8 @@ fn idle(house: &str, room: u8, needs: [u16; 5], busy: &[u16], waits: Option<u16>
         needs,
         busy: busy.to_vec(),
         waits,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -104,7 +108,7 @@ const BATH_KINDS: &str = r#"
 const BATH: &str = r#"{
   "id": "test:bath", "capacity": 4,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "bath"}, {"id": "bedroom"}],
-  "child_day_room": "hall", "child_night_room": "bedroom",
+  "child_day_room": "hall", "child_night_room": "bedroom", "dwell_room": "bedroom",
   "doors": [{"a": "hall", "b": "bath", "seconds": 3}, {"a": "hall", "b": "bedroom", "seconds": 3}],
   "objects": [{"kind": "test:toilet", "room": "bath"}, {"kind": "test:shower", "room": "bath"},
     {"kind": "test:bed", "room": "bedroom"}, ESSENTIALS]
@@ -124,7 +128,9 @@ const BATH: &str = r#"{
 /// and nobody waits beyond the end of all the others.
 #[test]
 fn one_bathroom_four_people_in_the_morning() {
-    let data = day::house_data(&day::rates(0, 0, 0), BATH_KINDS, BATH);
+    // The run begins on a Saturday to have no duty, its night ending at 6:00 as on a weekday.
+    let week = common::repository_day_on_weekdays();
+    let data = day::house_data_on(&week, &day::rates(0, 0, 0), BATH_KINDS, BATH);
     let born = [-30 * Y, -32 * Y, -10 * Y, -8 * Y];
     let (mut run, _) = Run::family(data, 7, "test:house", &born, 4);
     let morning = 5 * D + 6 * HOUR.as_secs();
@@ -223,7 +229,7 @@ const OLD_KINDS: &str = r#"
 const OLD: &str = r#"{
   "id": "test:old", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "kitchen"}],
-  "child_day_room": "hall", "child_night_room": "hall",
+  "child_day_room": "hall", "child_night_room": "hall", "dwell_room": "kitchen",
   "doors": [{"a": "hall", "b": "kitchen", "seconds": 3}],
   "objects": [{"kind": "test:soup", "room": "kitchen"}, {"kind": "test:gruel", "room": "kitchen"},
     {"kind": "test:cot", "room": "hall"}, ESSENTIALS]
@@ -407,7 +413,7 @@ const LATE_KINDS: &str = r#"
 const LATE: &str = r#"{
   "id": "test:late", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}],
-  "child_day_room": "hall", "child_night_room": "hall",
+  "child_day_room": "hall", "child_night_room": "hall", "dwell_room": "den",
   "doors": [{"a": "hall", "b": "den", "seconds": 95}],
   "objects": [{"kind": "test:stew", "room": "hall"}, {"kind": "test:game", "room": "den"},
     {"kind": "test:cot", "room": "hall"}, ESSENTIALS]

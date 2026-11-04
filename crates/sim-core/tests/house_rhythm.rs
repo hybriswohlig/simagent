@@ -16,7 +16,7 @@ use common::day::{self, MORNING};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
-use sim_core::house::choice::mood;
+use sim_core::house::choice::{ENOUGH, mood};
 use sim_core::house::data::Need;
 use sim_core::house::day::{DayDuty, duty};
 use sim_core::house::need::NeedSample;
@@ -121,7 +121,7 @@ const HOME_KINDS: &str = r#"
 const HOME: &str = r#"{
   "id": "test:home", "capacity": 3,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "bedroom"}],
-  "child_day_room": "hall", "child_night_room": "bedroom",
+  "child_day_room": "hall", "child_night_room": "bedroom", "dwell_room": "bedroom",
   "doors": [{"a": "hall", "b": "bedroom", "seconds": 3}],
   "objects": [{"kind": "test:loo", "room": "hall"}, {"kind": "test:pot", "room": "hall"},
     {"kind": "test:bed", "room": "bedroom"}, ESSENTIALS]
@@ -132,11 +132,11 @@ fn home() -> Data {
     day::house_data(&rates(0, -30, 30), HOME_KINDS, HOME)
 }
 
-/// A feast for one (hunger +7 an hour for 10 h), a gruel for one (+180 for 20 min), a cot for
+/// A feast for one (hunger +6 an hour for 10 h), a gruel for one (+180 for 20 min), a cot for
 /// two and a small loo (bladder +720 for 5 min).
 const FAR_KINDS: &str = r#"
   {"id": "test:feast", "slots": 1, "offers": [
-    {"id": "eat", "rates": {"hunger": 7}, "seconds": 36000, "min_age": 0, "max_age": 130}]},
+    {"id": "eat", "rates": {"hunger": 6}, "seconds": 36000, "min_age": 0, "max_age": 130}]},
   {"id": "test:gruel", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 180}, "seconds": 1200, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
@@ -150,7 +150,7 @@ const FAR_KINDS: &str = r#"
 const FAR: &str = r#"{
   "id": "test:far", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "a"}, {"id": "b"}, {"id": "den"}],
-  "child_day_room": "hall", "child_night_room": "a",
+  "child_day_room": "hall", "child_night_room": "a", "dwell_room": "den",
   "doors": [
     {"a": "hall", "b": "a", "seconds": 110},
     {"a": "a", "b": "b", "seconds": 110},
@@ -287,6 +287,8 @@ fn started(
         needs,
         busy,
         commanded: false,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -306,6 +308,8 @@ fn idle(house: &str, room: u8, needs: [u16; 5], busy: Vec<u16>) -> LogPayload {
         needs,
         busy,
         waits: None,
+        held: Vec::new(),
+        tier: Vec::new(),
     }
 }
 
@@ -678,21 +682,25 @@ fn far_moods(index: u64, second: i64) -> [i64; 2] {
 /// Two who work full time in the far house (sims 1 and 2 of `common::day`, their draws 30
 /// and 3). Hunger falls 173 an hour: at 6:00 nothing is enough (the loo 500 · 60 − 250, at
 /// most 33 000 − 250 with the best mood), at 7:09:22 (400) and at their wakes at 7:55 (269, the
-/// feast 731 · 70 − 50 · 330, at most 56 287 − 16 500) neither. At 8:36:05 hunger is 150, and
-/// the feast fills 850 · 70 = 59 500, the gruel 850 · 60 = 51 000, each scaled by the person's
-/// mood for it there (the draw `mood`): her moods, −10 and +9, give the feast 10⁹ + 53 550 −
-/// 16 500 and the gruel 10⁹ + 55 590 − 16 500, so she takes the gruel; he finds it taken and
-/// takes the feast, both 330 s away. At 8:40 they walk to it with hunger 139, critical: the
-/// departure waits (`due`). There at 8:41:35 with hunger 135. Her gruel ends at 9:01:35 (135 +
-/// 60): she leaves at once, 1 295 s late, and walks out 335 s; at 17:20 she comes home with
-/// hunger 0 and bladder 100 and takes the gruel (the deeper need: 151 · 10⁹). His feast lasts
-/// until 18:41:35: at 17:20 he has missed work, and eats on (135 + 70).
+/// feast 731 · 60 − 50 · 330, at most 48 246 − 16 500) neither. Nor does anything before hunger
+/// is critical, at any mood, so no choice is planned before (ADR-0026, addendum of 2026-11-04
+/// after the playtest): feast and gruel fill 60, so 849 · 60 · 110 / 100 − 16 500 = 39 534. At
+/// 8:36:05 hunger is 150, and each fills 850 · 60 = 51 000, scaled by the person's mood for it
+/// there (the draw `mood`): her moods, −10 and +9, give the feast 10⁹ + 45 900 − 16 500 and the
+/// gruel 10⁹ + 55 590 − 16 500, so she takes the gruel; he finds it taken and takes the feast,
+/// both 330 s away. At 8:40 they walk to it with hunger 139, critical: the departure waits
+/// (`due`). There at 8:41:35 with hunger 135. Her gruel ends at 9:01:35 (135 + 60): she leaves
+/// at once, 1 295 s late, and walks out 335 s; at 17:20 she comes home with hunger 0 and bladder
+/// 100 and takes the gruel (the deeper need: 151 · 10⁹). His feast lasts until 18:41:35: at
+/// 17:20 he has missed work, and eats on (135 + 60).
 #[test]
 fn a_late_departure_and_a_missed_day() {
     assert_eq!((draw("test:house", 0), draw("test:house", 1)), (30, 3));
     let [feast, gruel] = far_moods(0, MORNING + 9_365);
     assert_eq!((feast, gruel), (-10, 9));
-    assert!(51_000 * (100 + gruel) / 100 > 59_500 * (100 + feast) / 100);
+    assert!(51_000 * (100 + gruel) / 100 > 51_000 * (100 + feast) / 100);
+    let most = |fills: i64, deficit: i64| fills * deficit * 110 / 100 - 16_500;
+    assert!(most(60, 849) < ENOUGH);
     let (mut run, _) = day::Run::moved_in(far());
     run.advance(MORNING + 9_630);
     let due = Due {
@@ -753,7 +761,7 @@ fn a_late_departure_and_a_missed_day() {
         (9_365, started(far, (0, 0, 0), 0, 330)(critical, vec![1])),
         (9_695, LogPayload::Reached { object: 0 }),
         (40_800, LogPayload::Missed { place: Duty::Work }),
-        (45_695, ended(0, EndReason::Done, [205, 900, 500, 700, 800])),
+        (45_695, ended(0, EndReason::Done, [195, 900, 500, 700, 800])),
     ]);
     assert_eq!(doings(2)[..his.len()], his);
 }

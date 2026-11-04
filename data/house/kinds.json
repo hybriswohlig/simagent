@@ -2,6 +2,7 @@
   {
     "id": "core:bed",
     "slots": 2,
+    "bed_for": "couples",
     "offers": [
       {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}
     ]
@@ -37,6 +38,7 @@
   {
     "id": "core:single_bed",
     "slots": 1,
+    "bed_for": "children",
     "offers": [
       {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}
     ]

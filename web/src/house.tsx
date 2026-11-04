@@ -20,7 +20,7 @@ import { readable } from "./contract.js";
 import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 import { whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 5 } as const;
+const HOUSE = { format: "simagent.view.house", version: 6 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -32,7 +32,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 4 } as const;
+const WHY = { format: "simagent.view.why", version: 5 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -102,7 +102,7 @@ function doing(layout: HouseLayout, person: HousePerson): string {
   }
   const walking = person.place.walking;
   if (walking !== undefined) {
-    if (person.action === null) {
+    if (walking.out) {
       return TEXT.house_leaves;
     }
     return TEXT.house_walks.replace("{where}", roomWords(layout, walking.to)[1]);
@@ -301,7 +301,7 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
 /** Whether a person can be given a command from the page: at home, neither away nor on its
  * way out (the core refuses the rest with its reason, ADR-0024 section 5). */
 function commandable(person: HousePerson): boolean {
-  return person.place.away === undefined && (person.place.walking === undefined || person.action !== null);
+  return person.place.away === undefined && person.place.walking?.out !== true;
 }
 
 /** The key of a choice in its list. */
