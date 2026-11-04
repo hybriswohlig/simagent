@@ -1,12 +1,15 @@
 //! The points of a choice (ADR-0026 section 3): every offer of the house open at the person's
-//! age and the second, by object and offer, and the best one among the objects with a free
-//! place; in the night first what is critical, then a bed (ADR-0026, addendum of 2026-11-04).
-//! Pure functions, so that "Why?" can compute a choice again from its entry.
+//! age and the second, by object and offer, with the person's mood for it, and the best one
+//! among the objects with a free place; in the night first what is critical, then a bed
+//! (ADR-0026, addenda of 2026-11-04). Pure functions, so that "Why?" can compute a choice again
+//! from its entry.
 
 use alloc::vec::Vec;
 
 use crate::house::data::{House, HouseData, KindDef, NEEDS, OfferDef, age_band};
 use crate::house::need::FULL;
+use crate::lineage::LineageKey;
+use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
 use crate::time::{HOUR, SimTime, YEAR};
 
 /// The best offer must bring at least this many points; below it the person idles.
@@ -15,17 +18,23 @@ pub const ENOUGH: i64 = 40_000;
 /// A need at or below this value is critical.
 pub const CRITICAL: u16 = 150;
 
+/// The mood moves the points an offer brings for the needs by at most this many percent either
+/// way (ADR-0026, addendum of 2026-11-04 on the mood). A play value, in the code until the next
+/// change of the data takes it in.
+pub const MOOD: u8 = 10;
+
 /// The points one second of walking costs (ADR-0025 section 4).
 const PER_WALKING_SECOND: i64 = 50;
 
 /// Per point a critical need lies below 151, more than any other sum can bring.
 const PER_CRITICAL_POINT: i64 = 1_000_000_000;
 
-/// An offer of an object with its points.
+/// An offer of an object with the person's mood for it, in percent, and its points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scored {
     pub object: u16,
     pub offer: u16,
+    pub mood: i8,
     pub points: i64,
 }
 
@@ -36,14 +45,37 @@ pub fn age(born: SimTime, at: SimTime) -> Option<u8> {
     (years >= 0).then(|| u8::try_from(years).unwrap_or(u8::MAX))
 }
 
+/// The mood of the person with the lineage key `key` for offer `offer` of object `object` in its
+/// choice at `at`, in percent from −`MOOD` to +`MOOD` (ADR-0026, addendum of 2026-11-04 on the
+/// mood): `uniform_below(2 · MOOD + 1) − MOOD` of `CHOICE_MOOD` with the world seed, subject
+/// the lineage key, occasion the second `at`, detail `(object << 32) | offer` (ADR-0001 section
+/// 1). The same address gives the same mood, so "Why?" finds it again.
+pub fn mood(seed: u64, key: LineageKey, at: SimTime, object: u16, offer: u16) -> i8 {
+    let second =
+        u64::try_from(at.as_secs()).unwrap_or_else(|_| panic!("invariant house.before_start"));
+    let address = DrawKey {
+        tag: tags::CHOICE_MOOD,
+        subject: SubjectKey::from(key),
+        occasion: second,
+        detail: (u64::from(object) << 32) | u64::from(offer),
+    };
+    let span = 2 * u64::from(MOOD) + 1;
+    let drawn = Draws::new(WorldSeed::new(seed)).uniform_below(address, span);
+    (i8::try_from(drawn).ok())
+        .and_then(|drawn| drawn.checked_sub_unsigned(MOOD))
+        .unwrap_or_else(|| panic!("invariant house.mood"))
+}
+
 /// The points of every offer of `house` open at `age` and now, for a person with the needs
-/// `values` in `room`, by object and then offer: `Σ (1000 − v) · gain − 50 · walking
-/// seconds`, and `(151 − v) · 10⁹` for each critical need the offer raises. The gain of a need
+/// `values` in `room`, by object and then offer, each with its mood `moods(object, offer)` in
+/// percent: `(Σ (1000 − v) · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated
+/// toward zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales
+/// neither the walk nor that (ADR-0026, addendum of 2026-11-04 on the mood). The gain of a need
 /// the offer raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or
 /// `max_seconds` and the rates of the age band of `age`. An offer of sleep is open only in the
 /// person's night, `night_left` the seconds of it still to come, and that is its length
-/// (ADR-0026, addendum of 2026-11-04); outside it, `None`, it is closed and not scored.
-/// Nothing for an age without needs.
+/// (ADR-0026, addendum of 2026-11-04 on the night); outside it, `None`, it is closed and not
+/// scored. Nothing for an age without needs.
 pub fn score(
     house: &House,
     data: &HouseData,
@@ -51,6 +83,7 @@ pub fn score(
     values: [u16; 5],
     room: u8,
     night_left: Option<i64>,
+    moods: impl Fn(u16, u16) -> i8,
 ) -> Vec<Scored> {
     let Some(band) = age_band(age) else {
         return Vec::new();
@@ -71,21 +104,24 @@ pub fn score(
                 (false, Some(length)) => i64::from(length),
                 (false, None) => panic!("invariant house.offer_length"),
             };
-            let mut points = -walk;
+            let (mut filled, mut critical) = (0, 0);
             for (need, value) in NEEDS.into_iter().zip(values) {
                 let rate = i64::from(def.rate(data.rates(), need, band));
                 if rate <= 0 {
                     continue;
                 }
                 let missing = i64::from(FULL.saturating_sub(value));
-                points += missing * (rate * length / HOUR.as_secs()).min(missing);
+                filled += missing * (rate * length / HOUR.as_secs()).min(missing);
                 if value <= CRITICAL {
-                    points += i64::from(CRITICAL + 1 - value) * PER_CRITICAL_POINT;
+                    critical += i64::from(CRITICAL + 1 - value) * PER_CRITICAL_POINT;
                 }
             }
+            let mood = moods(object, offer);
+            let points = filled * (100 + i64::from(mood)) / 100 - walk + critical;
             scored.push(Scored {
                 object,
                 offer,
+                mood,
                 points,
             });
         }
@@ -133,13 +169,13 @@ fn offer_of<'a>(house: &House, data: &'a HouseData, scored: &Scored) -> &'a Offe
 }
 
 /// The choice among `scored`, the objects in `busy` without a free place, for a person of
-/// `age` with the needs `values` (ADR-0026 sections 3 and 5). By day: the best free offer if
-/// it brings `ENOUGH`, else waiting for the best of a fully taken object if that would, else
-/// idle. In the night, `night` (ADR-0026, addendum of 2026-11-04): the best free offer that
-/// raises a need critical now, if any; else the best free bed, any furniture but the sofa
-/// that sleeps, regardless of `ENOUGH`; else the best free sleeping place on the sofa (ADR-0025:
-/// who finds no free bed sleeps on the sofa); else waiting for the best bed with no free
-/// place; else idle. Ties as in `best`.
+/// `age` with the needs `values` (ADR-0026 sections 3 and 5), by the points with the mood. By
+/// day: the best free offer if it brings `ENOUGH`, else waiting for the best of a fully taken
+/// object if that would, else idle. In the night, `night` (ADR-0026, addendum of 2026-11-04 on
+/// the night): the best free offer that raises a need critical now, if any; else the best free
+/// bed, any furniture but the sofa that sleeps, regardless of `ENOUGH`; else the best free
+/// sleeping place on the sofa (ADR-0025: who finds no free bed sleeps on the sofa); else
+/// waiting for the best bed with no free place; else idle. Ties as in `best`.
 pub fn choose(
     (house, data): (&House, &HouseData),
     (age, values): (u8, [u16; 5]),

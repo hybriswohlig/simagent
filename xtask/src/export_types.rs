@@ -695,7 +695,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 2): the points of every offer of a choice, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addendum of 2026-11-04).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 3): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, and what an idle person waited for (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -721,20 +721,22 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyChoice",
-            doc: "The offer chosen and its points.",
+            doc: "The offer chosen, its points and the mood in them in percent; no mood for a command, which is no choice.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
                 field("points", Integer),
+                field("mood", nullable(Integer)),
             ],
         },
         Named {
             name: "WhyOffer",
-            doc: "An offer, its points, whether its object had no free place, and whether it was closed (sleep outside the night, without points).",
+            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
                 field("points", nullable(Integer)),
+                field("mood", nullable(Integer)),
                 field("busy", Bool),
                 field("closed", Bool),
             ],

@@ -146,6 +146,11 @@ pub const SURNAME: PurposeTag = PurposeTag::from_pinned_list(30);
 /// subject: its lineage key; occasion: 0; detail: 0; the world seed.
 pub const WORK_PLAN: PurposeTag = PurposeTag::from_pinned_list(31);
 
+/// The mood of a person for an offer in a choice in the house (ADR-0026, addendum of
+/// 2026-11-04 on the mood): `uniform_below(21)`, less 10, percent. subject: the person's lineage
+/// key; occasion: the second of the choice; detail: `(object << 32) | offer`; the world seed.
+pub const CHOICE_MOOD: PurposeTag = PurposeTag::from_pinned_list(32);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -179,6 +184,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (FIRST_NAME, "FIRST_NAME"),
     (SURNAME, "SURNAME"),
     (WORK_PLAN, "WORK_PLAN"),
+    (CHOICE_MOOD, "CHOICE_MOOD"),
 ];
 
 /// Values of deleted tags; they are never used again.

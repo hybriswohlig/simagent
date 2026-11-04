@@ -375,6 +375,13 @@ impl WorldState {
         living.or_else(|| self.domain.archive.get(&id).map(|sim| sim.born))
     }
 
+    /// Lineage key of a sim, living or archived (ADR-0001 section 4); `None` for an ID never
+    /// handed out.
+    pub fn lineage_key(&self, id: SimId) -> Option<crate::lineage::LineageKey> {
+        let living = self.domain.sims.get(&id).map(|sim| sim.lineage_key);
+        living.or_else(|| self.domain.archive.get(&id).map(|sim| sim.lineage_key))
+    }
+
     /// Whether a living or archived sim or a running pregnancy has this lineage key
     /// (ADR-0001 section 4).
     pub fn knows_lineage_key(&self, key: crate::lineage::LineageKey) -> bool {

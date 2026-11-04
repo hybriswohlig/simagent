@@ -4,7 +4,9 @@
 //! an action for a critical need, away with every need still, and coming home hungry with the
 //! jumps of the data and a choice. The repository's day (`data/house/day.json`): school 7:40 to
 //! 15:20, full time 8:40 to 17:20, part time 7:40 to 13:20, the wake 2 700 s before, jumps
-//! hunger −350, energy −200, bladder −400, hygiene −100, fun −150. The values by hand.
+//! hunger −350, energy −200, bladder −400, hygiene −100, fun −150. The values by hand; the
+//! points are those without the mood (ADR-0026, addendum of 2026-11-04 on the mood), which in
+//! these runs turns no choice but the one the far house's test names.
 
 mod common;
 
@@ -14,6 +16,7 @@ use common::day::{self, MORNING};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
+use sim_core::house::choice::mood;
 use sim_core::house::data::Need;
 use sim_core::house::day::{DayDuty, duty};
 use sim_core::house::need::NeedSample;
@@ -662,18 +665,31 @@ fn six_and_sixty_seven() {
     assert_eq!(his, [D + 6 * 3_600]);
 }
 
+/// The moods (ADR-0026, addendum of 2026-11-04 on the mood) of founder `index` of `test:house`,
+/// the world seed 7, for the feast and the gruel of the far house at `second`, only read.
+fn far_moods(index: u64, second: i64) -> [i64; 2] {
+    let key = LineageKey::founder(&DataId::new("test:house").expect("id"), index);
+    [0, 1].map(|object| i64::from(mood(7, key, t(second), object, 0)))
+}
+
 /// Two who work full time in the far house (sims 1 and 2 of `common::day`, their draws 30
-/// and 3). Hunger falls 173 an hour: at 6:00 nothing is enough (the loo 500 · 60 − 250), at
-/// 7:09:22 (400) and at their wakes at 7:55 (269, the feast 731 · 70 − 50 · 330) neither. At
-/// 8:36:05 hunger is 150: she takes the feast (10⁹ + 850 · 70 − 16 500), he finds it taken
-/// and takes the gruel, both 330 s away. At 8:40 they walk to it with hunger 139, critical:
-/// the departure waits (`due`). There at 8:41:35 with hunger 135. His gruel ends at 9:01:35
-/// (135 + 60): he leaves at once, 1 295 s late, and walks out 335 s; at 17:20 he comes home
-/// with hunger 0 and bladder 100 and takes the gruel (the deeper need: 151 · 10⁹). Her feast
-/// lasts until 18:41:35: at 17:20 she has missed work, and eats on (135 + 70).
+/// and 3). Hunger falls 173 an hour: at 6:00 nothing is enough (the loo 500 · 60 − 250, at
+/// most 33 000 − 250 with the best mood), at 7:09:22 (400) and at their wakes at 7:55 (269, the
+/// feast 731 · 70 − 50 · 330, at most 56 287 − 16 500) neither. At 8:36:05 hunger is 150, and
+/// the feast fills 850 · 70 = 59 500, the gruel 850 · 60 = 51 000, each scaled by the person's
+/// mood for it there (the draw `mood`): her moods, −10 and +9, give the feast 10⁹ + 53 550 −
+/// 16 500 and the gruel 10⁹ + 55 590 − 16 500, so she takes the gruel; he finds it taken and
+/// takes the feast, both 330 s away. At 8:40 they walk to it with hunger 139, critical: the
+/// departure waits (`due`). There at 8:41:35 with hunger 135. Her gruel ends at 9:01:35 (135 +
+/// 60): she leaves at once, 1 295 s late, and walks out 335 s; at 17:20 she comes home with
+/// hunger 0 and bladder 100 and takes the gruel (the deeper need: 151 · 10⁹). His feast lasts
+/// until 18:41:35: at 17:20 he has missed work, and eats on (135 + 70).
 #[test]
 fn a_late_departure_and_a_missed_day() {
     assert_eq!((draw("test:house", 0), draw("test:house", 1)), (30, 3));
+    let [feast, gruel] = far_moods(0, MORNING + 9_365);
+    assert_eq!((feast, gruel), (-10, 9));
+    assert!(51_000 * (100 + gruel) / 100 > 59_500 * (100 + feast) / 100);
     let (mut run, _) = day::Run::moved_in(far());
     run.advance(MORNING + 9_630);
     let due = Due {
@@ -709,10 +725,15 @@ fn a_late_departure_and_a_missed_day() {
     let critical = [150, 900, 500, 700, 800];
     let mut hers = early.to_vec();
     hers.extend([
-        (9_365, started(far, (0, 0, 0), 0, 330)(critical, Vec::new())),
-        (9_695, LogPayload::Reached { object: 0 }),
-        (40_800, LogPayload::Missed { place: Duty::Work }),
-        (45_695, ended(0, EndReason::Done, [205, 900, 500, 700, 800])),
+        (9_365, started(far, (1, 0, 0), 0, 330)(critical, Vec::new())),
+        (9_695, LogPayload::Reached { object: 1 }),
+        (10_895, ended(1, EndReason::Done, [195, 900, 500, 700, 800])),
+        (10_895, left(Duty::Work, 1_295)),
+        (40_800, LogPayload::CameHome { place: Duty::Work }),
+        (
+            40_800,
+            started(far, (1, 0, 0), 0, 330)([0, 700, 100, 600, 650], vec![0]),
+        ),
     ]);
     let doings = |id: u64| {
         let mut day = Vec::new();
@@ -726,15 +747,10 @@ fn a_late_departure_and_a_missed_day() {
     assert_eq!(doings(1)[..hers.len()], hers);
     let mut his = early.to_vec();
     his.extend([
-        (9_365, started(far, (1, 0, 0), 0, 330)(critical, vec![0])),
-        (9_695, LogPayload::Reached { object: 1 }),
-        (10_895, ended(1, EndReason::Done, [195, 900, 500, 700, 800])),
-        (10_895, left(Duty::Work, 1_295)),
-        (40_800, LogPayload::CameHome { place: Duty::Work }),
-        (
-            40_800,
-            started(far, (1, 0, 0), 0, 330)([0, 700, 100, 600, 650], vec![0]),
-        ),
+        (9_365, started(far, (0, 0, 0), 0, 330)(critical, vec![1])),
+        (9_695, LogPayload::Reached { object: 0 }),
+        (40_800, LogPayload::Missed { place: Duty::Work }),
+        (45_695, ended(0, EndReason::Done, [205, 900, 500, 700, 800])),
     ]);
     assert_eq!(doings(2)[..his.len()], his);
 }

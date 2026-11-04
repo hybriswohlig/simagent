@@ -15,6 +15,9 @@ use std::time::{Duration, Instant};
 use common::{Holder, free};
 use serde_json::{Value, json};
 use sim_cli::lock::{RunLock, lock_path};
+use sim_core::data_id::DataId;
+use sim_core::house::choice::mood;
+use sim_core::lineage::LineageKey;
 use sim_core::time::{SimTime, calendar};
 
 const TINY_SCENARIO: &str = r#"{"format_version":5,"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null},"until":31449599}"#;
@@ -2822,12 +2825,16 @@ fn young_children_in_the_house() {
 }
 
 /// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6, version 2 of its
-/// addendum of 2026-11-04): the first choices of the couple at 6:00 in the hall at the morning
-/// values, recomputed (the points by hand in `sim-core/tests/house_choice.rs`): the toilet
-/// 249 850, the table 159 800, the shower 89 850, the fridge 79 800, television and bookshelf
-/// 39 850; sofa and beds are closed by day, listed after them without points, and their night
-/// is the next, from 22:00 to 6:00. She takes the toilet, for him it is taken and he takes the
-/// table. Any other entry is no choice.
+/// addendum of 2026-11-04 on the night, version 3 of the one on the mood): the first choices of
+/// the couple at 6:00 in the hall at the morning values, recomputed (the points by hand in
+/// `sim-core/tests/house_choice.rs`): what the offers fill, the toilet 250 000, the table
+/// 160 000, the shower 90 000, the fridge 80 000, television and bookshelf 40 000, each scaled
+/// by `(100 + mood) / 100` with the person's mood for it in that second (the draw `mood`, as its
+/// addendum gives it), less the walk, 150 or 200; the most first. Sofa and beds are closed by
+/// day, listed after them without points or mood, and their night is the next, from 22:00 to
+/// 6:00. She takes the toilet (at least 224 850 against at most 175 800), for him it is taken
+/// and he takes the table (at least 143 800 against at most 98 850). Any other entry is no
+/// choice.
 #[test]
 fn why_over_http() {
     let (server, home, run) = couple("why");
@@ -2844,32 +2851,52 @@ fn why_over_http() {
             .map(|row| row["entry"]["id"].as_u64().expect("an id"))
             .collect()
     };
-    let offers = |busy: Option<u64>| {
-        let points = [
-            (5, 249_850),
-            (0, 159_800),
-            (6, 89_850),
-            (1, 79_800),
-            (3, 39_850),
-            (4, 39_850),
+    // Sims 1 and 2 are the founders 0 and 1 of `test:house`, the world seed 7.
+    let tag = DataId::new("test:house").expect("valid");
+    let scored = |sim: u64| -> Vec<(u16, i8, i64)> {
+        let filled = [
+            (5, 250_000, 150),
+            (0, 160_000, 200),
+            (6, 90_000, 150),
+            (1, 80_000, 200),
+            (3, 40_000, 150),
+            (4, 40_000, 150),
         ];
-        let mut offers: Vec<serde_json::Value> = (points.iter())
-            .map(|&(object, points)| {
-                json!({"object": object, "offer": 0, "points": points,
+        let key = LineageKey::founder(&tag, sim - 1);
+        let mut scored: Vec<(u16, i8, i64)> = (filled.iter())
+            .map(|&(object, filled, walk)| {
+                let mood = mood(7, key, SimTime::from_secs(MORNING), object, 0);
+                (object, mood, filled * (100 + i64::from(mood)) / 100 - walk)
+            })
+            .collect();
+        scored.sort_by_key(|&(object, _, points)| (std::cmp::Reverse(points), object));
+        scored
+    };
+    let offers = |sim: u64, busy: Option<u16>| {
+        let mut offers: Vec<serde_json::Value> = (scored(sim).into_iter())
+            .map(|(object, mood, points)| {
+                json!({"object": object, "offer": 0, "points": points, "mood": mood,
                        "busy": Some(object) == busy, "closed": false})
             })
             .collect();
         offers.extend([2, 7, 8].map(|object| {
-            json!({"object": object, "offer": 0, "points": null, "busy": false, "closed": true})
+            json!({"object": object, "offer": 0, "points": null, "mood": null, "busy": false,
+                   "closed": true})
         }));
         offers
+    };
+    let chosen = |sim: u64, object: u16| {
+        let (_, mood, points) = (scored(sim).into_iter())
+            .find(|&(each, _, _)| each == object)
+            .expect("scored");
+        json!({"object": object, "offer": 0, "points": points, "mood": mood})
     };
     let night = json!({
         "from": dated(MORNING + 16 * 3_600),
         "until": dated(MORNING + 24 * 3_600),
         "now": false,
     });
-    for (sim, chosen, busy) in [(1, (5, 249_850), None), (2, (0, 159_800), Some(5))] {
+    for (sim, object, busy) in [(1, 5, None), (2, 0, Some(5))] {
         let entry = starts(sim)[0];
         let (status, _, body) = get(port, &format!("/api/runs/couple/why/{entry}"));
         assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
@@ -2877,16 +2904,16 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 2,
+                "version": 3,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
                 "enough": 40_000,
                 "commanded": false,
                 "night": night,
-                "chosen": {"object": chosen.0, "offer": 0, "points": chosen.1},
+                "chosen": chosen(sim, object),
                 "waits": null,
-                "offers": offers(busy),
+                "offers": offers(sim, busy),
             }),
             "{sim}"
         );
@@ -2931,7 +2958,11 @@ fn why_over_http() {
 /// written down then, stands in the answer at 6:10 with that value (600 + 1 800 · 597 / 3 600,
 /// truncated), his other needs as at 6:10. Here the clock and the next second give the same
 /// hunger: the table adds 1 every 2 s and every stop of the steps lies an even number of
-/// seconds after his arrival; `the_house_answer_after_a_command` tells the two apart.
+/// seconds after his arrival; `the_house_answer_after_a_command` tells the two apart. "Warum?"
+/// for her commanded walk says so; a command is no choice and has no mood (ADR-0026, addendum
+/// of 2026-11-04 on the mood), so the points beside it are those of the needs and the walk
+/// alone, at the morning values in the hall as in `why_over_http` without a mood, every mood
+/// `null`.
 #[test]
 fn a_command_over_http() {
     let (server, home, run) = couple("command");
@@ -2968,6 +2999,41 @@ fn a_command_over_http() {
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
+    let (_, _, body) = get(
+        port,
+        &format!("/api/runs/couple/events?subject=1&from={MORNING}"),
+    );
+    let commanded = (json_of(&body)["events"].as_array().expect("events").iter())
+        .find(|row| row["entry"]["payload"]["core:action_started"]["commanded"] == true)
+        .map(|row| row["entry"]["id"].as_u64().expect("an id"))
+        .expect("her commanded walk");
+    let (status, _, body) = get(port, &format!("/api/runs/couple/why/{commanded}"));
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let why = json_of(&body);
+    assert_eq!(why["commanded"], json!(true), "{why}");
+    let television = json!({"object": 3, "offer": 0, "points": 39_850, "mood": null});
+    assert_eq!(why["chosen"], television, "{why}");
+    let offers = why["offers"].as_array().expect("offers");
+    let open: Vec<(u64, i64)> = (offers.iter())
+        .filter(|offer| offer["closed"] == false)
+        .map(|offer| {
+            let number = |key: &str| offer[key].as_i64().expect("a number");
+            (
+                offer["object"].as_u64().expect("an object"),
+                number("points"),
+            )
+        })
+        .collect();
+    let by_hand = [
+        (5, 249_850),
+        (0, 159_800),
+        (6, 89_850),
+        (1, 79_800),
+        (3, 39_850),
+        (4, 39_850),
+    ];
+    assert_eq!(open, by_hand, "{why}");
+    assert!(offers.iter().all(|offer| offer["mood"].is_null()), "{why}");
     let his = r#"{"command":{"sim":2,"object":3,"offer":0}}"#;
     let (status, _, body) = post(port, "/api/runs/couple/input", his);
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
